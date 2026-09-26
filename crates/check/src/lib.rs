@@ -2,6 +2,7 @@
 //! Diagnostics point at items by index into `Crate::items`; the caller maps
 //! indices to source locations.
 
+mod exhaustive;
 mod names;
 mod resolve;
 
@@ -30,6 +31,7 @@ impl Diagnostic {
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = names::check(krate);
     out.extend(resolve::check(krate));
+    out.extend(exhaustive::check(krate));
     out.sort_by_key(|d| d.item);
     out
 }
