@@ -1,5 +1,7 @@
 mod args;
+mod drift;
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,7 +27,11 @@ fn main() -> ExitCode {
         Command::Build { input, out } => {
             load(&input, "nothing written").and_then(|pkg| write_replacing(&out, &pkg.files))
         }
-        Command::Check { input, .. } => load(&input, "").map(|_| ()),
+        Command::Check { input, out: None } => load(&input, "").map(|_| ()),
+        Command::Check {
+            input,
+            out: Some(out),
+        } => load(&input, "").and_then(|pkg| check_drift(&input, &out, &pkg)),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -64,6 +70,57 @@ fn load(input: &Input, consequence: &str) -> Result<Package, String> {
         return Err(report.join("\n"));
     }
     Ok(assemble(&prune_unreachable(&krate)))
+}
+
+fn check_drift(input: &Input, out: &Path, pkg: &Package) -> Result<(), String> {
+    let expected: BTreeMap<String, String> = pkg
+        .files
+        .iter()
+        .map(|f| (disk_path(&f.stem), f.source.clone()))
+        .collect();
+    let actual = if out.is_dir() {
+        read_tree(out)?
+    } else {
+        BTreeMap::new()
+    };
+    let drifts = drift::compare(&expected, &actual);
+    if drifts.is_empty() {
+        return Ok(());
+    }
+    let mut report = vec![format!("{}: {} file(s) out of date", out.display(), drifts.len())];
+    report.extend(drifts.iter().map(|d| format!("  {:<8} {}", d.kind.to_string(), d.path)));
+    report.push(format!(
+        "run: purecrate-ts build {} --name {} --out {}",
+        input.src.display(),
+        input.name,
+        out.display()
+    ));
+    Err(report.join("\n"))
+}
+
+fn read_tree(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir).map_err(|e| format!("read {}: {e}", dir.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| format!("read {}: {e}", dir.display()))?.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|e| format!("{}: {e}", path.display()))?
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+            out.insert(rel, bytes);
+        }
+    }
+    Ok(out)
 }
 
 /// Write into a sibling directory, then swap it in, so a failed write never

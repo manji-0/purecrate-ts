@@ -101,9 +101,11 @@ pub fn name(arg: OwnedType, ...) -> OwnedType
 変換器自体は Rust CLI + ライブラリ:
 
 ```
-purecrate-ts build <crate-path> --out <dir>
-purecrate-ts check <crate-path>     # 生成せず検査のみ
+purecrate-ts build <crate-path> --out <dir> [--name <crate>]
+purecrate-ts check <crate-path> [--out <dir>] [--name <crate>]
 ```
+
+`<crate-path>` はクレートのディレクトリ（`src/lib.rs` を読む）か単一の `.rs`。`--name` 省略時は `Cargo.toml` の `[package] name`、なければディレクトリ名。`check` は `--out` なしで検査のみ、ありで生成物とのバイト一致も見る（差分・欠落・余分を列挙し終了コード 1）。
 
 解析は rustc に依存しない。型推論は限定的に自前で行う（注釈必須を原則とし、局所推論のみ）。
 
