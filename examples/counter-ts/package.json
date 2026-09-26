@@ -1,0 +1,5 @@
+{
+  "name": "counter",
+  "type": "module",
+  "exports": "./src/index.ts"
+}

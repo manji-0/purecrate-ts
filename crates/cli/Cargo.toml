@@ -1,0 +1,10 @@
+[package]
+name = "purecrate-ts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI: read a PureCrate source file and write a TS package"
+
+[dependencies]
+purecrate-syntax = { path = "../syntax" }
+purecrate-pack = { path = "../pack" }

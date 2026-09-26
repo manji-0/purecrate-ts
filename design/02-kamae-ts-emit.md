@@ -1,0 +1,166 @@
+# 生成 TS は kamae-ts スタイル
+
+日付: 2026-09-27
+参照: [iwasa-kosui/kamae-ts](https://github.com/iwasa-kosui/kamae-ts)
+
+PureCrate の出力は、kamae-ts のドメイン層（Discriminated Union / 純粋遷移 / Companion / Result）に合わせる。Zod・Sensitive・ポート分割は生成範囲外。それらは変換後パッケージの利用側（境界）の仕事である。
+
+## 1. 踏襲するもの
+
+| kamae-ts | 生成規則 |
+| --- | --- |
+| 判別子は常に `kind` | `tag` / `type` / `status` は出さない |
+| `type`。`interface` は使わない | declaration merging を避ける |
+| `Readonly<{ ... }>` | フィールド再代入を型で止める |
+| 型と関数を同名 Companion にまとめる | `export type T` + `export const T = { ... } as const` |
+| 1概念1ファイル | `event.ts` / `state.ts` / `step.ts`。barrel は `index.ts` のみ |
+| 関数プロパティ記法 | `apply: (s, e) => r`。`apply(s, e)` メソッド記法は出さない |
+| 純粋遷移 | 入力型が始状態、戻り値が終状態。無効遷移は型で拒否できる形を優先 |
+| 想定失敗は Result | `{ kind: "Ok"; value } \| { kind: "Err"; error }` |
+| エラーも `kind` ユニオン | クレートの error enum をそのまま |
+| `assertNever` | `switch` の default |
+| class / メソッド記法を避ける | `impl` は Companion の関数プロパティへ |
+
+## 2. 生成しないもの
+
+kamae-ts のうち、閉じた純粋クレートを越えるもの。
+
+- Zod / Valibot / ArkType（外部入力の境界）
+- `Sensitive<T>`（PII。クレートにその型が無い）
+- neverthrow / fp-ts への依存（v0。入出力型をクレート内で閉じる）
+- repository / use case / ポート
+- 時刻や ID の生成。遷移が必要なら引数として受け取る（kamae-ts の `now: Date` と同じ）
+
+v1 で Result ライブラリを選ぶなら、生成オプションで neverthrow に差し替えてよい。既定は自前の `result.ts`。
+
+## 3. 組み込み Result
+
+`src/result.ts`:
+
+```ts
+export type Result<T, E> =
+  | Readonly<{ kind: "Ok"; value: T }>
+  | Readonly<{ kind: "Err"; error: E }>;
+
+export const Result = {
+  ok: <T, E>(value: T): Result<T, E> => ({ kind: "Ok", value }),
+  err: <T, E>(error: E): Result<T, E> => ({ kind: "Err", error }),
+  isOk: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Ok"; value: T }> =>
+    r.kind === "Ok",
+  isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> =>
+    r.kind === "Err",
+} as const;
+```
+
+`?` は次に写す。
+
+```ts
+if (r.kind === "Err") return r;
+const value = r.value;
+```
+
+## 4. ファイル配置（カウンタ）
+
+```
+src/
+  assert-never.ts
+  event.ts
+  state.ts
+  step.ts
+  index.ts
+```
+
+`event.ts`:
+
+```ts
+export type Event =
+  | Readonly<{ kind: "Inc" }>
+  | Readonly<{ kind: "Dec" }>
+  | Readonly<{ kind: "Reset" }>;
+
+export const Event = {
+  Inc: (): Event => ({ kind: "Inc" }),
+  Dec: (): Event => ({ kind: "Dec" }),
+  Reset: (): Event => ({ kind: "Reset" }),
+} as const;
+```
+
+`state.ts`:
+
+```ts
+export type State = Readonly<{
+  n: number;
+}>;
+
+export const State = {
+  of: (n: number): State => ({ n }),
+} as const;
+```
+
+`step.ts`:
+
+```ts
+import { assertNever } from "./assert-never.ts";
+import type { Event } from "./event.ts";
+import type { State } from "./state.ts";
+
+export const step = (state: State, event: Event): State => {
+  switch (event.kind) {
+    case "Inc":
+      return { n: state.n + 1 };
+    case "Dec":
+      return { n: state.n - 1 };
+    case "Reset":
+      return { n: 0 };
+    default:
+      return assertNever(event);
+  }
+};
+```
+
+`assert-never.ts`:
+
+```ts
+export const assertNever = (x: never): never => {
+  throw new Error("unexpected variant");
+};
+```
+
+`index.ts` は再エクスポートだけ。
+
+自由関数は `export const name = (...) =>` にする。`export function` は使わない（Companion / 関数プロパティと表記を揃える）。
+
+## 5. 部分ユニオン
+
+Rust の到達可能な始状態がバリアントの一部なら、生成側で部分ユニオンを出してよい。
+
+```ts
+export type Cancellable = Waiting | EnRoute | InTrip;
+```
+
+v0 は明示 `type` 別名があるときだけ出す。推論での自動部分ユニオンは v1。
+
+## 6. impl の写し方
+
+```rust
+impl State {
+    pub fn bump(self) -> State { State { n: self.n + 1 } }
+}
+```
+
+```ts
+export const State = {
+  of: (n: number): State => ({ n }),
+  bump: (state: State): State => ({ n: state.n + 1 }),
+} as const;
+```
+
+レシーバは第一引数。`this` は出さない。
+
+## 7. テストデータ
+
+生成物のテストを書くなら kamae-ts どおり `as const satisfies Type` でリテラルを狭める。変換器本体の話ではないが、examples の期待値はこの形にする。
+
+```ts
+const ev = { kind: "Inc" } as const satisfies Event;
+```

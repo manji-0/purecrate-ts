@@ -1,0 +1,10 @@
+[package]
+name = "purecrate-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "syn → PureCrate IR. No filesystem I/O."
+
+[dependencies]
+purecrate-ir = { path = "../ir" }
+syn = { path = "../../vendor/syn-2.0.52", default-features = false, features = ["clone-impls", "extra-traits", "full", "parsing", "printing"] }

@@ -1,0 +1,10 @@
+[package]
+name = "purecrate-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Assemble a TS package from emitted files. No filesystem I/O."
+
+[dependencies]
+purecrate-ir = { path = "../ir" }
+purecrate-emit-ts = { path = "../emit_ts" }

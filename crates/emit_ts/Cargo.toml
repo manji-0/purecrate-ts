@@ -1,0 +1,9 @@
+[package]
+name = "purecrate-emit-ts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure IR → kamae-ts TypeScript printer"
+
+[dependencies]
+purecrate-ir = { path = "../ir" }

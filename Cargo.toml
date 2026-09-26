@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crates/ir", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
+exclude = ["vendor", "examples"]
+default-members = ["crates/ir", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
