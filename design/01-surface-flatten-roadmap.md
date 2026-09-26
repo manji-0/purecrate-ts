@@ -33,7 +33,7 @@ crate
   src/step.rs       pub fn step
 ```
 
-はいずれも `State` / `Event` / `step` として一つの `types.ts` + `fns.ts` に入る。
+はいずれも `State` / `Event` / `step` という平坦な名前になり、規則 6 に従って `state.ts` / `event.ts` / `step.ts` へ出る。
 
 規則:
 

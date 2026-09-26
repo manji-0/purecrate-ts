@@ -275,13 +275,15 @@ purecrate-ts/
   crates/
     ir/          # IR データ型。依存最小
     syntax/      # syn 解析 → IR
-    check/       # サブセット検査
+    check/       # サブセット検査（未実装）
     emit_ts/     # IR → TS 文字列
     pack/        # パッケージ組み立て
-    cli/         # build / check
+    cli/         # build / check。tests/ にゴールデンと Rust/TS 同値テスト
   examples/
     counter/     # 最小遷移クレート
-    generated/   # その TS パッケージ（生成物サンプル）
+    counter-ts/  # その TS パッケージ（生成物。ゴールデン）
+  scripts/
+    verify.sh    # cargo test + 生成物の tsc
 ```
 
 各クレートの公開関数も、可能なら純粋にする。ファイル I/O は `cli` と `pack` に閉じる。
