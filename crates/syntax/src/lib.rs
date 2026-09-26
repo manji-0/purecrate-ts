@@ -32,4 +32,33 @@ mod tests {
         let parsed = parse_source("counter", COUNTER).expect("parse");
         assert_eq!(parsed, counter_example());
     }
+
+    fn with_arms(arms: &str) -> String {
+        format!(
+            "pub enum Cmd {{ Move(i32, i32), Stop }}
+             pub enum Dir {{ Up }}
+             pub fn run(cmd: Cmd) -> i32 {{ match cmd {{ {arms} }} }}"
+        )
+    }
+
+    fn rejects(arms: &str, needle: &str) {
+        let err = parse_source("c", &with_arms(arms)).expect_err(arms);
+        assert!(err.message.contains(needle), "{arms}: {}", err.message);
+    }
+
+    #[test]
+    fn variant_arms_with_name_bindings_are_accepted() {
+        parse_source("c", &with_arms("Cmd::Move(a, _) => a, Cmd::Stop => 0")).expect("parse");
+    }
+
+    #[test]
+    fn unsupported_arm_patterns_are_rejected() {
+        rejects("Cmd::Stop => 0, _ => 1", "found `_`");
+        rejects("Cmd::Stop => 0, other => 1", "found binding `other`");
+        rejects("Cmd::Move(1, b) => b, Cmd::Stop => 0", "found a literal");
+        rejects(
+            "Cmd::Move(a, Dir::Up) => a, Cmd::Stop => 0",
+            "found nested variant `Dir::Up`",
+        );
+    }
 }

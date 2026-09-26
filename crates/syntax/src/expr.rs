@@ -46,7 +46,7 @@ pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                     return Err(ParseError::new("match guards are not in v0"));
                 }
                 arms.push(Arm {
-                    pattern: lower_pat(cx, &arm.pat)?,
+                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?)?,
                     body: lower_expr(cx, &arm.body)?,
                 });
             }
@@ -284,6 +284,43 @@ fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
         }
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
         other => Err(ParseError::new(format!("unsupported pattern: {other:?}"))),
+    }
+}
+
+/// v0 prints `match` as `switch (x.kind)`: each arm names one variant and
+/// binds its fields to plain names.
+fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
+    let Pattern::Variant { bind, .. } = &pattern else {
+        return Err(ParseError::new(format!(
+            "match arms must name an enum variant in v0, found {}",
+            describe_pat(&pattern)
+        )));
+    };
+    let inner: Vec<&Pattern> = match bind {
+        VariantBind::Unit => Vec::new(),
+        VariantBind::Tuple(pats) => pats.iter().collect(),
+        VariantBind::Struct(pairs) => pairs.iter().map(|(_, p)| p).collect(),
+    };
+    if let Some(bad) = inner
+        .into_iter()
+        .find(|p| !matches!(p, Pattern::Var(_) | Pattern::Wildcard))
+    {
+        return Err(ParseError::new(format!(
+            "variant fields may only bind names or `_` in v0, found {}",
+            describe_pat(bad)
+        )));
+    }
+    Ok(pattern)
+}
+
+fn describe_pat(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Wildcard => "`_`".into(),
+        Pattern::Var(n) => format!("binding `{}`", n.as_str()),
+        Pattern::Lit(_) => "a literal".into(),
+        Pattern::Variant { ty, variant, .. } => {
+            format!("nested variant `{}::{}`", ty.as_str(), variant.as_str())
+        }
     }
 }
 
