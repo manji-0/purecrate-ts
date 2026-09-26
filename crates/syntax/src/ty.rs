@@ -1,9 +1,14 @@
 use purecrate_ir::{Name, Prim, Ty};
+use syn::spanned::Spanned;
 use syn::{GenericArgument, PathArguments, Type};
 
-use crate::item::ParseError;
+use crate::item::{snippet, ParseError};
 
 pub fn lower_type(ty: &Type) -> Result<Ty, ParseError> {
+    lower_type_node(ty).map_err(|e| e.or_at(ty.span()))
+}
+
+fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
     match ty {
         Type::Path(p) if p.qself.is_none() => lower_path(&p.path),
         Type::Tuple(t) if t.elems.is_empty() => Ok(Ty::Prim(Prim::Unit)),
@@ -18,13 +23,26 @@ pub fn lower_type(ty: &Type) -> Result<Ty, ParseError> {
         Type::Array(_) | Type::Slice(_) => Err(ParseError::new("arrays and slices are not in v0")),
         Type::Reference(_) => Err(ParseError::new("references are not allowed on the public surface")),
         Type::Paren(p) => lower_type(&p.elem),
-        other => Err(ParseError::new(format!("unsupported type: {}", quote_type(other)))),
+        other => Err(ParseError::new(format!("unsupported type {}", snippet(other)))),
     }
 }
 
+const FORBIDDEN_CONTAINERS: [&str; 9] = [
+    "Box", "Rc", "Arc", "Cell", "RefCell", "Mutex", "HashMap", "BTreeMap", "HashSet",
+];
+
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
-    let last = path.segments.last().ok_or_else(|| ParseError::new("empty path"))?;
+    if path.segments.len() != 1 || path.leading_colon.is_some() {
+        return Err(ParseError::new(format!(
+            "qualified type path {} is not in v0; use a crate-local name",
+            snippet(path)
+        )));
+    }
+    let last = &path.segments[0];
     let name = last.ident.to_string();
+    if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
+        return Err(ParseError::new(format!("`{name}` is not allowed in v0")));
+    }
     match name.as_str() {
         "bool" => Ok(Ty::Prim(Prim::Bool)),
         "i8" => Ok(Ty::Prim(Prim::I8)),
@@ -80,12 +98,4 @@ fn generics(args: &PathArguments) -> Result<Vec<Ty>, ParseError> {
             Err(ParseError::new("Fn traits are not allowed"))
         }
     }
-}
-
-fn quote_type(ty: &Type) -> String {
-    quote_debug(ty)
-}
-
-fn quote_debug<T: std::fmt::Debug>(t: &T) -> String {
-    format!("{t:?}")
 }

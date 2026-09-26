@@ -3,27 +3,70 @@ use std::collections::{HashMap, HashSet};
 use purecrate_ir::{
     Alias, Enum, Field, Fn, Item, Name, Param, Struct, Variant, VariantFields, Vis,
 };
+use syn::spanned::Spanned;
 use syn::{Fields as SynFields, Item as SynItem, Visibility};
 
 use crate::expr::lower_block;
 use crate::ty::lower_type;
 
+/// 1-based line and column in the source text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineCol {
+    pub line: usize,
+    pub col: usize,
+}
+
+impl LineCol {
+    pub fn of(span: proc_macro2::Span) -> Self {
+        let start = span.start();
+        Self {
+            line: start.line,
+            col: start.column + 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub message: String,
+    pub at: Option<LineCol>,
 }
 
 impl ParseError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            at: None,
         }
+    }
+
+    /// Keep the innermost location: only fills `at` when still unset.
+    pub fn or_at(mut self, span: proc_macro2::Span) -> Self {
+        if self.at.is_none() {
+            self.at = Some(LineCol::of(span));
+        }
+        self
+    }
+}
+
+/// Source text of `node` for diagnostics: first line, at most 60 chars.
+pub fn snippet(node: &impl Spanned) -> String {
+    let text = node.span().source_text().unwrap_or_default();
+    let first = text.lines().next().unwrap_or("");
+    let short: String = first.chars().take(60).collect();
+    if short.len() < text.len() {
+        format!("`{short}…`")
+    } else {
+        format!("`{short}`")
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        match self.at {
+            Some(LineCol { line, col }) => write!(f, "{line}:{col}: {}", self.message),
+            None => write!(f, "{}", self.message),
+        }
     }
 }
 
@@ -75,6 +118,11 @@ impl Cx {
 }
 
 pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
+    let span = item.span();
+    lower_item_node(cx, item).map_err(|e| e.or_at(span))
+}
+
+fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
     match item {
         SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(&e)?)]),
         SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
@@ -95,7 +143,7 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
         SynItem::Mod(_) => Err(ParseError::new(
             "modules are flattened at the call site; a single file is required in v0 parse",
         )),
-        other => Err(ParseError::new(format!("unsupported item: {other:?}"))),
+        other => Err(ParseError::new(format!("unsupported item {}", snippet(&other)))),
     }
 }
 
@@ -171,6 +219,7 @@ fn lower_fields(fields: &SynFields) -> Result<VariantFields, ParseError> {
     }
 }
 
+/// Free function (`owner: None`) or method folded onto `owner`'s companion.
 fn lower_fn(
     cx: &Cx,
     owner: Option<Name>,
@@ -178,37 +227,24 @@ fn lower_fn(
     vis: &Visibility,
     block: &syn::Block,
 ) -> Result<Fn, ParseError> {
-    if sig.asyncness.is_some() {
-        return Err(ParseError::new("async is not allowed"));
+    let reject = |what: &str, span: proc_macro2::Span| {
+        Err(ParseError::new(format!("{what} is not allowed in v0")).or_at(span))
+    };
+    if let Some(t) = &sig.asyncness {
+        return reject("async", t.span);
     }
-    if sig.unsafety.is_some() {
-        return Err(ParseError::new("unsafe is not allowed"));
+    if let Some(t) = &sig.unsafety {
+        return reject("unsafe", t.span);
+    }
+    if let Some(abi) = &sig.abi {
+        return reject("extern abi", abi.span());
     }
     if !sig.generics.params.is_empty() {
-        return Err(ParseError::new("generic functions are not in v0"));
-    }
-    if sig.abi.is_some() {
-        return Err(ParseError::new("extern abi is not allowed"));
+        return reject("a generic function", sig.generics.span());
     }
     let mut params = Vec::new();
     for input in &sig.inputs {
-        match input {
-            syn::FnArg::Receiver(_) => {
-                return Err(ParseError::new(
-                    "reference receivers are not allowed; take self by value",
-                ))
-            }
-            syn::FnArg::Typed(p) => {
-                let name = match &*p.pat {
-                    syn::Pat::Ident(id) => Name::new(id.ident.to_string()),
-                    _ => return Err(ParseError::new("only named parameters")),
-                };
-                params.push(Param {
-                    name,
-                    ty: lower_type(&p.ty)?,
-                });
-            }
-        }
+        params.push(lower_param(owner.as_ref(), input).map_err(|e| e.or_at(input.span()))?);
     }
     let ret = match &sig.output {
         syn::ReturnType::Default => purecrate_ir::Ty::Prim(purecrate_ir::Prim::Unit),
@@ -224,6 +260,28 @@ fn lower_fn(
     })
 }
 
+fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseError> {
+    match input {
+        syn::FnArg::Receiver(r) => match owner {
+            Some(_) if r.reference.is_some() => Err(ParseError::new(
+                "reference receivers are not allowed; take self by value",
+            )),
+            Some(owner) => Ok(Param {
+                name: Name::new("self"),
+                ty: purecrate_ir::Ty::Named(owner.clone()),
+            }),
+            None => Err(ParseError::new("`self` outside an impl block")),
+        },
+        syn::FnArg::Typed(p) => match &*p.pat {
+            syn::Pat::Ident(id) => Ok(Param {
+                name: Name::new(id.ident.to_string()),
+                ty: lower_type(&p.ty)?,
+            }),
+            _ => Err(ParseError::new("only named parameters")),
+        },
+    }
+}
+
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
     if imp.trait_.is_some() {
         return Err(ParseError::new("trait impls are not in v0"));
@@ -235,55 +293,17 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
         syn::Type::Path(p) if p.path.segments.len() == 1 => {
             Name::new(p.path.segments[0].ident.to_string())
         }
-        _ => return Err(ParseError::new("impl type must be a simple name")),
+        _ => {
+            return Err(ParseError::new("impl type must be a simple name").or_at(imp.self_ty.span()))
+        }
     };
     let mut out = Vec::new();
-    for item in imp.items {
-        match item {
-            syn::ImplItem::Fn(f) => {
-                let mut params = Vec::new();
-                for input in &f.sig.inputs {
-                    match input {
-                        syn::FnArg::Receiver(r) => {
-                            if r.reference.is_some() {
-                                return Err(ParseError::new(
-                                    "reference receivers are not allowed; take self by value",
-                                ));
-                            }
-                            params.push(Param {
-                                name: Name::new("self"),
-                                ty: purecrate_ir::Ty::Named(owner.clone()),
-                            });
-                        }
-                        syn::FnArg::Typed(p) => {
-                            let name = match &*p.pat {
-                                syn::Pat::Ident(id) => Name::new(id.ident.to_string()),
-                                _ => return Err(ParseError::new("only named parameters")),
-                            };
-                            params.push(Param {
-                                name,
-                                ty: lower_type(&p.ty)?,
-                            });
-                        }
-                    }
-                }
-                let ret = match &f.sig.output {
-                    syn::ReturnType::Default => {
-                        purecrate_ir::Ty::Prim(purecrate_ir::Prim::Unit)
-                    }
-                    syn::ReturnType::Type(_, t) => lower_type(t)?,
-                };
-                out.push(Item::Fn(Fn {
-                    vis: lower_vis(&f.vis),
-                    name: Name::new(f.sig.ident.to_string()),
-                    owner: Some(owner.clone()),
-                    params,
-                    ret,
-                    body: lower_block(cx, &f.block)?,
-                }));
-            }
-            _ => return Err(ParseError::new("only methods in impl blocks in v0")),
-        }
+    for item in &imp.items {
+        let lowered = match item {
+            syn::ImplItem::Fn(f) => lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block),
+            _ => Err(ParseError::new("only methods in impl blocks in v0")),
+        };
+        out.push(Item::Fn(lowered.map_err(|e| e.or_at(item.span()))?));
     }
     Ok(out)
 }

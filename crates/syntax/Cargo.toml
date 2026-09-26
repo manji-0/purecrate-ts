@@ -7,4 +7,5 @@ description = "syn → PureCrate IR. No filesystem I/O."
 
 [dependencies]
 purecrate-ir = { path = "../ir" }
+proc-macro2 = { path = "../../vendor/proc-macro2-1.0.78", default-features = false, features = ["span-locations"] }
 syn = { path = "../../vendor/syn-2.0.52", default-features = false, features = ["clone-impls", "extra-traits", "full", "parsing", "printing"] }

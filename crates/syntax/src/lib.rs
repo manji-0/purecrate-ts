@@ -8,10 +8,10 @@ mod ty;
 use purecrate_ir::{Crate, Item};
 use syn::parse_file;
 
-pub use item::ParseError;
+pub use item::{LineCol, ParseError};
 
 pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError> {
-    let file = parse_file(source).map_err(|e| ParseError::new(e.to_string()))?;
+    let file = parse_file(source).map_err(|e| ParseError::new(e.to_string()).or_at(e.span()))?;
     let mut cx = item::Cx::scan(&file);
     let mut items: Vec<Item> = Vec::new();
     for syn_item in file.items {
@@ -49,6 +49,48 @@ mod tests {
     #[test]
     fn variant_arms_with_name_bindings_are_accepted() {
         parse_source("c", &with_arms("Cmd::Move(a, _) => a, Cmd::Stop => 0")).expect("parse");
+    }
+
+    fn error_at(source: &str) -> (usize, usize, String) {
+        let err = parse_source("c", source).expect_err(source);
+        let at = err.at.unwrap_or_else(|| panic!("no location: {}", err.message));
+        (at.line, at.col, err.message)
+    }
+
+    #[test]
+    fn errors_point_at_the_offending_node() {
+        let src = "pub struct S { pub n: i32 }\n\
+                   pub fn f(s: S) -> i32 {\n    let r = &s;\n    0\n}\n";
+        let (line, col, msg) = error_at(src);
+        assert_eq!((line, col), (3, 13), "{msg}");
+
+        assert_eq!(error_at(src).2, "unsupported expression `&s`");
+
+        let (line, col, msg) = error_at("pub fn f(x: Box<i32>) -> i32 { 0 }");
+        assert_eq!((line, col), (1, 13), "{msg}");
+        assert_eq!(msg, "`Box` is not allowed in v0");
+
+        let (_, _, msg) = error_at("pub fn f(x: std::fs::File) -> i32 { 0 }");
+        assert!(msg.contains("qualified type path `std::fs::File`"), "{msg}");
+
+        let (line, col, msg) = error_at(&with_arms("Cmd::Stop => 0,\n _ => 1"));
+        assert_eq!(line, 4, "{msg}");
+        assert_eq!(col, 2, "{msg}");
+
+        let (line, _, msg) = error_at("pub fn f( -> i32 { 0 }");
+        assert_eq!(line, 1, "{msg}");
+    }
+
+    #[test]
+    fn methods_get_the_same_signature_checks_as_free_fns() {
+        let src = "pub struct S { pub n: i32 }\n\
+                   impl S {\n    pub async fn f(self) -> S { self }\n}\n";
+        let (line, col, msg) = error_at(src);
+        assert!(msg.contains("async"), "{msg}");
+        assert_eq!((line, col), (3, 9));
+
+        let (_, _, msg) = error_at("pub fn f(self) -> i32 { 0 }");
+        assert!(msg.contains("outside an impl"), "{msg}");
     }
 
     #[test]

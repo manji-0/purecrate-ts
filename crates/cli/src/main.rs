@@ -62,7 +62,10 @@ fn main() -> ExitCode {
 
 fn build(src: &Path, name: &str, out: &Path) -> Result<(), String> {
     let text = fs::read_to_string(src).map_err(|e| format!("read {}: {e}", src.display()))?;
-    let krate = parse_source(name, &text).map_err(|e| e.message)?;
+    let krate = parse_source(name, &text).map_err(|e| match e.at {
+        Some(_) => format!("{}:{e}", src.display()),
+        None => format!("{}: {e}", src.display()),
+    })?;
     let pkg = assemble(&krate);
     if out.exists() {
         fs::remove_dir_all(out).map_err(|e| format!("clear {}: {e}", out.display()))?;

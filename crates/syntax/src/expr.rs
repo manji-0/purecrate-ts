@@ -1,11 +1,16 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, Expr, Fields, Lit, Name, Pattern, UnOp, VariantBind,
 };
+use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
 
-use crate::item::{Cx, ParseError};
+use crate::item::{snippet, Cx, ParseError};
 
 pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
+    lower_expr_node(cx, expr).map_err(|e| e.or_at(expr.span()))
+}
+
+fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
     match expr {
         SynExpr::Lit(l) => Ok(Expr::Lit(lower_lit(&l.lit)?)),
         SynExpr::Path(p) => lower_path_expr(cx, &p.path),
@@ -46,7 +51,8 @@ pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                     return Err(ParseError::new("match guards are not in v0"));
                 }
                 arms.push(Arm {
-                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?)?,
+                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
+                        .map_err(|e| e.or_at(arm.pat.span()))?,
                     body: lower_expr(cx, &arm.body)?,
                 });
             }
@@ -84,14 +90,15 @@ pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Err(ParseError::new("vec! is parsed in v1"))
         }
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
-        other => Err(ParseError::new(format!(
-            "unsupported expression: {}",
-            format!("{other:?}")
-        ))),
+        other => Err(ParseError::new(format!("unsupported expression {}", snippet(other)))),
     }
 }
 
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
+    lower_block_node(cx, block).map_err(|e| e.or_at(block.span()))
+}
+
+fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
     let mut lets: Vec<(Name, Expr)> = Vec::new();
     let mut tail: Option<Expr> = None;
     for stmt in &block.stmts {
@@ -249,6 +256,10 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
 }
 
 fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
+    lower_pat_node(cx, pat).map_err(|e| e.or_at(pat.span()))
+}
+
+fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
     match pat {
         Pat::Wild(_) => Ok(Pattern::Wildcard),
         Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
@@ -283,7 +294,7 @@ fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
             path_variant_pat(cx, &s.path, bind)
         }
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
-        other => Err(ParseError::new(format!("unsupported pattern: {other:?}"))),
+        other => Err(ParseError::new(format!("unsupported pattern {}", snippet(other)))),
     }
 }
 
