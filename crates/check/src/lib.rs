@@ -3,6 +3,7 @@
 //! indices to source locations.
 
 mod names;
+mod resolve;
 
 use purecrate_ir::Crate;
 
@@ -28,6 +29,7 @@ impl Diagnostic {
 /// Empty when the crate is inside the v0 subset. Ordered by item index.
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = names::check(krate);
+    out.extend(resolve::check(krate));
     out.sort_by_key(|d| d.item);
     out
 }
