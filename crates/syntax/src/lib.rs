@@ -11,13 +11,25 @@ use syn::parse_file;
 pub use item::{LineCol, ParseError};
 
 pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError> {
+    parse_source_spanned(crate_name, source).map(|(krate, _)| krate)
+}
+
+/// Also returns where each item's name is, parallel to `Crate::items`.
+pub fn parse_source_spanned(
+    crate_name: &str,
+    source: &str,
+) -> Result<(Crate, Vec<LineCol>), ParseError> {
     let file = parse_file(source).map_err(|e| ParseError::new(e.to_string()).or_at(e.span()))?;
     let mut cx = item::Cx::scan(&file);
     let mut items: Vec<Item> = Vec::new();
+    let mut spans: Vec<LineCol> = Vec::new();
     for syn_item in file.items {
-        items.extend(item::lower_item(&mut cx, syn_item)?);
+        for (item, at) in item::lower_item(&mut cx, syn_item)? {
+            items.push(item);
+            spans.push(at);
+        }
     }
-    Ok(Crate::new(crate_name, items))
+    Ok((Crate::new(crate_name, items), spans))
 }
 
 #[cfg(test)]

@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/ir", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
+members = ["crates/ir", "crates/check", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
 exclude = ["vendor", "examples"]
-default-members = ["crates/ir", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
+default-members = ["crates/ir", "crates/check", "crates/emit_ts", "crates/syntax", "crates/pack", "crates/cli"]
 
 [workspace.package]
 edition = "2021"

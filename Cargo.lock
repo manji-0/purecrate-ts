@@ -10,6 +10,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "purecrate-check"
+version = "0.1.0"
+dependencies = [
+ "purecrate-ir",
+ "purecrate-syntax",
+]
+
+[[package]]
 name = "purecrate-emit-ts"
 version = "0.1.0"
 dependencies = [

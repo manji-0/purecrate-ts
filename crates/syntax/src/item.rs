@@ -117,9 +117,26 @@ impl Cx {
     }
 }
 
-pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
+/// Each lowered item paired with the location of its name.
+pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, ParseError> {
     let span = item.span();
-    lower_item_node(cx, item).map_err(|e| e.or_at(span))
+    let names: Vec<LineCol> = match &item {
+        SynItem::Enum(e) => vec![LineCol::of(e.ident.span())],
+        SynItem::Struct(s) => vec![LineCol::of(s.ident.span())],
+        SynItem::Fn(f) => vec![LineCol::of(f.sig.ident.span())],
+        SynItem::Type(t) => vec![LineCol::of(t.ident.span())],
+        SynItem::Impl(imp) => imp
+            .items
+            .iter()
+            .map(|i| match i {
+                syn::ImplItem::Fn(f) => LineCol::of(f.sig.ident.span()),
+                other => LineCol::of(other.span()),
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let items = lower_item_node(cx, item).map_err(|e| e.or_at(span))?;
+    Ok(items.into_iter().zip(names).collect())
 }
 
 fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {

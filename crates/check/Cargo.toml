@@ -1,0 +1,12 @@
+[package]
+name = "purecrate-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PureCrate subset checks over the IR. No I/O."
+
+[dependencies]
+purecrate-ir = { path = "../ir" }
+
+[dev-dependencies]
+purecrate-syntax = { path = "../syntax" }
