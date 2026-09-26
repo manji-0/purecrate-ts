@@ -80,26 +80,25 @@ export const Result = {{
 fn emit_index(krate: &Crate) -> String {
     let mut out = String::from(HEADER);
     out.push('\n');
-    out.push_str("export type { Result } from \"./result.ts\";\n");
+    // A single value export carries both the companion and its same-named type.
     out.push_str("export { Result } from \"./result.ts\";\n");
     out.push_str("export { assertNever } from \"./assert-never.ts\";\n");
     for item in krate.exported() {
         match item {
             Item::Fn(f) if f.owner.is_some() => {}
-            Item::Fn(f) => {
-                let stem = f.name.file_stem();
+            Item::Alias(al) => {
                 out.push_str(&format!(
-                    "export {{ {name} }} from \"./{stem}.ts\";\n",
-                    name = f.name.as_str(),
+                    "export type {{ {name} }} from \"./{stem}.ts\";\n",
+                    name = al.name.as_str(),
+                    stem = item.file_stem(),
                 ));
             }
             other => {
-                let name = other.name().as_str();
-                let stem = other.file_stem();
                 out.push_str(&format!(
-                    "export type {{ {name} }} from \"./{stem}.ts\";\n"
+                    "export {{ {name} }} from \"./{stem}.ts\";\n",
+                    name = other.name().as_str(),
+                    stem = other.file_stem(),
                 ));
-                out.push_str(&format!("export {{ {name} }} from \"./{stem}.ts\";\n"));
             }
         }
     }
@@ -543,7 +542,6 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
         out.push_str("import { assertNever } from \"./assert-never.ts\";\n");
     }
     if need_result {
-        out.push_str("import type { Result } from \"./result.ts\";\n");
         out.push_str("import { Result } from \"./result.ts\";\n");
     }
     for t in types {
@@ -611,5 +609,41 @@ mod tests {
         assert!(step.contains("assertNever(event)"));
         assert!(step.contains("import type { Event }"));
         assert!(step.contains("import type { State }"));
+    }
+
+    #[test]
+    fn index_exports_each_name_once() {
+        let pkg = emit(&counter_example());
+        let index = file(&pkg, "index");
+        for name in ["Result", "assertNever", "Event", "State", "step"] {
+            let hits = index
+                .lines()
+                .filter(|l| l.contains(&format!("{{ {name} }}")))
+                .count();
+            assert_eq!(hits, 1, "{name} in:\n{index}");
+        }
+        assert!(!index.contains("export type {"));
+    }
+
+    #[test]
+    fn result_is_imported_once() {
+        use purecrate_ir::{Callee, Name, Param, Vis};
+        let parse = Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("parse"),
+            owner: None,
+            params: vec![Param {
+                name: Name::new("n"),
+                ty: Ty::i32(),
+            }],
+            ret: Ty::result(Ty::i32(), Ty::Prim(purecrate_ir::Prim::String)),
+            body: Expr::Call {
+                callee: Callee::ResultOk,
+                args: vec![Expr::var("n")],
+            },
+        });
+        let pkg = emit(&Crate::new("p", vec![parse]));
+        let src = file(&pkg, "parse");
+        assert_eq!(src.matches("from \"./result.ts\"").count(), 1, "{src}");
     }
 }

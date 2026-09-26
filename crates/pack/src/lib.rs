@@ -36,7 +36,7 @@ fn package_json(name: &str) -> String {
 }
 
 fn tsconfig() -> String {
-    "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"bundler\",\n    \"noEmit\": true\n  },\n  \"include\": [\"src\"]\n}\n"
+    "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"noEmit\": true\n  },\n  \"include\": [\"src\"]\n}\n"
         .to_string()
 }
 
