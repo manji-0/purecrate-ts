@@ -115,7 +115,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     }
     for item in items {
         match item {
-            Item::Enum(en) => out.push_str(&emit_enum(en)),
+            Item::Enum(en) => out.push_str(&emit_enum(krate, en)),
             Item::Struct(st) => out.push_str(&emit_struct(krate, st)),
             Item::Alias(al) => {
                 out.push_str(&format!(
@@ -142,7 +142,7 @@ fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {
         .collect()
 }
 
-fn emit_enum(en: &Enum) -> String {
+fn emit_enum(krate: &Crate, en: &Enum) -> String {
     let name = en.name.as_str();
     let mut out = format!("export type {name} =\n");
     for (i, v) in en.variants.iter().enumerate() {
@@ -161,6 +161,13 @@ fn emit_enum(en: &Enum) -> String {
         out.push_str(&format!("  {}: ", v.name.as_str()));
         out.push_str(&variant_ctor(name, v));
         out.push_str(",\n");
+    }
+    for m in methods_on(krate, name) {
+        out.push_str(&format!(
+            "  {n}: {impl},\n",
+            n = m.name.as_str(),
+            impl = fn_arrow(m, 1)
+        ));
     }
     out.push_str("} as const;\n");
     out
@@ -707,6 +714,9 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
                         VariantFields::Struct(fs) => fs.iter().for_each(|f| refs.ty(&f.ty)),
                     }
                 }
+                methods_on(krate, en.name.as_str())
+                    .into_iter()
+                    .for_each(|m| refs.fn_sig_and_body(krate, m));
             }
             Item::Alias(al) => refs.ty(&al.ty),
             Item::Fn(f) if f.owner.is_none() => refs.fn_sig_and_body(krate, f),
@@ -947,6 +957,28 @@ export const step = (state: State, event: Event): State => {
         let log = file(&pkg, "log");
         assert!(log.contains("import type { Cmd } from \"./cmd.ts\";\n"), "{log}");
         assert!(!file(&pkg, "cmd").contains("import"), "{}", file(&pkg, "cmd"));
+    }
+
+    #[test]
+    fn enum_methods_join_the_companion() {
+        use purecrate_ir::{Param, Vis};
+        let mut krate = cmd_crate(Expr::int(0));
+        krate.items.push(Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("weight"),
+            owner: Some(Name::new("Cmd")),
+            params: vec![Param {
+                name: Name::new("self"),
+                ty: Ty::named("Cmd"),
+            }],
+            ret: Ty::i32(),
+            body: cmd_match(Expr::var("self")),
+        }));
+        let pkg = emit(&krate);
+        let cmd = file(&pkg, "cmd");
+        assert!(cmd.contains("  weight: (self: Cmd): number => {\n    switch (self.kind) {"), "{cmd}");
+        assert!(cmd.ends_with("  },\n} as const;\n"), "{cmd}");
+        assert!(cmd.starts_with(&format!("{HEADER}\nimport {{ assertNever }}")), "{cmd}");
     }
 
     #[test]
