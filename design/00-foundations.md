@@ -275,7 +275,7 @@ purecrate-ts/
   crates/
     ir/          # IR データ型。依存最小
     syntax/      # syn 解析 → IR
-    check/       # サブセット検査（未実装）
+    check/       # サブセット検査（名前・解決・網羅）と到達しない非公開の除去
     emit_ts/     # IR → TS 文字列
     pack/        # パッケージ組み立て
     cli/         # build / check。tests/ にゴールデンと Rust/TS 同値テスト

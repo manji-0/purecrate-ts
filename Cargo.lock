@@ -49,6 +49,8 @@ dependencies = [
 name = "purecrate-ts"
 version = "0.1.0"
 dependencies = [
+ "purecrate-check",
+ "purecrate-emit-ts",
  "purecrate-pack",
  "purecrate-syntax",
 ]

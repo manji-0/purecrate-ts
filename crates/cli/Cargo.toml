@@ -7,4 +7,6 @@ description = "CLI: read a PureCrate source file and write a TS package"
 
 [dependencies]
 purecrate-syntax = { path = "../syntax" }
+purecrate-check = { path = "../check" }
 purecrate-pack = { path = "../pack" }
+purecrate-emit-ts = { path = "../emit_ts" }

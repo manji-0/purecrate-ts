@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use purecrate_check::{check, prune_unreachable};
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::parse_source;
 
@@ -34,7 +35,8 @@ fn files_under(root: &Path) -> BTreeSet<String> {
 fn counter_ts_matches_generated_output() {
     let src = fs::read_to_string(examples().join("counter/src/lib.rs")).expect("read counter");
     let krate = parse_source("counter", &src).expect("parse counter");
-    let pkg = assemble(&krate);
+    assert_eq!(check(&krate), vec![]);
+    let pkg = assemble(&prune_unreachable(&krate));
     let golden = examples().join("counter-ts");
 
     let generated: BTreeSet<String> = pkg.files.iter().map(|f| disk_path(&f.stem)).collect();
