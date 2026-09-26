@@ -4,9 +4,12 @@
 
 mod exhaustive;
 mod names;
+mod reach;
 mod resolve;
 
 use purecrate_ir::Crate;
+
+pub use reach::prune_unreachable;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
