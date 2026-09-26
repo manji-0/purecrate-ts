@@ -1,58 +1,33 @@
+mod args;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use purecrate_check::{check, prune_unreachable};
+use purecrate_emit_ts::Package;
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::{parse_source_spanned, LineCol};
 
+use args::{Command, Input};
+
 fn main() -> ExitCode {
-    let mut args = env::args().skip(1).collect::<Vec<_>>();
-    if args.first().map(String::as_str) != Some("build") {
-        eprintln!("usage: purecrate-ts build <src.rs> --name <crate> --out <dir>");
-        return ExitCode::from(2);
-    }
-    args.remove(0);
-    let mut src: Option<PathBuf> = None;
-    let mut name = "crate".to_string();
-    let mut out: Option<PathBuf> = None;
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--name" => {
-                name = args.get(i + 1).cloned().unwrap_or_default();
-                i += 2;
-            }
-            "--out" => {
-                out = args.get(i + 1).map(PathBuf::from);
-                i += 2;
-            }
-            flag if flag.starts_with('-') => {
-                eprintln!("unknown flag {flag}");
-                return ExitCode::from(2);
-            }
-            other => {
-                src = Some(PathBuf::from(other));
-                i += 1;
-            }
-        }
-    }
-    let src = match src {
-        Some(p) => p,
-        None => {
-            eprintln!("missing source file");
+    let argv: Vec<String> = env::args().skip(1).collect();
+    let command = match args::parse(&argv) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}\n\n{}", args::USAGE);
             return ExitCode::from(2);
         }
     };
-    let out = match out {
-        Some(p) => p,
-        None => {
-            eprintln!("missing --out");
-            return ExitCode::from(2);
+    let result = match command {
+        Command::Build { input, out } => {
+            load(&input, "nothing written").and_then(|pkg| write_replacing(&out, &pkg.files))
         }
+        Command::Check { input, .. } => load(&input, "").map(|_| ()),
     };
-    match build(&src, &name, &out) {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{e}");
@@ -61,9 +36,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn build(src: &Path, name: &str, out: &Path) -> Result<(), String> {
+/// Parse, check, prune, emit. `consequence` ends the error summary line.
+fn load(input: &Input, consequence: &str) -> Result<Package, String> {
+    let src = &input.src;
     let text = fs::read_to_string(src).map_err(|e| format!("read {}: {e}", src.display()))?;
-    let (krate, spans) = parse_source_spanned(name, &text).map_err(|e| match e.at {
+    let (krate, spans) = parse_source_spanned(&input.name, &text).map_err(|e| match e.at {
         Some(_) => format!("{}:{e}", src.display()),
         None => format!("{}: {e}", src.display()),
     })?;
@@ -80,11 +57,13 @@ fn build(src: &Path, name: &str, out: &Path) -> Result<(), String> {
                 report.push(format!("  note: see {}", at(other)));
             }
         }
-        report.push(format!("{} error(s); nothing written", diagnostics.len()));
+        report.push(match consequence {
+            "" => format!("{} error(s)", diagnostics.len()),
+            c => format!("{} error(s); {c}", diagnostics.len()),
+        });
         return Err(report.join("\n"));
     }
-    let pkg = assemble(&prune_unreachable(&krate));
-    write_replacing(out, &pkg.files)
+    Ok(assemble(&prune_unreachable(&krate)))
 }
 
 /// Write into a sibling directory, then swap it in, so a failed write never
