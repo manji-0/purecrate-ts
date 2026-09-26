@@ -252,7 +252,7 @@ fn emit_struct(krate: &Crate, st: &Struct) -> String {
         out.push_str(&format!(
             "  {n}: {impl},\n",
             n = m.name.as_str(),
-            impl = fn_arrow(m)
+            impl = fn_arrow(m, 1)
         ));
     }
     out.push_str("} as const;\n");
@@ -263,22 +263,130 @@ fn emit_free_fn(f: &Fn) -> String {
     format!(
         "export const {name} = {impl};\n",
         name = f.name.as_str(),
-        impl = fn_arrow(f)
+        impl = fn_arrow(f, 0)
     )
 }
 
-fn fn_arrow(f: &Fn) -> String {
+/// `indent` is the nesting level of the line the arrow starts on.
+fn fn_arrow(f: &Fn, indent: usize) -> String {
     let params = f
         .params
         .iter()
         .map(|p| format!("{}: {}", p.name.as_str(), emit_ty(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "({params}): {ret} => {body}",
-        ret = emit_ty(&f.ret),
-        body = emit_expr(&f.body, 0)
-    )
+    let ret = emit_ty(&f.ret);
+    if needs_stmts(&f.body) {
+        let mut body = String::new();
+        emit_stmts(&f.body, indent + 1, &mut body);
+        format!("({params}): {ret} => {{\n{body}{pad}}}", pad = "  ".repeat(indent))
+    } else {
+        format!("({params}): {ret} => {}", arrow_expr(&f.body, indent))
+    }
+}
+
+/// An arrow body starting with `{` would parse as a block.
+fn arrow_expr(expr: &Expr, indent: usize) -> String {
+    let s = emit_expr(expr, indent);
+    if s.starts_with('{') {
+        format!("({s})")
+    } else {
+        s
+    }
+}
+
+fn needs_stmts(expr: &Expr) -> bool {
+    match expr {
+        Expr::Match { .. } | Expr::Let { .. } => true,
+        Expr::If { then, else_, .. } => needs_stmts(then) || needs_stmts(else_),
+        _ => false,
+    }
+}
+
+/// Lower a tail expression into statements that end in `return`.
+fn emit_stmts(expr: &Expr, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    match expr {
+        Expr::Let { name, value, then } => {
+            out.push_str(&format!(
+                "{pad}const {n} = {v};\n",
+                n = name.as_str(),
+                v = emit_expr(value, indent)
+            ));
+            emit_stmts(then, indent, out);
+        }
+        Expr::If { cond, then, else_ } if needs_stmts(expr) => {
+            out.push_str(&format!("{pad}if ({}) {{\n", emit_expr(cond, indent)));
+            emit_stmts(then, indent + 1, out);
+            out.push_str(&format!("{pad}}} else {{\n"));
+            emit_stmts(else_, indent + 1, out);
+            out.push_str(&format!("{pad}}}\n"));
+        }
+        Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, out),
+        other => out.push_str(&format!("{pad}return {};\n", emit_expr(other, indent))),
+    }
+}
+
+/// `x`, `x.a.b`: references TS can narrow through `switch (x.kind)`.
+fn is_place(expr: &Expr) -> bool {
+    match expr {
+        Expr::Var(_) => true,
+        Expr::Field { base, .. } => is_place(base),
+        _ => false,
+    }
+}
+
+/// Without an annotation a variant literal widens to `{ kind: string }`.
+fn scrutinee_ty(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Name> {
+    arms.iter().find_map(|arm| match &arm.pattern {
+        Pattern::Variant { ty, .. } => Some(ty),
+        _ => None,
+    })
+}
+
+fn declares_at_top(expr: &Expr) -> bool {
+    match expr {
+        Expr::Let { .. } => true,
+        Expr::Match { scrutinee, .. } => !is_place(scrutinee),
+        _ => false,
+    }
+}
+
+fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let pad1 = "  ".repeat(indent + 1);
+    let subject = if is_place(scrutinee) {
+        emit_expr(scrutinee, indent)
+    } else {
+        let tmp = format!("$m{indent}");
+        let value = emit_expr(scrutinee, indent);
+        // An annotated literal initializer narrows the union and makes the
+        // other cases unreachable; a cast keeps the full union.
+        let decl = match (scrutinee_ty(arms), scrutinee) {
+            (Some(ty), Expr::Construct { .. }) => format!("{tmp} = {value} as {}", ty.as_str()),
+            (Some(ty), _) => format!("{tmp}: {} = {value}", ty.as_str()),
+            (None, _) => format!("{tmp} = {value}"),
+        };
+        out.push_str(&format!("{pad}const {decl};\n"));
+        tmp
+    };
+    out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
+    for arm in arms {
+        if let Pattern::Variant { variant, bind, .. } = &arm.pattern {
+            out.push_str(&format!("{pad1}case \"{v}\":", v = variant.as_str()));
+            let prelude = bind_prelude(bind, &subject, &"  ".repeat(indent + 2));
+            let braced = !prelude.is_empty() || declares_at_top(&arm.body);
+            out.push_str(if braced { " {\n" } else { "\n" });
+            out.push_str(&prelude);
+            emit_stmts(&arm.body, indent + 2, out);
+            if braced {
+                out.push_str(&format!("{pad1}}}\n"));
+            }
+        }
+    }
+    out.push_str(&format!(
+        "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
+    ));
 }
 
 fn emit_ty(ty: &Ty) -> String {
@@ -324,7 +432,8 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             Some(v) => emit_variant_value(ty.as_str(), v.as_str(), fields),
             None => emit_struct_value(fields),
         },
-        Expr::Match { scrutinee, arms } => emit_match(scrutinee, arms, indent),
+        Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
+        Expr::If { .. } if needs_stmts(expr) => emit_iife(expr, indent),
         Expr::If { cond, then, else_ } => format!(
             "({} ? {} : {})",
             emit_expr(cond, indent),
@@ -375,12 +484,6 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 .join(", ");
             format!("[{inner}]")
         }
-        Expr::Let { name, value, then } => format!(
-            "(() => {{ const {n} = {v}; return {t}; }})()",
-            n = name.as_str(),
-            v = emit_expr(value, indent),
-            t = emit_expr(then, indent)
-        ),
         Expr::Return(e) => format!("(() => {{ return {}; }})()", emit_expr(e, indent)),
         Expr::Unreachable => "assertNever(undefined as never)".into(),
     }
@@ -430,34 +533,23 @@ fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> String {
     }
 }
 
-fn emit_match(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> String {
-    let pad = "  ".repeat(indent);
-    let pad1 = "  ".repeat(indent + 1);
-    let pad2 = "  ".repeat(indent + 2);
-    let mut out = format!("(() => {{\n{pad1}switch ({s}.kind) {{\n", s = emit_expr(scrutinee, indent));
-    for arm in arms {
-        if let Pattern::Variant { variant, bind, .. } = &arm.pattern {
-            out.push_str(&format!("{pad1}case \"{v}\":\n", v = variant.as_str()));
-            out.push_str(&bind_prelude(bind, &format!("{pad2}")));
-            out.push_str(&format!(
-                "{pad2}return {body};\n",
-                body = emit_expr(&arm.body, indent + 2)
-            ));
-        }
-    }
-    out.push_str(&format!("{pad1}default:\n{pad2}return assertNever({s});\n", s = emit_expr(scrutinee, indent)));
-    out.push_str(&format!("{pad1}}}\n{pad}}})()"));
-    out
+fn emit_iife(expr: &Expr, indent: usize) -> String {
+    let mut body = String::new();
+    emit_stmts(expr, indent + 1, &mut body);
+    format!("(() => {{\n{body}{pad}}})()", pad = "  ".repeat(indent))
 }
 
-fn bind_prelude(bind: &VariantBind, pad: &str) -> String {
+fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> String {
     match bind {
         VariantBind::Unit => String::new(),
         VariantBind::Tuple(pats) => pats
             .iter()
             .enumerate()
             .filter_map(|(i, p)| match p {
-                Pattern::Var(n) => Some(format!("{pad}const {name} = event.content[{i}];\n", name = n.as_str())),
+                Pattern::Var(n) => Some(format!(
+                    "{pad}const {name} = {subject}.content[{i}];\n",
+                    name = n.as_str()
+                )),
                 _ => None,
             })
             .collect(),
@@ -465,7 +557,7 @@ fn bind_prelude(bind: &VariantBind, pad: &str) -> String {
             .iter()
             .filter_map(|(field, p)| match p {
                 Pattern::Var(n) => Some(format!(
-                    "{pad}const {name} = event.{f};\n",
+                    "{pad}const {name} = {subject}.{f};\n",
                     name = n.as_str(),
                     f = field.as_str()
                 )),
@@ -609,6 +701,139 @@ mod tests {
         assert!(step.contains("assertNever(event)"));
         assert!(step.contains("import type { Event }"));
         assert!(step.contains("import type { State }"));
+    }
+
+    #[test]
+    fn counter_step_is_a_switch_statement() {
+        let pkg = emit(&counter_example());
+        let expected = "\
+export const step = (state: State, event: Event): State => {
+  switch (event.kind) {
+    case \"Inc\":
+      return { n: state.n + 1 };
+    case \"Dec\":
+      return { n: state.n - 1 };
+    case \"Reset\":
+      return { n: 0 };
+    default:
+      return assertNever(event);
+  }
+};
+";
+        assert!(file(&pkg, "step").ends_with(expected), "{}", file(&pkg, "step"));
+    }
+
+    fn cmd_crate(body: Expr) -> Crate {
+        use purecrate_ir::{Name, Param, Variant, Vis};
+        let cmd = Item::Enum(Enum {
+            vis: Vis::Pub,
+            name: Name::new("Cmd"),
+            variants: vec![
+                Variant {
+                    name: Name::new("Move"),
+                    fields: VariantFields::Tuple(vec![Ty::i32(), Ty::i32()]),
+                },
+                Variant {
+                    name: Name::new("Paint"),
+                    fields: VariantFields::Struct(vec![purecrate_ir::Field {
+                        name: Name::new("color"),
+                        ty: Ty::i32(),
+                    }]),
+                },
+            ],
+        });
+        let run = Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("run"),
+            owner: None,
+            params: vec![Param {
+                name: Name::new("cmd"),
+                ty: Ty::named("Cmd"),
+            }],
+            ret: Ty::i32(),
+            body,
+        });
+        Crate::new("cmds", vec![cmd, run])
+    }
+
+    fn cmd_match(scrutinee: Expr) -> Expr {
+        use purecrate_ir::{Arm, Name};
+        let var = |n: &str| Pattern::Var(Name::new(n));
+        Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms: vec![
+                Arm {
+                    pattern: Pattern::Variant {
+                        ty: Name::new("Cmd"),
+                        variant: Name::new("Move"),
+                        bind: VariantBind::Tuple(vec![var("a"), var("b")]),
+                    },
+                    body: Expr::Binary {
+                        op: BinOp::Add,
+                        left: Box::new(Expr::var("a")),
+                        right: Box::new(Expr::var("b")),
+                    },
+                },
+                Arm {
+                    pattern: Pattern::Variant {
+                        ty: Name::new("Cmd"),
+                        variant: Name::new("Paint"),
+                        bind: VariantBind::Struct(vec![(Name::new("color"), var("c"))]),
+                    },
+                    body: Expr::var("c"),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn bindings_read_from_the_scrutinee() {
+        let pkg = emit(&cmd_crate(cmd_match(Expr::var("cmd"))));
+        let run = file(&pkg, "run");
+        assert!(run.contains("case \"Move\": {\n      const a = cmd.content[0];"), "{run}");
+        assert!(run.contains("const b = cmd.content[1];"), "{run}");
+        assert!(run.contains("const c = cmd.color;"), "{run}");
+        assert!(!run.contains("event"), "{run}");
+    }
+
+    #[test]
+    fn non_place_scrutinee_is_bound_once() {
+        use purecrate_ir::{Callee, Name};
+        let call = Expr::Call {
+            callee: Callee::Fn(Name::new("next")),
+            args: vec![Expr::var("cmd")],
+        };
+        let pkg = emit(&cmd_crate(cmd_match(call)));
+        let run = file(&pkg, "run");
+        assert!(run.contains("const $m1: Cmd = next(cmd);\n  switch ($m1.kind)"), "{run}");
+        assert!(run.contains("const a = $m1.content[0];"), "{run}");
+    }
+
+    #[test]
+    fn object_literal_arrow_body_is_parenthesized() {
+        use purecrate_ir::{Name, Param, Vis};
+        let mut krate = counter_example();
+        krate.items.push(Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("zero"),
+            owner: Some(Name::new("State")),
+            params: vec![Param {
+                name: Name::new("self"),
+                ty: Ty::named("State"),
+            }],
+            ret: Ty::named("State"),
+            body: Expr::Construct {
+                ty: Name::new("State"),
+                variant: None,
+                fields: Fields::Named(vec![(Name::new("n"), Expr::int(0))]),
+            },
+        }));
+        let pkg = emit(&krate);
+        assert!(
+            file(&pkg, "state").contains("zero: (self: State): State => ({ n: 0 }),"),
+            "{}",
+            file(&pkg, "state")
+        );
     }
 
     #[test]
