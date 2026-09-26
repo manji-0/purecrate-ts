@@ -152,7 +152,12 @@ impl Refs {
                         self.name(ty);
                         self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));
                     }
-                    Callee::ResultOk | Callee::ResultErr | Callee::OptionSome | Callee::OptionNone => {}
+                    Callee::ResultOk
+                    | Callee::ResultErr
+                    | Callee::OptionSome
+                    | Callee::OptionNone
+                    | Callee::Int { .. }
+                    | Callee::Fround => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }
@@ -171,7 +176,10 @@ impl Refs {
                     self.expr(&arm.body);
                 }
             }
-            Expr::Let { value, then, .. } => {
+            Expr::Let { ty, value, then, .. } => {
+                if let Some(t) = ty {
+                    self.ty(t);
+                }
                 self.expr(value);
                 self.expr(then);
             }

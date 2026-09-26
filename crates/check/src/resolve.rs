@@ -1,60 +1,10 @@
 //! Every name the emitted TS will reference must exist in the crate, with the
 //! shape the reference assumes. There is no rustc pass behind the parser.
 
-use std::collections::{BTreeSet, HashMap};
+use purecrate_ir::{Callee, Crate, Expr, Fields, Item, Name, Pattern, Ty, VariantBind, VariantFields};
 
-use purecrate_ir::{
-    Callee, Crate, Enum, Expr, Fields, Fn, Item, Name, Pattern, Struct, Ty, VariantBind,
-    VariantFields,
-};
-
+use crate::defs::Defs;
 use crate::Diagnostic;
-
-struct Defs<'a> {
-    structs: HashMap<&'a str, &'a Struct>,
-    enums: HashMap<&'a str, &'a Enum>,
-    aliases: BTreeSet<&'a str>,
-    free_fns: HashMap<&'a str, &'a Fn>,
-    methods: HashMap<(&'a str, &'a str), &'a Fn>,
-}
-
-impl<'a> Defs<'a> {
-    fn of(krate: &'a Crate) -> Self {
-        let mut d = Defs {
-            structs: HashMap::new(),
-            enums: HashMap::new(),
-            aliases: BTreeSet::new(),
-            free_fns: HashMap::new(),
-            methods: HashMap::new(),
-        };
-        for item in &krate.items {
-            match item {
-                Item::Struct(s) => {
-                    d.structs.insert(s.name.as_str(), s);
-                }
-                Item::Enum(e) => {
-                    d.enums.insert(e.name.as_str(), e);
-                }
-                Item::Alias(a) => {
-                    d.aliases.insert(a.name.as_str());
-                }
-                Item::Fn(f) => match &f.owner {
-                    Some(o) => {
-                        d.methods.insert((o.as_str(), f.name.as_str()), f);
-                    }
-                    None => {
-                        d.free_fns.insert(f.name.as_str(), f);
-                    }
-                },
-            }
-        }
-        d
-    }
-
-    fn is_type(&self, name: &str) -> bool {
-        self.structs.contains_key(name) || self.enums.contains_key(name) || self.aliases.contains(name)
-    }
-}
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let defs = Defs::of(krate);
@@ -131,7 +81,10 @@ impl<'a> Cx<'_, 'a> {
                 self.error(format!("`{}` is not a parameter or local binding", n.as_str()))
             }
             Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
-            Expr::Let { name, value, then } => {
+            Expr::Let { name, ty, value, then } => {
+                if let Some(t) = ty {
+                    self.ty(t);
+                }
                 self.expr(value);
                 self.scopes.push(vec![name.as_str().to_string()]);
                 self.expr(then);
@@ -215,6 +168,10 @@ impl<'a> Cx<'_, 'a> {
             Callee::ResultErr => self.arity("`Err`", 1, argc),
             Callee::OptionSome => self.arity("`Some`", 1, argc),
             Callee::OptionNone => self.arity("`None`", 0, argc),
+            Callee::Int { ty, op } => {
+                self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc)
+            }
+            Callee::Fround => self.arity("`Math.fround`", 1, argc),
         }
     }
 

@@ -23,10 +23,10 @@ const TS_TYPE_KEYWORDS: &[&str] = &[
 ];
 
 /// Top-level names the emitted package defines or relies on.
-const GENERATED_NAMES: &[&str] = &["Result", "assertNever", "Readonly", "ReadonlyArray"];
+const GENERATED_NAMES: &[&str] = &["Result", "assertNever", "Readonly", "ReadonlyArray", "Int", "Math"];
 
 /// File stems the emitted package already uses.
-const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never"];
+const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int"];
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
@@ -193,7 +193,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
 
 fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
     match expr {
-        Expr::Let { name, value, then } => {
+        Expr::Let { name, value, then, .. } => {
             f(name);
             for_each_binding(value, f);
             for_each_binding(then, f);

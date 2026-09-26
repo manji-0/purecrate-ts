@@ -2,10 +2,12 @@
 //! Diagnostics point at items by index into `Crate::items`; the caller maps
 //! indices to source locations.
 
+mod defs;
 mod exhaustive;
 mod names;
 mod reach;
 mod resolve;
+mod types;
 
 use purecrate_ir::Crate;
 
@@ -30,11 +32,24 @@ impl Diagnostic {
     }
 }
 
-/// Empty when the crate is inside the v0 subset. Ordered by item index.
-pub fn check(krate: &Crate) -> Vec<Diagnostic> {
+/// The crate ready to print, or why it is outside the v0 subset.
+/// Numeric code is rewritten so the printed TS keeps Rust's debug-build
+/// semantics; run this once, on parser output.
+pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let mut out = names::check(krate);
     out.extend(resolve::check(krate));
     out.extend(exhaustive::check(krate));
+    if out.is_empty() {
+        match types::elaborate(krate) {
+            Ok(typed) => return Ok(typed),
+            Err(errors) => out = errors,
+        }
+    }
     out.sort_by_key(|d| d.item);
-    out
+    Err(out)
+}
+
+/// Empty when the crate is inside the v0 subset. Ordered by item index.
+pub fn check(krate: &Crate) -> Vec<Diagnostic> {
+    accept(krate).err().unwrap_or_default()
 }

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use purecrate_check::{check, prune_unreachable};
+use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::{parse_source_spanned, LineCol};
@@ -50,26 +50,26 @@ fn load(input: &Input, consequence: &str) -> Result<Package, String> {
         Some(_) => format!("{}:{e}", src.display()),
         None => format!("{}: {e}", src.display()),
     })?;
-    let diagnostics = check(&krate);
-    if !diagnostics.is_empty() {
-        let at = |i: usize| {
-            let LineCol { line, col } = spans[i];
-            format!("{}:{line}:{col}", src.display())
-        };
-        let mut report: Vec<String> = Vec::new();
-        for d in &diagnostics {
-            report.push(format!("{}: {}", at(d.item), d.message));
-            for &other in &d.also {
-                report.push(format!("  note: see {}", at(other)));
-            }
+    let diagnostics = match accept(&krate) {
+        Ok(typed) => return Ok(assemble(&prune_unreachable(&typed))),
+        Err(d) => d,
+    };
+    let at = |i: usize| {
+        let LineCol { line, col } = spans[i];
+        format!("{}:{line}:{col}", src.display())
+    };
+    let mut report: Vec<String> = Vec::new();
+    for d in &diagnostics {
+        report.push(format!("{}: {}", at(d.item), d.message));
+        for &other in &d.also {
+            report.push(format!("  note: see {}", at(other)));
         }
-        report.push(match consequence {
-            "" => format!("{} error(s)", diagnostics.len()),
-            c => format!("{} error(s); {c}", diagnostics.len()),
-        });
-        return Err(report.join("\n"));
     }
-    Ok(assemble(&prune_unreachable(&krate)))
+    report.push(match consequence {
+        "" => format!("{} error(s)", diagnostics.len()),
+        c => format!("{} error(s); {c}", diagnostics.len()),
+    });
+    Err(report.join("\n"))
 }
 
 fn check_drift(input: &Input, out: &Path, pkg: &Package) -> Result<(), String> {

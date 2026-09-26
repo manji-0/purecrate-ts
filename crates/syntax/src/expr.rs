@@ -1,10 +1,11 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, Expr, Fields, Lit, Name, Pattern, UnOp, VariantBind,
+    Arm, BinOp, Callee, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Ty, UnOp, VariantBind,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
 
 use crate::item::{snippet, Cx, ParseError};
+use crate::ty::lower_type;
 
 pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
     lower_expr_node(cx, expr).map_err(|e| e.or_at(expr.span()))
@@ -99,20 +100,29 @@ pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
 }
 
 fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
-    let mut lets: Vec<(Name, Expr)> = Vec::new();
+    let mut lets: Vec<(Name, Option<Ty>, Expr)> = Vec::new();
     let mut tail: Option<Expr> = None;
     for stmt in &block.stmts {
         match stmt {
             syn::Stmt::Local(local) => {
-                let name = match &local.pat {
-                    Pat::Ident(id) => Name::new(id.ident.to_string()),
+                let (pat, ty) = match &local.pat {
+                    Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
+                    other => (other, None),
+                };
+                let name = match pat {
+                    Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
+                        Name::new(id.ident.to_string())
+                    }
                     _ => return Err(ParseError::new("only simple let bindings in v0")),
                 };
                 let init = local
                     .init
                     .as_ref()
                     .ok_or_else(|| ParseError::new("let without initializer"))?;
-                lets.push((name, lower_expr(cx, &init.expr)?));
+                if init.diverge.is_some() {
+                    return Err(ParseError::new("let-else is not in v0"));
+                }
+                lets.push((name, ty, lower_expr(cx, &init.expr)?));
             }
             syn::Stmt::Expr(e, _) => {
                 if tail.is_some() {
@@ -125,9 +135,10 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
         }
     }
     let mut acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
-    for (name, value) in lets.into_iter().rev() {
+    for (name, ty, value) in lets.into_iter().rev() {
         acc = Expr::Let {
             name,
+            ty,
             value: Box::new(value),
             then: Box::new(acc),
         };
@@ -365,15 +376,46 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
     match lit {
         syn::Lit::Bool(b) => Ok(Lit::Bool(b.value)),
         syn::Lit::Int(i) => {
-            if i.suffix() == "u64" || i.suffix() == "u32" || i.suffix() == "usize" {
-                Ok(Lit::UInt(i.base10_parse().map_err(|e| ParseError::new(e.to_string()))?))
-            } else {
-                Ok(Lit::Int(i.base10_parse().map_err(|e| ParseError::new(e.to_string()))?))
+            let suffix = i.suffix();
+            if let Some(Some(ty)) = float_suffix(suffix) {
+                return Ok(Lit::Float {
+                    digits: i.base10_digits().to_string(),
+                    ty: Some(ty),
+                });
             }
+            let ty = match suffix {
+                "" => None,
+                s => Some(IntTy::of_suffix(s).ok_or_else(|| {
+                    ParseError::new(format!("integer suffix `{s}` is not in v0"))
+                })?),
+            };
+            let value = i
+                .base10_parse::<i128>()
+                .map_err(|e| ParseError::new(e.to_string()))?;
+            Ok(Lit::Int { value, ty })
         }
-        syn::Lit::Float(f) => Ok(Lit::Float(f.base10_digits().to_string())),
+        syn::Lit::Float(f) => match float_suffix(f.suffix()) {
+            Some(ty) => Ok(Lit::Float {
+                digits: f.base10_digits().to_string(),
+                ty,
+            }),
+            None => Err(ParseError::new(format!(
+                "float suffix `{}` is not in v0",
+                f.suffix()
+            ))),
+        },
         syn::Lit::Str(s) => Ok(Lit::Str(s.value())),
         _ => Err(ParseError::new("unsupported literal")),
+    }
+}
+
+/// `Some(None)` for no suffix, `None` for a suffix that is not a float type.
+fn float_suffix(suffix: &str) -> Option<Option<FloatTy>> {
+    match suffix {
+        "" => Some(None),
+        "f32" => Some(Some(FloatTy::F32)),
+        "f64" => Some(Some(FloatTy::F64)),
+        _ => None,
     }
 }
 

@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use purecrate_check::accept;
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::parse_source;
 
@@ -39,7 +40,8 @@ console.log(out.join("\n"));
 
 fn write_package(dir: &Path) {
     let krate = parse_source("counter", SOURCE).expect("parse counter");
-    for file in assemble(&krate).files {
+    let typed = accept(&krate).expect("counter is in the subset");
+    for file in assemble(&typed).files {
         let path = dir.join(disk_path(&file.stem));
         fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
         fs::write(path, file.source).expect("write");

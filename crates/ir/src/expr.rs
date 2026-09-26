@@ -1,11 +1,14 @@
 use crate::name::Name;
+use crate::ty::{FloatTy, IntTy, Ty};
 
+/// Numeric literals carry their Rust type once known: from the source suffix,
+/// or filled in by `check::accept`. An integer without one prints as a JS
+/// `number`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Lit {
     Bool(bool),
-    Int(i64),
-    UInt(u64),
-    Float(String),
+    Int { value: i128, ty: Option<IntTy> },
+    Float { digits: String, ty: Option<FloatTy> },
     Str(String),
     Unit,
     Null,
@@ -34,9 +37,44 @@ pub enum UnOp {
     Neg,
 }
 
+/// Integer arithmetic with Rust debug-build semantics: truncating division,
+/// and a throw wherever Rust would panic (overflow, zero divisor).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Neg,
+}
+
+impl IntOp {
+    pub fn arity(self) -> usize {
+        match self {
+            IntOp::Neg => 1,
+            _ => 2,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IntOp::Add => "add",
+            IntOp::Sub => "sub",
+            IntOp::Mul => "mul",
+            IntOp::Div => "div",
+            IntOp::Rem => "rem",
+            IntOp::Neg => "neg",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
+    Int { ty: IntTy, op: IntOp },
+    /// Round an f64 result to f32 (`Math.fround`).
+    Fround,
     Method { ty: Name, name: Name },
     Variant { ty: Name, variant: Name },
     StructNew(Name),
@@ -84,6 +122,7 @@ pub enum Expr {
     Var(Name),
     Let {
         name: Name,
+        ty: Option<Ty>,
         value: Box<Expr>,
         then: Box<Expr>,
     },
@@ -111,6 +150,9 @@ pub enum Expr {
     },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
+    /// Arithmetic here is JS arithmetic, which matches Rust only for `f64`.
+    /// `check::accept` rewrites integer and `f32` arithmetic into
+    /// `Callee::Int` and `Callee::Fround` calls.
     Binary {
         op: BinOp,
         left: Box<Expr>,
@@ -130,6 +172,9 @@ impl Expr {
     }
 
     pub fn int(n: i64) -> Self {
-        Expr::Lit(Lit::Int(n))
+        Expr::Lit(Lit::Int {
+            value: n.into(),
+            ty: None,
+        })
     }
 }
