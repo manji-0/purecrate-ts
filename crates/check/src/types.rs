@@ -493,9 +493,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                     ty: Some(ty),
                 });
                 let e = if negated {
-                    Expr::Unary {
-                        op: UnOp::Neg,
-                        expr: Box::new(e),
+                    Expr::Call {
+                        callee: Callee::AsFloat(ty),
+                        args: vec![Expr::Unary {
+                            op: UnOp::Neg,
+                            expr: Box::new(e),
+                        }],
                     }
                 } else {
                     e
@@ -535,7 +538,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                         callee: Callee::Fround,
                         args: vec![rebuild(op, l, r)],
                     },
-                    Some(Num::Float(FloatTy::F64)) => rebuild(op, l, r),
+                    Some(Num::Float(FloatTy::F64)) => Expr::Call {
+                        callee: Callee::AsFloat(FloatTy::F64),
+                        args: vec![rebuild(op, l, r)],
+                    },
                     None => {
                         self.error(Reason::NumericOp, format!("arithmetic on `{}` is not in v0", show(&t)));
                         rebuild(op, l, r)
@@ -588,7 +594,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                         },
                         args: vec![e],
                     },
-                    Some(Num::Float(_)) => neg(e),
+                    Some(Num::Float(ft)) => Expr::Call {
+                        callee: Callee::AsFloat(ft),
+                        args: vec![neg(e)],
+                    },
                     _ => {
                         self.error(Reason::NumericOp, format!("cannot negate `{}`", show(&t)));
                         neg(e)
@@ -892,6 +901,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::F64)]),
                 Some(Ty::Prim(Prim::F32)),
             ),
+            Callee::AsFloat(ft) => {
+                let t = Ty::Prim((*ft).into());
+                (typed_args(self, vec![t.clone()]), Some(t))
+            }
             Callee::VecLen => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Prim(Prim::Usize)),

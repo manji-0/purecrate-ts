@@ -65,13 +65,27 @@ fn assert_never_src() -> String {
 /// Integer arithmetic as a Rust debug build does it. `number` widths stay
 /// exact because every in-range result is below 2^53, and rounding cannot move
 /// an out-of-range product back inside the bounds. `+ 0` turns `-0` into `0`.
+fn brand_line(name: &str, host: &str) -> String {
+    format!(
+        "declare const {name}Brand: unique symbol;\n\
+         export type {name} = {host} & {{ readonly [{name}Brand]: true }};\n"
+    )
+}
+
 fn int_src() -> String {
+    let mut brands = String::new();
+    for t in IntTy::ALL {
+        let host = if t.is_big() { "bigint" } else { "number" };
+        brands.push_str(&brand_line(t.ts_name(), host));
+    }
+    brands.push_str(&brand_line("F32", "number"));
+    brands.push_str(&brand_line("F64", "number"));
     let small = IntTy::ALL
         .into_iter()
         .filter(|t| !t.is_big())
         .map(|t| {
             let (lo, hi) = t.bounds();
-            format!("  {}: small({lo}, {hi}),\n", t.as_str())
+            format!("  {}: small<{name}>({lo}, {hi}),\n", t.as_str(), name = t.ts_name())
         })
         .collect::<String>();
     let big = IntTy::ALL
@@ -79,51 +93,65 @@ fn int_src() -> String {
         .filter(|t| t.is_big())
         .map(|t| {
             let (lo, hi) = t.bounds();
-            format!("  {}: big({lo}n, {hi}n),\n", t.as_str())
+            format!("  {}: big<{name}>({lo}n, {hi}n),\n", t.as_str(), name = t.ts_name())
         })
         .collect::<String>();
     format!(
         "{HEADER}
+{brands}
 const panic = (what: string): never => {{
   throw new Error(`attempt to ${{what}}`);
 }};
 
-const small = (min: number, max: number) => {{
-  const fit = (n: number, what: string): number =>
-    n < min || n > max ? panic(`${{what}} with overflow`) : n + 0;
+const small = <T extends number>(min: number, max: number) => {{
+  const fit = (n: number, what: string): T =>
+    (n < min || n > max ? panic(`${{what}} with overflow`) : n + 0) as T;
+  const of = (value: number): T => {{
+    if (!Number.isInteger(value)) panic(\"convert a non-integer\");
+    return fit(value, \"convert\");
+  }};
   return {{
-    add: (a: number, b: number): number => fit(a + b, \"add\"),
-    sub: (a: number, b: number): number => fit(a - b, \"subtract\"),
-    mul: (a: number, b: number): number => fit(a * b, \"multiply\"),
-    div: (a: number, b: number): number =>
+    of,
+    add: (a: T, b: T): T => fit(a + b, \"add\"),
+    sub: (a: T, b: T): T => fit(a - b, \"subtract\"),
+    mul: (a: T, b: T): T => fit(a * b, \"multiply\"),
+    div: (a: T, b: T): T =>
       b === 0 ? panic(\"divide by zero\") : fit(Math.trunc(a / b), \"divide\"),
-    rem: (a: number, b: number): number =>
+    rem: (a: T, b: T): T =>
       b === 0
         ? panic(\"calculate the remainder with a divisor of zero\")
-        : (fit(Math.trunc(a / b), \"calculate the remainder\"), (a % b) + 0),
-    neg: (a: number): number => fit(-a, \"negate\"),
+        : ((fit(Math.trunc(a / b), \"calculate the remainder\"), (a % b) + 0) as T),
+    neg: (a: T): T => fit(-a, \"negate\"),
   }} as const;
 }};
 
-const big = (min: bigint, max: bigint) => {{
-  const fit = (n: bigint, what: string): bigint =>
-    n < min || n > max ? panic(`${{what}} with overflow`) : n;
+const big = <T extends bigint>(min: bigint, max: bigint) => {{
+  const fit = (n: bigint, what: string): T =>
+    (n < min || n > max ? panic(`${{what}} with overflow`) : n) as T;
+  const n = (x: T): bigint => x as bigint;
   return {{
-    add: (a: bigint, b: bigint): bigint => fit(a + b, \"add\"),
-    sub: (a: bigint, b: bigint): bigint => fit(a - b, \"subtract\"),
-    mul: (a: bigint, b: bigint): bigint => fit(a * b, \"multiply\"),
-    div: (a: bigint, b: bigint): bigint =>
-      b === 0n ? panic(\"divide by zero\") : fit(a / b, \"divide\"),
-    rem: (a: bigint, b: bigint): bigint =>
-      b === 0n
+    of: (value: bigint): T => fit(value, \"convert\"),
+    add: (a: T, b: T): T => fit(n(a) + n(b), \"add\"),
+    sub: (a: T, b: T): T => fit(n(a) - n(b), \"subtract\"),
+    mul: (a: T, b: T): T => fit(n(a) * n(b), \"multiply\"),
+    div: (a: T, b: T): T =>
+      n(b) === 0n ? panic(\"divide by zero\") : fit(n(a) / n(b), \"divide\"),
+    rem: (a: T, b: T): T =>
+      n(b) === 0n
         ? panic(\"calculate the remainder with a divisor of zero\")
-        : (fit(a / b, \"calculate the remainder\"), a % b),
-    neg: (a: bigint): bigint => fit(-a, \"negate\"),
+        : ((fit(n(a) / n(b), \"calculate the remainder\"), n(a) % n(b)) as unknown as T),
+    neg: (a: T): T => fit(-n(a), \"negate\"),
   }} as const;
 }};
 
 export const Int = {{
-{small}{big}}} as const;
+{small}{big}  f32: {{
+    of: (value: number): F32 => Math.fround(value) as F32,
+  }},
+  f64: {{
+    of: (value: number): F64 => value as F64,
+  }},
+}} as const;
 "
     )
 }
@@ -153,6 +181,10 @@ fn emit_index(krate: &Crate) -> String {
     // A single value export carries both the companion and its same-named type.
     out.push_str("export { Result } from \"./result.ts\";\n");
     out.push_str("export { assertNever } from \"./assert-never.ts\";\n");
+    out.push_str(
+        "export { Int } from \"./int.ts\";\n\
+         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n",
+    );
     for item in krate.exported() {
         match item {
             Item::Fn(f) if f.owner.is_some() => {}
@@ -662,10 +694,15 @@ fn emit_ty(ty: &Ty) -> String {
     match ty {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "boolean".into(),
-            purecrate_ir::Prim::I64 | purecrate_ir::Prim::U64 => "bigint".into(),
             purecrate_ir::Prim::String => "string".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
-            _ => "number".into(),
+            other => match other.int() {
+                Some(t) => t.ts_name().into(),
+                None => match other.float() {
+                    Some(t) => t.ts_name().into(),
+                    None => "number".into(),
+                },
+            },
         },
         Ty::Option(inner) => format!("{} | null", emit_ty(inner)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", emit_ty(ok), emit_ty(err)),
@@ -754,10 +791,17 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
                 purecrate_ir::Callee::Fround => "Math.fround".into(),
+                purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::VecLen => String::new(),
             };
             if matches!(callee, purecrate_ir::Callee::VecLen) {
-                return format!("({}).length", emit_expr(&args[0], indent));
+                return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::Fround) {
+                return format!("(Math.fround({}) as F32)", emit_expr(&args[0], indent));
+            }
+            if let purecrate_ir::Callee::AsFloat(ft) = callee {
+                return format!("({} as {})", emit_expr(&args[0], indent), ft.ts_name());
             }
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
@@ -898,12 +942,14 @@ fn emit_lit(lit: &Lit) -> String {
     match lit {
         Lit::Bool(b) => if *b { "true" } else { "false" }.into(),
         Lit::Int { value, ty } => match ty {
-            Some(t) if t.is_big() => format!("{value}n"),
-            _ => value.to_string(),
+            Some(t) if t.is_big() => format!("({value}n as {})", t.ts_name()),
+            Some(t) => format!("({value} as {})", t.ts_name()),
+            None => value.to_string(),
         },
         Lit::Float { digits, ty } => match ty {
-            Some(FloatTy::F32) => format!("Math.fround({digits})"),
-            _ => digits.clone(),
+            Some(FloatTy::F32) => format!("(Math.fround({digits}) as F32)"),
+            Some(FloatTy::F64) => format!("({digits} as F64)"),
+            None => digits.clone(),
         },
         Lit::Str(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
         Lit::Unit => "undefined".into(),
@@ -935,6 +981,8 @@ struct Refs {
     never: bool,
     int: bool,
     result: bool,
+    /// Brand type names (`I32`, `F64`) this file mentions.
+    nums: BTreeSet<String>,
     types: BTreeSet<String>,
     values: BTreeSet<String>,
 }
@@ -956,7 +1004,12 @@ impl Refs {
                 params.iter().for_each(|t| self.ty(t));
                 self.ty(ret);
             }
-            Ty::Prim(_) | Ty::Never => {}
+            Ty::Prim(p) => {
+                if let Some(name) = p.int().map(|t| t.ts_name()).or_else(|| p.float().map(|t| t.ts_name())) {
+                    self.nums.insert(name.to_string());
+                }
+            }
+            Ty::Never => {}
         }
     }
 
@@ -984,7 +1037,20 @@ impl Refs {
                         self.values.insert(ty.as_str().to_string());
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result = true,
-                    Callee::Int { .. } => self.int = true,
+                    Callee::Int { ty, .. } => {
+                        self.int = true;
+                        self.nums.insert(ty.ts_name().to_string());
+                    }
+                    Callee::Fround => {
+                        self.nums.insert("F32".into());
+                        self.nums.insert("F64".into());
+                    }
+                    Callee::AsFloat(ft) => {
+                        self.nums.insert(ft.ts_name().to_string());
+                    }
+                    Callee::VecLen => {
+                        self.nums.insert("Usize".into());
+                    }
                     _ => {}
                 }
                 args.iter().for_each(|a| self.expr(krate, a));
@@ -1035,7 +1101,16 @@ impl Refs {
                 }
                 self.expr(krate, body);
             }
-            Expr::Lit(_) | Expr::Var(_) => {}
+            Expr::Lit(lit) => match lit {
+                purecrate_ir::Lit::Int { ty: Some(t), .. } => {
+                    self.nums.insert(t.ts_name().to_string());
+                }
+                purecrate_ir::Lit::Float { ty: Some(t), .. } => {
+                    self.nums.insert(t.ts_name().to_string());
+                }
+                _ => {}
+            },
+            Expr::Var(_) => {}
         }
     }
 
@@ -1086,8 +1161,15 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     if refs.never {
         out.push_str("import { assertNever } from \"./assert-never.ts\";\n");
     }
-    if refs.int {
-        out.push_str("import { Int } from \"./int.ts\";\n");
+    if refs.int || !refs.nums.is_empty() {
+        let types = refs.nums.iter().map(|n| format!("type {n}")).collect::<Vec<_>>().join(", ");
+        if refs.int && types.is_empty() {
+            out.push_str("import { Int } from \"./int.ts\";\n");
+        } else if refs.int {
+            out.push_str(&format!("import {{ Int, {types} }} from \"./int.ts\";\n"));
+        } else {
+            out.push_str(&format!("import {{ {types} }} from \"./int.ts\";\n"));
+        }
     }
     if refs.result {
         out.push_str("import { Result } from \"./result.ts\";\n");
@@ -1139,7 +1221,7 @@ mod tests {
 
         let state = file(&pkg, "state");
         assert!(state.contains("export type State = Readonly<{"));
-        assert!(state.contains("of: (n: number): State =>"));
+        assert!(state.contains("of: (n: I32): State =>"));
 
         let step = file(&pkg, "step");
         assert!(step.contains("export const step ="));
@@ -1317,7 +1399,9 @@ export const step = (state: State, event: Event): State => {
 
         let log = file(&pkg, "log");
         assert!(log.contains("import type { Cmd } from \"./cmd.ts\";\n"), "{log}");
-        assert!(!file(&pkg, "cmd").contains("import"), "{}", file(&pkg, "cmd"));
+        let cmd = file(&pkg, "cmd");
+        assert!(cmd.contains("import { type I32 } from \"./int.ts\";\n"), "{cmd}");
+        assert!(!cmd.contains("from \"./cmd.ts\""), "{cmd}");
     }
 
     #[test]
@@ -1337,7 +1421,7 @@ export const step = (state: State, event: Event): State => {
         }));
         let pkg = emit(&krate);
         let cmd = file(&pkg, "cmd");
-        assert!(cmd.contains("  weight: (self: Cmd): number => {\n    switch (self.kind) {"), "{cmd}");
+        assert!(cmd.contains("  weight: (self: Cmd): I32 => {\n    switch (self.kind) {"), "{cmd}");
         assert!(cmd.ends_with("  },\n} as const;\n"), "{cmd}");
         assert!(cmd.starts_with(&format!("{HEADER}\nimport {{ assertNever }}")), "{cmd}");
     }
@@ -1353,7 +1437,11 @@ export const step = (state: State, event: Event): State => {
                 .count();
             assert_eq!(hits, 1, "{name} in:\n{index}");
         }
-        assert!(!index.contains("export type {"));
+        assert_eq!(
+            index.lines().filter(|l| l.contains("export type {")).count(),
+            1,
+            "{index}"
+        );
     }
 
     #[test]
@@ -1421,12 +1509,12 @@ export const step = (state: State, event: Event): State => {
             value: -5,
             ty: Some(IntTy::I64),
         };
-        assert_eq!(emit_lit(&big), "-5n");
+        assert_eq!(emit_lit(&big), "(-5n as I64)");
         let single = Lit::Float {
             digits: "0.1".into(),
             ty: Some(FloatTy::F32),
         };
-        assert_eq!(emit_lit(&single), "Math.fround(0.1)");
+        assert_eq!(emit_lit(&single), "(Math.fround(0.1) as F32)");
     }
 }
 

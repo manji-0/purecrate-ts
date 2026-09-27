@@ -159,11 +159,12 @@ Expr =
 | Rust | TypeScript |
 | --- | --- |
 | `bool` | `boolean` |
-| `i8`..`i32`, `u8`..`u32`, `f32`, `f64` | `number` |
-| `i64`, `u64` | `bigint` |
+| `i8`..`i32`, `u8`..`u32` | 幅ごとのブランド付き `number`（`I32` など）。境界は `Int.i32.of` |
+| `f32`, `f64` | ブランド付き `number`（`F32`, `F64`）。境界は `Int.f32.of` / `Int.f64.of`。`f32` の演算は `Math.fround` |
+| `i64`, `u64` | ブランド付き `bigint`（`I64`, `U64`） |
 | `String`・`&str` | `string`（長さ・添字は UTF-8 バイト単位を再現する。design/04 §1.5） |
 | `char` | 1 コードポイントのブランド付き `string`（予定。design/04 §1.5） |
-| `usize` | 0 から 2^53−1 まで検査する `number`（design/04 §1.5）。`Vec` の添字と `len` の型 |
+| `usize` | `Usize`。0 から 2^53−1 まで検査する（design/04 §1.5）。`Vec` の添字と `len` の型 |
 | `isize` | 未対応 |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |

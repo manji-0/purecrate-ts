@@ -342,6 +342,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc)
             }
             Callee::Fround => self.arity("`Math.fround`", 1, argc),
+            Callee::AsFloat(_) => self.arity("`as float`", 1, argc),
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
         }
     }

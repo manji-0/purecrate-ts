@@ -47,6 +47,21 @@ impl IntTy {
         IntTy::Usize,
     ];
 
+    /// TypeScript brand name. Distinct from `as_str`, which is the Rust name.
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            IntTy::I8 => "I8",
+            IntTy::I16 => "I16",
+            IntTy::I32 => "I32",
+            IntTy::I64 => "I64",
+            IntTy::U8 => "U8",
+            IntTy::U16 => "U16",
+            IntTy::U32 => "U32",
+            IntTy::U64 => "U64",
+            IntTy::Usize => "Usize",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             IntTy::I8 => "i8",
@@ -94,6 +109,15 @@ impl IntTy {
 pub enum FloatTy {
     F32,
     F64,
+}
+
+impl FloatTy {
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            FloatTy::F32 => "F32",
+            FloatTy::F64 => "F64",
+        }
+    }
 }
 
 impl From<IntTy> for Prim {

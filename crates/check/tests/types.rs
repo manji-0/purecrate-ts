@@ -2,7 +2,7 @@ mod common;
 
 use common::{assert_clean, assert_rejects};
 use purecrate_check::accept;
-use purecrate_ir::{Callee, Expr, IntOp, IntTy, Item, Lit};
+use purecrate_ir::{Callee, Expr, FloatTy, IntOp, IntTy, Item, Lit};
 use purecrate_syntax::parse_source;
 
 fn body_of(source: &str, name: &str) -> Expr {
@@ -50,9 +50,9 @@ fn f32_arithmetic_is_rounded() {
 }
 
 #[test]
-fn f64_arithmetic_stays_plain() {
+fn f64_arithmetic_is_branded() {
     let body = body_of("pub fn h(a: f64) -> f64 { a * 0.5 }", "h");
-    assert!(matches!(body, Expr::Binary { .. }), "{body:?}");
+    assert!(matches!(body, Expr::Call { callee: Callee::AsFloat(FloatTy::F64), .. }), "{body:?}");
 }
 
 #[test]

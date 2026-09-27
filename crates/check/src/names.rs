@@ -23,7 +23,10 @@ const TS_TYPE_KEYWORDS: &[&str] = &[
 ];
 
 /// Top-level names the emitted package defines or relies on.
-const GENERATED_NAMES: &[&str] = &["Result", "assertNever", "Readonly", "ReadonlyArray", "Int", "Math"];
+const GENERATED_NAMES: &[&str] = &[
+    "Result", "assertNever", "Readonly", "ReadonlyArray", "Int", "Math", "I8", "I16", "I32", "I64",
+    "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
+];
 
 /// File stems the emitted package already uses.
 const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int"];

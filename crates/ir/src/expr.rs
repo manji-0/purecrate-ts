@@ -76,8 +76,10 @@ pub enum Callee {
     /// `Callee::Fn` to this when a binding shadows the item.
     Local(Name),
     Int { ty: IntTy, op: IntOp },
-    /// Round an f64 result to f32 (`Math.fround`).
+    /// Round an f64 result to f32 (`Math.fround`). The emitted call is `F32`.
     Fround,
+    /// Cast a JS number that is already the right width (`(x) as F64`).
+    AsFloat(FloatTy),
     Method { ty: Name, name: Name },
     Variant { ty: Name, variant: Name },
     StructNew(Name),
