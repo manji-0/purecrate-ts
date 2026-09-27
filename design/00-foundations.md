@@ -71,7 +71,7 @@ pub fn name(arg: OwnedType, ...) -> OwnedType
 
 禁止: `async`, `unsafe`, マクロ（許可リスト以外）、`let mut` を捕捉するクロージャ、関数型の引数・戻り値、`panic!` による制御、`println!`、静的可変、外部関数。
 
-許可マクロ（v0）: `unreachable!` のみ（TS の `assertNever`）。`vec!`・`format!`・`todo!`・`panic!` は拒否する。`Vec<T>` の値は、期待型が `Vec<T>` の配列リテラル `[a, b]` で作る。
+許可マクロ（v0）: `unreachable!` のみ（TS の `assertNever`）。`vec!`・`format!`・`todo!`・`panic!` は拒否する。`Vec<T>` は、期待型が `Vec<T>` の配列リテラル `[a, b]` で作り、添字と `len` で読む。状態の中で伸ばす列は再帰 enum で書く（design/02 §1.1）。
 
 ### 5.3 モジュールと公開面
 

@@ -21,6 +21,25 @@ PureCrate の出力は、kamae-ts のドメイン層（Discriminated Union / 純
 | `assertNever` | `switch` の default |
 | class / メソッド記法を避ける | `impl` は Companion の関数プロパティへ |
 
+## 1.1 状態と列（2026-09-28）
+
+kamae の状態は、段階ごとの `Readonly` な値である。遷移は次の状態を返す。起きたことは状態に積まず、別の値として呼び出し側が扱う。永続化が状態とイベントを同時に書くのは、生成パッケージの外である。
+
+要素が増減する列は、状態の中の可変配列にしない。再帰 enum で新しい列を返す。これは kamae の `[...lines, line]` や `filter` に当たる。
+
+```rust
+pub enum Lines {
+    Empty,
+    Cons(Line, Box<Lines>),
+}
+
+pub fn cons(line: Line, lines: Lines) -> Lines {
+    Lines::Cons(line, Box::new(lines))
+}
+```
+
+`Vec<T>` は、呼び出し側が長さを決めた列を、添字と `len` で読む型である。遷移の中で `Vec` を伸ばす、要素を抜く、要素を置き換える操作は v0 に入れない。
+
 ## 2. 生成しないもの
 
 kamae-ts のうち、閉じた純粋クレートを越えるもの。
