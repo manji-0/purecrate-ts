@@ -83,7 +83,7 @@ impl Cx {
         let mut enums = HashSet::new();
         let mut structs = HashSet::new();
         let mut variant_owner = HashMap::new();
-        for item in &file.items {
+        for item in file.items.iter().filter(|i| !is_test_only(i)) {
             match item {
                 SynItem::Enum(e) => {
                     enums.insert(e.ident.to_string());
@@ -117,6 +117,51 @@ impl Cx {
     }
 }
 
+/// Attributes that would make the emitted TS disagree with the Rust build if
+/// they were dropped. Everything else (`derive`, `doc`, lints) is inert here.
+fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
+    for attr in attrs {
+        let path = attr.path();
+        let message = if path.is_ident("serde") {
+            "`#[serde(...)]` changes the JSON shape, which v0 does not model yet; \
+             remove it or keep this type out of the crate"
+        } else if path.is_ident("cfg") || path.is_ident("cfg_attr") {
+            "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`"
+        } else {
+            continue;
+        };
+        return Err(ParseError::new(message).or_at(attr.span()));
+    }
+    Ok(())
+}
+
+fn reject_field_attrs(fields: &SynFields) -> Result<(), ParseError> {
+    fields.iter().try_for_each(|f| reject_attrs(&f.attrs))
+}
+
+fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
+    match item {
+        SynItem::Enum(e) => &e.attrs,
+        SynItem::Struct(s) => &s.attrs,
+        SynItem::Fn(f) => &f.attrs,
+        SynItem::Type(t) => &t.attrs,
+        SynItem::Impl(i) => &i.attrs,
+        SynItem::Use(u) => &u.attrs,
+        SynItem::Mod(m) => &m.attrs,
+        _ => &[],
+    }
+}
+
+/// `#[cfg(test)]` items are absent from the build the TS mirrors.
+pub fn is_test_only(item: &SynItem) -> bool {
+    item_attrs(item).iter().any(|attr| {
+        attr.path().is_ident("cfg")
+            && attr
+                .parse_args::<syn::Ident>()
+                .is_ok_and(|id| id == "test")
+    })
+}
+
 /// Each lowered item paired with the location of its name.
 pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, ParseError> {
     let span = item.span();
@@ -135,6 +180,7 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
             .collect(),
         _ => Vec::new(),
     };
+    reject_attrs(item_attrs(&item))?;
     let items = lower_item_node(cx, item).map_err(|e| e.or_at(span))?;
     Ok(items.into_iter().zip(names).collect())
 }
@@ -170,6 +216,8 @@ fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
     }
     let mut variants = Vec::new();
     for v in &e.variants {
+        reject_attrs(&v.attrs)?;
+        reject_field_attrs(&v.fields)?;
         variants.push(Variant {
             name: Name::new(v.ident.to_string()),
             fields: lower_fields(&v.fields)?,
@@ -186,6 +234,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
     if !s.generics.params.is_empty() {
         return Err(ParseError::new("generic structs are not in v0"));
     }
+    reject_field_attrs(&s.fields)?;
     let fields = match &s.fields {
         SynFields::Named(n) => n
             .named
@@ -317,7 +366,8 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     let mut out = Vec::new();
     for item in &imp.items {
         let lowered = match item {
-            syn::ImplItem::Fn(f) => lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block),
+            syn::ImplItem::Fn(f) => reject_attrs(&f.attrs)
+                .and_then(|()| lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block)),
             _ => Err(ParseError::new("only methods in impl blocks in v0")),
         };
         out.push(Item::Fn(lowered.map_err(|e| e.or_at(item.span()))?));

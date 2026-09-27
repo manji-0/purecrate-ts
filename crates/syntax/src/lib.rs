@@ -23,7 +23,7 @@ pub fn parse_source_spanned(
     let mut cx = item::Cx::scan(&file);
     let mut items: Vec<Item> = Vec::new();
     let mut spans: Vec<LineCol> = Vec::new();
-    for syn_item in file.items {
+    for syn_item in file.items.into_iter().filter(|i| !item::is_test_only(i)) {
         for (item, at) in item::lower_item(&mut cx, syn_item)? {
             items.push(item);
             spans.push(at);
@@ -103,6 +103,36 @@ mod tests {
 
         let (_, _, msg) = error_at("pub fn f(self) -> i32 { 0 }");
         assert!(msg.contains("outside an impl"), "{msg}");
+    }
+
+    #[test]
+    fn attributes_that_change_the_build_are_rejected_in_place() {
+        let (line, col, msg) = error_at(
+            "#[derive(Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct S { pub total_count: i64 }",
+        );
+        assert_eq!((line, col), (2, 1), "{msg}");
+        assert!(msg.contains("`#[serde(...)]` changes the JSON shape"), "{msg}");
+
+        let (line, col, msg) = error_at("pub struct S {\n    #[serde(rename = \"n\")]\n    pub count: i64,\n}");
+        assert_eq!((line, col), (2, 5), "{msg}");
+
+        let (line, _, msg) = error_at("pub enum E {\n    #[serde(rename = \"a\")]\n    A,\n}");
+        assert_eq!(line, 2, "{msg}");
+
+        let (_, _, msg) = error_at("#[cfg(feature = \"x\")]\npub fn f() -> i32 { 0 }");
+        assert!(msg.contains("conditional compilation"), "{msg}");
+
+        let (_, _, msg) = error_at("#[cfg_attr(feature = \"x\", serde(tag = \"t\"))]\npub struct S { pub n: i32 }");
+        assert!(msg.contains("conditional compilation"), "{msg}");
+    }
+
+    #[test]
+    fn inert_attributes_and_test_modules_are_accepted() {
+        let src = "/// Doc.\n#[derive(Debug, Clone, Serialize, Deserialize)]\n#[allow(dead_code)]\n\
+                   pub struct S { #[doc = \"n\"] pub n: i32 }\n\
+                   #[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n";
+        let krate = parse_source("c", src).expect("parse");
+        assert_eq!(krate.items.len(), 1);
     }
 
     #[test]

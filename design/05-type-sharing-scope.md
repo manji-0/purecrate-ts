@@ -46,6 +46,8 @@ struct と enum だけの crate も受理され、型と companion（`of` とバ
 
 `#[derive(Serialize)] #[serde(rename_all = "camelCase")] pub struct State { pub total_count: i64 }` を与えると、エラーなしで `total_count: bigint` が出る。サーバーの JSON は `totalCount` である。v0 の「構文を黙って落とさない」方針に反する。
 
+**対応済み（TODO 21）**: item、バリアント、フィールド、メソッドに付いた `#[serde(...)]` を位置つきで拒否する。`#[cfg]` と `#[cfg_attr]` も拒否する（生成物は条件付きコンパイルを再現できず、`cfg_attr` は serde 属性を差し込めるため）。`#[cfg(test)]` の item は通常のビルドに存在しないので読み飛ばす。`derive`、`doc`、lint 属性は通す。
+
 ### 2.4 64 ビット整数は `JSON.parse` で精度を失う
 
 `JSON.parse('{"a":9007199254740993}').a` は `9007199254740992` になる。Node 24 では、reviver の第 3 引数から数値の元の文字列を読めるので、`BigInt` へ無損失で変換できる。書き出しにも `JSON.rawJSON` が使える。どちらも ES2025 の JSON.parse source text access。Hermes（React Native）が対応しているかは未確認である。対応していなければ、小さな JSON パーサを生成物に含める必要がある。
@@ -71,6 +73,8 @@ struct と enum だけの crate も受理され、型と companion（`of` とバ
 - **D は C の特殊ケース。** `tag = "kind"` の型は表現が一致するので、生成するコーデックが小さくなる。新規プロジェクトでは推奨の形にできる。C の後に追加する。
 
 ## 5. 推奨
+
+**決定（2026-09-27）**: C（境界コーデック）を採る。着手順は 1（serde 属性の拒否）、次に design/04 §4-3（`?`・`if let`・`Option`・`let mut`）とする。
 
 1. **すぐやる（小）：serde 属性の検出と拒否。** `#[derive(Serialize, Deserialize)]` だけなら通す。`#[serde(...)]` は、対応するまで位置つきで拒否する。§2.3 の「黙って誤る」状態をなくすためで、どの方針でも必要。
 2. **受理率の計測（design/04 §4-2）に DTO 系の crate も含める。** C の投資判断に使う。ジェネリクスと外部型で大半が落ちるなら、C の対象は「状態機械の State と Event」に絞る。
