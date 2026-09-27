@@ -11,6 +11,10 @@ pub enum Prim {
     U16,
     U32,
     U64,
+    /// 64-bit Rust `usize`, printed as `number` and checked only up to
+    /// 2^53−1. Past that, Rust debug does not panic and the generated code
+    /// does. That is the one stated non-equivalence (design/04 §1.5).
+    Usize,
     F32,
     F64,
     String,
@@ -27,10 +31,11 @@ pub enum IntTy {
     U16,
     U32,
     U64,
+    Usize,
 }
 
 impl IntTy {
-    pub const ALL: [IntTy; 8] = [
+    pub const ALL: [IntTy; 9] = [
         IntTy::I8,
         IntTy::I16,
         IntTy::I32,
@@ -39,6 +44,7 @@ impl IntTy {
         IntTy::U16,
         IntTy::U32,
         IntTy::U64,
+        IntTy::Usize,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -51,6 +57,7 @@ impl IntTy {
             IntTy::U16 => "u16",
             IntTy::U32 => "u32",
             IntTy::U64 => "u64",
+            IntTy::Usize => "usize",
         }
     }
 
@@ -64,6 +71,8 @@ impl IntTy {
             IntTy::U16 => (0, u16::MAX.into()),
             IntTy::U32 => (0, u32::MAX.into()),
             IntTy::U64 => (0, u64::MAX.into()),
+            // `Number.MAX_SAFE_INTEGER`, not `usize::MAX`.
+            IntTy::Usize => (0, 9_007_199_254_740_991),
         }
     }
 
@@ -98,6 +107,7 @@ impl From<IntTy> for Prim {
             IntTy::U16 => Prim::U16,
             IntTy::U32 => Prim::U32,
             IntTy::U64 => Prim::U64,
+            IntTy::Usize => Prim::Usize,
         }
     }
 }

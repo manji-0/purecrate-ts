@@ -73,7 +73,18 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// receiver is typed first only to find `T`; the call types it again.
     fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
         let before = self.out.len();
-        let (_, rt) = self.expr(receiver, None);
+        let (recv, rt) = self.expr(receiver, None);
+        if name.as_str() == "len" && args.is_empty() {
+            if let Some(rt) = &rt {
+                if matches!(self.norm(rt), Ty::Vec(_)) {
+                    let e = Expr::Call {
+                        callee: Callee::VecLen,
+                        args: vec![recv],
+                    };
+                    return (e, self.expect(want, Some(Ty::Prim(Prim::Usize))));
+                }
+            }
+        }
         let owner = rt.as_ref().and_then(|t| match self.norm(t) {
             Ty::Named(n) => {
                 let params = self.defs.methods.get(&(n.as_str(), name.as_str())).map(|f| f.params.len());
@@ -289,6 +300,25 @@ impl<'d, 'a> Typer<'d, 'a> {
                     base,
                 };
                 (e, self.expect(want, Some(want_ty)))
+            }
+            Expr::Index { base, index } => {
+                let (base, bt) = self.expr(base, None);
+                let elem = match bt.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(t)) => Some(*t),
+                    Some(other) => {
+                        self.error(Reason::Index, format!("cannot index `{}`", show(&other)));
+                        None
+                    }
+                    None => None,
+                };
+                let (index, _) = self.expr(index, Some(&Ty::Prim(Prim::Usize)));
+                (
+                    Expr::Index {
+                        base: Box::new(base),
+                        index: Box::new(index),
+                    },
+                    self.expect(want, elem),
+                )
             }
             Expr::Field { base, name } => {
                 let (base, bt) = self.expr(base, None);
@@ -861,6 +891,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::Fround => (
                 typed_args(self, vec![Ty::Prim(Prim::F64)]),
                 Some(Ty::Prim(Prim::F32)),
+            ),
+            Callee::VecLen => (
+                args.iter().map(|a| self.expr(a, None).0).collect(),
+                Some(Ty::Prim(Prim::Usize)),
             ),
         };
         let e = Expr::Call {

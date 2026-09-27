@@ -162,7 +162,8 @@ impl Refs {
                     | Callee::OptionSome
                     | Callee::OptionNone
                     | Callee::Int { .. }
-                    | Callee::Fround => {}
+                    | Callee::Fround
+                    | Callee::VecLen => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }
@@ -206,6 +207,10 @@ impl Refs {
                 self.expr(cond);
                 self.expr(then);
                 self.expr(else_);
+            }
+            Expr::Index { base, index } => {
+                self.expr(base);
+                self.expr(index);
             }
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }

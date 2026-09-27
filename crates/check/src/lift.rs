@@ -191,6 +191,11 @@ impl Lifter {
                 base: self.boxed(base, out),
                 name,
             },
+            Expr::Index { base, index } => {
+                let base = self.boxed(base, out);
+                let index = self.boxed(index, out);
+                Expr::Index { base, index }
+            }
             Expr::Unary { op, expr } => Expr::Unary {
                 op,
                 expr: self.boxed(expr, out),

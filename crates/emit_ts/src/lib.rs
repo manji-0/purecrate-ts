@@ -694,6 +694,11 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Var(n) => n.as_str().to_string(),
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),
         Expr::Field { base, name } => format!("{}.{n}", emit_expr(base, indent), n = name.as_str()),
+        Expr::Index { base, index } => format!(
+            "((($xs, $i) => {{ if (!Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new Error(`index out of bounds: the len is ${{$xs.length}} but the index is ${{$i}}`); return $xs[$i]; }})({}, {}))",
+            emit_expr(base, indent),
+            emit_expr(index, indent)
+        ),
         Expr::Binary { op, left, right } => format!(
             "{} {} {}",
             operand(left, indent),
@@ -749,7 +754,11 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
                 purecrate_ir::Callee::Fround => "Math.fround".into(),
+                purecrate_ir::Callee::VecLen => String::new(),
             };
+            if matches!(callee, purecrate_ir::Callee::VecLen) {
+                return format!("({}).length", emit_expr(&args[0], indent));
+            }
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
             }
@@ -1008,6 +1017,10 @@ impl Refs {
             | Expr::Assign { value: base, .. }
             | Expr::Try { expr: base, .. } => {
                 self.expr(krate, base)
+            }
+            Expr::Index { base, index } => {
+                self.expr(krate, base);
+                self.expr(krate, index);
             }
             Expr::Binary { left, right, .. } | Expr::Seq { first: left, then: right } => {
                 self.expr(krate, left);

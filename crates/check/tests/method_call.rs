@@ -22,6 +22,16 @@ fn receiver_calls_resolve_to_the_crates_own_methods() {
 }
 
 #[test]
+fn vec_len_and_index_are_accepted() {
+    assert_clean("pub fn f(xs: Vec<i32>) -> usize { xs.len() }");
+    assert_clean("pub fn f(xs: Vec<i32>, i: usize) -> i32 { xs[i] }");
+    assert_clean("pub fn f(xs: &[i32]) -> i32 { if xs.len() == 0 { 0 } else { xs[0] } }");
+    assert_rejects("pub fn f(xs: Vec<i32>) -> i32 { xs[0i32] }", "expected `usize`, found `i32`");
+    assert_rejects("pub fn f(s: String) -> usize { s.len() }", "`.len()` on `String` is not in v0");
+    assert_rejects("pub fn f(s: String) -> i32 { s[0] }", "cannot index `String`");
+}
+
+#[test]
 fn receiver_calls_elsewhere_are_rejected_with_the_method_name() {
     assert_rejects("pub fn f(x: i32) -> i32 { x.abs() }", "`.abs()` on `i32` is not in v0");
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"), "`.missing()` on `Card`");

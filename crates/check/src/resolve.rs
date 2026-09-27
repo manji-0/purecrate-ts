@@ -241,6 +241,10 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(receiver);
                 args.iter().for_each(|a| self.expr(a));
             }
+            Expr::Index { base, index } => {
+                self.expr(base);
+                self.expr(index);
+            }
             Expr::Construct { ty, variant, fields, base } => {
                 self.construct(ty, variant.as_ref(), fields, base.is_some());
                 match fields {
@@ -338,6 +342,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc)
             }
             Callee::Fround => self.arity("`Math.fround`", 1, argc),
+            Callee::VecLen => self.arity("`Vec::len`", 1, argc),
         }
     }
 

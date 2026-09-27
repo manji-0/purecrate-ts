@@ -142,7 +142,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("`&mut` borrows are not in v0: {}", snippet(expr)),
         )),
         SynExpr::Reference(r) => lower_expr(cx, &r.expr),
-        SynExpr::Index(_) => Err(ParseError::new(Reason::Index, format!("indexing is not in v0: {}", snippet(expr)))),
+        SynExpr::Index(i) => Ok(Expr::Index {
+            base: Box::new(lower_expr(cx, &i.expr)?),
+            index: Box::new(lower_expr(cx, &i.index)?),
+        }),
         SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
         SynExpr::Cast(_) => Err(ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))),
         other => Err(ParseError::new(

@@ -196,6 +196,10 @@ impl Renamer {
                 base: self.boxed(base, env),
                 name,
             },
+            Expr::Index { base, index } => Expr::Index {
+                base: self.boxed(base, env),
+                index: self.boxed(index, env),
+            },
             Expr::Tuple(xs) => Expr::Tuple(self.all(xs, env)),
             Expr::Array(xs) => Expr::Array(self.all(xs, env)),
             Expr::Binary { op, left, right } => Expr::Binary {

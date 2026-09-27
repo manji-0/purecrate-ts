@@ -85,6 +85,8 @@ pub enum Callee {
     ResultErr,
     OptionSome,
     OptionNone,
+    /// `Vec::len`. The argument is the vector. Prints as `.length`.
+    VecLen,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -198,6 +200,12 @@ pub enum Expr {
         base: Box<Expr>,
         name: Name,
     },
+    /// `base[index]` where `base` is a `Vec`. Evaluated base, then index.
+    /// Out of range throws Rust's slice-index panic message.
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
     /// `|params| body`. Captured bindings are never `let mut`, so capturing
@@ -273,6 +281,7 @@ impl Expr {
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
             | Expr::Try { expr: base, .. } => vec![base],
+            Expr::Index { base, index } => vec![base, index],
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
@@ -306,6 +315,7 @@ impl Expr {
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
             | Expr::Try { expr: base, .. } => vec![base],
+            Expr::Index { base, index } => vec![base, index],
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],

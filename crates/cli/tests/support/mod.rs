@@ -25,7 +25,7 @@ macro_rules! js_number {
         }
     )*};
 }
-js_number!(i8, i16, i32, u8, u16, u32, bool);
+js_number!(i8, i16, i32, u8, u16, u32, usize, bool);
 
 macro_rules! js_bigint {
     ($($t:ty),*) => {$(
@@ -63,6 +63,18 @@ impl Js for str {
     }
 }
 
+impl<T: Js> Js for [T] {
+    fn js(&self) -> String {
+        format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
+    }
+}
+
+impl<T: Js> Js for Vec<T> {
+    fn js(&self) -> String {
+        self.as_slice().js()
+    }
+}
+
 impl<T: Js> Js for Option<T> {
     fn js(&self) -> String {
         match self {
@@ -88,7 +100,7 @@ macro_rules! show_plain {
         }
     )*};
 }
-show_plain!(i8, i16, i32, i64, u8, u16, u32, u64, bool);
+show_plain!(i8, i16, i32, i64, u8, u16, u32, u64, usize, bool);
 
 impl Show for f32 {
     const FLOAT: bool = true;

@@ -161,7 +161,8 @@ Expr =
 | `i64`, `u64` | `bigint` |
 | `String`・`&str` | `string`（長さ・添字は UTF-8 バイト単位を再現する。design/04 §1.5） |
 | `char` | 1 コードポイントのブランド付き `string`（予定。design/04 §1.5） |
-| `usize`・`isize` | 2^53−1 まで検査する `number`（予定。design/04 §1.5） |
+| `usize` | 0 から 2^53−1 まで検査する `number`（design/04 §1.5）。`Vec` の添字と `len` の型 |
+| `isize` | 未対応 |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |
 | `Result<T,E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
