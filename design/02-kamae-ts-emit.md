@@ -155,7 +155,32 @@ export const State = {
 } as const;
 ```
 
-レシーバは第一引数。`this` は出さない。
+レシーバは第一引数。`this` は出さない。共有参照（`&self`・`&T`・`&str`・`&[T]`）は値と同じに写す。生成 TS は値を変異させず、内部可変性の型は拒否しているので、参照と値を区別する必要がない。`&mut` は拒否する。
+
+`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。
+
+## 6.1 newtype
+
+1 要素のタプル構造体は、ブランド付きの中身の型にする。実行時の値は中身そのもので、serde の JSON 表現（newtype は中身として直列化される）とも一致する。
+
+```rust
+pub struct Meters(i32);
+impl Meters {
+    pub fn plus(&self, other: &Meters) -> Self { Self(self.0 + other.0) }
+}
+```
+
+```ts
+declare const MetersBrand: unique symbol;
+export type Meters = number & { readonly [MetersBrand]: true };
+
+export const Meters = {
+  of: (value: number): Meters => value as Meters,
+  plus: (self: Meters, other: Meters): Meters => Meters.of(Int.i32.add(self, other)),
+} as const;
+```
+
+`.0` は値そのものになる。ブランドの鍵を `unique symbol` にするのは、newtype の newtype で鍵が衝突しないようにするため。中身が `Option`・`()`・`!`（別名経由を含む）の newtype は拒否する。`null & { ... }` は `never` になり、ブランドを付けられない。2 要素以上のタプル構造体は v0 の範囲外。
 
 ## 7. テストデータ
 

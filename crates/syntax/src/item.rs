@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Enum, Field, Fn, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis,
+    Alias, Enum, Field, Fn, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
+use syn::visit_mut::{self, VisitMut};
 use syn::{Fields as SynFields, Item as SynItem, Visibility};
 
 use crate::expr::lower_block;
@@ -87,6 +88,7 @@ pub struct Cx {
     enums: HashSet<String>,
     structs: HashSet<String>,
     variant_owner: HashMap<String, String>,
+    variants: HashSet<(String, String)>,
 }
 
 impl Cx {
@@ -98,12 +100,14 @@ impl Cx {
         let mut enums = HashSet::new();
         let mut structs = HashSet::new();
         let mut variant_owner = HashMap::new();
+        let mut variants = HashSet::new();
         for item in items {
             match item {
                 SynItem::Enum(e) => {
                     enums.insert(e.ident.to_string());
                     for v in &e.variants {
                         variant_owner.insert(v.ident.to_string(), e.ident.to_string());
+                        variants.insert((e.ident.to_string(), v.ident.to_string()));
                     }
                 }
                 SynItem::Struct(s) => {
@@ -116,7 +120,12 @@ impl Cx {
             enums,
             structs,
             variant_owner,
+            variants,
         }
+    }
+
+    pub fn is_variant(&self, ty: &str, variant: &str) -> bool {
+        self.variants.contains(&(ty.to_string(), variant.to_string()))
     }
 
     pub fn is_enum(&self, name: &str) -> bool {
@@ -212,7 +221,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
         SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
         SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block)?)]),
         SynItem::Type(t) => {
-            if t.generics.params.is_empty() {
+            if !has_type_generics(&t.generics) {
                 Ok(vec![Item::Alias(Alias {
                     vis: lower_vis(&t.vis),
                     name: Name::new(t.ident.to_string()),
@@ -234,7 +243,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
 }
 
 fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
-    if !e.generics.params.is_empty() {
+    if has_type_generics(&e.generics) {
         return Err(ParseError::new(Reason::Generics, "generic enums are not in v0"));
     }
     let mut variants = Vec::new();
@@ -254,7 +263,7 @@ fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
 }
 
 fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
-    if !s.generics.params.is_empty() {
+    if has_type_generics(&s.generics) {
         return Err(ParseError::new(Reason::Generics, "generic structs are not in v0"));
     }
     reject_field_attrs(&s.fields)?;
@@ -270,8 +279,15 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
             })
             .collect::<Result<Vec<_>, _>>()?,
         SynFields::Unit => Vec::new(),
+        SynFields::Unnamed(u) if u.unnamed.len() == 1 => vec![Field {
+            name: Name::new(NEWTYPE_FIELD),
+            ty: lower_type(&u.unnamed[0].ty)?,
+        }],
         SynFields::Unnamed(_) => {
-            return Err(ParseError::new(Reason::TupleStruct, "tuple structs are not in v0"))
+            return Err(ParseError::new(
+                Reason::TupleStruct,
+                "tuple structs with more than one field are not in v0; name the fields",
+            ))
         }
     };
     Ok(Struct {
@@ -330,7 +346,7 @@ fn lower_fn(
     if let Some(abi) = &sig.abi {
         return reject("extern abi", abi.span());
     }
-    if !sig.generics.params.is_empty() {
+    if has_type_generics(&sig.generics) {
         return Err(ParseError::new(Reason::Generics, "generic functions are not in v0").or_at(sig.generics.span()));
     }
     let mut params = Vec::new();
@@ -354,8 +370,9 @@ fn lower_fn(
 fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseError> {
     match input {
         syn::FnArg::Receiver(r) => match owner {
-            Some(_) if r.reference.is_some() => Err(ParseError::new(Reason::RefReceiver, 
-                "reference receivers are not allowed; take self by value",
+            Some(_) if r.reference.is_some() && r.mutability.is_some() => Err(ParseError::new(
+                Reason::RefReceiver,
+                "`&mut self` is not in v0: take `self` and return the new value",
             )),
             Some(owner) => Ok(Param {
                 name: Name::new("self"),
@@ -381,27 +398,51 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     if imp.trait_.is_some() {
         return Err(ParseError::new(Reason::TraitImpl, "trait impls are not in v0"));
     }
-    if !imp.generics.params.is_empty() {
+    if has_type_generics(&imp.generics) {
         return Err(ParseError::new(Reason::Generics, "generic impls are not in v0"));
     }
-    let owner = match &*imp.self_ty {
-        syn::Type::Path(p) if p.path.segments.len() == 1 => {
-            Name::new(p.path.segments[0].ident.to_string())
-        }
+    let owner_ident = match &*imp.self_ty {
+        syn::Type::Path(p) if p.path.segments.len() == 1 => p.path.segments[0].ident.clone(),
         _ => {
             return Err(ParseError::new(Reason::ImplShape, "impl type must be a simple name").or_at(imp.self_ty.span()))
         }
     };
+    let owner = Name::new(owner_ident.to_string());
     let mut out = Vec::new();
     for item in &imp.items {
         let lowered = match item {
-            syn::ImplItem::Fn(f) => reject_attrs(&f.attrs)
-                .and_then(|()| lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block)),
+            syn::ImplItem::Fn(f) => reject_attrs(&f.attrs).and_then(|()| {
+                let mut f = f.clone();
+                SelfIsOwner(&owner_ident).visit_impl_item_fn_mut(&mut f);
+                lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block)
+            }),
             _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
         };
         out.push(Item::Fn(lowered.map_err(|e| e.or_at(item.span()))?));
     }
     Ok(out)
+}
+
+/// Rewrites `Self` to the impl's type name in types, paths and patterns.
+/// Nested items keep their own `Self`.
+struct SelfIsOwner<'a>(&'a syn::Ident);
+
+impl VisitMut for SelfIsOwner<'_> {
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        if let Some(first) = path.segments.first_mut() {
+            if first.ident == "Self" {
+                first.ident = syn::Ident::new(&self.0.to_string(), first.ident.span());
+            }
+        }
+        visit_mut::visit_path_mut(self, path);
+    }
+
+    fn visit_item_mut(&mut self, _: &mut SynItem) {}
+}
+
+/// Lifetimes only relate references, which lower to plain values.
+fn has_type_generics(generics: &syn::Generics) -> bool {
+    generics.params.iter().any(|p| !matches!(p, syn::GenericParam::Lifetime(_)))
 }
 
 fn lower_vis(vis: &Visibility) -> Vis {

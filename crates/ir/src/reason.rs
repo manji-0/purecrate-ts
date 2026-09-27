@@ -72,6 +72,7 @@ pub enum Reason {
     Position,
     ImmutableAssign,
     TryConversion,
+    NewtypeInner,
 }
 
 impl Reason {
@@ -137,6 +138,7 @@ impl Reason {
             Reason::Position => "check/position",
             Reason::ImmutableAssign => "check/immutable-assign",
             Reason::TryConversion => "check/try-conversion",
+            Reason::NewtypeInner => "check/newtype-inner",
         }
     }
 }

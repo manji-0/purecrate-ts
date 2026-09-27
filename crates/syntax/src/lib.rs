@@ -74,11 +74,11 @@ mod tests {
     #[test]
     fn errors_point_at_the_offending_node() {
         let src = "pub struct S { pub n: i32 }\n\
-                   pub fn f(s: S) -> i32 {\n    let r = &s;\n    0\n}\n";
+                   pub fn f(s: S) -> i32 {\n    let r = &mut s;\n    0\n}\n";
         let (line, col, msg) = error_at(src);
         assert_eq!((line, col), (3, 13), "{msg}");
 
-        assert_eq!(error_at(src).2, "borrowing is not in v0: `&s`");
+        assert_eq!(error_at(src).2, "`&mut` borrows are not in v0: `&mut s`");
 
         let (line, col, msg) = error_at("pub fn f(x: Box<i32>) -> i32 { 0 }");
         assert_eq!((line, col), (1, 13), "{msg}");
@@ -116,11 +116,41 @@ mod tests {
         assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
         assert_eq!(reason("pub fn f<T>(x: T) -> i32 { 0 }").0, Reason::Generics);
         assert_eq!(reason("pub fn f(x: usize) -> i32 { 0 }"), (Reason::DisallowedType, Some("usize".into())));
+        assert_eq!(reason("pub fn f() -> Self { 0 }").0, Reason::SelfType);
+        assert_eq!(reason("pub fn f(x: &mut i32) -> i32 { 0 }").0, Reason::RefType);
+        assert_eq!(reason("pub struct S { pub n: i32 } impl S { pub fn f(&mut self) {} }").0, Reason::RefReceiver);
+        assert_eq!(reason("pub struct P(i32, i32);").0, Reason::TupleStruct);
+        assert_eq!(reason("pub fn f(x: (i32, i32)) -> i32 { x.1 }").0, Reason::TupleField);
+    }
+
+    #[test]
+    fn shared_references_self_and_newtypes_lower_to_values() {
+        use purecrate_ir::{Callee, Expr, Item, Name, Ty};
+        let krate = parse_source(
+            "c",
+            "pub struct Id(u32);
+             impl Id {
+                 pub fn new(n: &u32) -> Self { Self(*n) }
+                 pub fn get(&self) -> u32 { self.0 }
+             }
+             pub fn tags(ids: &[Id], name: &str) -> String { let _x = &ids; name }",
+        )
+        .expect("parse")
+        .items;
+        let Item::Struct(id) = &krate[0] else { panic!("struct") };
+        assert_eq!(id.newtype_inner(), Some(&Ty::Prim(purecrate_ir::Prim::U32)));
+        let Item::Fn(new) = &krate[1] else { panic!("fn") };
+        assert_eq!(new.ret, Ty::Named(Name::new("Id")));
         assert_eq!(
-            reason("pub struct S { pub n: i32 } impl S { pub fn new() -> S { Self::of(1) } }"),
-            (Reason::SelfType, Some("Self::of".into()))
+            new.body,
+            Expr::Call { callee: Callee::StructNew(Name::new("Id")), args: vec![Expr::var("n")] }
         );
-        assert_eq!(reason("pub struct S { pub n: i32 } impl S { pub fn f(self) -> Self { self } }").0, Reason::SelfType);
+        let Item::Fn(get) = &krate[2] else { panic!("fn") };
+        assert_eq!(get.params[0].ty, Ty::Named(Name::new("Id")));
+        assert_eq!(get.body, Expr::Field { base: Box::new(Expr::var("self")), name: Name::new("0") });
+        let Item::Fn(tags) = &krate[3] else { panic!("fn") };
+        assert_eq!(tags.params[0].ty, Ty::Vec(Box::new(Ty::Named(Name::new("Id")))));
+        assert_eq!(tags.params[1].ty, Ty::Prim(purecrate_ir::Prim::String));
     }
 
     #[test]

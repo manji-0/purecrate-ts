@@ -94,7 +94,7 @@ fn rejected_crate_reports_locations_and_leaves_out_alone() {
 fn parse_errors_also_leave_out_alone() {
     let dir = scratch("parse");
     let src = dir.join("bad.rs");
-    fs::write(&src, "pub struct S { pub n: i32 }\npub fn f(s: S) -> i32 {\n    let r = &s;\n    0\n}\n")
+    fs::write(&src, "pub struct S { pub n: i32 }\npub fn f(s: S) -> i32 {\n    let r = &mut s;\n    0\n}\n")
         .expect("write source");
     let out = dir.join("pkg");
 
@@ -102,7 +102,7 @@ fn parse_errors_also_leave_out_alone() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     assert!(
-        stderr.contains(&format!("{}:3:13: [expr/borrow] borrowing is not in v0: `&s`", src.display())),
+        stderr.contains(&format!("{}:3:13: [expr/borrow] `&mut` borrows are not in v0: `&mut s`", src.display())),
         "{stderr}"
     );
     assert!(!out.exists());

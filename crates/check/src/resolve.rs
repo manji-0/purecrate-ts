@@ -1,7 +1,9 @@
 //! Every name the emitted TS will reference must exist in the crate, with the
 //! shape the reference assumes. There is no rustc pass behind the parser.
 
-use purecrate_ir::{Callee, Crate, Expr, Fields, Item, Name, Pattern, Reason, Ty, VariantBind, VariantFields};
+use purecrate_ir::{
+    Callee, Crate, Expr, Fields, Item, Name, Pattern, Prim, Reason, Ty, VariantBind, VariantFields,
+};
 
 use crate::defs::Defs;
 use crate::Diagnostic;
@@ -17,7 +19,16 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
             scopes: Vec::new(),
         };
         match item {
-            Item::Struct(s) => s.fields.iter().for_each(|f| cx.ty(&f.ty)),
+            Item::Struct(s) => {
+                s.fields.iter().for_each(|f| cx.ty(&f.ty));
+                if let Some(inner) = s.newtype_inner().filter(|t| cx.is_nullish(t)) {
+                    cx.error(Reason::NewtypeInner, format!(
+                        "`{}` wraps `{}`, which is `null` or `undefined` in TS and cannot carry a brand",
+                        s.name.as_str(),
+                        crate::types::show(inner)
+                    ));
+                }
+            }
             Item::Enum(e) => {
                 for v in &e.variants {
                     match &v.fields {
@@ -88,6 +99,22 @@ impl<'a> Cx<'_, 'a> {
             }
             Ty::Tuple(ts) => ts.iter().for_each(|t| self.ty(t)),
         }
+    }
+
+    /// `Option`, `()` or `!`, looking through aliases.
+    fn is_nullish(&self, ty: &Ty) -> bool {
+        let mut t = ty;
+        for _ in 0..32 {
+            match t {
+                Ty::Option(_) | Ty::Prim(Prim::Unit) | Ty::Never => return true,
+                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
+                    Some(a) => t = &a.ty,
+                    None => return false,
+                },
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// Through aliases; alias cycles stop after a fixed depth.

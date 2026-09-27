@@ -1,5 +1,6 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp, VariantBind,
+    NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
@@ -19,6 +20,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Member::Named(id) => Ok(Expr::Field {
                 base: Box::new(lower_expr(cx, &f.base)?),
                 name: Name::new(id.to_string()),
+            }),
+            Member::Unnamed(i) if i.index == 0 => Ok(Expr::Field {
+                base: Box::new(lower_expr(cx, &f.base)?),
+                name: Name::new(NEWTYPE_FIELD),
             }),
             Member::Unnamed(_) => Err(ParseError::new(Reason::TupleField, "tuple field access is not in v0")),
         },
@@ -43,6 +48,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             left: Box::new(lower_expr(cx, &b.left)?),
             right: Box::new(lower_expr(cx, &b.right)?),
         }),
+        SynExpr::Unary(u) if matches!(u.op, SynUnOp::Deref(_)) => lower_expr(cx, &u.expr),
         SynExpr::Unary(u) => Ok(Expr::Unary {
             op: lower_un(u.op)?,
             expr: Box::new(lower_expr(cx, &u.expr)?),
@@ -125,9 +131,11 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::ForLoop(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
             Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))
         }
-        SynExpr::Reference(_) => Err(
-            ParseError::new(Reason::Borrow, format!("borrowing is not in v0: {}", snippet(expr))),
-        ),
+        SynExpr::Reference(r) if r.mutability.is_some() => Err(ParseError::new(
+            Reason::Borrow,
+            format!("`&mut` borrows are not in v0: {}", snippet(expr)),
+        )),
+        SynExpr::Reference(r) => lower_expr(cx, &r.expr),
         SynExpr::Index(_) => Err(ParseError::new(Reason::Index, format!("indexing is not in v0: {}", snippet(expr)))),
         SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
         SynExpr::Cast(_) => Err(ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))),
@@ -335,10 +343,15 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::ResultErr
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
-            } else if segs.len() == 2 && cx.is_enum(&segs[0]) {
+            } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {
                 Callee::Variant {
                     ty: Name::new(segs[0].clone()),
                     variant: Name::new(segs[1].clone()),
+                }
+            } else if segs.len() == 2 && (cx.is_enum(&segs[0]) || cx.is_struct(&segs[0])) {
+                Callee::Method {
+                    ty: Name::new(segs[0].clone()),
+                    name: Name::new(segs[1].clone()),
                 }
             } else if segs.len() == 1 {
                 Callee::Fn(Name::new(segs[0].clone()))
@@ -606,7 +619,6 @@ fn lower_un(op: SynUnOp) -> Result<UnOp, ParseError> {
     match op {
         SynUnOp::Not(_) => Ok(UnOp::Not),
         SynUnOp::Neg(_) => Ok(UnOp::Neg),
-        SynUnOp::Deref(_) => Err(ParseError::new(Reason::Borrow, "dereferencing `*` is not in v0")),
         _ => Err(ParseError::new(Reason::UnsupportedOperator, "unsupported unary operator")),
     }
 }

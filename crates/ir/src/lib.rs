@@ -11,7 +11,7 @@ mod reason;
 mod ty;
 
 pub use expr::{Arm, BinOp, Callee, Expr, Fields, IntOp, Lit, Pattern, TryOn, UnOp, VariantBind};
-pub use item::{Alias, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis};
+pub use item::{Alias, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD};
 pub use krate::Crate;
 pub use name::{to_kebab, Name};
 pub use reason::Reason;

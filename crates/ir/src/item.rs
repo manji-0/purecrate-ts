@@ -29,11 +29,25 @@ pub struct Variant {
     pub fields: VariantFields,
 }
 
+/// Field name of a newtype's single element (`struct Id(u32)` → `id.0`).
+/// Named fields cannot start with a digit, so this marks the shape.
+pub const NEWTYPE_FIELD: &str = "0";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Struct {
     pub vis: Vis,
     pub name: Name,
     pub fields: Vec<Field>,
+}
+
+impl Struct {
+    /// The wrapped type of a one-element tuple struct.
+    pub fn newtype_inner(&self) -> Option<&Ty> {
+        match self.fields.as_slice() {
+            [f] if f.name.as_str() == NEWTYPE_FIELD => Some(&f.ty),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

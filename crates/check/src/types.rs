@@ -13,7 +13,7 @@
 use purecrate_ir::{
     Reason,
     Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Pattern, Prim, TryOn,
-    Ty, UnOp, VariantBind, VariantFields,
+    Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
 use crate::defs::Defs;
@@ -154,16 +154,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                         name.as_str()
                     ));
                 }
-                // TS infers a `let` from its first value (`null` stays `null`),
-                // and a value printed as statements is declared before it is
-                // assigned, so both need the type written out.
-                let annotation = ty.clone().or_else(|| {
-                    bound.clone().filter(|t| {
-                        *t != Ty::Never
-                            && (*mutable
-                                || value.needs_statements() && !matches!(value, Expr::Try { .. }))
-                    })
-                });
+                // TS widens an unannotated binding (`kind: "Walk"` becomes
+                // `kind: string`, `null` stays `null`), so the type is always
+                // written out when known.
+                let annotation = ty.clone().or_else(|| bound.clone().filter(|t| *t != Ty::Never));
                 self.scopes.push((name.as_str().to_string(), bound));
                 let (then, tt) = self.expr(then, want);
                 self.scopes.pop();
@@ -230,7 +224,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Field { base, name } => {
                 let (base, bt) = self.expr(base, None);
-                let t = bt.and_then(|bt| match self.norm(&bt) {
+                let t = bt.as_ref().and_then(|bt| match self.norm(bt) {
                     Ty::Named(s) => self
                         .defs
                         .structs
@@ -239,6 +233,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                         .map(|f| f.ty.clone()),
                     _ => None,
                 });
+                if let (None, Some(bt)) = (&t, &bt) {
+                    if name.as_str() == NEWTYPE_FIELD {
+                        self.error(Reason::TupleField, format!(
+                            "`.0` is only in v0 on a one-field tuple struct, not on `{}`",
+                            show(bt)
+                        ));
+                    }
+                }
                 let e = Expr::Field {
                     base: Box::new(base),
                     name: name.clone(),
@@ -844,7 +846,7 @@ fn describe(pattern: &Pattern) -> &'static str {
     }
 }
 
-fn show(ty: &Ty) -> String {
+pub(crate) fn show(ty: &Ty) -> String {
     match ty {
         Ty::Prim(p) => match p {
             Prim::Bool => "bool".into(),

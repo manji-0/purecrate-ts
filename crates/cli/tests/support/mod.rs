@@ -50,6 +50,19 @@ impl Js for f64 {
     }
 }
 
+impl<T: Js + ?Sized> Js for &T {
+    fn js(&self) -> String {
+        (**self).js()
+    }
+}
+
+/// ASCII only: `{:?}` and a JS string literal agree there.
+impl Js for str {
+    fn js(&self) -> String {
+        format!("{self:?}")
+    }
+}
+
 impl<T: Js> Js for Option<T> {
     fn js(&self) -> String {
         match self {
@@ -88,6 +101,12 @@ impl Show for f64 {
     const FLOAT: bool = true;
     fn show(&self) -> String {
         self.to_bits().to_string()
+    }
+}
+
+impl Show for &str {
+    fn show(&self) -> String {
+        self.to_string()
     }
 }
 

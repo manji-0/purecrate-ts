@@ -11,7 +11,7 @@ pub fn area(s: Shape) -> i32 {
 }
 
 impl Shape {
-    pub fn describe(&self) -> i32 {
+    pub fn describe(&mut self) -> i32 {
         0
     }
 

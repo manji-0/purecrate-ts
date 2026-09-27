@@ -21,7 +21,16 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
             Ok(Ty::Tuple(elems))
         }
         Type::Array(_) | Type::Slice(_) => Err(ParseError::new(Reason::ArrayType, "arrays and slices are not in v0")),
-        Type::Reference(_) => Err(ParseError::new(Reason::RefType, "references are not allowed on the public surface")),
+        // Nothing emitted mutates through a shared reference, so `&T` and `T`
+        // are the same TS value. `&[T]` reads a sequence like `&str` reads a string.
+        Type::Reference(r) if r.mutability.is_some() => Err(ParseError::new(
+            Reason::RefType,
+            "`&mut` references are not in v0: return the new value instead",
+        )),
+        Type::Reference(r) => match &*r.elem {
+            Type::Slice(s) => Ok(Ty::Vec(Box::new(lower_type(&s.elem)?))),
+            elem => lower_type(elem),
+        },
         Type::Paren(p) => lower_type(&p.elem),
         Type::BareFn(_) | Type::ImplTrait(_) | Type::TraitObject(_) => Err(ParseError::new(
             Reason::FnType,
@@ -55,7 +64,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     let last = &path.segments[0];
     let name = last.ident.to_string();
     if name == "Self" {
-        return Err(ParseError::new(Reason::SelfType, "`Self` is not in v0; write the type's name"));
+        return Err(ParseError::new(Reason::SelfType, "`Self` outside an inherent impl is not in v0"));
     }
     if UNSUPPORTED_PRIMS.contains(&name.as_str()) {
         return Err(
@@ -90,7 +99,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
             let ok = args.pop().unwrap();
             Ok(Ty::result(ok, err))
         }
-        _ if last.arguments.is_empty() => Ok(Ty::Named(Name::new(name))),
+        _ if generics(&last.arguments)?.is_empty() => Ok(Ty::Named(Name::new(name))),
         _ => Err(ParseError::new(Reason::Generics, format!(
             "user generics are not in v0: {name}"
         ))),
@@ -111,6 +120,7 @@ fn generics(args: &PathArguments) -> Result<Vec<Ty>, ParseError> {
         PathArguments::AngleBracketed(a) => a
             .args
             .iter()
+            .filter(|g| !matches!(g, GenericArgument::Lifetime(_)))
             .map(|g| match g {
                 GenericArgument::Type(t) => lower_type(t),
                 _ => Err(ParseError::new(Reason::Generics, "only type generics are allowed")),
