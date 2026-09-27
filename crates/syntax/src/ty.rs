@@ -43,8 +43,8 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
 /// Primitives with no chosen TS form yet.
 const UNSUPPORTED_PRIMS: [&str; 4] = ["isize", "u128", "i128", "char"];
 
-const FORBIDDEN_CONTAINERS: [&str; 9] = [
-    "Box", "Rc", "Arc", "Cell", "RefCell", "Mutex", "HashMap", "BTreeMap", "HashSet",
+const FORBIDDEN_CONTAINERS: [&str; 8] = [
+    "Rc", "Arc", "Cell", "RefCell", "Mutex", "HashMap", "BTreeMap", "HashSet",
 ];
 
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
@@ -73,6 +73,11 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     }
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
         return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
+    }
+    // `Box<T>` is only the indirection rustc requires for a recursive type.
+    // The generated value is `T`; there is no allocation to preserve.
+    if name == "Box" {
+        return first_generic(&last.arguments);
     }
     match name.as_str() {
         "bool" => Ok(Ty::Prim(Prim::Bool)),

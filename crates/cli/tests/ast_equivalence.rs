@@ -1,0 +1,31 @@
+//! `Box<T>` is erased to `T`, so an owned recursive enum evaluates like Rust.
+
+#[macro_use]
+mod support;
+
+#[allow(dead_code)]
+mod ast {
+    include!("fixtures/ast.rs");
+}
+
+const SOURCE: &str = include_str!("fixtures/ast.rs");
+
+#[test]
+fn generated_recursive_enum_matches_rust() {
+    let ns = [-4i32, -1, 0, 2, 9];
+    let cases = support::quietly(|| {
+        let mut cases = Vec::new();
+        for n in ns {
+            cases.push(case!(ast::calc_num(n)));
+            cases.push(case!(ast::through(n)));
+            for m in ns {
+                cases.push(case!(ast::calc_add(n, m)));
+                for k in ns {
+                    cases.push(case!(ast::calc_nested(n, m, k)));
+                }
+            }
+        }
+        cases
+    });
+    support::assert_equivalent("ast", SOURCE, &cases);
+}

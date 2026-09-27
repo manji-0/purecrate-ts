@@ -405,6 +405,15 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     match func {
         SynExpr::Path(p) => {
             let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            if segs == ["Box", "new"] {
+                if args.len() != 1 {
+                    return Err(ParseError::new(
+                        Reason::ConstructShape,
+                        format!("`Box::new` takes 1 argument, got {}", args.len()),
+                    ));
+                }
+                return Ok(args.into_iter().next().unwrap());
+            }
             let callee = if segs == ["Some"] {
                 Callee::OptionSome
             } else if segs == ["None"] {
