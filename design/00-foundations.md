@@ -159,7 +159,9 @@ Expr =
 | `bool` | `boolean` |
 | `i8`..`i32`, `u8`..`u32`, `f32`, `f64` | `number` |
 | `i64`, `u64` | `bigint` |
-| `String` | `string` |
+| `String`・`&str` | `string`（長さ・添字は UTF-8 バイト単位を再現する。design/04 §1.5） |
+| `char` | 1 コードポイントのブランド付き `string`（予定。design/04 §1.5） |
+| `usize`・`isize` | 2^53−1 まで検査する `number`（予定。design/04 §1.5） |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |
 | `Result<T,E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
@@ -181,7 +183,7 @@ Expr =
 | `f64` の演算 | JS の演算子そのまま |
 | `i64`/`u64` のリテラル | `5n` |
 
-`Int` は生成物の `int.ts` にあり、名前 `Int`・`Math` とファイル名 `int` は予約する。推論は式木の中で閉じた双方向推論で、rustc が後続の使用から決める型や `i32`/`f64` への既定値は使わない。型が決まらない数値リテラルは、接尾辞（`1i64`）か `let x: T` の注釈を求めて拒否する。JS と Rust で結果が変わる比較（struct の `==`、`String` の大小比較）も拒否する。
+`Int` は生成物の `int.ts` にあり、名前 `Int`・`Math` とファイル名 `int` は予約する。推論は式木の中で閉じた双方向推論で、rustc が後続の使用から決める型や `i32`/`f64` への既定値は使わない。型が決まらない数値リテラルは、接尾辞（`1i64`）か `let x: T` の注釈を求めて拒否する。JS と Rust で結果が変わる比較（struct の `==`、`String` の大小比較）も拒否する。`String` と `char` の大小比較は、コードポイント順の比較関数（design/04 §1.5）を入れるまで拒否のままとする。
 
 ## 9. enum → ユニオン
 
