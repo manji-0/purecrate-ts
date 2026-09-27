@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Pattern, Prim, TryOn,
+    Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -67,6 +67,62 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn error(&mut self, reason: Reason, message: String) {
         self.out.push(Diagnostic::at(self.item, reason, message));
+    }
+
+    /// `x.m(args)` is `T::m(x, args)` for the crate's own `impl T`. The
+    /// receiver is typed first only to find `T`; the call types it again.
+    fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let before = self.out.len();
+        let (_, rt) = self.expr(receiver, None);
+        let owner = rt.as_ref().and_then(|t| match self.norm(t) {
+            Ty::Named(n) => {
+                let params = self.defs.methods.get(&(n.as_str(), name.as_str())).map(|f| f.params.len());
+                params.map(|p| (n, p))
+            }
+            _ => None,
+        });
+        match (owner, rt) {
+            (Some((ty, params)), _) => {
+                self.out.truncate(before);
+                if params != args.len() + 1 {
+                    self.error(Reason::ConstructShape, format!(
+                        "`{}.{}` takes {} argument(s) after the receiver, got {}",
+                        ty.as_str(),
+                        name.as_str(),
+                        params.saturating_sub(1),
+                        args.len()
+                    ));
+                }
+                let call = Expr::Call {
+                    callee: Callee::Method { ty, name: name.clone() },
+                    args: std::iter::once(receiver).chain(args).cloned().collect(),
+                };
+                self.expr(&call, want)
+            }
+            (None, Some(rt)) => {
+                self.out.push(
+                    Diagnostic::at(self.item, Reason::MethodCall, format!(
+                        "`.{}()` on `{}` is not in v0: only methods of the crate's own inherent impls",
+                        name.as_str(),
+                        show(&rt)
+                    ))
+                    .about(name.as_str()),
+                );
+                (receiver.clone(), None)
+            }
+            (None, None) => {
+                if self.out.len() == before {
+                    self.out.push(
+                        Diagnostic::at(self.item, Reason::NeedsAnnotation, format!(
+                            "the receiver type of `.{}()` is not known here; annotate the binding",
+                            name.as_str()
+                        ))
+                        .about(name.as_str()),
+                    );
+                }
+                (receiver.clone(), None)
+            }
+        }
     }
 
     fn func(mut self, f: &Fn) -> Fn {
@@ -209,6 +265,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, want),
             Expr::Call { callee, args } => self.call(callee, args, want),
+            Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
             Expr::Construct {
                 ty,
                 variant,

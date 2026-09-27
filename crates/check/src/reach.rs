@@ -161,6 +161,10 @@ impl Refs {
                 }
                 args.iter().for_each(|a| self.expr(a));
             }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.expr(receiver);
+                args.iter().for_each(|a| self.expr(a));
+            }
             Expr::Construct { ty, fields, .. } => {
                 self.name(ty);
                 match fields {

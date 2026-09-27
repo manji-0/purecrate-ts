@@ -157,7 +157,7 @@ export const State = {
 
 レシーバは第一引数。`this` は出さない。共有参照（`&self`・`&T`・`&str`・`&[T]`）は値と同じに写す。生成 TS は値を変異させず、内部可変性の型は拒否しているので、参照と値を区別する必要がない。`&mut` は拒否する。
 
-`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。
+`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。レシーバ構文 `x.method(y)` は、型検査でレシーバの型 `T` を求め、`T.method(x, y)` にする。解決先はクレート自身の固有 impl だけで、std の型のメソッド（`len`・`abs` など）は `expr/method-call` として拒否する。
 
 ## 6.1 newtype
 

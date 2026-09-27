@@ -122,11 +122,16 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
         )
         .detail(path_text(&m.mac.path))),
-        SynExpr::MethodCall(m) => Err(ParseError::new(
+        SynExpr::MethodCall(m) if m.turbofish.is_some() => Err(ParseError::new(
             Reason::MethodCall,
-            format!("method call `.{}()` is not in v0; call a crate function instead", m.method),
+            format!("method call `.{}::<..>()` is not in v0", m.method),
         )
         .detail(m.method.to_string())),
+        SynExpr::MethodCall(m) => Ok(Expr::MethodCall {
+            receiver: Box::new(lower_expr(cx, &m.receiver)?),
+            name: Name::new(m.method.to_string()),
+            args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
+        }),
         SynExpr::Closure(_) => Err(ParseError::new(Reason::Closure, "closures are not in v0")),
         SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::ForLoop(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
             Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))

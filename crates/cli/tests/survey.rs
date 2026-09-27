@@ -53,7 +53,7 @@ fn every_module_file_is_read_once_and_tests_are_skipped() {
 #[test]
 fn each_public_item_gets_a_verdict() {
     let json = survey(&["--json"]);
-    for accepted in ["twice", "area", "unit", "clamp01", "Shape"] {
+    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of"] {
         assert!(item(&json, accepted).contains("\"status\":\"accepted\""), "{}", item(&json, accepted));
     }
     let rejected = [
@@ -69,6 +69,7 @@ fn each_public_item_gets_a_verdict() {
     let blocked = [
         ("lookup", "\"blocked_by\":\"Table\"", "\"detail\":\"HashMap\""),
         ("next", "\"blocked_by\":\"Id\"", "\"code\":\"item/tuple-struct\""),
+        ("diagonal_of", "\"blocked_by\":\"Shape::diagonal\"", "\"detail\":\"usize\""),
     ];
     for (name, by, cause) in blocked {
         let it = item(&json, name);
@@ -83,7 +84,7 @@ fn human_summary_counts_functions_and_types() {
     let text = survey(&[]);
     assert!(text.starts_with("crate survey-demo (4 file(s))"), "{text}");
     assert!(
-        text.contains("public functions: 9 — accepted 4 (44%), rejected 3, blocked by a dependency 2"),
+        text.contains("public functions: 13 — accepted 6 (46%), rejected 4, blocked by a dependency 3"),
         "{text}"
     );
     assert!(text.contains("public types: 3 — accepted 1 (33%), rejected 2, blocked by a dependency 0"), "{text}");

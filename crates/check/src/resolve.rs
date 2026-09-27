@@ -185,6 +185,10 @@ impl<'a> Cx<'_, 'a> {
                 self.callee(callee, args.len());
                 args.iter().for_each(|a| self.expr(a));
             }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.expr(receiver);
+                args.iter().for_each(|a| self.expr(a));
+            }
             Expr::Construct { ty, variant, fields } => {
                 self.construct(ty, variant.as_ref(), fields);
                 match fields {

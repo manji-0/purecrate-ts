@@ -168,6 +168,13 @@ pub enum Expr {
         callee: Callee,
         args: Vec<Expr>,
     },
+    /// `receiver.name(args)`. `check::accept` resolves it by the receiver's
+    /// type into a `Callee::Method` call with the receiver first.
+    MethodCall {
+        receiver: Box<Expr>,
+        name: Name,
+        args: Vec<Expr>,
+    },
     Construct {
         ty: Name,
         variant: Option<Name>,
@@ -228,6 +235,7 @@ impl Expr {
                 .chain(arms.iter().map(|a| &a.body))
                 .collect(),
             Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
+            Expr::MethodCall { receiver, args, .. } => std::iter::once(&**receiver).chain(args).collect(),
             Expr::Construct { fields, .. } => match fields {
                 Fields::Unit => Vec::new(),
                 Fields::Positional(xs) => xs.iter().collect(),

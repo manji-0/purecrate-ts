@@ -132,6 +132,11 @@ impl Renamer {
                 callee,
                 args: self.all(args, env),
             },
+            Expr::MethodCall { receiver, name, args } => Expr::MethodCall {
+                receiver: self.boxed(receiver, env),
+                name,
+                args: self.all(args, env),
+            },
             Expr::Construct {
                 ty,
                 variant,

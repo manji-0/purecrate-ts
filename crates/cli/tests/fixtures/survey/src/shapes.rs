@@ -25,3 +25,25 @@ impl Default for Shape {
         Shape::Square(0)
     }
 }
+
+impl Shape {
+    pub fn sides(&self) -> i32 {
+        match self {
+            Shape::Square(_) => 4,
+            Shape::Rect { w, h } => 4,
+        }
+    }
+
+    pub fn diagonal(&self) -> usize {
+        0
+    }
+}
+
+pub fn sides_of(s: Shape) -> i32 {
+    s.sides()
+}
+
+pub fn diagonal_of(s: Shape) -> i32 {
+    s.diagonal();
+    0
+}

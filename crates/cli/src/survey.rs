@@ -169,6 +169,7 @@ impl Index {
             Ref::Type(t) => self.types.get(t),
             Ref::Fn(f) => self.fns.get(f),
             Ref::Method(t, m) => self.methods.get(&(t.clone(), m.clone())),
+            Ref::ReceiverCall(_) => None,
         };
         found.map(Vec::as_slice).unwrap_or(&[])
     }
@@ -182,10 +183,29 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
     let mut seen = BTreeSet::from([start]);
     let mut stack = vec![(start, item)];
     let mut blockers = Vec::new();
+    // `x.m()` names no type: it can only be `m` on a type the closure
+    // already holds, so each such pair is added as either side appears.
+    let mut types: BTreeSet<String> = BTreeSet::new();
+    let mut receiver_calls: BTreeSet<String> = BTreeSet::new();
     while let Some((i, item)) = stack.pop() {
-        let mut refs = references(item);
+        let mut refs = Vec::new();
+        if let UnitKind::Struct | UnitKind::Enum = &units[i].kind {
+            if types.insert(units[i].name.clone()) {
+                refs.extend(receiver_calls.iter().map(|m| Ref::Method(units[i].name.clone(), m.clone())));
+            }
+        }
         if let UnitKind::Method { owner } = &units[i].kind {
             refs.push(Ref::Type(owner.clone()));
+        }
+        for r in references(item) {
+            match r {
+                Ref::ReceiverCall(m) => {
+                    if receiver_calls.insert(m.clone()) {
+                        refs.extend(types.iter().map(|t| Ref::Method(t.clone(), m.clone())));
+                    }
+                }
+                other => refs.push(other),
+            }
         }
         for r in refs {
             for &j in index.lookup(&r) {
@@ -243,6 +263,8 @@ enum Ref {
     Type(String),
     Fn(String),
     Method(String, String),
+    /// `x.m()`: `m` on whichever type `x` has.
+    ReceiverCall(String),
 }
 
 fn references(item: &Item) -> Vec<Ref> {
@@ -292,6 +314,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             Callee::Variant { ty, .. } | Callee::StructNew(ty) => out.push(Ref::Type(ty.as_str().to_string())),
             _ => {}
         },
+        Expr::MethodCall { name, .. } => out.push(Ref::ReceiverCall(name.as_str().to_string())),
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
         Expr::Let { ty: Some(t), .. } => ty_refs(t, out),
         Expr::Match { arms, .. } => {

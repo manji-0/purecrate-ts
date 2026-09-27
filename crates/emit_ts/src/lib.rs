@@ -688,6 +688,9 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 format!("{o}{inner}")
             }
         }
+        Expr::MethodCall { name, .. } => {
+            unreachable!("`.{}()` reaches emit unresolved; emit takes `check::accept` output", name.as_str())
+        }
         Expr::Construct { ty, variant, fields } => match variant {
             Some(v) => emit_variant_value(ty.as_str(), v.as_str(), fields),
             None => emit_struct_value(fields),
@@ -961,6 +964,7 @@ impl Refs {
                 self.expr(krate, right);
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
+            Expr::MethodCall { .. } => expr.children().into_iter().for_each(|e| self.expr(krate, e)),
             Expr::Lit(_) | Expr::Var(_) => {}
         }
     }
