@@ -147,3 +147,74 @@ pub fn shadowed(n: i32) -> i32 {
     };
     n + 1
 }
+
+pub fn add_twice(start: u8, n: u8) -> u8 {
+    let mut x = start;
+    x += n;
+    x += n;
+    x
+}
+
+pub fn count_positive(a: i32, b: i32, c: i32) -> i32 {
+    let mut count = 0i32;
+    if a > 0 {
+        count += 1;
+    }
+    if b > 0 {
+        count += 1;
+    }
+    if c > 0 {
+        count += 1;
+    }
+    count
+}
+
+pub fn latest(a: Option<i32>, b: Option<i32>) -> Option<i32> {
+    let mut seen: Option<i32> = None;
+    match a {
+        Some(v) => seen = Some(v),
+        None => {}
+    }
+    match b {
+        Some(v) => {
+            seen = Some(v);
+        }
+        None => {}
+    }
+    seen
+}
+
+pub fn reassigned(flag: bool, x: Option<i32>) -> i32 {
+    let mut out = 1i32;
+    out = match x {
+        Some(v) => v,
+        None => out * 10,
+    };
+    out = if flag { out + 1 } else { out - 1 };
+    out
+}
+
+pub fn twice_matched(a: i32, b: i32) -> i32 {
+    let mut total = 0i32;
+    match safe_div(a, b) {
+        Ok(q) => total += q,
+        Err(_) => total -= 1,
+    }
+    match safe_div(b, a) {
+        Ok(q) => total += q,
+        Err(_) => total -= 1,
+    }
+    total
+}
+
+pub fn checked_first(a: i32, b: i32) -> i32 {
+    a / b;
+    a
+}
+
+pub fn accumulate(a: i32, b: i32) -> Result<i32, i32> {
+    let mut sum = 0i32;
+    sum += half_even(a)?;
+    sum = sum + half_even(b)?;
+    Ok(sum)
+}

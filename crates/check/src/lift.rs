@@ -36,6 +36,7 @@ impl Lifter {
         match expr {
             Expr::Let {
                 name,
+                mutable,
                 ty,
                 value,
                 then,
@@ -59,6 +60,7 @@ impl Lifter {
                     hoisted,
                     Expr::Let {
                         name,
+                        mutable,
                         ty,
                         value: Box::new(value),
                         then: Box::new(then),
@@ -98,6 +100,24 @@ impl Lifter {
                 let (value, hoisted) = self.extract(*value);
                 wrap(hoisted, Expr::Return(Box::new(value)))
             }
+            Expr::Assign { name, value } if value.needs_statements() => Expr::Assign {
+                name,
+                value: Box::new(self.stmt(*value)),
+            },
+            Expr::Assign { name, value } => {
+                let (value, hoisted) = self.extract(*value);
+                wrap(
+                    hoisted,
+                    Expr::Assign {
+                        name,
+                        value: Box::new(value),
+                    },
+                )
+            }
+            Expr::Seq { first, then } => Expr::Seq {
+                first: Box::new(self.stmt(*first)),
+                then: Box::new(self.stmt(*then)),
+            },
             other => {
                 let (value, hoisted) = self.extract(other);
                 wrap(hoisted, value)
@@ -174,6 +194,7 @@ impl Lifter {
 fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
     hoisted.into_iter().rev().fold(body, |then, (name, inner, on)| Expr::Let {
         name,
+        mutable: false,
         ty: None,
         value: Box::new(Expr::Try {
             expr: Box::new(inner),

@@ -93,6 +93,7 @@ impl Renamer {
             Expr::Var(n) => Expr::Var(env.get(n.as_str()).cloned().unwrap_or(n)),
             Expr::Let {
                 name,
+                mutable,
                 ty,
                 value,
                 then,
@@ -102,6 +103,7 @@ impl Renamer {
                 let name = self.bind(&name, &mut inner);
                 Expr::Let {
                     name,
+                    mutable,
                     ty,
                     value,
                     then: self.boxed(then, &inner),
@@ -161,6 +163,14 @@ impl Renamer {
                 expr: self.boxed(expr, env),
             },
             Expr::Return(v) => Expr::Return(self.boxed(v, env)),
+            Expr::Assign { name, value } => Expr::Assign {
+                name: env.get(name.as_str()).cloned().unwrap_or(name),
+                value: self.boxed(value, env),
+            },
+            Expr::Seq { first, then } => Expr::Seq {
+                first: self.boxed(first, env),
+                then: self.boxed(then, env),
+            },
             Expr::Try { expr, on } => Expr::Try {
                 expr: self.boxed(expr, env),
                 on,

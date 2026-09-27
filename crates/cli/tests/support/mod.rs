@@ -161,6 +161,10 @@ const show = (x) =>
     ? "null"
     : typeof x === "object" && "kind" in x && (x.kind === "Ok" || x.kind === "Err")
       ? `${x.kind}(${show(x.kind === "Ok" ? x.value : x.error)})`
+      : typeof x === "object" && "kind" in x
+        ? "content" in x
+          ? `${x.kind}(${x.content.map(show).join(", ")})`
+          : x.kind
       : Object.is(x, -0)
         ? "-0"
         : String(x);

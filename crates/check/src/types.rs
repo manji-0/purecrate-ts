@@ -139,18 +139,29 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Let {
                 name,
+                mutable,
                 ty,
                 value,
                 then,
             } => {
                 let (value, vt) = self.expr(value, ty.as_ref());
                 let bound = ty.clone().or(vt);
-                // A value printed as statements is declared first (`let x: T;`)
-                // and assigned in each branch, so TS needs the type up front.
+                if *mutable && bound.is_none() {
+                    self.error(format!(
+                        "the type of `let mut {}` is not known from its first value; write `let mut {}: T`",
+                        name.as_str(),
+                        name.as_str()
+                    ));
+                }
+                // TS infers a `let` from its first value (`null` stays `null`),
+                // and a value printed as statements is declared before it is
+                // assigned, so both need the type written out.
                 let annotation = ty.clone().or_else(|| {
-                    bound
-                        .clone()
-                        .filter(|t| *t != Ty::Never && value.needs_statements() && !matches!(value, Expr::Try { .. }))
+                    bound.clone().filter(|t| {
+                        *t != Ty::Never
+                            && (*mutable
+                                || value.needs_statements() && !matches!(value, Expr::Try { .. }))
+                    })
                 });
                 self.scopes.push((name.as_str().to_string(), bound));
                 let (then, tt) = self.expr(then, want);
@@ -158,12 +169,36 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (
                     Expr::Let {
                         name: name.clone(),
+                        mutable: *mutable,
                         ty: annotation,
                         value: Box::new(value),
                         then: Box::new(then),
                     },
                     tt,
                 )
+            }
+            Expr::Assign { name, value } => {
+                let target = self.lookup(name.as_str());
+                let (value, _) = self.expr(value, target.as_ref());
+                let e = Expr::Assign {
+                    name: name.clone(),
+                    value: Box::new(value),
+                };
+                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            }
+            Expr::Seq { first, then } => {
+                let (first, ft) = self.expr(first, None);
+                // `{ return x; }`: the block's `()` is never produced.
+                let (then, tt) = if ft == Some(Ty::Never) && **then == Expr::Lit(Lit::Unit) {
+                    ((**then).clone(), Some(Ty::Never))
+                } else {
+                    self.expr(then, want)
+                };
+                let e = Expr::Seq {
+                    first: Box::new(first),
+                    then: Box::new(then),
+                };
+                (e, tt)
             }
             Expr::If { cond, then, else_ } => {
                 let (cond, _) = self.expr(cond, Some(&Ty::bool()));
@@ -748,7 +783,7 @@ fn needs_context(expr: &Expr) -> bool {
             right,
         } => needs_context(left) && needs_context(right),
         Expr::If { then, else_, .. } => needs_context(then) && needs_context(else_),
-        Expr::Let { then, .. } => needs_context(then),
+        Expr::Let { then, .. } | Expr::Seq { then, .. } => needs_context(then),
         _ => false,
     }
 }

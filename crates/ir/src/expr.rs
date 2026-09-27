@@ -150,6 +150,7 @@ pub enum Expr {
     Var(Name),
     Let {
         name: Name,
+        mutable: bool,
         ty: Option<Ty>,
         value: Box<Expr>,
         then: Box<Expr>,
@@ -191,6 +192,16 @@ pub enum Expr {
         expr: Box<Expr>,
     },
     Return(Box<Expr>),
+    /// `name = value`, of type `()`. `name` is a `let mut` binding.
+    Assign {
+        name: Name,
+        value: Box<Expr>,
+    },
+    /// `first; then`: `first` runs for its effect, its value is dropped.
+    Seq {
+        first: Box<Expr>,
+        then: Box<Expr>,
+    },
     /// `expr?`. `on` is filled by `check::accept`, which also lifts every
     /// `Try` into the value of its own `Let`.
     Try {
@@ -227,6 +238,8 @@ impl Expr {
             | Expr::Return(base)
             | Expr::Try { expr: base, .. } => vec![base],
             Expr::Binary { left, right, .. } => vec![left, right],
+            Expr::Assign { value, .. } => vec![value],
+            Expr::Seq { first, then } => vec![first, then],
         }
     }
 
@@ -240,7 +253,12 @@ impl Expr {
                 left,
                 ..
             } => vec![left],
-            Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } | Expr::Return(_) => Vec::new(),
+            Expr::If { .. }
+            | Expr::Match { .. }
+            | Expr::Let { .. }
+            | Expr::Return(_)
+            | Expr::Assign { .. }
+            | Expr::Seq { .. } => Vec::new(),
             _ => self.children(),
         }
     }
@@ -253,7 +271,12 @@ impl Expr {
     /// Printed as JS statements rather than a JS expression.
     pub fn needs_statements(&self) -> bool {
         match self {
-            Expr::Match { .. } | Expr::Let { .. } | Expr::Return(_) | Expr::Try { .. } => true,
+            Expr::Match { .. }
+            | Expr::Let { .. }
+            | Expr::Return(_)
+            | Expr::Try { .. }
+            | Expr::Assign { .. }
+            | Expr::Seq { .. } => true,
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()
                 .any(|b| b.needs_statements() || b.lifts()),

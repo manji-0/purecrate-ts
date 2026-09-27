@@ -191,8 +191,13 @@ impl Refs {
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
+            | Expr::Assign { value: base, .. }
             | Expr::Try { expr: base, .. } => {
                 self.expr(base)
+            }
+            Expr::Seq { first, then } => {
+                self.expr(first);
+                self.expr(then);
             }
             Expr::Binary { left, right, .. } => {
                 self.expr(left);

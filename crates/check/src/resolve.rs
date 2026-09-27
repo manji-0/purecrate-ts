@@ -36,7 +36,7 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
                 }
                 f.params.iter().for_each(|p| cx.ty(&p.ty));
                 cx.ty(&f.ret);
-                cx.scopes.push(f.params.iter().map(|p| p.name.as_str().to_string()).collect());
+                cx.scopes.push(f.params.iter().map(|p| (p.name.as_str().to_string(), false)).collect());
                 cx.expr(&f.body);
             }
         }
@@ -48,7 +48,8 @@ struct Cx<'d, 'a> {
     defs: &'d Defs<'a>,
     item: usize,
     out: &'d mut Vec<Diagnostic>,
-    scopes: Vec<Vec<String>>,
+    /// Bindings in scope, each with whether it is `let mut`.
+    scopes: Vec<Vec<(String, bool)>>,
 }
 
 impl<'a> Cx<'_, 'a> {
@@ -93,8 +94,16 @@ impl<'a> Cx<'_, 'a> {
         false
     }
 
+    /// `Some(mutable)` for the innermost binding of `name`.
+    fn binding(&self, name: &str) -> Option<bool> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|s| s.iter().rev().find(|(n, _)| n == name).map(|(_, m)| *m))
+    }
+
     fn in_scope(&self, name: &str) -> bool {
-        self.scopes.iter().rev().any(|s| s.iter().any(|n| n == name))
+        self.binding(name).is_some()
     }
 
     fn expr(&mut self, expr: &Expr) {
@@ -103,12 +112,18 @@ impl<'a> Cx<'_, 'a> {
                 self.error(format!("`{}` is not a parameter or local binding", n.as_str()))
             }
             Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
-            Expr::Let { name, ty, value, then } => {
+            Expr::Let {
+                name,
+                mutable,
+                ty,
+                value,
+                then,
+            } => {
                 if let Some(t) = ty {
                     self.ty(t);
                 }
                 self.expr(value);
-                self.scopes.push(vec![name.as_str().to_string()]);
+                self.scopes.push(vec![(name.as_str().to_string(), *mutable)]);
                 self.expr(then);
                 self.scopes.pop();
             }
@@ -117,7 +132,7 @@ impl<'a> Cx<'_, 'a> {
                 for arm in arms {
                     let mut bound = Vec::new();
                     self.pattern(&arm.pattern, &mut bound);
-                    self.scopes.push(bound);
+                    self.scopes.push(bound.into_iter().map(|n| (n, false)).collect());
                     self.expr(&arm.body);
                     self.scopes.pop();
                 }
@@ -150,6 +165,21 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(right);
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|x| self.expr(x)),
+            Expr::Assign { name, value } => {
+                match self.binding(name.as_str()) {
+                    None => self.error(format!("`{}` is not a parameter or local binding", name.as_str())),
+                    Some(false) => self.error(format!(
+                        "`{}` is not `let mut`; only `let mut` bindings can be assigned",
+                        name.as_str()
+                    )),
+                    Some(true) => {}
+                }
+                self.expr(value);
+            }
+            Expr::Seq { first, then } => {
+                self.expr(first);
+                self.expr(then);
+            }
         }
     }
 

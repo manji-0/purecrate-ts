@@ -63,8 +63,8 @@ Rust クレートのうち、次の制約を満たすものを **単一の TypeS
 pub fn name(arg: OwnedType, ...) -> OwnedType
 ```
 
-- 本体は式言語: リテラル、`let`、`if` / `if let`、`match`、コンストラクタ、フィールドアクセス、タプル、許可関数の呼び出し、`?`（`Result` のみ）
-- 局所 `mut` と再代入は許可（SSA / 代入文に正規化してから生成）
+- 本体は式言語: リテラル、`let`、`if` / `if let`、`match`、コンストラクタ、フィールドアクセス、タプル、許可関数の呼び出し、`?`（`Result` と `Option`。エラー型は関数と一致が必要で `From` 変換はしない）、`return`（文の位置のみ）
+- 局所 `let mut`、代入・複合代入（`x += e`）、式文は許可。フィールドへの代入と `mut` 引数は拒否。束縛は関数内で一意な名前に改名してから生成する（シャドーイングは `x$1` になる）
 - `impl Type { pub fn ... }` の所有または論理的に純粋なメソッドは、第一引数がレシーバの自由関数に正規化して公開してよい
 
 禁止: `async`, `unsafe`, マクロ（許可リスト以外）、クロージャの捕獲、`panic!` による制御、`println!`、静的可変、外部関数。
@@ -219,7 +219,8 @@ serde の externally / adjacently tagged は v1。v0 は `kind` に固定する�
 
 - `match e { ... }` → `switch (e.kind)` + バリアント束縛。欠落腕は検査フェーズで拒否
 - `if let Enum::V { .. } = e` → `kind` 判定 + 狭め
-- `?` → `if (r.kind === "Err") return r`
+- `?` → `if (r.kind === "Err") return r`（`Option` は `if (r === null) return null`）。式の中の `?` は評価順を保って直前の `const` に持ち上げる
+- `let` の値や代入の右辺に置いた `match` / `if` は `let x: T;` と各腕での代入に下ろす
 - `Option` は `=== null` で分岐
 - struct 更新構文 `S { a: 1, ..s }` → スプレッド `{ ...s, a: 1 }`
 - `impl` メソッドは Companion の関数プロパティ `Type.method: (self, ...) => ...`（メソッド記法は使わない）

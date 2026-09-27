@@ -3,6 +3,7 @@
 //! tail, a `let` value, a `match`/`if` arm there) or, for `?`, a strict
 //! subexpression of one (hoisted by `lift`). Anywhere else the printer would
 //! wrap them in an arrow function, where they would leave only that.
+//! Assignment and expression statements are statements for the same reason.
 
 use purecrate_ir::{Crate, Expr, Item};
 
@@ -50,13 +51,22 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
             }
             visit(expr, Ctx::Strict, report);
         }
+        Expr::Assign { value, .. } => {
+            if ctx != Ctx::Stmt {
+                report(
+                    "assignment inside a larger expression is not in v0; \
+                     write it as its own statement"
+                        .into(),
+                );
+            }
+            visit(value, value_ctx(value), report);
+        }
+        Expr::Seq { first, then } if ctx == Ctx::Stmt => {
+            visit(first, Ctx::Stmt, report);
+            visit(then, Ctx::Stmt, report);
+        }
         Expr::Let { value, then, .. } if ctx == Ctx::Stmt => {
-            let value_ctx = if value.needs_statements() {
-                Ctx::Stmt
-            } else {
-                Ctx::Strict
-            };
-            visit(value, value_ctx, report);
+            visit(value, value_ctx(value), report);
             visit(then, Ctx::Stmt, report);
         }
         Expr::If { cond, then, else_ } if ctx == Ctx::Stmt => {
@@ -73,7 +83,7 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
             visit(scrutinee, Ctx::Strict, report);
             arms.iter().for_each(|a| visit(&a.body, Ctx::Stmt, report));
         }
-        Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } => expr
+        Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => expr
             .children()
             .into_iter()
             .for_each(|c| visit(c, Ctx::Nested, report)),
@@ -88,5 +98,13 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
                 visit(child, inner, report);
             }
         }
+    }
+}
+
+fn value_ctx(value: &Expr) -> Ctx {
+    if value.needs_statements() {
+        Ctx::Stmt
+    } else {
+        Ctx::Strict
     }
 }

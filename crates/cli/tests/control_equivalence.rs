@@ -61,6 +61,22 @@ fn generated_control_flow_matches_rust() {
             case!(control::guarded(7i32)),
             case!(control::blocky(3i32)),
             case!(control::shadowed(3i32)),
+            case!(control::add_twice(1u8, 2u8)),
+            case!(control::add_twice(200u8, 30u8)),
+            case!(control::count_positive(1i32, -1i32, 3i32)),
+            case!(control::count_positive(0i32, 0i32, 0i32)),
+            case!(control::latest(Some(1i32), Some(2i32))),
+            case!(control::latest(Some(1i32), None::<i32>)),
+            case!(control::latest(None::<i32>, None::<i32>)),
+            case!(control::reassigned(true, Some(4i32))),
+            case!(control::reassigned(false, None::<i32>)),
+            case!(control::twice_matched(6i32, 3i32)),
+            case!(control::twice_matched(6i32, 0i32)),
+            case!(control::checked_first(7i32, 2i32)),
+            case!(control::checked_first(7i32, 0i32)),
+            case!(control::accumulate(4i32, 6i32)),
+            case!(control::accumulate(4i32, 5i32)),
+            case!(control::accumulate(3i32, 5i32)),
         ]
     });
     support::assert_equivalent("control", SOURCE, &cases);

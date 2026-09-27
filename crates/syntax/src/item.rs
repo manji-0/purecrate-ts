@@ -339,6 +339,10 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
             None => Err(ParseError::new("`self` outside an impl block")),
         },
         syn::FnArg::Typed(p) => match &*p.pat {
+            syn::Pat::Ident(id) if id.mutability.is_some() => Err(ParseError::new(format!(
+                "`mut` parameters are not in v0; write `let mut {0} = {0};` in the body",
+                id.ident
+            ))),
             syn::Pat::Ident(id) => Ok(Param {
                 name: Name::new(id.ident.to_string()),
                 ty: lower_type(&p.ty)?,

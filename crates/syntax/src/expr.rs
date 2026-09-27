@@ -22,6 +22,22 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             }),
             Member::Unnamed(_) => Err(ParseError::new("tuple field access is not in v0")),
         },
+        SynExpr::Assign(a) => Ok(Expr::Assign {
+            name: assign_target(&a.left)?,
+            value: Box::new(lower_expr(cx, &a.right)?),
+        }),
+        SynExpr::Binary(b) if compound_op(b.op).is_some() => {
+            let name = assign_target(&b.left)?;
+            let op = compound_op(b.op).expect("checked by the guard");
+            Ok(Expr::Assign {
+                value: Box::new(Expr::Binary {
+                    op: lower_bin(op)?,
+                    left: Box::new(Expr::Var(name.clone())),
+                    right: Box::new(lower_expr(cx, &b.right)?),
+                }),
+                name,
+            })
+        }
         SynExpr::Binary(b) => Ok(Expr::Binary {
             op: lower_bin(b.op)?,
             left: Box::new(lower_expr(cx, &b.left)?),
@@ -106,51 +122,105 @@ pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
     lower_block_node(cx, block).map_err(|e| e.or_at(block.span()))
 }
 
+enum Stmt {
+    Let {
+        name: Name,
+        mutable: bool,
+        ty: Option<Ty>,
+        value: Expr,
+    },
+    Effect(Expr),
+}
+
 fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
-    let mut lets: Vec<(Name, Option<Ty>, Expr)> = Vec::new();
+    let mut stmts = Vec::new();
     let mut tail: Option<Expr> = None;
-    for stmt in &block.stmts {
+    let last = block.stmts.len().saturating_sub(1);
+    for (i, stmt) in block.stmts.iter().enumerate() {
         match stmt {
-            syn::Stmt::Local(local) => {
-                let (pat, ty) = match &local.pat {
-                    Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
-                    other => (other, None),
-                };
-                let name = match pat {
-                    Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
-                        Name::new(id.ident.to_string())
-                    }
-                    _ => return Err(ParseError::new("only simple let bindings in v0")),
-                };
-                let init = local
-                    .init
-                    .as_ref()
-                    .ok_or_else(|| ParseError::new("let without initializer"))?;
-                if init.diverge.is_some() {
-                    return Err(ParseError::new("let-else is not in v0"));
-                }
-                lets.push((name, ty, lower_expr(cx, &init.expr)?));
+            syn::Stmt::Local(local) => stmts.push(lower_local(cx, local)?),
+            syn::Stmt::Expr(e, None) if i == last => tail = Some(lower_expr(cx, e)?),
+            // `return x;` ends the block with the same meaning as `return x`.
+            syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
+                tail = Some(lower_expr(cx, e)?)
             }
-            syn::Stmt::Expr(e, _) => {
-                if tail.is_some() {
-                    return Err(ParseError::new("multiple tail expressions in a block"));
-                }
-                tail = Some(lower_expr(cx, e)?);
-            }
+            syn::Stmt::Expr(e, _) => stmts.push(Stmt::Effect(lower_expr(cx, e)?)),
             syn::Stmt::Item(_) => return Err(ParseError::new("items inside blocks are not in v0")),
             syn::Stmt::Macro(_) => return Err(ParseError::new("macros in blocks are not in v0")),
         }
     }
-    let mut acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
-    for (name, ty, value) in lets.into_iter().rev() {
-        acc = Expr::Let {
+    let acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
+    Ok(stmts.into_iter().rev().fold(acc, |then, stmt| match stmt {
+        Stmt::Let {
             name,
+            mutable,
+            ty,
+            value,
+        } => Expr::Let {
+            name,
+            mutable,
             ty,
             value: Box::new(value),
-            then: Box::new(acc),
-        };
+            then: Box::new(then),
+        },
+        Stmt::Effect(first) => Expr::Seq {
+            first: Box::new(first),
+            then: Box::new(then),
+        },
+    }))
+}
+
+fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
+    let (pat, ty) = match &local.pat {
+        Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
+        other => (other, None),
+    };
+    let (name, mutable) = match pat {
+        Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+            (Name::new(id.ident.to_string()), id.mutability.is_some())
+        }
+        _ => return Err(ParseError::new("only simple let bindings in v0")),
+    };
+    let init = local
+        .init
+        .as_ref()
+        .ok_or_else(|| ParseError::new("let without initializer"))?;
+    if init.diverge.is_some() {
+        return Err(ParseError::new("let-else is not in v0"));
     }
-    Ok(acc)
+    Ok(Stmt::Let {
+        name,
+        mutable,
+        ty,
+        value: lower_expr(cx, &init.expr)?,
+    })
+}
+
+fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
+    match place {
+        SynExpr::Path(p) if p.qself.is_none() => p
+            .path
+            .get_ident()
+            .map(|id| Name::new(id.to_string()))
+            .ok_or_else(|| ParseError::new("only a local variable can be assigned in v0")),
+        SynExpr::Field(_) => Err(ParseError::new(
+            "assigning to a field is not in v0; build a new struct with `..` or all fields",
+        )),
+        _ => Err(ParseError::new("only a local variable can be assigned in v0")),
+    }
+}
+
+/// `x op= e` as `x = x op e`.
+fn compound_op(op: SynBinOp) -> Option<SynBinOp> {
+    use syn::token;
+    Some(match op {
+        SynBinOp::AddAssign(_) => SynBinOp::Add(token::Plus::default()),
+        SynBinOp::SubAssign(_) => SynBinOp::Sub(token::Minus::default()),
+        SynBinOp::MulAssign(_) => SynBinOp::Mul(token::Star::default()),
+        SynBinOp::DivAssign(_) => SynBinOp::Div(token::Slash::default()),
+        SynBinOp::RemAssign(_) => SynBinOp::Rem(token::Percent::default()),
+        _ => return None,
+    })
 }
 
 fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {

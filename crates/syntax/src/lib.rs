@@ -173,4 +173,42 @@ mod tests {
             "found nested variant `Dir::Up`",
         );
     }
+
+    #[test]
+    fn statements_become_seq_and_compound_assignment_expands() {
+        use purecrate_ir::{BinOp, Expr, Item, Lit, Name};
+        let krate = parse_source("c", "pub fn f(a: i32) -> i32 { let mut x = a; x += 1; x }").expect("parse");
+        let Item::Fn(f) = &krate.items[0] else { panic!("fn") };
+        let Expr::Let { mutable: true, then, .. } = &f.body else {
+            panic!("let mut, got {:?}", f.body)
+        };
+        let x = || Box::new(Expr::var("x"));
+        assert_eq!(
+            **then,
+            Expr::Seq {
+                first: Box::new(Expr::Assign {
+                    name: Name::new("x"),
+                    value: Box::new(Expr::Binary {
+                        op: BinOp::Add,
+                        left: x(),
+                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: None })),
+                    }),
+                }),
+                then: x(),
+            }
+        );
+    }
+
+    #[test]
+    fn mut_parameters_and_field_assignment_are_rejected() {
+        let err = parse_source("c", "pub fn f(mut a: i32) -> i32 { a }").expect_err("mut param");
+        assert!(err.message.contains("write `let mut a = a;`"), "{}", err.message);
+        let err = parse_source(
+            "c",
+            "pub struct S { pub n: i32 }
+             pub fn f(s: S) -> i32 { let mut t = s; t.n = 1; t.n }",
+        )
+        .expect_err("field assignment");
+        assert!(err.message.contains("assigning to a field is not in v0"), "{}", err.message);
+    }
 }
