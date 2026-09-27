@@ -331,7 +331,7 @@ fn lower_fn(
         return reject("extern abi", abi.span());
     }
     if !sig.generics.params.is_empty() {
-        return reject("a generic function", sig.generics.span());
+        return Err(ParseError::new(Reason::Generics, "generic functions are not in v0").or_at(sig.generics.span()));
     }
     let mut params = Vec::new();
     for input in &sig.inputs {

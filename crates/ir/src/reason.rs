@@ -53,6 +53,7 @@ pub enum Reason {
     QualifiedPath,
     DisallowedType,
     FnType,
+    SelfType,
     UnsupportedType,
     TypeArity,
 
@@ -119,6 +120,7 @@ impl Reason {
             Reason::QualifiedPath => "type/qualified-path",
             Reason::DisallowedType => "type/disallowed",
             Reason::FnType => "type/fn",
+            Reason::SelfType => "type/self",
             Reason::UnsupportedType => "type/other",
             Reason::TypeArity => "type/arity",
             Reason::NameCollision => "check/name-collision",

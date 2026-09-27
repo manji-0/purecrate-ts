@@ -31,6 +31,9 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
     }
 }
 
+/// Primitives with no chosen TS form yet.
+const UNSUPPORTED_PRIMS: [&str; 5] = ["usize", "isize", "u128", "i128", "char"];
+
 const FORBIDDEN_CONTAINERS: [&str; 9] = [
     "Box", "Rc", "Arc", "Cell", "RefCell", "Mutex", "HashMap", "BTreeMap", "HashSet",
 ];
@@ -51,6 +54,14 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     }
     let last = &path.segments[0];
     let name = last.ident.to_string();
+    if name == "Self" {
+        return Err(ParseError::new(Reason::SelfType, "`Self` is not in v0; write the type's name"));
+    }
+    if UNSUPPORTED_PRIMS.contains(&name.as_str()) {
+        return Err(
+            ParseError::new(Reason::DisallowedType, format!("`{name}` has no TS counterpart in v0")).detail(name),
+        );
+    }
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
         return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
     }

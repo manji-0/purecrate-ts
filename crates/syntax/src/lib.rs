@@ -114,6 +114,13 @@ mod tests {
         );
         assert_eq!(reason("pub fn f(x: Box<i32>) -> i32 { 0 }"), (Reason::DisallowedType, Some("Box".into())));
         assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
+        assert_eq!(reason("pub fn f<T>(x: T) -> i32 { 0 }").0, Reason::Generics);
+        assert_eq!(reason("pub fn f(x: usize) -> i32 { 0 }"), (Reason::DisallowedType, Some("usize".into())));
+        assert_eq!(
+            reason("pub struct S { pub n: i32 } impl S { pub fn new() -> S { Self::of(1) } }"),
+            (Reason::SelfType, Some("Self::of".into()))
+        );
+        assert_eq!(reason("pub struct S { pub n: i32 } impl S { pub fn f(self) -> Self { self } }").0, Reason::SelfType);
     }
 
     #[test]

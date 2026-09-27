@@ -1,0 +1,130 @@
+# 受理率の計測（2026-09-27）
+
+design/04 §3.5-1 の計測。公開されている Rust コードに `purecrate-ts survey` をかけ、公開関数と公開型がそのまま受理されるかを数えた。
+
+## 0. 結論
+
+1. **既存コードの公開関数は、ほぼ受理できない。** ドメイン寄りの 8 件で 956 関数中 1 件（0.1%）。
+2. **公開型は約半分を受理できる。** 87 型中 44 型（51%）。型だけを共有する用途（design/05）は、既存コードでも現実的に成り立つ。
+3. **関数の最初の壁はシグネチャの参照（`&T`・`&self`）、次の壁は標準ライブラリのメソッド。** 参照を値として扱う試作では受理数は増えず、拒否理由の首位が `expr/method-call`（`collect`・`len`・`to_string` など）に移った（§3）。
+4. したがって、振る舞いの共有を「既存コードをそのまま変換する」形で売るには、参照と std のメソッド面の両方が要る。どちらを先にやるか、あるいは「PureCrate 向けに書くコード」を対象と割り切るかの判断が要る（§5）。
+
+## 1. 方法
+
+### 1.1 コーパス
+
+`corpus/manifest.tsv` にリポジトリ・コミット・調査の起点を固定した。`scripts/survey-corpus.sh` が取得と計測を行い、結果を `corpus/results.jsonl` に書く。
+
+| エントリ | 分類 | 起点 |
+| --- | --- | --- |
+| rust-ddd-example | DDD | クレート全体 |
+| rust-ddd-example.domain | DDD | `src/domain` |
+| zero-to-production | 検証 | クレート全体 |
+| zero-to-production.domain | 検証 | `src/domain` |
+| idsmith | 検証（IBAN・各種 ID のチェックサム） | クレート全体 |
+| eventually.bank-accounting.domain | DDD | `examples/bank-accounting/src/domain.rs` |
+| eventually.light-switch.domain | 状態機械 | `examples/light-switch/src/domain.rs` |
+| little-raft | 状態機械（Raft） | `little_raft` |
+| poker | ゲームルール | クレート全体 |
+| cozy-chess.types | ゲームルール（ビットボード） | `types` |
+
+集計の「ドメイン範囲」は、アプリ全体を除きドメイン部分だけを数えた 8 件（`.domain` の 2 件、idsmith、eventually の 2 件、little-raft、poker、cozy-chess.types）。アプリ全体の 2 件は、HTTP やDB 層を含むので参考値とする。
+
+### 1.2 判定
+
+- 単位は公開関数（自由関数と固有 impl の `pub fn`）と公開型（struct・enum・型別名）。trait impl、`const`、`static`、`trait` は判定せず件数だけ数える。
+- 各単位を、それが参照する型と関数の推移閉包と一緒に `check::accept` にかける。`build` がその単位だけを出力しようとしたときの判定と同じ。
+  - **受理**: 閉包全体が通る。
+  - **拒否**: 単位そのものが範囲外。
+  - **巻き込み**: 単位は通るが、参照先が範囲外。
+- 理由は TODO 25 で導入した理由コード（`Reason::code()`）で数える。メソッド名・マクロ名・パスなどは `detail` として併記する。
+
+### 1.3 計測上の制約
+
+- **各単位について最初の拒否理由しか分からない。** パーサは単位ごとに最初の範囲外の構文で止まり、シグネチャを本体より先に見る。したがって上位の理由を解消すると、隠れていた理由が次に現れる。§3 はこれを試作で確かめたもの。
+- モジュールは名前で平坦化して判定する。別モジュールの同名の型は衝突として拒否される（今回のコーパスでは件数に影響していない）。
+- `use` によるパスの別名は解決しない。`shapes::Shape` のようなモジュール修飾は `type/qualified-path` として数える。
+
+## 2. 結果（現行の受理範囲）
+
+### 2.1 エントリ別
+
+| エントリ | 関数（受理 / 総数） | 型（受理 / 総数） |
+| --- | --- | --- |
+| rust-ddd-example | 0 / 19 | 5 / 11 |
+| rust-ddd-example.domain | 0 / 2 | 1 / 1 |
+| zero-to-production | 0 / 51 | 5 / 28 |
+| zero-to-production.domain | 0 / 2 | 0 / 3 |
+| idsmith | 0 / 830 | 20 / 36 |
+| eventually.bank-accounting.domain | 0 / 7 | 5 / 9 |
+| eventually.light-switch.domain | 0 / 4 | 8 / 9 |
+| little-raft | 0 / 5 | 2 / 8 |
+| poker | 1 / 72 | 8 / 16 |
+| cozy-chess.types | 0 / 34 | 0 / 5 |
+| **ドメイン範囲の計** | **1 / 956（0.1%）** | **44 / 87（51%）** |
+
+idsmith は関数数が多く（830）、合計を支配する。idsmith を除いても関数は 1 / 126。
+
+### 2.2 関数の拒否理由（ドメイン範囲、単位ごとの最初の理由）
+
+| 件数 | 理由コード | 出現エントリ数 | 主な中身 |
+| --- | --- | --- | --- |
+| 785 | `type/reference` | 3 | `&str`・`&T` 引数（idsmith が大半） |
+| 50 | `item/ref-receiver` | 6 | `&self` |
+| 32 | `type/self` | 5 | 戻り値や構築の `Self` |
+| 20 | `expr/method-call` | 3 | 自前のメソッド呼び出し（poker の `is_pair`・`is_straight` など） |
+| 16 | `expr/block-item` | 2 | 関数内の `const` や入れ子の関数 |
+| 10 | `expr/operator` | 2 | ビット演算（cozy-chess） |
+| 9 | `item/generics` | 3 | |
+| 8 | `type/disallowed` | 2 | `usize`・`char` |
+
+idsmith を除くと、上位は `type/self`（22）、`expr/method-call`（20）、`expr/block-item`（16）、`item/ref-receiver`（15）。**idsmith 以外の 7 エントリ中 5 エントリで `&self` が最初の壁になっている**点が、件数より重要。
+
+### 2.3 型の拒否理由（ドメイン範囲）
+
+| 件数 | 理由コード | 主な中身 |
+| --- | --- | --- |
+| 11 | `item/cfg` | idsmith の feature 切り替え |
+| 11 | `item/generics` | |
+| 5（＋巻き込み 2） | `item/tuple-struct` | newtype（`struct EntityId(Uuid)` など） |
+| 5 | `check/undefined-type` | 外部型（`Decimal`）、マクロで定義された型 |
+| 4 | `type/disallowed` | `usize`・`char`・`HashMap` |
+
+## 3. 試算: 共有参照を値として扱った場合
+
+`&T`（`&mut` 以外）を `T`、`&self` を `self`、式の `&x`・`*x` を `x` として読む**未コミットの試作**で同じコーパスを測った。この読み替えは本サブセットでは意味を変えない見込みが高い。生成 TS は値を変異させず、内部可変性（`Cell`・`RefCell` など）は型として拒否済みだから。
+
+| | 現行 | 試作 |
+| --- | --- | --- |
+| 関数の受理 | 1 / 956 | 1 / 956 |
+| 型の受理 | 44 / 87 | 46 / 87 |
+
+受理数はほとんど動かない。拒否理由の首位が入れ替わった。
+
+| 件数 | 理由コード | 主な中身 |
+| --- | --- | --- |
+| 437 | `expr/method-call` | `collect`×295、`len`×51、`to_string`×33、`replace`×11、`to_uppercase`×10、`unwrap_or`×8 |
+| 305 | `type/reference` | 残りは `&mut`（idsmith の乱数生成器引数） |
+| 51 | `type/qualified-path` | `super::GenOptions` などモジュール修飾 |
+| 33 | `type/self` | |
+| 16 | `expr/macro` | `format!`×12 |
+| 16 | `expr/block-item` | |
+| 14 | `type/array` | スライス `&[T]` |
+
+参照はシグネチャ上の最初の壁にすぎず、本体は **イテレータと文字列・`Option` のメソッド** で書かれている。
+
+## 4. 解釈
+
+- **型の共有は既存コードで成り立つ。** 半数の公開型がそのまま通り、残りの主因（`cfg`、ジェネリクス、newtype、`usize`）は型定義の範囲で対処できる。design/05 の結論（境界コーデックを先に作る）と整合する。
+- **振る舞いの共有は、既存コードのままではほぼ成り立たない。** ドメイン関数は `&self` と `&str` を受け取り、`iter().map().collect()` や `s.len()` で書かれている。これらは Rust の慣用であって、純粋性を損なうものではない。サブセットの外にあるのは「書き方」であって「性質」ではない。
+- 文字列メソッド（`len`・`to_uppercase`・`replace`）は、design/04 §1.3 の未決点（UTF-8 と UTF-16 の差）に直接ぶつかる。受理するなら、意味の差を差分テストで押さえる必要がある。
+
+## 5. 次の優先順位（提案）
+
+1. **シグネチャの壁を除く（低コスト）**: 共有参照 `&T`・`&self`・`&str` を値として受理する。`Self` を impl の型名に置き換える。newtype（1 要素のタプル構造体）を受理する。単独では関数の受理率を動かさないが、2 の前提になり、型の受理率も上げる。
+2. **std のメソッドを許可リストで受理する（中〜高コスト）**: 上位から `Vec`／イテレータ（`iter`・`map`・`filter`・`collect`・`len`）、`Option`（`unwrap_or`・`map`・`is_some`）、`String`（`to_string`・`len`・`replace`・`to_uppercase`・`trim`・`is_empty`）。それぞれに Rust との差分テストを付ける。文字列は長さと添字の単位を決めてから入れる。
+3. **型の残り**: `cfg` の扱い（feature を固定して読むか）、ジェネリクス（v1 計画）、`usize` の TS 表現。
+
+### 決定を要する問い
+
+- 対象を「既存の Rust ドメインコード」とするか、「PureCrate の制約内で新しく書くコード」とするか。前者なら §5-2 が必須で、保守する意味論の面積が大きく増える。後者なら §5-1 までで足り、ドキュメントと lint で書き方を案内する。

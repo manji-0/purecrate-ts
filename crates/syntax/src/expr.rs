@@ -276,7 +276,7 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             callee: Callee::Fn(Name::new(format!("{a}::{b}"))),
             args: vec![],
         }),
-        _ => Err(ParseError::new(Reason::ExternalPath, format!("unsupported path {}", segs.join("::"))).detail(segs.join("::"))),
+        _ => Err(path_error(&segs, format!("unsupported path {}", segs.join("::")))),
     }
 }
 
@@ -310,10 +310,10 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
             variant: Some(Name::new(var.clone())),
             fields,
         }),
-        _ => Err(ParseError::new(Reason::ExternalPath, format!(
+        _ => Err(path_error(&segs, format!(
             "unknown struct constructor {}",
             segs.join("::")
-        )).detail(segs.join("::"))),
+        ))),
     }
 }
 
@@ -343,10 +343,10 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             } else if segs.len() == 1 {
                 Callee::Fn(Name::new(segs[0].clone()))
             } else {
-                return Err(ParseError::new(Reason::ExternalPath, format!(
+                return Err(path_error(&segs, format!(
                     "unsupported call {}",
                     segs.join("::")
-                )).detail(segs.join("::")));
+                )));
             };
             if matches!(callee, Callee::Variant { .. }) {
                 return Ok(Expr::Construct {
@@ -483,10 +483,10 @@ fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Patt
                 Err(ParseError::new(Reason::ExternalPath, format!("unknown variant {var}")).detail(var.to_string()))
             }
         }
-        _ => Err(ParseError::new(Reason::ExternalPath, format!(
+        _ => Err(path_error(&segs, format!(
             "unsupported pattern path {}",
             segs.join("::")
-        )).detail(segs.join("::"))),
+        ))),
     }
 }
 
@@ -629,4 +629,15 @@ fn expr_kind(expr: &SynExpr) -> String {
         .next()
         .unwrap_or("")
         .to_string()
+}
+
+/// A path that names nothing crate-local. `Self` paths get their own reason:
+/// they name a crate-local type, just not by its name.
+fn path_error(segs: &[String], message: String) -> ParseError {
+    let reason = if segs.first().is_some_and(|s| s == "Self") {
+        Reason::SelfType
+    } else {
+        Reason::ExternalPath
+    };
+    ParseError::new(reason, message).detail(segs.join("::"))
 }

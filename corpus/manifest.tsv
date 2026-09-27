@@ -1,0 +1,11 @@
+# name	category	repository	commit	root (crate dir or module file, relative to the checkout)
+rust-ddd-example	ddd	https://github.com/jdomenechb/rust-ddd-example	a18b94e1bb11e8316971ab89c62711b27b34cc27	.
+rust-ddd-example.domain	ddd	https://github.com/jdomenechb/rust-ddd-example	a18b94e1bb11e8316971ab89c62711b27b34cc27	src/domain/mod.rs
+zero-to-production	validation	https://github.com/LukeMathWalker/zero-to-production	970987c5f793af6fc8e557731c9bbb23b620451e	.
+zero-to-production.domain	validation	https://github.com/LukeMathWalker/zero-to-production	970987c5f793af6fc8e557731c9bbb23b620451e	src/domain/mod.rs
+idsmith	validation	https://github.com/Sunyata-OU/idsmith	2fae324ec3448ce11bd44ae0cc9fac36828d90a8	.
+eventually.bank-accounting.domain	ddd	https://github.com/get-eventually/eventually-rs	8a842d7b6f4bb91ec1de4e47adfcd26fe48502eb	examples/bank-accounting/src/domain.rs
+eventually.light-switch.domain	state-machine	https://github.com/get-eventually/eventually-rs	8a842d7b6f4bb91ec1de4e47adfcd26fe48502eb	examples/light-switch/src/domain.rs
+little-raft	state-machine	https://github.com/andreev-io/little-raft	15371d5a3a0ce19572d5a5a647a936eb190cac06	little_raft
+poker	game-rules	https://github.com/deus-x-mackina/poker	51ebc2123bb248ba5af20a93e63acb2809bf899a	.
+cozy-chess.types	game-rules	https://github.com/analog-hors/cozy-chess	1d8a04d1510071931132ce11e988ced0d41807c8	types
