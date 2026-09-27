@@ -62,6 +62,12 @@ impl<'a> Cx<'_, 'a> {
                 self.error(format!("type `{}` is not defined in this crate", n.as_str()))
             }
             Ty::Named(_) | Ty::Prim(_) | Ty::Never => {}
+            Ty::Option(t) if self.is_option(t) => {
+                self.error(
+                    "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS"
+                        .to_string(),
+                );
+            }
             Ty::Option(t) | Ty::Vec(t) => self.ty(t),
             Ty::Result { ok, err } => {
                 self.ty(ok);
@@ -69,6 +75,22 @@ impl<'a> Cx<'_, 'a> {
             }
             Ty::Tuple(ts) => ts.iter().for_each(|t| self.ty(t)),
         }
+    }
+
+    /// Through aliases; alias cycles stop after a fixed depth.
+    fn is_option(&self, ty: &Ty) -> bool {
+        let mut t = ty;
+        for _ in 0..32 {
+            match t {
+                Ty::Option(_) => return true,
+                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
+                    Some(a) => t = &a.ty,
+                    None => return false,
+                },
+                _ => return false,
+            }
+        }
+        false
     }
 
     fn in_scope(&self, name: &str) -> bool {
@@ -236,7 +258,10 @@ impl<'a> Cx<'_, 'a> {
     fn pattern(&mut self, pattern: &Pattern, bound: &mut Vec<String>) {
         match pattern {
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
-            Pattern::Wildcard | Pattern::Lit(_) => {}
+            Pattern::Wildcard | Pattern::Lit(_) | Pattern::OptionNone => {}
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
+                self.pattern(p, bound)
+            }
             Pattern::Variant { ty, variant, bind } => {
                 let Some(var) = self.variant(ty, variant) else { return };
                 let label = format!("{}::{}", ty.as_str(), variant.as_str());

@@ -136,6 +136,34 @@ mod tests {
     }
 
     #[test]
+    fn if_let_becomes_a_two_arm_match() {
+        use purecrate_ir::{Expr, Item, Pattern};
+        let krate = parse_source(
+            "c",
+            "pub fn f(x: Result<i32, i32>) -> i32 { if let Ok(v) = x { v } else { 0 } }",
+        )
+        .expect("parse");
+        let Item::Fn(f) = &krate.items[0] else { panic!("fn") };
+        let Expr::Match { arms, .. } = &f.body else {
+            panic!("match, got {:?}", f.body)
+        };
+        let patterns: Vec<&Pattern> = arms.iter().map(|a| &a.pattern).collect();
+        assert_eq!(
+            patterns,
+            [
+                &Pattern::ResultOk(Box::new(Pattern::Var(purecrate_ir::Name::new("v")))),
+                &Pattern::ResultErr(Box::new(Pattern::Wildcard)),
+            ]
+        );
+
+        let (_, _, msg) = error_at(&with_arms("Cmd::Stop => 0, Cmd::Move(a, _) => a") .replace(
+            "match cmd { Cmd::Stop => 0, Cmd::Move(a, _) => a }",
+            "if let Cmd::Stop = cmd { 0 } else { 1 }",
+        ));
+        assert!(msg.contains("`if let` on an enum variant is not in v0"), "{msg}");
+    }
+
+    #[test]
     fn unsupported_arm_patterns_are_rejected() {
         rejects("Cmd::Stop => 0, _ => 1", "found `_`");
         rejects("Cmd::Stop => 0, other => 1", "found binding `other`");

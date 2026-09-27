@@ -1,9 +1,10 @@
-//! `match` becomes `switch (x.kind)` with `assertNever` in `default`, so every
-//! arm must name a variant of one enum and every variant must appear once.
+//! `match` becomes `switch (x.kind)` with `assertNever` in `default`, or a
+//! two-way `if` for `Option`/`Result`. Every arm must name a case of one type
+//! and every case must appear once.
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Crate, Enum, Expr, Fields, Item, Pattern};
+use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern};
 
 use crate::Diagnostic;
 
@@ -25,44 +26,63 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     out
 }
 
+/// Which type an arm's pattern belongs to, and the case it names.
+fn case_of(pattern: &Pattern) -> Option<(&str, &str)> {
+    match pattern {
+        Pattern::Variant { ty, variant, .. } => Some((ty.as_str(), variant.as_str())),
+        Pattern::OptionSome(_) => Some(("Option", "Some")),
+        Pattern::OptionNone => Some(("Option", "None")),
+        Pattern::ResultOk(_) => Some(("Result", "Ok")),
+        Pattern::ResultErr(_) => Some(("Result", "Err")),
+        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) => None,
+    }
+}
+
+fn label(ty: &str, case: &str) -> String {
+    match ty {
+        "Option" | "Result" => format!("`{case}`"),
+        _ => format!("`{ty}::{case}`"),
+    }
+}
+
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
     let mut ty: Option<&str> = None;
     let mut seen: Vec<&str> = Vec::new();
     for arm in arms {
-        let Pattern::Variant { ty: t, variant, .. } = &arm.pattern else {
-            out.push(Diagnostic::at(i, "match arms must name an enum variant"));
+        let Some((t, case)) = case_of(&arm.pattern) else {
+            out.push(Diagnostic::at(i, "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err`"));
             return;
         };
         match ty {
-            None => ty = Some(t.as_str()),
-            Some(first) if first != t.as_str() => {
-                out.push(Diagnostic::at(
-                    i,
-                    format!("match mixes variants of `{first}` and `{}`", t.as_str()),
-                ));
+            None => ty = Some(t),
+            Some(first) if first != t => {
+                out.push(Diagnostic::at(i, format!("match mixes cases of `{first}` and `{t}`")));
                 return;
             }
             Some(_) => {}
         }
-        if seen.contains(&variant.as_str()) {
-            out.push(Diagnostic::at(
-                i,
-                format!("`{}::{}` is matched more than once", t.as_str(), variant.as_str()),
-            ));
+        if seen.contains(&case) {
+            out.push(Diagnostic::at(i, format!("{} is matched more than once", label(t, case))));
         }
-        seen.push(variant.as_str());
+        seen.push(case);
     }
     let Some(ty) = ty else {
         out.push(Diagnostic::at(i, "match has no arms"));
         return;
     };
-    // Unknown enums are reported by name resolution.
-    let Some(e) = enums.get(ty) else { return };
-    let missing: Vec<String> = e
-        .variants
-        .iter()
-        .filter(|v| !seen.contains(&v.name.as_str()))
-        .map(|v| format!("`{ty}::{}`", v.name.as_str()))
+    let all: Vec<&str> = match ty {
+        "Option" => vec!["Some", "None"],
+        "Result" => vec!["Ok", "Err"],
+        // Unknown enums are reported by name resolution.
+        _ => match enums.get(ty) {
+            Some(e) => e.variants.iter().map(|v| v.name.as_str()).collect(),
+            None => return,
+        },
+    };
+    let missing: Vec<String> = all
+        .into_iter()
+        .filter(|c| !seen.contains(c))
+        .map(|c| label(ty, c))
         .collect();
     if !missing.is_empty() {
         out.push(Diagnostic::at(
@@ -73,36 +93,8 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
 }
 
 fn walk(expr: &Expr, on_match: &mut impl FnMut(&[Arm])) {
-    match expr {
-        Expr::Match { scrutinee, arms } => {
-            on_match(arms);
-            walk(scrutinee, on_match);
-            arms.iter().for_each(|a| walk(&a.body, on_match));
-        }
-        Expr::Let { value, then, .. } => {
-            walk(value, on_match);
-            walk(then, on_match);
-        }
-        Expr::If { cond, then, else_ } => {
-            walk(cond, on_match);
-            walk(then, on_match);
-            walk(else_, on_match);
-        }
-        Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
-            args.iter().for_each(|a| walk(a, on_match))
-        }
-        Expr::Construct { fields, .. } => match fields {
-            Fields::Positional(xs) => xs.iter().for_each(|x| walk(x, on_match)),
-            Fields::Named(xs) => xs.iter().for_each(|(_, x)| walk(x, on_match)),
-            Fields::Unit => {}
-        },
-        Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
-            walk(base, on_match)
-        }
-        Expr::Binary { left, right, .. } => {
-            walk(left, on_match);
-            walk(right, on_match);
-        }
-        Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
+    if let Expr::Match { arms, .. } = expr {
+        on_match(arms);
     }
+    expr.children().into_iter().for_each(|c| walk(c, on_match));
 }

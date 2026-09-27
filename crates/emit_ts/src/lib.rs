@@ -453,6 +453,19 @@ fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out:
         out.push_str(&format!("{pad}const {decl};\n"));
         tmp
     };
+    if let [a, b] = arms {
+        if let (Some(test), Some(_)) = (two_way_test(&a.pattern, &subject), two_way_test(&b.pattern, &subject)) {
+            let pad2 = "  ".repeat(indent + 1);
+            out.push_str(&format!("{pad}if ({test}) {{\n"));
+            out.push_str(&two_way_prelude(&a.pattern, &subject, &pad2));
+            emit_stmts(&a.body, indent + 1, out);
+            out.push_str(&format!("{pad}}} else {{\n"));
+            out.push_str(&two_way_prelude(&b.pattern, &subject, &pad2));
+            emit_stmts(&b.body, indent + 1, out);
+            out.push_str(&format!("{pad}}}\n"));
+            return;
+        }
+    }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
     for arm in arms {
         if let Pattern::Variant { variant, bind, .. } = &arm.pattern {
@@ -470,6 +483,31 @@ fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out:
     out.push_str(&format!(
         "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
     ));
+}
+
+/// `Option` is `T | null` and `Result` is `kind`-tagged, so both narrow
+/// with a single test.
+fn two_way_test(pattern: &Pattern, subject: &str) -> Option<String> {
+    match pattern {
+        Pattern::OptionSome(_) => Some(format!("{subject} !== null")),
+        Pattern::OptionNone => Some(format!("{subject} === null")),
+        Pattern::ResultOk(_) => Some(format!("{subject}.kind === \"Ok\"")),
+        Pattern::ResultErr(_) => Some(format!("{subject}.kind === \"Err\"")),
+        _ => None,
+    }
+}
+
+fn two_way_prelude(pattern: &Pattern, subject: &str, pad: &str) -> String {
+    let (inner, read) = match pattern {
+        Pattern::OptionSome(p) => (p, subject.to_string()),
+        Pattern::ResultOk(p) => (p, format!("{subject}.value")),
+        Pattern::ResultErr(p) => (p, format!("{subject}.error")),
+        _ => return String::new(),
+    };
+    match &**inner {
+        Pattern::Var(n) => format!("{pad}const {} = {read};\n", n.as_str()),
+        _ => String::new(),
+    }
 }
 
 fn emit_ty(ty: &Ty) -> String {
@@ -733,7 +771,9 @@ impl Refs {
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
         match expr {
             Expr::Match { scrutinee, arms } => {
-                self.never = true;
+                self.never |= arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }));
                 if !is_place(scrutinee) {
                     if let Some(ty) = scrutinee_ty(arms) {
                         self.types.insert(ty.as_str().to_string());

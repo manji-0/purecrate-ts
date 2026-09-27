@@ -101,6 +101,34 @@ pub enum Pattern {
         variant: Name,
         bind: VariantBind,
     },
+    OptionSome(Box<Pattern>),
+    OptionNone,
+    ResultOk(Box<Pattern>),
+    ResultErr(Box<Pattern>),
+}
+
+impl Pattern {
+    /// Names the pattern binds, left to right.
+    pub fn bindings(&self) -> Vec<&Name> {
+        let mut out = Vec::new();
+        self.collect_bindings(&mut out);
+        out
+    }
+
+    fn collect_bindings<'a>(&'a self, out: &mut Vec<&'a Name>) {
+        match self {
+            Pattern::Var(n) => out.push(n),
+            Pattern::Variant { bind, .. } => match bind {
+                VariantBind::Unit => {}
+                VariantBind::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
+                VariantBind::Struct(ps) => ps.iter().for_each(|(_, p)| p.collect_bindings(out)),
+            },
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
+                p.collect_bindings(out)
+            }
+            Pattern::Wildcard | Pattern::Lit(_) | Pattern::OptionNone => {}
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +195,28 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// Direct subexpressions in evaluation order.
+    pub fn children(&self) -> Vec<&Expr> {
+        match self {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => Vec::new(),
+            Expr::Let { value, then, .. } => vec![value, then],
+            Expr::If { cond, then, else_ } => vec![cond, then, else_],
+            Expr::Match { scrutinee, arms } => std::iter::once(&**scrutinee)
+                .chain(arms.iter().map(|a| &a.body))
+                .collect(),
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
+            Expr::Construct { fields, .. } => match fields {
+                Fields::Unit => Vec::new(),
+                Fields::Positional(xs) => xs.iter().collect(),
+                Fields::Named(xs) => xs.iter().map(|(_, x)| x).collect(),
+            },
+            Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
+                vec![base]
+            }
+            Expr::Binary { left, right, .. } => vec![left, right],
+        }
+    }
+
     pub fn var(name: impl Into<String>) -> Self {
         Expr::Var(Name::new(name))
     }

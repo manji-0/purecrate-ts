@@ -425,13 +425,14 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     fn match_(&mut self, scrutinee: &Expr, arms: &[Arm], want: Option<&Ty>) -> Typed {
-        let (scrutinee, _) = self.expr(scrutinee, None);
+        let (scrutinee, st) = self.expr(scrutinee, None);
+        let st = st.map(|t| self.norm(&t));
         let mut result: Option<Ty> = None;
         let arms = arms
             .iter()
             .map(|arm| {
                 let depth = self.scopes.len();
-                self.bind(&arm.pattern);
+                self.bind(&arm.pattern, st.as_ref());
                 let hint = want.cloned().or_else(|| result.clone());
                 let (body, t) = self.expr(&arm.body, hint.as_ref());
                 self.scopes.truncate(depth);
@@ -451,13 +452,53 @@ impl<'d, 'a> Typer<'d, 'a> {
         )
     }
 
-    fn bind(&mut self, pattern: &Pattern) {
-        let Pattern::Variant { ty, variant, bind } = pattern else {
-            if let Pattern::Var(n) = pattern {
-                self.scopes.push((n.as_str().to_string(), None));
+    /// `scrutinee` is the normalized type of the matched value, when known.
+    fn bind(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) {
+        let inner = |p: &Pattern| match p {
+            Pattern::Var(n) => Some(n.as_str().to_string()),
+            _ => None,
+        };
+        let (name, ty) = match (pattern, scrutinee) {
+            (Pattern::Var(n), t) => (Some(n.as_str().to_string()), t.cloned()),
+            (Pattern::OptionSome(p), Some(Ty::Option(t))) => (inner(p), Some((**t).clone())),
+            (Pattern::ResultOk(p), Some(Ty::Result { ok, .. })) => (inner(p), Some((**ok).clone())),
+            (Pattern::ResultErr(p), Some(Ty::Result { err, .. })) => {
+                (inner(p), Some((**err).clone()))
             }
+            (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), other) => {
+                if let Some(t) = other {
+                    self.error(format!(
+                        "pattern `{}` does not match a value of type `{}`",
+                        describe(pattern),
+                        show(t)
+                    ));
+                }
+                (inner(p), None)
+            }
+            (Pattern::OptionNone, Some(t)) if !matches!(t, Ty::Option(_)) => {
+                self.error(format!("pattern `None` does not match a value of type `{}`", show(t)));
+                (None, None)
+            }
+            (Pattern::OptionNone | Pattern::Wildcard | Pattern::Lit(_), _) => (None, None),
+            (Pattern::Variant { .. }, _) => return self.bind_variant(pattern, scrutinee),
+        };
+        if let Some(n) = name {
+            self.scopes.push((n, ty));
+        }
+    }
+
+    fn bind_variant(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) {
+        let Pattern::Variant { ty, variant, bind } = pattern else {
             return;
         };
+        if let Some(t) = scrutinee.filter(|t| **t != Ty::Named(ty.clone())) {
+            self.error(format!(
+                "pattern `{}::{}` does not match a value of type `{}`",
+                ty.as_str(),
+                variant.as_str(),
+                show(t)
+            ));
+        }
         let fields = self
             .defs
             .enums
@@ -707,6 +748,16 @@ fn neg(e: Expr) -> Expr {
     Expr::Unary {
         op: UnOp::Neg,
         expr: Box::new(e),
+    }
+}
+
+fn describe(pattern: &Pattern) -> &'static str {
+    match pattern {
+        Pattern::OptionSome(_) => "Some(..)",
+        Pattern::OptionNone => "None",
+        Pattern::ResultOk(_) => "Ok(..)",
+        Pattern::ResultErr(_) => "Err(..)",
+        _ => "..",
     }
 }
 

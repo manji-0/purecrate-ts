@@ -36,7 +36,7 @@ fn duplicate_arms_are_rejected() {
 fn arms_from_two_enums_are_rejected() {
     assert_rejects(
         &run("match d { Dir::Up => 1, Cmd::Stop => 2 }"),
-        "match mixes variants of `Dir` and `Cmd`",
+        "match mixes cases of `Dir` and `Cmd`",
     );
 }
 

@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Crate, Expr, Fields, Item, Name, Pattern, VariantBind, VariantFields};
+use purecrate_ir::{Crate, Expr, Item, Name, VariantFields};
 
 use crate::Diagnostic;
 
@@ -193,50 +193,11 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
 
 fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
     match expr {
-        Expr::Let { name, value, then, .. } => {
-            f(name);
-            for_each_binding(value, f);
-            for_each_binding(then, f);
-        }
-        Expr::Match { scrutinee, arms } => {
-            for_each_binding(scrutinee, f);
-            for arm in arms {
-                pattern_bindings(&arm.pattern, f);
-                for_each_binding(&arm.body, f);
-            }
-        }
-        Expr::If { cond, then, else_ } => {
-            for_each_binding(cond, f);
-            for_each_binding(then, f);
-            for_each_binding(else_, f);
-        }
-        Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
-            args.iter().for_each(|a| for_each_binding(a, f))
-        }
-        Expr::Construct { fields, .. } => match fields {
-            Fields::Positional(xs) => xs.iter().for_each(|x| for_each_binding(x, f)),
-            Fields::Named(xs) => xs.iter().for_each(|(_, x)| for_each_binding(x, f)),
-            Fields::Unit => {}
-        },
-        Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
-            for_each_binding(base, f)
-        }
-        Expr::Binary { left, right, .. } => {
-            for_each_binding(left, f);
-            for_each_binding(right, f);
-        }
-        Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
+        Expr::Let { name, .. } => f(name),
+        Expr::Match { arms, .. } => arms
+            .iter()
+            .for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
+        _ => {}
     }
-}
-
-fn pattern_bindings(pattern: &Pattern, f: &mut impl FnMut(&Name)) {
-    match pattern {
-        Pattern::Var(n) => f(n),
-        Pattern::Variant { bind, .. } => match bind {
-            VariantBind::Unit => {}
-            VariantBind::Tuple(ps) => ps.iter().for_each(|p| pattern_bindings(p, f)),
-            VariantBind::Struct(ps) => ps.iter().for_each(|(_, p)| pattern_bindings(p, f)),
-        },
-        Pattern::Wildcard | Pattern::Lit(_) => {}
-    }
+    expr.children().into_iter().for_each(|c| for_each_binding(c, f));
 }

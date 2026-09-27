@@ -39,6 +39,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 Some((_, e)) => lower_expr(cx, e)?,
                 None => Expr::Lit(Lit::Unit),
             };
+            if let SynExpr::Let(l) = &*i.cond {
+                return lower_if_let(cx, l, lower_block(cx, &i.then_branch)?, else_);
+            }
             Ok(Expr::If {
                 cond: Box::new(lower_expr(cx, &i.cond)?),
                 then: Box::new(lower_block(cx, &i.then_branch)?),
@@ -273,6 +276,7 @@ fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
 fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
     match pat {
         Pat::Wild(_) => Ok(Pattern::Wildcard),
+        Pat::Ident(id) if id.ident == "None" && id.subpat.is_none() => Ok(Pattern::OptionNone),
         Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
             Ok(Pattern::Var(Name::new(id.ident.to_string())))
         }
@@ -312,16 +316,20 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
 /// v0 prints `match` as `switch (x.kind)`: each arm names one variant and
 /// binds its fields to plain names.
 fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
-    let Pattern::Variant { bind, .. } = &pattern else {
-        return Err(ParseError::new(format!(
-            "match arms must name an enum variant in v0, found {}",
-            describe_pat(&pattern)
-        )));
-    };
-    let inner: Vec<&Pattern> = match bind {
-        VariantBind::Unit => Vec::new(),
-        VariantBind::Tuple(pats) => pats.iter().collect(),
-        VariantBind::Struct(pairs) => pairs.iter().map(|(_, p)| p).collect(),
+    let inner: Vec<&Pattern> = match &pattern {
+        Pattern::Variant { bind, .. } => match bind {
+            VariantBind::Unit => Vec::new(),
+            VariantBind::Tuple(pats) => pats.iter().collect(),
+            VariantBind::Struct(pairs) => pairs.iter().map(|(_, p)| p).collect(),
+        },
+        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![&**p],
+        Pattern::OptionNone => Vec::new(),
+        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) => {
+            return Err(ParseError::new(format!(
+                "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err` in v0, found {}",
+                describe_pat(&pattern)
+            )))
+        }
     };
     if let Some(bad) = inner
         .into_iter()
@@ -343,11 +351,20 @@ fn describe_pat(pattern: &Pattern) -> String {
         Pattern::Variant { ty, variant, .. } => {
             format!("nested variant `{}::{}`", ty.as_str(), variant.as_str())
         }
+        Pattern::OptionSome(_) => "nested `Some(..)`".into(),
+        Pattern::OptionNone => "nested `None`".into(),
+        Pattern::ResultOk(_) => "nested `Ok(..)`".into(),
+        Pattern::ResultErr(_) => "nested `Err(..)`".into(),
     }
 }
 
 fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Pattern, ParseError> {
     let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    if let [one] = segs.as_slice() {
+        if let Some(p) = prelude_pat(one, bind.clone())? {
+            return Ok(p);
+        }
+    }
     match segs.as_slice() {
         [ty, var] if cx.is_enum(ty) => Ok(Pattern::Variant {
             ty: Name::new(ty.clone()),
@@ -370,6 +387,52 @@ fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Patt
             segs.join("::")
         ))),
     }
+}
+
+/// Bare `Some`/`None`/`Ok`/`Err` always mean the prelude's, as in Rust.
+fn prelude_pat(name: &str, bind: VariantBind) -> Result<Option<Pattern>, ParseError> {
+    let one = |bind: VariantBind| match bind {
+        VariantBind::Tuple(mut ps) if ps.len() == 1 => Ok(Box::new(ps.remove(0))),
+        _ => Err(ParseError::new(format!("`{name}` takes exactly one field"))),
+    };
+    Ok(Some(match name {
+        "Some" => Pattern::OptionSome(one(bind)?),
+        "Ok" => Pattern::ResultOk(one(bind)?),
+        "Err" => Pattern::ResultErr(one(bind)?),
+        "None" if bind == VariantBind::Unit => Pattern::OptionNone,
+        "None" => return Err(ParseError::new("`None` has no fields")),
+        _ => return Ok(None),
+    }))
+}
+
+/// `if let P = e { a } else { b }` is `match e { P => a, <the other case> => b }`.
+fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -> Result<Expr, ParseError> {
+    let pattern = arm_pattern(lower_pat(cx, &l.pat)?).map_err(|e| e.or_at(l.pat.span()))?;
+    let other = match &pattern {
+        Pattern::OptionSome(_) => Pattern::OptionNone,
+        Pattern::OptionNone => Pattern::OptionSome(Box::new(Pattern::Wildcard)),
+        Pattern::ResultOk(_) => Pattern::ResultErr(Box::new(Pattern::Wildcard)),
+        Pattern::ResultErr(_) => Pattern::ResultOk(Box::new(Pattern::Wildcard)),
+        _ => {
+            return Err(ParseError::new(
+                "`if let` on an enum variant is not in v0; use `match` with every variant",
+            )
+            .or_at(l.pat.span()))
+        }
+    };
+    Ok(Expr::Match {
+        scrutinee: Box::new(lower_expr(cx, &l.expr)?),
+        arms: vec![
+            Arm {
+                pattern,
+                body: then,
+            },
+            Arm {
+                pattern: other,
+                body: else_,
+            },
+        ],
+    })
 }
 
 fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
