@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern};
+use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern, Reason};
 
 use crate::Diagnostic;
 
@@ -50,24 +50,24 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     let mut seen: Vec<&str> = Vec::new();
     for arm in arms {
         let Some((t, case)) = case_of(&arm.pattern) else {
-            out.push(Diagnostic::at(i, "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err`"));
+            out.push(Diagnostic::at(i, Reason::ArmPattern, "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err`"));
             return;
         };
         match ty {
             None => ty = Some(t),
             Some(first) if first != t => {
-                out.push(Diagnostic::at(i, format!("match mixes cases of `{first}` and `{t}`")));
+                out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match mixes cases of `{first}` and `{t}`")));
                 return;
             }
             Some(_) => {}
         }
         if seen.contains(&case) {
-            out.push(Diagnostic::at(i, format!("{} is matched more than once", label(t, case))));
+            out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("{} is matched more than once", label(t, case))));
         }
         seen.push(case);
     }
     let Some(ty) = ty else {
-        out.push(Diagnostic::at(i, "match has no arms"));
+        out.push(Diagnostic::at(i, Reason::NonExhaustive, "match has no arms"));
         return;
     };
     let all: Vec<&str> = match ty {
@@ -86,7 +86,7 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
         .collect();
     if !missing.is_empty() {
         out.push(Diagnostic::at(
-            i,
+            i, Reason::NonExhaustive,
             format!("match on `{ty}` is missing {}", missing.join(", ")),
         ));
     }

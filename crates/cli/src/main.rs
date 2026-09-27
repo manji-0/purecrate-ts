@@ -60,7 +60,7 @@ fn load(input: &Input, consequence: &str) -> Result<Package, String> {
     };
     let mut report: Vec<String> = Vec::new();
     for d in &diagnostics {
-        report.push(format!("{}: {}", at(d.item), d.message));
+        report.push(format!("{}: [{}] {}", at(d.item), d.reason, d.message));
         for &other in &d.also {
             report.push(format!("  note: see {}", at(other)));
         }

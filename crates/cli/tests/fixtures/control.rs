@@ -207,6 +207,7 @@ pub fn twice_matched(a: i32, b: i32) -> i32 {
     total
 }
 
+#[allow(unused_must_use)]
 pub fn checked_first(a: i32, b: i32) -> i32 {
     a / b;
     a

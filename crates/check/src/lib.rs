@@ -12,7 +12,7 @@ mod rename;
 mod resolve;
 mod types;
 
-use purecrate_ir::Crate;
+use purecrate_ir::{Crate, Reason};
 
 pub use reach::prune_unreachable;
 
@@ -22,16 +22,31 @@ pub struct Diagnostic {
     pub item: usize,
     /// Other items involved, e.g. the earlier definition in a collision.
     pub also: Vec<usize>,
+    pub reason: Reason,
+    /// What the reason is about when that varies, e.g. the undefined name.
+    pub detail: Option<String>,
     pub message: String,
 }
 
 impl Diagnostic {
-    fn at(item: usize, message: impl Into<String>) -> Self {
+    fn at(item: usize, reason: Reason, message: impl Into<String>) -> Self {
         Self {
             item,
             also: Vec::new(),
+            reason,
+            detail: None,
             message: message.into(),
         }
+    }
+
+    fn about(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    fn also(mut self, other: usize) -> Self {
+        self.also.push(other);
+        self
     }
 }
 

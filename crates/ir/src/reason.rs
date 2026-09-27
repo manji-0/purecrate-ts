@@ -1,0 +1,144 @@
+/// Why an input is outside the subset. `code()` is stable and meant for
+/// tallying; the messages that go with it are for people and may change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Reason {
+    /// Not Rust `syn` can parse.
+    InvalidSyntax,
+
+    // Expressions.
+    MethodCall,
+    Closure,
+    Loop,
+    Borrow,
+    Index,
+    Range,
+    Cast,
+    TupleField,
+    Macro,
+    MatchGuard,
+    UnsupportedExpr,
+    LetPattern,
+    LetElse,
+    BlockItem,
+    PlaceAssign,
+    StructUpdate,
+    PositionalFields,
+    /// A path that does not name a crate-local item, e.g. `std::cmp::max`.
+    ExternalPath,
+    ArmPattern,
+    NestedPattern,
+    UnsupportedPattern,
+    IfLetVariant,
+    LiteralSuffix,
+    UnsupportedLiteral,
+    UnsupportedOperator,
+
+    // Items.
+    Generics,
+    TraitImpl,
+    UnsupportedItem,
+    Module,
+    SerdeAttr,
+    Cfg,
+    FnQualifier,
+    RefReceiver,
+    MutParam,
+    ParamPattern,
+    ImplShape,
+
+    // Types.
+    RefType,
+    ArrayType,
+    QualifiedPath,
+    DisallowedType,
+    FnType,
+    UnsupportedType,
+    TypeArity,
+
+    // Checks on the parsed crate.
+    NameCollision,
+    ReservedName,
+    UndefinedType,
+    UndefinedFn,
+    UndefinedName,
+    ConstructShape,
+    TypeMismatch,
+    NeedsAnnotation,
+    NumericOp,
+    NonExhaustive,
+    NestedOption,
+    Position,
+    ImmutableAssign,
+    TryConversion,
+}
+
+impl Reason {
+    pub fn code(self) -> &'static str {
+        match self {
+            Reason::InvalidSyntax => "syntax/invalid",
+            Reason::MethodCall => "expr/method-call",
+            Reason::Closure => "expr/closure",
+            Reason::Loop => "expr/loop",
+            Reason::Borrow => "expr/borrow",
+            Reason::Index => "expr/index",
+            Reason::Range => "expr/range",
+            Reason::Cast => "expr/cast",
+            Reason::TupleField => "expr/tuple-field",
+            Reason::Macro => "expr/macro",
+            Reason::MatchGuard => "expr/match-guard",
+            Reason::UnsupportedExpr => "expr/other",
+            Reason::LetPattern => "expr/let-pattern",
+            Reason::LetElse => "expr/let-else",
+            Reason::BlockItem => "expr/block-item",
+            Reason::PlaceAssign => "expr/assign-place",
+            Reason::StructUpdate => "expr/struct-update",
+            Reason::PositionalFields => "expr/positional-fields",
+            Reason::ExternalPath => "expr/external-path",
+            Reason::ArmPattern => "pattern/arm",
+            Reason::NestedPattern => "pattern/nested",
+            Reason::UnsupportedPattern => "pattern/other",
+            Reason::IfLetVariant => "pattern/if-let-variant",
+            Reason::LiteralSuffix => "literal/suffix",
+            Reason::UnsupportedLiteral => "literal/other",
+            Reason::UnsupportedOperator => "expr/operator",
+            Reason::Generics => "item/generics",
+            Reason::TraitImpl => "item/trait-impl",
+            Reason::UnsupportedItem => "item/other",
+            Reason::Module => "item/module",
+            Reason::SerdeAttr => "item/serde-attr",
+            Reason::Cfg => "item/cfg",
+            Reason::FnQualifier => "item/fn-qualifier",
+            Reason::RefReceiver => "item/ref-receiver",
+            Reason::MutParam => "item/mut-param",
+            Reason::ParamPattern => "item/param-pattern",
+            Reason::ImplShape => "item/impl-shape",
+            Reason::RefType => "type/reference",
+            Reason::ArrayType => "type/array",
+            Reason::QualifiedPath => "type/qualified-path",
+            Reason::DisallowedType => "type/disallowed",
+            Reason::FnType => "type/fn",
+            Reason::UnsupportedType => "type/other",
+            Reason::TypeArity => "type/arity",
+            Reason::NameCollision => "check/name-collision",
+            Reason::ReservedName => "check/reserved-name",
+            Reason::UndefinedType => "check/undefined-type",
+            Reason::UndefinedFn => "check/undefined-fn",
+            Reason::UndefinedName => "check/undefined-name",
+            Reason::ConstructShape => "check/construct-shape",
+            Reason::TypeMismatch => "check/type-mismatch",
+            Reason::NeedsAnnotation => "check/needs-annotation",
+            Reason::NumericOp => "check/numeric-op",
+            Reason::NonExhaustive => "check/non-exhaustive",
+            Reason::NestedOption => "check/nested-option",
+            Reason::Position => "check/position",
+            Reason::ImmutableAssign => "check/immutable-assign",
+            Reason::TryConversion => "check/try-conversion",
+        }
+    }
+}
+
+impl std::fmt::Display for Reason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.code())
+    }
+}

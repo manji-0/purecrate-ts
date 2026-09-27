@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Enum, Field, Fn, Item, Name, Param, Struct, Variant, VariantFields, Vis,
+    Alias, Enum, Field, Fn, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis,
 };
 use syn::spanned::Spanned;
 use syn::{Fields as SynFields, Item as SynItem, Visibility};
@@ -28,16 +28,27 @@ impl LineCol {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
+    pub reason: Reason,
+    /// What the reason is about when that varies, e.g. the macro or method
+    /// name, for tallying.
+    pub detail: Option<String>,
     pub message: String,
     pub at: Option<LineCol>,
 }
 
 impl ParseError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(reason: Reason, message: impl Into<String>) -> Self {
         Self {
+            reason,
+            detail: None,
             message: message.into(),
             at: None,
         }
+    }
+
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
     }
 
     /// Keep the innermost location: only fills `at` when still unset.
@@ -64,8 +75,8 @@ pub fn snippet(node: &impl Spanned) -> String {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.at {
-            Some(LineCol { line, col }) => write!(f, "{line}:{col}: {}", self.message),
-            None => write!(f, "{}", self.message),
+            Some(LineCol { line, col }) => write!(f, "{line}:{col}: [{}] {}", self.reason, self.message),
+            None => write!(f, "[{}] {}", self.reason, self.message),
         }
     }
 }
@@ -122,15 +133,21 @@ impl Cx {
 fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
     for attr in attrs {
         let path = attr.path();
-        let message = if path.is_ident("serde") {
-            "`#[serde(...)]` changes the JSON shape, which v0 does not model yet; \
-             remove it or keep this type out of the crate"
+        let (reason, message) = if path.is_ident("serde") {
+            (
+                Reason::SerdeAttr,
+                "`#[serde(...)]` changes the JSON shape, which v0 does not model yet; \
+                 remove it or keep this type out of the crate",
+            )
         } else if path.is_ident("cfg") || path.is_ident("cfg_attr") {
-            "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`"
+            (
+                Reason::Cfg,
+                "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`",
+            )
         } else {
             continue;
         };
-        return Err(ParseError::new(message).or_at(attr.span()));
+        return Err(ParseError::new(reason, message).or_at(attr.span()));
     }
     Ok(())
 }
@@ -198,21 +215,23 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
                     ty: lower_type(&t.ty)?,
                 })])
             } else {
-                Err(ParseError::new("generic type aliases are not in v0"))
+                Err(ParseError::new(Reason::Generics, "generic type aliases are not in v0"))
             }
         }
         SynItem::Impl(imp) => lower_impl(cx, imp),
         SynItem::Use(_) => Ok(vec![]),
         SynItem::Mod(_) => Err(ParseError::new(
+            Reason::Module,
             "modules are flattened at the call site; a single file is required in v0 parse",
         )),
-        other => Err(ParseError::new(format!("unsupported item {}", snippet(&other)))),
+        other => Err(ParseError::new(Reason::UnsupportedItem, format!("unsupported item {}", snippet(&other)))
+            .detail(item_kind(&other))),
     }
 }
 
 fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
     if !e.generics.params.is_empty() {
-        return Err(ParseError::new("generic enums are not in v0"));
+        return Err(ParseError::new(Reason::Generics, "generic enums are not in v0"));
     }
     let mut variants = Vec::new();
     for v in &e.variants {
@@ -232,7 +251,7 @@ fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
 
 fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
     if !s.generics.params.is_empty() {
-        return Err(ParseError::new("generic structs are not in v0"));
+        return Err(ParseError::new(Reason::Generics, "generic structs are not in v0"));
     }
     reject_field_attrs(&s.fields)?;
     let fields = match &s.fields {
@@ -248,7 +267,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
             .collect::<Result<Vec<_>, _>>()?,
         SynFields::Unit => Vec::new(),
         SynFields::Unnamed(_) => {
-            return Err(ParseError::new("tuple structs are not in v0"))
+            return Err(ParseError::new(Reason::PositionalFields, "tuple structs are not in v0"))
         }
     };
     Ok(Struct {
@@ -294,7 +313,9 @@ fn lower_fn(
     block: &syn::Block,
 ) -> Result<Fn, ParseError> {
     let reject = |what: &str, span: proc_macro2::Span| {
-        Err(ParseError::new(format!("{what} is not allowed in v0")).or_at(span))
+        Err(ParseError::new(Reason::FnQualifier, format!("{what} is not allowed in v0"))
+            .detail(what)
+            .or_at(span))
     };
     if let Some(t) = &sig.asyncness {
         return reject("async", t.span);
@@ -329,17 +350,17 @@ fn lower_fn(
 fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseError> {
     match input {
         syn::FnArg::Receiver(r) => match owner {
-            Some(_) if r.reference.is_some() => Err(ParseError::new(
+            Some(_) if r.reference.is_some() => Err(ParseError::new(Reason::RefReceiver, 
                 "reference receivers are not allowed; take self by value",
             )),
             Some(owner) => Ok(Param {
                 name: Name::new("self"),
                 ty: purecrate_ir::Ty::Named(owner.clone()),
             }),
-            None => Err(ParseError::new("`self` outside an impl block")),
+            None => Err(ParseError::new(Reason::UnsupportedItem, "`self` outside an impl block")),
         },
         syn::FnArg::Typed(p) => match &*p.pat {
-            syn::Pat::Ident(id) if id.mutability.is_some() => Err(ParseError::new(format!(
+            syn::Pat::Ident(id) if id.mutability.is_some() => Err(ParseError::new(Reason::MutParam, format!(
                 "`mut` parameters are not in v0; write `let mut {0} = {0};` in the body",
                 id.ident
             ))),
@@ -347,24 +368,24 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
                 name: Name::new(id.ident.to_string()),
                 ty: lower_type(&p.ty)?,
             }),
-            _ => Err(ParseError::new("only named parameters")),
+            _ => Err(ParseError::new(Reason::ParamPattern, "only named parameters")),
         },
     }
 }
 
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
     if imp.trait_.is_some() {
-        return Err(ParseError::new("trait impls are not in v0"));
+        return Err(ParseError::new(Reason::TraitImpl, "trait impls are not in v0"));
     }
     if !imp.generics.params.is_empty() {
-        return Err(ParseError::new("generic impls are not in v0"));
+        return Err(ParseError::new(Reason::Generics, "generic impls are not in v0"));
     }
     let owner = match &*imp.self_ty {
         syn::Type::Path(p) if p.path.segments.len() == 1 => {
             Name::new(p.path.segments[0].ident.to_string())
         }
         _ => {
-            return Err(ParseError::new("impl type must be a simple name").or_at(imp.self_ty.span()))
+            return Err(ParseError::new(Reason::ImplShape, "impl type must be a simple name").or_at(imp.self_ty.span()))
         }
     };
     let mut out = Vec::new();
@@ -372,7 +393,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
         let lowered = match item {
             syn::ImplItem::Fn(f) => reject_attrs(&f.attrs)
                 .and_then(|()| lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block)),
-            _ => Err(ParseError::new("only methods in impl blocks in v0")),
+            _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
         };
         out.push(Item::Fn(lowered.map_err(|e| e.or_at(item.span()))?));
     }
@@ -383,5 +404,17 @@ fn lower_vis(vis: &Visibility) -> Vis {
     match vis {
         Visibility::Public(_) => Vis::Pub,
         _ => Vis::Internal,
+    }
+}
+
+fn item_kind(item: &SynItem) -> &'static str {
+    match item {
+        SynItem::Const(_) => "const",
+        SynItem::Static(_) => "static",
+        SynItem::Trait(_) | SynItem::TraitAlias(_) => "trait",
+        SynItem::Union(_) => "union",
+        SynItem::Macro(_) => "macro",
+        SynItem::ExternCrate(_) | SynItem::ForeignMod(_) => "extern",
+        _ => "other",
     }
 }

@@ -74,12 +74,12 @@ fn rejected_crate_reports_locations_and_leaves_out_alone() {
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     let path = src.display();
     assert!(
-        stderr.contains(&format!("{path}:10:8: `Step` and `step` would both be emitted as `step.ts`")),
+        stderr.contains(&format!("{path}:10:8: [check/name-collision] `Step` and `step` would both be emitted as `step.ts`")),
         "{stderr}"
     );
     assert!(stderr.contains(&format!("  note: see {path}:6:12")), "{stderr}");
     assert!(
-        stderr.contains(&format!("{path}:10:8: match on `Event` is missing `Event::Dec`")),
+        stderr.contains(&format!("{path}:10:8: [check/non-exhaustive] match on `Event` is missing `Event::Dec`")),
         "{stderr}"
     );
     assert!(stderr.contains("2 error(s); nothing written"), "{stderr}");
@@ -102,7 +102,7 @@ fn parse_errors_also_leave_out_alone() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     assert!(
-        stderr.contains(&format!("{}:3:13: unsupported expression `&s`", src.display())),
+        stderr.contains(&format!("{}:3:13: [expr/borrow] borrowing is not in v0: `&s`", src.display())),
         "{stderr}"
     );
     assert!(!out.exists());

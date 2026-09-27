@@ -1,4 +1,4 @@
-use purecrate_ir::{Name, Prim, Ty};
+use purecrate_ir::{Name, Prim, Reason, Ty};
 use syn::spanned::Spanned;
 use syn::{GenericArgument, PathArguments, Type};
 
@@ -20,10 +20,14 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Ty::Tuple(elems))
         }
-        Type::Array(_) | Type::Slice(_) => Err(ParseError::new("arrays and slices are not in v0")),
-        Type::Reference(_) => Err(ParseError::new("references are not allowed on the public surface")),
+        Type::Array(_) | Type::Slice(_) => Err(ParseError::new(Reason::ArrayType, "arrays and slices are not in v0")),
+        Type::Reference(_) => Err(ParseError::new(Reason::RefType, "references are not allowed on the public surface")),
         Type::Paren(p) => lower_type(&p.elem),
-        other => Err(ParseError::new(format!("unsupported type {}", snippet(other)))),
+        Type::BareFn(_) | Type::ImplTrait(_) | Type::TraitObject(_) => Err(ParseError::new(
+            Reason::FnType,
+            format!("function and trait types are not in v0: {}", snippet(ty)),
+        )),
+        other => Err(ParseError::new(Reason::UnsupportedType, format!("unsupported type {}", snippet(other)))),
     }
 }
 
@@ -33,15 +37,22 @@ const FORBIDDEN_CONTAINERS: [&str; 9] = [
 
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     if path.segments.len() != 1 || path.leading_colon.is_some() {
-        return Err(ParseError::new(format!(
+        return Err(ParseError::new(Reason::QualifiedPath, format!(
             "qualified type path {} is not in v0; use a crate-local name",
             snippet(path)
-        )));
+        ))
+        .detail(
+            path.segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::"),
+        ));
     }
     let last = &path.segments[0];
     let name = last.ident.to_string();
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
-        return Err(ParseError::new(format!("`{name}` is not allowed in v0")));
+        return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
     }
     match name.as_str() {
         "bool" => Ok(Ty::Prim(Prim::Bool)),
@@ -61,7 +72,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         "Result" => {
             let args = generics(&last.arguments)?;
             if args.len() != 2 {
-                return Err(ParseError::new("Result needs two type arguments"));
+                return Err(ParseError::new(Reason::TypeArity, "Result needs two type arguments"));
             }
             let mut args = args;
             let err = args.pop().unwrap();
@@ -69,7 +80,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
             Ok(Ty::result(ok, err))
         }
         _ if last.arguments.is_empty() => Ok(Ty::Named(Name::new(name))),
-        _ => Err(ParseError::new(format!(
+        _ => Err(ParseError::new(Reason::Generics, format!(
             "user generics are not in v0: {name}"
         ))),
     }
@@ -78,7 +89,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
 fn first_generic(args: &PathArguments) -> Result<Ty, ParseError> {
     let mut gs = generics(args)?;
     if gs.len() != 1 {
-        return Err(ParseError::new("expected one type argument"));
+        return Err(ParseError::new(Reason::TypeArity, "expected one type argument"));
     }
     Ok(gs.remove(0))
 }
@@ -91,11 +102,11 @@ fn generics(args: &PathArguments) -> Result<Vec<Ty>, ParseError> {
             .iter()
             .map(|g| match g {
                 GenericArgument::Type(t) => lower_type(t),
-                _ => Err(ParseError::new("only type generics are allowed")),
+                _ => Err(ParseError::new(Reason::Generics, "only type generics are allowed")),
             })
             .collect(),
         PathArguments::Parenthesized(_) => {
-            Err(ParseError::new("Fn traits are not allowed"))
+            Err(ParseError::new(Reason::FnType, "Fn traits are not allowed"))
         }
     }
 }

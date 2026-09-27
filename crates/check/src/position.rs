@@ -5,7 +5,7 @@
 //! wrap them in an arrow function, where they would leave only that.
 //! Assignment and expression statements are statements for the same reason.
 
-use purecrate_ir::{Crate, Expr, Item};
+use purecrate_ir::{Crate, Expr, Item, Reason};
 
 use crate::Diagnostic;
 
@@ -23,7 +23,7 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for (i, item) in krate.items.iter().enumerate() {
         if let Item::Fn(f) = item {
-            visit(&f.body, Ctx::Stmt, &mut |m| out.push(Diagnostic::at(i, m)));
+            visit(&f.body, Ctx::Stmt, &mut |m| out.push(Diagnostic::at(i, Reason::Position, m)));
         }
     }
     out

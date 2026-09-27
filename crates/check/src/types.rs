@@ -11,6 +11,7 @@
 //! suffix or an annotation instead of guessing.
 
 use purecrate_ir::{
+    Reason,
     Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Pattern, Prim, TryOn,
     Ty, UnOp, VariantBind, VariantFields,
 };
@@ -64,8 +65,8 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
-    fn error(&mut self, message: String) {
-        self.out.push(Diagnostic::at(self.item, message));
+    fn error(&mut self, reason: Reason, message: String) {
+        self.out.push(Diagnostic::at(self.item, reason, message));
     }
 
     fn func(mut self, f: &Fn) -> Fn {
@@ -116,7 +117,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     fn expect(&mut self, want: Option<&Ty>, got: Option<Ty>) -> Option<Ty> {
         if let (Some(w), Some(g)) = (want, &got) {
             if *g != Ty::Never && *w != Ty::Never && !self.same(w, g) {
-                self.error(format!("expected `{}`, found `{}`", show(w), show(g)));
+                self.error(Reason::TypeMismatch, format!("expected `{}`, found `{}`", show(w), show(g)));
             }
         }
         got
@@ -147,7 +148,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (value, vt) = self.expr(value, ty.as_ref());
                 let bound = ty.clone().or(vt);
                 if *mutable && bound.is_none() {
-                    self.error(format!(
+                    self.error(Reason::NeedsAnnotation, format!(
                         "the type of `let mut {}` is not known from its first value; write `let mut {}: T`",
                         name.as_str(),
                         name.as_str()
@@ -291,7 +292,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let (on, t) = match (it.map(|t| self.norm(&t)), &ret) {
             (Some(Ty::Result { ok, err }), Ty::Result { err: ret_err, .. }) => {
                 if !self.same(&err, ret_err) {
-                    self.error(format!(
+                    self.error(Reason::TryConversion, format!(
                         "`?` on an error of type `{}` in a function returning `{}`; \
                          v0 has no `From` conversion, so the error types must match",
                         show(&err),
@@ -302,7 +303,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             (Some(Ty::Option(inner_ty)), Ty::Option(_)) => (Some(TryOn::Option), Some(*inner_ty)),
             (Some(t @ (Ty::Result { .. } | Ty::Option(_))), _) => {
-                self.error(format!(
+                self.error(Reason::TryConversion, format!(
                     "`?` on `{}` in a function returning `{}`",
                     show(&t),
                     show(&ret)
@@ -310,7 +311,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (None, None)
             }
             (Some(t), _) => {
-                self.error(format!("`?` needs a `Result` or `Option`, found `{}`", show(&t)));
+                self.error(Reason::TypeMismatch, format!("`?` needs a `Result` or `Option`, found `{}`", show(&t)));
                 (None, None)
             }
             (None, _) => (None, None),
@@ -348,16 +349,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (Some(t), _) => Some(*t),
                     (None, Some(Num::Int(t))) => Some(t),
                     (None, Some(Num::Float(_))) => {
-                        self.error(format!("integer literal `{shown}` where a float is expected; write `{shown}.0`"));
+                        self.error(Reason::TypeMismatch, format!("integer literal `{shown}` where a float is expected; write `{shown}.0`"));
                         return (Expr::Lit(lit.clone()), None);
                     }
                     (None, None) if want.is_some() => {
                         let w = show(want.expect("checked"));
-                        self.error(format!("expected `{w}`, found integer literal `{shown}`"));
+                        self.error(Reason::TypeMismatch, format!("expected `{w}`, found integer literal `{shown}`"));
                         return (Expr::Lit(lit.clone()), None);
                     }
                     (None, None) => {
-                        self.error(format!(
+                        self.error(Reason::NeedsAnnotation, format!(
                             "cannot tell the integer type of `{shown}`; add a suffix like `{shown}i32` or annotate the binding"
                         ));
                         return (Expr::Lit(lit.clone()), None);
@@ -366,7 +367,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let t = ty.expect("set above");
                 let (lo, hi) = t.bounds();
                 if value < lo || value > hi {
-                    self.error(format!("literal `{shown}` does not fit in `{}`", t.as_str()));
+                    self.error(Reason::TypeMismatch, format!("literal `{shown}` does not fit in `{}`", t.as_str()));
                 }
                 let e = Expr::Lit(Lit::Int { value, ty: Some(t) });
                 (e, self.expect(want, Some(Ty::Prim(t.into()))))
@@ -377,11 +378,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (None, Some(Num::Float(t))) => t,
                     (None, _) if want.is_some() => {
                         let w = show(want.expect("checked"));
-                        self.error(format!("expected `{w}`, found float literal `{digits}`"));
+                        self.error(Reason::TypeMismatch, format!("expected `{w}`, found float literal `{digits}`"));
                         return (Expr::Lit(lit.clone()), None);
                     }
                     (None, _) => {
-                        self.error(format!(
+                        self.error(Reason::NeedsAnnotation, format!(
                             "cannot tell the float type of `{digits}`; add a suffix like `{digits}f64` or annotate the binding"
                         ));
                         return (Expr::Lit(lit.clone()), None);
@@ -436,7 +437,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     },
                     Some(Num::Float(FloatTy::F64)) => rebuild(op, l, r),
                     None => {
-                        self.error(format!("arithmetic on `{}` is not in v0", show(&t)));
+                        self.error(Reason::NumericOp, format!("arithmetic on `{}` is not in v0", show(&t)));
                         rebuild(op, l, r)
                     }
                 };
@@ -453,7 +454,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     };
                     if !ok {
                         let what = if ordered { "ordering" } else { "equality" };
-                        self.error(format!(
+                        self.error(Reason::NumericOp, format!(
                             "{what} on `{}` is not in v0; JS compares it differently",
                             show(&t)
                         ));
@@ -489,7 +490,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     },
                     Some(Num::Float(_)) => neg(e),
                     _ => {
-                        self.error(format!("cannot negate `{}`", show(&t)));
+                        self.error(Reason::NumericOp, format!("cannot negate `{}`", show(&t)));
                         neg(e)
                     }
                 };
@@ -549,7 +550,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), other) => {
                 if let Some(t) = other {
-                    self.error(format!(
+                    self.error(Reason::TypeMismatch, format!(
                         "pattern `{}` does not match a value of type `{}`",
                         describe(pattern),
                         show(t)
@@ -558,7 +559,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (inner(p), None)
             }
             (Pattern::OptionNone, Some(t)) if !matches!(t, Ty::Option(_)) => {
-                self.error(format!("pattern `None` does not match a value of type `{}`", show(t)));
+                self.error(Reason::TypeMismatch, format!("pattern `None` does not match a value of type `{}`", show(t)));
                 (None, None)
             }
             (Pattern::OptionNone | Pattern::Wildcard | Pattern::Lit(_), _) => (None, None),
@@ -574,7 +575,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             return;
         };
         if let Some(t) = scrutinee.filter(|t| **t != Ty::Named(ty.clone())) {
-            self.error(format!(
+            self.error(Reason::TypeMismatch, format!(
                 "pattern `{}::{}` does not match a value of type `{}`",
                 ty.as_str(),
                 variant.as_str(),

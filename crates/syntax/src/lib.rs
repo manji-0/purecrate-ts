@@ -5,7 +5,7 @@ mod expr;
 mod item;
 mod ty;
 
-use purecrate_ir::{Crate, Item};
+use purecrate_ir::{Crate, Item, Reason};
 use syn::parse_file;
 
 pub use item::{LineCol, ParseError};
@@ -19,7 +19,7 @@ pub fn parse_source_spanned(
     crate_name: &str,
     source: &str,
 ) -> Result<(Crate, Vec<LineCol>), ParseError> {
-    let file = parse_file(source).map_err(|e| ParseError::new(e.to_string()).or_at(e.span()))?;
+    let file = parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
     let mut cx = item::Cx::scan(&file);
     let mut items: Vec<Item> = Vec::new();
     let mut spans: Vec<LineCol> = Vec::new();
@@ -76,7 +76,7 @@ mod tests {
         let (line, col, msg) = error_at(src);
         assert_eq!((line, col), (3, 13), "{msg}");
 
-        assert_eq!(error_at(src).2, "unsupported expression `&s`");
+        assert_eq!(error_at(src).2, "borrowing is not in v0: `&s`");
 
         let (line, col, msg) = error_at("pub fn f(x: Box<i32>) -> i32 { 0 }");
         assert_eq!((line, col), (1, 13), "{msg}");
@@ -91,6 +91,27 @@ mod tests {
 
         let (line, _, msg) = error_at("pub fn f( -> i32 { 0 }");
         assert_eq!(line, 1, "{msg}");
+    }
+
+    #[test]
+    fn rejections_carry_a_reason_and_what_it_is_about() {
+        use purecrate_ir::Reason;
+        let reason = |src: &str| {
+            let e = parse_source("c", src).expect_err(src);
+            (e.reason, e.detail)
+        };
+        let body = |b: &str| format!("pub fn f(x: i32) -> i32 {{ {b} }}");
+        assert_eq!(reason(&body("x.abs()")), (Reason::MethodCall, Some("abs".into())));
+        assert_eq!(reason(&body("format!(\"{x}\"); x")), (Reason::Macro, Some("format".into())));
+        assert_eq!(reason(&body("std::cmp::max(x, 1)")), (Reason::ExternalPath, Some("std::cmp::max".into())));
+        assert_eq!(reason(&body("x as i32")).0, Reason::Cast);
+        assert_eq!(reason(&body("for i in 0..x {} x")).0, Reason::Loop);
+        assert_eq!(
+            reason("pub fn f(x: chrono::NaiveDate) -> i32 { 0 }"),
+            (Reason::QualifiedPath, Some("chrono::NaiveDate".into()))
+        );
+        assert_eq!(reason("pub fn f(x: Box<i32>) -> i32 { 0 }"), (Reason::DisallowedType, Some("Box".into())));
+        assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
     }
 
     #[test]

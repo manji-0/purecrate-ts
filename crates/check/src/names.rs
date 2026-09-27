@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Crate, Expr, Item, Name, VariantFields};
+use purecrate_ir::{Crate, Expr, Item, Name, Reason, VariantFields};
 
 use crate::Diagnostic;
 
@@ -49,14 +49,14 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
         let stem = item.file_stem();
         if GENERATED_NAMES.contains(&name) {
             out.push(Diagnostic::at(
-                i,
+                i, Reason::ReservedName,
                 format!("`{name}` is reserved by the generated package"),
             ));
             continue;
         }
         if GENERATED_STEMS.contains(&stem.as_str()) {
             out.push(Diagnostic::at(
-                i,
+                i, Reason::NameCollision,
                 format!("`{name}` would be emitted as `{stem}.ts`, which the generated package already uses"),
             ));
             continue;
@@ -69,11 +69,7 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
                 } else {
                     format!("`{other}` and `{name}` would both be emitted as `{stem}.ts`")
                 };
-                out.push(Diagnostic {
-                    item: i,
-                    also: vec![first],
-                    message,
-                });
+                out.push(Diagnostic::at(i, Reason::NameCollision, message).also(first));
             }
             None => {
                 seen.insert(stem, i);
@@ -103,15 +99,14 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
         let (owner, name) = (owner.as_str(), f.name.as_str());
         if builtin.get(owner).is_some_and(|b| b.contains(&name)) {
             out.push(Diagnostic::at(
-                i,
+                i, Reason::NameCollision,
                 format!("method `{owner}.{name}` collides with the generated companion member `{name}`"),
             ));
         } else if let Some(&first) = seen.get(&(owner, name)) {
-            out.push(Diagnostic {
-                item: i,
-                also: vec![first],
-                message: format!("method `{owner}.{name}` is defined more than once"),
-            });
+            out.push(
+                Diagnostic::at(i, Reason::NameCollision, format!("method `{owner}.{name}` is defined more than once"))
+                    .also(first),
+            );
         } else {
             seen.insert((owner, name), i);
         }
@@ -121,7 +116,7 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
 fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
     let mut bad = |what: &str, name: &Name, why: &str| {
         out.push(Diagnostic::at(
-            i,
+            i, Reason::ReservedName,
             format!("{what} `{}` {why}", name.as_str()),
         ));
     };
@@ -169,7 +164,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
     };
     if let Some(n) = type_name.filter(|n| TS_TYPE_KEYWORDS.contains(&n.as_str())) {
         out.push(Diagnostic::at(
-            i,
+            i, Reason::ReservedName,
             format!("type `{}` is a TypeScript type keyword", n.as_str()),
         ));
     }
@@ -178,7 +173,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
             if let VariantFields::Struct(fields) = &v.fields {
                 if fields.iter().any(|f| f.name.as_str() == "kind") {
                     out.push(Diagnostic::at(
-                        i,
+                        i, Reason::ReservedName,
                         format!(
                             "variant `{}::{}` has a field `kind`, which is the union discriminant",
                             e.name.as_str(),

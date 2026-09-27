@@ -1,5 +1,5 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Ty, UnOp, VariantBind,
+    Arm, BinOp, Callee, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp, VariantBind,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
@@ -20,7 +20,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 base: Box::new(lower_expr(cx, &f.base)?),
                 name: Name::new(id.to_string()),
             }),
-            Member::Unnamed(_) => Err(ParseError::new("tuple field access is not in v0")),
+            Member::Unnamed(_) => Err(ParseError::new(Reason::TupleField, "tuple field access is not in v0")),
         },
         SynExpr::Assign(a) => Ok(Expr::Assign {
             name: assign_target(&a.left)?,
@@ -72,7 +72,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let mut arms = Vec::new();
             for arm in &m.arms {
                 if arm.guard.is_some() {
-                    return Err(ParseError::new("match guards are not in v0"));
+                    return Err(ParseError::new(Reason::MatchGuard, "match guards are not in v0"));
                 }
                 arms.push(Arm {
                     pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
@@ -110,11 +110,32 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             };
             Ok(Expr::Return(Box::new(inner)))
         }
-        SynExpr::Macro(m) if m.mac.path.is_ident("vec") => {
-            Err(ParseError::new("vec! is parsed in v1"))
-        }
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
-        other => Err(ParseError::new(format!("unsupported expression {}", snippet(other)))),
+        SynExpr::Macro(m) => Err(ParseError::new(
+            Reason::Macro,
+            format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
+        )
+        .detail(path_text(&m.mac.path))),
+        SynExpr::MethodCall(m) => Err(ParseError::new(
+            Reason::MethodCall,
+            format!("method call `.{}()` is not in v0; call a crate function instead", m.method),
+        )
+        .detail(m.method.to_string())),
+        SynExpr::Closure(_) => Err(ParseError::new(Reason::Closure, "closures are not in v0")),
+        SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::ForLoop(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
+            Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))
+        }
+        SynExpr::Reference(_) => Err(
+            ParseError::new(Reason::Borrow, format!("borrowing is not in v0: {}", snippet(expr))),
+        ),
+        SynExpr::Index(_) => Err(ParseError::new(Reason::Index, format!("indexing is not in v0: {}", snippet(expr)))),
+        SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
+        SynExpr::Cast(_) => Err(ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))),
+        other => Err(ParseError::new(
+            Reason::UnsupportedExpr,
+            format!("unsupported expression {}", snippet(other)),
+        )
+        .detail(expr_kind(other))),
     }
 }
 
@@ -145,8 +166,11 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
                 tail = Some(lower_expr(cx, e)?)
             }
             syn::Stmt::Expr(e, _) => stmts.push(Stmt::Effect(lower_expr(cx, e)?)),
-            syn::Stmt::Item(_) => return Err(ParseError::new("items inside blocks are not in v0")),
-            syn::Stmt::Macro(_) => return Err(ParseError::new("macros in blocks are not in v0")),
+            syn::Stmt::Item(_) => return Err(ParseError::new(Reason::BlockItem, "items inside blocks are not in v0")),
+            syn::Stmt::Macro(m) => {
+                let name = path_text(&m.mac.path);
+                return Err(ParseError::new(Reason::Macro, format!("macro `{name}!` is not in v0")).detail(name));
+            }
         }
     }
     let acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
@@ -179,14 +203,14 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
             (Name::new(id.ident.to_string()), id.mutability.is_some())
         }
-        _ => return Err(ParseError::new("only simple let bindings in v0")),
+        _ => return Err(ParseError::new(Reason::LetPattern, "only simple let bindings in v0")),
     };
     let init = local
         .init
         .as_ref()
-        .ok_or_else(|| ParseError::new("let without initializer"))?;
+        .ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
     if init.diverge.is_some() {
-        return Err(ParseError::new("let-else is not in v0"));
+        return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
     }
     Ok(Stmt::Let {
         name,
@@ -202,11 +226,11 @@ fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
             .path
             .get_ident()
             .map(|id| Name::new(id.to_string()))
-            .ok_or_else(|| ParseError::new("only a local variable can be assigned in v0")),
-        SynExpr::Field(_) => Err(ParseError::new(
+            .ok_or_else(|| ParseError::new(Reason::PlaceAssign, "only a local variable can be assigned in v0")),
+        SynExpr::Field(_) => Err(ParseError::new(Reason::PlaceAssign, 
             "assigning to a field is not in v0; build a new struct with `..` or all fields",
         )),
-        _ => Err(ParseError::new("only a local variable can be assigned in v0")),
+        _ => Err(ParseError::new(Reason::PlaceAssign, "only a local variable can be assigned in v0")),
     }
 }
 
@@ -252,13 +276,13 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             callee: Callee::Fn(Name::new(format!("{a}::{b}"))),
             args: vec![],
         }),
-        _ => Err(ParseError::new(format!("unsupported path {}", segs.join("::")))),
+        _ => Err(ParseError::new(Reason::ExternalPath, format!("unsupported path {}", segs.join("::"))).detail(segs.join("::"))),
     }
 }
 
 fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
     if s.rest.is_some() {
-        return Err(ParseError::new("struct update syntax `..` is v1"));
+        return Err(ParseError::new(Reason::StructUpdate, "struct update syntax `..` is v1"));
     }
     let segs: Vec<String> = s.path.segments.iter().map(|p| p.ident.to_string()).collect();
     let fields = Fields::Named(
@@ -268,7 +292,7 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
                 let name = match &f.member {
                     Member::Named(id) => Name::new(id.to_string()),
                     Member::Unnamed(_) => {
-                        return Err(ParseError::new("positional struct fields unsupported"))
+                        return Err(ParseError::new(Reason::PositionalFields, "positional struct fields unsupported"))
                     }
                 };
                 Ok((name, lower_expr(cx, &f.expr)?))
@@ -286,10 +310,10 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
             variant: Some(Name::new(var.clone())),
             fields,
         }),
-        _ => Err(ParseError::new(format!(
+        _ => Err(ParseError::new(Reason::ExternalPath, format!(
             "unknown struct constructor {}",
             segs.join("::")
-        ))),
+        )).detail(segs.join("::"))),
     }
 }
 
@@ -319,10 +343,10 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             } else if segs.len() == 1 {
                 Callee::Fn(Name::new(segs[0].clone()))
             } else {
-                return Err(ParseError::new(format!(
+                return Err(ParseError::new(Reason::ExternalPath, format!(
                     "unsupported call {}",
                     segs.join("::")
-                )));
+                )).detail(segs.join("::")));
             };
             if matches!(callee, Callee::Variant { .. }) {
                 return Ok(Expr::Construct {
@@ -339,7 +363,7 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             }
             Ok(Expr::Call { callee, args })
         }
-        _ => Err(ParseError::new("only simple calls in v0")),
+        _ => Err(ParseError::new(Reason::ExternalPath, "only simple calls in v0")),
     }
 }
 
@@ -373,7 +397,7 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
                         let name = match &f.member {
                             Member::Named(id) => Name::new(id.to_string()),
                             Member::Unnamed(_) => {
-                                return Err(ParseError::new("unnamed fields in struct pattern"))
+                                return Err(ParseError::new(Reason::PositionalFields, "unnamed fields in struct pattern"))
                             }
                         };
                         Ok((name, lower_pat(cx, &f.pat)?))
@@ -383,7 +407,10 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
             path_variant_pat(cx, &s.path, bind)
         }
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
-        other => Err(ParseError::new(format!("unsupported pattern {}", snippet(other)))),
+        other => Err(ParseError::new(
+            Reason::UnsupportedPattern,
+            format!("unsupported pattern {}", snippet(other)),
+        )),
     }
 }
 
@@ -399,7 +426,7 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
         Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![&**p],
         Pattern::OptionNone => Vec::new(),
         Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) => {
-            return Err(ParseError::new(format!(
+            return Err(ParseError::new(Reason::ArmPattern, format!(
                 "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err` in v0, found {}",
                 describe_pat(&pattern)
             )))
@@ -409,7 +436,7 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
         .into_iter()
         .find(|p| !matches!(p, Pattern::Var(_) | Pattern::Wildcard))
     {
-        return Err(ParseError::new(format!(
+        return Err(ParseError::new(Reason::NestedPattern, format!(
             "variant fields may only bind names or `_` in v0, found {}",
             describe_pat(bad)
         )));
@@ -453,13 +480,13 @@ fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Patt
                     bind,
                 })
             } else {
-                Err(ParseError::new(format!("unknown variant {var}")))
+                Err(ParseError::new(Reason::ExternalPath, format!("unknown variant {var}")).detail(var.to_string()))
             }
         }
-        _ => Err(ParseError::new(format!(
+        _ => Err(ParseError::new(Reason::ExternalPath, format!(
             "unsupported pattern path {}",
             segs.join("::")
-        ))),
+        )).detail(segs.join("::"))),
     }
 }
 
@@ -467,14 +494,14 @@ fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Patt
 fn prelude_pat(name: &str, bind: VariantBind) -> Result<Option<Pattern>, ParseError> {
     let one = |bind: VariantBind| match bind {
         VariantBind::Tuple(mut ps) if ps.len() == 1 => Ok(Box::new(ps.remove(0))),
-        _ => Err(ParseError::new(format!("`{name}` takes exactly one field"))),
+        _ => Err(ParseError::new(Reason::UnsupportedPattern, format!("`{name}` takes exactly one field"))),
     };
     Ok(Some(match name {
         "Some" => Pattern::OptionSome(one(bind)?),
         "Ok" => Pattern::ResultOk(one(bind)?),
         "Err" => Pattern::ResultErr(one(bind)?),
         "None" if bind == VariantBind::Unit => Pattern::OptionNone,
-        "None" => return Err(ParseError::new("`None` has no fields")),
+        "None" => return Err(ParseError::new(Reason::UnsupportedPattern, "`None` has no fields")),
         _ => return Ok(None),
     }))
 }
@@ -488,7 +515,7 @@ fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -> Result<Ex
         Pattern::ResultOk(_) => Pattern::ResultErr(Box::new(Pattern::Wildcard)),
         Pattern::ResultErr(_) => Pattern::ResultOk(Box::new(Pattern::Wildcard)),
         _ => {
-            return Err(ParseError::new(
+            return Err(ParseError::new(Reason::IfLetVariant, 
                 "`if let` on an enum variant is not in v0; use `match` with every variant",
             )
             .or_at(l.pat.span()))
@@ -523,12 +550,12 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
             let ty = match suffix {
                 "" => None,
                 s => Some(IntTy::of_suffix(s).ok_or_else(|| {
-                    ParseError::new(format!("integer suffix `{s}` is not in v0"))
+                    ParseError::new(Reason::LiteralSuffix, format!("integer suffix `{s}` is not in v0"))
                 })?),
             };
             let value = i
                 .base10_parse::<i128>()
-                .map_err(|e| ParseError::new(e.to_string()))?;
+                .map_err(|e| ParseError::new(Reason::UnsupportedLiteral, e.to_string()))?;
             Ok(Lit::Int { value, ty })
         }
         syn::Lit::Float(f) => match float_suffix(f.suffix()) {
@@ -536,13 +563,13 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
                 digits: f.base10_digits().to_string(),
                 ty,
             }),
-            None => Err(ParseError::new(format!(
+            None => Err(ParseError::new(Reason::LiteralSuffix, format!(
                 "float suffix `{}` is not in v0",
                 f.suffix()
             ))),
         },
         syn::Lit::Str(s) => Ok(Lit::Str(s.value())),
-        _ => Err(ParseError::new("unsupported literal")),
+        _ => Err(ParseError::new(Reason::UnsupportedLiteral, "unsupported literal")),
     }
 }
 
@@ -571,7 +598,7 @@ fn lower_bin(op: SynBinOp) -> Result<BinOp, ParseError> {
         SynBinOp::Ge(_) => BinOp::Ge,
         SynBinOp::And(_) => BinOp::And,
         SynBinOp::Or(_) => BinOp::Or,
-        _ => return Err(ParseError::new("unsupported binary operator")),
+        _ => return Err(ParseError::new(Reason::UnsupportedOperator, "unsupported binary operator")),
     })
 }
 
@@ -579,6 +606,27 @@ fn lower_un(op: SynUnOp) -> Result<UnOp, ParseError> {
     match op {
         SynUnOp::Not(_) => Ok(UnOp::Not),
         SynUnOp::Neg(_) => Ok(UnOp::Neg),
-        _ => Err(ParseError::new("unsupported unary operator")),
+        SynUnOp::Deref(_) => Err(ParseError::new(Reason::Borrow, "dereferencing `*` is not in v0")),
+        _ => Err(ParseError::new(Reason::UnsupportedOperator, "unsupported unary operator")),
     }
+}
+
+fn path_text(path: &syn::Path) -> String {
+    path.segments
+        .iter()
+        .map(|s| s.ident.to_string())
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+/// The `syn` variant name, e.g. `Async`, for tallying unsupported syntax.
+fn expr_kind(expr: &SynExpr) -> String {
+    let debug = format!("{expr:?}");
+    debug
+        .strip_prefix("Expr::")
+        .unwrap_or(&debug)
+        .split(|c: char| !c.is_alphanumeric())
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
