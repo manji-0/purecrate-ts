@@ -9,7 +9,7 @@ mod krate;
 mod name;
 mod ty;
 
-pub use expr::{Arm, BinOp, Callee, Expr, Fields, IntOp, Lit, Pattern, UnOp, VariantBind};
+pub use expr::{Arm, BinOp, Callee, Expr, Fields, IntOp, Lit, Pattern, TryOn, UnOp, VariantBind};
 pub use item::{Alias, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis};
 pub use krate::Crate;
 pub use name::{to_kebab, Name};

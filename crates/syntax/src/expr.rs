@@ -31,6 +31,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             op: lower_un(u.op)?,
             expr: Box::new(lower_expr(cx, &u.expr)?),
         }),
+        SynExpr::Try(t) => Ok(Expr::Try {
+            expr: Box::new(lower_expr(cx, &t.expr)?),
+            on: None,
+        }),
         SynExpr::Paren(p) => lower_expr(cx, &p.expr),
         SynExpr::Group(g) => lower_expr(cx, &g.expr),
         SynExpr::Block(b) => lower_block(cx, &b.block),

@@ -4,8 +4,11 @@
 
 mod defs;
 mod exhaustive;
+mod lift;
 mod names;
+mod position;
 mod reach;
+mod rename;
 mod resolve;
 mod types;
 
@@ -39,9 +42,10 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let mut out = names::check(krate);
     out.extend(resolve::check(krate));
     out.extend(exhaustive::check(krate));
+    out.extend(position::check(krate));
     if out.is_empty() {
         match types::elaborate(krate) {
-            Ok(typed) => return Ok(typed),
+            Ok(typed) => return Ok(lift::lift(rename::rename(typed))),
             Err(errors) => out = errors,
         }
     }

@@ -191,7 +191,19 @@ pub enum Expr {
         expr: Box<Expr>,
     },
     Return(Box<Expr>),
+    /// `expr?`. `on` is filled by `check::accept`, which also lifts every
+    /// `Try` into the value of its own `Let`.
+    Try {
+        expr: Box<Expr>,
+        on: Option<TryOn>,
+    },
     Unreachable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TryOn {
+    Result,
+    Option,
 }
 
 impl Expr {
@@ -210,10 +222,42 @@ impl Expr {
                 Fields::Positional(xs) => xs.iter().collect(),
                 Fields::Named(xs) => xs.iter().map(|(_, x)| x).collect(),
             },
-            Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
-                vec![base]
-            }
+            Expr::Field { base, .. }
+            | Expr::Unary { expr: base, .. }
+            | Expr::Return(base)
+            | Expr::Try { expr: base, .. } => vec![base],
             Expr::Binary { left, right, .. } => vec![left, right],
+        }
+    }
+
+    /// Subexpressions evaluated every time this one is, before it produces a
+    /// value: a `?` there can be hoisted in front without changing meaning.
+    /// Excludes branches and the right side of `&&`/`||`.
+    pub fn strict_children(&self) -> Vec<&Expr> {
+        match self {
+            Expr::Binary {
+                op: BinOp::And | BinOp::Or,
+                left,
+                ..
+            } => vec![left],
+            Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } | Expr::Return(_) => Vec::new(),
+            _ => self.children(),
+        }
+    }
+
+    /// Contains a `?` that the lifting pass hoists out of this expression.
+    pub fn lifts(&self) -> bool {
+        matches!(self, Expr::Try { .. }) || self.strict_children().into_iter().any(Expr::lifts)
+    }
+
+    /// Printed as JS statements rather than a JS expression.
+    pub fn needs_statements(&self) -> bool {
+        match self {
+            Expr::Match { .. } | Expr::Let { .. } | Expr::Return(_) | Expr::Try { .. } => true,
+            Expr::If { then, else_, .. } => [then, else_]
+                .into_iter()
+                .any(|b| b.needs_statements() || b.lifts()),
+            _ => false,
         }
     }
 

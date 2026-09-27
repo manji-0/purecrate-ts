@@ -11,7 +11,7 @@
 //! suffix or an annotation instead of guessing.
 
 use purecrate_ir::{
-    Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Pattern, Prim,
+    Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Pattern, Prim, TryOn,
     Ty, UnOp, VariantBind, VariantFields,
 };
 
@@ -145,13 +145,20 @@ impl<'d, 'a> Typer<'d, 'a> {
             } => {
                 let (value, vt) = self.expr(value, ty.as_ref());
                 let bound = ty.clone().or(vt);
+                // A value printed as statements is declared first (`let x: T;`)
+                // and assigned in each branch, so TS needs the type up front.
+                let annotation = ty.clone().or_else(|| {
+                    bound
+                        .clone()
+                        .filter(|t| *t != Ty::Never && value.needs_statements() && !matches!(value, Expr::Try { .. }))
+                });
                 self.scopes.push((name.as_str().to_string(), bound));
                 let (then, tt) = self.expr(then, want);
                 self.scopes.pop();
                 (
                     Expr::Let {
                         name: name.clone(),
-                        ty: ty.clone(),
+                        ty: annotation,
                         value: Box::new(value),
                         then: Box::new(then),
                     },
@@ -236,8 +243,48 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (e, _) = self.expr(e, Some(&ret));
                 (Expr::Return(Box::new(e)), Some(Ty::Never))
             }
+            Expr::Try { expr: inner, .. } => self.try_(inner, want),
             Expr::Unreachable => (Expr::Unreachable, Some(Ty::Never)),
         }
+    }
+
+    /// Rust's `?` also converts the error with `From`; v0 has no traits, so
+    /// the error type must already be the function's.
+    fn try_(&mut self, inner: &Expr, want: Option<&Ty>) -> Typed {
+        let (inner, it) = self.expr(inner, None);
+        let ret = self.norm(&self.ret);
+        let (on, t) = match (it.map(|t| self.norm(&t)), &ret) {
+            (Some(Ty::Result { ok, err }), Ty::Result { err: ret_err, .. }) => {
+                if !self.same(&err, ret_err) {
+                    self.error(format!(
+                        "`?` on an error of type `{}` in a function returning `{}`; \
+                         v0 has no `From` conversion, so the error types must match",
+                        show(&err),
+                        show(&ret)
+                    ));
+                }
+                (Some(TryOn::Result), Some(*ok))
+            }
+            (Some(Ty::Option(inner_ty)), Ty::Option(_)) => (Some(TryOn::Option), Some(*inner_ty)),
+            (Some(t @ (Ty::Result { .. } | Ty::Option(_))), _) => {
+                self.error(format!(
+                    "`?` on `{}` in a function returning `{}`",
+                    show(&t),
+                    show(&ret)
+                ));
+                (None, None)
+            }
+            (Some(t), _) => {
+                self.error(format!("`?` needs a `Result` or `Option`, found `{}`", show(&t)));
+                (None, None)
+            }
+            (None, _) => (None, None),
+        };
+        let e = Expr::Try {
+            expr: Box::new(inner),
+            on,
+        };
+        (e, self.expect(want, t))
     }
 
     /// Types two expressions that must agree, e.g. `if` branches or the

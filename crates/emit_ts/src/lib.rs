@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use purecrate_ir::{
-    BinOp, Callee, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern,
+    BinOp, Callee, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
     Struct, Ty, VariantBind, VariantFields,
 };
 
@@ -353,9 +353,9 @@ fn fn_arrow(f: &Fn, indent: usize) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     let ret = emit_ty(&f.ret);
-    if needs_stmts(&f.body) {
+    if f.body.needs_statements() {
         let mut body = String::new();
-        emit_stmts(&f.body, indent + 1, &mut body);
+        emit_stmts(&f.body, indent + 1, Sink::Return, &mut body);
         format!("({params}): {ret} => {{\n{body}{pad}}}", pad = "  ".repeat(indent))
     } else {
         format!("({params}): {ret} => {}", arrow_expr(&f.body, indent))
@@ -372,16 +372,34 @@ fn arrow_expr(expr: &Expr, indent: usize) -> String {
     }
 }
 
-fn needs_stmts(expr: &Expr) -> bool {
-    match expr {
-        Expr::Match { .. } | Expr::Let { .. } => true,
-        Expr::If { then, else_, .. } => needs_stmts(then) || needs_stmts(else_),
-        _ => false,
+/// Where the value of a statement-lowered expression goes.
+#[derive(Clone, Copy)]
+enum Sink<'a> {
+    Return,
+    /// A `let` declared just before, without an initializer.
+    Assign(&'a str),
+}
+
+impl Sink<'_> {
+    fn finish(self, value: &str, pad: &str, out: &mut String) {
+        match self {
+            Sink::Return => out.push_str(&format!("{pad}return {value};\n")),
+            Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {value};\n")),
+        }
+    }
+
+    /// Unique per nesting level, so an inner temporary never shadows one an
+    /// arm prelude still reads.
+    fn temp(self, indent: usize) -> String {
+        match self {
+            Sink::Return => format!("$m{indent}"),
+            Sink::Assign(target) => format!("$m{indent}_{target}"),
+        }
     }
 }
 
-/// Lower a tail expression into statements that end in `return`.
-fn emit_stmts(expr: &Expr, indent: usize, out: &mut String) {
+/// Lower an expression into statements that hand its value to `sink`.
+fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut String) {
     let pad = "  ".repeat(indent);
     match expr {
         Expr::Let {
@@ -390,23 +408,58 @@ fn emit_stmts(expr: &Expr, indent: usize, out: &mut String) {
             value,
             then,
         } => {
-            let annotation = ty.as_ref().map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
-            out.push_str(&format!(
-                "{pad}const {n}{annotation} = {v};\n",
-                n = name.as_str(),
-                v = emit_expr(value, indent)
-            ));
-            emit_stmts(then, indent, out);
+            emit_let(name.as_str(), ty.as_ref(), value, indent, out);
+            emit_stmts(then, indent, sink, out);
         }
-        Expr::If { cond, then, else_ } if needs_stmts(expr) => {
+        Expr::If { cond, then, else_ } if expr.needs_statements() => {
             out.push_str(&format!("{pad}if ({}) {{\n", emit_expr(cond, indent)));
-            emit_stmts(then, indent + 1, out);
+            emit_stmts(then, indent + 1, sink, out);
             out.push_str(&format!("{pad}}} else {{\n"));
-            emit_stmts(else_, indent + 1, out);
+            emit_stmts(else_, indent + 1, sink, out);
             out.push_str(&format!("{pad}}}\n"));
         }
-        Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, out),
-        other => out.push_str(&format!("{pad}return {};\n", emit_expr(other, indent))),
+        Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, out),
+        Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
+        Expr::Try { .. } => {
+            let tmp = format!("$t{indent}");
+            emit_let(&tmp, None, expr, indent, out);
+            sink.finish(&tmp, &pad, out);
+        }
+        other => sink.finish(&emit_expr(other, indent), &pad, out),
+    }
+}
+
+fn emit_let(name: &str, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let annotation = ty.map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
+    match value {
+        Expr::Try { expr, on } => {
+            let tmp = format!("${name}");
+            out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
+            match on {
+                Some(TryOn::Option) => out.push_str(&format!(
+                    "{pad}if ({tmp} === null) return null;\n{pad}const {name} = {tmp};\n"
+                )),
+                Some(TryOn::Result) | None => out.push_str(&format!(
+                    "{pad}if ({tmp}.kind === \"Err\") return {tmp};\n{pad}const {name} = {tmp}.value;\n"
+                )),
+            }
+        }
+        v if v.needs_statements() => {
+            out.push_str(&format!("{pad}let {name}{annotation};\n"));
+            if matches!(v, Expr::Let { .. }) {
+                // A Rust block: its bindings end with it.
+                out.push_str(&format!("{pad}{{\n"));
+                emit_stmts(v, indent + 1, Sink::Assign(name), out);
+                out.push_str(&format!("{pad}}}\n"));
+            } else {
+                emit_stmts(v, indent, Sink::Assign(name), out);
+            }
+        }
+        v => out.push_str(&format!(
+            "{pad}const {name}{annotation} = {};\n",
+            emit_expr(v, indent)
+        )),
     }
 }
 
@@ -429,19 +482,25 @@ fn scrutinee_ty(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Name> {
 
 fn declares_at_top(expr: &Expr) -> bool {
     match expr {
-        Expr::Let { .. } => true,
+        Expr::Let { .. } | Expr::Try { .. } => true,
         Expr::Match { scrutinee, .. } => !is_place(scrutinee),
         _ => false,
     }
 }
 
-fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out: &mut String) {
+fn emit_switch(
+    scrutinee: &Expr,
+    arms: &[purecrate_ir::Arm],
+    indent: usize,
+    sink: Sink,
+    out: &mut String,
+) {
     let pad = "  ".repeat(indent);
     let pad1 = "  ".repeat(indent + 1);
     let subject = if is_place(scrutinee) {
         emit_expr(scrutinee, indent)
     } else {
-        let tmp = format!("$m{indent}");
+        let tmp = sink.temp(indent);
         let value = emit_expr(scrutinee, indent);
         // An annotated literal initializer narrows the union and makes the
         // other cases unreachable; a cast keeps the full union.
@@ -458,10 +517,10 @@ fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out:
             let pad2 = "  ".repeat(indent + 1);
             out.push_str(&format!("{pad}if ({test}) {{\n"));
             out.push_str(&two_way_prelude(&a.pattern, &subject, &pad2));
-            emit_stmts(&a.body, indent + 1, out);
+            emit_stmts(&a.body, indent + 1, sink, out);
             out.push_str(&format!("{pad}}} else {{\n"));
             out.push_str(&two_way_prelude(&b.pattern, &subject, &pad2));
-            emit_stmts(&b.body, indent + 1, out);
+            emit_stmts(&b.body, indent + 1, sink, out);
             out.push_str(&format!("{pad}}}\n"));
             return;
         }
@@ -474,7 +533,10 @@ fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out:
             let braced = !prelude.is_empty() || declares_at_top(&arm.body);
             out.push_str(if braced { " {\n" } else { "\n" });
             out.push_str(&prelude);
-            emit_stmts(&arm.body, indent + 2, out);
+            emit_stmts(&arm.body, indent + 2, sink, out);
+            if matches!(sink, Sink::Assign(_)) && !matches!(arm.body, Expr::Return(_)) {
+                out.push_str(&format!("{pad1}  break;\n"));
+            }
             if braced {
                 out.push_str(&format!("{pad1}}}\n"));
             }
@@ -559,7 +621,8 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             None => emit_struct_value(fields),
         },
         Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
-        Expr::If { .. } if needs_stmts(expr) => emit_iife(expr, indent),
+        Expr::If { .. } if expr.needs_statements() => emit_iife(expr, indent),
+        Expr::Try { .. } => emit_iife(expr, indent),
         Expr::If { cond, then, else_ } => format!(
             "({} ? {} : {})",
             emit_expr(cond, indent),
@@ -674,7 +737,7 @@ fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> String {
 
 fn emit_iife(expr: &Expr, indent: usize) -> String {
     let mut body = String::new();
-    emit_stmts(expr, indent + 1, &mut body);
+    emit_stmts(expr, indent + 1, Sink::Return, &mut body);
     format!("(() => {{\n{body}{pad}}})()", pad = "  ".repeat(indent))
 }
 
@@ -814,7 +877,10 @@ impl Refs {
                 Fields::Named(xs) => xs.iter().for_each(|(_, e)| self.expr(krate, e)),
                 Fields::Unit => {}
             },
-            Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
+            Expr::Field { base, .. }
+            | Expr::Unary { expr: base, .. }
+            | Expr::Return(base)
+            | Expr::Try { expr: base, .. } => {
                 self.expr(krate, base)
             }
             Expr::Binary { left, right, .. } => {

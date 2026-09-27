@@ -139,7 +139,10 @@ impl<'a> Cx<'_, 'a> {
                     Fields::Unit => {}
                 }
             }
-            Expr::Field { base, .. } | Expr::Unary { expr: base, .. } | Expr::Return(base) => {
+            Expr::Field { base, .. }
+            | Expr::Unary { expr: base, .. }
+            | Expr::Return(base)
+            | Expr::Try { expr: base, .. } => {
                 self.expr(base)
             }
             Expr::Binary { left, right, .. } => {
