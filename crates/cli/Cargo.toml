@@ -6,6 +6,7 @@ license.workspace = true
 description = "CLI: read a PureCrate source file and write a TS package"
 
 [dependencies]
+purecrate-ir = { path = "../ir" }
 purecrate-syntax = { path = "../syntax" }
 purecrate-check = { path = "../check" }
 purecrate-pack = { path = "../pack" }

@@ -91,10 +91,14 @@ pub struct Cx {
 
 impl Cx {
     pub fn scan(file: &syn::File) -> Self {
+        Self::scan_items(file.items.iter().filter(|i| !is_test_only(i)))
+    }
+
+    pub fn scan_items<'a>(items: impl IntoIterator<Item = &'a SynItem>) -> Self {
         let mut enums = HashSet::new();
         let mut structs = HashSet::new();
         let mut variant_owner = HashMap::new();
-        for item in file.items.iter().filter(|i| !is_test_only(i)) {
+        for item in items {
             match item {
                 SynItem::Enum(e) => {
                     enums.insert(e.ident.to_string());
@@ -267,7 +271,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
             .collect::<Result<Vec<_>, _>>()?,
         SynFields::Unit => Vec::new(),
         SynFields::Unnamed(_) => {
-            return Err(ParseError::new(Reason::PositionalFields, "tuple structs are not in v0"))
+            return Err(ParseError::new(Reason::TupleStruct, "tuple structs are not in v0"))
         }
     };
     Ok(Struct {

@@ -1,5 +1,6 @@
 mod args;
 mod drift;
+mod survey;
 
 use std::collections::BTreeMap;
 use std::env;
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
             input,
             out: Some(out),
         } => load(&input, "").and_then(|pkg| check_drift(&input, &out, &pkg)),
+        Command::Survey { inputs, json } => run_survey(&inputs, json),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -39,6 +41,28 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// A crate that cannot be surveyed is reported and skipped; the others run.
+fn run_survey(inputs: &[Input], json: bool) -> Result<(), String> {
+    let mut failed = Vec::new();
+    for input in inputs {
+        let (files, missing) = survey::collect_files(&input.src);
+        let report = if files.is_empty() {
+            Err(format!("read {}: not found", input.src.display()))
+        } else {
+            survey::survey(&input.name, files, missing)
+        };
+        match report {
+            Ok(r) if json => println!("{}", r.json()),
+            Ok(r) => print!("{}", r.human()),
+            Err(e) => failed.push(e),
+        }
+    }
+    match failed.as_slice() {
+        [] => Ok(()),
+        errors => Err(format!("{}\n{} crate(s) not surveyed", errors.join("\n"), errors.len())),
     }
 }
 

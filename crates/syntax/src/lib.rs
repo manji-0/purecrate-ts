@@ -3,12 +3,14 @@
 
 mod expr;
 mod item;
+mod survey;
 mod ty;
 
 use purecrate_ir::{Crate, Item, Reason};
 use syn::parse_file;
 
 pub use item::{LineCol, ParseError};
+pub use survey::{module_decls, survey_files, Unit, UnitKind};
 
 pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError> {
     parse_source_spanned(crate_name, source).map(|(krate, _)| krate)

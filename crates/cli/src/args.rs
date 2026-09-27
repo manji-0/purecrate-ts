@@ -7,10 +7,15 @@ pub const USAGE: &str = "\
 usage:
   purecrate-ts build <crate-path> --out <dir> [--name <crate>]
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>]
+  purecrate-ts survey <crate-path>... [--json]
 
-<crate-path> is a crate directory (reads src/lib.rs) or a single .rs file.
+<crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
+single .rs file.
 check without --out only runs the subset checks; with --out it also fails
-when <dir> differs from what build would write.";
+when <dir> differs from what build would write.
+survey follows `mod` declarations and reports, for each public function and
+type, whether it is accepted together with what it refers to; --json prints
+one JSON object per crate.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Input {
@@ -22,10 +27,14 @@ pub struct Input {
 pub enum Command {
     Build { input: Input, out: PathBuf },
     Check { input: Input, out: Option<PathBuf> },
+    Survey { inputs: Vec<Input>, json: bool },
 }
 
 pub fn parse(args: &[String]) -> Result<Command, String> {
     let (verb, rest) = args.split_first().ok_or("missing command")?;
+    if verb == "survey" {
+        return parse_survey(rest);
+    }
     let mut path: Option<PathBuf> = None;
     let mut name: Option<String> = None;
     let mut out: Option<PathBuf> = None;
@@ -51,9 +60,28 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_survey(rest: &[String]) -> Result<Command, String> {
+    let mut json = false;
+    let mut inputs = Vec::new();
+    for arg in rest {
+        match arg.as_str() {
+            "--json" => json = true,
+            flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}")),
+            other => inputs.push(resolve_input(Path::new(other), None)?),
+        }
+    }
+    if inputs.is_empty() {
+        return Err("missing <crate-path>".into());
+    }
+    Ok(Command::Survey { inputs, json })
+}
+
 fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
     let (src, crate_dir) = if path.is_dir() {
-        (path.join("src/lib.rs"), Some(path.to_path_buf()))
+        let lib = path.join("src/lib.rs");
+        let main = path.join("src/main.rs");
+        let src = if !lib.exists() && main.exists() { main } else { lib };
+        (src, Some(path.to_path_buf()))
     } else {
         let crate_dir = path
             .parent()
