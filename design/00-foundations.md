@@ -67,9 +67,9 @@ pub fn name(arg: OwnedType, ...) -> OwnedType
 - 局所 `let mut`、代入・複合代入（`x += e`）、式文は許可。フィールドへの代入と `mut` 引数は拒否。束縛は関数内で一意な名前に改名してから生成する（シャドーイングは `x$1` になる）
 - `impl Type { pub fn ... }` の所有または論理的に純粋なメソッドは、第一引数がレシーバの自由関数に正規化して公開してよい
 
-禁止: `async`, `unsafe`, マクロ（許可リスト以外）、クロージャの捕獲、`panic!` による制御、`println!`、静的可変、外部関数。
+禁止: `async`, `unsafe`, マクロ（許可リスト以外）、`let mut` を捕捉するクロージャ、関数型の引数・戻り値、`panic!` による制御、`println!`、静的可変、外部関数。
 
-許可マクロ（v0）: `vec![]`、`Some`/`None`/`Ok`/`Err`、`todo!` は拒否、`unreachable!` は TS `never` 分岐。
+許可マクロ（v0）: `unreachable!` のみ（TS の `assertNever`）。`vec!`・`format!`・`todo!`・`panic!` は拒否する。`Vec<T>` の値は、期待型が `Vec<T>` の配列リテラル `[a, b]` で作る。
 
 ### 5.3 モジュールと公開面
 
@@ -224,7 +224,7 @@ serde の externally / adjacently tagged は v1。v0 は `kind` に固定する�
 - `?` → `if (r.kind === "Err") return r`（`Option` は `if (r === null) return null`）。式の中の `?` は評価順を保って直前の `const` に持ち上げる
 - `let` の値や代入の右辺に置いた `match` / `if` は `let x: T;` と各腕での代入に下ろす
 - `Option` は `=== null` で分岐
-- struct 更新構文 `S { a: 1, ..s }` → スプレッド `{ ...s, a: 1 }`
+- struct 更新構文 `S { a: 1, ..s }` → `({ ...s, a: 1 })`。省略したフィールドは `s` から来る。フィールドと `s` の中の `?` は、書き下したフィールドの方が先に関数から抜ける。enum バリアントと newtype の `..` は拒否する
 - `impl` メソッドは Companion の関数プロパティ `Type.method: (self, ...) => ...`（メソッド記法は使わない）
 
 参照透過を保つため、生成 TS は引数を変異しない。更新は新しいオブジェクトを返す。
@@ -281,7 +281,7 @@ Rust モジュールは平坦化するが、TS 側は kamae-ts に合わせ **1�
 3. 禁止パス（`std::fs`, `std::net`, `std::time::SystemTime`, 乱数 等）への到達がない
 4. enum match が網羅
 5. 公開シグネチャに参照・ライフタイムがない
-6. 再帰型は許可（`Box` なしで IR の Named 参照）。生成 TS は type alias の前方参照で表現
+6. 再帰型の TS 表現は type alias の前方参照で可能。rustc が受理する所有する再帰型には `Box` が要り、`Box` は今は拒否する（design/07）
 7. 平坦化後の型名・自由関数名が一意
 
 失敗時はファイル・行・拒否理由を返す。部分ファイルを書き残さない（`--out` は成功時のみ置換）。

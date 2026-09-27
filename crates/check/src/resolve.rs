@@ -3,6 +3,7 @@
 
 use purecrate_ir::{
     Callee, Crate, Expr, Fields, Item, Name, Pattern, Prim, Reason, Ty, VariantBind, VariantFields,
+    NEWTYPE_FIELD,
 };
 
 use crate::defs::Defs;
@@ -240,12 +241,15 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(receiver);
                 args.iter().for_each(|a| self.expr(a));
             }
-            Expr::Construct { ty, variant, fields } => {
-                self.construct(ty, variant.as_ref(), fields);
+            Expr::Construct { ty, variant, fields, base } => {
+                self.construct(ty, variant.as_ref(), fields, base.is_some());
                 match fields {
                     Fields::Positional(xs) => xs.iter().for_each(|x| self.expr(x)),
                     Fields::Named(xs) => xs.iter().for_each(|(_, x)| self.expr(x)),
                     Fields::Unit => {}
+                }
+                if let Some(b) = base {
+                    self.expr(b);
                 }
             }
             Expr::Field { base, .. }
@@ -337,13 +341,19 @@ impl<'a> Cx<'_, 'a> {
         }
     }
 
-    fn construct(&mut self, ty: &Name, variant: Option<&Name>, fields: &Fields) {
+    fn construct(&mut self, ty: &Name, variant: Option<&Name>, fields: &Fields, update: bool) {
         let t = ty.as_str();
         match variant {
             None => match self.defs.structs.get(t) {
                 Some(s) => {
+                    if update && s.fields.iter().any(|f| f.name.as_str() == NEWTYPE_FIELD) {
+                        self.error(Reason::StructUpdate, format!(
+                            "struct update on newtype `{t}` is not in v0; write `{t}(value)`"
+                        ));
+                        return;
+                    }
                     let declared: Vec<&str> = s.fields.iter().map(|f| f.name.as_str()).collect();
-                    self.named_fields(t, &declared, fields);
+                    self.named_fields(t, &declared, fields, update);
                 }
                 None => self.error_about(Reason::UndefinedType, t, format!("struct `{t}` is not defined in this crate")),
             },
@@ -357,7 +367,7 @@ impl<'a> Cx<'_, 'a> {
                     }
                     (VariantFields::Struct(fs), _) => {
                         let declared: Vec<&str> = fs.iter().map(|f| f.name.as_str()).collect();
-                        self.named_fields(&label, &declared, fields);
+                        self.named_fields(&label, &declared, fields, false);
                     }
                     _ => self.error(Reason::ConstructShape, format!("`{label}` is constructed with the wrong shape")),
                 }
@@ -379,15 +389,23 @@ impl<'a> Cx<'_, 'a> {
         found
     }
 
-    fn named_fields(&mut self, label: &str, declared: &[&str], fields: &Fields) {
+    fn named_fields(&mut self, label: &str, declared: &[&str], fields: &Fields, update: bool) {
         let Fields::Named(given) = fields else {
             self.error(Reason::ConstructShape, format!("`{label}` needs named fields"));
             return;
         };
         let given: Vec<&str> = given.iter().map(|(n, _)| n.as_str()).collect();
+        let mut seen = Vec::<&str>::new();
+        for name in &given {
+            if seen.contains(name) {
+                self.error(Reason::ConstructShape, format!("field `{name}` of `{label}` is specified more than once"));
+            } else {
+                seen.push(name);
+            }
+        }
         let missing: Vec<&str> = declared.iter().copied().filter(|d| !given.contains(d)).collect();
         let extra: Vec<&str> = given.iter().copied().filter(|g| !declared.contains(g)).collect();
-        if !missing.is_empty() {
+        if !missing.is_empty() && !update {
             self.error(Reason::ConstructShape, format!("`{label}` is missing field(s) {}", missing.join(", ")));
         }
         if !extra.is_empty() {

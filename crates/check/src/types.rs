@@ -271,14 +271,24 @@ impl<'d, 'a> Typer<'d, 'a> {
                 ty,
                 variant,
                 fields,
+                base,
             } => {
                 let fields = self.construct_fields(ty.as_str(), variant.as_ref().map(|v| v.as_str()), fields);
+                let want_ty = Ty::Named(ty.clone());
+                let base = match base {
+                    Some(b) => {
+                        let (b, _) = self.expr(b, Some(&want_ty));
+                        Some(Box::new(b))
+                    }
+                    None => None,
+                };
                 let e = Expr::Construct {
                     ty: ty.clone(),
                     variant: variant.clone(),
                     fields,
+                    base,
                 };
-                (e, self.expect(want, Some(Ty::Named(ty.clone()))))
+                (e, self.expect(want, Some(want_ty)))
             }
             Expr::Field { base, name } => {
                 let (base, bt) = self.expr(base, None);

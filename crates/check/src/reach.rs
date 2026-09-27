@@ -177,12 +177,15 @@ impl Refs {
                 self.expr(receiver);
                 args.iter().for_each(|a| self.expr(a));
             }
-            Expr::Construct { ty, fields, .. } => {
+            Expr::Construct { ty, fields, base, .. } => {
                 self.name(ty);
                 match fields {
                     Fields::Positional(xs) => xs.iter().for_each(|x| self.expr(x)),
                     Fields::Named(xs) => xs.iter().for_each(|(_, x)| self.expr(x)),
                     Fields::Unit => {}
+                }
+                if let Some(b) = base {
+                    self.expr(b);
                 }
             }
             Expr::Match { scrutinee, arms } => {

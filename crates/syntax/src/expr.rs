@@ -277,6 +277,7 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             ty: Name::new(ty.clone()),
             variant: Some(Name::new(var.clone())),
             fields: Fields::Unit,
+            base: None,
         }),
         [ty, var] if ty == "Result" && (var == "ok" || var == "Ok") => Ok(Expr::Call {
             callee: Callee::ResultOk,
@@ -348,10 +349,17 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
 }
 
 fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
-    if s.rest.is_some() {
-        return Err(ParseError::new(Reason::StructUpdate, "struct update syntax `..` is v1"));
-    }
     let segs: Vec<String> = s.path.segments.iter().map(|p| p.ident.to_string()).collect();
+    if s.rest.is_some() && segs.len() != 1 {
+        return Err(ParseError::new(
+            Reason::StructUpdate,
+            "functional record update syntax requires a struct",
+        ));
+    }
+    let base = match &s.rest {
+        Some(e) => Some(Box::new(lower_expr(cx, e)?)),
+        None => None,
+    };
     let fields = Fields::Named(
         s.fields
             .iter()
@@ -371,11 +379,13 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
             ty: Name::new(ty.clone()),
             variant: None,
             fields,
+            base,
         }),
         [ty, var] if cx.is_enum(ty) => Ok(Expr::Construct {
             ty: Name::new(ty.clone()),
             variant: Some(Name::new(var.clone())),
             fields,
+            base: None,
         }),
         _ => Err(path_error(&segs, format!(
             "unknown struct constructor {}",
@@ -431,6 +441,7 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                         _ => None,
                     },
                     fields: Fields::Positional(args),
+                    base: None,
                 });
             }
             Ok(Expr::Call { callee, args })

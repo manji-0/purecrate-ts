@@ -62,6 +62,7 @@ pub fn counter_example() -> Crate {
         ty: Name::new("State"),
         variant: None,
         fields: Fields::Named(vec![(Name::new("n"), n)]),
+        base: None,
     };
 
     let n_field = Expr::Field {

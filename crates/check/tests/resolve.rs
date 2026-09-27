@@ -46,6 +46,22 @@ fn constructors_must_match_declared_fields() {
 }
 
 #[test]
+fn struct_update_fills_omitted_fields() {
+    assert_clean(&with("pub fn f(p: Pos) -> Pos { Pos { x: p.x + 1, ..p } }"));
+    assert_clean(&with("pub fn f(p: Pos) -> Pos { Pos { ..p } }"));
+    assert_rejects(&with("pub fn f(p: Pos) -> Pos { Pos { x: 1, x: 2, ..p } }"), "field `x` of `Pos` is specified more than once");
+    assert_rejects(&with("pub fn f(p: Pos) -> Pos { Pos { z: 1, ..p } }"), "`Pos` has no field(s) z");
+    assert_rejects(
+        "pub struct Id(i32); pub fn f(id: Id) -> Id { Id { ..id } }",
+        "struct update on newtype `Id` is not in v0",
+    );
+    assert_rejects(
+        "pub struct A { pub n: i32 } pub struct B { pub n: i32 } pub fn f(b: B) -> A { A { ..b } }",
+        "expected `A`, found `B`",
+    );
+}
+
+#[test]
 fn patterns_must_match_variant_fields() {
     let arms = |arm: &str| {
         with(&format!(

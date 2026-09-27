@@ -185,10 +185,14 @@ pub enum Expr {
         name: Name,
         args: Vec<Expr>,
     },
+    /// `S { fields, ..base }`. `base` is evaluated after `fields`, as in Rust.
+    /// It is `None` when every field is written out. Enum variants have no base:
+    /// Rust rejects functional record update on them.
     Construct {
         ty: Name,
         variant: Option<Name>,
         fields: Fields,
+        base: Option<Box<Expr>>,
     },
     Field {
         base: Box<Expr>,
@@ -254,10 +258,16 @@ impl Expr {
                 .collect(),
             Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
             Expr::MethodCall { receiver, args, .. } => std::iter::once(&**receiver).chain(args).collect(),
-            Expr::Construct { fields, .. } => match fields {
-                Fields::Unit => Vec::new(),
-                Fields::Positional(xs) => xs.iter().collect(),
-                Fields::Named(xs) => xs.iter().map(|(_, x)| x).collect(),
+            Expr::Construct { fields, base, .. } => {
+                let mut out = match fields {
+                    Fields::Unit => Vec::new(),
+                    Fields::Positional(xs) => xs.iter().collect(),
+                    Fields::Named(xs) => xs.iter().map(|(_, x)| x).collect(),
+                };
+                if let Some(b) = base {
+                    out.push(b);
+                }
+                out
             },
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
@@ -281,10 +291,16 @@ impl Expr {
                 .collect(),
             Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter_mut().collect(),
             Expr::MethodCall { receiver, args, .. } => std::iter::once(&mut **receiver).chain(args).collect(),
-            Expr::Construct { fields, .. } => match fields {
-                Fields::Unit => Vec::new(),
-                Fields::Positional(xs) => xs.iter_mut().collect(),
-                Fields::Named(xs) => xs.iter_mut().map(|(_, x)| x).collect(),
+            Expr::Construct { fields, base, .. } => {
+                let mut out = match fields {
+                    Fields::Unit => Vec::new(),
+                    Fields::Positional(xs) => xs.iter_mut().collect(),
+                    Fields::Named(xs) => xs.iter_mut().map(|(_, x)| x).collect(),
+                };
+                if let Some(b) = base {
+                    out.push(b);
+                }
+                out
             },
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }

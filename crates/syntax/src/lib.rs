@@ -109,6 +109,10 @@ mod tests {
         assert_eq!(reason(&body("x as i32")).0, Reason::Cast);
         assert_eq!(reason(&body("for i in 0..x {} x")).0, Reason::Loop);
         assert_eq!(
+            reason("pub enum E { A { n: i32 } } pub fn f(e: E) -> E { E::A { n: 1, ..e } }").0,
+            Reason::StructUpdate
+        );
+        assert_eq!(
             reason("pub fn f(x: chrono::NaiveDate) -> i32 { 0 }"),
             (Reason::QualifiedPath, Some("chrono::NaiveDate".into()))
         );

@@ -168,6 +168,7 @@ impl Lifter {
                 ty,
                 variant,
                 fields,
+                base,
             } => Expr::Construct {
                 ty,
                 variant,
@@ -182,6 +183,7 @@ impl Lifter {
                             .collect(),
                     ),
                 },
+                base: base.map(|b| self.boxed(b, out)),
             },
             Expr::Tuple(xs) => Expr::Tuple(xs.into_iter().map(|x| self.extract_into(x, out)).collect()),
             Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| self.extract_into(x, out)).collect()),

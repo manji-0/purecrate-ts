@@ -716,9 +716,11 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::MethodCall { name, .. } => {
             unreachable!("`.{}()` reaches emit unresolved; emit takes `check::accept` output", name.as_str())
         }
-        Expr::Construct { ty, variant, fields } => match variant {
-            Some(v) => emit_variant_value(ty.as_str(), v.as_str(), fields),
-            None => emit_struct_value(fields),
+        Expr::Construct { ty, variant, fields, base } => match (variant, base) {
+            (Some(v), None) => emit_variant_value(ty.as_str(), v.as_str(), fields),
+            (None, None) => emit_struct_value(fields),
+            (None, Some(base)) => emit_struct_update(fields, base),
+            (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
         },
         Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
         Expr::If { .. } if expr.needs_statements() => emit_iife(expr, indent),
@@ -789,6 +791,20 @@ fn operand(expr: &Expr, indent: usize) -> String {
         Expr::Binary { .. } => format!("({s})"),
         _ => s,
     }
+}
+
+/// `{ ...base, a: e1 }`. `?` in the fields and the base is hoisted before this
+/// expression, fields first, so the spread running first in JS does not move
+/// a failing `?` ahead of an earlier one.
+fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
+    let Fields::Named(pairs) = fields else {
+        unreachable!("struct update has named fields");
+    };
+    let mut parts = vec![format!("...{}", emit_expr(base, 0))];
+    for (name, expr) in pairs {
+        parts.push(format!("{}: {}", name.as_str(), emit_expr(expr, 0)));
+    }
+    format!("({{ {} }})", parts.join(", "))
 }
 
 fn emit_struct_value(fields: &Fields) -> String {
@@ -976,11 +992,16 @@ impl Refs {
                 self.expr(krate, then);
                 self.expr(krate, else_);
             }
-            Expr::Construct { fields, .. } => match fields {
-                Fields::Positional(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
-                Fields::Named(xs) => xs.iter().for_each(|(_, e)| self.expr(krate, e)),
-                Fields::Unit => {}
-            },
+            Expr::Construct { fields, base, .. } => {
+                match fields {
+                    Fields::Positional(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
+                    Fields::Named(xs) => xs.iter().for_each(|(_, e)| self.expr(krate, e)),
+                    Fields::Unit => {}
+                }
+                if let Some(b) = base {
+                    self.expr(krate, b);
+                }
+            }
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
@@ -1238,6 +1259,7 @@ export const step = (state: State, event: Event): State => {
                 ty: Name::new("State"),
                 variant: None,
                 fields: Fields::Named(vec![(Name::new("n"), Expr::int(0))]),
+                base: None,
             },
         }));
         let pkg = emit(&krate);

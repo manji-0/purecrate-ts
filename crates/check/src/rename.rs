@@ -179,6 +179,7 @@ impl Renamer {
                 ty,
                 variant,
                 fields,
+                base,
             } => Expr::Construct {
                 ty,
                 variant,
@@ -189,6 +190,7 @@ impl Renamer {
                         xs.into_iter().map(|(n, x)| (n, self.expr(x, env))).collect(),
                     ),
                 },
+                base: base.map(|b| self.boxed(b, env)),
             },
             Expr::Field { base, name } => Expr::Field {
                 base: self.boxed(base, env),
