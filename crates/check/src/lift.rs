@@ -10,13 +10,29 @@ pub fn lift(krate: Crate) -> Crate {
         .into_iter()
         .map(|item| match item {
             Item::Fn(f) => Item::Fn(Fn {
-                body: Lifter::default().stmt(f.body),
+                body: lift_body(f.body),
                 ..f
             }),
             other => other,
         })
         .collect();
     Crate::new(krate.name.as_str(), items)
+}
+
+/// A closure body is printed as its own arrow body, where `?` returns from
+/// the closure, so each is lifted on its own, innermost first.
+fn lift_body(mut body: Expr) -> Expr {
+    lift_closures(&mut body);
+    Lifter::default().stmt(body)
+}
+
+fn lift_closures(expr: &mut Expr) {
+    if let Expr::Closure { body, .. } = expr {
+        let inner = std::mem::replace(&mut **body, Expr::Unreachable);
+        **body = lift_body(inner);
+        return;
+    }
+    expr.children_mut().into_iter().for_each(lift_closures);
 }
 
 type Hoisted = Vec<(Name, Expr, Option<TryOn>)>;

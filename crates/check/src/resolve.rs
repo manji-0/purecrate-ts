@@ -17,6 +17,7 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
             item: i,
             out: &mut out,
             scopes: Vec::new(),
+            closures: Vec::new(),
         };
         match item {
             Item::Struct(s) => {
@@ -65,6 +66,8 @@ struct Cx<'d, 'a> {
     out: &'d mut Vec<Diagnostic>,
     /// Bindings in scope, each with whether it is `let mut`.
     scopes: Vec<Vec<(String, bool)>>,
+    /// `scopes.len()` where each enclosing closure's own bindings start.
+    closures: Vec<usize>,
 }
 
 impl<'a> Cx<'_, 'a> {
@@ -86,6 +89,10 @@ impl<'a> Cx<'_, 'a> {
                 )
             }
             Ty::Named(_) | Ty::Prim(_) | Ty::Never => {}
+            Ty::Fn { params, ret } => {
+                params.iter().for_each(|t| self.ty(t));
+                self.ty(ret);
+            }
             Ty::Option(t) if self.is_option(t) => {
                 self.error(Reason::NestedOption, 
                     "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS"
@@ -135,10 +142,33 @@ impl<'a> Cx<'_, 'a> {
 
     /// `Some(mutable)` for the innermost binding of `name`.
     fn binding(&self, name: &str) -> Option<bool> {
+        self.binding_at(name).map(|(_, m)| m)
+    }
+
+    /// The innermost binding of `name`: its scope depth and whether it is `let mut`.
+    fn binding_at(&self, name: &str) -> Option<(usize, bool)> {
         self.scopes
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|s| s.iter().rev().find(|(n, _)| n == name).map(|(_, m)| *m))
+            .find_map(|(depth, s)| s.iter().rev().find(|(n, _)| n == name).map(|(_, m)| (depth, *m)))
+    }
+
+    /// A closure sees a `let mut` binding by reference in JS but, under
+    /// `move`, by a copy in Rust; a later assignment would tell them apart.
+    fn captures_mutable(&self, name: &str) -> bool {
+        match (self.binding_at(name), self.closures.last()) {
+            (Some((depth, true)), Some(&floor)) => depth < floor,
+            _ => false,
+        }
+    }
+
+    fn capture_error(&mut self, name: &str) {
+        self.error_about(
+            Reason::Closure,
+            name,
+            format!("a closure cannot capture `let mut {name}` in v0; bind its current value with `let` first"),
+        );
     }
 
     fn in_scope(&self, name: &str) -> bool {
@@ -150,7 +180,19 @@ impl<'a> Cx<'_, 'a> {
             Expr::Var(n) if !self.in_scope(n.as_str()) => {
                 self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", n.as_str()))
             }
+            Expr::Var(n) if self.captures_mutable(n.as_str()) => self.capture_error(n.as_str()),
             Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
+            Expr::Closure { params, ret, body } => {
+                params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
+                if let Some(t) = ret {
+                    self.ty(t);
+                }
+                self.closures.push(self.scopes.len());
+                self.scopes.push(params.iter().map(|p| (p.name.as_str().to_string(), false)).collect());
+                self.expr(body);
+                self.scopes.pop();
+                self.closures.pop();
+            }
             Expr::Let {
                 name,
                 mutable,
@@ -181,6 +223,15 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(then);
                 self.expr(else_);
             }
+            Expr::Call {
+                callee: Callee::Fn(n) | Callee::Local(n),
+                args,
+            } if self.in_scope(n.as_str()) => {
+                if self.captures_mutable(n.as_str()) {
+                    self.capture_error(n.as_str());
+                }
+                args.iter().for_each(|a| self.expr(a));
+            }
             Expr::Call { callee, args } => {
                 self.callee(callee, args.len());
                 args.iter().for_each(|a| self.expr(a));
@@ -208,6 +259,10 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(right);
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|x| self.expr(x)),
+            Expr::Assign { name, value } if self.captures_mutable(name.as_str()) => {
+                self.capture_error(name.as_str());
+                self.expr(value);
+            }
             Expr::Assign { name, value } => {
                 match self.binding(name.as_str()) {
                     None => self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", name.as_str())),
@@ -234,6 +289,7 @@ impl<'a> Cx<'_, 'a> {
 
     fn callee(&mut self, callee: &Callee, argc: usize) {
         match callee {
+            Callee::Local(_) => {}
             Callee::Fn(n) => match self.defs.free_fns.get(n.as_str()) {
                 Some(f) => self.arity(&format!("`{}`", n.as_str()), f.params.len(), argc),
                 None => self.error_about(

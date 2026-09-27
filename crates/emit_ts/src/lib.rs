@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use purecrate_ir::{
-    BinOp, Callee, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
+    BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
     Struct, Ty, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -377,13 +377,28 @@ fn fn_arrow(f: &Fn, indent: usize) -> String {
         .map(|p| format!("{}: {}", p.name.as_str(), emit_ty(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    let ret = emit_ty(&f.ret);
-    if f.body.needs_statements() {
-        let mut body = String::new();
-        emit_stmts(&f.body, indent + 1, Sink::Return, &mut body);
-        format!("({params}): {ret} => {{\n{body}{pad}}}", pad = "  ".repeat(indent))
+    arrow(&params, &emit_ty(&f.ret), &f.body, indent)
+}
+
+fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
+    let typed = |name: &Name, ty: Option<&Ty>| match ty {
+        Some(t) => format!("{}: {}", name.as_str(), emit_ty(t)),
+        None => name.as_str().to_string(),
+    };
+    let params = params.iter().map(|p| typed(&p.name, p.ty.as_ref())).collect::<Vec<_>>().join(", ");
+    match ret {
+        Some(r) => arrow(&params, &emit_ty(r), body, indent),
+        None => format!("({params}) => {}", arrow_expr(body, indent)),
+    }
+}
+
+fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
+    if body.needs_statements() {
+        let mut out = String::new();
+        emit_stmts(body, indent + 1, Sink::Return, &mut out);
+        format!("({params}): {ret} => {{\n{out}{pad}}}", pad = "  ".repeat(indent))
     } else {
-        format!("({params}): {ret} => {}", arrow_expr(&f.body, indent))
+        format!("({params}): {ret} => {}", arrow_expr(body, indent))
     }
 }
 
@@ -660,6 +675,15 @@ fn emit_ty(ty: &Ty) -> String {
             format!("readonly [{inner}]")
         }
         Ty::Named(n) => n.as_str().to_string(),
+        Ty::Fn { params, ret } => {
+            let params = params
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("_{i}: {}", emit_ty(t)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("(({params}) => {})", emit_ty(ret))
+        }
         Ty::Never => "never".into(),
     }
 }
@@ -688,6 +712,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 format!("{o}{inner}")
             }
         }
+        Expr::Closure { params, ret, body } => format!("({})", closure_arrow(params, ret.as_ref(), body, indent)),
         Expr::MethodCall { name, .. } => {
             unreachable!("`.{}()` reaches emit unresolved; emit takes `check::accept` output", name.as_str())
         }
@@ -706,7 +731,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         ),
         Expr::Call { callee, args } => {
             let c = match callee {
-                purecrate_ir::Callee::Fn(n) => n.as_str().to_string(),
+                purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
                 purecrate_ir::Callee::Method { ty, name } => {
                     format!("{}.{}", ty.as_str(), name.as_str())
                 }
@@ -902,6 +927,10 @@ impl Refs {
             }
             Ty::Option(inner) | Ty::Vec(inner) => self.ty(inner),
             Ty::Tuple(elems) => elems.iter().for_each(|t| self.ty(t)),
+            Ty::Fn { params, ret } => {
+                params.iter().for_each(|t| self.ty(t));
+                self.ty(ret);
+            }
             Ty::Prim(_) | Ty::Never => {}
         }
     }
@@ -965,6 +994,13 @@ impl Refs {
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
             Expr::MethodCall { .. } => expr.children().into_iter().for_each(|e| self.expr(krate, e)),
+            Expr::Closure { params, ret, body } => {
+                params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
+                if let Some(t) = ret {
+                    self.ty(t);
+                }
+                self.expr(krate, body);
+            }
             Expr::Lit(_) | Expr::Var(_) => {}
         }
     }

@@ -72,6 +72,9 @@ impl IntOp {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
+    /// A local binding holding a closure. `check::accept` rewrites
+    /// `Callee::Fn` to this when a binding shadows the item.
+    Local(Name),
     Int { ty: IntTy, op: IntOp },
     /// Round an f64 result to f32 (`Math.fround`).
     Fround,
@@ -138,6 +141,13 @@ pub enum VariantBind {
     Struct(Vec<(Name, Pattern)>),
 }
 
+/// Closure parameter. `ty` is filled by `check::accept` when not written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosureParam {
+    pub name: Name,
+    pub ty: Option<Ty>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Arm {
     pub pattern: Pattern,
@@ -186,6 +196,14 @@ pub enum Expr {
     },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
+    /// `|params| body`. Captured bindings are never `let mut`, so capturing
+    /// by value (Rust `move`) and by reference (JS) agree. `?` and `return`
+    /// in `body` leave the closure; `ret` is filled by `check::accept`.
+    Closure {
+        params: Vec<ClosureParam>,
+        ret: Option<Ty>,
+        body: Box<Expr>,
+    },
     /// Arithmetic here is JS arithmetic, which matches Rust only for `f64`.
     /// `check::accept` rewrites integer and `f32` arithmetic into
     /// `Callee::Int` and `Callee::Fround` calls.
@@ -248,6 +266,34 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
+            Expr::Closure { body, .. } => vec![body],
+        }
+    }
+
+    /// `children`, mutably and in the same order.
+    pub fn children_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => Vec::new(),
+            Expr::Let { value, then, .. } => vec![value, then],
+            Expr::If { cond, then, else_ } => vec![cond, then, else_],
+            Expr::Match { scrutinee, arms } => std::iter::once(&mut **scrutinee)
+                .chain(arms.iter_mut().map(|a| &mut a.body))
+                .collect(),
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter_mut().collect(),
+            Expr::MethodCall { receiver, args, .. } => std::iter::once(&mut **receiver).chain(args).collect(),
+            Expr::Construct { fields, .. } => match fields {
+                Fields::Unit => Vec::new(),
+                Fields::Positional(xs) => xs.iter_mut().collect(),
+                Fields::Named(xs) => xs.iter_mut().map(|(_, x)| x).collect(),
+            },
+            Expr::Field { base, .. }
+            | Expr::Unary { expr: base, .. }
+            | Expr::Return(base)
+            | Expr::Try { expr: base, .. } => vec![base],
+            Expr::Binary { left, right, .. } => vec![left, right],
+            Expr::Assign { value, .. } => vec![value],
+            Expr::Seq { first, then } => vec![first, then],
+            Expr::Closure { body, .. } => vec![body],
         }
     }
 
@@ -266,7 +312,8 @@ impl Expr {
             | Expr::Let { .. }
             | Expr::Return(_)
             | Expr::Assign { .. }
-            | Expr::Seq { .. } => Vec::new(),
+            | Expr::Seq { .. }
+            | Expr::Closure { .. } => Vec::new(),
             _ => self.children(),
         }
     }

@@ -1,5 +1,6 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp, VariantBind,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp,
+    VariantBind,
     NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
@@ -132,7 +133,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             name: Name::new(m.method.to_string()),
             args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
         }),
-        SynExpr::Closure(_) => Err(ParseError::new(Reason::Closure, "closures are not in v0")),
+        SynExpr::Closure(c) => lower_closure(cx, c),
         SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::ForLoop(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
             Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))
         }
@@ -291,6 +292,59 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
         }),
         _ => Err(path_error(&segs, format!("unsupported path {}", segs.join("::")))),
     }
+}
+
+fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
+    let modifier = if c.lifetimes.is_some() {
+        Some("`for<..>`")
+    } else if c.constness.is_some() {
+        Some("`const`")
+    } else if c.movability.is_some() {
+        Some("`static`")
+    } else if c.asyncness.is_some() {
+        Some("`async`")
+    } else {
+        None
+    };
+    if let Some(what) = modifier {
+        return Err(ParseError::new(Reason::Closure, format!("{what} closures are not in v0")).detail(what));
+    }
+    let params = c
+        .inputs
+        .iter()
+        .map(|p| {
+            let (pat, ty) = match p {
+                Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
+                other => (other, None),
+            };
+            match pat {
+                Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
+                    Ok(ClosureParam {
+                        name: Name::new(id.ident.to_string()),
+                        ty,
+                    })
+                }
+                Pat::Wild(_) => Ok(ClosureParam {
+                    name: Name::new("_"),
+                    ty,
+                }),
+                other => Err(ParseError::new(
+                    Reason::ParamPattern,
+                    format!("closure parameters are plain names in v0, found {}", snippet(other)),
+                )
+                .or_at(other.span())),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let ret = match &c.output {
+        syn::ReturnType::Default => None,
+        syn::ReturnType::Type(_, t) => Some(lower_type(t)?),
+    };
+    Ok(Expr::Closure {
+        params,
+        ret,
+        body: Box::new(lower_expr(cx, &c.body)?),
+    })
 }
 
 fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {

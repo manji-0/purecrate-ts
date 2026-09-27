@@ -193,3 +193,19 @@ idsmith を除く 126 関数では、首位が分散した。
 - **クロージャ（TODO 31）の効果が最も大きい。** idsmith の 339 件は、クロージャを受理すると std のイテレータメソッドの壁（TODO 33）に進む。両方がそろって初めて受理数が動く。
 - **`&mut self` は、DDD とイベントソーシングの集約に共通する形**である（`fn apply(&mut self, event)`）。最初の理由では 11 件だが、5 エントリにまたがる。`self` を受け取って新しい値を返す関数に書き換えれば、意味を保ったまま写せる見込みがある。まだ計画にない。現行の TODO の後に候補として検討する。
 - ループ・関数内の `const`・ビット演算・`char` は、それぞれ 1〜2 エントリに集中している。汎用の優先度は低い。
+
+### 6.4 TODO 31 後（ローカルのクロージャ）
+
+`let` に束縛したクロージャを型付きのアロー関数にする（写し方は design/02 §6.2）。`expr/closure` の 339 件は 0 になった。受理数はまだ変わらない（関数 4 / 1026、型は変化なし）。予想どおり、クロージャの奥にある std のメソッドと文字の扱いが見えるようになった。
+
+| 件数 | 理由コード | 主な中身 |
+| --- | --- | --- |
+| 305 | `type/reference` | `&mut`（idsmith の乱数生成器） |
+| 198 | `expr/method-call` | `chars`×341、`len`×190、`to_string`×13 |
+| 181 | `check/needs-annotation` | 拒否された `.len()` と比べる整数リテラル。メソッドが型を持てば消える |
+| 110 | `literal/other` | `'0'` などの `char` リテラル |
+| 54 | `expr/index` | `s[i]` |
+| 53 | `type/qualified-path` | モジュール修飾 |
+| 46 | `expr/macro` | `format!`×39、`vec!`×4 |
+
+idsmith を除く 196 関数の内訳はほぼ変わらない（`async` 29、`for` 18、関数内の `const` 17 など）。次の TODO 32〜34（`Option`/`Result`・`Vec`/イテレータ・`String`/`char` のメソッドと `format!`・`vec!`）は、上の `expr/method-call`・`check/needs-annotation`・`literal/other`・`expr/macro` をまとめて対象にする。

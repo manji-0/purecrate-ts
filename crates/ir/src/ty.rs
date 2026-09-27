@@ -125,7 +125,8 @@ impl Prim {
     }
 }
 
-/// Value type at the crate boundary. No references.
+/// Value type. No references. `Fn` is the type of a closure; the parser
+/// never produces it, so it cannot reach a signature or a field.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Prim(Prim),
@@ -134,6 +135,7 @@ pub enum Ty {
     Vec(Box<Ty>),
     Tuple(Vec<Ty>),
     Named(Name),
+    Fn { params: Vec<Ty>, ret: Box<Ty> },
     Never,
 }
 

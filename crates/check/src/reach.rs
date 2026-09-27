@@ -131,6 +131,10 @@ impl Refs {
                 self.ty(err);
             }
             Ty::Tuple(ts) => ts.iter().for_each(|t| self.ty(t)),
+            Ty::Fn { params, ret } => {
+                params.iter().for_each(|t| self.ty(t));
+                self.ty(ret);
+            }
             Ty::Prim(_) | Ty::Never => {}
         }
     }
@@ -152,7 +156,8 @@ impl Refs {
                         self.name(ty);
                         self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));
                     }
-                    Callee::ResultOk
+                    Callee::Local(_)
+                    | Callee::ResultOk
                     | Callee::ResultErr
                     | Callee::OptionSome
                     | Callee::OptionNone
@@ -160,6 +165,13 @@ impl Refs {
                     | Callee::Fround => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
+            }
+            Expr::Closure { params, ret, body } => {
+                params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
+                if let Some(t) = ret {
+                    self.ty(t);
+                }
+                self.expr(body);
             }
             Expr::MethodCall { receiver, args, .. } => {
                 self.expr(receiver);

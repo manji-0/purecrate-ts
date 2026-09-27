@@ -5,29 +5,45 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Crate, Expr, Fields, Fn, Item, Name, Pattern, VariantBind};
+use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, VariantBind};
 
 pub fn rename(krate: Crate) -> Crate {
-    let items = krate
+    let items: Vec<String> = krate
+        .items
+        .iter()
+        .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
+        .map(|item| item.name().as_str().to_string())
+        .collect();
+    let renamed = krate
         .items
         .into_iter()
         .map(|item| match item {
-            Item::Fn(f) => Item::Fn(rename_fn(f)),
+            Item::Fn(f) => Item::Fn(rename_fn(f, &items)),
             other => other,
         })
         .collect();
-    Crate::new(krate.name.as_str(), items)
+    Crate::new(krate.name.as_str(), renamed)
 }
 
-fn rename_fn(f: Fn) -> Fn {
+/// Top-level names are taken up front: a TS `const` shadows an import for the
+/// whole block, including uses before it that Rust resolves to the item.
+fn rename_fn(f: Fn, items: &[String]) -> Fn {
     let mut r = Renamer::default();
+    items.iter().for_each(|n| {
+        r.claim(n);
+    });
     let mut env = Env::new();
-    for p in &f.params {
-        r.claim(p.name.as_str());
-        env.insert(p.name.as_str().to_string(), p.name.clone());
-    }
+    let params = f
+        .params
+        .into_iter()
+        .map(|p| Param {
+            name: r.bind(&p.name, &mut env),
+            ..p
+        })
+        .collect();
     Fn {
         body: r.expr(f.body, &env),
+        params,
         ..f
     }
 }
@@ -128,10 +144,32 @@ impl Renamer {
                     })
                     .collect(),
             },
+            Expr::Call {
+                callee: Callee::Local(n),
+                args,
+            } => Expr::Call {
+                callee: Callee::Local(env.get(n.as_str()).cloned().unwrap_or(n)),
+                args: self.all(args, env),
+            },
             Expr::Call { callee, args } => Expr::Call {
                 callee,
                 args: self.all(args, env),
             },
+            Expr::Closure { params, ret, body } => {
+                let mut inner = env.clone();
+                let params = params
+                    .into_iter()
+                    .map(|p| ClosureParam {
+                        name: self.bind(&p.name, &mut inner),
+                        ty: p.ty,
+                    })
+                    .collect();
+                Expr::Closure {
+                    params,
+                    ret,
+                    body: self.boxed(body, &inner),
+                }
+            }
             Expr::MethodCall { receiver, name, args } => Expr::MethodCall {
                 receiver: self.boxed(receiver, env),
                 name,

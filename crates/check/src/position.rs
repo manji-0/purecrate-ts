@@ -83,6 +83,7 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
             visit(scrutinee, Ctx::Strict, report);
             arms.iter().for_each(|a| visit(&a.body, Ctx::Stmt, report));
         }
+        Expr::Closure { body, .. } => visit(body, Ctx::Stmt, report),
         Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => expr
             .children()
             .into_iter()

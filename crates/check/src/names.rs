@@ -192,6 +192,7 @@ fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
         Expr::Match { arms, .. } => arms
             .iter()
             .for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
+        Expr::Closure { params, .. } => params.iter().for_each(|p| f(&p.name)),
         _ => {}
     }
     expr.children().into_iter().for_each(|c| for_each_binding(c, f));

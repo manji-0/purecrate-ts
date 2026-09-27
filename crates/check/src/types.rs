@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
+    Arm, BinOp, Callee, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -266,6 +266,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, want),
             Expr::Call { callee, args } => self.call(callee, args, want),
             Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
+            Expr::Closure { params, ret, body } => self.closure(params, ret.as_ref(), body, want),
             Expr::Construct {
                 ty,
                 variant,
@@ -671,7 +672,98 @@ impl<'d, 'a> Typer<'d, 'a> {
         self.scopes.extend(names);
     }
 
+    fn is_local(&self, name: &str) -> bool {
+        self.scopes.iter().any(|(n, _)| n == name)
+    }
+
+    /// Parameter types come from annotations or, failing that, from the
+    /// closure type the context expects. The body is typed with the closure's
+    /// return type in place of the function's, since `?` and `return` there
+    /// leave the closure.
+    fn closure(&mut self, params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, want: Option<&Ty>) -> Typed {
+        let expected = match want.map(|w| self.norm(w)) {
+            Some(Ty::Fn { params: ps, ret }) if ps.len() == params.len() => Some((ps, *ret)),
+            _ => None,
+        };
+        let param_tys: Vec<Option<Ty>> = params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| p.ty.clone().or_else(|| expected.as_ref().map(|(ps, _)| ps[i].clone())))
+            .collect();
+        for (p, t) in params.iter().zip(&param_tys) {
+            if t.is_none() {
+                self.error(Reason::NeedsAnnotation, format!(
+                    "the type of closure parameter `{0}` is not known here; write `|{0}: T|`",
+                    p.name.as_str()
+                ));
+            }
+        }
+        let ret = ret.cloned().or_else(|| expected.map(|(_, r)| r));
+        if ret.is_none() && exits(body) {
+            self.error(Reason::NeedsAnnotation,
+                "a closure with `?` or `return` needs its return type; write `|..| -> T { .. }`".to_string());
+        }
+        let outer_ret = std::mem::replace(&mut self.ret, ret.clone().unwrap_or(Ty::Never));
+        let depth = self.scopes.len();
+        self.scopes.extend(params.iter().zip(&param_tys).map(|(p, t)| (p.name.as_str().to_string(), t.clone())));
+        let (body, bt) = self.expr(body, ret.as_ref());
+        self.scopes.truncate(depth);
+        self.ret = outer_ret;
+        let ret = ret.or(bt);
+        let t = match (param_tys.iter().cloned().collect::<Option<Vec<Ty>>>(), &ret) {
+            (Some(params), Some(r)) => Some(Ty::Fn { params, ret: Box::new(r.clone()) }),
+            _ => None,
+        };
+        let e = Expr::Closure {
+            params: params
+                .iter()
+                .zip(param_tys)
+                .map(|(p, ty)| ClosureParam { name: p.name.clone(), ty })
+                .collect(),
+            ret,
+            body: Box::new(body),
+        };
+        (e, self.expect(want, t))
+    }
+
+    fn local_call(&mut self, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let (params, ret) = match self.lookup(name.as_str()).map(|t| self.norm(&t)) {
+            Some(Ty::Fn { params, ret }) => {
+                if params.len() != args.len() {
+                    self.error(Reason::ConstructShape, format!(
+                        "closure `{}` takes {} argument(s), got {}",
+                        name.as_str(),
+                        params.len(),
+                        args.len()
+                    ));
+                }
+                (params, Some(*ret))
+            }
+            Some(other) => {
+                self.error(Reason::TypeMismatch, format!(
+                    "`{}` is a `{}`, not a closure",
+                    name.as_str(),
+                    show(&other)
+                ));
+                (Vec::new(), None)
+            }
+            None => (Vec::new(), None),
+        };
+        let args = args
+            .iter()
+            .zip(params.iter().map(Some).chain(std::iter::repeat(None)))
+            .map(|(a, p)| self.expr(a, p).0)
+            .collect();
+        let e = Expr::Call { callee: Callee::Local(name.clone()), args };
+        (e, self.expect(want, ret))
+    }
+
     fn call(&mut self, callee: &Callee, args: &[Expr], want: Option<&Ty>) -> Typed {
+        if let Callee::Fn(n) | Callee::Local(n) = callee {
+            if self.is_local(n.as_str()) {
+                return self.local_call(n, args, want);
+            }
+        }
         let typed_args = |me: &mut Self, params: Vec<Ty>| -> Vec<Expr> {
             args.iter()
                 .zip(params.iter().map(Some).chain(std::iter::repeat(None)))
@@ -679,6 +771,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 .collect()
         };
         let (args, t) = match callee {
+            Callee::Local(_) => (typed_args(self, Vec::new()), None),
             Callee::Fn(n) => {
                 let sig = self.defs.free_fns.get(n.as_str()).map(|f| sig(f));
                 let (params, ret) = sig.unwrap_or_default();
@@ -921,6 +1014,20 @@ pub(crate) fn show(ty: &Ty) -> String {
             ts.iter().map(show).collect::<Vec<_>>().join(", ")
         ),
         Ty::Named(n) => n.as_str().to_string(),
+        Ty::Fn { params, ret } => format!(
+            "impl Fn({}) -> {}",
+            params.iter().map(show).collect::<Vec<_>>().join(", "),
+            show(ret)
+        ),
         Ty::Never => "!".into(),
+    }
+}
+
+/// Contains a `?` or `return` that leaves this closure body.
+fn exits(body: &Expr) -> bool {
+    match body {
+        Expr::Try { .. } | Expr::Return(_) => true,
+        Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(exits),
     }
 }

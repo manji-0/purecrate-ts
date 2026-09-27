@@ -299,6 +299,10 @@ fn ty_refs(ty: &Ty, out: &mut Vec<Ref>) {
             ty_refs(err, out);
         }
         Ty::Tuple(ts) => ts.iter().for_each(|t| ty_refs(t, out)),
+        Ty::Fn { params, ret } => {
+            params.iter().for_each(|t| ty_refs(t, out));
+            ty_refs(ret, out);
+        }
         Ty::Prim(_) | Ty::Never => {}
     }
 }
@@ -315,6 +319,12 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             _ => {}
         },
         Expr::MethodCall { name, .. } => out.push(Ref::ReceiverCall(name.as_str().to_string())),
+        Expr::Closure { params, ret, .. } => {
+            params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| ty_refs(t, out));
+            if let Some(t) = ret {
+                ty_refs(t, out);
+            }
+        }
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
         Expr::Let { ty: Some(t), .. } => ty_refs(t, out),
         Expr::Match { arms, .. } => {
