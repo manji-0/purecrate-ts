@@ -70,7 +70,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `x.m(args)` is `T::m(x, args)` for the crate's own `impl T`. The
-    /// receiver is typed first only to find `T`; the call types it again.
+    /// receiver is typed once, to find `T`, and the typed receiver is the
+    /// call's first argument: typing it again would double the work at every
+    /// link of a chain.
     fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
@@ -93,8 +95,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => None,
         });
         match (owner, rt) {
-            (Some((ty, params)), _) => {
-                self.out.truncate(before);
+            (Some((ty, params)), Some(rt)) => {
                 if params != args.len() + 1 {
                     self.error(Reason::ConstructShape, format!(
                         "`{}.{}` takes {} argument(s) after the receiver, got {}",
@@ -104,12 +105,24 @@ impl<'d, 'a> Typer<'d, 'a> {
                         args.len()
                     ));
                 }
-                let call = Expr::Call {
+                let (param_tys, ret) = self
+                    .defs
+                    .methods
+                    .get(&(ty.as_str(), name.as_str()))
+                    .map(|f| sig(f))
+                    .unwrap_or_default();
+                self.expect(param_tys.first(), Some(rt));
+                let mut typed = vec![recv];
+                for (a, p) in args.iter().zip(param_tys.iter().skip(1).map(Some).chain(std::iter::repeat(None))) {
+                    typed.push(self.expr(a, p).0);
+                }
+                let e = Expr::Call {
                     callee: Callee::Method { ty, name: name.clone() },
-                    args: std::iter::once(receiver).chain(args).cloned().collect(),
+                    args: typed,
                 };
-                self.expr(&call, want)
+                (e, self.expect(want, ret))
             }
+            (Some(_), None) => unreachable!("an owner is found only from a known receiver type"),
             (None, Some(rt)) => {
                 self.out.push(
                     Diagnostic::at(self.item, Reason::MethodCall, format!(

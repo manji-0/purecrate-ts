@@ -38,3 +38,18 @@ fn receiver_calls_elsewhere_are_rejected_with_the_method_name() {
     assert_rejects(&format!("{HAND} pub fn f(a: Card) -> bool {{ a.beats() }}"), "takes 1 argument(s) after the receiver, got 0");
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> i32 {{ c.is_face() }}"), "expected `i32`, found `bool`");
 }
+
+/// The receiver is typed once per call, so a chain costs time linear in its
+/// length. Typing it twice made each link double the work (2^40 here).
+#[test]
+fn long_method_chains_type_in_linear_time() {
+    let chain = ".bump()".repeat(40);
+    let src = format!(
+        "pub struct C {{ pub n: i32 }}
+         impl C {{ pub fn bump(self) -> C {{ C {{ n: self.n }} }} }}
+         pub fn f(c: C) -> C {{ c{chain} }}"
+    );
+    let start = std::time::Instant::now();
+    assert_clean(&src);
+    assert!(start.elapsed() < std::time::Duration::from_secs(20), "{:?}", start.elapsed());
+}
