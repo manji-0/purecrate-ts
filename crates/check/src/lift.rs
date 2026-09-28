@@ -200,6 +200,10 @@ impl Lifter {
                 op,
                 expr: self.boxed(expr, out),
             },
+            Expr::Ignored { wrapper, expr } => Expr::Ignored {
+                wrapper,
+                expr: self.boxed(expr, out),
+            },
             Expr::Binary { op, left, right } => {
                 let left = self.boxed(left, out);
                 let right = if matches!(op, purecrate_ir::BinOp::And | purecrate_ir::BinOp::Or) {

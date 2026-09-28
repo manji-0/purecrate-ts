@@ -40,3 +40,22 @@ pub fn through(n: i32) -> i32 {
     let b = Box::new(n);
     *b + 1
 }
+
+pub fn leaf(n: i32) -> Result<Ast, i32> {
+    if n < 0 {
+        Err(n)
+    } else {
+        Ok(Ast::Num(n))
+    }
+}
+
+/// `?` inside `Box::new` leaves the function, like any other `?`.
+pub fn checked_add(x: i32, y: i32) -> Result<i32, i32> {
+    let e = Ast::Add(Box::new(leaf(x)?), Box::new(leaf(y)?));
+    Ok(calc(e))
+}
+
+pub fn boxed_opt(r: Option<i32>) -> Option<i32> {
+    let b: Box<i32> = Box::new(r?);
+    Some(*b + 1)
+}
