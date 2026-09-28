@@ -61,10 +61,17 @@ impl<T: Js + ?Sized> Js for &T {
     }
 }
 
-/// ASCII only: `{:?}` and a JS string literal agree there.
+/// `{:?}` is a JS string literal too: JS reads its `\u{…}` escapes, and a
+/// code point Rust prints as is stays as is.
 impl Js for str {
     fn js(&self) -> String {
         format!("{self:?}")
+    }
+}
+
+impl Js for String {
+    fn js(&self) -> String {
+        self.as_str().js()
     }
 }
 

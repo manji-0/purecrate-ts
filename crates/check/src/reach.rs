@@ -167,6 +167,7 @@ impl Refs {
                     | Callee::Fround
                     | Callee::AsFloat(_)
                     | Callee::VecLen
+                    | Callee::StrBytes
                     | Callee::StringFrom
                     | Callee::IntFrom { .. } => {}
                 }

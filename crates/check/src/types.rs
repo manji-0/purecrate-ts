@@ -87,6 +87,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
+        if name.as_str() == "as_bytes" && args.is_empty() {
+            if let Some(rt) = &rt {
+                if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
+                    let e = Expr::Call {
+                        callee: Callee::StrBytes,
+                        args: vec![recv],
+                    };
+                    return (e, self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))));
+                }
+            }
+        }
         let owner = rt.as_ref().and_then(|t| match self.norm(t) {
             Ty::Named(n) => {
                 let params = self.defs.methods.get(&(n.as_str(), name.as_str())).map(|f| f.params.len());
@@ -995,6 +1006,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::VecLen => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Prim(Prim::Usize)),
+            ),
+            Callee::StrBytes => (
+                args.iter().map(|a| self.expr(a, None).0).collect(),
+                Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))),
             ),
             Callee::StringFrom => (
                 typed_args(self, vec![Ty::Prim(Prim::Str)]),

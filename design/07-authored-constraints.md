@@ -39,6 +39,7 @@
 | 整数の拡大 | std に `From` がある拡大だけ。`i64::from(q)` | 値はそのまま。`bigint` になるときだけ `BigInt(q)` |
 | 文字列の構築 | `String::from("…")`。リテラルは `&str` で、`String` の位置には置けない | リテラルそのもの |
 | 文字列の等価 | `String` と `&str` の `==` / `!=`（どちらの順でも） | `===` / `!==` |
+| 文字列の中身 | `s.as_bytes()` の UTF-8 バイト列を、`&[u8]` の添字と `len` と再帰で読む（2026-09-29） | `Str.bytes(s)`。コードポイントを UTF-8 に符号化した `ReadonlyArray<U8>` |
 | 局所クロージャ | 不変の束縛だけを捕捉し、`let` に束縛して呼ぶ。`?` と `return` はクロージャから抜ける | 型付きアロー関数 |
 | 再帰呼び出し | 名前のある関数が自分や他の関数を呼ぶ | そのままの関数呼び出し |
 
@@ -166,7 +167,7 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 
 生成パッケージを pack して別のプロジェクトに入れ、node で実行し、TypeScript 6・7 の tsc で `nodenext` と `bundler` の両方の型検査を通すことを検査している（`crates/cli/tests/package.rs`）。`purecrate` はまだ npm に公開していない。
 
-予約名は `Result`、`Int`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
+予約名は `Result`、`Int`、`Str`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int` / `str`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
 
 ### 4.7 閉じた型は公開関数から作る（2026-09-29）
 

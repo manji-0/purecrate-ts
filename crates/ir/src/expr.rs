@@ -89,6 +89,9 @@ pub enum Callee {
     OptionNone,
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
+    /// `str::as_bytes`, on a `String` or `&str`: the UTF-8 bytes as a
+    /// `&[u8]`. Prints as `Str.bytes(s)` (design/04 §1.5).
+    StrBytes,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `to::from(x)` where std has a lossless `From` (`IntTy::widens_to`).

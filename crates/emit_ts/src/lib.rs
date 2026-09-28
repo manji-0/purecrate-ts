@@ -87,6 +87,10 @@ fn emit_package(krate: &Crate) -> Package {
             stem: "result".to_string(),
             source: result_src(),
         },
+        File {
+            stem: "str".to_string(),
+            source: format!("{HEADER}\nexport {{ Str }} from \"purecrate\";\n"),
+        },
     ];
 
     for (stem, items) in &buckets {
@@ -846,6 +850,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::VecLen
+                | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::IntFrom { .. } => String::new(),
             };
@@ -857,6 +862,9 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                     (false, true) => format!("(globalThis.BigInt({x}) as {})", to.ts_name()),
                     _ => format!("({x} as number as {})", to.ts_name()),
                 };
+            }
+            if matches!(callee, purecrate_ir::Callee::StrBytes) {
+                return format!("Str.bytes({})", emit_expr(&args[0], indent));
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
@@ -1079,6 +1087,8 @@ struct Refs {
     never: bool,
     int: bool,
     result: bool,
+    /// `Str` from `./str.ts`.
+    str: bool,
     /// Brand type names (`I32`, `F64`) this file mentions.
     nums: BTreeSet<String>,
     types: BTreeSet<String>,
@@ -1155,6 +1165,7 @@ impl Refs {
                     Callee::VecLen => {
                         self.nums.insert("Usize".into());
                     }
+                    Callee::StrBytes => self.str = true,
                     Callee::IntFrom { to, .. } => {
                         self.nums.insert(to.ts_name().to_string());
                     }
@@ -1291,6 +1302,9 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     }
     if refs.result {
         out.push_str("import { Result } from \"./result.ts\";\n");
+    }
+    if refs.str {
+        out.push_str("import { Str } from \"./str.ts\";\n");
     }
     for v in refs.values.iter().filter(|v| elsewhere(v)) {
         out.push_str(&format!(
