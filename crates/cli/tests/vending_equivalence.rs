@@ -5,22 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod vending {
-    include!("fixtures/vending.rs");
-}
+purecrate_canon::fixture!(mod vending = "fixtures/vending.rs");
 
-const SOURCE: &str = include_str!("fixtures/vending.rs");
-
-impl support::Show for vending::Fault {
-    fn show(&self) -> String {
-        match self {
-            vending::Fault::SoldOut => "SoldOut".into(),
-            vending::Fault::Short(n) => format!("Short({n})"),
-            vending::Fault::Full => "Full".into(),
-        }
-    }
-}
+const SOURCE: &str = vending::SOURCE;
 
 #[test]
 fn generated_vending_machine_matches_rust() {

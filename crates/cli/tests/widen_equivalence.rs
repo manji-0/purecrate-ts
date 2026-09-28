@@ -4,12 +4,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod widen {
-    include!("fixtures/widen.rs");
-}
+purecrate_canon::fixture!(mod widen = "fixtures/widen.rs");
 
-const SOURCE: &str = include_str!("fixtures/widen.rs");
+const SOURCE: &str = widen::SOURCE;
 
 #[test]
 fn generated_widening_matches_rust() {

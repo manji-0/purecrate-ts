@@ -5,12 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod borrow {
-    include!("fixtures/borrow.rs");
-}
+purecrate_canon::fixture!(mod borrow = "fixtures/borrow.rs");
 
-const SOURCE: &str = include_str!("fixtures/borrow.rs");
+const SOURCE: &str = borrow::SOURCE;
 
 #[test]
 fn generated_borrowing_code_matches_rust() {

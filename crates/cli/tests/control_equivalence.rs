@@ -4,12 +4,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod control {
-    include!("fixtures/control.rs");
-}
+purecrate_canon::fixture!(mod control = "fixtures/control.rs");
 
-const SOURCE: &str = include_str!("fixtures/control.rs");
+const SOURCE: &str = control::SOURCE;
 
 #[test]
 fn generated_control_flow_matches_rust() {

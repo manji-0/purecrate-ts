@@ -4,12 +4,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod update {
-    include!("fixtures/update.rs");
-}
+purecrate_canon::fixture!(mod update = "fixtures/update.rs");
 
-const SOURCE: &str = include_str!("fixtures/update.rs");
+const SOURCE: &str = update::SOURCE;
 
 #[test]
 fn generated_struct_update_matches_rust() {

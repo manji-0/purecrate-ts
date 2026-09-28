@@ -5,12 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod order_of_eval {
-    include!("fixtures/order_of_eval.rs");
-}
+purecrate_canon::fixture!(mod order_of_eval = "fixtures/order_of_eval.rs");
 
-const SOURCE: &str = include_str!("fixtures/order_of_eval.rs");
+const SOURCE: &str = order_of_eval::SOURCE;
 
 #[test]
 fn generated_evaluation_order_matches_rust() {

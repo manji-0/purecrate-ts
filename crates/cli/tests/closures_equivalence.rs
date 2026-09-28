@@ -5,12 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod closures {
-    include!("fixtures/closures.rs");
-}
+purecrate_canon::fixture!(mod closures = "fixtures/closures.rs");
 
-const SOURCE: &str = include_str!("fixtures/closures.rs");
+const SOURCE: &str = closures::SOURCE;
 
 #[test]
 fn generated_closures_match_rust() {

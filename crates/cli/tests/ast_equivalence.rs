@@ -3,12 +3,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod ast {
-    include!("fixtures/ast.rs");
-}
+purecrate_canon::fixture!(mod ast = "fixtures/ast.rs");
 
-const SOURCE: &str = include_str!("fixtures/ast.rs");
+const SOURCE: &str = ast::SOURCE;
 
 #[test]
 fn generated_recursive_enum_matches_rust() {

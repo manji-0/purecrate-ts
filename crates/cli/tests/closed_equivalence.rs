@@ -12,30 +12,9 @@ use purecrate_check::accept;
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::parse_source;
 
-#[allow(dead_code)]
-mod closed {
-    include!("fixtures/closed.rs");
-}
+purecrate_canon::fixture!(mod closed = "fixtures/closed.rs");
 
-const SOURCE: &str = include_str!("fixtures/closed.rs");
-
-impl support::Show for closed::EmailError {
-    fn show(&self) -> String {
-        match self {
-            closed::EmailError::Empty => "Empty".into(),
-            closed::EmailError::Reserved => "Reserved".into(),
-        }
-    }
-}
-
-impl support::Show for closed::SignupError {
-    fn show(&self) -> String {
-        match self {
-            closed::SignupError::BadEmail(e) => format!("BadEmail({})", support::Show::show(e)),
-            closed::SignupError::TooYoung => "TooYoung".into(),
-        }
-    }
-}
+const SOURCE: &str = closed::SOURCE;
 
 #[test]
 fn closed_types_are_built_through_the_crate_and_match_rust() {

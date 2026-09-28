@@ -4,12 +4,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod arith {
-    include!("fixtures/arith.rs");
-}
+purecrate_canon::fixture!(mod arith = "fixtures/arith.rs");
 
-const SOURCE: &str = include_str!("fixtures/arith.rs");
+const SOURCE: &str = arith::SOURCE;
 
 #[test]
 fn generated_arithmetic_matches_rust_debug_build() {

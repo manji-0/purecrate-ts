@@ -10,6 +10,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "purecrate-canon"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "purecrate-ir",
+ "purecrate-syntax",
+]
+
+[[package]]
 name = "purecrate-check"
 version = "0.1.0"
 dependencies = [
@@ -49,6 +58,7 @@ dependencies = [
 name = "purecrate-ts"
 version = "0.1.0"
 dependencies = [
+ "purecrate-canon",
  "purecrate-check",
  "purecrate-emit-ts",
  "purecrate-ir",

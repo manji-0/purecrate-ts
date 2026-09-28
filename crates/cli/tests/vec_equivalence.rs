@@ -4,12 +4,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod vecs {
-    include!("fixtures/vec.rs");
-}
+purecrate_canon::fixture!(mod vecs = "fixtures/vec.rs");
 
-const SOURCE: &str = include_str!("fixtures/vec.rs");
+const SOURCE: &str = vecs::SOURCE;
 
 #[test]
 fn generated_vec_reads_match_rust() {

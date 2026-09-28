@@ -5,12 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod methods {
-    include!("fixtures/methods.rs");
-}
+purecrate_canon::fixture!(mod methods = "fixtures/methods.rs");
 
-const SOURCE: &str = include_str!("fixtures/methods.rs");
+const SOURCE: &str = methods::SOURCE;
 
 #[test]
 fn generated_method_calls_match_rust() {

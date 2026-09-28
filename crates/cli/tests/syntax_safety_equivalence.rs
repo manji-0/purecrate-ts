@@ -6,20 +6,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod syntax_safety {
-    include!("fixtures/syntax_safety.rs");
-}
+purecrate_canon::fixture!(mod syntax_safety = "fixtures/syntax_safety.rs");
 
-impl support::Show for syntax_safety::Error {
-    fn show(&self) -> String {
-        match self {
-            syntax_safety::Error::Code(n) => format!("Code({n})"),
-        }
-    }
-}
-
-const SOURCE: &str = include_str!("fixtures/syntax_safety.rs");
+const SOURCE: &str = syntax_safety::SOURCE;
 
 #[test]
 fn generated_syntax_matches_rust() {

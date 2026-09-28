@@ -5,12 +5,9 @@
 #[macro_use]
 mod support;
 
-#[allow(dead_code)]
-mod strict_types {
-    include!("fixtures/strict_types.rs");
-}
+purecrate_canon::fixture!(mod strict_types = "fixtures/strict_types.rs");
 
-const SOURCE: &str = include_str!("fixtures/strict_types.rs");
+const SOURCE: &str = strict_types::SOURCE;
 
 #[test]
 fn generated_types_check_and_match_rust() {

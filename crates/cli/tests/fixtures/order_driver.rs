@@ -48,3 +48,11 @@ pub fn open_with(code: u8) -> Result<i64, OrderError> {
     let order = step(Order::Draft { lines: Lines::Nil }, Command::AddLine(line))?;
     Ok(summary(&order))
 }
+
+pub fn trace4(a: u8, b: u8, c: u8, d: u8) -> Result<Order, OrderError> {
+    let order = Order::Draft { lines: Lines::Nil };
+    let order = step(order, decode(a))?;
+    let order = step(order, decode(b))?;
+    let order = step(order, decode(c))?;
+    step(order, decode(d))
+}

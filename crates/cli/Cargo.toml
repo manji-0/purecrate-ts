@@ -11,3 +11,6 @@ purecrate-syntax = { path = "../syntax" }
 purecrate-check = { path = "../check" }
 purecrate-pack = { path = "../pack" }
 purecrate-emit-ts = { path = "../emit_ts" }
+
+[dev-dependencies]
+purecrate-canon = { path = "../canon" }
