@@ -9,7 +9,7 @@ fn newtypes_construct_unwrap_and_take_methods() {
          impl Id { pub fn next(&self) -> Self { Self(self.0 + 1) } }
          pub fn f(n: u32) -> u32 { Id::next(&Id(n)).0 }",
     );
-    assert_clean("pub struct Tag(String); pub fn f(t: &Tag) -> String { t.0 }");
+    assert_clean("pub struct Tag(String); pub fn f(t: Tag) -> String { t.0 }");
 }
 
 #[test]

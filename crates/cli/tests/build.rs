@@ -109,8 +109,57 @@ fn parse_errors_also_leave_out_alone() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// Each passes the subset checks, which erase borrows and do not track
+/// moves or lifetimes. rustc rejects each with the given code.
+const RUSTC_ONLY: [(&str, &str); 11] = [
+    ("E0308", "pub fn g(n: i32) -> i32 { n } pub fn f(n: i32) -> i32 { g(&n) }"),
+    ("E0308", "pub fn g(s: &str) -> bool { s == \"\" } pub fn f(s: String) -> bool { g(s) }"),
+    ("E0308", "pub struct S { pub n: i32 } pub fn g(s: &S) -> i32 { s.n } pub fn f(s: S) -> i32 { g(s) }"),
+    ("E0308", "pub struct S { pub n: i32 } pub fn g(s: S) -> i32 { s.n } pub fn f(s: &S) -> i32 { g(s) }"),
+    ("E0507", "pub struct T(String); pub fn f(t: &T) -> String { t.0 }"),
+    ("E0507", "pub struct S { pub n: i32 } pub fn f(s: &S) -> S { *s }"),
+    ("E0382", "pub struct S { pub n: i32 } pub fn g(s: S) -> i32 { s.n } pub fn f(s: S) -> i32 { g(s) + g(s) }"),
+    ("E0382", "pub fn f(s: String) -> bool { let t = s; s == t }"),
+    ("E0382", "pub struct S { pub a: String, pub b: i32 } pub fn f(s: S) -> String { let t = S { b: 1, ..s }; s.a }"),
+    ("E0308", "pub enum E { A(String) } pub fn f(e: &E) -> String { match e { E::A(s) => s } }"),
+    ("E0106", "pub fn f(a: &str, b: &str) -> &str { a }"),
+];
+
 #[test]
-fn check_without_out_only_runs_the_subset_checks() {
+fn rustc_rejects_what_the_subset_checks_let_through() {
+    let dir = scratch("rustc");
+    for (i, (code, source)) in RUSTC_ONLY.iter().enumerate() {
+        let src = dir.join(format!("hole{i}.rs"));
+        fs::write(&src, format!("{source}\n")).expect("write source");
+        let out = dir.join(format!("pkg{i}"));
+        let result = build(&src, &out);
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert_eq!(result.status.code(), Some(1), "{source}\n{stderr}");
+        assert!(
+            stderr.contains(&format!("{}:1:", src.display())) && stderr.contains(&format!("[rustc/{code}]")),
+            "{source}\n{stderr}"
+        );
+        assert!(stderr.contains("error(s); nothing written"), "{stderr}");
+        assert!(!out.exists(), "{source}");
+    }
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn check_fails_closed_without_rustc() {
+    let result = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .arg("check")
+        .arg(repo().join("examples/counter"))
+        .env("RUSTC", "/nonexistent/rustc")
+        .output()
+        .expect("run purecrate-ts");
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("check needs rustc to confirm the input compiles"), "{stderr}");
+}
+
+#[test]
+fn check_without_out_runs_the_subset_checks_and_rustc() {
     let ok = check(&[repo().join("examples/counter").as_os_str()]);
     assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
 
