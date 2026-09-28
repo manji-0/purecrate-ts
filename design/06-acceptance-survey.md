@@ -1,55 +1,55 @@
-# 受理率の計測（2026-09-27）
+# Acceptance rate measurement (2026-09-27)
 
-design/04 §3.5-1 の計測。公開されている Rust コードに `purecrate-ts survey` をかけ、公開関数と公開型がそのまま受理されるかを数えた。
+Measurement for design/04 §3.5-1. We ran `purecrate-ts survey` over publicly available Rust code and counted how many public functions and public types are accepted as-is.
 
-## 0. 結論
+## 0. Conclusions
 
-1. **既存コードの公開関数は、ほぼ受理できない。** ドメイン寄りの 8 件で 956 関数中 1 件（0.1%）。
-2. **公開型は約半分を受理できる。** 87 型中 44 型（51%）。型だけを共有する用途（design/05）は、既存コードでも現実的に成り立つ。
-3. **関数の最初の壁はシグネチャの参照（`&T`・`&self`）、次の壁は標準ライブラリのメソッド。** 参照を値として扱う試作では受理数は増えず、拒否理由の首位が `expr/method-call`（`collect`・`len`・`to_string` など）に移った（§3）。
-4. **対象は「PureCrate の制約の中で新しく書くコード」と決めた**（design/07）。この文書の受理率は、既存コードをそのまま変換する道を採らなかった根拠として残す。以降の優先度は design/07 が持つ。
+1. **Public functions in existing code are almost never accepted.** Across the 8 domain-focused entries, 1 of 956 functions (0.1%).
+2. **About half of public types are accepted.** 44 of 87 types (51%). Sharing types only (design/05) is realistic even for existing code.
+3. **The first barrier for functions is references in signatures (`&T`, `&self`); the next is standard library methods.** A prototype that treats references as values did not increase acceptance; the top rejection reason shifted to `expr/method-call` (`collect`, `len`, `to_string`, etc.) (§3).
+4. **We decided the target is "new code written within the PureCrate constraints"** (design/07). The acceptance rates in this document remain as the rationale for not converting existing code as-is. Priorities from here on are owned by design/07.
 
-## 1. 方法
+## 1. Method
 
-### 1.1 コーパス
+### 1.1 Corpus
 
-`corpus/manifest.tsv` にリポジトリ・コミット・調査の起点を固定した。`scripts/survey-corpus.sh` が取得と計測を行い、結果を `corpus/results.jsonl` に書く。
+`corpus/manifest.tsv` pins the repository, commit, and survey root. `scripts/survey-corpus.sh` fetches and measures, writing results to `corpus/results.jsonl`.
 
-| エントリ | 分類 | 起点 |
+| Entry | Category | Root |
 | --- | --- | --- |
-| rust-ddd-example | DDD | クレート全体 |
+| rust-ddd-example | DDD | whole crate |
 | rust-ddd-example.domain | DDD | `src/domain` |
-| zero-to-production | 検証 | クレート全体 |
-| zero-to-production.domain | 検証 | `src/domain` |
-| idsmith | 検証（IBAN・各種 ID のチェックサム） | クレート全体 |
+| zero-to-production | Validation | whole crate |
+| zero-to-production.domain | Validation | `src/domain` |
+| idsmith | Validation (checksums for IBAN and various IDs) | whole crate |
 | eventually.bank-accounting.domain | DDD | `examples/bank-accounting/src/domain.rs` |
-| eventually.light-switch.domain | 状態機械 | `examples/light-switch/src/domain.rs` |
-| little-raft | 状態機械（Raft） | `little_raft` |
-| poker | ゲームルール | クレート全体 |
-| cozy-chess.types | ゲームルール（ビットボード） | `types` |
+| eventually.light-switch.domain | State machine | `examples/light-switch/src/domain.rs` |
+| little-raft | State machine (Raft) | `little_raft` |
+| poker | Game rules | whole crate |
+| cozy-chess.types | Game rules (bitboards) | `types` |
 
-集計の「ドメイン範囲」は、アプリ全体を除きドメイン部分だけを数えた 8 件（`.domain` の 2 件、idsmith、eventually の 2 件、little-raft、poker、cozy-chess.types）。アプリ全体の 2 件は、HTTP やDB 層を含むので参考値とする。
+The "domain scope" in the totals counts the 8 entries that cover only the domain part, excluding whole applications (the 2 `.domain` entries, idsmith, the 2 eventually entries, little-raft, poker, cozy-chess.types). The 2 whole-application entries include HTTP and DB layers, so they are for reference only.
 
-### 1.2 判定
+### 1.2 Judgement
 
-- 単位は公開関数（自由関数と固有 impl の `pub fn`）と公開型（struct・enum・型別名）。trait impl、`const`、`static`、`trait` は判定せず件数だけ数える。
-- 各単位を、それが参照する型と関数の推移閉包と一緒に `check::accept` にかける。`build` がその単位だけを出力しようとしたときの判定と同じ。
-  - **受理**: 閉包全体が通る。
-  - **拒否**: 単位そのものが範囲外。
-  - **巻き込み**: 単位は通るが、参照先が範囲外。
-- 理由は TODO 25 で導入した理由コード（`Reason::code()`）で数える。メソッド名・マクロ名・パスなどは `detail` として併記する。
+- Units are public functions (`pub fn` as free functions and in inherent impls) and public types (struct, enum, type alias). Trait impls, `const`, `static`, and `trait` are not judged, only counted.
+- Each unit is passed to `check::accept` together with the transitive closure of the types and functions it references. This is the same judgement `build` would make when emitting only that unit.
+  - **Accepted**: the whole closure passes.
+  - **Rejected**: the unit itself is out of scope.
+  - **Dragged down**: the unit passes, but something it references is out of scope.
+- Reasons are counted by the reason codes introduced in TODO 25 (`Reason::code()`). Method names, macro names, paths, etc. are recorded alongside as `detail`.
 
-### 1.3 計測上の制約
+### 1.3 Measurement limitations
 
-- **各単位について最初の拒否理由しか分からない。** パーサは単位ごとに最初の範囲外の構文で止まり、シグネチャを本体より先に見る。したがって上位の理由を解消すると、隠れていた理由が次に現れる。§3 はこれを試作で確かめたもの。
-- モジュールは名前で平坦化して判定する。別モジュールの同名の型は衝突として拒否される（今回のコーパスでは件数に影響していない）。
-- `use` によるパスの別名は解決しない。`shapes::Shape` のようなモジュール修飾は `type/qualified-path` として数える。
+- **Only the first rejection reason for each unit is known.** The parser stops at the first out-of-scope construct per unit and looks at the signature before the body. So removing a top reason reveals the next hidden reason. §3 confirms this with a prototype.
+- Modules are flattened by name for judgement. Same-named types in different modules are rejected as conflicts (this did not affect counts in this corpus).
+- Path aliases via `use` are not resolved. Module qualification such as `shapes::Shape` is counted as `type/qualified-path`.
 
-## 2. 結果（現行の受理範囲）
+## 2. Results (current acceptance scope)
 
-### 2.1 エントリ別
+### 2.1 By entry
 
-| エントリ | 関数（受理 / 総数） | 型（受理 / 総数） |
+| Entry | Functions (accepted / total) | Types (accepted / total) |
 | --- | --- | --- |
 | rust-ddd-example | 0 / 19 | 5 / 11 |
 | rust-ddd-example.domain | 0 / 2 | 1 / 1 |
@@ -61,151 +61,151 @@ design/04 §3.5-1 の計測。公開されている Rust コードに `purecrate
 | little-raft | 0 / 5 | 2 / 8 |
 | poker | 1 / 72 | 8 / 16 |
 | cozy-chess.types | 0 / 34 | 0 / 5 |
-| **ドメイン範囲の計** | **1 / 956（0.1%）** | **44 / 87（51%）** |
+| **Domain scope total** | **1 / 956 (0.1%)** | **44 / 87 (51%)** |
 
-idsmith は関数数が多く（830）、合計を支配する。idsmith を除いても関数は 1 / 126。
+idsmith has many functions (830) and dominates the total. Excluding idsmith, functions are still 1 / 126.
 
-### 2.2 関数の拒否理由（ドメイン範囲、単位ごとの最初の理由）
+### 2.2 Function rejection reasons (domain scope, first reason per unit)
 
-| 件数 | 理由コード | 出現エントリ数 | 主な中身 |
+| Count | Reason code | Entries | Main contents |
 | --- | --- | --- | --- |
-| 785 | `type/reference` | 3 | `&str`・`&T` 引数（idsmith が大半） |
+| 785 | `type/reference` | 3 | `&str` / `&T` parameters (mostly idsmith) |
 | 50 | `item/ref-receiver` | 6 | `&self` |
-| 32 | `type/self` | 5 | 戻り値や構築の `Self` |
-| 20 | `expr/method-call` | 3 | 自前のメソッド呼び出し（poker の `is_pair`・`is_straight` など） |
-| 16 | `expr/block-item` | 2 | 関数内の `const` や入れ子の関数 |
-| 10 | `expr/operator` | 2 | ビット演算（cozy-chess） |
+| 32 | `type/self` | 5 | `Self` in return types and construction |
+| 20 | `expr/method-call` | 3 | Calls to the crate's own methods (poker's `is_pair`, `is_straight`, etc.) |
+| 16 | `expr/block-item` | 2 | `const` or nested functions inside a function |
+| 10 | `expr/operator` | 2 | Bitwise operations (cozy-chess) |
 | 9 | `item/generics` | 3 | |
-| 8 | `type/disallowed` | 2 | `usize`・`char` |
+| 8 | `type/disallowed` | 2 | `usize`, `char` |
 
-idsmith を除くと、上位は `type/self`（22）、`expr/method-call`（20）、`expr/block-item`（16）、`item/ref-receiver`（15）。**idsmith 以外の 7 エントリ中 5 エントリで `&self` が最初の壁になっている**点が、件数より重要。
+Excluding idsmith, the top reasons are `type/self` (22), `expr/method-call` (20), `expr/block-item` (16), `item/ref-receiver` (15). **More important than the counts: in 5 of the 7 non-idsmith entries, `&self` is the first barrier.**
 
-### 2.3 型の拒否理由（ドメイン範囲）
+### 2.3 Type rejection reasons (domain scope)
 
-| 件数 | 理由コード | 主な中身 |
+| Count | Reason code | Main contents |
 | --- | --- | --- |
-| 11 | `item/cfg` | idsmith の feature 切り替え |
+| 11 | `item/cfg` | idsmith's feature switches |
 | 11 | `item/generics` | |
-| 5（＋巻き込み 2） | `item/tuple-struct` | newtype（`struct EntityId(Uuid)` など） |
-| 5 | `check/undefined-type` | 外部型（`Decimal`）、マクロで定義された型 |
-| 4 | `type/disallowed` | `usize`・`char`・`HashMap` |
+| 5 (+2 dragged down) | `item/tuple-struct` | newtypes (`struct EntityId(Uuid)` etc.) |
+| 5 | `check/undefined-type` | External types (`Decimal`), types defined by macros |
+| 4 | `type/disallowed` | `usize`, `char`, `HashMap` |
 
-## 3. 試算: 共有参照を値として扱った場合
+## 3. Estimate: treating shared references as values
 
-`&T`（`&mut` 以外）を `T`、`&self` を `self`、式の `&x`・`*x` を `x` として読む**未コミットの試作**で同じコーパスを測った。この読み替えは本サブセットでは意味を変えない見込みが高い。生成 TS は値を変異させず、内部可変性（`Cell`・`RefCell` など）は型として拒否済みだから。
+We measured the same corpus with an **uncommitted prototype** that reads `&T` (other than `&mut`) as `T`, `&self` as `self`, and the expressions `&x` / `*x` as `x`. This reinterpretation very likely does not change meaning in this subset: generated TS does not mutate values, and interior mutability (`Cell`, `RefCell`, etc.) is already rejected at the type level.
 
-| | 現行 | 試作 |
+| | Current | Prototype |
 | --- | --- | --- |
-| 関数の受理 | 1 / 956 | 1 / 956 |
-| 型の受理 | 44 / 87 | 46 / 87 |
+| Functions accepted | 1 / 956 | 1 / 956 |
+| Types accepted | 44 / 87 | 46 / 87 |
 
-受理数はほとんど動かない。拒否理由の首位が入れ替わった。
+Acceptance barely moves. The top rejection reason changed.
 
-| 件数 | 理由コード | 主な中身 |
+| Count | Reason code | Main contents |
 | --- | --- | --- |
-| 437 | `expr/method-call` | `collect`×295、`len`×51、`to_string`×33、`replace`×11、`to_uppercase`×10、`unwrap_or`×8 |
-| 305 | `type/reference` | 残りは `&mut`（idsmith の乱数生成器引数） |
-| 51 | `type/qualified-path` | `super::GenOptions` などモジュール修飾 |
+| 437 | `expr/method-call` | `collect`×295, `len`×51, `to_string`×33, `replace`×11, `to_uppercase`×10, `unwrap_or`×8 |
+| 305 | `type/reference` | The remainder is `&mut` (idsmith's RNG parameters) |
+| 51 | `type/qualified-path` | Module qualification such as `super::GenOptions` |
 | 33 | `type/self` | |
 | 16 | `expr/macro` | `format!`×12 |
 | 16 | `expr/block-item` | |
-| 14 | `type/array` | スライス `&[T]` |
+| 14 | `type/array` | Slices `&[T]` |
 
-参照はシグネチャ上の最初の壁にすぎず、本体は **イテレータと文字列・`Option` のメソッド** で書かれている。
+References are merely the first barrier in the signature; bodies are written with **iterators and methods on strings and `Option`**.
 
-## 4. 解釈
+## 4. Interpretation
 
-- **型の共有は既存コードで成り立つ。** 半数の公開型がそのまま通り、残りの主因（`cfg`、ジェネリクス、newtype、`usize`）は型定義の範囲で対処できる。design/05 の結論（境界コーデックを先に作る）と整合する。
-- **振る舞いの共有は、既存コードのままではほぼ成り立たない。** ドメイン関数は `&self` と `&str` を受け取り、`iter().map().collect()` や `s.len()` で書かれている。これらは Rust の慣用であって、純粋性を損なうものではない。サブセットの外にあるのは「書き方」であって「性質」ではない。
-- 文字列メソッド（`len`・`to_uppercase`・`replace`）は、design/04 §1.3 の未決点（UTF-8 と UTF-16 の差）に直接ぶつかる。受理するなら、意味の差を差分テストで押さえる必要がある。
+- **Type sharing works for existing code.** Half of public types pass as-is, and the main causes for the rest (`cfg`, generics, newtypes, `usize`) can be handled within type definitions. This is consistent with design/05's conclusion (build the boundary codec first).
+- **Behaviour sharing hardly works for existing code as-is.** Domain functions take `&self` and `&str` and are written with `iter().map().collect()` and `s.len()`. These are Rust idioms and do not compromise purity. What falls outside the subset is the "style of writing", not the "properties".
+- String methods (`len`, `to_uppercase`, `replace`) run directly into the open point in design/04 §1.3 (the UTF-8 vs UTF-16 difference). Accepting them requires pinning down the semantic difference with differential tests.
 
-## 5. 次の優先順位（提案）
+## 5. Next priorities (proposal)
 
-1. **シグネチャの壁を除く（低コスト）**: 共有参照 `&T`・`&self`・`&str` を値として受理する。`Self` を impl の型名に置き換える。newtype（1 要素のタプル構造体）を受理する。単独では関数の受理率を動かさないが、2 の前提になり、型の受理率も上げる。
-2. **std のメソッドを許可リストで受理する（中〜高コスト）**: 上位から `Vec`／イテレータ（`iter`・`map`・`filter`・`collect`・`len`）、`Option`（`unwrap_or`・`map`・`is_some`）、`String`（`to_string`・`len`・`replace`・`to_uppercase`・`trim`・`is_empty`）。それぞれに Rust との差分テストを付ける。文字列は長さと添字の単位を決めてから入れる。
-3. **型の残り**: `cfg` の扱い（feature を固定して読むか）、ジェネリクス（v1 計画）、`usize` の TS 表現。
+1. **Remove the signature barrier (low cost)**: accept shared references `&T`, `&self`, `&str` as values. Replace `Self` with the impl's type name. Accept newtypes (single-element tuple structs). On its own this does not move the function acceptance rate, but it is a prerequisite for 2 and also raises the type acceptance rate.
+2. **Accept std methods via an allow-list (medium to high cost)**: from the top, `Vec` / iterators (`iter`, `map`, `filter`, `collect`, `len`), `Option` (`unwrap_or`, `map`, `is_some`), `String` (`to_string`, `len`, `replace`, `to_uppercase`, `trim`, `is_empty`). Attach differential tests against Rust to each. For strings, decide the unit of length and indexing before adding them.
+3. **Remaining type work**: handling `cfg` (read with fixed features?), generics (v1 plan), TS representation of `usize`.
 
-### 決定を要する問い
+### Question requiring a decision
 
-- 対象を「既存の Rust ドメインコード」とするか、「PureCrate の制約内で新しく書くコード」とするか。前者なら §5-2 が必須で、保守する意味論の面積が大きく増える。後者なら §5-1 までで足り、ドキュメントと lint で書き方を案内する。
+- Is the target "existing Rust domain code" or "new code written within the PureCrate constraints"? The former makes §5-2 mandatory and greatly increases the surface of semantics to maintain. The latter needs only up to §5-1, with documentation and lints guiding how to write code.
 
-## 6. 推移
+## 6. Progress
 
-### 6.1 TODO 28 後（共有参照・`Self`・newtype・`Type::method` 呼び出し）
+### 6.1 After TODO 28 (shared references, `Self`, newtypes, `Type::method` calls)
 
-受理したもの:
+Newly accepted:
 
-- 共有参照 `&T`・`&self`・`&str` と、式の `&x`・`*x`。
-- `&[T]` を `Vec<T>` として読む。
-- ライフタイムだけの総称（`fn f<'a>`）。
-- `Self` を impl の型名に置き換える。
-- 1 要素のタプル構造体（newtype）と `.0`。
-- `Type::method(x)` によるメソッド呼び出し。
+- Shared references `&T`, `&self`, `&str`, and the expressions `&x`, `*x`.
+- `&[T]` read as `Vec<T>`.
+- Lifetime-only generics (`fn f<'a>`).
+- `Self` replaced with the impl's type name.
+- Single-element tuple structs (newtypes) and `.0`.
+- Method calls via `Type::method(x)`.
 
-| | TODO 27（現行） | TODO 28 後 |
+| | TODO 27 (current) | After TODO 28 |
 | --- | --- | --- |
-| 関数の受理 | 1 / 956 | 3 / 956 |
-| 型の受理 | 44 / 87（51%） | 52 / 87（60%） |
-| 型の受理（idsmith 除く） | 24 / 51 | 30 / 51 |
+| Functions accepted | 1 / 956 | 3 / 956 |
+| Types accepted | 44 / 87 (51%) | 52 / 87 (60%) |
+| Types accepted (excluding idsmith) | 24 / 51 | 30 / 51 |
 
-関数の拒否理由（最初の理由）の上位:
+Top function rejection reasons (first reason):
 
-| 件数 | 理由コード | 主な中身 |
+| Count | Reason code | Main contents |
 | --- | --- | --- |
-| 454 | `expr/method-call` | `collect`×295、`len`×51、`to_string`×34、`replace`×11、`to_uppercase`×10 |
-| 305 | `type/reference` | `&mut`（idsmith の乱数生成器） |
-| 51 | `type/qualified-path` | `super::GenOptions` などモジュール修飾 |
-| 19 | `expr/macro` | `format!`×12、`vec!`×4 |
-| 19 | `expr/block-item` | 関数内の `const` など |
+| 454 | `expr/method-call` | `collect`×295, `len`×51, `to_string`×34, `replace`×11, `to_uppercase`×10 |
+| 305 | `type/reference` | `&mut` (idsmith's RNG) |
+| 51 | `type/qualified-path` | Module qualification such as `super::GenOptions` |
+| 19 | `expr/macro` | `format!`×12, `vec!`×4 |
+| 19 | `expr/block-item` | `const` inside functions, etc. |
 
-idsmith を除くと `expr/method-call` 34 件の中身が変わる。上位は自前のメソッドを `self.hand_rank()`・`self.is_pair()` のようにレシーバ構文で呼ぶもの。std のメソッド（`is_empty` など）はその次にくる。
+Excluding idsmith, the contents of the 34 `expr/method-call` cases change. The top ones call the crate's own methods with receiver syntax, like `self.hand_rank()` or `self.is_pair()`. std methods (`is_empty`, etc.) come next.
 
-**次の壁はレシーバ構文のメソッド呼び出し**である。自前のメソッドは、レシーバの型が分かれば `Type::method(x)` と同じに写せる。この型からの解決の仕組みは、std のメソッドの許可リスト（TODO 32〜34）でもそのまま使う。そこで、クロージャより先に行う TODO として追加する。
+**The next barrier is method calls with receiver syntax.** The crate's own methods can be mapped the same as `Type::method(x)` once the receiver's type is known. This type-directed resolution mechanism is reused as-is for the std method allow-list (TODO 32-34). So it is added as a TODO to do before closures.
 
-### 6.2 TODO 29 後（レシーバ構文のメソッド呼び出し）
+### 6.2 After TODO 29 (method calls with receiver syntax)
 
-`x.m(args)` を IR の `MethodCall` として残す。型検査でレシーバの型から、クレート自身の固有 impl のメソッドへ解決する。解決できない呼び出し（std の型のメソッドなど）は、型検査の段階で `expr/method-call` として拒否し、メソッド名を detail に残す。survey は、閉包に含まれる各型について同名のメソッドを依存に加える。レシーバの型は、必ず閉包内のどこかのシグネチャに現れるから。
+`x.m(args)` is kept as a `MethodCall` in the IR. Type checking resolves it from the receiver's type to a method in the crate's own inherent impls. Calls that cannot be resolved (methods on std types, etc.) are rejected at type-checking as `expr/method-call`, with the method name kept in detail. survey adds same-named methods of each type in the closure as dependencies, because the receiver's type always appears in some signature inside the closure.
 
-受理数は変わらない（関数 3 / 956、型 52 / 87）。変わったのは最初の拒否理由の内訳で、メソッド呼び出しの奥にあった理由が見えるようになった。
+Acceptance does not change (functions 3 / 956, types 52 / 87). What changed is the breakdown of first rejection reasons: reasons hidden behind method calls became visible.
 
-| 件数 | 理由コード | 主な中身 |
+| Count | Reason code | Main contents |
 | --- | --- | --- |
-| 339（＋巻き込み 16） | `expr/closure` | idsmith の `.map(\|c\| ..)` など。`collect`・`len` の手前で止まっていたもの |
-| 305 | `type/reference` | `&mut`（idsmith の乱数生成器） |
-| 51 | `type/qualified-path` | モジュール修飾 |
-| 33 | `expr/macro` | `format!`×26、`vec!`×4 |
+| 339 (+16 dragged down) | `expr/closure` | idsmith's `.map(\|c\| ..)` etc. These had stopped before `collect` / `len` |
+| 305 | `type/reference` | `&mut` (idsmith's RNG) |
+| 51 | `type/qualified-path` | Module qualification |
+| 33 | `expr/macro` | `format!`×26, `vec!`×4 |
 | 26 | `expr/index` | `s[i]` |
 | 21 | `expr/loop` | `for` |
-| 19 | `expr/block-item` | 関数内の `const` など |
+| 19 | `expr/block-item` | `const` inside functions, etc. |
 
-idsmith を除く 126 関数では、首位が分散した。
+For the 126 functions excluding idsmith, the top reasons became spread out.
 
-| 件数 | 理由コード | 主な出所 |
+| Count | Reason code | Main source |
 | --- | --- | --- |
-| 18 | `expr/loop` | poker（17） |
-| 17 | `expr/block-item` | poker（15） |
-| 13 | `expr/operator` | cozy-chess のビット演算（11） |
-| 11 | `item/ref-receiver` | `&mut self`。eventually の集約（6）、little-raft など 5 エントリ |
-| 8 | `type/disallowed` | `char`・`usize` |
+| 18 | `expr/loop` | poker (17) |
+| 17 | `expr/block-item` | poker (15) |
+| 13 | `expr/operator` | cozy-chess bitwise operations (11) |
+| 11 | `item/ref-receiver` | `&mut self`. eventually's aggregates (6), little-raft, etc.; 5 entries |
+| 8 | `type/disallowed` | `char`, `usize` |
 
-### 6.3 次の候補（TODO 30 以降の計画に対する所見）
+### 6.3 Next candidates (observations on the plan for TODO 30 onward)
 
-- **クロージャ（TODO 31）の効果が最も大きい。** idsmith の 339 件は、クロージャを受理すると std のイテレータメソッドの壁（TODO 33）に進む。両方がそろって初めて受理数が動く。
-- **`&mut self` は、DDD とイベントソーシングの集約に共通する形**である（`fn apply(&mut self, event)`）。最初の理由では 11 件だが、5 エントリにまたがる。`self` を受け取って新しい値を返す関数に書き換えれば、意味を保ったまま写せる見込みがある。まだ計画にない。現行の TODO の後に候補として検討する。
-- ループ・関数内の `const`・ビット演算・`char` は、それぞれ 1〜2 エントリに集中している。汎用の優先度は低い。
+- **Closures (TODO 31) have the largest effect.** Accepting closures moves idsmith's 339 cases on to the std iterator method barrier (TODO 33). Acceptance only moves once both are in place.
+- **`&mut self` is a shape common to DDD and event-sourcing aggregates** (`fn apply(&mut self, event)`). It is only 11 cases as a first reason, but spans 5 entries. Rewriting it as a function that takes `self` and returns a new value is likely to map it while preserving meaning. Not yet planned. To be considered as a candidate after the current TODOs.
+- Loops, `const` inside functions, bitwise operations, and `char` are each concentrated in 1-2 entries. Low general priority.
 
-### 6.4 TODO 31 後（ローカルのクロージャ）
+### 6.4 After TODO 31 (local closures)
 
-`let` に束縛したクロージャを型付きのアロー関数にする（写し方は design/02 §6.2）。`expr/closure` の 339 件は 0 になった。受理数はまだ変わらない（関数 4 / 1026、型は変化なし）。予想どおり、クロージャの奥にある std のメソッドと文字の扱いが見えるようになった。
+Closures bound with `let` become typed arrow functions (mapping in design/02 §6.2). The 339 `expr/closure` cases went to 0. Acceptance still does not change (functions 4 / 1026, types unchanged). As expected, std methods and character handling behind the closures became visible.
 
-| 件数 | 理由コード | 主な中身 |
+| Count | Reason code | Main contents |
 | --- | --- | --- |
-| 305 | `type/reference` | `&mut`（idsmith の乱数生成器） |
-| 198 | `expr/method-call` | `chars`×341、`len`×190、`to_string`×13 |
-| 181 | `check/needs-annotation` | 拒否された `.len()` と比べる整数リテラル。メソッドが型を持てば消える |
-| 110 | `literal/other` | `'0'` などの `char` リテラル |
+| 305 | `type/reference` | `&mut` (idsmith's RNG) |
+| 198 | `expr/method-call` | `chars`×341, `len`×190, `to_string`×13 |
+| 181 | `check/needs-annotation` | Integer literals compared with a rejected `.len()`. Disappears once the method has a type |
+| 110 | `literal/other` | `char` literals such as `'0'` |
 | 54 | `expr/index` | `s[i]` |
-| 53 | `type/qualified-path` | モジュール修飾 |
-| 46 | `expr/macro` | `format!`×39、`vec!`×4 |
+| 53 | `type/qualified-path` | Module qualification |
+| 46 | `expr/macro` | `format!`×39, `vec!`×4 |
 
-idsmith を除く 196 関数の内訳はほぼ変わらない（`async` 29、`for` 18、関数内の `const` 17 など）。次の TODO 32〜34（`Option`/`Result`・`Vec`/イテレータ・`String`/`char` のメソッドと `format!`・`vec!`）は、上の `expr/method-call`・`check/needs-annotation`・`literal/other`・`expr/macro` をまとめて対象にする。
+The breakdown for the 196 functions excluding idsmith is almost unchanged (`async` 29, `for` 18, `const` inside functions 17, etc.). The next TODOs 32-34 (methods of `Option`/`Result`, `Vec`/iterators, `String`/`char`, plus `format!` and `vec!`) target the `expr/method-call`, `check/needs-annotation`, `literal/other`, and `expr/macro` above together.

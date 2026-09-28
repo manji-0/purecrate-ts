@@ -1,229 +1,229 @@
-# 限界とロードマップ
+# Limits and roadmap
 
-日付: 2026-09-28
-状態: 現行の全体像
+Date: 2026-09-28
+Status: current overview
 
 <!-- constrained-by ./07-authored-constraints.md -->
 <!-- derived-from ./04-objective-means-demand.md -->
 <!-- constrained-by ./05-type-sharing-scope.md -->
 <!-- constrained-by ./01-surface-flatten-roadmap.md -->
 
-## 0. この文書の位置
+## 0. Where this document stands
 
-対象は、[PureCrate の制約](./07-authored-constraints.md)の中で新しく書くコードである。既存クレートの受理率を上げる計画ではない。計測は [design/06](./06-acceptance-survey.md) に残し、指標には使わない。
+The target is new code written within [PureCrate's constraints](./07-authored-constraints.md). This is not a plan to raise the acceptance rate of existing crates. Measurements stay in [design/06](./06-acceptance-survey.md) and are not used as a metric.
 
-ここまでで、純粋な遷移を書くときに Rust 側が受け入れる制約と、生成した TS を呼ぶ側の制約が、一枚で言えるところまで来た。個別の決定は [design/07](./07-authored-constraints.md)、[design/04](./04-objective-means-demand.md)、[design/01](./01-surface-flatten-roadmap.md)、[design/05](./05-type-sharing-scope.md) にある。この文書はその全体と、その先に足す順序である。
+We have reached the point where the constraints the Rust side accepts when writing pure transitions, and the constraints on callers of the generated TS, can be stated on a single page. The individual decisions are in [design/07](./07-authored-constraints.md), [design/04](./04-objective-means-demand.md), [design/01](./01-surface-flatten-roadmap.md), and [design/05](./05-type-sharing-scope.md). This document is the whole picture, plus the order in which to add things beyond it.
 
-足す条件は一つである。制約の中で新しく書いた例が、その能力なしでは書けなくなったときだけ足す。コーパスの拒否件数では順序を決めない。
+There is one condition for adding something. Add a capability only when a new example written within the constraints can no longer be written without it. The number of rejections in a corpus does not set the order.
 
-## 1. 今書けるもの
+## 1. What can be written today
 
-状態と事象を ADT で書き、`fn step(state, event) -> State` のように次の値を返す遷移である。カウンタ例が受け入れ基準である（[design/00](./00-foundations.md) §15）。
+Transitions that write state and events as ADTs and return the next value, like `fn step(state, event) -> State`. The counter example is the acceptance criterion ([design/00](./00-foundations.md) §15).
 
-書けるもの:
+What can be written:
 
-- struct、enum（`kind` 判別ユニオン）、1 要素のタプル構造体（newtype）
-- `Option`、`Result`、`?`、`if let`、網羅的な `match`
-- 局所的な `let mut`。更新は新しい値を返す
-- 不変の束縛だけを捕捉するローカルクロージャ
-- 構造体更新 `S { a: e, ..base }`
-- 増減する列は再帰 enum。`Box<T>` で所有する木を書く
-- `Vec` は、外で長さが決まった列を添字と `len` で読む
-- 文字列の中身は `s.as_bytes()` の UTF-8 バイト列（`&[u8]`）を添字で読む
-- 整数範囲の `for i in a..b`。本体で `let mut` を更新し、早期 `return` と `?` で抜ける
-- 整数と浮動小数の幅を、TS のブランド型で分ける
-- std に `From` がある整数の拡大を `i64::from(x)` で書く
-- 固定の文字列を `String::from("…")` で作る
-- `--schema zod|valibot|arktype` で、serde の既定 JSON をドメインの値へ読む
+- structs, enums (`kind` discriminated unions), single-element tuple structs (newtypes)
+- `Option`, `Result`, `?`, `if let`, exhaustive `match`
+- Local `let mut`. Updates return a new value
+- Local closures that capture only immutable bindings
+- Struct update `S { a: e, ..base }`
+- Sequences that grow and shrink are recursive enums. Owned trees are written with `Box<T>`
+- `Vec` reads a sequence whose length was fixed outside, via index and `len`
+- String contents are read by indexing the UTF-8 byte sequence (`&[u8]`) from `s.as_bytes()`
+- Integer-range `for i in a..b`. The body updates `let mut` and exits with early `return` and `?`
+- Integer and floating-point widths are distinguished by TS brand types
+- Integer widening for which std has `From`, written `i64::from(x)`
+- Fixed strings are built with `String::from("…")`
+- `--schema zod|valibot|arktype` reads serde's default JSON into domain values
 
-## 2. Rust で書く側の制約
+## 2. Constraints on the Rust author
 
-生成物が Rust の debug ビルドと同じ結果になるために、書き方をこちらに寄せる。能力の定義は [design/07](./07-authored-constraints.md) §0 である。
+So that the output produces the same results as a Rust debug build, the way code is written is bent toward us. The definition of capability is [design/07](./07-authored-constraints.md) §0.
 
-### 2.1 状態は次の値として返す
+### 2.1 Return state as the next value
 
-遷移は `state` を受け取って新しい `State` を返す。`&mut self`、フィールドへの代入、引数の `mut` は書けない。局所の `let mut` は、その関数の中だけで使える。
+A transition takes `state` and returns a new `State`. `&mut self`, assignment to fields, and `mut` parameters cannot be written. A local `let mut` can be used only inside that function.
 
-イベントは状態に積まない。過去の列が要るなら、遷移の外に置く（[design/02](./02-kamae-ts-emit.md) §1.1）。
+Events are not accumulated in the state. If the past sequence is needed, keep it outside the transition ([design/02](./02-kamae-ts-emit.md) §1.1).
 
-増減する列は `Lines::Cons(line, Box::new(lines))` のように再帰 enum で、新しいリストとして返す。`Vec` に `push` しない。`Vec` は、関数の外で長さが決まった列を `[a, b]` で作り、`xs[i]` と `xs.len()` で読む。`map` / `filter` / `collect` と `vec!` は入れない。
+A sequence that grows and shrinks is a recursive enum, like `Lines::Cons(line, Box::new(lines))`, returned as a new list. Do not `push` onto a `Vec`. A `Vec` is a sequence whose length is fixed outside the function, built with `[a, b]` and read with `xs[i]` and `xs.len()`. `map` / `filter` / `collect` and `vec!` are not included.
 
-### 2.2 数は幅のある整数と浮動小数だけ
+### 2.2 Numbers are only sized integers and floats
 
-10 進小数型は入れない。`Decimal` も `rust_decimal` も受理しない。金額は最小単位の整数 newtype（`struct Yen(i64)`）で書く。
+No decimal type is included. Neither `Decimal` nor `rust_decimal` is accepted. Money is written as an integer newtype in the smallest unit (`struct Yen(i64)`).
 
-`i32` と `f64` は、実行時はどちらも `number` だが、型の上では `I32` と `F64` で混ざらない。型が決まらない数値リテラルは、接尾辞か `let x: T` を書いて決める。素の `+` の結果はブランドを失うので、ドメインに戻す計算は `Int.i32.add` のように幅を指定した演算で書く。
+`i32` and `f64` are both `number` at runtime, but at the type level they are `I32` and `F64` and do not mix. A numeric literal whose type is not determined is pinned with a suffix or `let x: T`. The result of a bare `+` loses its brand, so computations that go back into the domain are written with width-specific operations such as `Int.i32.add`.
 
-幅の違う整数は、std に `From` がある拡大だけ `to::from(x)` で変換できる。`u8` / `u16` / `u32` から広い符号なしと、より広い符号付きへ、`i8` / `i16` / `i32` から広い符号付きへ、である。`usize` は std と同じく `u8` と `u16` からだけ受ける。値は変わらない。TS では `number` から `bigint` になるときだけ `BigInt(x)` を出す。縮小、`as`、`.into()`、`try_from` は拒否する。[examples/order](../examples/order/src/lib.rs) は数量を `u32` で持ち、`i64::from(line.qty)` で単価に掛ける。
+Integers of different widths can be converted with `to::from(x)` only for widenings for which std has `From`: from `u8` / `u16` / `u32` to wider unsigned and to wider signed, and from `i8` / `i16` / `i32` to wider signed. As in std, `usize` accepts only `u8` and `u16`. The value does not change. In TS, `BigInt(x)` is emitted only when going from `number` to `bigint`. Narrowing, `as`, `.into()`, and `try_from` are rejected. [examples/order](../examples/order/src/lib.rs) holds quantities as `u32` and multiplies by the unit price with `i64::from(line.qty)`.
 
-同値性の基準は Rust の debug ビルドである。オーバーフローとゼロ除算は throw する。release のラップには合わせない。`usize` が 2^53 以上のとき、再帰が深いとき（約 1 万段）などは同値性の外である（§4、[design/04](./04-objective-means-demand.md) §1.3.1）。
+The reference for equivalence is the Rust debug build. Overflow and division by zero throw. We do not match release-mode wrapping. `usize` at or above 2^53, deep recursion (about 10,000 levels), and the like are outside equivalence (§4, [design/04](./04-objective-means-demand.md) §1.3.1).
 
-非公開フィールドとスマートコンストラクタで守る不変条件は、TS にも残る（2026-09-29）。非 `pub` のフィールドを持つ struct は閉じた型になり、ブランドが付き、`of` が出ない。TS で値を得るには、Rust の公開関数（`pub fn new(..) -> Result<Self, E>` は `Percent.new` になる）を呼ぶ。Rust と同じである（[design/04](./04-objective-means-demand.md) §1.6、[design/07](./07-authored-constraints.md) §4.7）。すべてのフィールドが `pub` の struct には、今までどおり `of` が出る。
+Invariants protected by private fields and smart constructors survive into TS (2026-09-29). A struct with non-`pub` fields becomes a closed type: it gets a brand and no `of` is emitted. To obtain a value in TS, call a Rust public function (`pub fn new(..) -> Result<Self, E>` becomes `Percent.new`). This is the same as in Rust ([design/04](./04-objective-means-demand.md) §1.6, [design/07](./07-authored-constraints.md) §4.7). A struct whose fields are all `pub` still gets `of` as before.
 
-### 2.3 名前はクレート全体で一意
+### 2.3 Names are unique across the crate
 
-モジュールパスは生成名に残らない。`billing::State` と `shipping::State` は同時に書けない。自由関数名も同じである（[design/01](./01-surface-flatten-roadmap.md) §2）。型と関数も、kebab-case のファイル名が重なれば衝突する。型 `Command` と関数 `command` は、どちらも `command.ts` になるので同時に書けない。
+Module paths do not remain in generated names. `billing::State` and `shipping::State` cannot both be written. The same applies to free function names ([design/01](./01-surface-flatten-roadmap.md) §2). Types and functions also collide if their kebab-case file names coincide. The type `Command` and the function `command` both become `command.ts`, so they cannot both be written.
 
-ユーザーが書いた型パラメータは拒否する。許可する型コンストラクタは `Option`、`Result`、`Vec`、それに消える `Box` / `Arc` / `Mutex` だけである。`HashMap` と `BTreeMap` は拒否する。キーの等価が Rust と JS で違うからである。
+User-written type parameters are rejected. The only allowed type constructors are `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex`. `HashMap` and `BTreeMap` are rejected, because key equality differs between Rust and JS.
 
-`#[serde(...)]` は拒否する。黙って別名の JSON を受理しない。フィールド名は Rust の名前のままである。
+`#[serde(...)]` is rejected. JSON with renamed fields is not silently accepted. Field names are the Rust names as-is.
 
-### 2.4 共有と内部可変は値に潰さない
+### 2.4 Sharing and interior mutability are not collapsed to values
 
-`Rc`、`Cell`、`RefCell` は拒否する。シングルスレッドでも、共有先の書き換えや内部可変は、値に潰すと結果が変わる。
+`Rc`, `Cell`, and `RefCell` are rejected. Even single-threaded, collapsing writes through shared references or interior mutability into values changes the result.
 
-`Box<T>`、`Arc<T>`、`Mutex<T>` は `T` に消す。`::new(v)` は `v` になる。生成物には、Rust では何のために使うかと、TS はシングルスレッドなので無視する、というコメントを残す。`lock` と `clone` はメソッドにならない。所有する再帰データは `Box` で書く。`Box` と `Arc` は `*x` で中身を読める。`Mutex` は `lock` なしでは読めないので、作って保持することしかできない。
+`Box<T>`, `Arc<T>`, and `Mutex<T>` are erased to `T`. `::new(v)` becomes `v`. The output keeps a comment stating what it is used for in Rust and that TS ignores it because it is single-threaded. `lock` and `clone` do not become methods. Owned recursive data is written with `Box`. `Box` and `Arc` can be read through with `*x`. `Mutex` cannot be read without `lock`, so it can only be created and held.
 
-クロージャは関数の中だけで使う。`let mut` を捕捉しない。引数・戻り値・フィールドには置かない。
+Closures are used only within a function. They do not capture `let mut`. They are not placed in parameters, return values, or fields.
 
-### 2.5 `match` の腕は一つのバリアントを名指す
+### 2.5 Each `match` arm names one variant
 
-腕に書けるのは、enum のバリアント、`Some` / `None`、`Ok` / `Err` だけである。次は書けない。
+An arm may only be an enum variant, `Some` / `None`, or `Ok` / `Err`. The following cannot be written:
 
-- `match (state, event)` のようなタプルの scrutinee。状態ごとの関数に分け、その中で事象を `match` する
-- `_ =>` と `A | B =>`。受理しない遷移は、バリアントごとに腕を書く。腕の数は状態数と事象数の積で増える
-- 束縛だけの腕（`lines => ...`）。バリアントを名指して値を組み直す
+- A tuple scrutinee like `match (state, event)`. Split into one function per state and `match` on the event inside it
+- `_ =>` and `A | B =>`. For transitions that are not accepted, write an arm per variant. The number of arms grows as the product of the number of states and events
+- Binding-only arms (`lines => ...`). Name the variant and rebuild the value
 
-### 2.6 文字列は `String::from` で作り、`==` で比べる
+### 2.6 Build strings with `String::from`, compare with `==`
 
-文字列リテラルの型は `&str` である。`String` の位置には置けない。`String::from("a")` と書く。TS ではリテラルそのものになる。`"a".to_string()`、`.to_owned()`、`.into()` は拒否する。書き方を一つに保つためである。
+The type of a string literal is `&str`. It cannot be placed in a `String` position. Write `String::from("a")`. In TS it becomes the literal itself. `"a".to_string()`, `.to_owned()`, and `.into()` are rejected, to keep one way of writing it.
 
-`String` は `&str` の位置に置ける。`==` と `!=` は `String` と `&str` をどちらの順でも比べる。`clone` はできないので、一つの `String` を二か所に置くには、もう一度 `String::from` で作る。
+A `String` can be placed in a `&str` position. `==` and `!=` compare `String` and `&str` in either order. `clone` is not available, so to place one `String` in two places, build it again with `String::from`.
 
-### 2.7 仕様はあるが、まだ書けない
+### 2.7 Specified but not yet writable
 
-次は決定済みで、実装は拒否のままである。例がこれらなしでは書けなくなったときに足す（§5）。
+The following are decided, but the implementation still rejects them. They are added when an example can no longer be written without them (§5).
 
-- `char`、`String::len`、バイト位置のスライス、`String` の大小比較。仕様は [design/04](./04-objective-means-demand.md) §1.5。文字列の中身は `as_bytes()` のバイト列を添字と再帰で読む（2026-09-29）。順序が要るなら enum か整数にする。
+- `char`, `String::len`, byte-position slicing, ordering comparison of `String`. Specification in [design/04](./04-objective-means-demand.md) §1.5. String contents are read by index and recursion over the byte sequence from `as_bytes()` (2026-09-29). If ordering is needed, use an enum or an integer.
 - `isize`
-- `while`、`loop`、`break` / `continue`、`a..=b` とイテレータの `for`、`match` のリテラルパターン
-- std のメソッド許可リスト。`Vec::len`、添字、`str::as_bytes` だけが、その先取りとして入っている
-- バイトリテラル `b'@'`。今は `64u8` と書く
+- `while`, `loop`, `break` / `continue`, `a..=b` and iterator `for`, literal patterns in `match`
+- The std method allow-list. Only `Vec::len`, indexing, and `str::as_bytes` are in, as a preview of it
+- Byte literals `b'@'`. For now write `64u8`
 - `const` / `static`
 
-struct と enum の `==` は拒否する。JS の構造比較は Rust と一致しない。比較は `eq` メソッドで書く。
+`==` on structs and enums is rejected. JS structural comparison does not match Rust. Write comparisons as an `eq` method.
 
-## 3. TS で呼ぶ側の制約
+## 3. Constraints on the TS caller
 
-変換が通った関数について、呼び出し側が守ることである。詳細は [design/07](./07-authored-constraints.md) §4。
+What callers must observe for functions that passed translation. Details are in [design/07](./07-authored-constraints.md) §4.
 
-- メソッドは `State.bump(state)` である。`this` は出ない。構造体と配列は `Readonly` で、更新は戻り値で行う。
-- 想定した失敗は `Result` の値である。throw するのはオーバーフロー、ゼロ除算、範囲外の添字、`assertNever` だけである。
-- 数はブランドである。外から入れるときは `Int.i32.of` のように検査して入れる。生の `number` の演算結果は、ブランドの引数に戻せない。
-- `i64` / `u64` は `bigint` である。serde_json の JSON を読むときは、`JSON.parse` ではなく `parseJson` を使う。`JSON.parse` の結果を渡すと、2^53 を超える値はスキーマが拒否する。
-- enum のメモリ上の形は `kind` である。serde の既定 JSON とは違う。JSON を関数に渡すときは、`--schema` が出したワイヤ用スキーマを通す（[design/05](./05-type-sharing-scope.md) §7.5）。
-- 欠けた `Option` フィールドと JSON の `null` は `None` である。`undefined` は `()` であり、不在ではない。
-- Rust では呼び出し後に元の `state` は使えない。生成 TS は引数を書き換えないので、元のオブジェクトは残る。`Object.freeze` はしない。残った元の値や、型を外した書き換えは、同値性の約束の外である。
-- 同値性が約束されるのは、Rust の値を写した TS の値を渡したときだけである（[design/04](./04-objective-means-demand.md) §1.3.1）。`of` で不変条件を破った値や、`as I32` で検査を飛ばした値を渡したときの結果は約束しない。閉じた型（§2.2）には `of` が出ないので、前者は作れない。後者の `as` は約束の外のままである。
-- 生成ファイルは編集しない。変えるときは Rust を変えて作り直す。
+- Methods are `State.bump(state)`. No `this` is emitted. Structs and arrays are `Readonly`, and updates happen via return values.
+- Expected failures are `Result` values. Only overflow, division by zero, out-of-bounds indexing, and `assertNever` throw.
+- Numbers are brands. When bringing values in from outside, check them in with e.g. `Int.i32.of`. The result of arithmetic on raw `number` cannot be passed back to a branded parameter.
+- `i64` / `u64` are `bigint`. When reading serde_json JSON, use `parseJson`, not `JSON.parse`. If the result of `JSON.parse` is passed, the schema rejects values above 2^53.
+- The in-memory shape of an enum is `kind`. This differs from serde's default JSON. When passing JSON to a function, go through the wire schema emitted by `--schema` ([design/05](./05-type-sharing-scope.md) §7.5).
+- A missing `Option` field and JSON `null` are `None`. `undefined` is `()`, not absence.
+- In Rust, the original `state` cannot be used after the call. Generated TS does not mutate arguments, so the original object remains. No `Object.freeze` is applied. A retained original value, or mutation that strips the type, is outside the equivalence guarantee.
+- Equivalence is guaranteed only when passing TS values that are images of Rust values ([design/04](./04-objective-means-demand.md) §1.3.1). No guarantee is made for values that break invariants via `of`, or values that skip checks via `as I32`. Closed types (§2.2) have no `of`, so the former cannot be constructed. The latter, `as`, remains outside the guarantee.
+- Do not edit generated files. To change them, change the Rust and regenerate.
 
-## 4. 同値性の残り
+## 4. Remaining gaps in equivalence
 
-受理した入力では、戻り値、想定した `Result`、debug の整数演算を Rust と合わせる。定義域は Rust の値を TS に写した像である（[design/04](./04-objective-means-demand.md) §1.3.1）。次は、その外である。
+For accepted inputs, return values, expected `Result`s, and debug integer arithmetic match Rust. The domain is the image of Rust values mapped into TS ([design/04](./04-objective-means-demand.md) §1.3.1). The following are outside it.
 
-| 穴 | 扱い |
+| Gap | Handling |
 | --- | --- |
-| `usize` が 2^53 以上 | 明示した非同値。長さと添字はこの範囲に届かない |
-| 再帰の深さ | TS（Node 24 の既定スタック）は約 1.2 万段で `RangeError`。Rust の debug は主スレッドで 5 万段を通り、10 万段では abort する。同値性の外で、失敗の仕方も違う |
-| JSON の入れ子の深さ | serde_json は 128 段を超える入れ子を拒否する。ワイヤ用スキーマに上限はない。境界の同値性は 128 段以下 |
-| 非公開フィールドの不変条件 | 閉じた型（§2.2、[design/04](./04-objective-means-demand.md) §1.6）には `of` がなく、像は公開関数の戻り値に限る。`as` で付けた型は像の外。ワイヤから読んだ値は、serde の derive と同じく形だけを検査している（[design/05](./05-type-sharing-scope.md) §7.7） |
-| 差分テストの比較範囲 | 戻り値は、IR の型から両側で作る正規形で、値全体を比べる。スカラーを返す駆動関数を通したケースは、駆動関数が読まないフィールドを比べない。counter の受け入れテストは `State.n` だけを比べる（[design/04](./04-objective-means-demand.md) §1.4.1） |
-| release ビルドのラップ | 合わせない。基準は debug |
-| `i64` の JSON 数 | スキーマは安全な整数の数値、`bigint`、数字の文字列を受ける。大きな値は `parseJson` でテキストから読む。`JSON.parse` の結果では 2^53 を超える値を拒否する（[design/05](./05-type-sharing-scope.md) §7.6） |
-| 非有限の `f64` | serde_json は `NaN` を `null` として書く。拒否するか、往復の非対称として文書化するかは未決（[design/05](./05-type-sharing-scope.md) §6） |
-| 文字列の `.length` と `[i]` | 生成物はこれらの演算を出さない。呼ぶ側が JS の UTF-16 単位を Rust のバイト長だと思ってはいけない |
-| 型推論の実装 | 出力を決める型付けは自作の双方向推論である。rustc の型情報に切り替えるかは未決（[design/04](./04-objective-means-demand.md) §5） |
-| コンパイルできない入力 | `check` と `build` はサブセット検査の後に rustc をかけ、エラーを `path:line:col: [rustc/E0382]` の形で報告して拒否する。サブセット検査は借用を消し、move とライフタイムを追わないので、その範囲は rustc が塞ぐ。`check` の実行には rustc が要る（`RUSTC` で差し替え可）。起動できなければ失敗する |
+| `usize` at or above 2^53 | Explicit non-equivalence. Lengths and indices do not reach this range |
+| Recursion depth | TS (Node 24 default stack) hits `RangeError` at about 12,000 levels. Rust debug passes 50,000 levels on the main thread and aborts at 100,000. Outside equivalence, and the failure modes differ too |
+| JSON nesting depth | serde_json rejects nesting deeper than 128 levels. The wire schema has no limit. Boundary equivalence holds up to 128 levels |
+| Private-field invariants | Closed types (§2.2, [design/04](./04-objective-means-demand.md) §1.6) have no `of`; the image is limited to return values of public functions. Types attached with `as` are outside the image. Values read from the wire are checked for shape only, like serde's derive ([design/05](./05-type-sharing-scope.md) §7.7) |
+| Scope of differential-test comparison | Return values are compared in full, via a normal form built on both sides from the IR type. Cases run through a driver function that returns a scalar do not compare fields the driver does not read. The counter acceptance test compares only `State.n` ([design/04](./04-objective-means-demand.md) §1.4.1) |
+| Release-build wrapping | Not matched. The reference is debug |
+| `i64` JSON numbers | The schema accepts safe-integer numbers, `bigint`, and digit strings. Large values are read from text via `parseJson`. With the result of `JSON.parse`, values above 2^53 are rejected ([design/05](./05-type-sharing-scope.md) §7.6) |
+| Non-finite `f64` | serde_json writes `NaN` as `null`. Whether to reject it or document it as a round-trip asymmetry is undecided ([design/05](./05-type-sharing-scope.md) §6) |
+| String `.length` and `[i]` | The output does not emit these operations. Callers must not take JS UTF-16 units to be Rust byte lengths |
+| Type inference implementation | The typing that determines output is a home-grown bidirectional inference. Whether to switch to rustc's type information is undecided ([design/04](./04-objective-means-demand.md) §5) |
+| Inputs that do not compile | `check` and `build` run rustc after the subset check, report errors in the form `path:line:col: [rustc/E0382]`, and reject. The subset check erases borrows and does not track moves or lifetimes, so rustc closes that gap. Running `check` requires rustc (overridable with `RUSTC`). It fails if rustc cannot be launched |
 
-## 5. ロードマップ
+## 5. Roadmap
 
-順序は、新しい例が止まった場所で決める。拒否件数の多い構文からではない。
+Order is decided by where a new example got stuck, not by which syntax has the most rejections.
 
-### 5.1 済
+### 5.1 Done
 
-カウンタ型の遷移、再帰的な列、newtype、`Result`、数値のブランド、`--schema` による JSON からドメイン値への読み取り。非公開フィールドを持つ閉じた型（2026-09-29、§2.2）。
+Counter-style transitions, recursive sequences, newtypes, `Result`, numeric brands, reading from JSON into domain values via `--schema`. Closed types with private fields (2026-09-29, §2.2).
 
-制約の中で書いた二つ目の例として、注文ライフサイクル（[examples/order](../examples/order/src/lib.rs)）がある。下書き・確定・支払い・出荷・取消の五状態で、明細は再帰 enum、金額は `Yen(i64)` である。`Yen` と `Sku` は閉じた型で、`Yen::new`（負を拒否）と `Sku::new`（空を拒否）からだけ作れる。4 手の全列と、この二つの拒否を、Rust と生成 TS で比べている（`crates/cli/tests/order_equivalence.rs`）。
+The second example written within the constraints is an order lifecycle ([examples/order](../examples/order/src/lib.rs)). Five states: draft, confirmed, paid, shipped, cancelled; line items are a recursive enum, and amounts are `Yen(i64)`. `Yen` and `Sku` are closed types, constructible only via `Yen::new` (rejects negatives) and `Sku::new` (rejects empty). All 4-step sequences, plus these two rejections, are compared between Rust and the generated TS (`crates/cli/tests/order_equivalence.rs`).
 
-### 5.2 例が止めたもの
+### 5.2 What examples got stuck on
 
-examples/order を書いたとき、次の二つで止まった。どちらも足した。
+Writing examples/order got stuck on the following two. Both were added.
 
-1. **情報を失わない整数の拡大**（§2.2）。数量を `u32` に戻せた。20 通りの拡大を、元の型の両端で差分テストしている（`crates/cli/tests/widen_equivalence.rs`）。縮小（`try_from`）と `as` は、例が求めるまで拒否のままにする。
-2. **文字列リテラルからの `String`**（§2.6）。ドメインの遷移ではなく、コードから `Command` を組み立てる差分テストの駆動関数で止まっていた。同時に、リテラルを `String` の位置に置く入力を拒否した。rustc が拒否するものを `check` が受理していた穴である。
+1. **Lossless integer widening** (§2.2). Quantities could go back to `u32`. The 20 widenings are differentially tested at both ends of the source type (`crates/cli/tests/widen_equivalence.rs`). Narrowing (`try_from`) and `as` stay rejected until an example demands them.
+2. **`String` from a string literal** (§2.6). This was stuck not in a domain transition but in a differential-test driver function that builds a `Command` from code. At the same time, inputs that place a literal in a `String` position were rejected. This was a hole where `check` accepted what rustc rejects.
 
-examples/signup（2026-09-29）は、第三者の仕様から書いた最初の例である（[design/04](./04-objective-means-demand.md) §1.4.2 の 1）。WHATWG HTML の「valid e-mail address」と、NIST SP 800-63B-4 のパスワードの長さ規則を、design/07 と design/08 だけを見て書いた。次で止まった。
+examples/signup (2026-09-29) is the first example written from a third-party specification (item 1 of [design/04](./04-objective-means-demand.md) §1.4.2). It implements WHATWG HTML's "valid e-mail address" and the password length rules of NIST SP 800-63B-4, written by looking only at design/07 and design/08. It got stuck on the following:
 
-1. **文字列の中身を読めない**（能力）。`char`、`len`、`find`、`split`、`chars`、スライスのどれも拒否され、文字列から読めるのは `==` だけだった。`str::as_bytes` を足した（[design/04](./04-objective-means-demand.md) §1.5 の仕様どおり、UTF-8 のバイト列）。どちらの規則も、バイト列の添字と再帰と `u8` の比較で書ける。WHATWG の規則は ASCII だけで決まり、NIST の長さはコードポイントで数えるので、継続バイト（0x80〜0xBF）を除いて数える。
-2. **`Ok(())` が拒否される**（穴）。式の `()` を空タプルとして lowering していたので、型 `()` と合わず `expected (), found ()` で拒否していた。型が合っても TS には `[]` と出ていた。`Lit::Unit` に直し、差分テストを足した（`crates/cli/tests/fixtures/control.rs` の `unit_ok`・`unit_some`）。
-3. **駆動関数 `email` と型 `Email` のファイル名の衝突**（§2.3 の既知の制約）。駆動関数を改名した。
+1. **Could not read string contents** (capability). `char`, `len`, `find`, `split`, `chars`, and slicing were all rejected; the only thing readable from a string was `==`. `str::as_bytes` was added (the UTF-8 byte sequence, per the specification in [design/04](./04-objective-means-demand.md) §1.5). Both rules can be written with byte indexing, recursion, and `u8` comparison. The WHATWG rule is determined by ASCII alone, and the NIST length counts code points, so it counts bytes excluding continuation bytes (0x80–0xBF).
+2. **`Ok(())` was rejected** (hole). Expression `()` was lowered as an empty tuple, so it did not match type `()` and was rejected with `expected (), found ()`. Even when the types matched, TS emitted `[]`. Fixed to `Lit::Unit`, with differential tests added (`unit_ok` and `unit_some` in `crates/cli/tests/fixtures/control.rs`).
+3. **File-name collision between driver function `email` and type `Email`** (a known constraint, §2.3). The driver function was renamed.
 
-記法の損失で書き換えたものは、`char` を `u8` に、`find` と `chars().all` を添字の再帰に、`split('.')` をラベル末尾の再帰に、文字クラスを数値の範囲比較に、`b'@'` を `64u8` に、である。行数（空行とコメントを除く）は次のとおり。
+Rewrites due to notational loss: `char` to `u8`, `find` and `chars().all` to index recursion, `split('.')` to recursion over label ends, character classes to numeric range comparisons, and `b'@'` to `64u8`. Line counts (excluding blank lines and comments) are as follows.
 
-| 部分 | 慣用的な Rust | 制約の中の Rust | 比 |
+| Part | Idiomatic Rust | Rust within the constraints | Ratio |
 | --- | --- | --- | --- |
-| Email（WHATWG） | 28 | 79 | 2.8 倍 |
-| Password（NIST の長さ） | 17 | 28 | 1.6 倍 |
+| Email (WHATWG) | 28 | 79 | 2.8x |
+| Password (NIST length) | 17 | 28 | 1.6x |
 
-**Email は撤退の閾値（2 倍）を超えた**（[design/04](./04-objective-means-demand.md) §1.4.2 の 3 の 2 番目）。増えた分は、イテレータアダプタを再帰関数に開いた分と、文字クラスを範囲比較に書き下した分である。どちらも記法の損失で、能力は足りている。一つの例で方式を見直す根拠にはしないが、次の検証の例で同じ比が出るなら、`chars` と `for`（§5.3 の 3・4）を足すか、方式を比べ直す。
+**Email exceeded the withdrawal threshold (2x)** (the second of item 3 in [design/04](./04-objective-means-demand.md) §1.4.2). The increase comes from unrolling iterator adapters into recursive functions and from spelling out character classes as range comparisons. Both are notational loss; the capability is sufficient. One example is not grounds to revisit the approach, but if the next validation example shows the same ratio, add `chars` and `for` (items 3 and 4 of §5.3) or re-compare approaches.
 
-意味の確認として、Rust の `Email::parse` の受理と拒否を、WHATWG が示す正規表現を node で走らせた結果と突き合わせている（`crates/cli/tests/signup_equivalence.rs`）。Rust と生成 TS の差分テストは、`Err` の付属値と、`Ok` の中の閉じた型まで比べる。
+As a semantic check, the acceptance and rejection of Rust's `Email::parse` are matched against running the regular expression given by WHATWG in node (`crates/cli/tests/signup_equivalence.rs`). The Rust-vs-generated-TS differential test compares down to the payload of `Err` and the closed types inside `Ok`.
 
-二つ目の検証の例として、examples/iban（2026-09-29）を書いた。ISO 13616-1 の電子形式と ISO 7064 の MOD 97-10 である。今の制約で止まらずに書けた。意味の確認として、同じ規則を慣用的な Rust で書いた版と、公開された有効な IBAN と、その 1 文字を変えたもの、形の壊れた入力で突き合わせている（`crates/cli/tests/iban_equivalence.rs`）。
+As a second validation example, examples/iban (2026-09-29) was written: the ISO 13616-1 electronic format and ISO 7064 MOD 97-10. It was written under the current constraints without getting stuck. As a semantic check, it is matched against a version of the same rules written in idiomatic Rust, using published valid IBANs, those with one character changed, and malformed inputs (`crates/cli/tests/iban_equivalence.rs`).
 
-行数は、Email に続いて閾値を超えた。二つの例とも、増えた分の大半は `all`・`fold`・`chain` の走査を再帰関数に開いた分である。整数範囲の `for i in a..b`（本体で `let mut` の更新と早期 `return` を使う形）があったと仮定して書き直し、rustc で動かして行数を測った。
+Line counts exceeded the threshold, following Email. In both examples, most of the increase comes from unrolling `all`, `fold`, and `chain` traversals into recursive functions. Both were rewritten assuming integer-range `for i in a..b` (in the form using `let mut` updates and early `return` in the body), run with rustc, and line-counted.
 
-| 例 | 慣用的な Rust | 今の制約 | 整数範囲の `for` があれば |
+| Example | Idiomatic Rust | Current constraints | With integer-range `for` |
 | --- | --- | --- | --- |
-| Email（WHATWG） | 28 | 79（2.8 倍） | 52（1.9 倍） |
-| IBAN（ISO 13616） | 24 | 57（2.4 倍） | 45（1.9 倍） |
+| Email (WHATWG) | 28 | 79 (2.8x) | 52 (1.9x) |
+| IBAN (ISO 13616) | 24 | 57 (2.4x) | 45 (1.9x) |
 
-`for` があれば、どちらも閾値の内側に入る。残りの差の多くは、文字クラスを数値比較で書き下す分である。`match` のリテラル・範囲パターンとバイトリテラルがないためである（§2.7）。
+With `for`, both fall inside the threshold. Much of the remaining difference comes from spelling out character classes as numeric comparisons, because there are no literal/range patterns in `match` and no byte literals (§2.7).
 
-そこで整数範囲の `for` を足し（`crates/cli/tests/loops_equivalence.rs`）、二つの例を書き直した。差分テストと、WHATWG の正規表現・慣用的な Rust との突き合わせは、書き直した後もそのまま通る。
+So integer-range `for` was added (`crates/cli/tests/loops_equivalence.rs`) and the two examples were rewritten. The differential tests, and the matching against the WHATWG regular expression and idiomatic Rust, pass unchanged after the rewrite.
 
-| 例 | 慣用的な Rust | 再帰だけ | `for` を足した後 |
+| Example | Idiomatic Rust | Recursion only | After adding `for` |
 | --- | --- | --- | --- |
-| Email（WHATWG） | 28 | 79（2.8 倍） | 52（1.9 倍） |
-| Password（NIST の長さ） | 17 | 28（1.6 倍） | 24（1.4 倍） |
-| IBAN（ISO 13616） | 24 | 57（2.4 倍） | 45（1.9 倍） |
+| Email (WHATWG) | 28 | 79 (2.8x) | 52 (1.9x) |
+| Password (NIST length) | 17 | 28 (1.6x) | 24 (1.4x) |
+| IBAN (ISO 13616) | 24 | 57 (2.4x) | 45 (1.9x) |
 
-三つとも閾値の内側に入った。ただし余裕は小さい。次に閾値に当たるなら、文字クラスを書く記法（`match` のリテラル・範囲パターン、バイトリテラル）が先の候補である。
+All three fall inside the threshold, but the margin is small. If the threshold is hit next, notation for writing character classes (literal/range patterns in `match`, byte literals) is the first candidate.
 
-記法の損失（§2.5 の腕の制約）は、能力を落としていないので、ここには入れない。`_ =>` の腕数が遷移表を読めなくするほど増えたら、そのときに扱う。
+Notational loss (the arm constraint of §2.5) does not reduce capability, so it is not listed here. If the number of arms due to no `_ =>` grows enough to make transition tables unreadable, it will be dealt with then.
 
-### 5.3 例が必要になったら足す
+### 5.3 Add when an example needs it
 
-1. **境界の書き出し。** 読み取りはある。同じ JSON をドメインから書く側（encode）はまだない。サーバーが生成物と同じ形で JSON を返す例が先に要る。`i64` の読み取りは `parseJson` で済んだ（2026-09-28）。書き出しでは、`bigint` を JSON の数値として書く必要がある。`NaN` の扱いはそのときに [design/05](./05-type-sharing-scope.md) §6 を閉じる。
-2. **検証の例。** 入力検証の共有は、需要が最も見えるのに書ける度合いが最も低い（[design/04](./04-objective-means-demand.md) §3.2）。閉じた型は先に入れた（§5.1）。能力を足す変更ではなく、同値性の定義域の穴を塞ぐ変更なので、§0 の「例が止まったときだけ足す」を待たなかった。examples/signup を書き、`as_bytes` を足した（§5.2）。二つ目の例（examples/iban）でも行数は 2 倍を超え、4 の整数範囲の `for` を足して、どちらも内側に戻した。差分テストは `Err` の付属値まで比べられるようになった（2026-09-29、[design/04](./04-objective-means-demand.md) §1.4.1）。ワイヤで不変条件を守る `#[serde(try_from)]` は、例が求めたときに足す（[design/05](./05-type-sharing-scope.md) §7.7）。
-3. **文字と文字列。** 検証をこのサブセットの中で書く例が必要になったとき。UTF-8 バイト単位を再現し、JS の `.length` には写さない。メソッドは一つずつ、差分テスト付きの許可リストで足す。
-4. **繰り返し。** 整数範囲の `for i in a..b` は足した（2026-09-29、§5.2）。`while`、`break` / `continue`、イテレータの `for` は、範囲の `for` と再帰で書けない例が出てから足す。
-5. **その例が呼ぶ std メソッド。** 一致させられないものは拒否したままにする。イテレータの `map` / `filter` / `collect` は、状態の列を配列で伸ばす書き方なので足さない。
+1. **Boundary encoding.** Reading exists. The side that writes the same JSON from the domain (encode) does not yet. An example where a server returns JSON in the same shape as the output is needed first. Reading `i64` was solved with `parseJson` (2026-09-28). Encoding requires writing `bigint` as a JSON number. `NaN` handling will close [design/05](./05-type-sharing-scope.md) §6 at that time.
+2. **Validation examples.** Sharing input validation has the most visible demand yet the lowest writability ([design/04](./04-objective-means-demand.md) §3.2). Closed types were added first (§5.1). Since that change closes a hole in the domain of equivalence rather than adding a capability, it did not wait for §0's "add only when an example gets stuck". examples/signup was written and `as_bytes` was added (§5.2). The second example (examples/iban) also exceeded 2x in line count; integer-range `for` from item 4 was added, bringing both back inside. Differential tests can now compare down to the payload of `Err` (2026-09-29, [design/04](./04-objective-means-demand.md) §1.4.1). `#[serde(try_from)]`, which protects invariants on the wire, will be added when an example demands it ([design/05](./05-type-sharing-scope.md) §7.7).
+3. **Characters and strings.** When an example needs to write validation within this subset. Reproduce UTF-8 byte units and do not map to JS `.length`. Methods are added one at a time via an allow-list with differential tests.
+4. **Iteration.** Integer-range `for i in a..b` has been added (2026-09-29, §5.2). `while`, `break` / `continue`, and iterator `for` will be added once an example appears that cannot be written with range `for` and recursion.
+5. **The std methods that example calls.** Those that cannot be made to match stay rejected. Iterator `map` / `filter` / `collect` are not added, because they are a way of growing a state's sequence as an array.
 
-### 5.4 型の表現が足りなくなったら（v1）
+### 5.4 When type expressiveness runs out (v1)
 
-[design/01](./01-surface-flatten-roadmap.md) のままである。
+As in [design/01](./01-surface-flatten-roadmap.md).
 
-- 境界なしの型パラメータ。TS 側もジェネリクスのまま出す。`where` と関連型は入れない。
-- キーが `String` の `HashMap` / `BTreeMap` だけを `ReadonlyMap<string, V>` にする。挿入順は Rust と一致させない。
+- Unbounded type parameters. The TS side is also emitted as generics. `where` and associated types are not included.
+- Only `HashMap` / `BTreeMap` with `String` keys become `ReadonlyMap<string, V>`. Insertion order is not made to match Rust.
 
-どちらも、型パラメータなし・Map なしでは表せない例が現れてからである。
+Both wait until an example appears that cannot be expressed without type parameters or without Map.
 
-### 5.5 やらない
+### 5.5 Not doing
 
-- 既存クレートが通ることを目標にした許可リスト。需要と成否は、第三者の仕様から書いた例と撤退の閾値で測る（[design/04](./04-objective-means-demand.md) §1.4.2）
-- 10 進小数、成長する `Vec`、状態の中のイベントログ
-- 核パッケージへのスキーマライブラリの依存。zod / valibot / arktype は、指定した一つだけを別パッケージで使う
-- v0 の完了条件としての WASM。IR は第二バックエンドを拒まないが、今の経路は TS ソースである
-- `Rc` / `Cell` / `RefCell`。値に潰すと観測が変わる
+- An allow-list aimed at getting existing crates through. Demand and success are measured by examples written from third-party specifications and by the withdrawal threshold ([design/04](./04-objective-means-demand.md) §1.4.2)
+- Decimals, growable `Vec`, event logs inside state
+- A schema-library dependency in the core package. Of zod / valibot / arktype, only the one specified is used, in a separate package
+- WASM as a v0 completion criterion. The IR does not preclude a second backend, but the current path is TS source
+- `Rc` / `Cell` / `RefCell`. Collapsing them to values changes observations
 
-## 6. 文書の役割
+## 6. Roles of the documents
 
-| 文書 | 役割 |
+| Document | Role |
 | --- | --- |
-| [design/08](./08-limits-and-roadmap.md) | 制約の全体と、足す順序 |
-| [design/07](./07-authored-constraints.md) | 新しく書くときの能力と、TS 側に残る制約 |
-| [design/04](./04-objective-means-demand.md) | 同値性の定義と、意味論の決定 |
-| [design/05](./05-type-sharing-scope.md) | JSON との境界 |
-| [design/01](./01-surface-flatten-roadmap.md) | 公開面、平坦化、ジェネリクスと Map の版 |
-| [design/06](./06-acceptance-survey.md) | 既存クレートを測った記録。以後の指標ではない |
+| [design/08](./08-limits-and-roadmap.md) | The whole of the constraints, and the order of additions |
+| [design/07](./07-authored-constraints.md) | Capabilities when writing new code, and constraints that remain on the TS side |
+| [design/04](./04-objective-means-demand.md) | Definition of equivalence, and semantic decisions |
+| [design/05](./05-type-sharing-scope.md) | The boundary with JSON |
+| [design/01](./01-surface-flatten-roadmap.md) | Public surface, flattening, the version with generics and Map |
+| [design/06](./06-acceptance-survey.md) | Record of measuring existing crates. Not a metric going forward |

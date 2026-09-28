@@ -1,379 +1,379 @@
-# 目的の厳密化・手段の妥当性・想定需要
+# Sharpening the objective, validity of the means, and expected demand
 
-日付: 2026-09-27（§1.3.1・§1.4・§3 は 2026-09-28 改訂。§1.3.1 と §1.6 は 2026-09-29 改訂）
-状態: 分析（v0 実装後の見直し）
-前提: `00-foundations.md`〜`03-ir.md`、P0〜P2 の実装
+Date: 2026-09-27 (§1.3.1, §1.4, §3 revised 2026-09-28; §1.3.1 and §1.6 revised 2026-09-29)
+Status: Analysis (review after the v0 implementation)
+Prerequisites: `00-foundations.md` through `03-ir.md`, the P0–P2 implementation
 
-## 0. 結論
+## 0. Conclusions
 
-1. **目的は「型の共有」ではなく「振る舞いの共有」と定義し直す。** 価値の中心は、Rust を正とする純粋なドメイン関数を、TS 側で **同じ結果を返す** 形で使えること。同値性が崩れた時点でこの仕組みは手書きの二重実装より悪い（壊れていることに気づけない）。
-2. **手段（WASM なしのサブセット変換）は条件付きで妥当。** 小さな遷移関数を頻繁に呼ぶ用途では、WASM の境界コストと初期化を避けられる利点が実在する。ただし現状の解析は `syn` だけで式の型を知らないため、**整数演算の意味を保てない**。実測で `i32` の `7 / 2` が TS では `3.5` になる（§2.4）。構文を広げる前に、局所型推論と数値意味論の確定が必要。
-3. **需要は「隣接市場は大きい、直接需要は未検証」。** Rust→TS の型生成は明確に大きい（ts-rs 累計 1,593 万 DL）。振る舞いの共有は、WASM 経由（Crux）か手書き二重実装＋パリティテストで行われており、成熟した直接の競合はない。これは空白地帯とも、需要が小さいとも読める。対象を「制約の中で新しく書くコード」にしたので（§5）、問うのは既存クレートの受理率ではなく、制約の中で書く手間を払う利用者がいるかである（§3）。
+1. **Redefine the objective as "sharing behavior", not "sharing types".** The core value is being able to use pure domain functions, with Rust as the source of truth, on the TS side in a form that **returns the same results**. The moment equivalence breaks, this mechanism is worse than a hand-written dual implementation (you cannot notice that it is broken).
+2. **The means (subset translation without WASM) is conditionally valid.** For small transition functions called frequently, avoiding WASM's boundary cost and initialization is a real advantage. However, the current analysis uses only `syn` and does not know expression types, so it **cannot preserve integer arithmetic semantics**. Measured: `i32` `7 / 2` becomes `3.5` in TS (§2.4). Before widening the syntax, local type inference and numeric semantics must be settled.
+3. **Demand: "the adjacent market is large, direct demand is unverified."** Rust→TS type generation is clearly large (ts-rs: 15.93M cumulative downloads). Behavior sharing is done via WASM (Crux) or hand-written dual implementations plus parity tests; there is no mature direct competitor. This can be read either as open ground or as small demand. Since the target is now "code newly written within the constraints" (§5), the question is not the acceptance rate of existing crates but whether there are users willing to pay the cost of writing within the constraints (§3).
 
-## 1. 目的の厳密化
+## 1. Sharpening the objective
 
-### 1.1 現行の目的文の問題
+### 1.1 Problems with the current objective statement
 
-`00` §1 は「制約を満たす Rust クレートを単一の TS パッケージに変換する」。これは手段の記述であり、次が定まっていない。
+`00` §1 says "translate a Rust crate satisfying the constraints into a single TS package". That describes the means, and leaves the following undefined.
 
-- **誰の何を解決するか**: Rust と TS の両方で同じ判断をしたい開発者の、二重実装とその乖離。
-- **何をもって「同じ」とするか**: 型が同じなのか、値が同じなのか、失敗の仕方まで同じなのか。
-- **Rust 側の位置づけ**: Rust が正（source of truth）で TS は派生物、が暗黙の前提。これを明示しないと、TS 側で手を入れる運用が生まれてドリフト検出（P2）の意味が薄れる。
+- **Whose problem it solves**: the dual implementation, and its drift, for developers who want the same decisions in both Rust and TS.
+- **What counts as "the same"**: the same types, the same values, or even the same way of failing.
+- **The role of the Rust side**: Rust as the source of truth with TS as a derivative is an implicit assumption. Unless stated, a practice of editing the TS side emerges and drift detection (P2) loses its meaning.
 
-### 1.2 厳密化した目的
+### 1.2 The sharpened objective
 
-> Rust で書かれた純粋なドメイン関数（ADT と遷移）を正とし、JS ランタイムで **WASM やシリアライズ境界なしに**、**慣用的な TS の値のまま** 呼べるパッケージを生成する。生成物は、受理した入力の全域で **Rust と観測上同値** であることを検証可能にする。受理できない入力は生成せずに拒否する。
+> Taking pure domain functions (ADTs and transitions) written in Rust as the source of truth, generate a package callable in a JS runtime **without WASM or a serialization boundary**, **with idiomatic TS values as-is**. The output must be verifiable as **observationally equivalent to Rust** over the entire domain of accepted inputs. Inputs that cannot be accepted are rejected without generating anything.
 
-### 1.3 「観測上同値」の定義（未確定点を含む）
+### 1.3 Definition of "observationally equivalent" (including open points)
 
-関数 `f` と生成物 `f'` について、受理範囲内のすべての入力 `x` に対し次が成り立つこと。
+For a function `f` and its output `f'`, the following holds for every input `x` within the accepted range.
 
-| 項目 | 要求 | 現状 |
+| Item | Requirement | Status |
 | --- | --- | --- |
-| 戻り値 | `f(x)` と `f'(x')` が値として等しい（`x'` は `x` の TS 表現） | counter で差分テスト済み |
-| 型 | TS の型が Rust の型を過不足なく表す（`i64` → `bigint` など） | counter、差分テストの全 fixture、zod・valibot・arktype のワイヤスキーマを、TypeScript 6 と 7 の tsc strict で検査（差分ハーネスは実行の前に `tsc -p` を通す） |
-| 想定失敗 | `Result::Err` は同じバリアント・同じ値 | `?`・早期 `return` を含む差分テストで一致（control、vending の全 1296 系列） |
-| 整数演算 | 除算の切り捨て、剰余の符号、オーバーフローが一致 | 一致（§2.4、演算子ごとの差分テスト） |
-| 想定外失敗（panic） | Rust で panic する入力の扱い | 算術の panic は TS でも throw（§5 の決定）。`unreachable!` は `assertNever` |
-| 文字列 | 長さ・添字の単位（Rust は UTF-8 バイト、JS は UTF-16） | UTF-8 を再現すると決定（§1.5）。`as_bytes` を実装し、空・2〜4 バイトの文字・範囲外の添字で差分テスト（2026-09-29）。ほかは未実装 |
+| Return value | `f(x)` and `f'(x')` are equal as values (`x'` is the TS representation of `x`) | Differentially tested on counter |
+| Types | TS types represent the Rust types exactly (`i64` → `bigint`, etc.) | counter, all differential-test fixtures, and the zod, valibot, and arktype wire schemas are checked with tsc strict on TypeScript 6 and 7 (the differential harness runs `tsc -p` before execution) |
+| Expected failure | `Result::Err` has the same variant and the same value | Matches in differential tests including `?` and early `return` (control, vending: all 1296 sequences) |
+| Integer arithmetic | Truncating division, sign of remainder, and overflow match | Match (§2.4, per-operator differential tests) |
+| Unexpected failure (panic) | Handling of inputs that panic in Rust | Arithmetic panics also throw in TS (decided in §5). `unreachable!` is `assertNever` |
+| Strings | Unit of length and indexing (Rust: UTF-8 bytes, JS: UTF-16) | Decided to reproduce UTF-8 (§1.5). `as_bytes` implemented and differentially tested with empty strings, 2–4-byte characters, and out-of-range indices (2026-09-29). The rest is unimplemented |
 
-panic とオーバーフローの扱いは設計判断が要る。選択肢は三つ。
+Handling of panics and overflow needs a design decision. There are three options.
 
-1. **拒否**: panic しうる演算（整数の `/`、`%`、オーバーフローしうる算術）を受理しない。安全だが受理範囲が大きく狭まる。
-2. **再現**: TS 側で同じ条件で throw する（`assertNever` と同じ「予期しない故障」扱い）。同値性の定義に「同じ入力で両方失敗する」を含められる。
-3. **検査付き API に限定**: `checked_add` などが返す `Option` だけを受理し、素の算術は `i32` で拒否する。
+1. **Reject**: do not accept operations that may panic (integer `/`, `%`, arithmetic that may overflow). Safe, but greatly narrows the accepted range.
+2. **Reproduce**: throw under the same conditions on the TS side (treated as an "unexpected fault", like `assertNever`). The definition of equivalence can then include "both fail on the same input".
+3. **Restrict to checked APIs**: accept only the `Option` returned by `checked_add` etc., and reject plain arithmetic on `i32`.
 
-2（再現）を採用した（§5）。Rust の debug ビルドの挙動と一致し、kamae-ts の「想定外は例外」とも整合する。release ビルドのラップ動作とは一致しないので、同値性の基準は **Rust の debug ビルド** と明記する。
+Option 2 (reproduce) was adopted (§5). It matches Rust debug-build behavior and is consistent with kamae-ts's "the unexpected is an exception". It does not match the wrapping behavior of release builds, so the reference for equivalence is stated to be **the Rust debug build**.
 
-#### 1.3.1 同値性の定義域
+#### 1.3.1 Domain of equivalence
 
-上の「受理範囲内のすべての入力 `x`」は、TS で作れるすべての値ではない。定義域は **Rust の値を TS の表現に写した像** である。TS の値 `x'` について、`x'` を表現とする Rust の値 `x` があり、呼び出しが下の資源の範囲に収まるときだけ、`f'(x')` は `f(x)` と同値である。像の外の値を渡したときの結果は約束しない。
+"Every input `x` within the accepted range" above is not every value constructible in TS. The domain is **the image of Rust values mapped to their TS representation**. For a TS value `x'`, `f'(x')` is equivalent to `f(x)` only when there is a Rust value `x` whose representation is `x'`, and the call stays within the resource limits below. No promise is made about the result for values outside the image.
 
-像の外にある値と、同値性が成り立たない入力は次のとおり。
+Values outside the image, and inputs for which equivalence does not hold, are as follows.
 
-| 項目 | 何が起きるか | 扱い |
+| Item | What happens | Handling |
 | --- | --- | --- |
-| 非公開フィールドの不変条件 | Rust は非公開フィールドとスマートコンストラクタで不変条件を守れる。2026-09-28 までの方針では、生成物はすべての struct に `of` を出し、フィールドの可視性を消していた。TS からは、Rust の `new` が拒否する値を `of` で作れた | 2026-09-29 に改めた（§1.6）。非公開フィールドを持つ型は `of` を出さず、ブランドを付ける。像はクレートの公開関数が返した値に狭まる。`as` で型を付けた値は、`5 as I32` と同じく像の外 |
-| ブランドのキャスト | `5 as I32` のように検査を通さずにブランドを付けた値、範囲外の整数、整数でない `number` | 像の外。外から入れる値は `Int.i32.of` で検査する |
-| 孤立サロゲートを含む `string` | Rust の `String` の表現ではない（§1.5） | 像の外 |
-| 再帰の深さ | 再帰 enum を再帰関数でたどる深さに、両者で別の上限がある。2026-09-28 の実測（`List::Cons` の長さを数える関数、Node 24.21 の既定スタック、macOS）で、TS は 1 万段で通り 1.2 万段で `RangeError`。Rust の debug ビルドは主スレッド（8 MB）で 5 万段を通り、10 万段ではスタック溢れで **プロセスが abort** する。panic ではないので捕まえられない。上限は、スタックの大きさ、フレームの大きさ、スレッド（テストのスレッドは 2 MB）で変わる | 同値性の外。「同じ入力で両方失敗する」も成り立たない。深い列を持つ状態は、深さを制約として持つ |
-| JSON の入れ子の深さ | serde_json の `Deserializer` は、既定で入れ子 128 段を超える JSON をエラーにする。生成したワイヤ用スキーマ（zod など）に上限はない | ワイヤ境界の同値性は 128 段以下に限る。深い再帰データを JSON で渡すときは、Rust 側の読み取りが先に失敗する |
-| 呼び出し後の元の値 | Rust では `Copy` でない値渡しの引数は move され、呼び出し後に元の `state` は読めない。TS の呼び出し元には元のオブジェクトが残る | 同値性は戻り値について言う。残った元の値を読むことは Rust に対応がなく、約束しない |
-| 別名経由の書き換え | 生成物は `Readonly` だが `Object.freeze` しない。呼び出し側が型を外して書き換えると、同じオブジェクトを指す別名（戻り値の中に共有された部分木など）からも見える | 像の外。Rust では共有されない値が、TS では共有されている |
-| `usize` が 2^53 以上 | Rust は 2^64 まで panic しない。TS は 2^53−1 を超えたら throw する | 明示した非同値。長さと添字はこの範囲に届かない |
+| Invariants of non-public fields | Rust can guard invariants with non-public fields and smart constructors. Under the policy up to 2026-09-28, the output emitted `of` for every struct and erased field visibility. From TS, values that Rust's `new` rejects could be created with `of` | Revised 2026-09-29 (§1.6). Types with non-public fields get no `of` and get a brand. The image narrows to values returned by the crate's public functions. Values typed with `as` are outside the image, like `5 as I32` |
+| Brand casts | Values branded without a check, like `5 as I32`; out-of-range integers; non-integer `number`s | Outside the image. Values entering from outside are checked with `Int.i32.of` |
+| `string` containing lone surrogates | Not a representation of a Rust `String` (§1.5) | Outside the image |
+| Recursion depth | The two sides have different limits on how deep a recursive function can walk a recursive enum. Measured 2026-09-28 (a function counting the length of a `List::Cons`, Node 24.21 default stack, macOS): TS passes at 10,000 levels and throws `RangeError` at 12,000. The Rust debug build passes 50,000 levels on the main thread (8 MB) and at 100,000 levels **the process aborts** on stack overflow. This is not a panic, so it cannot be caught. The limit varies with stack size, frame size, and thread (test threads have 2 MB) | Outside equivalence. Even "both fail on the same input" does not hold. States holding deep sequences carry depth as a constraint |
+| JSON nesting depth | serde_json's `Deserializer` by default errors on JSON nested deeper than 128 levels. The generated wire schemas (zod, etc.) have no limit | Equivalence at the wire boundary is limited to 128 levels or fewer. When passing deep recursive data as JSON, the Rust side's read fails first |
+| Original value after the call | In Rust, a non-`Copy` by-value argument is moved, and the original `state` cannot be read after the call. In TS the caller still has the original object | Equivalence speaks about the return value. Reading the remaining original has no Rust counterpart and is not promised |
+| Mutation through aliases | The output is `Readonly` but not `Object.freeze`d. If the caller casts away the type and mutates, the change is visible through aliases to the same object (e.g. subtrees shared in the return value) | Outside the image. Values that are not shared in Rust are shared in TS |
+| `usize` at or above 2^53 | Rust does not panic up to 2^64. TS throws above 2^53−1 | Explicit non-equivalence. Lengths and indices do not reach this range |
 
-`usize` は、以前「明示した唯一の非同値」と書いていた。上の再帰の深さとワイヤの深さがあるので、唯一ではない。
+`usize` was previously described as "the only explicit non-equivalence". Given the recursion depth and wire depth above, it is not the only one.
 
-### 1.4 成功条件（測れる形）
+### 1.4 Success criteria (measurable form)
 
 <!-- constrained-by ./07-authored-constraints.md -->
 
-| 指標 | 基準 |
+| Metric | Criterion |
 | --- | --- |
-| 同値性 | 受理した全例で、差分テスト（境界値を含む）と性質ベーステストが一致。比べるのは値全体（§1.4.1） |
-| 型 | 生成物が `tsc --strict` でエラー 0 |
-| 決定性 | 同じ入力から同じバイト列（`check --out` で検出） |
-| 拒否の質 | 拒否は必ず `path:line:col` と理由を返し、部分生成しない。関数本体の中の問題は、その文・ブロックの末尾の式・`match` の腕の位置を指す（パーサが `Expr::At` で印を付け、検査の後で外す） |
-| 書ける能力 | 制約の中で新しく書いた遷移が、ADT・網羅・`Result`・debug の整数意味を保つ（design/07） |
-| 慣用性 | TS 側の利用者がシリアライズ・初期化・非同期ロードを書かずに済む |
+| Equivalence | Differential tests (including boundary values) and property-based tests agree on every accepted example. The whole value is compared (§1.4.1) |
+| Types | Output has 0 errors under `tsc --strict` |
+| Determinism | Same input yields the same bytes (detected by `check --out`) |
+| Rejection quality | Every rejection returns `path:line:col` and a reason, with no partial generation. Problems inside a function body point to the statement, the trailing expression of the block, or the `match` arm (the parser marks them with `Expr::At`, removed after checking) |
+| Authoring capability | Transitions newly written within the constraints preserve ADTs, exhaustiveness, `Result`, and debug integer semantics (design/07) |
+| Idiomaticity | TS users need not write serialization, initialization, or async loading |
 
-既存クレートの受理率は design/06 に計測が残っている。対象を新しく書くコードにした後の指標は、上の「書ける能力」と design/07 である。
+The acceptance rate of existing crates was measured and recorded in design/06. With the target now being newly written code, the metrics are "Authoring capability" above and design/07.
 
-上の表はどれも、このリポジトリの作者が書いた例（counter、vending、order）で測る。作者は制約を知っていて、書けない形を避けて書く。これでは、制約が実用に耐えるかは分からない。そこで §1.4.2 の外部の基準を足す。
+Every metric in the table above is measured on examples written by this repository's author (counter, vending, order). The author knows the constraints and writes around forms that cannot be written. That does not tell whether the constraints hold up in practice. Hence the external criteria in §1.4.2.
 
-#### 1.4.1 差分テストが比べているもの
+#### 1.4.1 What the differential tests compare
 
-差分テストは、Rust と TS の結果を正規形の文字列にして比べる（2026-09-29 から）。正規形は、両側とも同じ IR の型から作る。
+The differential tests render the Rust and TS results as canonical-form strings and compare them (since 2026-09-29). Both sides build the canonical form from the same IR types.
 
-- Rust 側は、テスト専用の proc-macro `purecrate_canon::fixture!` が、fixture の struct と enum すべてに `Show` を生成する。`Option`・`Result`・`Vec`・タプル・`Box` などのコンテナと数・文字列の `Show` は、テスト支援（`crates/cli/tests/support`）にある。
-- TS 側は、ハーネスが同じ IR から型ごとの印刷関数を生成し、各ケースの戻り値の型で選ぶ。生成物の値の形（`kind`、`content`、ブランドの消えた newtype、`null`、`undefined`）を、Rust と同じ文字列にする。
-- 形は Rust の `Debug` に近い。`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`。浮動小数は `f64` のビット列、文字列は印字可能な ASCII 以外を `\u{…}` で書く。
+- On the Rust side, the test-only proc-macro `purecrate_canon::fixture!` generates `Show` for every struct and enum in the fixture. `Show` for containers such as `Option`, `Result`, `Vec`, tuples, and `Box`, and for numbers and strings, lives in the test support (`crates/cli/tests/support`).
+- On the TS side, the harness generates a per-type printing function from the same IR and selects it by each case's return type. It renders the output's value shapes (`kind`, `content`, newtypes with erased brands, `null`, `undefined`) as the same string as Rust.
+- The form is close to Rust's `Debug`: `Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`. Floats are written as their `f64` bit pattern; strings write anything other than printable ASCII as `\u{…}`.
 
-以前は、テストごとに手書きした `Show` と、`kind` と `content` しか出さない TS の `show` で、テストが選んだ射影を比べていた。`OrderError::AmountMismatch { .. }` はバリアント名しか比べておらず、`expected` と `got` の取り違えを見逃していた。この取り違えをエミッタにわざと入れて、今は検出されることを確かめた（2026-09-29）。
+Previously, tests compared projections chosen by the test, using a hand-written `Show` per test and a TS `show` that emitted only `kind` and `content`. `OrderError::AmountMismatch { .. }` compared only the variant name and missed swapping `expected` and `got`. That swap was deliberately injected into the emitter, and it was confirmed that it is now detected (2026-09-29).
 
-残る射影は二つある。一つは、スカラーを返す駆動関数を通したケースである。駆動関数が読まないフィールドは比べない。examples/order は、状態そのものを返す `trace4` を足して、最終状態の全体も比べている。もう一つは counter の受け入れテストで、独自の駆動で `State.n` だけを比べている。
+Two projections remain. One is cases routed through a driver function returning a scalar: fields the driver does not read are not compared. examples/order adds `trace4`, which returns the state itself, and also compares the whole final state. The other is the counter acceptance test, which uses its own driver and compares only `State.n`.
 
-#### 1.4.2 外部の基準と撤退の閾値（2026-09-28）
+#### 1.4.2 External criteria and withdrawal thresholds (2026-09-28)
 
-作者の手元の例に依らない基準を三つ置く。数値は初期値で、最初の計測の後に見直す。
+Three criteria that do not depend on the author's own examples. The numbers are initial values, to be revisited after the first measurement.
 
-1. **第三者の仕様から書く。** 作者以外が公開している状態機械の仕様（決済の状態遷移、承認フロー、ゲームのルールなど）を選び、design/07 と design/08 だけを読んで制約の中で書く。記録するのは、拒否されて書き換えた箇所の数と理由、文書だけでは解決できなかった拒否の数である。
-2. **慣用コードと比べる。** 同じ仕様を、制約なしの慣用的な Rust と、kamae-ts の慣用的な TS でも書く。比べるのは行数、制約のために変えた書き方（`_ =>` の展開、再帰 enum への置き換え、`Int.i32.add` など）の数、生成 TS と手書き TS の読みやすさである。
-3. **撤退の閾値。** 次のどれかに当たったら、この方式（§2.1 の F）を続けるかを見直し、WASM（B）か型だけの生成（C）に切り替える案と比べる。
-   - 第三者の仕様のうち、制約の中で書けないものが半数を超える。
-   - 制約の中の Rust が、同じ仕様の慣用的な Rust の 2 倍の行数を超える。
-   - 受理した入力で、差分テストや利用者の報告から、黙って誤った値を返す穴が見つかり続ける。目安は、新しい例を一つ書くたびに一件以上。
-   - 二重実装を置き換える実利用（§3.5 の 2）が、一件も得られない。
+1. **Write from third-party specifications.** Pick a state-machine specification published by someone other than the author (payment state transitions, approval flows, game rules, etc.) and write it within the constraints, reading only design/07 and design/08. Record the number of places rewritten due to rejection and why, and the number of rejections the documents alone could not resolve.
+2. **Compare with idiomatic code.** Write the same specification also in unconstrained idiomatic Rust and in kamae-ts idiomatic TS. Compare line counts, the number of style changes made for the constraints (expanding `_ =>`, replacing with recursive enums, `Int.i32.add`, etc.), and the readability of generated TS versus hand-written TS.
+3. **Withdrawal thresholds.** If any of the following is hit, reconsider continuing this approach (F in §2.1), comparing it against switching to WASM (B) or types-only generation (C).
+   - More than half of the third-party specifications cannot be written within the constraints.
+   - Constrained Rust exceeds twice the line count of idiomatic Rust for the same specification.
+   - Holes that silently return wrong values on accepted input keep being found, via differential tests or user reports. As a guide: one or more per new example written.
+   - Not a single real use replacing a dual implementation (item 2 of §3.5) is obtained.
 
-### 1.5 文字列・`char`・`usize` と std メソッドの意味論（2026-09-27 決定）
+### 1.5 Semantics of strings, `char`, `usize`, and std methods (decided 2026-09-27)
 
-コーパスでは文字列をバイト単位で扱う書き方が多い（`chars` 910、`len` 804、`is_ascii_digit` 803、`as char` 813、`as u32` 485、バイト位置のスライス `&s[a..b]` 310、`bytes` 233、`to_uppercase` 132。design/06）。符号化に依存する演算を拒否すると、検証系の中心が通らない。そこで Rust の意味をそのまま再現する。
+The corpus often handles strings at byte granularity (`chars` 910, `len` 804, `is_ascii_digit` 803, `as char` 813, `as u32` 485, byte-position slicing `&s[a..b]` 310, `bytes` 233, `to_uppercase` 132; design/06). Rejecting encoding-dependent operations would block the core of validation code. So Rust's semantics are reproduced as-is.
 
-#### 文字列は UTF-8 バイト単位を再現する
+#### Strings reproduce UTF-8 byte units
 
-TS の値は `string` のまま。符号化に依存する演算だけを、生成物のランタイム `str.ts` の関数に写す。
+The TS value stays a `string`. Only encoding-dependent operations are mapped to functions in the output's runtime `str.ts`.
 
-| Rust | 生成 TS の意味 |
+| Rust | Meaning in generated TS |
 | --- | --- |
-| `s.len()` | UTF-8 のバイト数。コードポイントごとに 1〜4 を数える（O(n)） |
-| `&s[a..b]` | バイト位置で切る。範囲外、または文字境界でない位置は、Rust の panic と同じ文言で throw |
-| `s.bytes()`・`s.as_bytes()` | UTF-8 のバイト列（`u8`） |
-| `s.chars()` | コードポイントの列。JS の文字列イテレータと同じ |
-| `a < b`（`String`） | コードポイント順（UTF-8 のバイト順と同じ）。JS の `<` は UTF-16 の単位順で、U+E000〜U+FFFF と補助面の大小が逆になる（実測: `"\u{ffff}" < "\u{10000}"` は Rust で `true`、JS で `false`） |
+| `s.len()` | UTF-8 byte count. Counts 1–4 per code point (O(n)) |
+| `&s[a..b]` | Slices at byte positions. Out of range or not on a char boundary throws with the same message as Rust's panic |
+| `s.bytes()`, `s.as_bytes()` | UTF-8 byte sequence (`u8`) |
+| `s.chars()` | Sequence of code points. Same as the JS string iterator |
+| `a < b` (`String`) | Code point order (same as UTF-8 byte order). JS `<` uses UTF-16 unit order, which inverts U+E000–U+FFFF relative to supplementary planes (measured: `"\u{ffff}" < "\u{10000}"` is `true` in Rust, `false` in JS) |
 
-前提として、TS から渡す `string` は整形式（孤立サロゲートを含まない）とする。孤立サロゲートを含む文字列は Rust の `String` の表現ではないので、同値性の対象外である。境界での検査（`isWellFormed`）は、コーデック（design/05）の仕事とする。
+As a precondition, `string`s passed from TS are assumed well-formed (no lone surrogates). Strings with lone surrogates are not representations of a Rust `String`, so they are outside equivalence. Checking at the boundary (`isWellFormed`) is the codec's job (design/05).
 
-#### `char` は 1 コードポイントのブランド付き `string`
+#### `char` is a branded `string` of one code point
 
 ```ts
 declare const CharBrand: unique symbol;
 export type Char = string & { readonly [CharBrand]: true };
 ```
 
-JSON は serde（`char` は 1 文字の文字列）と一致する。`==` は文字列の等価で正しい。大小比較と `c as u32` は `codePointAt(0)` を使う（上の表と同じ理由）。`u8 as char` は `String.fromCodePoint`。U+0000〜U+00FF の対応は Rust と同じ。
+JSON matches serde (`char` is a one-character string). `==` is correct as string equality. Ordering and `c as u32` use `codePointAt(0)` (for the same reason as the table above). `u8 as char` is `String.fromCodePoint`. The mapping for U+0000–U+00FF is the same as Rust.
 
-#### `usize` は範囲を検査する `number`
+#### `usize` is a range-checked `number`
 
-`usize` と `isize` は `number` にする。演算は他の整数と同じく `Int` ランタイムで検査するが、上限は `Number.MAX_SAFE_INTEGER`（2^53−1）で、超えたら throw する。64 ビットの Rust は 2^64 まで panic しないので、**2^53 以上の `usize` は明示した非同値**になる（ほかの非同値は §1.3.1）。長さと添字はこの範囲に届かない。`bigint` にしなかったのは、長さや添字が TS の API で `bigint` になると、配列やループと混ぜにくいから。
+`usize` and `isize` become `number`. Operations are checked by the `Int` runtime like other integers, but the upper bound is `Number.MAX_SAFE_INTEGER` (2^53−1), throwing above it. 64-bit Rust does not panic up to 2^64, so **`usize` at or above 2^53 is an explicit non-equivalence** (other non-equivalences are in §1.3.1). Lengths and indices do not reach this range. `bigint` was not chosen because lengths and indices as `bigint` in TS APIs are awkward to mix with arrays and loops.
 
-#### std のメソッドは厳密一致の許可リストに限る
+#### std methods are limited to an exact-match allow-list
 
-- 許可リストは（レシーバの型, メソッド名）ごとに、シグネチャと TS への写し方を 1 行で持つ。解決の仕組みは TODO 29 のレシーバ構文と同じで、クレート自身のメソッドがなければ許可リストを引く。
-- 各項目に差分テストを義務づける。空、非 ASCII、補助面の文字、境界の添字、panic する入力を含める。
-- 一致させられないものは、そのレシーバの型では拒否する。文書化した差を許して受理することはしない。実測した例:
-  - `f64::to_string`: 1e21 が Rust は `1000000000000000000000`、JS は `1e+21`。拒否する（整数と `bool` の `to_string` は一致するので受理）。
-  - `str::trim`: JS の `trim()` は U+FEFF も削るが、Rust は削らない。JS の `trim()` には写さず、Unicode の `White_Space` 性質で削る関数を使う。
+- The allow-list holds, per (receiver type, method name), the signature and the TS mapping in one line. Resolution works like the receiver syntax in TODO 29: if the crate has no method of its own, the allow-list is consulted.
+- Each entry requires a differential test, including empty input, non-ASCII, supplementary-plane characters, boundary indices, and panicking inputs.
+- Anything that cannot be made to match is rejected for that receiver type. Accepting with a documented difference is not done. Measured examples:
+  - `f64::to_string`: 1e21 is `1000000000000000000000` in Rust and `1e+21` in JS. Rejected (`to_string` for integers and `bool` matches, so those are accepted).
+  - `str::trim`: JS `trim()` also strips U+FEFF; Rust does not. Not mapped to JS `trim()`; instead a function stripping by the Unicode `White_Space` property is used.
 
-#### Unicode の表に依存するメソッドは注記つきで受理する
+#### Methods that depend on Unicode tables are accepted with a note
 
-`to_uppercase`・`to_lowercase`・`is_alphabetic`・`is_numeric` などは、Rust と JS がそれぞれの Unicode 表を持つ。受理し、同値性は「Rust ツールチェーンと JS エンジンの Unicode 版が、ともに割り当てたコードポイントで成り立つ」と注記する。2026-09-27 時点では、どちらも Unicode 17.0 である（`char::UNICODE_VERSION` と `process.versions.unicode`、Node 24.21）。大文字化の特殊規則（`ß` → `SS`）と、小文字化の語末シグマ（`Σ` → `ς`）も一致を実測した。差分テストは、両者の Unicode 版が一致することを最初に確かめる。
+`to_uppercase`, `to_lowercase`, `is_alphabetic`, `is_numeric`, etc. rely on Unicode tables held separately by Rust and JS. They are accepted, with equivalence noted as "holds for code points assigned in both the Rust toolchain's and the JS engine's Unicode versions". As of 2026-09-27, both are Unicode 17.0 (`char::UNICODE_VERSION` and `process.versions.unicode`, Node 24.21). Special uppercasing rules (`ß` → `SS`) and final sigma in lowercasing (`Σ` → `ς`) were also measured to match. Differential tests first check that both Unicode versions match.
 
-#### 生成物の予約
+#### Reserved names in the output
 
-ランタイム `str.ts` の名前 `Str` とファイル名 `str`、`Char` の名前を予約する（design/00 §8.1 の `Int` と同じ扱い）。
+The runtime `str.ts`'s name `Str`, the file name `str`, and the name `Char` are reserved (treated like `Int` in design/00 §8.1).
 
-### 1.6 検証の共有と公開コンストラクタ
+### 1.6 Sharing validation and public constructors
 
-<!-- derived-from #131-同値性の定義域 -->
-<!-- derived-from #32-ユースケースと制約の中で書けるか -->
+<!-- derived-from #131-domain-of-equivalence -->
+<!-- derived-from #32-use-cases-and-whether-they-can-be-written-within-the-constraints -->
 
-2026-09-29 決定。閉じた型は実装した（`crates/cli/tests/closed_equivalence.rs`）。
+Decided 2026-09-29. Closed types are implemented (`crates/cli/tests/closed_equivalence.rs`).
 
-§3.2 では、入力検証の共有を需要が最も見えるユースケースとしている。一方で、制約の中で書ける度合いは最も低い。その原因は、文字列の演算が足りないことより先にある。**同値性の定義域が、Rust の型が作らせない値まで含んでいる** ことである。
+§3.2 names sharing input validation as the use case with the most visible demand. At the same time, it is the one least writable within the constraints. The cause lies before the lack of string operations: **the domain of equivalence includes values that the Rust types do not allow to be constructed**.
 
-#### 検証の三層
+#### The three layers of validation
 
-「検証を共有したい」という要求には、次の三つが混ざっている。
+The request "we want to share validation" mixes three things.
 
-| 層 | 問い | 扱い |
+| Layer | Question | Handling |
 | --- | --- | --- |
-| 形 | この JSON は `Order` の serde 表現か | ワイヤ用スキーマ（design/05 §7）。すでにある |
-| 意味 | この文字列は `Email` か。この組み合わせは成り立つか | この節で扱う |
-| 画面 | どの欄に何を出すか。文言、i18n、フォーカス | 範囲外。Shell の仕事である |
+| Shape | Is this JSON the serde representation of `Order`? | Wire schemas (design/05 §7). Already exist |
+| Meaning | Is this string an `Email`? Is this combination valid? | Handled in this section |
+| Screen | What to show in which field. Wording, i18n, focus | Out of scope. The Shell's job |
 
-共有する対象は「意味」の層である。この層の本体は遷移ではない。`fn parse(raw) -> Result<Valid, E>` のような **検査つきコンストラクタ** である。遷移は、すでに検査を通った値だけを受け取る。
+What is shared is the "meaning" layer. The core of this layer is not transitions. It is **checked constructors** such as `fn parse(raw) -> Result<Valid, E>`. Transitions only receive values that have already passed the check.
 
-#### 閉じた型
+#### Closed types
 
-Rust では、非 `pub` のフィールドを一つでも持つ struct は、クレートの外から struct リテラルでは作れない。外から値を得る手段は、クレートの公開関数だけである。この規則をそのまま生成物に写す。
+In Rust, a struct with even one non-`pub` field cannot be built with a struct literal from outside the crate. The only way to obtain a value from outside is the crate's public functions. This rule is carried over to the output as-is.
 
-- 非 `pub` のフィールドを持つ struct（newtype を含む）を **閉じた型** と呼ぶ。`pub(crate)` と `pub(super)` は非 `pub` と同じに扱う（design/00）。
-- 閉じた型には、フィールドの有無にかかわらず `unique symbol` のブランドを付ける。フィールド名のある struct は今、素の `Readonly<{…}>` である。この形では、`of` を隠しても、オブジェクトリテラルがそのまま同じ型として通る。
-- 閉じた型のコンパニオンには `of` を出さない。生成物の中で struct リテラルを組み立てるために、内部用の構築関数を出す。それは型のファイルからは export するが、`index.ts` からは出さない。パッケージの `exports` は `./src/index.ts` だけなので、利用者は深いパスからも import できない。名前は `Email$of` である。Rust の識別子は `$` を含まず、`rename` は `$` と数字しか足さないので、衝突しない。
-- すべてのフィールドが `pub` の型は **開いた型** とする。今と同じく `of` を出す。Rust でもクレートの外からリテラルで作れるので、型が守る不変条件はない。
+- A struct with non-`pub` fields (including newtypes) is called a **closed type**. `pub(crate)` and `pub(super)` are treated the same as non-`pub` (design/00).
+- Closed types get a `unique symbol` brand regardless of whether they have fields. Structs with named fields are currently a plain `Readonly<{…}>`. In that shape, even if `of` is hidden, an object literal passes as the same type.
+- The companion of a closed type does not emit `of`. To assemble struct literals inside the output, an internal construction function is emitted. It is exported from the type's file but not from `index.ts`. The package's `exports` is only `./src/index.ts`, so users cannot import it via deep paths either. Its name is `Email$of`. Rust identifiers do not contain `$`, and `rename` only appends `$` and digits, so there is no collision.
+- A type whose fields are all `pub` is an **open type**. It emits `of` as now. In Rust too it can be built with a literal from outside the crate, so there is no invariant the type guards.
 
-どの関数が「検査つきコンストラクタ」かは判定しない。不変条件を機械的に見分ける方法はないからである。閉じた型の値は、公開関数の戻り値からしか得られない。名前が `new` でも `parse` でも `try_from` でもよい。この規則は Rust と同じである。
+Which functions are "checked constructors" is not determined, because there is no mechanical way to identify invariants. Values of a closed type can only be obtained from return values of public functions. Whether named `new`, `parse`, or `try_from` does not matter. This rule is the same as Rust's.
 
-#### 定義域の改訂
+#### Revised domain
 
-§1.3.1 の定義域「Rust の値を TS の表現に写した像」のうち、閉じた型の部分を次のように狭める。
+Of §1.3.1's domain, "the image of Rust values mapped to their TS representation", the part for closed types is narrowed as follows.
 
-> 閉じた型の値は、生成物の公開関数が返した値、またはワイヤの読み取り（design/05 §7.7）が返した値に限る。
+> Values of a closed type are limited to values returned by the output's public functions, or by wire reads (design/05 §7.7).
 
-Rust でも、閉じた型の値の出どころは同じ集合である。したがって、この改訂は Rust との対応を崩さない。今の定義域より狭くなり、しかも定義として正確になる。
+In Rust too, values of a closed type come from the same set. So this revision does not break the correspondence with Rust. The domain becomes narrower than now, and also precise as a definition.
 
-#### 閉じ切らないもの
+#### What is not fully closed
 
-- `"x" as Email` は型検査を通る。ブランドは型の上だけにある。これは `5 as I32` と同じく像の外である。「TS では作れない」とは言わない。言えるのは「`as` を書かない限り、型検査が作らせない」までである。
-- class と `#private` フィールドを使えば、実行時まで閉じられる。しかし採らない。§1.2 の「慣用的な TS の値」、JSON、構造化複製が壊れる。開いた型との表現も分かれる。
-- 生成物は `Object.freeze` しない（§1.3.1 の別名経由の書き換え）。型を外して書き換えた閉じた型の値も、像の外である。
+- `"x" as Email` passes type checking. The brand exists only in the types. Like `5 as I32`, this is outside the image. We do not say "cannot be created in TS". We can only say "the type checker does not let you create it unless you write `as`".
+- Using classes and `#private` fields would close it even at runtime. That is not adopted: it breaks §1.2's "idiomatic TS values", JSON, and structured cloning. It would also split the representation from open types.
+- The output is not `Object.freeze`d (mutation through aliases in §1.3.1). Values of a closed type mutated after casting away the type are also outside the image.
 
-#### 失敗の形
+#### Shape of failures
 
-失敗の形は、Rust で書いた `Err` のドメイン enum のままとする。フィールドパスを付けた複数エラーの共通型は、今は入れない。フォームの欄への割り当ては、呼び出し側でバリアントを見て行う。共通型は、同じ割り当て表が複数の例で重複したときに入れる。
+The shape of failures stays the domain enum of `Err` written in Rust. A common type for multiple errors with field paths is not introduced for now. Assignment to form fields is done by the caller by inspecting the variant. A common type is introduced when the same assignment table is duplicated across several examples.
 
-エラーの文言は共有しない。共有するのはバリアントとその付属値である。文言と言語は画面の層の仕事であり、同値性の対象に入れると差分テストが文面に縛られる。
+Error messages are not shared. What is shared is the variant and its payload. Wording and language belong to the screen layer; including them in equivalence would tie differential tests to the text.
 
-#### この決定で足さないもの
+#### What this decision does not add
 
-- 文字列の演算と `for` は、この決定では足さない。design/08 §5.3 のとおり、検証の例が止まったときに一つずつ足す。意味論は §1.5 のとおりである。
-- 正規表現は入れない。Rust の `regex` と JS の `RegExp` は、`\w` の範囲、Unicode の扱い、先読みの有無が違う。同じパターンを両側で使っても、同じ判定にはならない。両側で同じ小さなパターン言語を解釈する方法は、例が求めるまで検討しない。
-- 部品となる型（空でない文字列、ASCII だけの文字列、長さの上下限など）を用意する場合は、具体型にする。ユーザーの型パラメータを受理しないので、`NonEmpty<T>` のような形にはできない（design/08 §2.3）。部品の型も Rust を正とし、同じ変換器で生成する。TS ランタイムに手で書かない。
+- String operations and `for` are not added by this decision. As in design/08 §5.3, they are added one at a time when a validation example gets stuck. Semantics are as in §1.5.
+- Regular expressions are not included. Rust's `regex` and JS `RegExp` differ in the range of `\w`, Unicode handling, and lookahead support. The same pattern on both sides does not give the same result. Interpreting the same small pattern language on both sides is not considered until an example calls for it.
+- If building-block types (non-empty strings, ASCII-only strings, length bounds, etc.) are provided, they are concrete types. User type parameters are not accepted, so forms like `NonEmpty<T>` are not possible (design/08 §2.3). Building-block types also take Rust as the source of truth and are generated by the same translator. They are not hand-written in the TS runtime.
 
-#### 差分テストへの要求
+#### Requirements on differential tests
 
-検証で観測したいのは、拒否の側である。拒否ケースの差分テストでは、`Err` のバリアントに加えて付属値も比べる。比べる範囲は、2026-09-29 に値全体へ広げた（§1.4.1）。
+What validation needs to observe is the rejection side. Differential tests for rejection cases compare the payload in addition to the `Err` variant. The comparison was widened to the whole value on 2026-09-29 (§1.4.1).
 
-## 2. 手段の妥当性
+## 2. Validity of the means
 
-### 2.1 代替手段
+### 2.1 Alternatives
 
-| 手段 | 同値性 | TS での使い心地 | 実行環境の制約 | 導入コスト | 表現力 |
+| Means | Equivalence | Ergonomics in TS | Runtime constraints | Adoption cost | Expressiveness |
 | --- | --- | --- | --- | --- | --- |
-| A. 手書きで二重実装＋パリティテスト | テスト次第 | 最良 | なし | 継続的に高い | 無制限 |
-| B. Rust を WASM 化（wasm-bindgen、Crux） | ほぼ完全（同じバイナリ） | 境界でシリアライズ、非同期初期化 | WASM 対応ランタイムが必要 | 中 | Rust ほぼ全体 |
-| C. 型だけ生成（ts-rs、specta、tsify）＋ロジックは手書き | 型のみ | 良 | なし | 低 | 型のみ |
-| D. 両方に出せる言語で書く（Gleam、Kotlin Multiplatform） | 言語処理系が保証 | 言語次第 | なし | 言語移行が必要 | 言語全体 |
-| E. LLM による翻訳 | 保証なし | 良 | なし | 低いが保守性が悪い | 任意 |
-| **F. 本方式: 純粋サブセットの変換** | 変換器の正しさ次第 | 最良（素の TS 値） | なし | 低〜中 | サブセットのみ |
+| A. Hand-written dual implementation + parity tests | Depends on tests | Best | None | Continuously high | Unlimited |
+| B. Compile Rust to WASM (wasm-bindgen, Crux) | Nearly complete (same binary) | Serialization at the boundary, async initialization | Needs a WASM-capable runtime | Medium | Nearly all of Rust |
+| C. Generate types only (ts-rs, specta, tsify) + hand-written logic | Types only | Good | None | Low | Types only |
+| D. Write in a language targeting both (Gleam, Kotlin Multiplatform) | Guaranteed by the language implementation | Depends on the language | None | Requires a language migration | Whole language |
+| E. LLM translation | No guarantee | Good | None | Low but poor maintainability | Arbitrary |
+| **F. This approach: translating a pure subset** | Depends on translator correctness | Best (plain TS values) | None | Low to medium | Subset only |
 
-### 2.2 本方式が優位な条件
+### 2.2 Conditions where this approach is stronger
 
-- **呼び出しが細かく頻繁**: 遷移関数は 1 回の計算が小さい。WASM は境界を越えるたびに値のエンコードとコピーが要り、小さな関数を多数回呼ぶと JS より遅くなりうる（rs4ts.dev、wasm-bindgen issue #2355）。本方式は境界がない。
-- **値を TS の型のまま扱いたい**: Crux の web shell は bincode でシリアライズしてコアに渡し、戻りも復号する。React の state としてそのまま持てる素のオブジェクトの方が扱いやすい。
-- **WASM が使いにくいランタイム**: React Native の Hermes は長く `WebAssembly` を持たなかった。RN 0.84（2026-02）の Hermes V1 で WASM 対応が入ったが、wasm-bindgen の出力が動くかは未確認とされている（paritytech/verifiablejs#25）。**この優位は縮小傾向**にあり、主な根拠にはしない方がよい。
-- **成果物をレビューしたい**: 生成 TS は読めて、デバッガで追える。WASM では読めない。
+- **Fine-grained, frequent calls**: a transition function does a small computation per call. WASM needs value encoding and copying at every boundary crossing, and calling small functions many times can be slower than JS (rs4ts.dev, wasm-bindgen issue #2355). This approach has no boundary.
+- **Wanting to handle values as TS types**: Crux's web shell serializes with bincode to pass to the core and decodes the result. Plain objects that can be held directly as React state are easier to work with.
+- **Runtimes where WASM is awkward**: React Native's Hermes lacked `WebAssembly` for a long time. Hermes V1 in RN 0.84 (2026-02) added WASM support, but whether wasm-bindgen output runs is reported as unconfirmed (paritytech/verifiablejs#25). **This advantage is shrinking**, and it should not be a main justification.
+- **Wanting to review the output**: generated TS is readable and can be stepped through in a debugger. WASM cannot be read.
 
-### 2.3 本方式が劣位な条件
+### 2.3 Conditions where this approach is weaker
 
-- **表現力**: 現状のサブセットには、ループ、イテレータ（`iter().map()`）、クロージャ、文字列操作、`HashMap`、ジェネリクス、トレイトがない。実際のドメインコードはこれらを多用するため、受理率は低いと予想される（未計測）。
-- **正しさの負担**: B は Rust コンパイラが意味を保証する。F は自作の変換器が保証しなければならず、意味論の穴はすべて自分の責任になる（§2.4 が実例）。
-- **コンパイラを持たない**: `syn` は構文木だけで、名前解決も型も持たない。P1 で名前解決と網羅性を自前で書いたが、型推論は持っていない。
+- **Expressiveness**: the current subset lacks loops, iterators (`iter().map()`), closures, string manipulation, `HashMap`, generics, and traits. Real domain code uses these heavily, so the acceptance rate is expected to be low (unmeasured).
+- **Burden of correctness**: with B, the Rust compiler guarantees semantics. With F, a home-made translator must guarantee them, and every semantic hole is our own responsibility (§2.4 is an example).
+- **No compiler**: `syn` is only a syntax tree, with no name resolution or types. P1 implemented name resolution and exhaustiveness in-house, but there is no type inference.
 
-### 2.4 実測した意味論の穴
+### 2.4 Measured semantic gaps
 
-`/tmp/sem` で生成物を Node で実行した結果（2026-09-27）:
+Results of running the output on Node in `/tmp/sem` (2026-09-27):
 
-| 関数 | Rust（debug） | 生成 TS |
+| Function | Rust (debug) | Generated TS |
 | --- | --- | --- |
-| `half(7)`（`n / 2`、`i32`） | `3` | `3.5` |
-| `rem(-7)`（`n % 3`） | `-1` | `-1` |
-| `inc(2147483647)`（`n + 1`） | panic（overflow） | `2147483648` |
-| `div0(1)`（`n / 0`） | panic | `Infinity` |
+| `half(7)` (`n / 2`, `i32`) | `3` | `3.5` |
+| `rem(-7)` (`n % 3`) | `-1` | `-1` |
+| `inc(2147483647)` (`n + 1`) | panic (overflow) | `2147483648` |
+| `div0(1)` (`n / 0`) | panic | `Infinity` |
 
-**対応済み（TODO 18）**: 局所型推論と `Int` ランタイムで上の 4 件を含む 57 ケースが Rust と一致する（`crates/cli/tests/arith_equivalence.rs`、仕様は design/00 §8.1）。以下は当時の分析。
+**Addressed (TODO 18)**: with local type inference and the `Int` runtime, 57 cases including the 4 above match Rust (`crates/cli/tests/arith_equivalence.rs`; spec in design/00 §8.1). The following is the analysis at the time.
 
-原因は一つで、**IR の式に型がない** こと。`BinOp::Div` を整数除算（`Math.trunc`）と浮動小数除算（`/`）のどちらで出すかを印刷器が決められない。counter は `+` と `-` しか使わないため、差分テストで検出できなかった。差分テストの入力を関数ごとに増やすだけでは足りず、**演算子ごとの意味論テスト** が要る。
+There is a single cause: **IR expressions have no types**. The printer cannot decide whether to emit `BinOp::Div` as integer division (`Math.trunc`) or floating-point division (`/`). counter uses only `+` and `-`, so the differential tests could not detect it. Adding more inputs per function to the differential tests is not enough; **per-operator semantic tests** are needed.
 
-### 2.5 設計判断の評価
+### 2.5 Evaluation of design decisions
 
-妥当と判断するもの:
+Judged sound:
 
-- IR を印刷先から独立させたこと（WASM など第二の出力先を塞がない）
-- 部分生成より拒否を優先すること（同値性を目的にする以上、必須）
-- `kind` による判別ユニオンと companion（TS 側で網羅 `switch` が効く）
-- `i64` を `bigint` に写すこと（精度を黙って落とさない）
-- ゴールデン、差分テスト、ドリフト検出を最初から持つこと
+- Making the IR independent of the print target (does not block a second target such as WASM)
+- Preferring rejection over partial generation (mandatory given equivalence as the objective)
+- Discriminated unions by `kind` and companions (exhaustive `switch` works on the TS side)
+- Mapping `i64` to `bigint` (does not silently lose precision)
+- Having golden tests, differential tests, and drift detection from the start
 
-再検討すべきもの:
+To reconsider:
 
-- **解析を `syn` だけで行うこと**: 局所型推論は避けられない。関数シグネチャには注釈が必須なので、局所変数とリテラルの型をシグネチャから前向きに推論するだけなら小さく作れる。rustc の型情報（rust-analyzer や `rustc_public`）を使う案は精度が高い反面、依存と保守が重く、v0 の範囲では過剰と判断する。
-- **構文拡張を先に進める計画（旧 P3）**: 型推論なしで `?` やイテレータを足すと、意味論の穴が増える。順序を入れ替える（§4）。
-- **同値性の基準が暗黙であること**: debug と release のどちらの挙動に合わせるかを明文化する（§1.3）。
+- **Doing analysis with `syn` alone**: local type inference is unavoidable. Since function signatures require annotations, forward inference of local variable and literal types from signatures can be built small. Using rustc's type information (rust-analyzer or `rustc_public`) is more precise but heavy in dependencies and maintenance, and judged excessive for v0's scope.
+- **The plan to extend syntax first (old P3)**: adding `?` or iterators without type inference increases semantic holes. Swap the order (§4).
+- **The reference for equivalence being implicit**: state explicitly whether behavior matches debug or release (§1.3).
 
-## 3. 想定需要
+## 3. Expected demand
 
 <!-- constrained-by ./07-authored-constraints.md -->
 
-2026-09-28 に、対象を「PureCrate の制約の中で新しく書くコード」に絞った（§5）。この節の問いも、既存の Rust が通るかではなく、**ドメインの遷移を、制約の中の Rust で一度だけ書く手間を払う利用者がいるか** である。比べる相手は、慣用的な Rust を WASM で呼ぶ（B）、Rust と TS の二重実装（A）、TS だけで書いてサーバーでも JS を動かす、の三つである。
+On 2026-09-28, the target was narrowed to "code newly written within PureCrate's constraints" (§5). The question of this section is accordingly not whether existing Rust passes, but **whether there are users who will pay the cost of writing domain transitions once, in constrained Rust**. The alternatives compared are: calling idiomatic Rust via WASM (B), dual implementation in Rust and TS (A), and writing only in TS and running JS on the server too.
 
-### 3.1 観測できるシグナル（2026-09 時点、crates.io）
+### 3.1 Observable signals (as of 2026-09, crates.io)
 
-| クレート | 総 DL | 直近 DL | 性格 |
+| Crate | Total DL | Recent DL | Nature |
 | --- | --- | --- | --- |
-| ts-rs | 1,593 万 | 620 万 | Rust → TS の型生成 |
-| tsify | 975 万 | 176 万 | wasm-bindgen 向けの型生成 |
-| specta | 261 万 | 123 万 | 型の introspection と TS 出力（tauri-specta、rspc） |
+| ts-rs | 15.93M | 6.2M | Rust → TS type generation |
+| tsify | 9.75M | 1.76M | Type generation for wasm-bindgen |
+| specta | 2.61M | 1.23M | Type introspection and TS output (tauri-specta, rspc) |
 
-読み方の注意:
+Caveats in reading these:
 
-- これは **型の共有** の需要であって、振る舞いの共有の需要ではない。
-- DL 数は推移的依存（tauri-specta 経由など）を含み、利用者数ではない。
-- それでも「Rust を正として TS 側と揃えたい」という動機の母集団が大きいことは示している。
+- This is demand for **sharing types**, not for sharing behavior.
+- Download counts include transitive dependencies (e.g. via tauri-specta) and are not user counts.
+- Still, they show that the population motivated by "keep TS aligned with Rust as the source of truth" is large.
 
-振る舞いの共有についてのシグナル:
+Signals for sharing behavior:
 
-- **Crux**（Red Badger）: 副作用のない Rust コアを iOS、Android、Web で共有する。Web では WASM と bincode で繋ぐ。遷移関数を中心に置くという構造は本方式と同じで、手段だけが違う。
-- **zod_gen の事例**: Rust の構造体、TS の interface、Zod スキーマの三重管理を解消した報告（1,300 行を削除）。型と検証スキーマの二重管理が痛点として実在する。
-- **r/rust「バックエンドとフロントで検証を共有したい」**: 回答は WASM 化か二重実装に分かれ、「LLM で翻訳している」という声もある。決定的な解がない。
-- **jsonstat/validator**: TS、Rust、WASM の三実装を共通コーパスで突き合わせるパリティテストを CI で回している。二重実装を選んだ場合の保守コストの実例。
-- **直接の競合**: 関数本体まで Rust→TS に変換する成熟した道具は見当たらない。tamusjroyce/rust-to-ts は PoC で、未対応の構文をコメントとして残す方針（部分生成）である。本方式とは逆の設計判断。
+- **Crux** (Red Badger): shares a side-effect-free Rust core across iOS, Android, and Web. On the Web it connects via WASM and bincode. Centering on transition functions is the same structure as this approach; only the means differ.
+- **The zod_gen case**: a report of eliminating triple maintenance of Rust structs, TS interfaces, and Zod schemas (1,300 lines deleted). Dual maintenance of types and validation schemas is a real pain point.
+- **r/rust "I want to share validation between backend and frontend"**: answers split between compiling to WASM and dual implementation, with some saying "we translate with an LLM". There is no definitive solution.
+- **jsonstat/validator**: runs parity tests in CI checking three implementations (TS, Rust, WASM) against a shared corpus. A real example of the maintenance cost of choosing dual implementation.
+- **Direct competitors**: no mature tool translating Rust→TS down to function bodies was found. tamusjroyce/rust-to-ts is a PoC whose policy is to leave unsupported syntax as comments (partial generation), the opposite design decision from this approach.
 
-### 3.2 ユースケースと制約の中で書けるか
+### 3.2 Use cases and whether they can be written within the constraints
 
-「書けるか」は design/07 の能力で判断する。既存コードがそのまま通るかではない。
+"Can be written" is judged by the capabilities in design/07, not by whether existing code passes as-is.
 
-| ユースケース | 需要の強さ（推定） | 制約の中で書けるか | 書き手が払う手間 |
+| Use case | Strength of demand (estimated) | Writable within the constraints | Cost paid by the author |
 | --- | --- | --- | --- |
-| ワークフローや状態機械（注文状態、承認フロー） | 中 | **高**（examples/order） | `_ =>` を使えず、腕を状態数と事象数の積だけ書く |
-| 楽観的 UI やオフライン先行（サーバーと同じ遷移をクライアントで先に適用） | 中〜高 | 高 | 増減する列を再帰 enum で書く。`Vec` は伸ばせない |
-| ターン制ゲームのルール（サーバー権威＋クライアント予測） | 中 | 中 | ループを再帰で書く。盤面が深い再帰になると、再帰の深さの上限に当たる（§1.3.1） |
-| 入力検証の共有 | **高**（シグナルが最も多い） | **中**（examples/signup。design/08 §5.2） | 文字列は `as_bytes` のバイト列を添字と再帰で読む。WHATWG の email は、慣用的な Rust の 2.8 倍の行数になった。正規表現は入れない。閉じた型（§1.6）で、検査つきコンストラクタを迂回させない |
-| 料金・手数料・税計算 | 中 | 高 | 金額を最小単位の整数 newtype（`struct Yen(i64)`）で書く。10 進小数型は入れない |
-| エッジ関数での同一判定 | 低〜中 | 高 | なし（WASM でも可能） |
+| Workflows and state machines (order state, approval flows) | Medium | **High** (examples/order) | No `_ =>`; write arms for the product of states and events |
+| Optimistic UI and offline-first (apply the same transition on the client before the server) | Medium to high | High | Write growing/shrinking sequences as recursive enums. `Vec` cannot grow |
+| Turn-based game rules (server-authoritative + client prediction) | Medium | Medium | Write loops as recursion. When the board becomes deep recursion, it hits the recursion depth limit (§1.3.1) |
+| Sharing input validation | **High** (the most signals) | **Medium** (examples/signup; design/08 §5.2) | Read strings as `as_bytes` byte sequences with indexing and recursion. WHATWG email took 2.8× the lines of idiomatic Rust. No regular expressions. Closed types (§1.6) prevent bypassing checked constructors |
+| Pricing, fees, tax calculation | Medium | High | Write amounts as integer newtypes in the smallest unit (`struct Yen(i64)`). No decimal type |
+| Identical decisions in edge functions | Low to medium | High | None (possible with WASM too) |
 
-需要が最も見えている入力検証は、制約の中で書ける度合いが最も低い。逆に、書ける状態機械は、需要のシグナルが間接的である（Crux の存在、kamae 型の設計）。**需要と能力がずれている** ことがこのプロジェクトの最大の戦略的リスクである。対象を新しく書くコードにしても、このずれは消えない。書き手に払わせる手間が一つ増えるだけである。
+Input validation, where demand is most visible, is the least writable within the constraints. Conversely, the writable state machines have only indirect demand signals (the existence of Crux, kamae-style design). **Demand and capability are misaligned**, and this is the project's biggest strategic risk. Targeting newly written code does not remove this misalignment; it just adds one more cost for the author to pay.
 
-### 3.3 想定利用者
+### 3.3 Expected users
 
-- Rust バックエンドと TS フロントエンド（Web または React Native）を持つ小〜中規模のチーム
-- すでに ts-rs などで型を共有していて、次にロジックの重複に困っている
-- WASM のビルドと初期化、バンドルの複雑さを避けたい
+- Small to mid-sized teams with a Rust backend and a TS frontend (Web or React Native)
+- Already sharing types with ts-rs or similar, and next struggling with duplicated logic
+- Wanting to avoid the complexity of WASM builds, initialization, and bundling
 
-逆に、Tauri アプリは IPC で Rust を直接呼べるので、この仕組みの必要性は低い。フロント側だけで同期的に判定したい場合（フォームの即時検証など）に限られる。
+Conversely, Tauri apps can call Rust directly over IPC, so the need there is low. It is limited to cases wanting synchronous decisions on the frontend alone (e.g. instant form validation).
 
-### 3.4 需要仮説の弱点
+### 3.4 Weaknesses of the demand hypothesis
 
-- 「振る舞いを共有したいが WASM は避けたい」層の大きさは直接測れていない。
-- その層のうち、ドメインを制約の中の Rust で書き直す手間を払う層は、さらに小さい。慣用的な Rust で書いたコードは通らないので、既存の Rust バックエンドのロジックをそのまま共有する用途には使えない。
-- RN の WASM 対応が進むと、WASM を避ける理由の一つが減る。
-- 型推論、イテレータ、文字列を実装すると、「小さなコンパイラ」を保守する負担が一段上がる。
+- The size of the "want to share behavior but avoid WASM" segment has not been measured directly.
+- Within that segment, those willing to rewrite the domain in constrained Rust are even fewer. Code written in idiomatic Rust does not pass, so it cannot be used to share existing Rust backend logic as-is.
+- As RN's WASM support progresses, one reason to avoid WASM goes away.
+- Implementing type inference, iterators, and strings raises the burden of maintaining a "small compiler" by a notch.
 
-### 3.5 需要を検証する方法
+### 3.5 How to validate demand
 
-1. **第三者の仕様から書く**（§1.4.2 の 1 と 2）: 公開された状態機械の仕様を、制約の中の Rust、慣用的な Rust、慣用的な TS で書き、手間の差を測る。既存クレートの受理率（design/06）は、この対象の需要の指標にしない。
-2. **一件の実利用**: 状態機械系で実際に TS 側と二重実装している箇所を一つ置き換え、削減できた行数とテストで保証できた範囲を記録する。
-3. **比較記事の材料**: 同じ遷移関数について、WASM（wasm-bindgen）と本方式でバンドルサイズ、初回呼び出しまでの時間、1 回あたりの呼び出しコストを測る。§2.2 の優位を数字にする。
+1. **Write from third-party specifications** (items 1 and 2 of §1.4.2): write a published state-machine specification in constrained Rust, idiomatic Rust, and idiomatic TS, and measure the difference in effort. The acceptance rate of existing crates (design/06) is not used as an indicator of demand for this target.
+2. **One real use**: replace one place in a state-machine system that is actually dual-implemented on the TS side, and record the lines removed and the scope guaranteed by tests.
+3. **Material for a comparison article**: for the same transition function, measure bundle size, time to first call, and per-call cost for WASM (wasm-bindgen) versus this approach. Put numbers on the advantages in §2.2.
 
-## 4. 推奨する優先順位
+## 4. Recommended priorities
 
-この節は 2026-09-27 時点の作業順である。現行の全体と、その後の順序は [design/08](./08-limits-and-roadmap.md)。
+This section is the work order as of 2026-09-27. For the current overall picture and subsequent order, see [design/08](./08-limits-and-roadmap.md).
 
-旧計画の P3（構文拡張）より前に、同値性を支える土台を入れる。
+Put in the foundation supporting equivalence before the old plan's P3 (syntax extension).
 
-1. **数値意味論と局所型推論**: 式に型を付け、整数の `/` を切り捨て除算、`%` を剰余として出力する。`i32` の算術は範囲外で throw する（§1.3 の案 2）。演算子ごとの意味論テストを差分テストに追加する。
-2. **受理率の計測基盤**: `check` の拒否理由を機械可読な形（JSON）で出し、§3.5 の集計に使う。
-3. **状態機械系の構文**: `?`、`if let`、`Option` の分岐、局所 `mut`。（済: TODO 22〜24。`match` のリテラルパターンと `while`/`for` は未対応）
-4. **受理率の結果を見てから**: `Vec` のイテレータ（`map`、`filter`、`fold` を配列メソッドへ）、文字列操作（UTF-8 と UTF-16 の差を明示的に扱う）、ジェネリクス（v1）、`HashMap`（v1）。
-5. **配布**: `cargo install`、npm スクリプトや CI（`check --out`）への組み込み手順。
+1. **Numeric semantics and local type inference**: type expressions, emit integer `/` as truncating division and `%` as remainder. `i32` arithmetic throws when out of range (option 2 in §1.3). Add per-operator semantic tests to the differential tests.
+2. **Infrastructure for measuring acceptance rate**: emit `check`'s rejection reasons in machine-readable form (JSON), for the aggregation in §3.5.
+3. **Syntax for state machines**: `?`, `if let`, `Option` branching, local `mut`. (Done: TODO 22–24. Literal patterns in `match` and `while`/`for` are unsupported)
+4. **After seeing the acceptance-rate results**: `Vec` iterators (`map`, `filter`, `fold` to array methods), string manipulation (handling the UTF-8 vs UTF-16 difference explicitly), generics (v1), `HashMap` (v1).
+5. **Distribution**: `cargo install`, and instructions for integrating into npm scripts and CI (`check --out`).
 
-## 5. 決定事項と未決の問い
+## 5. Decisions and open questions
 
-決定（2026-09-27）:
+Decisions (2026-09-27):
 
-- panic しうる演算は **再現** する。TS 側で同じ条件で throw し、同値性の基準は Rust の debug ビルドとする（§1.3 の選択肢 2）。
-- 需要の中心は **状態機械・ワークフロー** に置く。`?`・`if let`・`Option`・`mut` を文字列やイテレータより先に作る。入力検証は受理率の計測結果を見て再検討する。
-- 文字列は UTF-8 バイト単位を再現する。`char` は 1 コードポイントのブランド付き `string`、`usize` は 2^53−1 まで検査する `number`。std のメソッドは厳密一致の許可リストに限り、Unicode の表に依存するものは Unicode 版の注記つきで受理する（§1.5）。
-- 対象は **PureCrate の制約の中で新しく書くコード** とする。既存クレートの受理率は、この対象の成否を測る指標ではない。評価は design/07。
-- **10 進小数型は入れない。** TS の `Decimal` ランタイムも、`rust_decimal` も受理しない。金額は最小単位の整数 newtype（`struct Yen(i64)`）で書く。
-- **状態型は可変配列を持たない**（2026-09-28）。遷移は次の状態を返す。イベントは状態に積まない。増減する列は再帰 enum で新しい値として返す。`Vec<T>` は外で長さが決まった列の読み取りに限る（design/02 §1.1）。
-- **数値の幅は TS の型で分ける**（2026-09-28）。`i32` は `I32`、`f64` は `F64`。どちらも実行時は `number` だが、ブランドが違うので混ざらない。`+` の結果は `number` に落ちるので、ドメインに戻すには `Int.i32.add` を使う。境界の `of` は整数性と範囲を検査する。
-- **閉じた型は公開関数からしか作れない**（2026-09-29、§1.6）。非 `pub` のフィールドを持つ struct には、ブランドを付け、`of` を公開しない。閉じた型の同値性の定義域は、公開関数とワイヤの読み取りが返した値に限る。検証の失敗はドメインの `Err` のまま返し、文言は共有しない。
-- **コンパイルできるかは rustc が決める**（2026-09-28）。`check` と `build` は、サブセット検査の後に入力を `rustc --crate-type lib --emit=metadata` にかけ、エラーがあれば拒否する。サブセット検査は借用を消し、move とライフタイムを追わないので、自前では rustc と同じ拒否範囲にならない。rustc の型情報は読まない。出力を決める型付けは自作の推論のままである。
+- Operations that may panic are **reproduced**. The TS side throws under the same conditions, and the reference for equivalence is the Rust debug build (option 2 of §1.3).
+- The center of demand is placed on **state machines and workflows**. Build `?`, `if let`, `Option`, and `mut` before strings and iterators. Input validation is reconsidered after seeing the acceptance-rate measurements.
+- Strings reproduce UTF-8 byte units. `char` is a branded `string` of one code point; `usize` is a `number` checked up to 2^53−1. std methods are limited to an exact-match allow-list, and those depending on Unicode tables are accepted with a Unicode-version note (§1.5).
+- The target is **code newly written within PureCrate's constraints**. The acceptance rate of existing crates is not a metric of success for this target. Evaluation is in design/07.
+- **No decimal type.** Neither a TS `Decimal` runtime nor `rust_decimal` is accepted. Amounts are written as integer newtypes in the smallest unit (`struct Yen(i64)`).
+- **State types do not hold mutable arrays** (2026-09-28). Transitions return the next state. Events are not accumulated in the state. Growing/shrinking sequences are returned as new values of recursive enums. `Vec<T>` is limited to reading sequences whose length is fixed externally (design/02 §1.1).
+- **Numeric widths are distinguished by TS types** (2026-09-28). `i32` is `I32`, `f64` is `F64`. Both are `number` at runtime, but different brands keep them from mixing. The result of `+` falls to `number`, so `Int.i32.add` is used to return to the domain. `of` at the boundary checks integrality and range.
+- **Closed types can only be created by public functions** (2026-09-29, §1.6). Structs with non-`pub` fields get a brand and do not expose `of`. The domain of equivalence for closed types is limited to values returned by public functions and wire reads. Validation failures are returned as the domain's `Err`, and wording is not shared.
+- **rustc decides whether it compiles** (2026-09-28). After the subset check, `check` and `build` run the input through `rustc --crate-type lib --emit=metadata` and reject on errors. The subset check erases borrows and does not track moves or lifetimes, so on its own it does not reject the same range as rustc. rustc's type information is not read. The typing that determines output remains the in-house inference.
 
-未決:
+Open:
 
-- 出力を決める型付けを、自作の推論から rustc の型情報に切り替えるか。今は rustc を合否にだけ使う。
+- Whether to switch the typing that determines output from the in-house inference to rustc's type information. Currently rustc is used only for pass/fail.
 
-## 参照
+## References
 
-- React Native 0.84 リリースノート（Hermes V1 既定化）: <https://reactnative.dev/blog/2026/02/11/react-native-0.84>
-- Hermes の WASM 対応と wasm-bindgen の互換性についての議論: <https://github.com/paritytech/verifiablejs/issues/25>
-- WASM の境界コスト: <https://rs4ts.dev/19-wasm/09-performance/>、<https://github.com/rustwasm/wasm-bindgen/issues/2355>
-- Crux: <https://github.com/redbadger/crux>、React shell: <https://redbadger.github.io/crux/part-2/shell/react.html>
-- crates.io: <https://crates.io/crates/ts-rs>、<https://crates.io/crates/tsify>、<https://crates.io/crates/specta>
-- zod_gen の事例: <https://kamil.chm.ski/bridging-rust-and-typescript-with-zod_gen>
-- 検証の共有についての議論: <https://www.reddit.com/r/rust/comments/1m0x8k2/share_validation_schemas_between_backend_and/>
-- 三実装のパリティテスト: <https://github.com/jsonstat/validator>
-- 部分変換の PoC: <https://github.com/tamusjroyce/rust-to-ts>
-- Gleam の複数ターゲット: <https://gleam.run/news/v0.34-multi-target-projects/>
+- React Native 0.84 release notes (Hermes V1 made default): <https://reactnative.dev/blog/2026/02/11/react-native-0.84>
+- Discussion of Hermes WASM support and wasm-bindgen compatibility: <https://github.com/paritytech/verifiablejs/issues/25>
+- WASM boundary cost: <https://rs4ts.dev/19-wasm/09-performance/>, <https://github.com/rustwasm/wasm-bindgen/issues/2355>
+- Crux: <https://github.com/redbadger/crux>, React shell: <https://redbadger.github.io/crux/part-2/shell/react.html>
+- crates.io: <https://crates.io/crates/ts-rs>, <https://crates.io/crates/tsify>, <https://crates.io/crates/specta>
+- The zod_gen case: <https://kamil.chm.ski/bridging-rust-and-typescript-with-zod_gen>
+- Discussion on sharing validation: <https://www.reddit.com/r/rust/comments/1m0x8k2/share_validation_schemas_between_backend_and/>
+- Parity tests across three implementations: <https://github.com/jsonstat/validator>
+- Partial-translation PoC: <https://github.com/tamusjroyce/rust-to-ts>
+- Gleam multi-target: <https://gleam.run/news/v0.34-multi-target-projects/>

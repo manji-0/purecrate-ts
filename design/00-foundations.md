@@ -1,121 +1,121 @@
-# PureCrate → TypeScript パッケージ変換 — 基礎設計
+# PureCrate → TypeScript package conversion — foundational design
 
-日付: 2026-09-26
-更新: 2026-09-27
-状態: 草案 v0（公開面・平坦化・版計画を確定）
+Date: 2026-09-26
+Updated: 2026-09-27
+Status: draft v0 (public surface, flattening, and version plan settled)
 
-## 1. 目的
+## 1. Goal
 
-Rust クレートのうち、次の制約を満たすものを **単一の TypeScript パッケージ** に変換する仕組みを作る。
+Build a mechanism that converts a Rust crate satisfying the following constraints into a **single TypeScript package**.
 
-- 公開面はクレート内の型定義だけで入出力が閉じている
-- 公開関数は副作用を持たない
-- 代数的データ型（struct / enum = ユニオン）が第一級
-- 典型的な公開関数は純粋遷移 ` (State, Event) -> State | Result<State, Error> `
+- The public surface's inputs and outputs are closed over type definitions within the crate
+- Public functions have no side effects
+- Algebraic data types (struct / enum = union) are first-class
+- The typical public function is a pure transition ` (State, Event) -> State | Result<State, Error> `
 
-変換結果は npm で消費できる TS ソース（型 + 実装）とする。実行時に Rust / WASM を必須としない。
+The output is TS source (types + implementation) consumable via npm. Rust / WASM is not required at runtime.
 
-## 2. 非目的（v0）
+## 2. Non-goals (v0)
 
-- 任意の Rust クレートの完全コンパイル
-- I/O・非同期・スレッド・`unsafe`・トレイトオブジェクトの再現
-- 既存 JS エコシステム型（DOM, Node fs 等）との自動結合
-- WASM バイナリの生成（将来の第二バックエンドとして残す）
-- 参照・ライフタイムを公開 API に残したままの変換
+- Full compilation of arbitrary Rust crates
+- Reproducing I/O, async, threads, `unsafe`, or trait objects
+- Automatic binding to existing JS ecosystem types (DOM, Node fs, etc.)
+- Generating WASM binaries (kept as a future second backend)
+- Conversion that keeps references or lifetimes in the public API
 
-## 3. 用語
+## 3. Terminology
 
-| 用語 | 意味 |
+| Term | Meaning |
 | --- | --- |
-| PureCrate | 本仕組みが受理する Rust クレートの部分集合 |
-| 公開面 | `pub` な型・関数（到達した非公開実装は生成するが export しない） |
-| 遷移関数 | 入力・出力がクレート定義 ADT のみである純粋関数。特に状態 × 事象 → 状態 |
-| IR | 変換パイプライン中央の中間表現。Rust 構文にも TS 構文にも依存しない |
-| パッケージ | 生成物。`package.json` + `.ts` 実装 + 再エクスポート |
+| PureCrate | The subset of Rust crates this mechanism accepts |
+| Public surface | `pub` types and functions (reachable private implementation is generated but not exported) |
+| Transition function | A pure function whose inputs and outputs are only crate-defined ADTs. In particular state × event → state |
+| IR | The intermediate representation at the center of the conversion pipeline. Depends on neither Rust nor TS syntax |
+| Package | The output. `package.json` + `.ts` implementation + re-exports |
 
-## 4. 設計原則
+## 4. Design principles
 
-1. **型が契約である。** 公開関数の入出力型がクレート内で完結していないものは拒否する。
-2. **enum は閉じた判別ユニオンに写す。** TS 側で網羅 `switch` が可能であること。
-3. **関数は参照透過。** 同じ入力なら同じ出力。グローバル・乱数・時刻・I/O を禁止。
-4. **所有値だけが境界を越える。** 公開シグネチャに `&T` / ライフタイムを置かない。
-5. **拒否は生成より先。** サブセット外は部分生成せず、診断を出して失敗する。
-6. **生成物は機械可読で決定的。** 同じ入力クレートから常に同じ TS を出す。
+1. **Types are the contract.** Reject public functions whose input/output types are not closed within the crate.
+2. **Map enums to closed discriminated unions.** An exhaustive `switch` must be possible on the TS side.
+3. **Functions are referentially transparent.** Same input, same output. Globals, randomness, time, and I/O are forbidden.
+4. **Only owned values cross the boundary.** No `&T` / lifetimes in public signatures.
+5. **Reject before generating.** Anything outside the subset is not partially generated; emit a diagnostic and fail.
+6. **Output is machine-readable and deterministic.** The same input crate always yields the same TS.
 
-## 5. PureCrate サブセット（v0）
+## 5. PureCrate subset (v0)
 
-### 5.1 許可する型
+### 5.1 Allowed types
 
-- プリミティブ: `bool`, `i8` `i16` `i32`, `u8` `u16` `u32`, `f32` `f64`, `String`
-- `i64` / `u64` は許可するが TS では `bigint`（`number` に潰さない）
+- Primitives: `bool`, `i8` `i16` `i32`, `u8` `u16` `u32`, `f32` `f64`, `String`
+- `i64` / `u64` are allowed but become `bigint` in TS (not collapsed to `number`)
 - `Option<T>`, `Result<T, E>`, `Vec<T>`
-- タプル（要素は許可型のみ）
-- 名前付きフィールド `struct`（所有フィールドのみ）
-- `enum`（unit / tuple / struct バリアント）
-- `type` 別名
-- ユニット `()`
+- Tuples (elements of allowed types only)
+- Named-field `struct` (owned fields only)
+- `enum` (unit / tuple / struct variants)
+- `type` aliases
+- Unit `()`
 
-`Box<T>`、`Arc<T>`、`Mutex<T>` は `T` として扱う。実行時の間接化、共有、相互排除は生成しない。所有する再帰 enum は `Box` で書く。生成物には、Rust では何のために使うかと、TS はシングルスレッドなので無視する、というコメントを残す。
+`Box<T>`, `Arc<T>`, and `Mutex<T>` are treated as `T`. No runtime indirection, sharing, or mutual exclusion is generated. Owned recursive enums are written with `Box`. The output keeps a comment saying what it is used for in Rust and that TS ignores it because it is single-threaded.
 
-禁止: 参照フィールド、ライフタイム、`Rc`/`Cell`/`RefCell`、スライス、トレイトオブジェクト、ユーザー定義ジェネリクス、`HashMap` / `BTreeMap`、外部クレート型。
+Forbidden: reference fields, lifetimes, `Rc`/`Cell`/`RefCell`, slices, trait objects, user-defined generics, `HashMap` / `BTreeMap`, external crate types.
 
-### 5.2 許可する関数
+### 5.2 Allowed functions
 
 ```
 pub fn name(arg: OwnedType, ...) -> OwnedType
 ```
 
-- 本体は式言語: リテラル、`let`、`if` / `if let`、`match`、コンストラクタ、フィールドアクセス、タプル、許可関数の呼び出し、`?`（`Result` と `Option`。エラー型は関数と一致が必要で `From` 変換はしない）、`return`（文の位置のみ）
-- 局所 `let mut`、代入・複合代入（`x += e`）、式文は許可。フィールドへの代入と `mut` 引数は拒否。束縛は関数内で一意な名前に改名してから生成する（シャドーイングは `x$1` になる）
-- `impl Type { pub fn ... }` の所有または論理的に純粋なメソッドは、第一引数がレシーバの自由関数に正規化して公開してよい
+- The body is an expression language: literals, `let`, `if` / `if let`, `match`, constructors, field access, tuples, calls to allowed functions, `?` (`Result` and `Option`; the error type must match the function's, no `From` conversion), `return` (statement position only)
+- Local `let mut`, assignment and compound assignment (`x += e`), and expression statements are allowed. Assignment to fields and `mut` parameters are rejected. Bindings are renamed to names unique within the function before generation (shadowing becomes `x$1`)
+- Owned or logically pure methods in `impl Type { pub fn ... }` may be normalized into free functions whose first parameter is the receiver, and exported
 
-禁止: `async`, `unsafe`, マクロ（許可リスト以外）、`let mut` を捕捉するクロージャ、関数型の引数・戻り値、`panic!` による制御、`println!`、静的可変、外部関数。
+Forbidden: `async`, `unsafe`, macros (outside the allow-list), closures capturing `let mut`, function-typed parameters and return values, control via `panic!`, `println!`, mutable statics, foreign functions.
 
-許可マクロ（v0）: `unreachable!` のみ（TS の `assertNever`）。`vec!`・`format!`・`todo!`・`panic!` は拒否する。`Vec<T>` は、期待型が `Vec<T>` の配列リテラル `[a, b]` で作り、添字と `len` で読む。状態の中で伸ばす列は再帰 enum で書く（design/02 §1.1）。
+Allowed macros (v0): `unreachable!` only (TS `assertNever`). `vec!`, `format!`, `todo!`, and `panic!` are rejected. A `Vec<T>` is built with an array literal `[a, b]` whose expected type is `Vec<T>`, and read via indexing and `len`. Sequences that grow inside state are written as recursive enums (design/02 §1.1).
 
-### 5.3 モジュールと公開面
+### 5.3 Modules and public surface
 
-- 公開面は `pub` を自動採用する。`#[purecrate::export]` は不要（将来の絞り込み用に予約するだけ）
-- 対象: `pub` な struct / enum / type alias / fn / `impl` 上の `pub` メソッド
-- 非 `pub` でも、公開関数の本体または公開型のフィールドから到達する型・関数は生成に含める（内部実装）
-- `pub(crate)` / `pub(super)` は非公開と同じ
-- クレート内 `mod` は TS に残さない。平坦な名前空間へ畳む
-- `pub use` は畳み先の名前を公開名にする
-- 畳み後に型名・関数名が衝突したら拒否する（モジュールパスを TS 名に埋め込まない）
+- The public surface adopts `pub` automatically. `#[purecrate::export]` is not needed (reserved only for future narrowing)
+- Covered: `pub` struct / enum / type alias / fn / `pub` methods on `impl`
+- Even non-`pub` types and functions are included in generation if reachable from a public function's body or a public type's fields (internal implementation)
+- `pub(crate)` / `pub(super)` are the same as private
+- In-crate `mod`s are not kept in TS. They are folded into a flat namespace
+- `pub use` makes the folded target's name the public name
+- If type or function names collide after folding, reject (module paths are not embedded in TS names)
 
-### 5.4 依存
+### 5.4 Dependencies
 
-- `purecrate` 自身以外の外部クレート型を公開面に出さない
-- 内部実装での外部クレートも v0 は禁止（解析境界を閉じるため）
+- No external crate types other than `purecrate` itself appear on the public surface
+- External crates in internal implementation are also forbidden in v0 (to close the analysis boundary)
 
-## 6. パイプライン
+## 6. Pipeline
 
 ```
-ソースクレート
-  → 解析 (syn / rustc_ast 相当。v0 は syn)
-  → 公開面抽出
-  → サブセット検査（型閉包・副作用・参照）
+source crate
+  → parse (syn / rustc_ast equivalent; v0 uses syn)
+  → public surface extraction
+  → subset check (type closure, side effects, references)
   → IR
-  → TS 印刷
-  → パッケージ組み立て (package.json, tsconfig, index)
+  → TS printing
+  → package assembly (package.json, tsconfig, index)
 ```
 
-変換器自体は Rust CLI + ライブラリ:
+The converter itself is a Rust CLI + library:
 
 ```
 purecrate-ts build <crate-path> --out <dir> [--name <crate>]
 purecrate-ts check <crate-path> [--out <dir>] [--name <crate>]
 ```
 
-`<crate-path>` はクレートのディレクトリ（`src/lib.rs` を読む）か単一の `.rs`。`--name` 省略時は `Cargo.toml` の `[package] name`、なければディレクトリ名。`check` は `--out` なしで検査のみ、ありで生成物とのバイト一致も見る（差分・欠落・余分を列挙し終了コード 1）。
+`<crate-path>` is either a crate directory (reads `src/lib.rs`) or a single `.rs`. When `--name` is omitted, `[package] name` from `Cargo.toml` is used, else the directory name. `check` without `--out` only checks; with it, it also verifies byte equality with the output (lists differences, missing, and extra files, and exits with code 1).
 
-解析は rustc に依存しない。型推論は限定的に自前で行う（注釈必須を原則とし、局所推論のみ）。
+Parsing does not depend on rustc. Type inference is done in-house in a limited form (annotations required as a rule; local inference only).
 
 ## 7. IR
 
-IR は「型定義」と「関数定義」の二部。
+The IR has two parts: "type definitions" and "function definitions".
 
-### 7.1 型
+### 7.1 Types
 
 ```
 Ty =
@@ -138,7 +138,7 @@ Variant =
   | Struct { name, fields: [(name, Ty)] }
 ```
 
-### 7.2 関数
+### 7.2 Functions
 
 ```
 Fn = { name, params: [(name, Ty)], ret: Ty, body: Expr }
@@ -152,46 +152,46 @@ Expr =
   | Return | Unreachable
 ```
 
-`Match` は enum の網羅に正規化する。ガードは v0 対象外でもよいが、単純な `if` ガードは許可候補。
+`Match` is normalized into exhaustive enum coverage. Guards may be out of scope for v0, but simple `if` guards are candidates for allowance.
 
-## 8. 型写像
+## 8. Type mapping
 
 | Rust | TypeScript |
 | --- | --- |
 | `bool` | `boolean` |
-| `i8`..`i32`, `u8`..`u32` | 幅ごとのブランド付き `number`（`I32` など）。境界は `Int.i32.of` |
-| `f32`, `f64` | ブランド付き `number`（`F32`, `F64`）。境界は `Int.f32.of` / `Int.f64.of`。`f32` の演算は `Math.fround` |
-| `i64`, `u64` | ブランド付き `bigint`（`I64`, `U64`） |
-| `String`・`&str` | `string`（長さ・添字は UTF-8 バイト単位を再現する。design/04 §1.5） |
-| `char` | 1 コードポイントのブランド付き `string`（予定。design/04 §1.5） |
-| `usize` | `Usize`。0 から 2^53−1 まで検査する（design/04 §1.5）。`Vec` の添字と `len` の型 |
-| `isize` | 未対応 |
+| `i8`..`i32`, `u8`..`u32` | Per-width branded `number` (`I32` etc.). Boundary: `Int.i32.of` |
+| `f32`, `f64` | Branded `number` (`F32`, `F64`). Boundary: `Int.f32.of` / `Int.f64.of`. `f32` arithmetic uses `Math.fround` |
+| `i64`, `u64` | Branded `bigint` (`I64`, `U64`) |
+| `String`, `&str` | `string` (length and indexing reproduce UTF-8 byte units; design/04 §1.5) |
+| `char` | Branded `string` of one code point (planned; design/04 §1.5) |
+| `usize` | `Usize`. Checked from 0 to 2^53−1 (design/04 §1.5). The type of `Vec` indices and `len` |
+| `isize` | Unsupported |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |
 | `Result<T,E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>` | `ReadonlyArray<T>` |
 | `(A,B)` | `readonly [A, B]` |
 | `struct S { a: T }` | `export type S = Readonly<{ a: T }>` + companion `const S` |
-| `enum` | `kind` 判別ユニオン + companion（次節） |
+| `enum` | `kind` discriminated union + companion (next section) |
 
-数値は公開境界で混在させない。`i64` を `number` に落とすオプトインは持たない。
+Numeric types are not mixed at the public boundary. There is no opt-in to lower `i64` to `number`.
 
-### 8.1 数値演算の意味論
+### 8.1 Semantics of numeric operations
 
-同値性の基準は Rust の debug ビルド（design/04 §1.3、§5）。`check::accept` が式ごとに型を推論し、印刷前に次の形へ書き換える。
+The reference for equivalence is a Rust debug build (design/04 §1.3, §5). `check::accept` infers a type for each expression and rewrites it into the following forms before printing.
 
-| Rust | 生成 TS |
+| Rust | Generated TS |
 | --- | --- |
-| 整数の `+ - * / %`、単項 `-` | `Int.<型>.add(a, b)` など。`/` は切り捨て、オーバーフローとゼロ除算は Rust の panic 文と同じ文言で throw。`-0` は `0` に正規化 |
-| `f32` の `+ - * / %` | `Math.fround(a op b)`。`f32` リテラルは、変換器が 10 進数から `f32` へ一度で丸め、その値を正確な 10 進数で出す（`Math.fround(lit)` は `f64` を経るので二重に丸める） |
-| `f64` の演算 | JS の演算子そのまま |
-| `i64`/`u64` のリテラル | `5n` |
+| Integer `+ - * / %`, unary `-` | `Int.<type>.add(a, b)` etc. `/` truncates; overflow and division by zero throw with the same message as Rust's panic. `-0` is normalized to `0` |
+| `f32` `+ - * / %` | `Math.fround(a op b)`. For `f32` literals the converter rounds from decimal to `f32` in one step and emits that value as an exact decimal (`Math.fround(lit)` goes through `f64` and so rounds twice) |
+| `f64` arithmetic | JS operators as-is |
+| `i64`/`u64` literals | `5n` |
 
-`Int` は生成物の `int.ts` にあり、名前 `Int` とファイル名 `int` は予約する。`Math.fround` は `globalThis.Math.fround` と書き出すので、`Math` は予約しない。推論は式木の中で閉じた双方向推論で、rustc が後続の使用から決める型や `i32`/`f64` への既定値は使わない。型が決まらない数値リテラルは、接尾辞（`1i64`）か `let x: T` の注釈を求めて拒否する。JS と Rust で結果が変わる比較（struct の `==`、`String` の大小比較）も拒否する。`String` と `char` の大小比較は、コードポイント順の比較関数（design/04 §1.5）を入れるまで拒否のままとする。
+`Int` lives in the output's `int.ts`; the name `Int` and file name `int` are reserved. `Math.fround` is emitted as `globalThis.Math.fround`, so `Math` is not reserved. Inference is bidirectional and closed within the expression tree; it does not use types that rustc determines from later uses, nor the `i32`/`f64` defaults. Numeric literals whose type is not determined are rejected, asking for a suffix (`1i64`) or a `let x: T` annotation. Comparisons whose result differs between JS and Rust (struct `==`, ordering of `String`) are also rejected. Ordering comparisons on `String` and `char` stay rejected until a code-point-order comparison function (design/04 §1.5) is added.
 
-## 9. enum → ユニオン
+## 9. enum → union
 
-既定は kamae-ts と同じ **`kind` 内部タグ**。`type` / `status` / `tag` は使わない。
+The default is the same as kamae-ts: **`kind` internal tag**. `type` / `status` / `tag` are not used.
 
 ```rust
 enum Cmd {
@@ -214,28 +214,28 @@ export const Cmd = {
 } as const;
 ```
 
-生成補助:
+Generated helpers:
 
-- 型と同名の Companion Object（バリアント構築・関連関数）
-- 網羅検査用 `assertNever(x: never): never`（到達したら予期しない故障として throw）
+- A Companion Object with the same name as the type (variant construction, associated functions)
+- `assertNever(x: never): never` for exhaustiveness checking (throws as an unexpected fault if reached)
 
-serde の externally / adjacently tagged は v1。v0 は `kind` に固定する。
+serde's externally / adjacently tagged representations are v1. v0 is fixed to `kind`.
 
-## 10. 関数生成規則
+## 10. Function generation rules
 
-- `match e { ... }` → `switch (e.kind)` + バリアント束縛。欠落腕は検査フェーズで拒否
-- `if let Enum::V { .. } = e` → `kind` 判定 + 狭め
-- `?` → `if (r.kind === "Err") return r`（`Option` は `if (r === null) return null`）。式の中の `?` は評価順を保って直前の `const` に持ち上げる
-- `let` の値や代入の右辺に置いた `match` / `if` は `let x: T;` と各腕での代入に下ろす
-- `Option` は `=== null` で分岐
-- struct 更新構文 `S { a: 1, ..s }` → `({ ...s, a: 1 })`。省略したフィールドは `s` から来る。フィールドと `s` の中の `?` は、書き下したフィールドの方が先に関数から抜ける。enum バリアントと newtype の `..` は拒否する
-- `impl` メソッドは Companion の関数プロパティ `Type.method: (self, ...) => ...`（メソッド記法は使わない）
+- `match e { ... }` → `switch (e.kind)` + variant bindings. Missing arms are rejected in the check phase
+- `if let Enum::V { .. } = e` → `kind` test + narrowing
+- `?` → `if (r.kind === "Err") return r` (for `Option`, `if (r === null) return null`). A `?` inside an expression is hoisted into a preceding `const`, preserving evaluation order
+- A `match` / `if` used as a `let` value or on the right side of an assignment is lowered to `let x: T;` plus an assignment in each arm
+- `Option` branches on `=== null`
+- Struct update syntax `S { a: 1, ..s }` → `({ ...s, a: 1 })`. Omitted fields come from `s`. For `?` in fields and in `s`, the written-out fields exit the function first. `..` on enum variants and newtypes is rejected
+- `impl` methods become Companion function properties `Type.method: (self, ...) => ...` (method syntax is not used)
 
-参照透過を保つため、生成 TS は引数を変異しない。更新は新しいオブジェクトを返す。
+To preserve referential transparency, generated TS does not mutate arguments. Updates return new objects.
 
-## 11. 遷移関数の慣習
+## 11. Transition function convention
 
-言語機能としてはただの純粋関数。次の形を文書上の標準形とする。
+As a language feature it is just a pure function. The following form is the documented standard form.
 
 ```rust
 pub fn step(state: State, event: Event) -> Result<State, Error> { ... }
@@ -247,9 +247,9 @@ TS:
 export function step(state: State, event: Event): Result<State, Error>
 ```
 
-トレイト `Transition` は v0 で必須にしない。必要なら後で IR 上の印として付ける。
+The `Transition` trait is not required in v0. If needed, it can later be added as a marker on the IR.
 
-## 12. 出力パッケージ
+## 12. Output package
 
 ```
 <out>/
@@ -257,62 +257,62 @@ export function step(state: State, event: Event): Result<State, Error>
   tsconfig.json
   src/
     assert-never.ts
-    result.ts          # 組み込み Result の type + companion
-    event.ts           # 1概念1ファイル（例）
+    result.ts          # built-in Result type + companion
+    event.ts           # one concept per file (example)
     state.ts
     step.ts
-    index.ts           # 再エクスポートのみ
+    index.ts           # re-exports only
 ```
 
-Rust モジュールは平坦化するが、TS 側は kamae-ts に合わせ **1概念1ファイル** にする。`types.ts` / `fns.ts` のような寄せ集めは出さない。ファイル名は公開名の kebab-case。
+Rust modules are flattened, but the TS side follows kamae-ts with **one concept per file**. Grab-bag files like `types.ts` / `fns.ts` are not emitted. File names are the kebab-case of the public name.
 
-`package.json` は `type: "module"`、`exports` で `src/index.ts`（または emit 後の `dist`）を指す。パッケージ名は入力クレート名を kebab-case にしたものを既定とする。
+`package.json` has `type: "module"`, and `exports` points to `src/index.ts` (or `dist` after emit). The package name defaults to the input crate name in kebab-case.
 
-生成ファイル先頭にスタンプ:
+A stamp at the top of each generated file:
 
 ```
 /* generated by purecrate-ts. do not edit. */
 ```
 
-`check` は既存生成物とのバイト一致（または正規化後一致）でドリフトを検出する。
+`check` detects drift by byte equality (or equality after normalization) with the existing output.
 
-## 13. 検査（受理条件）
+## 13. Checks (acceptance conditions)
 
-変換前にすべて満たすこと。
+All must hold before conversion.
 
-1. 公開関数の型が、クレート内 ADT + 許可組み込みの閉包になっている
-2. 関数本体が許可式のみ
-3. 禁止パス（`std::fs`, `std::net`, `std::time::SystemTime`, 乱数 等）への到達がない
-4. enum match が網羅
-5. 公開シグネチャに参照・ライフタイムがない
-6. 再帰型は `Box<T>` を `T` に消して受理する。`Arc<T>` と `Mutex<T>` も `T` に消す。生成物に、シングルスレッドの TS では無視する旨のコメントを残す。生成 TS は type alias の前方参照で表す
-7. 平坦化後の型名・自由関数名が一意
+1. Public function types are a closure over in-crate ADTs + allowed built-ins
+2. Function bodies contain only allowed expressions
+3. No reachability to forbidden paths (`std::fs`, `std::net`, `std::time::SystemTime`, randomness, etc.)
+4. enum matches are exhaustive
+5. Public signatures have no references or lifetimes
+6. Recursive types are accepted by erasing `Box<T>` to `T`. `Arc<T>` and `Mutex<T>` are also erased to `T`. The output keeps a comment that single-threaded TS ignores them. Generated TS expresses them via forward references in type aliases
+7. Type names and free function names are unique after flattening
 
-失敗時はファイル・行・拒否理由を返す。部分ファイルを書き残さない（`--out` は成功時のみ置換）。
+On failure, return file, line, and rejection reason. No partial files are left behind (`--out` is replaced only on success).
 
-## 14. リポジトリ構成（本プロジェクト）
+## 14. Repository layout (this project)
 
 ```
 purecrate-ts/
   crates/
-    ir/          # IR データ型。依存最小
-    syntax/      # syn 解析 → IR
-    check/       # サブセット検査（名前・解決・網羅）と到達しない非公開の除去
-    emit_ts/     # IR → TS 文字列
-    pack/        # パッケージ組み立て
-    cli/         # build / check。tests/ にゴールデンと Rust/TS 同値テスト
+    ir/          # IR data types. Minimal dependencies
+    syntax/      # syn parsing → IR
+    check/       # subset check (names, resolution, exhaustiveness) and removal of unreachable private items
+    emit_ts/     # IR → TS strings
+    pack/        # package assembly
+    cli/         # build / check. tests/ has goldens and Rust/TS equivalence tests
   examples/
-    counter/     # 最小遷移クレート
-    counter-ts/  # その TS パッケージ（生成物。ゴールデン）
+    counter/     # minimal transition crate
+    counter-ts/  # its TS package (output; golden)
   scripts/
-    verify.sh    # cargo test + 生成物とランタイムの tsc（TypeScript 6・7）
+    verify.sh    # cargo test + tsc on output and runtime (TypeScript 6 and 7)
 ```
 
-各クレートの公開関数も、可能なら純粋にする。ファイル I/O は `cli` と `pack` に閉じる。
+Public functions of each crate are also kept pure where possible. File I/O is confined to `cli` and `pack`.
 
-## 15. 最小例（受け入れ基準）
+## 15. Minimal example (acceptance criterion)
 
-入力:
+Input:
 
 ```rust
 pub enum Event { Inc, Dec, Reset }
@@ -328,19 +328,19 @@ pub fn step(state: State, event: Event) -> State {
 }
 ```
 
-出力 TS が同一の入出力型を持ち、任意の `State` × `Event` で Rust と同じ値を返すこと。これが v0 の完了条件。
+The output TS must have the same input/output types and return the same values as Rust for any `State` × `Event`. This is the completion condition for v0.
 
-## 16. 確定した版計画
+## 16. Settled version plan
 
-- 公開面: `pub` 自動採用（2026-09-27）
-- モジュール: 平坦化。衝突は検査エラー（2026-09-27）
-- エラー: ドメインの `Result` は `{ kind: "Ok" | "Err" }`。想定失敗は値。`assertNever` だけ予期しない故障として throw
-- ジェネリクス: v0 は `Option` / `Result` / `Vec` のみ。ユーザー定義の型パラメータは v1
-- `HashMap` / `BTreeMap`: v0 禁止。v1 はキーが `String` のときだけ `ReadonlyMap<string, V>`
-- WASM: 同じ IR から出す第二バックエンドとして予約する。v0 では実装しない。IR を TS 印刷に固定しない
+- Public surface: automatic `pub` adoption (2026-09-27)
+- Modules: flattened. Collisions are check errors (2026-09-27)
+- Errors: domain `Result` is `{ kind: "Ok" | "Err" }`. Expected failures are values. Only `assertNever` throws, as an unexpected fault
+- Generics: v0 has only `Option` / `Result` / `Vec`. User-defined type parameters are v1
+- `HashMap` / `BTreeMap`: forbidden in v0. In v1, `ReadonlyMap<string, V>` only when the key is `String`
+- WASM: reserved as a second backend emitted from the same IR. Not implemented in v0. The IR is not tied to TS printing
 
-公開面と v1 の範囲は [design/01](./01-surface-flatten-roadmap.md)。今の制約の全体と、次に足す順序は [design/08](./08-limits-and-roadmap.md)。v1 は、型パラメータなしでは表せない例が必要になった時点で入れる。
+Public surface and v1 scope: [design/01](./01-surface-flatten-roadmap.md). The full set of current constraints and the order of upcoming additions: [design/08](./08-limits-and-roadmap.md). v1 is introduced once an example appears that cannot be expressed without type parameters.
 
-## 17. 既存ツールとの位置
+## 17. Position relative to existing tools
 
-`ts-rs` / `tsify` / `typeshare` は **型宣言** の生成に強い。本仕組みは型に加え **純粋関数の実装** ごと TS パッケージ化する。WASM バインドは代替実装であり、v0 の主経路ではない。
+`ts-rs` / `tsify` / `typeshare` are strong at generating **type declarations**. This mechanism packages, in addition to types, the **implementation of pure functions** into a TS package. WASM bindings are an alternative implementation and not the main path in v0.

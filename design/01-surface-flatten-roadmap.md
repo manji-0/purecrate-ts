@@ -1,34 +1,34 @@
-# 公開面・平坦化・版計画
+# Public surface, flattening, and version plan
 
-日付: 2026-09-27
-状態: 確定
+Date: 2026-09-27
+Status: Final
 
-## 1. 公開面
+## 1. Public surface
 
-入力クレートの `pub` がそのままパッケージの export になる。
+`pub` items of the input crate become the package's exports as-is.
 
-含めるもの:
+Included:
 
 - `pub struct` / `pub enum` / `pub type`
-- `pub fn`（自由関数）
-- `impl T { pub fn ... }`（レシーバ付きは第一引数に正規化）
-- 上記から到達する非公開の型と関数（実装詳細として emit するが、TS の `export` は付けない）
+- `pub fn` (free functions)
+- `impl T { pub fn ... }` (receivers are normalized to the first parameter)
+- Non-public types and functions reachable from the above (emitted as implementation details, without TS `export`)
 
-含めないもの:
+Excluded:
 
-- `pub(crate)` / `pub(super)` / private で、公開面から到達しないもの
-- `const` / `static`（v0。値の畳み込みが必要になるため後回し）
-- トレイト定義そのもの
+- `pub(crate)` / `pub(super)` / private items not reachable from the public surface
+- `const` / `static` (v0; deferred because they require value folding)
+- Trait definitions themselves
 
-フィールド可視性: 非 `pub` フィールドも TS には出す。Rust のモジュール境界は消えるので、生成側で書き換え不能にする意味で `readonly` だけ付ける。モジュール非公開による情報隠蔽は v0 では再現しない。
+Field visibility: non-`pub` fields are also emitted to TS. Rust module boundaries disappear, so only `readonly` is added, meaning the generated side cannot rewrite them. Information hiding via module privacy is not reproduced in v0.
 
-<!-- constrained-by ./04-objective-means-demand.md#16-検証の共有と公開コンストラクタ -->
+<!-- constrained-by ./04-objective-means-demand.md#16-sharing-validation-and-public-constructors -->
 
-2026-09-29 改訂: 非公開フィールドを持つ struct の構築は、Rust と同じく閉じる。フィールドは今までどおり `readonly` で読める。ただし、型にブランドを付け、コンパニオンに `of` を出さない。クレートの外から値を得る手段は、公開関数だけになる。フィールドの読み取りまでは隠さない。
+Revised 2026-09-29: construction of a struct with non-public fields is closed, as in Rust. Fields remain readable via `readonly` as before. However, the type gets a brand, and its companion does not emit `of`. The only way to obtain a value from outside the crate is through public functions. Reading fields is not hidden.
 
-## 2. 平坦化
+## 2. Flattening
 
-モジュールパスは生成名に使わない。
+Module paths are not used in generated names.
 
 ```
 crate
@@ -37,62 +37,62 @@ crate
   src/step.rs       pub fn step
 ```
 
-はいずれも `State` / `Event` / `step` という平坦な名前になり、規則 6 に従って `state.ts` / `event.ts` / `step.ts` へ出る。
+All of these become the flat names `State` / `Event` / `step`, and per rule 6 are emitted to `state.ts` / `event.ts` / `step.ts`.
 
-規則:
+Rules:
 
-1. 定義されている名前（または `pub use` 先の名前）が公開名
-2. 同じ公開名が二つあれば拒否。診断に両方のモジュールパスを書く
-3. Rust のキーワードでも TS の予約語でもない名前だけ許可。衝突するなら拒否（リネームしない）
-4. メソッド `impl State { pub fn apply }` は Companion `State.apply`（関数プロパティ）。自由関数 `apply` とは衝突しない
-5. 名前としては、自由関数同士、型同士の衝突だけを見る
-6. 各公開概念は kebab-case の単独ファイルへ出す（`State` → `state.ts`）。寄せ集めファイルは作らない。ファイル名が重なれば、型と関数でも拒否する（型 `Command` と関数 `command` はどちらも `command.ts`）
+1. The defined name (or the name at the `pub use` target) is the public name
+2. If the same public name appears twice, reject. The diagnostic lists both module paths
+3. Only names that are neither Rust keywords nor TS reserved words are allowed. On collision, reject (do not rename)
+4. A method `impl State { pub fn apply }` becomes the Companion `State.apply` (a function property). It does not collide with a free function `apply`
+5. For names, only collisions between free functions and between types are checked
+6. Each public concept is emitted to its own kebab-case file (`State` → `state.ts`). No catch-all files. If file names collide, reject even between a type and a function (type `Command` and function `command` both map to `command.ts`)
 
-到達した非公開アイテムも平坦化する。非公開 `fn helper` が二つあれば、公開名衝突と同じく拒否する。自動プレフィックスは付けない。名前は入力クレート側で一意にすること。
+Reached non-public items are flattened too. If there are two non-public `fn helper`s, reject as with a public name collision. No automatic prefix is added. Names must be unique in the input crate.
 
-## 3. ジェネリクス（決定）
+## 3. Generics (decided)
 
-v0 で許可する型コンストラクタは組み込み三つだけ。
+The only type constructors allowed in v0 are the three built-ins.
 
 - `Option<T>`
 - `Result<T, E>`
 - `Vec<T>`
 
-ユーザーが書いた `struct Foo<T>` / `fn id<T>(x: T) -> T` は拒否する。
+User-written `struct Foo<T>` / `fn id<T>(x: T) -> T` are rejected.
 
-理由:
+Reasons:
 
-- 遷移関数の中核は閉じた ADT の `match` であり、まずそこを正しく写す
-- ユーザー汎用型は生成側で単相化するか TS ジェネリクスにするかの分岐が要る
-- v0 の検査（型閉包・網羅）を単純に保つ
+- The core of a transition function is `match` over closed ADTs; map that correctly first
+- User generic types require choosing between monomorphization and TS generics on the generated side
+- Keep v0 checks (type closure, exhaustiveness) simple
 
-v1 で入れるもの:
+To add in v1:
 
-- 境界なしの型パラメータ（`T` だけ）
-- TS 側もジェネリクスのまま出す（単相化しない）
-- 境界・`where`・関連型は v1 でも拒否
+- Unbounded type parameters (just `T`)
+- Emit them as generics on the TS side too (no monomorphization)
+- Bounds, `where`, and associated types are rejected even in v1
 
-## 4. Map（決定）
+## 4. Map (decided)
 
-v0 では `HashMap` / `BTreeMap` を拒否する。
+v0 rejects `HashMap` / `BTreeMap`.
 
-理由: Rust のキー等価は値、JS の `Map` のオブジェクトキーは同一性。`Record<string, V>` に落とせるのはキーが文字列のときに限る。中途半端に入れると遷移の意味が変わる。
+Reason: Rust key equality is by value; JS `Map` object keys are by identity. Lowering to `Record<string, V>` is only possible when keys are strings. Adding it halfway would change the meaning of transitions.
 
-v1: キーが `String` のときだけ `ReadonlyMap<string, V>`。挿入順は Rust `HashMap` と一致させない（順序依存の公開関数は拒否候補）。
+v1: `ReadonlyMap<string, V>` only when the key is `String`. Insertion order is not made to match Rust `HashMap` (public functions depending on order are candidates for rejection).
 
-## 5. WASM（決定）
+## 5. WASM (decided)
 
-v0 の成果物は TS ソースパッケージのみ。
+The v0 artifact is a TS source package only.
 
-IR は印刷先を知らないデータとする。後から `emit_wasm` を足せる余地は残す。v0 の完了条件に WASM を含めない。同じ IR を WASM に写すのは、TS 印刷がカウンタ例で安定したあとの任意作業。
+The IR is data that does not know its print target. Room is left to add `emit_wasm` later. WASM is not part of v0's completion criteria. Mapping the same IR to WASM is optional work after TS printing has stabilized on the counter example.
 
-## 6. Result は例外にしない
+## 6. Result is not an exception
 
-`?` は早期 `return { kind: "Err", error }` に写す。ドメイン関数は `throw` しない。遷移の失敗も値である。`assertNever` のみ、網羅が破れた予期しない故障として throw する（kamae-ts の「想定外は例外」）。
+`?` maps to an early `return { kind: "Err", error }`. Domain functions do not `throw`. A failed transition is also a value. Only `assertNever` throws, as an unexpected fault when exhaustiveness is broken (kamae-ts's "the unexpected is an exception").
 
-## 7. カウンタ例（受け入れ入力）
+## 7. Counter example (acceptance input)
 
-属性なし。モジュール分割しても平坦化後は同じ。
+No attributes. Splitting into modules yields the same result after flattening.
 
 ```rust
 pub enum Event {
@@ -114,4 +114,4 @@ pub fn step(state: State, event: Event) -> State {
 }
 ```
 
-期待する公開 TS は kamae-ts 形。詳細とファイル分割は `02-kamae-ts-emit.md`。
+The expected public TS is kamae-ts form. Details and file splitting are in `02-kamae-ts-emit.md`.

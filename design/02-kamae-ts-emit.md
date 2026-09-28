@@ -1,31 +1,31 @@
-# 生成 TS は kamae-ts スタイル
+# Generated TS follows kamae-ts style
 
-日付: 2026-09-27
-参照: [iwasa-kosui/kamae-ts](https://github.com/iwasa-kosui/kamae-ts)
+Date: 2026-09-27
+Reference: [iwasa-kosui/kamae-ts](https://github.com/iwasa-kosui/kamae-ts)
 
-PureCrate の出力は、kamae-ts のドメイン層（Discriminated Union / 純粋遷移 / Companion / Result）に合わせる。Zod・Sensitive・ポート分割は生成範囲外。それらは変換後パッケージの利用側（境界）の仕事である。
+PureCrate's output matches kamae-ts's domain layer (Discriminated Union / pure transitions / Companion / Result). Zod, Sensitive, and port separation are outside the generated scope. Those are the job of the consumer (the boundary) of the converted package.
 
-## 1. 踏襲するもの
+## 1. What we adopt
 
-| kamae-ts | 生成規則 |
+| kamae-ts | Generation rule |
 | --- | --- |
-| 判別子は常に `kind` | `tag` / `type` / `status` は出さない |
-| `type`。`interface` は使わない | declaration merging を避ける |
-| `Readonly<{ ... }>` | フィールド再代入を型で止める |
-| 型と関数を同名 Companion にまとめる | `export type T` + `export const T = { ... } as const` |
-| 1概念1ファイル | `event.ts` / `state.ts` / `step.ts`。barrel は `index.ts` のみ |
-| 関数プロパティ記法 | `apply: (s, e) => r`。`apply(s, e)` メソッド記法は出さない |
-| 純粋遷移 | 入力型が始状態、戻り値が終状態。無効遷移は型で拒否できる形を優先 |
-| 想定失敗は Result | `{ kind: "Ok"; value } \| { kind: "Err"; error }` |
-| エラーも `kind` ユニオン | クレートの error enum をそのまま |
-| `assertNever` | `switch` の default |
-| class / メソッド記法を避ける | `impl` は Companion の関数プロパティへ |
+| The discriminant is always `kind` | `tag` / `type` / `status` are not emitted |
+| `type`; no `interface` | Avoid declaration merging |
+| `Readonly<{ ... }>` | Field reassignment is blocked by the type |
+| Group type and functions into a same-named Companion | `export type T` + `export const T = { ... } as const` |
+| One concept per file | `event.ts` / `state.ts` / `step.ts`. The only barrel is `index.ts` |
+| Function-property syntax | `apply: (s, e) => r`. `apply(s, e)` method syntax is not emitted |
+| Pure transitions | The input type is the start state, the return value the end state. Prefer shapes where invalid transitions can be rejected by types |
+| Expected failures are Result | `{ kind: "Ok"; value } \| { kind: "Err"; error }` |
+| Errors are also `kind` unions | The crate's error enum as-is |
+| `assertNever` | The `default` of a `switch` |
+| Avoid classes / method syntax | `impl` goes to Companion function properties |
 
-## 1.1 状態と列（2026-09-28）
+## 1.1 State and sequences (2026-09-28)
 
-kamae の状態は、段階ごとの `Readonly` な値である。遷移は次の状態を返す。起きたことは状態に積まず、別の値として呼び出し側が扱う。永続化が状態とイベントを同時に書くのは、生成パッケージの外である。
+In kamae, state is a `Readonly` value per stage. A transition returns the next state. What happened is not accumulated into state; the caller handles it as a separate value. Persistence writing state and events together happens outside the generated package.
 
-要素が増減する列は、状態の中の可変配列にしない。再帰 enum で新しい列を返す。これは kamae の `[...lines, line]` や `filter` に当たる。
+Sequences whose elements grow or shrink are not mutable arrays inside state. A recursive enum returns a new sequence. This corresponds to kamae's `[...lines, line]` and `filter`.
 
 ```rust
 pub enum Lines {
@@ -38,21 +38,21 @@ pub fn cons(line: Line, lines: Lines) -> Lines {
 }
 ```
 
-`Vec<T>` は、呼び出し側が長さを決めた列を、添字と `len` で読む型である。遷移の中で `Vec` を伸ばす、要素を抜く、要素を置き換える操作は v0 に入れない。
+`Vec<T>` is the type for a sequence whose length the caller decides, read via indexing and `len`. Growing a `Vec`, removing elements, or replacing elements inside a transition is not in v0.
 
-## 2. 生成しないもの
+## 2. What we do not generate
 
-kamae-ts のうち、閉じた純粋クレートを越えるもの。
+The parts of kamae-ts that go beyond a closed pure crate.
 
-- Zod / Valibot / ArkType（外部入力の境界）
-- `Sensitive<T>`（PII。クレートにその型が無い）
-- neverthrow / fp-ts への依存（v0。入出力型をクレート内で閉じる）
-- repository / use case / ポート
-- 時刻や ID の生成。遷移が必要なら引数として受け取る（kamae-ts の `now: Date` と同じ）
+- Zod / Valibot / ArkType (boundary for external input)
+- `Sensitive<T>` (PII; the crate has no such type)
+- Dependencies on neverthrow / fp-ts (v0; input/output types are closed within the crate)
+- repository / use case / ports
+- Generating time or IDs. If a transition needs them, it takes them as arguments (same as kamae-ts's `now: Date`)
 
-v1 で Result ライブラリを選ぶなら、生成オプションで neverthrow に差し替えてよい。既定は自前の `result.ts`。
+If v1 chooses a Result library, a generation option may swap in neverthrow. The default is our own `result.ts`.
 
-## 3. 組み込み Result
+## 3. Built-in Result
 
 `src/result.ts`:
 
@@ -71,14 +71,14 @@ export const Result = {
 } as const;
 ```
 
-`?` は次に写す。
+`?` maps to the following.
 
 ```ts
 if (r.kind === "Err") return r;
 const value = r.value;
 ```
 
-## 4. ファイル配置（カウンタ）
+## 4. File layout (counter)
 
 ```
 src/
@@ -145,21 +145,21 @@ export const assertNever = (x: never): never => {
 };
 ```
 
-`index.ts` は再エクスポートだけ。
+`index.ts` contains only re-exports.
 
-自由関数は `export const name = (...) =>` にする。`export function` は使わない（Companion / 関数プロパティと表記を揃える）。
+Free functions are `export const name = (...) =>`. `export function` is not used (keeps notation consistent with Companion / function properties).
 
-## 5. 部分ユニオン
+## 5. Partial unions
 
-Rust の到達可能な始状態がバリアントの一部なら、生成側で部分ユニオンを出してよい。
+If the reachable start states in Rust are a subset of the variants, the generator may emit a partial union.
 
 ```ts
 export type Cancellable = Waiting | EnRoute | InTrip;
 ```
 
-v0 は明示 `type` 別名があるときだけ出す。推論での自動部分ユニオンは v1。
+v0 emits it only when there is an explicit `type` alias. Automatic partial unions via inference are v1.
 
-## 6. impl の写し方
+## 6. Mapping impl
 
 ```rust
 impl State {
@@ -174,13 +174,13 @@ export const State = {
 } as const;
 ```
 
-レシーバは第一引数。`this` は出さない。共有参照（`&self`・`&T`・`&str`・`&[T]`）は値と同じに写す。生成 TS は値を変異させない。`Cell` と `RefCell` は拒否し、`Mutex<T>` は `T` に消すので、参照と値を区別する必要がない。`&mut` は拒否する。
+The receiver is the first parameter. `this` is not emitted. Shared references (`&self`, `&T`, `&str`, `&[T]`) map the same as values. Generated TS does not mutate values. `Cell` and `RefCell` are rejected and `Mutex<T>` is erased to `T`, so there is no need to distinguish references from values. `&mut` is rejected.
 
-`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。レシーバ構文 `x.method(y)` は、型検査でレシーバの型 `T` を求め、`T.method(x, y)` にする。解決先はクレート自身の固有 impl である。std のメソッドは、`Vec` の添字と `len` を除いて拒否する。
+`Self` is replaced with the impl's type name before reading. `Type::method(x)` becomes the Companion function-property call `Type.method(x)`. Receiver syntax `x.method(y)` has the type checker find the receiver's type `T` and becomes `T.method(x, y)`. It resolves to the crate's own inherent impl. std methods are rejected, except `Vec` indexing and `len`.
 
 ## 6.1 newtype
 
-1 要素のタプル構造体は、ブランド付きの中身の型にする。実行時の値は中身そのもので、serde の JSON 表現（newtype は中身として直列化される）とも一致する。
+A one-element tuple struct becomes a branded version of its inner type. The runtime value is the inner value itself, which also matches serde's JSON representation (a newtype serializes as its inner value).
 
 ```rust
 pub struct Meters(i32);
@@ -199,11 +199,11 @@ export const Meters = {
 } as const;
 ```
 
-`.0` は値そのものになる。ブランドの鍵を `unique symbol` にするのは、newtype の newtype で鍵が衝突しないようにするため。中身が `Option`・`()`・`!`（別名経由を含む）の newtype は拒否する。`null & { ... }` は `never` になり、ブランドを付けられない。2 要素以上のタプル構造体は v0 の範囲外。
+`.0` becomes the value itself. The brand key is a `unique symbol` so that keys do not collide for a newtype of a newtype. Newtypes whose inner type is `Option`, `()`, or `!` (including via aliases) are rejected: `null & { ... }` becomes `never` and cannot carry a brand. Tuple structs with two or more elements are out of scope for v0.
 
-## 6.2 クロージャ
+## 6.2 Closures
 
-関数本体の中で `let` に束縛して呼ぶクロージャは、型付きのアロー関数にする。
+A closure bound with `let` and called inside a function body becomes a typed arrow function.
 
 ```rust
 pub fn scaled(x: i32) -> i32 {
@@ -221,15 +221,15 @@ export const scaled = (x: number): number => {
 };
 ```
 
-- **捕捉は不変の束縛だけ。** Rust のクロージャは捕捉した値を持つが、JS のクロージャは変数そのものを見るので、後の再代入が見えてしまう。`let mut` を読む・書くクロージャは拒否する（`let` で今の値を束縛し直せば受理される）。
-- **引数の型は注釈か期待型から決まる。** 決まらなければ `|v: T|` を求める。戻り値の型は本体から推論する。
-- **`?` と `return` はクロージャから抜ける。** そのため戻り値の型の注釈（`|..| -> T { .. }`）を必須にする。`?` の持ち上げはクロージャ本体ごとに行い、外側の関数の文へ漏らさない。
-- **ローカルはアイテムを隠す。** `let inc = |v| ..` の後の `inc(x)` はクロージャを呼ぶ。TS の `const` はブロック全体で同名の import を隠す（宣言より前の使用も含めて）ので、アイテム名と同じローカルは `inc$1` のように改名して出す。
-- 関数の引数・戻り値・フィールドとしてのクロージャ（`impl Fn`・`fn` 型）は v0 の範囲外。std のメソッドに渡すクロージャは、そのメソッドの許可（TODO 32〜34）で受理される。
+- **Only immutable bindings are captured.** A Rust closure holds the captured value, but a JS closure sees the variable itself, so later reassignments would be visible. Closures that read or write a `let mut` are rejected (rebinding the current value with `let` makes it accepted).
+- **Parameter types come from annotations or the expected type.** If undetermined, `|v: T|` is required. The return type is inferred from the body.
+- **`?` and `return` exit the closure.** Therefore a return type annotation (`|..| -> T { .. }`) is required. `?` hoisting is done per closure body and does not leak into the outer function's statements.
+- **Locals shadow items.** After `let inc = |v| ..`, `inc(x)` calls the closure. A TS `const` shadows a same-named import across the whole block (including uses before the declaration), so a local with the same name as an item is emitted renamed, e.g. `inc$1`.
+- Closures as function parameters, return values, or fields (`impl Fn`, `fn` types) are out of scope for v0. Closures passed to std methods are accepted under that method's allowance (TODO 32–34).
 
-## 7. テストデータ
+## 7. Test data
 
-生成物のテストを書くなら kamae-ts どおり `as const satisfies Type` でリテラルを狭める。変換器本体の話ではないが、examples の期待値はこの形にする。
+When writing tests for the output, narrow literals with `as const satisfies Type` as in kamae-ts. This is not about the converter itself, but expected values in examples use this form.
 
 ```ts
 const ev = { kind: "Inc" } as const satisfies Event;

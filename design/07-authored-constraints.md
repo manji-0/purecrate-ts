@@ -1,68 +1,68 @@
-# 制約の中で新しく書くコード
+# New code written within the constraints
 
-日付: 2026-09-27
-状態: 決定
-前提: design/00、design/04、現行の `check::accept` と `emit_ts`
+Date: 2026-09-27
+Status: decided
+Prerequisites: design/00, design/04, current `check::accept` and `emit_ts`
 
-## 0. 決定
+## 0. Decision
 
-対象は、公開されている Rust を無変更で通すことではない。**PureCrate の制約の中で新しく書くドメインコード**である。
+The target is not to pass published Rust through unchanged. It is **new domain code written within PureCrate's constraints**.
 
-成否は次の二つで見る。
+Success is judged by the following two:
 
-1. その制約で書いた定義が、この目的で Rust が持つべき能力をまだ表せること。能力とは、純粋な遷移を ADT・網羅マッチ・`Result` / `Option`・debug ビルドの整数意味で書けること（design/04 §1.2）。Rust 全体を写せることではない。
-2. 生成された TS を呼ぶ側に、どの制約が残るかが列挙されていること。
+1. Definitions written under those constraints can still express the capabilities Rust should have for this purpose. Capability means writing pure transitions with ADTs, exhaustive matching, `Result` / `Option`, and debug-build integer semantics (design/04 §1.2). It does not mean mapping all of Rust.
+2. The constraints that remain on callers of the generated TS are enumerated.
 
-既存コーパスの受理率（design/06）は、この対象を採らなかった根拠として残す。指標にはしない。`Option` / `Result` のメソッド、イテレータアダプタ、`String` のメソッド、`format!`、コーパスの再計測は、既存コードを通すための作業なので打ち切る。同じ振る舞いは `match` と `?` と文字列の `==` で書ける。
+The acceptance rate on the existing corpus (design/06) is kept as the rationale for not choosing that target. It is not used as a metric. `Option` / `Result` methods, iterator adapters, `String` methods, `format!`, and re-measuring the corpus are work for getting existing code through, so they are discontinued. The same behavior can be written with `match`, `?`, and string `==`.
 
-「損なう」は三層に分ける。
+"Loss" is split into three layers.
 
-| 層 | 意味 | 例 |
+| Layer | Meaning | Example |
 | --- | --- | --- |
-| 能力 | rustc が受理する書き方で、その振る舞いを表せない | リストの要素を読めない |
-| 記法 | 同じ振る舞いをより短く書く手段がない | `.map` の代わりに `match` |
-| 注釈 | rustc が推論する型を、こちらが明示させる | 整数リテラルの接尾辞 |
+| Capability | The behavior cannot be expressed in any way rustc accepts | Cannot read elements of a list |
+| Notation | No shorter way to write the same behavior | `match` instead of `.map` |
+| Annotation | The author must make explicit a type rustc would infer | Suffixes on integer literals |
 
-## 1. 制約下でも書ける能力
+## 1. Capabilities that can be written under the constraints
 
-次は、新しく書く遷移関数の意味を保ったまま書ける。差分テストで Rust の debug ビルドと一致する。
+The following can be written while preserving the meaning of newly written transition functions. They match the Rust debug build in differential tests.
 
-| 能力 | 書く形 | 生成 TS |
+| Capability | Written as | Generated TS |
 | --- | --- | --- |
-| 閉じた ADT | struct、enum、newtype（中身が `Option`・`()`・`!` でないもの） | `Readonly` なオブジェクト、`kind` ユニオン、ブランド |
-| 網羅 | 単一 enum の `match`。腕は各バリアントちょうど一度 | `switch` と `assertNever` |
-| 想定内の失敗 | `Result` / `Option`、`?`、早期 `return`、`if let` | `kind` または `null`。失敗は値 |
-| 遷移 | `fn step(state, event) -> Result<State, Error>`。`&self` のメソッドは値として受理され、レシーバ構文はコンパニオン呼び出しになる | 引数を変異しない関数 |
-| 局所的な更新 | `let mut` と局所変数への代入。フィールド代入と `&mut` 引数は拒否 | 新しい値を返す |
-| 整数 | `i8`〜`i32`、`u8`〜`u32` の `+ - * / %`。切り捨て除算。オーバーフローとゼロ除算は panic と同じ文言で throw | `Int.<型>.*` |
-| 広い整数 | `i64` / `u64` | `bigint` |
-| 整数の拡大 | std に `From` がある拡大だけ。`i64::from(q)` | 値はそのまま。`bigint` になるときだけ `BigInt(q)` |
-| 文字列の構築 | `String::from("…")`。リテラルは `&str` で、`String` の位置には置けない | リテラルそのもの |
-| 文字列の等価 | `String` と `&str` の `==` / `!=`（どちらの順でも） | `===` / `!==` |
-| 文字列の中身 | `s.as_bytes()` の UTF-8 バイト列を、`&[u8]` の添字と `len` と再帰で読む（2026-09-29） | `Str.bytes(s)`。コードポイントを UTF-8 に符号化した `ReadonlyArray<U8>` |
-| 局所クロージャ | 不変の束縛だけを捕捉し、`let` に束縛して呼ぶ。`?` と `return` はクロージャから抜ける | 型付きアロー関数 |
-| 再帰呼び出し | 名前のある関数が自分や他の関数を呼ぶ | そのままの関数呼び出し |
-| 整数範囲の繰り返し | `for i in a..b { .. }`。両端は同じ整数型で、ループの前に一度だけ評価する。`i` は不変。本体で `let mut` の更新、早期 `return`、`?` を書ける。`a..=b`、イテレータ、`break` / `continue`、ラベル、`while`、`loop` は拒否（2026-09-29） | `for (let i = a, $e = b; i < $e; i = (i + 1) as T)` |
+| Closed ADTs | struct, enum, newtype (whose content is not `Option`, `()`, or `!`) | `Readonly` objects, `kind` unions, brands |
+| Exhaustiveness | `match` on a single enum. Each variant gets exactly one arm | `switch` and `assertNever` |
+| Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | `kind` or `null`. Failure is a value |
+| Transition | `fn step(state, event) -> Result<State, Error>`. `&self` methods are accepted as values, and receiver syntax becomes a companion call | Functions that do not mutate arguments |
+| Local update | `let mut` and assignment to local variables. Field assignment and `&mut` parameters are rejected | Returns a new value |
+| Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32`. Truncating division. Overflow and division by zero throw with the same message as the panic | `Int.<type>.*` |
+| Wide integers | `i64` / `u64` | `bigint` |
+| Integer widening | Only widenings for which std has `From`. `i64::from(q)` | Value unchanged. `BigInt(q)` only when it becomes `bigint` |
+| String construction | `String::from("…")`. Literals are `&str` and cannot be placed in a `String` position | The literal itself |
+| String equality | `==` / `!=` between `String` and `&str` (either order) | `===` / `!==` |
+| String contents | Read the UTF-8 byte sequence from `s.as_bytes()` via `&[u8]` indexing, `len`, and recursion (2026-09-29) | `Str.bytes(s)`. A `ReadonlyArray<U8>` of code points encoded as UTF-8 |
+| Local closures | Capture only immutable bindings; bind with `let` and call. `?` and `return` exit the closure | Typed arrow functions |
+| Recursive calls | Named functions calling themselves or other functions | Plain function calls |
+| Integer-range iteration | `for i in a..b { .. }`. Both ends are the same integer type and are evaluated once before the loop. `i` is immutable. The body may contain `let mut` updates, early `return`, and `?`. `a..=b`, iterators, `break` / `continue`, labels, `while`, and `loop` are rejected (2026-09-29) | `for (let i = a, $e = b; i < $e; i = (i + 1) as T)` |
 
-`&self` を値に潰すのは、生成物が引数を変異せず、内部可変性（`Cell`、`RefCell`）を拒否しているからである。`Mutex<T>` は `T` に消え、`lock` はメソッドにならない。観測できる結果は、値を受け取る関数と同じになる。
+`&self` is collapsed to a value because the output does not mutate arguments and interior mutability (`Cell`, `RefCell`) is rejected. `Mutex<T>` is erased to `T`, and `lock` does not become a method. The observable result is the same as a function taking a value.
 
-`fn apply(&mut self, event)` は書けない。`fn apply(self, event) -> Self` は書ける。状態機械の遷移は後者で足りる。
+`fn apply(&mut self, event)` cannot be written. `fn apply(self, event) -> Self` can. The latter suffices for state machine transitions.
 
-## 2. 制約が落とす能力
+## 2. Capabilities the constraints drop
 
-### 2.1 列は状態の可変配列にしない
+### 2.1 Sequences are not mutable arrays in state
 
-状態型は、段階と、その段階に必要なフィールドだけを持つ。過去のイベントは状態に積まない。遷移の外で渡す（design/02 §1.1）。
+A state type holds only the phase and the fields that phase needs. Past events are not accumulated in the state. They are passed outside the transition (design/02 §1.1).
 
-要素が増減する列は再帰 enum で書く。`Lines::Cons(line, Box::new(lines))` が、kamae の `[...lines, line]` に当たる。1 要素抜くときは、再帰でその要素を飛ばした新しいリストを返す。
+Sequences whose elements grow and shrink are written as recursive enums. `Lines::Cons(line, Box::new(lines))` corresponds to kamae's `[...lines, line]`. To remove one element, recursively return a new list that skips that element.
 
-`Vec<T>` は、関数の外で長さが決まっている列を読む型である。値は配列リテラル `[a, b]` で作る。`xs[i]` と `xs.len()` は受理する。添字の型と `len` の戻りは `usize` で、TS では 0 から 2^53−1 まで検査する `number` である。範囲外は `index out of bounds: the len is N but the index is I` で throw する。`map` / `filter` / `collect` と、長さを変える操作（追加、削除、置換）は入れない。`vec!` は拒否する。
+`Vec<T>` is a type for reading a sequence whose length is fixed outside the function. Values are built with array literals `[a, b]`. `xs[i]` and `xs.len()` are accepted. The index type and the return of `len` are `usize`, which in TS is a `number` checked from 0 to 2^53−1. Out of bounds throws `index out of bounds: the len is N but the index is I`. `map` / `filter` / `collect` and length-changing operations (append, remove, replace) are not included. `vec!` is rejected.
 
-### 2.2 所有する再帰データ
+### 2.2 Owned recursive data
 
-rustc は自分自身を値で含む enum を無限サイズとして拒否する。所有する木は `Box` で書く。`Box<T>` は `T` に消して受理する。`Box::new(v)` は `v` になる。実行時の間接化は出さない。
+rustc rejects an enum that contains itself by value as infinitely sized. Owned trees are written with `Box`. `Box<T>` is accepted by erasing it to `T`. `Box::new(v)` becomes `v`. No runtime indirection is emitted.
 
-`Arc<T>` と `Mutex<T>` も同じように `T` に消す。`Arc::new(v)` と `Mutex::new(v)` は `v` になる。`lock` や `clone` はメソッドとして受理しない。生成した型と式には、Rust での用途と、TS はシングルスレッドなのでその包みを無視する、というコメントを付ける。
+`Arc<T>` and `Mutex<T>` are likewise erased to `T`. `Arc::new(v)` and `Mutex::new(v)` become `v`. `lock` and `clone` are not accepted as methods. Generated types and expressions get a comment stating the use in Rust and that TS ignores the wrapper because it is single-threaded.
 
 ```rust
 pub enum Ast {
@@ -71,13 +71,13 @@ pub enum Ast {
 }
 ```
 
-生成 TS の型は `Ast` を自分で参照する type alias である。`Rc`、`Cell`、`RefCell` は拒否したままにする。シングルスレッドでも、共有先の書き換えや内部可変は値に潰すと意味が変わる。
+The generated TS type is a type alias in which `Ast` refers to itself. `Rc`, `Cell`, and `RefCell` stay rejected. Even single-threaded, collapsing writes through shared references or interior mutability into values changes the meaning.
 
-### 2.3 `Option` の入れ子を書けない
+### 2.3 Nested `Option` cannot be written
 
-`Option<T>` は `T | null` である。`Option<Option<T>>` は `null` が二段分潰れるので拒否する。`Option`・`()`・`!` を包む newtype も拒否する。`null & { readonly [Brand]: true }` は `never` になる。
+`Option<T>` is `T | null`. `Option<Option<T>>` is rejected because the two levels of `null` collapse. Newtypes wrapping `Option`, `()`, or `!` are also rejected. `null & { readonly [Brand]: true }` becomes `never`.
 
-「未設定」と「明示的に空」を分けるドメインは、入れ子の `Option` ではなく enum で書く。
+A domain that distinguishes "unset" from "explicitly empty" is written as an enum, not a nested `Option`.
 
 ```rust
 pub enum Patch {
@@ -87,114 +87,114 @@ pub enum Patch {
 }
 ```
 
-これは TS が表せない区別を、Rust 側の定義から外す制約である。enum で書けば、同じ区別は表せる。
+This is a constraint that removes from the Rust definition a distinction TS cannot represent. Written as an enum, the same distinction can be represented.
 
-### 2.4 モジュールは名前空間にならない
+### 2.4 Modules do not become namespaces
 
-クレート内の `mod` は平坦になる。平坦化の後で型名か自由関数名が重なれば拒否する。`billing::State` と `shipping::State` は同時に書けない。公開名はクレート全体で一意にする。
+`mod`s within the crate are flattened. If type names or free function names collide after flattening, the input is rejected. `billing::State` and `shipping::State` cannot both be written. Public names must be unique across the crate.
 
-`const` と `static` は変換しない。名前付き定数は関数にする。
+`const` and `static` are not translated. Make named constants into functions.
 
-### 2.5 構造体更新
+### 2.5 Struct update
 
-`State { n: state.n + 1, ..state }` は `({ ...state, n: state.n + 1 })` になる。省略したフィールドは `state` から来る。この位置に置ける副作用は `?` だけで、書き下したフィールドの `?` は `..` の元より先に関数から抜ける。enum のバリアントと newtype の `..` は拒否する。Rust も enum の functional record update を拒否する。
+`State { n: state.n + 1, ..state }` becomes `({ ...state, n: state.n + 1 })`. Omitted fields come from `state`. The only side effect allowed in this position is `?`, and a `?` in an explicitly written field exits the function before the `..` base. `..` on enum variants and newtypes is rejected. Rust also rejects functional record update on enums.
 
-## 3. 記法と注釈
+## 3. Notation and annotation
 
-能力は残る。新しいコードは次の形で書く。
+The capability remains. New code is written in the following forms.
 
-| 書きたくなる形 | 代わりに書く形 |
+| Form you would want to write | Form to write instead |
 | --- | --- |
-| `xs.iter().map(\|x\| f(x)).collect()` | 渡された `Vec` は添字と再帰で読む。新しい列は再帰 enum で返す（§2.1） |
-| `opt.map(\|x\| x + 1)`、`and_then` | `match` または `?` |
-| `format!("{}", n)` | 文字列が要る遷移では、呼び出し側が整形する。ドメイン関数は数と ADT を返す |
-| `state == other`（struct / enum） | `eq` メソッド。JS の構造比較は Rust と一致しないため、演算子は拒否する |
-| `s < t`（`String`） | 今は拒否。コードポイント順の比較を入れるまで、順序が要るなら enum か整数にする |
-| `for x in xs`、`while`、`loop`、`break` / `continue` | 整数範囲の `for i in a..b` と早期 `return`（§1）。それで書けない繰り返しは、名前のある関数の再帰 |
-| ガード付き `match`、入れ子パターン、`let else` | 腕の中の `if`、一段ずつの `match` |
-| ユーザ定義ジェネリクス、トレイト、`HashMap` | 具体型を並べる。キー探索が要る状態は v0 の対象外（`HashMap` は v1、design/00 §16） |
-| 型の付かない整数リテラル、引数型のないクロージャ、戻り型のないクロージャ内の `?` | 接尾辞（`1i32`）、`\|v: T\|`、`\|v: T\| -> R { .. }` |
+| `xs.iter().map(\|x\| f(x)).collect()` | Read a passed `Vec` with indexing and recursion. Return new sequences as recursive enums (§2.1) |
+| `opt.map(\|x\| x + 1)`, `and_then` | `match` or `?` |
+| `format!("{}", n)` | For transitions that need strings, the caller formats. Domain functions return numbers and ADTs |
+| `state == other` (struct / enum) | An `eq` method. JS structural comparison does not match Rust, so the operator is rejected |
+| `s < t` (`String`) | Rejected for now. Until code-point-order comparison is added, use an enum or integer if ordering is needed |
+| `for x in xs`, `while`, `loop`, `break` / `continue` | Integer-range `for i in a..b` and early `return` (§1). Iteration that cannot be written that way uses recursion of a named function |
+| Guarded `match`, nested patterns, `let else` | `if` inside the arm, one level of `match` at a time |
+| User-defined generics, traits, `HashMap` | List concrete types. State that needs key lookup is out of scope for v0 (`HashMap` is v1, design/00 §16) |
+| Untyped integer literals, closures without parameter types, `?` in closures without return types | Suffixes (`1i32`), `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
-`usize` は 0 から 2^53−1 まで検査する `number` である（design/04 §1.5）。`char` の表現は決まっているが、実装はまだ拒否する。文字の列は `String` で書く。
+`usize` is a `number` checked from 0 to 2^53−1 (design/04 §1.5). The representation of `char` is decided, but the implementation still rejects it. Write sequences of characters as `String`.
 
-## 4. 生成 TS を呼ぶ側の制約
+## 4. Constraints on callers of the generated TS
 
-変換が成功した関数について、呼び出し側が守ることを挙げる。
+What callers must observe for functions whose translation succeeded.
 
-### 4.1 呼び方
+### 4.1 How to call
 
-- メソッドは値のメソッドではない。`state.bump()` ではなく `State.bump(state)`。レシーバは第一引数。`this` は出ない。
-- 構造体・タプル・`Vec` は `Readonly`。更新は、関数が返す新しい値で行う。
-- enum は `kind` で分岐する。バリアントは `Cmd.Move(a, b)` でも、`{ kind: "Move", content: [a, b] }` でも作れる。網羅しない `switch` は `assertNever` が受け持ける。
-- モジュールパスは残らない。import はパッケージの `index.ts` から平坦な名前で行う。
-- 公開関数の引数名が、同じクレートのアイテム名と重なると `inc$1` のように変わる。呼び出しは位置引数なので結果は変わらない。読んだ名前は Rust の引数名と違うことがある。
-- 生成ファイルは編集しない。変えるときは Rust を変えて作り直す。
+- Methods are not methods on the value. Not `state.bump()` but `State.bump(state)`. The receiver is the first argument. No `this` is emitted.
+- Structs, tuples, and `Vec` are `Readonly`. Updates happen via new values returned by functions.
+- Enums branch on `kind`. Variants can be built either as `Cmd.Move(a, b)` or as `{ kind: "Move", content: [a, b] }`. A non-exhaustive `switch` is caught by `assertNever`.
+- Module paths do not remain. Import flat names from the package's `index.ts`.
+- If a public function's parameter name collides with an item name in the same crate, it changes, e.g. to `inc$1`. Calls are positional, so the result does not change. The name you read may differ from the Rust parameter name.
+- Do not edit generated files. To change them, change the Rust and regenerate.
 
-### 4.2 失敗の二種類
+### 4.2 Two kinds of failure
 
-- 想定した失敗は値である。`Result` は `{ kind: "Ok", value } | { kind: "Err", error }`。`Option` の不在は `null`。`undefined` は `()` であり、不在ではない。
-- 想定外の失敗は throw である。整数のオーバーフロー、ゼロ除算、範囲外の添字（§2.1 の後）、`assertNever`。ドメインの失敗を throw に載せない。
-- 生成関数の中の整数除算は切り捨てる。呼び出し側が `I32` 同士を `/` で割ると、結果の型は `number` になり、`I32` の引数には戻せない。Rust と同じ計算は `Int.i32.div` か、生成された関数を呼ぶ。
+- Expected failure is a value. `Result` is `{ kind: "Ok", value } | { kind: "Err", error }`. Absence in `Option` is `null`. `undefined` is `()`, not absence.
+- Unexpected failure is a throw: integer overflow, division by zero, out-of-bounds indexing (after §2.1), `assertNever`. Domain failures are not carried by throw.
+- Integer division inside generated functions truncates. If the caller divides two `I32`s with `/`, the result type is `number` and cannot be passed back to an `I32` parameter. For the same computation as Rust, use `Int.i32.div` or call a generated function.
 
-### 4.3 数と文字列の形
+### 4.3 Shapes of numbers and strings
 
-| Rust | TS の値 | 呼び出し側が足すこと |
+| Rust | TS value | What the caller adds |
 | --- | --- | --- |
-| `i8`〜`i32`、`u8`〜`u32`、`usize` | ブランド付き `number`（`I32`, `Usize` など） | `Int.i32.of` で入れる。生の `number` の演算結果は戻せない |
-| `f32`, `f64` | `F32`, `F64` | `Int.f32.of` / `Int.f64.of` で入れる。`F32` と `F64` は別の型 |
-| `i64`、`u64` | ブランド付き `bigint` | `number` と混ぜない。`JSON.parse` は 2^53 を超える整数の精度を落とすので、serde_json の JSON は `parseJson` で読む |
-| `String` | `string` | `===` は Rust の等価と一致する。`.length` と `[i]` は UTF-16 の単位で、Rust のバイト長・バイト添字ではない。今のサブセットは、その演算を生成しない |
-| newtype | 中身の値にブランドを交差した型 | 実行時の値は中身そのもの。ブランドは JSON を通ると消える。中身が `pub` なら構築は `Meters.of`。非 `pub` なら閉じた型で、クレートの公開関数から得る（§4.7） |
-| 非公開フィールドを持つ struct | ブランド付きの `Readonly` オブジェクト（§4.7） | `of` はない。`Email.parse` のように、Rust の公開関数を呼んで作る |
-| `Vec<T>` | `ReadonlyArray<T>` | 添字と `len` は読める。追加、削除、`map` / `filter` は生成しない。実行時に freeze はしない |
+| `i8`–`i32`, `u8`–`u32`, `usize` | Branded `number` (`I32`, `Usize`, etc.) | Bring in with `Int.i32.of`. Results of raw `number` arithmetic cannot be passed back |
+| `f32`, `f64` | `F32`, `F64` | Bring in with `Int.f32.of` / `Int.f64.of`. `F32` and `F64` are distinct types |
+| `i64`, `u64` | Branded `bigint` | Do not mix with `number`. `JSON.parse` loses precision for integers above 2^53, so read serde_json JSON with `parseJson` |
+| `String` | `string` | `===` matches Rust equality. `.length` and `[i]` are in UTF-16 units, not Rust byte lengths or byte indices. The current subset does not emit those operations |
+| newtype | The content value's type intersected with a brand | The runtime value is the content itself. The brand disappears through JSON. If the content is `pub`, construct with `Meters.of`. If non-`pub`, it is a closed type obtained from the crate's public functions (§4.7) |
+| struct with private fields | Branded `Readonly` object (§4.7) | No `of`. Construct by calling a Rust public function, e.g. `Email.parse` |
+| `Vec<T>` | `ReadonlyArray<T>` | Indexing and `len` are readable. Append, remove, `map` / `filter` are not emitted. Not frozen at runtime |
 
-### 4.4 所有は型の上だけで消える
+### 4.4 Ownership disappears only at the type level
 
-Rust では `step` が `state` を値で受け取るので、呼び出し後に元の束縛は使えない。生成 TS は引数を変異しないので、呼び出し後も元のオブジェクトは呼び出し前の状態のまま残る。前の状態を保持できる。
+In Rust, `step` takes `state` by value, so the original binding cannot be used after the call. Generated TS does not mutate arguments, so after the call the original object remains in its pre-call state. The previous state can be retained.
 
-`Readonly` を外してオブジェクトを書き換えると、同じオブジェクトを指す別名から書き換えが見える。生成物は `Object.freeze` しない。
+If you strip `Readonly` and mutate an object, the mutation is visible through other aliases pointing to the same object. The output does not `Object.freeze`.
 
-### 4.5 ワイヤ形式はメモリ上の値と別である
+### 4.5 The wire format is separate from in-memory values
 
-生成物の enum は `kind` 内部タグである。serde の既定 JSON（外部タグ、unit バリアントは文字列）とは一致しない（[design/05](./05-type-sharing-scope.md) §2.2）。`JSON.parse` の結果を、そのまま関数の引数にはできない。`--schema` を付けたときだけ、公開した struct と enum のワイヤ用スキーマが `src/purecrate-wire.ts` に出る。読み取りだけであり、ドメイン値から JSON を書く側はまだない（[design/08](./08-limits-and-roadmap.md) §5.3）。
+Generated enums use a `kind` internal tag. This does not match serde's default JSON (external tagging, unit variants as strings) ([design/05](./05-type-sharing-scope.md) §2.2). The result of `JSON.parse` cannot be passed directly as a function argument. Only with `--schema` are wire schemas for public structs and enums emitted to `src/purecrate-wire.ts`. They are read-only; the side that writes JSON from domain values does not exist yet ([design/08](./08-limits-and-roadmap.md) §5.3).
 
-`#[serde(...)]` は拒否する。フィールド名は Rust の名前のまま出る。
+`#[serde(...)]` is rejected. Field names are emitted as the Rust names.
 
-### 4.6 パッケージの読み方
+### 4.6 How to consume the package
 
-生成パッケージは npm のパッケージとして配る。ソースは `src/*.ts` で、`.ts` 拡張子の import を使う。`npm run build`（`npm pack` と `npm publish` の前に `prepack` で走る）が、TypeScript 6 か 7 で `dist` に JavaScript と宣言を出す。`.ts` の import は `rewriteRelativeImportExtensions` で `.js` に書き換わる。`exports` は `dist` を指すので、消費側は TypeScript のローダーなしで node から読め、tsc は `nodenext` でも `bundler` でも読める。`--schema` を付けたときは、ワイヤ用スキーマを `<package>/wire` から読む。`version` は crate の `Cargo.toml` の version である（2026-09-29）。
+The generated package is distributed as an npm package. Sources are `src/*.ts` and use `.ts`-extension imports. `npm run build` (run by `prepack` before `npm pack` and `npm publish`) emits JavaScript and declarations into `dist` with TypeScript 6 or 7. `.ts` imports are rewritten to `.js` by `rewriteRelativeImportExtensions`. `exports` points to `dist`, so consumers can load it from node without a TypeScript loader, and tsc can read it under either `nodenext` or `bundler`. With `--schema`, wire schemas are read from `<package>/wire`. `version` is the version from the crate's `Cargo.toml` (2026-09-29).
 
-ランタイム `purecrate` と、スキーマのアダプタ `purecrate-zod` などは `peerDependencies` である。ブランド型（`I32` など）は `purecrate` の `unique symbol` で区別されるので、生成パッケージが二つあっても、ランタイムは一つでなければ値を受け渡せない。ランタイムとアダプタも同じ形で `dist` を持つ。このリポジトリの中では、ビルドせずに条件 `purecrate-source`（node の `--conditions`、tsc の `customConditions`）でソースを読む。
+The runtime `purecrate` and schema adapters such as `purecrate-zod` are `peerDependencies`. Brand types (`I32`, etc.) are distinguished by `purecrate`'s `unique symbol`, so even with two generated packages, values can be passed between them only if there is a single runtime. The runtime and adapters also ship `dist` in the same shape. Inside this repository, sources are read without building via the condition `purecrate-source` (node's `--conditions`, tsc's `customConditions`).
 
-生成パッケージを pack して別のプロジェクトに入れ、node で実行し、TypeScript 6・7 の tsc で `nodenext` と `bundler` の両方の型検査を通すことを検査している（`crates/cli/tests/package.rs`）。`purecrate` はまだ npm に公開していない。
+The test packs the generated package, installs it into a separate project, runs it with node, and passes type checking with TypeScript 6 and 7 tsc under both `nodenext` and `bundler` (`crates/cli/tests/package.rs`). `purecrate` is not yet published to npm.
 
-予約名は `Result`、`Int`、`Str`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int` / `str`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
+Reserved names are `Result`, `Int`, `Str`, numeric brands (`I32`, etc.), `assertNever`, `Readonly`, `ReadonlyArray`, `globalThis`, and the file stems `index` / `result` / `assert-never` / `int` / `str`; also the discriminant field name `kind` and the companion's `of`. Domain types cannot use these names. Generated code reads `Math`, `Number`, `Error`, and `BigInt` as e.g. `globalThis.Error`, so a domain `Error` type is allowed. `__proto__` as a field, variant, or method name is rejected, because in an object literal it sets the prototype. Enums with no variants are rejected, because they become neither a TS union nor a wire format.
 
-### 4.7 閉じた型は公開関数から作る（2026-09-29）
+### 4.7 Closed types are built from public functions (2026-09-29)
 
-<!-- constrained-by ./04-objective-means-demand.md#16-検証の共有と公開コンストラクタ -->
+<!-- constrained-by ./04-objective-means-demand.md#16-sharing-validation-and-public-constructors -->
 
-Rust で非 `pub` のフィールドを一つでも持つ struct は、閉じた型になる。閉じた型について、呼び出し側が守ることは次のとおりである。
+A struct with even one non-`pub` field in Rust becomes a closed type. For closed types, callers must observe the following:
 
-- コンパニオンに `of` はない。値は、Rust の公開関数が返したものを使う。`pub fn parse(raw: String) -> Result<Email, EmailError>` は `Email.parse` になる。
-- 型にはブランドが付く。オブジェクトリテラルや生の `string` は、そのままでは閉じた型にならない。`as Email` で型を付けた値は、同値性の約束の外である（design/04 §1.3.1）。
-- フィールドは今までどおり読める。書き換えはできない。
-- ワイヤから読んだ閉じた型の値は、Rust の `Deserialize` と同じく形だけを検査したものである。不変条件までは検査していない（design/05 §7.7）。
+- The companion has no `of`. Use values returned by Rust public functions. `pub fn parse(raw: String) -> Result<Email, EmailError>` becomes `Email.parse`.
+- The type carries a brand. Object literals and raw `string`s do not become the closed type as-is. A value typed with `as Email` is outside the equivalence guarantee (design/04 §1.3.1).
+- Fields remain readable as before. They cannot be mutated.
+- A closed-type value read from the wire has been checked for shape only, as with Rust's `Deserialize`. Invariants are not checked (design/05 §7.7).
 
-消費側から書けないことは、`@ts-expect-error` を付けた消費側のファイルを TypeScript 6 と 7 で検査して確かめている（`crates/cli/tests/closed_equivalence.rs`）。
+That consumers cannot construct these is verified by type-checking consumer files annotated with `@ts-expect-error` under TypeScript 6 and 7 (`crates/cli/tests/closed_equivalence.rs`).
 
-Rust を書く側から見ると、フィールドを `pub` にするかどうかが、TS で `of` を許すかどうかを決める。不変条件を持つ型は、フィールドを非 `pub` にし、検査つきの公開関数を書く。
+From the Rust author's side, whether a field is `pub` decides whether TS allows `of`. For a type with invariants, make its fields non-`pub` and write a checked public function.
 
-## 5. この評価の後にやること
+## 5. What to do after this evaluation
 
-能力の穴だけを塞ぐ。既存コードの受理率を上げる許可リストは作らない。足す順序は [design/08](./08-limits-and-roadmap.md) にある。
+Close only capability holes. Do not build allow-lists that raise the acceptance rate of existing code. The order of additions is in [design/08](./08-limits-and-roadmap.md).
 
-`usize` は `Vec` の添字と `len` のために入っている。`Box<T>`、`Arc<T>`、`Mutex<T>` は `T` に消して受理し、生成物に注意コメントを残す。
+`usize` is included for `Vec` indexing and `len`. `Box<T>`, `Arc<T>`, and `Mutex<T>` are accepted by erasing them to `T`, leaving a cautionary comment in the output.
 
-10 進小数型は入れない（2026-09-27）。`number` に `Decimal` という型を被せても、計算は 2 進浮動小数のままである。`rust_decimal` のような外部クレートも受理しない。金額は、Rust 側で最小単位の整数 newtype として書く。
+No decimal type is included (2026-09-27). Putting a type named `Decimal` over `number` leaves the arithmetic in binary floating point. External crates such as `rust_decimal` are not accepted either. Money is written on the Rust side as an integer newtype in the smallest unit.
 
 ```rust
 pub struct Yen(i64);
 ```
 
-生成 TS の実行時の値は `bigint` で、型の上ではその newtype のブランドが付く。端数の丸めは、この型のメソッドとして整数演算で書く。中身が非 `pub` なので閉じた型になる（§4.7）。TS から作れるようにするには、[examples/order](../examples/order/src/lib.rs) の `Yen::new` のような検査つきの公開関数を書く。
+The runtime value in the generated TS is `bigint`, with that newtype's brand at the type level. Rounding of fractions is written as methods on this type using integer arithmetic. Its content is non-`pub`, so it is a closed type (§4.7). To make it constructible from TS, write a checked public function like `Yen::new` in [examples/order](../examples/order/src/lib.rs).

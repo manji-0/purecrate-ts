@@ -1,21 +1,21 @@
 # purecrate-ts
 
-Rust で書いた純粋なドメイン関数を、WASM なしの TypeScript パッケージに変換する。生成物は普通の TS の値で、`tsc --strict` が通り、受理した入力では Rust の debug ビルドと同じ結果を返す。
+Converts pure domain functions written in Rust into a TypeScript package without WASM. The output consists of ordinary TS values, passes `tsc --strict`, and for accepted inputs returns the same results as a Rust debug build.
 
-任意の Rust をコンパイルするものではない。対象は、[PureCrate の制約](design/07-authored-constraints.md)の中で新しく書くコードである。状態と事象を ADT で表し、`fn step(state, event) -> Result<State, Error>` のような遷移を共有する用途を想定している。設計の全体は [design/00-foundations.md](design/00-foundations.md)。
+It does not compile arbitrary Rust. The target is new code written within [the PureCrate constraints](design/07-authored-constraints.md). The intended use is representing states and events as ADTs and sharing transitions such as `fn step(state, event) -> Result<State, Error>`. For the overall design, see [design/00-foundations.md](design/00-foundations.md).
 
-## 必要条件
+## Requirements
 
-- Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。`check` と `build` は入力を `rustc` でもコンパイルするので、実行時にも `rustc` が要る（`RUSTC` で差し替え可）。入力の edition は `Cargo.toml` から読む（`[package] edition`、継承なら `[workspace.package]`、書いていなければ cargo と同じく 2015）。`Cargo.toml` のない単独ファイルは 2021 で、`--edition` で上書きできる。
-- 生成物の型検査と、Rust との差分テストには Node と `npx` が要る。型検査は TypeScript 6 と 7 の両方で行う（`npx -p typescript@6` と `@7` を取りに行く）。
+- Rust (edition 2021). Dependencies are in `vendor/` and build with `cargo --offline`. `check` and `build` also compile the input with `rustc`, so `rustc` is needed at run time too (override with `RUSTC`). The input's edition is read from `Cargo.toml` (`[package] edition`, or `[workspace.package]` when inherited; 2015 if unspecified, as with cargo). A standalone file without `Cargo.toml` uses 2021, overridable with `--edition`.
+- Type-checking the output and differential tests against Rust need Node and `npx`. Type checking runs on both TypeScript 6 and 7 (fetching `npx -p typescript@6` and `@7`).
 
-## 使い方
+## Usage
 
 ```sh
 cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter-ts
 ```
 
-`<crate-path>` はクレートのディレクトリ（`src/lib.rs`）か、単一の `.rs` ファイル。`--name` を省くと `Cargo.toml` のパッケージ名を使う。
+`<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file. If `--name` is omitted, the package name from `Cargo.toml` is used.
 
 ```text
 purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
@@ -23,50 +23,50 @@ purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>
 purecrate-ts survey <crate-path>... [--json]
 ```
 
-`check` は受理できない定義を `path:line:col` と理由コードで拒否し、ファイルを書かない。サブセットの検査を通ったあと、入力を rustc にかけ、コンパイルできなければ `[rustc/E0382]` のように rustc のエラーコードで拒否する。`check` が通れば、入力はライブラリとしてコンパイルできる。`--out` を付けると、既存の生成物とのバイト一致も見る。`survey` は公開関数と公開型が、参照先ごと受理できるかを JSON で出す。
+`check` rejects unacceptable definitions with `path:line:col` and a reason code, and writes no files. After the subset check passes, it runs the input through rustc and, if it does not compile, rejects with rustc's error code, e.g. `[rustc/E0382]`. If `check` passes, the input compiles as a library. With `--out`, it also checks byte equality with existing output. `survey` outputs JSON saying whether public functions and public types are acceptable together with everything they reference.
 
-生成物は npm のパッケージである。`npm run build` で `dist` に JavaScript と宣言を出し、`exports` はそれを指す（`npm pack` と `npm publish` の前には自動で走る）。ランタイム `purecrate` とスキーマのアダプタは `peerDependencies` で、`version` は crate の `Cargo.toml` から取る。`purecrate` はまだ npm に公開していないので、今は `packages/` から pack して入れる。
+The output is an npm package. `npm run build` emits JavaScript and declarations to `dist`, which `exports` points to (it runs automatically before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`, and `version` is taken from the crate's `Cargo.toml`. `purecrate` is not yet published to npm, so for now pack it from `packages/` and install it.
 
-数値のブランドはパッケージ `purecrate` にある。`--schema` を付けたときだけ、そのライブラリ向けのワイヤ用スキーマを `src/purecrate-wire.ts` に出す。serde の既定 JSON を、ドメインのブランド型へ読む。指定していないライブラリのスキーマは出さない。serde_json が書く `i64` / `u64` は JSON の数値なので、JSON テキストは `JSON.parse` ではなく `purecrate` の `parseJson` で読む。2^53 を超える整数も落とさずに `bigint` になる。
+Numeric brands live in the `purecrate` package. Only with `--schema` are wire schemas for that library emitted to `src/purecrate-wire.ts`. They read serde's default JSON into the domain's branded types. Schemas for libraries not specified are not emitted. serde_json writes `i64` / `u64` as JSON numbers, so read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`. Integers above 2^53 then become `bigint` without loss.
 
-生成したパッケージは編集しない。変えるときは Rust を変えて作り直す。
+Do not edit generated packages. To change them, change the Rust and regenerate.
 
-## テスト
+## Testing
 
 ```sh
 ./scripts/verify.sh
 ```
 
-`cargo test --offline`、examples/counter の生成物とのドリフト検出、examples/order の `check`、ランタイムパッケージ（`packages/`）と counter の生成物への TypeScript 6・7 の `tsc` を順に走らせる。差分テストは、同じ入力を Rust と生成 TS（Node）の両方で実行して比べる。
+Runs, in order: `cargo test --offline`, drift detection against the examples/counter output, `check` on examples/order, and `tsc` on TypeScript 6 and 7 for the runtime packages (`packages/`) and the counter output. Differential tests run the same inputs in both Rust and the generated TS (Node) and compare.
 
-## 受理するもの
+## What is accepted
 
-v0 が書けるのは、おおよそ次である。詳細と、生成 TS を呼ぶ側の制約は [design/07-authored-constraints.md](design/07-authored-constraints.md)。制約の全体と、その先に足す順序は [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md)。
+Roughly, v0 can express the following. For details and constraints on callers of the generated TS, see [design/07-authored-constraints.md](design/07-authored-constraints.md). For the full set of limits and the order in which to lift them, see [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md).
 
-- struct、enum（`kind` 判別ユニオン）、1 要素のタプル構造体（newtype）
-- `Option`、`Result`、`?`、`if let`、網羅的な `match`
-- 局所的な `let mut`。更新は新しい値を返す。`&mut` は拒否する
-- 整数演算は Rust の debug ビルドに合わせる。オーバーフローとゼロ除算は throw する。`i64` / `u64` は `bigint`
-- 幅の違う整数は、std に `From` がある拡大だけ `i64::from(x)` で変換する
-- 固定の文字列は `String::from("…")` で作る。`String` と `&str` は `==` で比べる
-- 不変の束縛だけを捕捉するローカルクロージャ
-- 構造体更新 `S { a: e, ..base }`
-- 増減する列は再帰 enum。`Vec` は、外で長さが決まった列を添字と `len` で読む
+- structs, enums (`kind` discriminated unions), single-element tuple structs (newtypes)
+- `Option`, `Result`, `?`, `if let`, exhaustive `match`
+- Local `let mut`. Updates return new values. `&mut` is rejected
+- Integer arithmetic matches a Rust debug build. Overflow and division by zero throw. `i64` / `u64` are `bigint`
+- Integers of different widths are converted with `i64::from(x)`, only for widenings that have a `From` in std
+- Fixed strings are built with `String::from("…")`. `String` and `&str` are compared with `==`
+- Local closures that capture only immutable bindings
+- Struct update `S { a: e, ..base }`
+- Growing sequences are recursive enums. `Vec` is read by index and `len` for sequences whose length is fixed outside
 
-10 進小数型は入れない。金額は最小単位の整数 newtype（`struct Yen(i64)`）で書く。状態型は可変配列を持たない。
+No decimal types. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). State types do not hold mutable arrays.
 
-## 設計メモ
+## Design notes
 
-| 文書 | 内容 |
+| Document | Contents |
 | --- | --- |
-| [design/00-foundations.md](design/00-foundations.md) | サブセット、型の写像、パイプライン |
-| [design/02-kamae-ts-emit.md](design/02-kamae-ts-emit.md) | 生成 TS の形 |
-| [design/04-objective-means-demand.md](design/04-objective-means-demand.md) | 目的、同値性、意味論の決定 |
-| [design/05-type-sharing-scope.md](design/05-type-sharing-scope.md) | JSON との境界 |
-| [design/06-acceptance-survey.md](design/06-acceptance-survey.md) | 既存クレートを測った記録。以後の指標ではない |
-| [design/07-authored-constraints.md](design/07-authored-constraints.md) | 新しく書くときの制約と、TS 側に残る制約 |
-| [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md) | 制約の全体と、足す順序 |
+| [design/00-foundations.md](design/00-foundations.md) | Subset, type mapping, pipeline |
+| [design/02-kamae-ts-emit.md](design/02-kamae-ts-emit.md) | Shape of the generated TS |
+| [design/04-objective-means-demand.md](design/04-objective-means-demand.md) | Objective, equivalence, semantic decisions |
+| [design/05-type-sharing-scope.md](design/05-type-sharing-scope.md) | Boundary with JSON |
+| [design/06-acceptance-survey.md](design/06-acceptance-survey.md) | Record of measuring existing crates. Not a metric going forward |
+| [design/07-authored-constraints.md](design/07-authored-constraints.md) | Constraints when writing new code, and constraints remaining on the TS side |
+| [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md) | Full set of limits, and the order to lift them |
 
-## ライセンス
+## License
 
-クレートの `license` は MIT。
+The crate's `license` is MIT.

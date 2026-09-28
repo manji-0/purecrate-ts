@@ -201,13 +201,13 @@ impl Wrapper {
     pub fn comment(self) -> &'static str {
         match self {
             Wrapper::Box => {
-                "Box<T> は Rust では再帰型のためのヒープ間接。TS はシングルスレッドなので無視し、T として扱う。"
+                "In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T."
             }
             Wrapper::Arc => {
-                "Arc<T> は Rust ではスレッドをまたぐ共有所有。TS はシングルスレッドなので無視し、T として扱う。"
+                "In Rust, Arc<T> is shared ownership across threads. TS is single-threaded, so it is ignored and treated as T."
             }
             Wrapper::Mutex => {
-                "Mutex<T> は Rust ではスレッド間の相互排除。TS はシングルスレッドなので無視し、T として扱う。"
+                "In Rust, Mutex<T> is mutual exclusion between threads. TS is single-threaded, so it is ignored and treated as T."
             }
         }
     }
