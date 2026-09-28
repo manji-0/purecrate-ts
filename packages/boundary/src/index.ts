@@ -88,7 +88,7 @@ export const parseJson = (text: string): unknown =>
   );
 
 /**
- * `str` operations whose result depends on the encoding (design/04 §1.5).
+ * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
  * string must be well-formed: a lone surrogate is not a Rust `String`, and
  * its bytes here are not specified.

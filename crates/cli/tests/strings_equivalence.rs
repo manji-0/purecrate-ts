@@ -1,4 +1,4 @@
-//! `str::as_bytes` is the UTF-8 bytes on both sides (design/04 §1.5): empty,
+//! `str::as_bytes` is the UTF-8 bytes on both sides (design/01 §6): empty,
 //! ASCII, two-, three- and four-byte code points, and an index past the end.
 
 #[macro_use]

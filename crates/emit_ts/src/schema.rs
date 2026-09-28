@@ -145,7 +145,7 @@ fn struct_schema(schema: WireSchema, s: &Struct) -> String {
 
 /// The domain value of a newtype from its parsed inner value. A closed
 /// newtype has no `of`; serde's derive builds it from the shape alone, and so
-/// does the schema, through the package-internal constructor (design/05 §7.7).
+/// does the schema, through the package-internal constructor (design/04 §5).
 fn newtype_build(s: &Struct, from: &str) -> String {
     let name = s.name.as_str();
     if s.closed {

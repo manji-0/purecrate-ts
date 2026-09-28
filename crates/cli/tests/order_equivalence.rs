@@ -1,4 +1,4 @@
-//! `examples/order`, written inside the constraints of design/07, agrees
+//! `examples/order`, written inside the constraints of design/02, agrees
 //! between Rust and the generated package on every four-command run, as the
 //! summary and as the whole final `Order`.
 

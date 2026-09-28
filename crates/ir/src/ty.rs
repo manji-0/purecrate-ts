@@ -13,7 +13,7 @@ pub enum Prim {
     U64,
     /// 64-bit Rust `usize`, printed as `number` and checked only up to
     /// 2^53−1. Past that, Rust debug does not panic and the generated code
-    /// does. That is the one stated non-equivalence (design/04 §1.5).
+    /// does. A stated non-equivalence (design/01 §3).
     Usize,
     F32,
     F64,

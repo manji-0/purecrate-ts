@@ -325,8 +325,8 @@ fn ts_printer(krate: &Crate, ty: &Ty) -> String {
     }
 }
 
-/// `show$T` for every struct and enum: the TS shape of the value (design/05
-/// §2.2) printed as `purecrate_canon` prints the Rust one.
+/// `show$T` for every struct and enum: the TS shape of the value (design/03
+/// §2) printed as `purecrate_canon` prints the Rust one.
 fn ts_printers(krate: &Crate) -> String {
     let mut out = String::new();
     for item in &krate.items {
