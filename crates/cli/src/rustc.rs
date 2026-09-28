@@ -7,8 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub const EDITION: &str = "2021";
-
 /// One rustc error, located in the input.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RustcError {
@@ -31,13 +29,14 @@ pub enum Failure {
     Other(String),
 }
 
-/// Compiles `src` to metadata only. `RUSTC` overrides the binary, as for cargo.
-pub fn compile(src: &Path) -> Result<(), Failure> {
+/// Compiles `src` to metadata only, as `edition`. `RUSTC` overrides the
+/// binary, as for cargo.
+pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let out_dir = scratch();
     fs::create_dir_all(&out_dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", out_dir.display())))?;
     let output = Command::new(&rustc)
-        .args(["--edition", EDITION, "--crate-type", "lib", "--emit=metadata"])
+        .args(["--edition", edition, "--crate-type", "lib", "--emit=metadata"])
         .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "--out-dir"])
         .arg(&out_dir)
         .arg(src)

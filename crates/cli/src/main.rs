@@ -100,7 +100,7 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
     })?;
     let diagnostics = match accept(&krate) {
         Ok(typed) => {
-            return match rustc::compile(src) {
+            return match rustc::compile(src, &input.edition) {
                 Ok(()) => Ok(assemble_with(&prune_unreachable(&typed), schema)),
                 Err(rustc::Failure::Other(e)) => Err(e),
                 Err(rustc::Failure::Rejected(errors)) => {

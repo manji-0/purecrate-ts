@@ -6,7 +6,7 @@ Rust で書いた純粋なドメイン関数を、WASM なしの TypeScript パ�
 
 ## 必要条件
 
-- Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。`check` と `build` は入力を `rustc` でもコンパイルするので、実行時にも `rustc` が要る（`RUSTC` で差し替え可）。
+- Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。`check` と `build` は入力を `rustc` でもコンパイルするので、実行時にも `rustc` が要る（`RUSTC` で差し替え可）。入力の edition は `Cargo.toml` から読む（`[package] edition`、継承なら `[workspace.package]`、書いていなければ cargo と同じく 2015）。`Cargo.toml` のない単独ファイルは 2021 で、`--edition` で上書きできる。
 - 生成物の型検査と、Rust との差分テストには Node と `npx` が要る。型検査は TypeScript 6 と 7 の両方で行う（`npx -p typescript@6` と `@7` を取りに行く）。
 
 ## 使い方
@@ -18,8 +18,8 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 `<crate-path>` はクレートのディレクトリ（`src/lib.rs`）か、単一の `.rs` ファイル。`--name` を省くと `Cargo.toml` のパッケージ名を使う。
 
 ```text
-purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--schema zod|valibot|arktype]
-purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--schema zod|valibot|arktype]
+purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
+purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
 purecrate-ts survey <crate-path>... [--json]
 ```
 

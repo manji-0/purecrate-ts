@@ -1,12 +1,13 @@
-//! Command-line parsing. Resolving the crate name reads `Cargo.toml` if present.
+//! Command-line parsing. Resolving the crate name and edition reads
+//! `Cargo.toml` if present.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "\
 usage:
-  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--schema <lib>]
-  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--schema <lib>]
+  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>]
+  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>]
   purecrate-ts survey <crate-path>... [--json]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
@@ -16,7 +17,10 @@ the matching purecrate-* adapter.
 <crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
 single .rs file.
 check and build run the subset checks, then compile the crate with rustc
-(RUSTC overrides the binary); a crate rustc rejects is rejected. check
+(RUSTC overrides the binary); a crate rustc rejects is rejected. rustc gets
+the edition from Cargo.toml ([package] edition, or [workspace.package] when
+inherited; 2015 when a manifest names none, as cargo does), 2021 for a file
+with no manifest, or --edition. check
 with --out also fails when <dir> differs from what build would write.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
@@ -26,7 +30,14 @@ one JSON object per crate.";
 pub struct Input {
     pub src: PathBuf,
     pub name: String,
+    /// The Rust edition rustc compiles the input with.
+    pub edition: String,
 }
+
+/// For a source file with no `Cargo.toml` to read.
+pub const DEFAULT_EDITION: &str = "2021";
+
+const EDITIONS: &[&str] = &["2015", "2018", "2021", "2024"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -50,12 +61,20 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     }
     let mut path: Option<PathBuf> = None;
     let mut name: Option<String> = None;
+    let mut edition: Option<String> = None;
     let mut out: Option<PathBuf> = None;
     let mut schema: Option<String> = None;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--name" => name = Some(it.next().ok_or("--name needs a value")?.clone()),
+            "--edition" => {
+                let value = it.next().ok_or("--edition needs a year")?;
+                if !EDITIONS.contains(&value.as_str()) {
+                    return Err(format!("--edition {value} is not one of {}", EDITIONS.join(", ")));
+                }
+                edition = Some(value.clone());
+            }
             "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
             "--schema" => {
                 let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
@@ -70,7 +89,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         }
     }
     let path = path.ok_or("missing <crate-path>")?;
-    let input = resolve_input(&path, name)?;
+    let mut input = resolve_input(&path, name)?;
+    if let Some(e) = edition {
+        input.edition = e;
+    }
     match verb.as_str() {
         "build" => Ok(Command::Build {
             input,
@@ -118,7 +140,37 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
         None => infer_name(&src, crate_dir.as_deref())
             .ok_or_else(|| format!("cannot infer a crate name for {}; pass --name", src.display()))?,
     };
-    Ok(Input { src, name })
+    let edition = infer_edition(crate_dir.as_deref())?;
+    Ok(Input { src, name, edition })
+}
+
+/// `[package] edition`; `edition.workspace = true` reads `[workspace.package]`
+/// from the nearest enclosing manifest that has it. A manifest without an
+/// edition is 2015, as cargo reads it.
+fn infer_edition(crate_dir: Option<&Path>) -> Result<String, String> {
+    let Some(dir) = crate_dir else { return Ok(DEFAULT_EDITION.into()) };
+    let Ok(manifest) = fs::read_to_string(dir.join("Cargo.toml")) else {
+        return Ok(DEFAULT_EDITION.into());
+    };
+    let edition = match manifest_value(&manifest, "package", "edition") {
+        Some(Value::Inherited) => dir
+            .ancestors()
+            .skip(1)
+            .find_map(|d| {
+                let text = fs::read_to_string(d.join("Cargo.toml")).ok()?;
+                match manifest_value(&text, "workspace.package", "edition")? {
+                    Value::Text(e) => Some(e),
+                    Value::Inherited => None,
+                }
+            })
+            .ok_or_else(|| format!("{}: edition.workspace = true, but no workspace sets an edition", dir.display()))?,
+        Some(Value::Text(e)) => e,
+        None => "2015".into(),
+    };
+    if !EDITIONS.contains(&edition.as_str()) {
+        return Err(format!("{}: edition {edition} is not one of {}", dir.display(), EDITIONS.join(", ")));
+    }
+    Ok(edition)
 }
 
 /// `Cargo.toml` `[package] name`, else the crate directory, else the file stem.
@@ -138,18 +190,42 @@ fn infer_name(src: &Path, crate_dir: Option<&Path>) -> Option<String> {
 }
 
 fn package_name(manifest: &str) -> Option<String> {
-    let mut in_package = false;
+    match manifest_value(manifest, "package", "name")? {
+        Value::Text(n) => Some(n),
+        Value::Inherited => None,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Value {
+    Text(String),
+    /// `key.workspace = true` or `key = { workspace = true }`.
+    Inherited,
+}
+
+/// A string `key` in the `[section]` table. Enough of TOML for the flat
+/// keys cargo manifests use here; not a TOML parser.
+fn manifest_value(manifest: &str, section: &str, key: &str) -> Option<Value> {
+    let header = format!("[{section}]");
+    let mut inside = false;
     for line in manifest.lines().map(str::trim) {
         if line.starts_with('[') {
-            in_package = line == "[package]";
+            inside = line == header;
             continue;
         }
-        if !in_package {
+        if !inside {
             continue;
         }
-        let Some((key, value)) = line.split_once('=') else { continue };
-        if key.trim() == "name" {
-            return Some(value.trim().trim_matches('"').to_string());
+        let Some((k, value)) = line.split_once('=') else { continue };
+        let (k, value) = (k.trim(), value.trim());
+        if k == format!("{key}.workspace") && value == "true" {
+            return Some(Value::Inherited);
+        }
+        if k == key {
+            if value.starts_with('{') && value.contains("workspace") {
+                return Some(Value::Inherited);
+            }
+            return Some(Value::Text(value.trim_matches('"').to_string()));
         }
     }
     None
@@ -176,7 +252,8 @@ mod tests {
             Command::Check {
                 input: Input {
                     src: dir.join("src/lib.rs"),
-                    name: "counter".into()
+                    name: "counter".into(),
+                    edition: "2021".into(),
                 },
                 out: None,
                 schema: None,
@@ -216,6 +293,32 @@ mod tests {
         let toml = "[workspace]\nname = \"no\"\n[package]\nname = \"real_name\"\nversion = \"0.1.0\"\n";
         assert_eq!(package_name(toml).as_deref(), Some("real_name"));
         assert_eq!(package_name("[dependencies]\nname = \"x\"\n"), None);
+    }
+
+    #[test]
+    fn edition_comes_from_the_manifest_or_the_flag() {
+        let dir = std::env::temp_dir().join(format!("purecrate-args-edition-{}", std::process::id()));
+        let krate = dir.join("members/k");
+        fs::create_dir_all(krate.join("src")).unwrap();
+        fs::write(krate.join("src/lib.rs"), "").unwrap();
+        let edition = |manifest: &str, extra: &[&str]| {
+            fs::write(krate.join("Cargo.toml"), manifest).unwrap();
+            let mut a = vec!["check", krate.to_str().unwrap()];
+            a.extend_from_slice(extra);
+            parse(&args(&a)).map(|c| match c {
+                Command::Check { input, .. } => input.edition,
+                _ => unreachable!(),
+            })
+        };
+        assert_eq!(edition("[package]\nname = \"k\"\nedition = \"2024\"\n", &[]).unwrap(), "2024");
+        assert_eq!(edition("[package]\nname = \"k\"\n", &[]).unwrap(), "2015");
+        assert_eq!(edition("[package]\nname = \"k\"\n", &["--edition", "2018"]).unwrap(), "2018");
+        fs::write(dir.join("Cargo.toml"), "[workspace]\nmembers = [\"members/k\"]\n[workspace.package]\nedition = \"2024\"\n").unwrap();
+        assert_eq!(edition("[package]\nname = \"k\"\nedition.workspace = true\n", &[]).unwrap(), "2024");
+        assert_eq!(edition("[package]\nname = \"k\"\nedition = { workspace = true }\n", &[]).unwrap(), "2024");
+        assert!(edition("[package]\nname = \"k\"\nedition = \"2030\"\n", &[]).unwrap_err().contains("2030"));
+        assert!(edition("[package]\nname = \"k\"\n", &["--edition", "3000"]).unwrap_err().contains("3000"));
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

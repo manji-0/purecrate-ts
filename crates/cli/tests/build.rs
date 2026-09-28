@@ -252,3 +252,27 @@ fn check_diagnostics_point_inside_the_function() {
         "{stderr}"
     );
 }
+
+/// rustc compiles the input with the crate's edition. `gen` is a reserved
+/// keyword from 2024, so the same source passes as 2021 and fails as 2024.
+#[test]
+fn rustc_uses_the_manifest_edition() {
+    let dir = scratch("edition");
+    fs::create_dir_all(dir.join("src")).expect("mkdir src");
+    fs::write(dir.join("src/lib.rs"), "pub fn f(a: i32) -> i32 {\n    let gen = a;\n    gen\n}\n").expect("write lib");
+    let manifest = |edition: &str| {
+        fs::write(dir.join("Cargo.toml"), format!("[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"))
+            .expect("write manifest")
+    };
+    manifest("2024");
+    let result = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(!result.status.success(), "{stderr}");
+    assert!(stderr.contains("src/lib.rs:2:9: [rustc/error] expected identifier, found reserved keyword `gen`"), "{stderr}");
+    let forced = check(&[dir.as_os_str(), "--edition".as_ref(), "2021".as_ref()]);
+    assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
+    manifest("2021");
+    let result = check(&[dir.as_os_str()]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    fs::remove_dir_all(&dir).ok();
+}
