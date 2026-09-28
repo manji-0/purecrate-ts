@@ -169,16 +169,17 @@ fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant
 }
 
 /// serde's externally tagged enum: `{"Variant": ..}` has exactly one key, so
-/// the wrapper rejects any other key. The fields inside a struct variant are a
+/// the wrapper rejects any other key. A unit variant is `"Variant"`, and
+/// serde_json also reads `{"Variant": null}`. The fields inside a struct variant are a
 /// struct's, and unknown ones are ignored as serde does by default.
 fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &VariantFields) -> String {
     match fields {
         VariantFields::Unit => match schema {
             WireSchema::Zod => format!(
-                "z.literal(\"{variant}\").transform((): {enum_name}$ => ({{ kind: \"{variant}\" }}))"
+                "z.union([z.literal(\"{variant}\"), z.object({{ {variant}: z.null() }}).strict()]).transform((): {enum_name}$ => ({{ kind: \"{variant}\" }}))"
             ),
             WireSchema::Valibot => format!(
-                "v.pipe(v.literal(\"{variant}\"), v.transform((): {enum_name}$ => ({{ kind: \"{variant}\" }})))"
+                "v.pipe(v.union([v.literal(\"{variant}\"), v.strictObject({{ {variant}: v.null() }})]), v.transform((): {enum_name}$ => ({{ kind: \"{variant}\" }})))"
             ),
             WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
         },
@@ -263,7 +264,12 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
     let arm = format!("{en}$arm${name}");
     let (shape, value) = match &variant.fields {
         VariantFields::Unit => {
-            return (String::new(), format!("  if (v === \"{name}\") return {{ kind: \"{name}\" }};\n"));
+            return (
+                format!("const {arm} = memo(() => type({{ \"+\": \"reject\", {name}: \"null\" }}));\n"),
+                format!(
+                    "  if (v === \"{name}\" || !({arm}()(v) instanceof type.errors)) return {{ kind: \"{name}\" }};\n"
+                ),
+            );
         }
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(WireSchema::Arktype, name, tys);

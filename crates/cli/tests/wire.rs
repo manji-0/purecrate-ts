@@ -95,6 +95,9 @@ const accepts = [
   // serde ignores unknown struct fields by default, inside a variant too.
   ["Chain", { value: 3, extra: true }, { value: 3, next: null }],
   ["Shape", { Named: { label: "x", extra: 1 } }, { kind: "Named", label: "x", tag: null }],
+  // serde_json also reads a unit variant written as a map with a `null` value.
+  ["Shape", { Dot: null }, { kind: "Dot" }],
+  ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
@@ -111,6 +114,8 @@ const rejects = [
   ["Shape", { Named: { label: "x" }, Dot: null }],
   ["Tree", { Node: ["Leaf", 1, "Leaf"], Leaf: null }],
   ["Shape", {}],
+  ["Shape", { Dot: 1 }],
+  ["Shape", { Dot: null, x: 1 }],
   ["Shape", "Circle"],
   ["Tree", { Node: ["Leaf", 1] }],
   ["Chain", { value: 1.5 }],
