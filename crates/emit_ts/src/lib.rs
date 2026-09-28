@@ -923,13 +923,25 @@ fn emit_lit(lit: &Lit) -> String {
             None => value.to_string(),
         },
         Lit::Float { digits, ty } => match ty {
-            Some(FloatTy::F32) => format!("(globalThis.Math.fround({digits}) as F32)"),
+            Some(FloatTy::F32) => f32_literal(digits),
             Some(FloatTy::F64) => format!("({digits} as F64)"),
             None => digits.clone(),
         },
         Lit::Str(s) => js_string(s),
         Lit::Unit => "undefined".into(),
         Lit::Null => "null".into(),
+    }
+}
+
+/// Rust rounds the decimal straight to `f32`. `Math.fround(1.0000000596…)`
+/// would round it to `f64` first, which can land on a midpoint between two
+/// `f32`s and then tie the wrong way. The `f32` value is printed as an exact
+/// decimal instead: every `f32` is an `f64`, so JS reads it without rounding.
+fn f32_literal(digits: &str) -> String {
+    match digits.parse::<f32>() {
+        Ok(v) if v.is_finite() => format!("({:?} as F32)", f64::from(v)),
+        // rustc rejects an out-of-range literal, so the input never gets here.
+        _ => format!("(globalThis.Math.fround({digits}) as F32)"),
     }
 }
 
@@ -1540,7 +1552,7 @@ export const step = (state: State, event: Event): State => {
             digits: "0.1".into(),
             ty: Some(FloatTy::F32),
         };
-        assert_eq!(emit_lit(&single), "(globalThis.Math.fround(0.1) as F32)");
+        assert_eq!(emit_lit(&single), "(0.10000000149011612 as F32)");
     }
 
     #[test]

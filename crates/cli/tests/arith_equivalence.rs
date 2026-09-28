@@ -68,6 +68,8 @@ fn generated_arithmetic_matches_rust_debug_build() {
             case!(arith::avg_f32(0.1f32, 0.2f32)),
             case!(arith::avg_f32(f32::MAX, f32::MAX)),
             case!(arith::third_f32(1.0f32)),
+            case!(arith::tie_f32()),
+            case!(arith::tie_f32_inferred(0.0f32)),
             case!(arith::poly_f64(3.0f64)),
             case!(arith::poly_f64(0.1f64)),
             case!(arith::div_f64(1.0f64, 0.0f64)),

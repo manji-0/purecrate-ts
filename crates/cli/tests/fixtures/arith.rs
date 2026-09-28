@@ -106,3 +106,14 @@ pub fn poly_f64(x: f64) -> f64 {
 pub fn div_f64(a: f64, b: f64) -> f64 {
     a / b
 }
+
+/// Just above the midpoint between `1.0` and the next `f32`. Rounding the
+/// decimal to `f64` first lands on the midpoint, and the tie then goes down.
+pub fn tie_f32() -> f32 {
+    1.0000000596046447753906250001f32
+}
+
+pub fn tie_f32_inferred(a: f32) -> f32 {
+    let x: f32 = 1.0000000596046447753906250001;
+    a + x
+}
