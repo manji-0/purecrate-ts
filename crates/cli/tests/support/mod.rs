@@ -1,6 +1,7 @@
 //! Differential harness: each case runs in Rust (this test binary, so debug
 //! overflow checks apply) and in the package generated from the same source
-//! under node. Results compare as text; a Rust panic must be a TS throw.
+//! under node. Results compare as text; a Rust panic must be a TS throw
+//! with the same message.
 //! Needs `node` on PATH; `PURECRATE_SKIP_NODE=1` skips.
 
 use std::fs;
@@ -156,7 +157,14 @@ pub fn run<T: Show>(
 ) -> Case {
     let rust = match panic::catch_unwind(f) {
         Ok(v) => v.show(),
-        Err(_) => "panic".to_string(),
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default();
+            format!("panic({message})")
+        }
     };
     Case {
         name,
@@ -204,8 +212,8 @@ const run = (f, wrap) => {
   let r;
   try {
     r = f();
-  } catch {
-    return "panic";
+  } catch (e) {
+    return `panic(${e instanceof Error ? e.message : String(e)})`;
   }
   return wrap(r);
 };

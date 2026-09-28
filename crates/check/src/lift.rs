@@ -2,7 +2,7 @@
 //! the printer only meets `let x = e?` and can emit an early `return`.
 //! `position` has already rejected `?` in places this pass cannot reach.
 
-use purecrate_ir::{Arm, Crate, Expr, Fields, Fn, Item, Name, TryOn};
+use purecrate_ir::{Arm, BinOp, Callee, Crate, Expr, Fields, Fn, Item, Name, TryOn};
 
 pub fn lift(krate: Crate) -> Crate {
     let items = krate
@@ -35,7 +35,9 @@ fn lift_closures(expr: &mut Expr) {
     expr.children_mut().into_iter().for_each(lift_closures);
 }
 
-type Hoisted = Vec<(Name, Expr, Option<TryOn>)>;
+/// A binding placed in front of the statement: `let name = inner?` when the
+/// kind is set, else `let name = inner`.
+type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>)>;
 
 #[derive(Default)]
 struct Lifter {
@@ -157,44 +159,68 @@ impl Lifter {
             Expr::Try { expr, on } => {
                 let inner = self.boxed(expr, out);
                 let name = self.fresh();
-                out.push((name.clone(), *inner, on));
+                out.push((name.clone(), *inner, Some(on)));
                 Expr::Var(name)
             }
             Expr::Call { callee, args } => Expr::Call {
                 callee,
-                args: args.into_iter().map(|a| self.extract_into(a, out)).collect(),
+                args: self.in_order(args, out),
             },
             Expr::Construct {
                 ty,
                 variant,
                 fields,
                 base,
-            } => Expr::Construct {
-                ty,
-                variant,
-                fields: match fields {
-                    Fields::Unit => Fields::Unit,
-                    Fields::Positional(xs) => {
-                        Fields::Positional(xs.into_iter().map(|x| self.extract_into(x, out)).collect())
+            } => {
+                let (shape, names, values): (Shape, Vec<Name>, Vec<Expr>) = match fields {
+                    Fields::Unit => (Shape::Unit, Vec::new(), Vec::new()),
+                    Fields::Positional(xs) => (Shape::Positional, Vec::new(), xs),
+                    Fields::Named(xs) => {
+                        let (names, values) = xs.into_iter().unzip();
+                        (Shape::Named, names, values)
                     }
-                    Fields::Named(xs) => Fields::Named(
-                        xs.into_iter()
-                            .map(|(n, x)| (n, self.extract_into(x, out)))
-                            .collect(),
-                    ),
-                },
-                base: base.map(|b| self.boxed(b, out)),
-            },
-            Expr::Tuple(xs) => Expr::Tuple(xs.into_iter().map(|x| self.extract_into(x, out)).collect()),
-            Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| self.extract_into(x, out)).collect()),
+                };
+                let mut all = values;
+                let has_base = base.is_some();
+                all.extend(base.map(|b| *b));
+                let mut all = self.in_order(all, out);
+                // TS evaluates `...base` before the fields; Rust evaluates it
+                // after. When the base can panic, the fields go first.
+                let base = if has_base {
+                    let b = all.pop().expect("pushed above");
+                    if !pure(&b) {
+                        all = all.into_iter().map(|x| self.spill(x, out)).collect();
+                    }
+                    Some(Box::new(self.spill(b, out)))
+                } else {
+                    None
+                };
+                let fields = match shape {
+                    Shape::Unit => Fields::Unit,
+                    Shape::Positional => Fields::Positional(all),
+                    Shape::Named => Fields::Named(names.into_iter().zip(all).collect()),
+                };
+                Expr::Construct {
+                    ty,
+                    variant,
+                    fields,
+                    base,
+                }
+            }
+            Expr::Tuple(xs) => Expr::Tuple(self.in_order(xs, out)),
+            Expr::Array(xs) => Expr::Array(self.in_order(xs, out)),
             Expr::Field { base, name } => Expr::Field {
                 base: self.boxed(base, out),
                 name,
             },
             Expr::Index { base, index } => {
-                let base = self.boxed(base, out);
-                let index = self.boxed(index, out);
-                Expr::Index { base, index }
+                let mut xs = self.in_order(vec![*base, *index], out);
+                let index = xs.pop().expect("two");
+                let base = xs.pop().expect("two");
+                Expr::Index {
+                    base: Box::new(base),
+                    index: Box::new(index),
+                }
             }
             Expr::Unary { op, expr } => Expr::Unary {
                 op,
@@ -204,17 +230,101 @@ impl Lifter {
                 wrapper,
                 expr: self.boxed(expr, out),
             },
+            Expr::Binary {
+                op: op @ (BinOp::And | BinOp::Or),
+                left,
+                right,
+            } => Expr::Binary {
+                op,
+                left: self.boxed(left, out),
+                right,
+            },
             Expr::Binary { op, left, right } => {
-                let left = self.boxed(left, out);
-                let right = if matches!(op, purecrate_ir::BinOp::And | purecrate_ir::BinOp::Or) {
-                    right
-                } else {
-                    self.boxed(right, out)
-                };
-                Expr::Binary { op, left, right }
+                let mut xs = self.in_order(vec![*left, *right], out);
+                let right = xs.pop().expect("two");
+                let left = xs.pop().expect("two");
+                Expr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
             }
             other => other,
         }
+    }
+
+    /// Siblings evaluated left to right. Hoisting a `?` out of one moves it
+    /// in front of the whole statement, so every earlier sibling that could
+    /// panic is bound first, keeping Rust's order.
+    fn in_order(&mut self, xs: Vec<Expr>, out: &mut Hoisted) -> Vec<Expr> {
+        let mut done: Vec<Expr> = Vec::with_capacity(xs.len());
+        for x in xs {
+            let mut own = Vec::new();
+            let x = self.extract_into(x, &mut own);
+            if !own.is_empty() {
+                done = std::mem::take(&mut done).into_iter().map(|d| self.spill(d, out)).collect();
+            }
+            out.extend(own);
+            done.push(x);
+        }
+        done
+    }
+
+    /// Binds `expr` to a fresh variable unless evaluating it cannot panic.
+    /// Literal shapes keep their shape, so TS still sees the literal type.
+    fn spill(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
+        match expr {
+            e if pure(&e) => e,
+            Expr::Construct {
+                ty,
+                variant,
+                fields,
+                base,
+            } => {
+                let fields = match fields {
+                    Fields::Unit => Fields::Unit,
+                    Fields::Positional(xs) => Fields::Positional(xs.into_iter().map(|x| self.spill(x, out)).collect()),
+                    Fields::Named(xs) => Fields::Named(xs.into_iter().map(|(n, x)| (n, self.spill(x, out))).collect()),
+                };
+                let base = base.map(|b| Box::new(self.spill(*b, out)));
+                Expr::Construct {
+                    ty,
+                    variant,
+                    fields,
+                    base,
+                }
+            }
+            Expr::Tuple(xs) => Expr::Tuple(xs.into_iter().map(|x| self.spill(x, out)).collect()),
+            Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| self.spill(x, out)).collect()),
+            Expr::Ignored { wrapper, expr } => Expr::Ignored {
+                wrapper,
+                expr: Box::new(self.spill(*expr, out)),
+            },
+            other => {
+                let name = self.fresh();
+                out.push((name.clone(), other, None));
+                Expr::Var(name)
+            }
+        }
+    }
+}
+
+enum Shape {
+    Unit,
+    Positional,
+    Named,
+}
+
+/// Evaluating it has no effect and cannot panic.
+fn pure(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(_) | Expr::Var(_) | Expr::Closure { .. } => true,
+        Expr::Field { base, .. } => pure(base),
+        Expr::Call {
+            callee: Callee::OptionNone,
+            ..
+        } => true,
+        _ => false,
     }
 }
 
@@ -223,9 +333,12 @@ fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
         name,
         mutable: false,
         ty: None,
-        value: Box::new(Expr::Try {
-            expr: Box::new(inner),
-            on,
+        value: Box::new(match on {
+            Some(on) => Expr::Try {
+                expr: Box::new(inner),
+                on,
+            },
+            None => inner,
         }),
         then: Box::new(then),
     })
