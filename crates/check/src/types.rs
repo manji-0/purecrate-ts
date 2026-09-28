@@ -232,13 +232,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 value,
                 then,
             } => {
+                let before = self.out.len();
                 let (value, vt) = self.expr(value, ty.as_ref());
                 let bound = ty.clone().or(vt);
-                if *mutable && bound.is_none() {
+                if bound.is_none() && self.out.len() == before {
+                    let (kw, first) = if *mutable { ("let mut", " from its first value") } else { ("let", "") };
                     self.error(Reason::NeedsAnnotation, format!(
-                        "the type of `let mut {}` is not known from its first value; write `let mut {}: T`",
-                        name.as_str(),
-                        name.as_str()
+                        "the type of `{kw} {n}` is not known{first}; write `{kw} {n}: T`",
+                        n = name.as_str(),
                     ));
                 }
                 // TS widens an unannotated binding (`kind: "Walk"` becomes
@@ -553,12 +554,24 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
+    /// An operator whose operand types stayed unknown would print as the raw
+    /// JS operator. Not reported when this item already failed: the unknown
+    /// type most likely comes from a binding reported there.
+    fn unknown(&mut self, what: &str) {
+        if !self.out.iter().any(|d| d.item == self.item) {
+            self.error(Reason::NeedsAnnotation, format!(
+                "the operand types of this {what} are not known here; annotate the binding they come from"
+            ));
+        }
+    }
+
     fn binary(&mut self, op: BinOp, left: &Expr, right: &Expr, want: Option<&Ty>) -> Typed {
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                 let (l, lt, r, rt) = self.pair(left, right, want);
                 let t = join(lt, rt);
                 let Some(t) = t.filter(|t| *t != Ty::Never) else {
+                    self.unknown("arithmetic");
                     return (rebuild(op, l, r), None);
                 };
                 let e = match self.num(&t) {
@@ -586,7 +599,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 let (l, lt, r, rt) = self.compared(left, right);
-                if let Some(t) = join(lt, rt).filter(|t| *t != Ty::Never) {
+                let t = join(lt, rt).filter(|t| *t != Ty::Never);
+                if t.is_none() {
+                    self.unknown("comparison");
+                }
+                if let Some(t) = t {
                     let ordered = !matches!(op, BinOp::Eq | BinOp::Ne);
                     let ok = match self.norm(&t) {
                         _ if self.num(&t).is_some() => true,
@@ -619,6 +636,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 let (e, t) = self.expr(inner, want);
                 let Some(t) = t.filter(|t| *t != Ty::Never) else {
+                    self.unknown("negation");
                     return (neg(e), None);
                 };
                 let e = match self.num(&t) {
@@ -916,7 +934,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Some(inner) => (typed_args(self, vec![inner]), want.cloned()),
                     None => {
                         let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                        let t = typed.first().and_then(|(_, t)| t.clone()).map(Ty::option);
+                        let inner = typed.first().and_then(|(_, t)| t.clone());
+                        if inner.as_ref().is_some_and(|t| matches!(self.norm(t), Ty::Option(_))) {
+                            self.error(Reason::NestedOption, format!(
+                                "`Some` of `{}` is `Option<Option<_>>`, and both `None`s are `null` in TS; use an enum",
+                                show(inner.as_ref().expect("checked"))
+                            ));
+                        }
+                        let t = inner.map(Ty::option);
                         (typed.into_iter().map(|(e, _)| e).collect(), t)
                     }
                 }
