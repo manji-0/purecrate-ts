@@ -6,7 +6,7 @@ Rust で書いた純粋なドメイン関数を、WASM なしの TypeScript パ�
 
 ## 必要条件
 
-- Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。
+- Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。`check` と `build` は入力を `rustc` でもコンパイルするので、実行時にも `rustc` が要る（`RUSTC` で差し替え可）。
 - 生成物の型検査と、Rust との差分テストには Node と `npx`（TypeScript 5）が要る。
 
 ## 使い方
@@ -23,7 +23,7 @@ purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--schema zod|val
 purecrate-ts survey <crate-path>... [--json]
 ```
 
-`check` は受理できない定義を `path:line:col` と理由コードで拒否し、ファイルを書かない。`--out` を付けると、既存の生成物とのバイト一致も見る。`survey` は公開関数と公開型が、参照先ごと受理できるかを JSON で出す。
+`check` は受理できない定義を `path:line:col` と理由コードで拒否し、ファイルを書かない。サブセットの検査を通ったあと、入力を rustc にかけ、コンパイルできなければ `[rustc/E0382]` のように rustc のエラーコードで拒否する。`check` が通れば、入力はライブラリとしてコンパイルできる。`--out` を付けると、既存の生成物とのバイト一致も見る。`survey` は公開関数と公開型が、参照先ごと受理できるかを JSON で出す。
 
 数値のブランドはパッケージ `purecrate` にある。`--schema` を付けたときだけ、そのライブラリ向けのワイヤ用スキーマを `src/purecrate-wire.ts` に出す。serde の既定 JSON を、ドメインのブランド型へ読む。指定していないライブラリのスキーマは出さない。
 
@@ -35,7 +35,7 @@ purecrate-ts survey <crate-path>... [--json]
 ./scripts/verify.sh
 ```
 
-`cargo test --offline`、examples/counter の生成物とのドリフト検出、そのパッケージの `tsc` を順に走らせる。差分テストは、同じ入力を Rust と生成 TS（Node）の両方で実行して比べる。
+`cargo test --offline`、examples/counter の生成物とのドリフト検出、examples/order の `check`、そのパッケージの `tsc` を順に走らせる。差分テストは、同じ入力を Rust と生成 TS（Node）の両方で実行して比べる。
 
 ## 受理するもの
 
