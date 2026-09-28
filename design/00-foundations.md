@@ -339,7 +339,7 @@ pub fn step(state: State, event: Event) -> State {
 - `HashMap` / `BTreeMap`: v0 禁止。v1 はキーが `String` のときだけ `ReadonlyMap<string, V>`
 - WASM: 同じ IR から出す第二バックエンドとして予約する。v0 では実装しない。IR を TS 印刷に固定しない
 
-詳細は `01-surface-flatten-roadmap.md`。v1 はカウンタ例が通ったあと、型パラメータなしでは表せない例が必要になった時点で入れる。
+公開面と v1 の範囲は [design/01](./01-surface-flatten-roadmap.md)。今の制約の全体と、次に足す順序は [design/08](./08-limits-and-roadmap.md)。v1 は、型パラメータなしでは表せない例が必要になった時点で入れる。
 
 ## 17. 既存ツールとの位置
 

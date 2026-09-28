@@ -39,7 +39,7 @@ purecrate-ts survey <crate-path>... [--json]
 
 ## 受理するもの
 
-v0 が書けるのは、おおよそ次である。詳細と、生成 TS を呼ぶ側の制約は [design/07-authored-constraints.md](design/07-authored-constraints.md)。
+v0 が書けるのは、おおよそ次である。詳細と、生成 TS を呼ぶ側の制約は [design/07-authored-constraints.md](design/07-authored-constraints.md)。制約の全体と、その先に足す順序は [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md)。
 
 - struct、enum（`kind` 判別ユニオン）、1 要素のタプル構造体（newtype）
 - `Option`、`Result`、`?`、`if let`、網羅的な `match`
@@ -61,6 +61,7 @@ v0 が書けるのは、おおよそ次である。詳細と、生成 TS を呼�
 | [design/05-type-sharing-scope.md](design/05-type-sharing-scope.md) | JSON との境界 |
 | [design/06-acceptance-survey.md](design/06-acceptance-survey.md) | 既存クレートを測った記録。以後の指標ではない |
 | [design/07-authored-constraints.md](design/07-authored-constraints.md) | 新しく書くときの制約と、TS 側に残る制約 |
+| [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md) | 制約の全体と、足す順序 |
 
 ## ライセンス
 

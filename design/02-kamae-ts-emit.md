@@ -174,9 +174,9 @@ export const State = {
 } as const;
 ```
 
-レシーバは第一引数。`this` は出さない。共有参照（`&self`・`&T`・`&str`・`&[T]`）は値と同じに写す。生成 TS は値を変異させず、内部可変性の型は拒否しているので、参照と値を区別する必要がない。`&mut` は拒否する。
+レシーバは第一引数。`this` は出さない。共有参照（`&self`・`&T`・`&str`・`&[T]`）は値と同じに写す。生成 TS は値を変異させない。`Cell` と `RefCell` は拒否し、`Mutex<T>` は `T` に消すので、参照と値を区別する必要がない。`&mut` は拒否する。
 
-`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。レシーバ構文 `x.method(y)` は、型検査でレシーバの型 `T` を求め、`T.method(x, y)` にする。解決先はクレート自身の固有 impl だけで、std の型のメソッド（`len`・`abs` など）は `expr/method-call` として拒否する。
+`Self` は impl の型名に置き換えてから読む。`Type::method(x)` は Companion の関数プロパティ呼び出し `Type.method(x)` になる。レシーバ構文 `x.method(y)` は、型検査でレシーバの型 `T` を求め、`T.method(x, y)` にする。解決先はクレート自身の固有 impl である。std のメソッドは、`Vec` の添字と `len` を除いて拒否する。
 
 ## 6.1 newtype
 
