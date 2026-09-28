@@ -140,7 +140,7 @@ pub enum Patch {
 | --- | --- | --- |
 | `i8`〜`i32`、`u8`〜`u32`、`usize` | ブランド付き `number`（`I32`, `Usize` など） | `Int.i32.of` で入れる。生の `number` の演算結果は戻せない |
 | `f32`, `f64` | `F32`, `F64` | `Int.f32.of` / `Int.f64.of` で入れる。`F32` と `F64` は別の型 |
-| `i64`、`u64` | ブランド付き `bigint` | `number` と混ぜない。`JSON.parse` は 2^53 を超える整数の精度を落とす |
+| `i64`、`u64` | ブランド付き `bigint` | `number` と混ぜない。`JSON.parse` は 2^53 を超える整数の精度を落とすので、serde_json の JSON は `parseJson` で読む |
 | `String` | `string` | `===` は Rust の等価と一致する。`.length` と `[i]` は UTF-16 の単位で、Rust のバイト長・バイト添字ではない。今のサブセットは、その演算を生成しない |
 | newtype | 中身の値にブランドを交差した型 | 実行時の値は中身そのもの。ブランドは JSON を通ると消える。構築は `Meters.of` |
 | `Vec<T>` | `ReadonlyArray<T>` | 添字と `len` は読める。追加、削除、`map` / `filter` は生成しない。実行時に freeze はしない |
