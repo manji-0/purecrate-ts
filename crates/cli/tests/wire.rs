@@ -4,8 +4,9 @@
 //! `Option` (missing or `null`), `Vec`, tuples, newtypes, `Box`, unit, tuple
 //! and struct variants, and recursive enums and structs.
 //!
-//! 64-bit integers are written as decimal strings: the schemas do not read
-//! them from JSON numbers yet.
+//! 64-bit integers come as serde_json writes them, JSON numbers, read from
+//! the text with `parseJson`; a plain `JSON.parse` rounds those past 2^53 and
+//! the schema must then reject them. Decimal strings are accepted too.
 
 #[allow(dead_code, unused_macros)]
 mod support;
@@ -20,12 +21,21 @@ use purecrate_syntax::parse_source;
 
 const SOURCE: &str = include_str!("fixtures/wire_shapes.rs");
 
-/// Reads with the library's own entry point; a rejected input throws.
-fn parse_fn(schema: WireSchema) -> (&'static str, &'static str) {
+/// The library's throwing reader (`parse`) and its non-throwing check
+/// (`valid`): a rejected input must come back as a failure, not a throw.
+fn parse_fns(schema: WireSchema) -> (&'static str, &'static str, &'static str) {
     match schema {
-        WireSchema::Zod => ("", "(s, x) => s.parse(x)"),
-        WireSchema::Valibot => ("import * as v from \"valibot\";\n", "(s, x) => v.parse(s, x)"),
-        WireSchema::Arktype => ("", "(s, x) => s.assert(x)"),
+        WireSchema::Zod => ("", "(s, x) => s.parse(x)", "(s, x) => s.safeParse(x).success"),
+        WireSchema::Valibot => (
+            "import * as v from \"valibot\";\n",
+            "(s, x) => v.parse(s, x)",
+            "(s, x) => v.safeParse(s, x).success",
+        ),
+        WireSchema::Arktype => (
+            "import { type } from \"arktype\";\n",
+            "(s, x) => s.assert(x)",
+            "(s, x) => !(s(x) instanceof type.errors)",
+        ),
     }
 }
 
@@ -69,15 +79,28 @@ const holderValue = {
   },
 };
 
+// serde_json's output for `ints`: 64-bit integers are JSON numbers.
+const intsText =
+  '{"a":-128,"b":32767,"c":-2147483648,"d":-9223372036854775808,"e":255,"f":65535,"g":4294967295,"h":18446744073709551615,"i":9007199254740991}';
+
 const accepts = [
   ["Holder", holder, holderValue],
   ["Ints", ints, intsValue],
+  ["Ints", parseJson(intsText), intsValue],
+  ["Ints", { ...ints, d: -5, h: 9007199254740991 }, { ...intsValue, d: -5n, h: 9007199254740991n }],
+  ["Shape", parseJson('{"Tagged":9007199254740993}'), { kind: "Tagged", content: [9007199254740993n] }],
+  ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", content: [7n] }],
   ["Shape", { Rect: [-1, 0] }, { kind: "Rect", content: [-1, 0] }],
   ["Chain", { value: 3, next: null }, { value: 3, next: null }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
-  ["Ints", { ...ints, d: 1 }],
+  ["Ints", { ...ints, d: 1.5 }],
+  ["Ints", JSON.parse(intsText)],
+  ["Shape", JSON.parse('{"Tagged":9007199254740993}')],
+  ["Ints", { ...ints, h: -1 }],
+  ["Ints", { ...ints, h: "18446744073709551616" }],
+  ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":9223372036854775808,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Shape", { Unknown: 1 }],
   ["Shape", "Circle"],
   ["Tree", { Node: ["Leaf", 1] }],
@@ -95,14 +118,13 @@ for (const [name, input, want] of accepts) {
   }
   if (got !== show(want)) out.push(`${name}: want ${show(want)}\n  got ${got}`);
 }
+const text = (x) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? `${v}n` : v));
 for (const [name, input] of rejects) {
-  let threw = false;
   try {
-    parse(w[name], input);
-  } catch {
-    threw = true;
+    if (valid(w[name], input)) out.push(`${name}: accepted ${text(input)}`);
+  } catch (e) {
+    out.push(`${name}: threw instead of rejecting ${text(input)}: ${e instanceof Error ? e.message : e}`);
   }
-  if (!threw) out.push(`${name}: accepted ${JSON.stringify(input)}`);
 }
 console.log(out.length === 0 ? "ok" : out.join("\n"));
 "#;
@@ -134,10 +156,13 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
         }
         support::typecheck(&dir);
 
-        let (import, parse) = parse_fn(schema);
+        let (import, parse, valid) = parse_fns(schema);
         fs::write(
             dir.join("driver.ts"),
-            format!("{import}import * as w from \"./src/purecrate-wire.ts\";\nconst parse = {parse};\n{CASES}"),
+            format!(
+                "{import}import {{ parseJson }} from \"purecrate\";\nimport * as w from \"./src/purecrate-wire.ts\";\n\
+                 const parse = {parse};\nconst valid = {valid};\n{CASES}"
+            ),
         )
         .expect("write driver");
         let output = Command::new("node")

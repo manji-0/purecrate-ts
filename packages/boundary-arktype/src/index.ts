@@ -27,15 +27,22 @@ export const u16 = small(0, 65535, Int.u16.of);
 export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
-const intText = <T>(pattern: string, of: (n: bigint) => T) =>
-  type(`bigint | string`).pipe((value, ctx) => {
-    if (typeof value === "bigint") return of(value);
-    if (!new RegExp(pattern).test(value)) return ctx.error("an integer string");
-    return of(BigInt(value));
+/**
+ * A JSON number that is a safe integer, a bigint (`parseJson` reads larger
+ * literals as one), or decimal text. A number past 2^53 was already rounded
+ * by `JSON.parse`, so it is rejected rather than read as a wrong value.
+ */
+const big = <T>(pattern: RegExp, min: bigint, max: bigint, of: (n: bigint) => T) =>
+  type("bigint | number | string").pipe((value, ctx) => {
+    if (typeof value === "number" && !Number.isSafeInteger(value)) return ctx.error("a safe integer");
+    if (typeof value === "string" && !pattern.test(value)) return ctx.error("an integer string");
+    const n = BigInt(value);
+    if (n < min || n > max) return ctx.error(`between ${min} and ${max}`);
+    return of(n);
   });
 
-export const i64 = intText("^-?(?:0|[1-9]\\d*)$", Int.i64.of);
-export const u64 = intText("^(?:0|[1-9]\\d*)$", Int.u64.of);
+export const i64 = big(/^-?(?:0|[1-9]\d*)$/, -9223372036854775808n, 9223372036854775807n, Int.i64.of);
+export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of);
 export const f32 = type("number").pipe(Int.f32.of);
 export const f64 = type("number").pipe(Int.f64.of);
 export const str = type("string");

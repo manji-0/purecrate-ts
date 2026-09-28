@@ -66,6 +66,27 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
+const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
+
+/**
+ * JSON text read as `JSON.parse` reads it, except that an integer literal
+ * outside ±(2^53−1) becomes a `bigint` with its exact value. serde_json writes
+ * `i64` and `u64` as JSON numbers; `JSON.parse` would round them.
+ *
+ * Needs a runtime that passes the literal's source text to the reviver
+ * (Node 21+). Elsewhere the number stays rounded, and the `i64`/`u64`
+ * schemas reject it instead of reading a wrong value.
+ */
+export const parseJson = (text: string): unknown =>
+  JSON.parse(text, (_key: string, value: unknown, context?: { source?: string }) =>
+    typeof value === "number" &&
+    !Number.isSafeInteger(value) &&
+    context?.source !== undefined &&
+    INTEGER_LITERAL.test(context.source)
+      ? BigInt(context.source)
+      : value,
+  );
+
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
   i8: small<I8>(-128, 127),

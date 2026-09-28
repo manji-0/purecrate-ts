@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Int, type I64, type F32, type F64 } from "purecrate";
+import { Int, type F32, type F64 } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, z.ZodTypeDef, In>;
 
@@ -15,14 +15,24 @@ export const u16 = small(0, 65535, Int.u16.of);
 export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
-/** Decimal text or bigint. A JSON number is not accepted: it loses precision past 2^53. */
-export const i64: Out<I64, bigint | string> = z
-  .union([z.bigint(), z.string().regex(/^-?(?:0|[1-9]\d*)$/)])
-  .transform((v) => Int.i64.of(typeof v === "bigint" ? v : BigInt(v))) as unknown as Out<I64, bigint | string>;
+/**
+ * A JSON number that is a safe integer, a bigint (`parseJson` reads larger
+ * literals as one), or decimal text. A number past 2^53 was already rounded
+ * by `JSON.parse`, so it is rejected rather than read as a wrong value.
+ */
+const big = <T>(pattern: RegExp, min: bigint, max: bigint, of: (n: bigint) => T): Out<T, bigint | number | string> =>
+  z
+    .union([
+      z.bigint(),
+      z.number().refine(Number.isSafeInteger, "a safe integer; read larger integers with parseJson"),
+      z.string().regex(pattern),
+    ])
+    .transform((v) => BigInt(v))
+    .refine((n) => n >= min && n <= max, `between ${min} and ${max}`)
+    .transform(of) as unknown as Out<T, bigint | number | string>;
 
-export const u64 = z
-  .union([z.bigint(), z.string().regex(/^(?:0|[1-9]\d*)$/)])
-  .transform((v) => Int.u64.of(typeof v === "bigint" ? v : BigInt(v)));
+export const i64 = big(/^-?(?:0|[1-9]\d*)$/, -9223372036854775808n, 9223372036854775807n, Int.i64.of);
+export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of);
 
 export const f32: Out<F32, number> = z.number().transform(Int.f32.of) as unknown as Out<F32, number>;
 export const f64: Out<F64, number> = z.number().transform(Int.f64.of) as unknown as Out<F64, number>;
