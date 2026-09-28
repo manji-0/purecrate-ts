@@ -12,7 +12,7 @@ export const u16 = small(0, 65535, Int.u16.of);
 export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
-const intText = (pattern: RegExp, of: (n: bigint) => unknown) =>
+const intText = <T>(pattern: RegExp, of: (n: bigint) => T) =>
   v.pipe(
     v.union([v.bigint(), v.pipe(v.string(), v.regex(pattern))]),
     v.transform((value) => of(typeof value === "bigint" ? value : BigInt(value))),

@@ -56,7 +56,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             let value = matches!(item, Item::Struct(s) if s.newtype_inner().is_some());
             if value {
                 out.push_str(&format!(
-                    "import {{ {name} as {name}Value, type {name} as {name}$ }} from \"./{}.ts\";\n",
+                    "import {{ {name} as {name}$value, type {name} as {name}$ }} from \"./{}.ts\";\n",
                     item.file_stem()
                 ));
             } else {
@@ -67,15 +67,13 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             }
         }
     }
-    if schema == WireSchema::Arktype {
-        out.push_str(&ark_schemas(krate));
-        return out;
-    }
     for item in krate.exported() {
-        match item {
-            Item::Struct(s) => out.push_str(&struct_schema(schema, s)),
-            Item::Enum(e) => out.push_str(&enum_schema(schema, e.name.as_str(), &e.variants)),
-            Item::Alias(_) | Item::Fn(_) => {}
+        match (item, schema) {
+            (Item::Struct(s), WireSchema::Arktype) => out.push_str(&ark_struct(s)),
+            (Item::Enum(e), WireSchema::Arktype) => out.push_str(&ark_enum(e)),
+            (Item::Struct(s), _) => out.push_str(&struct_schema(schema, s)),
+            (Item::Enum(e), _) => out.push_str(&enum_schema(schema, e.name.as_str(), &e.variants)),
+            (Item::Alias(_) | Item::Fn(_), _) => {}
         }
     }
     out
@@ -95,49 +93,62 @@ import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, un
         .into(),
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-arktype\";
+import { bool, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, u8, unit, usize, type Wire } from \"purecrate-arktype\";
 "
         .into(),
     }
 }
 
+/// Zod and valibot. The domain value is built field by field: a schema's
+/// inferred object type makes a field that may be `undefined` optional
+/// (`unit?: undefined`), which the domain type does not accept.
 fn struct_schema(schema: WireSchema, s: &Struct) -> String {
     let name = s.name.as_str();
     if let Some(inner) = s.newtype_inner() {
         let value = schema_ty(schema, inner);
         return match schema {
             WireSchema::Zod => format!(
-                "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => {value}.transform((v): {name}$ => {name}Value.of(v)));\n"
+                "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => {value}.transform((v): {name}$ => {name}$value.of(v)));\n"
             ),
             WireSchema::Valibot => format!(
-                "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe({value}, v.transform((v): {name}$ => {name}Value.of(v))));\n"
+                "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe({value}, v.transform((v): {name}$ => {name}$value.of(v))));\n"
             ),
-            WireSchema::Arktype => format!(
-                "\nexport const {name} = type.lazy(() => {value}.pipe((v) => {name}Value.of(v)));\n"
-            ),
+            WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
         };
     }
     let fields = s
         .fields
         .iter()
-        .filter(|f| f.name.as_str() != NEWTYPE_FIELD)
         .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(schema, &f.ty, true)))
         .collect::<Vec<_>>()
         .join(", ");
+    let build = fill(schema, &s.fields, "v");
     match schema {
         WireSchema::Zod => format!(
-            "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => z.object({{ {fields} }}).transform((v): {name}$ => v));\n"
+            "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => z.object({{ {fields} }}).transform((v): {name}$ => ({{ {build} }})));\n"
         ),
-        WireSchema::Valibot => {
-            let fill = valibot_fill(s);
-            format!(
-                "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe(v.object({{ {fields} }}), v.transform({fill})));\n"
-            )
-        }
-        WireSchema::Arktype => format!(
-            "\nexport const {name} = type.lazy(() => type({{ {fields} }}).pipe((v): {name} => v));\n"
+        WireSchema::Valibot => format!(
+            "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe(v.object({{ {fields} }}), v.transform((v): {name}$ => ({{ {build} }}))));\n"
         ),
+        WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
     }
+}
+
+/// `a: v.a, b: v.b ?? null`: the fields of a parsed JSON object copied into
+/// the domain value. Valibot leaves a missing optional field `undefined`.
+fn fill(schema: WireSchema, fields: &[purecrate_ir::Field], from: &str) -> String {
+    fields
+        .iter()
+        .map(|f| {
+            let n = f.name.as_str();
+            if schema == WireSchema::Valibot && matches!(f.ty, Ty::Option(_)) {
+                format!("{n}: {from}.{n} ?? null")
+            } else {
+                format!("{n}: {from}.{n}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant]) -> String {
@@ -153,9 +164,7 @@ fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant
         WireSchema::Valibot => format!(
             "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.union([{arms}]));\n"
         ),
-        WireSchema::Arktype => format!(
-            "\nexport const {name} = type.lazy(() => type.or({arms}));\n"
-        ),
+        WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
     }
 }
 
@@ -168,10 +177,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
             WireSchema::Valibot => format!(
                 "v.pipe(v.literal(\"{variant}\"), v.transform((): {enum_name}$ => ({{ kind: \"{variant}\" }})))"
             ),
-            WireSchema::Arktype => format!(
-                "type(\"'{}'\").pipe((): {enum_name} => ({{ kind: \"{variant}\" }}))",
-                variant
-            ),
+            WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
         },
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(schema, variant, tys);
@@ -182,7 +188,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
                 WireSchema::Valibot => format!(
                     "v.pipe(v.object({{ {variant}: {json} }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", content: {content} }})))"
                 ),
-                WireSchema::Arktype => String::new(),
+                WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
             }
         }
         VariantFields::Struct(fs) => {
@@ -191,18 +197,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
                 .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(schema, &f.ty, true)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let copies = fs
-                .iter()
-                .map(|f| {
-                    let n = f.name.as_str();
-                    if schema == WireSchema::Valibot && matches!(f.ty, Ty::Option(_)) {
-                        format!("{n}: v.{variant}.{n} ?? null")
-                    } else {
-                        format!("{n}: v.{variant}.{n}")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+            let copies = fill(schema, fs, &format!("v.{variant}"));
             match schema {
                 WireSchema::Zod => format!(
                     "z.object({{ {variant}: z.object({{ {inner} }}) }}).transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }}))"
@@ -210,103 +205,66 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
                 WireSchema::Valibot => format!(
                     "v.pipe(v.object({{ {variant}: v.object({{ {inner} }}) }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }})))"
                 ),
-                WireSchema::Arktype => format!(
-                    "type({{ {variant}: {{ {inner} }} }}).pipe((v): {enum_name} => ({{ kind: \"{variant}\", {copies} }}))"
-                ),
+                WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
             }
         }
     }
 }
 
-/// Arktype rejects an unordered union of two object morphs, so each variant is
-/// tried on its own. Structs share one module so a recursive alias can refer to
-/// itself by name.
-fn ark_schemas(krate: &Crate) -> String {
-    let mut entries = Vec::new();
-    let mut exports = Vec::new();
-    let mut enums = String::new();
-    for item in krate.exported() {
-        match item {
-            Item::Struct(s) => {
-                entries.push(ark_struct_entry(s));
-                let name = s.name.as_str();
-                exports.push(format!(
-                    "export const {name} = wire.{name}.pipe((v): {name}$ => v);\n"
-                ));
-            }
-            Item::Enum(e) => enums.push_str(&ark_enum(e)),
-            Item::Alias(_) | Item::Fn(_) => {}
-        }
-    }
-    let mut out = String::new();
-    if !entries.is_empty() {
-        out.push_str("\nconst wire = type.module({\n");
-        out.push_str(&entries.join("\n"));
-        out.push_str("\n});\n\n");
-        for export in exports {
-            out.push_str(&export);
-        }
-        out.push('\n');
-    }
-    out.push_str(&enums);
-    out
-}
-
-fn ark_struct_entry(s: &Struct) -> String {
+/// Arktype: every schema is a morph from `unknown`, annotated `Wire<T>` so
+/// recursion does not make TypeScript infer `any`. The JSON shape is compiled
+/// on first use (`memo`), so a definition may refer to a schema declared
+/// later in the file. Variants are tried one at a time: arktype rejects an
+/// unordered union of two object morphs.
+fn ark_struct(s: &Struct) -> String {
     let name = s.name.as_str();
-    if let Some(inner) = s.newtype_inner() {
-        let value = schema_ty(WireSchema::Arktype, inner);
-        return format!("  {name}: {value}.pipe((v): {name}$ => {name}Value.of(v)),");
-    }
-    let fields = s
-        .fields
-        .iter()
-        .filter(|f| f.name.as_str() != NEWTYPE_FIELD)
-        .map(|f| format!("{}: {}", f.name.as_str(), ark_field(&f.ty)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("  {name}: {{ {fields} }},")
-}
-
-fn ark_field(ty: &Ty) -> String {
-    if let Some(referent) = ark_scope_ref(ty) {
-        return format!("\"{referent}\"");
-    }
-    schema_ty_in(WireSchema::Arktype, ty, true)
-}
-
-fn ark_scope_ref(ty: &Ty) -> Option<String> {
-    match ty {
-        Ty::Named(name) => Some(name.as_str().to_string()),
-        Ty::Option(inner) => Some(format!("{} | null = null", ark_scope_ref(inner)?)),
-        Ty::Vec(inner) => Some(format!("{}[]", ark_scope_ref(inner)?)),
-        _ => None,
-    }
+    let (shape, build) = match s.newtype_inner() {
+        Some(inner) => (schema_ty(WireSchema::Arktype, inner), format!("{name}$value.of(parsed)")),
+        None => {
+            let fields = s
+                .fields
+                .iter()
+                .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            (format!("type({{ {fields} }})"), format!("({{ {} }})", fill(WireSchema::Arktype, &s.fields, "parsed")))
+        }
+    };
+    format!(
+        "\nconst {name}$wire = memo(() => {shape});\n\
+         export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
+         \x20 const parsed = {name}$wire()(v);\n\
+         \x20 if (parsed instanceof type.errors) return ctx.error(\"{name}\") as never;\n\
+         \x20 return {build};\n\
+         }});\n"
+    )
 }
 
 fn ark_enum(en: &purecrate_ir::Enum) -> String {
     let name = en.name.as_str();
+    let mut arms = String::new();
     let mut body = String::new();
     for variant in &en.variants {
-        body.push_str(&ark_variant(variant));
+        let (arm, test) = ark_variant(name, variant);
+        arms.push_str(&arm);
+        body.push_str(&test);
     }
     format!(
-        "export const {name} = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n{body}  return ctx.error(\"{name}\") as never;\n}});\n\n"
+        "\n{arms}export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n{body}  return ctx.error(\"{name}\") as never;\n}});\n"
     )
 }
 
-fn ark_variant(variant: &purecrate_ir::Variant) -> String {
+/// The memoized JSON shape of one variant, and the test that tries it.
+fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
     let name = variant.name.as_str();
-    match &variant.fields {
+    let arm = format!("{en}$arm${name}");
+    let (shape, value) = match &variant.fields {
         VariantFields::Unit => {
-            format!("  if (v === \"{name}\") return {{ kind: \"{name}\" }};\n")
+            return (String::new(), format!("  if (v === \"{name}\") return {{ kind: \"{name}\" }};\n"));
         }
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(WireSchema::Arktype, name, tys);
-            let content = content.replace("v.", "parsed.");
-            format!(
-                "  {{\n    const parsed = type({{ {name}: {json} }})(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", content: {content} }};\n  }}\n"
-            )
+            (json, format!("content: {}", content.replace("v.", "parsed.")))
         }
         VariantFields::Struct(fields) => {
             let inner = fields
@@ -314,19 +272,15 @@ fn ark_variant(variant: &purecrate_ir::Variant) -> String {
                 .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let copies = fields
-                .iter()
-                .map(|f| {
-                    let field = f.name.as_str();
-                    format!("{field}: parsed.{name}.{field}")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                "  {{\n    const parsed = type({{ {name}: {{ {inner} }} }})(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", {copies} }};\n  }}\n"
-            )
+            (format!("{{ {inner} }}"), fill(WireSchema::Arktype, fields, &format!("parsed.{name}")))
         }
-    }
+    };
+    (
+        format!("const {arm} = memo(() => type({{ {name}: {shape} }}));\n"),
+        format!(
+            "  {{\n    const parsed = {arm}()(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", {value} }};\n  }}\n"
+        ),
+    )
 }
 
 /// A one-element tuple variant is serde's newtype variant: `{"Add": 4}`, not
@@ -346,50 +300,6 @@ fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty]) -> (String, String)
         WireSchema::Arktype => format!("[{inner}]"),
     };
     (json, format!("v.{variant}"))
-}
-
-fn domain_ty(ty: &Ty) -> String {
-    match ty {
-        Ty::Prim(p) => match p {
-            purecrate_ir::Prim::Bool => "boolean".into(),
-            purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "string".into(),
-            purecrate_ir::Prim::Unit => "undefined".into(),
-            other => other
-                .int()
-                .map(|t| t.ts_name().to_string())
-                .or_else(|| other.float().map(|t| t.ts_name().to_string()))
-                .unwrap_or_else(|| "number".into()),
-        },
-        Ty::Option(inner) => format!("{} | null", domain_ty(inner)),
-        Ty::Vec(inner) => format!("ReadonlyArray<{}>", domain_ty(inner)),
-        Ty::Tuple(elems) => {
-            let inner = elems.iter().map(domain_ty).collect::<Vec<_>>().join(", ");
-            format!("readonly [{inner}]")
-        }
-        Ty::Named(name) => format!("{}$", name.as_str()),
-        Ty::Ignored { inner, .. } => domain_ty(inner),
-        Ty::Result { ok, err } => format!("Result<{}, {}>", domain_ty(ok), domain_ty(err)),
-        Ty::Fn { .. } | Ty::Never => "never".into(),
-    }
-}
-
-fn valibot_fill(s: &Struct) -> String {
-    let name = s.name.as_str();
-    let body = s
-        .fields
-        .iter()
-        .filter(|f| f.name.as_str() != NEWTYPE_FIELD)
-        .map(|f| {
-            let field = f.name.as_str();
-            if matches!(f.ty, Ty::Option(_)) {
-                format!("{field}: v.{field} ?? null")
-            } else {
-                format!("{field}: v.{field}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("(v): {name}$ => ({{ {body} }})")
 }
 
 fn schema_ty(schema: WireSchema, ty: &Ty) -> String {
