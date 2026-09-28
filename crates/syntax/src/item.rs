@@ -246,6 +246,13 @@ fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
     if has_type_generics(&e.generics) {
         return Err(ParseError::new(Reason::Generics, "generic enums are not in v0"));
     }
+    if e.variants.is_empty() {
+        return Err(ParseError::new(
+            Reason::UnsupportedItem,
+            format!("enum `{}` has no variants; an uninhabited type has no TS union or wire form", e.ident),
+        )
+        .detail("empty-enum"));
+    }
     let mut variants = Vec::new();
     for v in &e.variants {
         reject_attrs(&v.attrs)?;

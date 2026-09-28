@@ -161,7 +161,7 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 
 生成 `tsconfig` は `moduleResolution: bundler` と `.ts` 拡張子の import を使う。`deno check` の NodeNext では読めない。消費側は tsc 5 の strict で読む。
 
-予約名は `Result`、`Int`、`Math`、`assertNever`、`Readonly`、`ReadonlyArray`、ファイル幹 `index` / `result` / `assert-never` / `int`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。
+予約名は `Result`、`Int`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
 
 ## 5. この評価の後にやること
 

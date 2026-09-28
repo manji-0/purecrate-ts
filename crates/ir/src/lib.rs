@@ -17,6 +17,14 @@ pub use name::{to_kebab, Name};
 pub use reason::Reason;
 pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 
+/// Globals the emitted code reads without importing them: a crate name that
+/// equals one would shadow it. Runtime globals (`Math`, `Number`, `Error`,
+/// `BigInt`) are read through `globalThis`, so a crate may define `Error`.
+pub const TS_GLOBALS: &[&str] = &["globalThis", "Readonly", "ReadonlyArray"];
+
+/// A property key an object literal treats as the prototype, not a field.
+pub const PROTO_KEY: &str = "__proto__";
+
 /// Minimal accepting example: `step(State, Event) -> State`.
 pub fn counter_example() -> Crate {
     use item::{Enum as EnumItem, Field as FieldItem, Fn as FnItem, Struct as StructItem};

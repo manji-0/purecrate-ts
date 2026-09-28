@@ -105,5 +105,4 @@ fn comparisons_js_gets_wrong_are_rejected() {
 #[test]
 fn runtime_helper_names_are_reserved() {
     assert_rejects("pub struct Int { pub v: i32 }", "`Int` is reserved");
-    assert_rejects("pub struct Math { pub v: i32 }", "`Math` is reserved");
 }

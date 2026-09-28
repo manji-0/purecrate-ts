@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Crate, Expr, Item, Name, Reason, VariantFields};
+use purecrate_ir::{Crate, Expr, Item, Name, Reason, VariantFields, PROTO_KEY, TS_GLOBALS};
 
 use crate::Diagnostic;
 
@@ -22,11 +22,14 @@ const TS_TYPE_KEYWORDS: &[&str] = &[
     "any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown",
 ];
 
-/// Top-level names the emitted package defines or relies on.
-const GENERATED_NAMES: &[&str] = &[
-    "Result", "assertNever", "Readonly", "ReadonlyArray", "Int", "Math", "I8", "I16", "I32", "I64",
-    "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
+/// Top-level names the emitted package defines; see also `TS_GLOBALS`.
+const PACKAGE_NAMES: &[&str] = &[
+    "Result", "assertNever", "Int", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
 ];
+
+fn is_generated(name: &str) -> bool {
+    PACKAGE_NAMES.contains(&name) || TS_GLOBALS.contains(&name)
+}
 
 /// File stems the emitted package already uses.
 const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int", "purecrate-wire"];
@@ -50,7 +53,7 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
     for (i, item) in krate.items.iter().enumerate().filter(|(_, it)| is_top_level(it)) {
         let name = item.name().as_str();
         let stem = item.file_stem();
-        if GENERATED_NAMES.contains(&name) {
+        if is_generated(name) {
             out.push(Diagnostic::at(
                 i, Reason::ReservedName,
                 format!("`{name}` is reserved by the generated package"),
@@ -100,7 +103,12 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
         let Item::Fn(f) = item else { continue };
         let Some(owner) = &f.owner else { continue };
         let (owner, name) = (owner.as_str(), f.name.as_str());
-        if builtin.get(owner).is_some_and(|b| b.contains(&name)) {
+        if name == PROTO_KEY {
+            out.push(Diagnostic::at(
+                i, Reason::ReservedName,
+                format!("method `{owner}.{name}` would set the prototype of the emitted companion object"),
+            ));
+        } else if builtin.get(owner).is_some_and(|b| b.contains(&name)) {
             out.push(Diagnostic::at(
                 i, Reason::NameCollision,
                 format!("method `{owner}.{name}` collides with the generated companion member `{name}`"),
@@ -125,11 +133,15 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
     };
     let mut ident = |what: &str, name: &Name| {
         let s = name.as_str();
-        if s.starts_with("r#") {
+        if s == PROTO_KEY && matches!(what, "field" | "variant") {
+            bad(what, name, "would set the prototype of the emitted object literal");
+        } else if what == "variant" {
+            // A variant is only a property key and a `kind` string.
+        } else if s.starts_with("r#") {
             bad(what, name, "is a raw identifier; rename it in the crate");
         } else if TS_RESERVED.contains(&s) {
             bad(what, name, "is a reserved word in TypeScript");
-        } else if GENERATED_NAMES.contains(&s) {
+        } else if is_generated(s) {
             bad(what, name, "shadows a name the generated code uses");
         }
     };
@@ -142,6 +154,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
         Item::Enum(e) => {
             ident("type", &e.name);
             for v in &e.variants {
+                ident("variant", &v.name);
                 if let VariantFields::Struct(fields) = &v.fields {
                     for f in fields {
                         ident("field", &f.name);

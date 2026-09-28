@@ -35,6 +35,28 @@ fn generated_names_and_files_are_reserved() {
 }
 
 #[test]
+fn runtime_globals_are_free_names() {
+    // The emitted code reads `Error`, `Number`, `Math` and `BigInt` through
+    // `globalThis`, so a crate may define them.
+    assert_clean(
+        "pub enum Error { NotFound, Number(i32) }\n\
+         pub struct Math { pub n: i32 }\n\
+         pub fn get(xs: Vec<i32>, i: usize) -> Result<i32, Error> { if i < xs.len() { Ok(xs[i]) } else { Err(Error::NotFound) } }",
+    );
+    assert_rejects("#[allow(non_camel_case_types)] pub struct globalThis { pub n: i32 }", "`globalThis` is reserved");
+}
+
+#[test]
+fn proto_cannot_name_an_object_key() {
+    let hint = "would set the prototype";
+    assert_rejects("pub struct S { pub __proto__: i32 }", hint);
+    assert_rejects("pub enum E { A { __proto__: i32 } }", hint);
+    assert_rejects("#[allow(non_camel_case_types)] pub enum E { __proto__ }", hint);
+    assert_rejects("pub struct S { pub n: i32 }\nimpl S { pub fn __proto__(self) -> S { self } }", hint);
+    assert_clean("pub fn f(__proto__: i32) -> i32 { __proto__ }");
+}
+
+#[test]
 fn ts_reserved_words_are_rejected_where_they_become_identifiers() {
     assert_rejects("pub struct S { pub default: i32 }", "field `default`");
     assert_rejects("pub fn f(new: i32) -> i32 { new }", "parameter `new`");

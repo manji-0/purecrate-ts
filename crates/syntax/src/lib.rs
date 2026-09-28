@@ -119,6 +119,7 @@ mod tests {
         assert_eq!(reason("pub fn f(x: Rc<i32>) -> i32 { 0 }"), (Reason::DisallowedType, Some("Rc".into())));
         assert_eq!(reason("pub fn f(n: i32) -> i32 { Box::new(n, n) }").0, Reason::ConstructShape);
         assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
+        assert_eq!(reason("pub enum Void {}"), (Reason::UnsupportedItem, Some("empty-enum".into())));
         assert_eq!(reason("pub fn f<T>(x: T) -> i32 { 0 }").0, Reason::Generics);
         assert_eq!(reason("pub fn f(x: isize) -> i32 { 0 }"), (Reason::DisallowedType, Some("isize".into())));
         assert_eq!(reason("pub fn f() -> Self { 0 }").0, Reason::SelfType);
