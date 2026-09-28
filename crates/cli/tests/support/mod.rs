@@ -63,6 +63,12 @@ impl Js for str {
     }
 }
 
+impl Js for String {
+    fn js(&self) -> String {
+        self.as_str().js()
+    }
+}
+
 impl<T: Js> Js for [T] {
     fn js(&self) -> String {
         format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
