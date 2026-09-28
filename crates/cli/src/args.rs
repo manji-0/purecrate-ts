@@ -5,9 +5,13 @@ use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "\
 usage:
-  purecrate-ts build <crate-path> --out <dir> [--name <crate>]
-  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>]
+  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--schema <lib>]
+  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--schema <lib>]
   purecrate-ts survey <crate-path>... [--json]
+
+--schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
+schemas for the public structs and enums. The numeric fields come from
+the matching purecrate-* adapter.
 
 <crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
 single .rs file.
@@ -25,8 +29,16 @@ pub struct Input {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Build { input: Input, out: PathBuf },
-    Check { input: Input, out: Option<PathBuf> },
+    Build {
+        input: Input,
+        out: PathBuf,
+        schema: Option<String>,
+    },
+    Check {
+        input: Input,
+        out: Option<PathBuf>,
+        schema: Option<String>,
+    },
     Survey { inputs: Vec<Input>, json: bool },
 }
 
@@ -38,11 +50,19 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut path: Option<PathBuf> = None;
     let mut name: Option<String> = None;
     let mut out: Option<PathBuf> = None;
+    let mut schema: Option<String> = None;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--name" => name = Some(it.next().ok_or("--name needs a value")?.clone()),
             "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
+            "--schema" => {
+                let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
+                if !matches!(value.as_str(), "zod" | "valibot" | "arktype") {
+                    return Err(format!("--schema {value} is not zod, valibot, or arktype"));
+                }
+                schema = Some(value.clone());
+            }
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}")),
             other if path.is_some() => return Err(format!("unexpected argument {other}")),
             other => path = Some(PathBuf::from(other)),
@@ -54,8 +74,9 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "build" => Ok(Command::Build {
             input,
             out: out.ok_or("build needs --out <dir>")?,
+            schema,
         }),
-        "check" => Ok(Command::Check { input, out }),
+        "check" => Ok(Command::Check { input, out, schema }),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -156,7 +177,8 @@ mod tests {
                     src: dir.join("src/lib.rs"),
                     name: "counter".into()
                 },
-                out: None
+                out: None,
+                schema: None,
             }
         );
     }
@@ -164,11 +186,12 @@ mod tests {
     #[test]
     fn lib_rs_path_uses_the_crate_directory_name() {
         let src = examples().join("counter/src/lib.rs");
-        let Command::Build { input, out } =
+        let Command::Build { input, out, schema } =
             parse(&args(&["build", src.to_str().unwrap(), "--out", "o"])).unwrap()
         else {
             panic!("expected build");
         };
+        assert_eq!(schema, None);
         assert_eq!(input.name, "counter");
         assert_eq!(out, PathBuf::from("o"));
     }

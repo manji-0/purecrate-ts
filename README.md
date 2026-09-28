@@ -18,12 +18,14 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 `<crate-path>` はクレートのディレクトリ（`src/lib.rs`）か、単一の `.rs` ファイル。`--name` を省くと `Cargo.toml` のパッケージ名を使う。
 
 ```text
-purecrate-ts build <crate-path> --out <dir> [--name <crate>]
-purecrate-ts check <crate-path> [--out <dir>] [--name <crate>]
+purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--schema zod|valibot|arktype]
+purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--schema zod|valibot|arktype]
 purecrate-ts survey <crate-path>... [--json]
 ```
 
 `check` は受理できない定義を `path:line:col` と理由コードで拒否し、ファイルを書かない。`--out` を付けると、既存の生成物とのバイト一致も見る。`survey` は公開関数と公開型が、参照先ごと受理できるかを JSON で出す。
+
+数値のブランドはパッケージ `purecrate` にある。`--schema` を付けたときだけ、そのライブラリ向けのワイヤ用スキーマを `src/purecrate-wire.ts` に出す。serde の既定 JSON を、ドメインのブランド型へ読む。指定していないライブラリのスキーマは出さない。
 
 生成したパッケージは編集しない。変えるときは Rust を変えて作り直す。
 

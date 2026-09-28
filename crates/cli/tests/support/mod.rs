@@ -226,6 +226,14 @@ fn driver(cases: &[Case]) -> String {
     out
 }
 
+pub fn link_purecrate(dir: &std::path::Path) {
+    let boundary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/boundary");
+    let modules = dir.join("node_modules/purecrate");
+    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir node_modules");
+    let _ = fs::remove_file(&modules);
+    std::os::unix::fs::symlink(&boundary, &modules).expect("link purecrate");
+}
+
 /// Accepts `source`, generates its package, and checks every case agrees.
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
     assert!(
@@ -248,6 +256,7 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
         fs::write(path, file.source).expect("write");
     }
     fs::write(dir.join("driver.ts"), driver(cases)).expect("write driver");
+    link_purecrate(&dir);
 
     let output = Command::new("node")
         .arg("driver.ts")

@@ -10,7 +10,8 @@ use std::process::ExitCode;
 
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
-use purecrate_pack::{assemble, disk_path};
+use purecrate_emit_ts::WireSchema;
+use purecrate_pack::{assemble_with, disk_path};
 use purecrate_syntax::{parse_source_spanned, LineCol};
 
 use args::{Command, Input};
@@ -24,23 +25,35 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let result = match command {
-        Command::Build { input, out } => {
-            load(&input, "nothing written").and_then(|pkg| write_replacing(&out, &pkg.files))
-        }
-        Command::Check { input, out: None } => load(&input, "").map(|_| ()),
-        Command::Check {
-            input,
-            out: Some(out),
-        } => load(&input, "").and_then(|pkg| check_drift(&input, &out, &pkg)),
-        Command::Survey { inputs, json } => run_survey(&inputs, json),
-    };
+    let result = execute(command);
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{e}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn execute(command: Command) -> Result<(), String> {
+    match command {
+        Command::Build { input, out, schema } => {
+            let schema = parse_schema(schema)?;
+            load(&input, "nothing written", schema).and_then(|pkg| write_replacing(&out, &pkg.files))
+        }
+        Command::Check { input, out: None, schema } => {
+            let schema = parse_schema(schema)?;
+            load(&input, "", schema).map(|_| ())
+        }
+        Command::Check {
+            input,
+            out: Some(out),
+            schema,
+        } => {
+            let schema = parse_schema(schema)?;
+            load(&input, "", schema).and_then(|pkg| check_drift(&input, &out, &pkg))
+        }
+        Command::Survey { inputs, json } => run_survey(&inputs, json),
     }
 }
 
@@ -67,7 +80,16 @@ fn run_survey(inputs: &[Input], json: bool) -> Result<(), String> {
 }
 
 /// Parse, check, prune, emit. `consequence` ends the error summary line.
-fn load(input: &Input, consequence: &str) -> Result<Package, String> {
+fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
+    match schema {
+        None => Ok(None),
+        Some(name) => WireSchema::parse(&name)
+            .map(Some)
+            .ok_or_else(|| format!("--schema {name} is not zod, valibot, or arktype")),
+    }
+}
+
+fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<Package, String> {
     let src = &input.src;
     let text = fs::read_to_string(src).map_err(|e| format!("read {}: {e}", src.display()))?;
     let (krate, spans) = parse_source_spanned(&input.name, &text).map_err(|e| match e.at {
@@ -75,7 +97,7 @@ fn load(input: &Input, consequence: &str) -> Result<Package, String> {
         None => format!("{}: {e}", src.display()),
     })?;
     let diagnostics = match accept(&krate) {
-        Ok(typed) => return Ok(assemble(&prune_unreachable(&typed))),
+        Ok(typed) => return Ok(assemble_with(&prune_unreachable(&typed), schema)),
         Err(d) => d,
     };
     let at = |i: usize| {
@@ -130,6 +152,9 @@ fn read_tree(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
         for entry in entries {
             let path = entry.map_err(|e| format!("read {}: {e}", dir.display()))?.path();
             if path.is_dir() {
+                if path.file_name().and_then(|n| n.to_str()) == Some("node_modules") {
+                    continue;
+                }
                 stack.push(path);
                 continue;
             }

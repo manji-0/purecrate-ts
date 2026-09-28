@@ -1,6 +1,10 @@
 //! Print a `Crate` into kamae-ts files. No I/O.
 
+mod schema;
+
 use std::collections::{BTreeMap, BTreeSet};
+
+pub use schema::{emit_wire, WireSchema};
 
 use purecrate_ir::{
     BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
@@ -65,94 +69,9 @@ fn assert_never_src() -> String {
 /// Integer arithmetic as a Rust debug build does it. `number` widths stay
 /// exact because every in-range result is below 2^53, and rounding cannot move
 /// an out-of-range product back inside the bounds. `+ 0` turns `-0` into `0`.
-fn brand_line(name: &str, host: &str) -> String {
-    format!(
-        "declare const {name}Brand: unique symbol;\n\
-         export type {name} = {host} & {{ readonly [{name}Brand]: true }};\n"
-    )
-}
-
 fn int_src() -> String {
-    let mut brands = String::new();
-    for t in IntTy::ALL {
-        let host = if t.is_big() { "bigint" } else { "number" };
-        brands.push_str(&brand_line(t.ts_name(), host));
-    }
-    brands.push_str(&brand_line("F32", "number"));
-    brands.push_str(&brand_line("F64", "number"));
-    let small = IntTy::ALL
-        .into_iter()
-        .filter(|t| !t.is_big())
-        .map(|t| {
-            let (lo, hi) = t.bounds();
-            format!("  {}: small<{name}>({lo}, {hi}),\n", t.as_str(), name = t.ts_name())
-        })
-        .collect::<String>();
-    let big = IntTy::ALL
-        .into_iter()
-        .filter(|t| t.is_big())
-        .map(|t| {
-            let (lo, hi) = t.bounds();
-            format!("  {}: big<{name}>({lo}n, {hi}n),\n", t.as_str(), name = t.ts_name())
-        })
-        .collect::<String>();
     format!(
-        "{HEADER}
-{brands}
-const panic = (what: string): never => {{
-  throw new Error(`attempt to ${{what}}`);
-}};
-
-const small = <T extends number>(min: number, max: number) => {{
-  const fit = (n: number, what: string): T =>
-    (n < min || n > max ? panic(`${{what}} with overflow`) : n + 0) as T;
-  const of = (value: number): T => {{
-    if (!Number.isInteger(value)) panic(\"convert a non-integer\");
-    return fit(value, \"convert\");
-  }};
-  return {{
-    of,
-    add: (a: T, b: T): T => fit(a + b, \"add\"),
-    sub: (a: T, b: T): T => fit(a - b, \"subtract\"),
-    mul: (a: T, b: T): T => fit(a * b, \"multiply\"),
-    div: (a: T, b: T): T =>
-      b === 0 ? panic(\"divide by zero\") : fit(Math.trunc(a / b), \"divide\"),
-    rem: (a: T, b: T): T =>
-      b === 0
-        ? panic(\"calculate the remainder with a divisor of zero\")
-        : ((fit(Math.trunc(a / b), \"calculate the remainder\"), (a % b) + 0) as T),
-    neg: (a: T): T => fit(-a, \"negate\"),
-  }} as const;
-}};
-
-const big = <T extends bigint>(min: bigint, max: bigint) => {{
-  const fit = (n: bigint, what: string): T =>
-    (n < min || n > max ? panic(`${{what}} with overflow`) : n) as T;
-  const n = (x: T): bigint => x as bigint;
-  return {{
-    of: (value: bigint): T => fit(value, \"convert\"),
-    add: (a: T, b: T): T => fit(n(a) + n(b), \"add\"),
-    sub: (a: T, b: T): T => fit(n(a) - n(b), \"subtract\"),
-    mul: (a: T, b: T): T => fit(n(a) * n(b), \"multiply\"),
-    div: (a: T, b: T): T =>
-      n(b) === 0n ? panic(\"divide by zero\") : fit(n(a) / n(b), \"divide\"),
-    rem: (a: T, b: T): T =>
-      n(b) === 0n
-        ? panic(\"calculate the remainder with a divisor of zero\")
-        : ((fit(n(a) / n(b), \"calculate the remainder\"), n(a) % n(b)) as unknown as T),
-    neg: (a: T): T => fit(-n(a), \"negate\"),
-  }} as const;
-}};
-
-export const Int = {{
-{small}{big}  f32: {{
-    of: (value: number): F32 => Math.fround(value) as F32,
-  }},
-  f64: {{
-    of: (value: number): F64 => value as F64,
-  }},
-}} as const;
-"
+        "{HEADER}\nexport {{ Int, type I8, type I16, type I32, type I64, type U8, type U16, type U32, type U64, type Usize, type F32, type F64 }} from \"purecrate\";\n"
     )
 }
 

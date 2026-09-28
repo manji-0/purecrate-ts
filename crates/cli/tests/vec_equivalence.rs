@@ -64,6 +64,7 @@ fn out_of_range_index_uses_rusts_panic_message() {
         "import { at } from \"./src/at.ts\";\ntry { at([1, 2, 3], 5); } catch (e) { console.log(e.message); }\n",
     )
     .unwrap();
+    support::link_purecrate(&dir);
     let output = std::process::Command::new("node")
         .arg("driver.ts")
         .current_dir(&dir)

@@ -29,7 +29,7 @@ const GENERATED_NAMES: &[&str] = &[
 ];
 
 /// File stems the emitted package already uses.
-const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int"];
+const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int", "purecrate-wire"];
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();

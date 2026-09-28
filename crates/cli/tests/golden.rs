@@ -21,7 +21,9 @@ fn files_under(root: &Path) -> BTreeSet<String> {
         for entry in fs::read_dir(&dir).expect("read_dir") {
             let path = entry.expect("entry").path();
             if path.is_dir() {
-                stack.push(path);
+                if path.file_name().and_then(|n| n.to_str()) != Some("node_modules") {
+                    stack.push(path);
+                }
             } else {
                 let rel = path.strip_prefix(root).expect("prefix");
                 out.insert(rel.to_string_lossy().replace('\\', "/"));

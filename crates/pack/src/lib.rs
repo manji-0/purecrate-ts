@@ -1,13 +1,23 @@
-use purecrate_emit_ts::{emit, File as TsFile, Package};
+use purecrate_emit_ts::{emit, emit_wire, File as TsFile, Package, WireSchema};
 use purecrate_ir::Crate;
 
 pub fn assemble(krate: &Crate) -> Package {
+    assemble_with(krate, None)
+}
+
+pub fn assemble_with(krate: &Crate, schema: Option<WireSchema>) -> Package {
     let mut pkg = emit(krate);
+    if let Some(schema) = schema {
+        pkg.files.push(TsFile {
+            stem: "purecrate-wire".to_string(),
+            source: emit_wire(krate, schema),
+        });
+    }
     pkg.files.insert(
         0,
         TsFile {
             stem: "package.json".to_string(),
-            source: package_json(krate.name.as_str()),
+            source: package_json(krate.name.as_str(), schema),
         },
     );
     pkg.files.insert(
@@ -28,15 +38,21 @@ pub fn disk_path(stem: &str) -> String {
     }
 }
 
-fn package_json(name: &str) -> String {
+fn package_json(name: &str, schema: Option<WireSchema>) -> String {
     let kebab = purecrate_ir::to_kebab(name);
+    let mut deps = vec!["    \"purecrate\": \"0.1.0\"".to_string()];
+    if let Some(schema) = schema {
+        deps.push(format!("    \"{}\": \"{}\"", schema.runtime_dep(), schema.version()));
+        deps.push(format!("    \"{}\": \"0.1.0\"", schema.package()));
+    }
     format!(
-        "{{\n  \"name\": \"{kebab}\",\n  \"type\": \"module\",\n  \"exports\": \"./src/index.ts\"\n}}\n"
+        "{{\n  \"name\": \"{kebab}\",\n  \"type\": \"module\",\n  \"exports\": \"./src/index.ts\",\n  \"dependencies\": {{\n{}\n  }}\n}}\n",
+        deps.join(",\n")
     )
 }
 
 fn tsconfig() -> String {
-    "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"noEmit\": true\n  },\n  \"include\": [\"src\"]\n}\n"
+    "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"skipLibCheck\": true,\n    \"noEmit\": true\n  },\n  \"include\": [\"src\"]\n}\n"
         .to_string()
 }
 

@@ -1,3 +1,4 @@
 target/
 .worktrees/
 corpus/src/
+node_modules/
