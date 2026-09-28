@@ -168,6 +168,9 @@ fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant
     }
 }
 
+/// serde's externally tagged enum: `{"Variant": ..}` has exactly one key, so
+/// the wrapper rejects any other key. The fields inside a struct variant are a
+/// struct's, and unknown ones are ignored as serde does by default.
 fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &VariantFields) -> String {
     match fields {
         VariantFields::Unit => match schema {
@@ -183,10 +186,10 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
             let (json, content) = tuple_json(schema, variant, tys);
             match schema {
                 WireSchema::Zod => format!(
-                    "z.object({{ {variant}: {json} }}).transform((v): {enum_name}$ => ({{ kind: \"{variant}\", content: {content} }}))"
+                    "z.object({{ {variant}: {json} }}).strict().transform((v): {enum_name}$ => ({{ kind: \"{variant}\", content: {content} }}))"
                 ),
                 WireSchema::Valibot => format!(
-                    "v.pipe(v.object({{ {variant}: {json} }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", content: {content} }})))"
+                    "v.pipe(v.strictObject({{ {variant}: {json} }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", content: {content} }})))"
                 ),
                 WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
             }
@@ -200,10 +203,10 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
             let copies = fill(schema, fs, &format!("v.{variant}"));
             match schema {
                 WireSchema::Zod => format!(
-                    "z.object({{ {variant}: z.object({{ {inner} }}) }}).transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }}))"
+                    "z.object({{ {variant}: z.object({{ {inner} }}) }}).strict().transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }}))"
                 ),
                 WireSchema::Valibot => format!(
-                    "v.pipe(v.object({{ {variant}: v.object({{ {inner} }}) }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }})))"
+                    "v.pipe(v.strictObject({{ {variant}: v.object({{ {inner} }}) }}), v.transform((v): {enum_name}$ => ({{ kind: \"{variant}\", {copies} }})))"
                 ),
                 WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
             }
@@ -276,7 +279,7 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
         }
     };
     (
-        format!("const {arm} = memo(() => type({{ {name}: {shape} }}));\n"),
+        format!("const {arm} = memo(() => type({{ \"+\": \"reject\", {name}: {shape} }}));\n"),
         format!(
             "  {{\n    const parsed = {arm}()(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", {value} }};\n  }}\n"
         ),

@@ -92,6 +92,9 @@ const accepts = [
   ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", content: [7n] }],
   ["Shape", { Rect: [-1, 0] }, { kind: "Rect", content: [-1, 0] }],
   ["Chain", { value: 3, next: null }, { value: 3, next: null }],
+  // serde ignores unknown struct fields by default, inside a variant too.
+  ["Chain", { value: 3, extra: true }, { value: 3, next: null }],
+  ["Shape", { Named: { label: "x", extra: 1 } }, { kind: "Named", label: "x", tag: null }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
@@ -102,6 +105,12 @@ const rejects = [
   ["Ints", { ...ints, h: "18446744073709551616" }],
   ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":9223372036854775808,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Shape", { Unknown: 1 }],
+  // serde's externally tagged enum: the wrapper has exactly one key.
+  ["Shape", { Circle: 1.5, Rect: [1, 2] }],
+  ["Shape", { Tagged: 7, extra: 1 }],
+  ["Shape", { Named: { label: "x" }, Dot: null }],
+  ["Tree", { Node: ["Leaf", 1, "Leaf"], Leaf: null }],
+  ["Shape", {}],
   ["Shape", "Circle"],
   ["Tree", { Node: ["Leaf", 1] }],
   ["Chain", { value: 1.5 }],
