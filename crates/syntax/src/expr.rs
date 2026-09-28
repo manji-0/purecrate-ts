@@ -94,6 +94,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         }
         SynExpr::Struct(s) => lower_struct_expr(cx, s),
         SynExpr::Call(c) => lower_call(cx, &c.func, c.args.iter().collect()),
+        // `()` is the unit value, not an empty tuple: its type is `()` and
+        // it prints as `undefined`.
+        SynExpr::Tuple(t) if t.elems.is_empty() => Ok(Expr::Lit(Lit::Unit)),
         SynExpr::Tuple(t) => {
             let elems = t
                 .elems

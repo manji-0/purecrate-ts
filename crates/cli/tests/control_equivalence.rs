@@ -74,6 +74,10 @@ fn generated_control_flow_matches_rust() {
             case!(control::accumulate(4i32, 6i32)),
             case!(control::accumulate(4i32, 5i32)),
             case!(control::accumulate(3i32, 5i32)),
+            case!(control::unit_ok(-1i32)),
+            case!(control::unit_ok(1i32)),
+            case!(control::unit_some(0i32)),
+            case!(control::unit_some(1i32)),
         ]
     });
     support::assert_equivalent("control", SOURCE, &cases);

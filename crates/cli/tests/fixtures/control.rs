@@ -219,3 +219,14 @@ pub fn accumulate(a: i32, b: i32) -> Result<i32, i32> {
     sum = sum + half_even(b)?;
     Ok(sum)
 }
+
+pub fn unit_ok(a: i32) -> Result<(), i32> {
+    if a < 0i32 {
+        return Err(a);
+    }
+    Ok(())
+}
+
+pub fn unit_some(a: i32) -> Option<()> {
+    if a == 0i32 { None } else { Some(()) }
+}
