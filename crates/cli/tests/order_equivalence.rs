@@ -26,18 +26,6 @@ impl support::Show for order::OrderError {
     }
 }
 
-/// The text each command code reads: a SKU for line commands, a tracking
-/// number for `Ship`. Code 7 ships with an empty one.
-fn text(code: u8) -> String {
-    match code {
-        1 => "b",
-        7 => "",
-        8 => "T1",
-        _ => "a",
-    }
-    .to_string()
-}
-
 #[test]
 fn generated_order_lifecycle_matches_rust() {
     let codes = 0u8..10;
@@ -47,7 +35,7 @@ fn generated_order_lifecycle_matches_rust() {
             for b in codes.clone() {
                 for c in codes.clone() {
                     for d in codes.clone() {
-                        cases.push(case!(order::run4(a, text(a), b, text(b), c, text(c), d, text(d))));
+                        cases.push(case!(order::run4(a, b, c, d)));
                     }
                 }
             }

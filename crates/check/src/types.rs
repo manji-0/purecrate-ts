@@ -181,10 +181,19 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// Reports a mismatch between a known result and a known expectation.
+    /// A `String` may stand where `&str` is wanted: borrows are erased, and
+    /// `&String` derefs to `&str`. The reverse is a rustc error.
     fn expect(&mut self, want: Option<&Ty>, got: Option<Ty>) -> Option<Ty> {
         if let (Some(w), Some(g)) = (want, &got) {
-            if *g != Ty::Never && *w != Ty::Never && !self.same(w, g) {
-                self.error(Reason::TypeMismatch, format!("expected `{}`, found `{}`", show(w), show(g)));
+            let (wn, gn) = (self.norm(w), self.norm(g));
+            let deref = wn == Ty::Prim(Prim::Str) && gn == Ty::Prim(Prim::String);
+            if *g != Ty::Never && *w != Ty::Never && !deref && !self.same(w, g) {
+                let hint = if wn == Ty::Prim(Prim::String) && gn == Ty::Prim(Prim::Str) {
+                    "; a string literal is `&str`, write `String::from(\"..\")`"
+                } else {
+                    ""
+                };
+                self.error(Reason::TypeMismatch, format!("expected `{}`, found `{}`{hint}", show(w), show(g)));
             }
         }
         got
@@ -450,6 +459,21 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
+    /// Operands of a comparison. Rust compares `String` and `&str` in either
+    /// order, so a string side only asks the other side for `&str`.
+    fn compared(&mut self, a: &Expr, b: &Expr) -> (Expr, Option<Ty>, Expr, Option<Ty>) {
+        if needs_context(a) && !needs_context(b) {
+            return self.pair(a, b, None);
+        }
+        let (a, at) = self.expr(a, None);
+        let hint = at.clone().filter(|t| *t != Ty::Never).map(|t| match self.norm(&t) {
+            Ty::Prim(Prim::String) => Ty::Prim(Prim::Str),
+            _ => t,
+        });
+        let (b, bt) = self.expr(b, hint.as_ref());
+        (a, at, b, bt)
+    }
+
     fn lit(&mut self, lit: &Lit, negated: bool, want: Option<&Ty>) -> Typed {
         let wanted = want.and_then(|w| self.num(w));
         match lit {
@@ -519,7 +543,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             Lit::Bool(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::bool()))),
             Lit::Str(_) => (
                 Expr::Lit(lit.clone()),
-                self.expect(want, Some(Ty::Prim(Prim::String))),
+                self.expect(want, Some(Ty::Prim(Prim::Str))),
             ),
             Lit::Unit => (
                 Expr::Lit(lit.clone()),
@@ -561,12 +585,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (e, Some(t))
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                let (l, lt, r, rt) = self.pair(left, right, None);
+                let (l, lt, r, rt) = self.compared(left, right);
                 if let Some(t) = join(lt, rt).filter(|t| *t != Ty::Never) {
                     let ordered = !matches!(op, BinOp::Eq | BinOp::Ne);
                     let ok = match self.norm(&t) {
                         _ if self.num(&t).is_some() => true,
-                        Ty::Prim(Prim::Bool) | Ty::Prim(Prim::String) => !ordered,
+                        Ty::Prim(Prim::Bool | Prim::String | Prim::Str) => !ordered,
                         _ => false,
                     };
                     if !ok {
@@ -920,6 +944,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Prim(Prim::Usize)),
             ),
+            Callee::StringFrom => (
+                typed_args(self, vec![Ty::Prim(Prim::Str)]),
+                Some(Ty::Prim(Prim::String)),
+            ),
         };
         let e = Expr::Call {
             callee: callee.clone(),
@@ -1069,6 +1097,7 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Prim(p) => match p {
             Prim::Bool => "bool".into(),
             Prim::String => "String".into(),
+            Prim::Str => "&str".into(),
             Prim::Unit => "()".into(),
             Prim::F32 => "f32".into(),
             Prim::F64 => "f64".into(),

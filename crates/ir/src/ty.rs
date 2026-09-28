@@ -18,6 +18,9 @@ pub enum Prim {
     F32,
     F64,
     String,
+    /// `str` behind a borrow, and the type of a string literal. Same TS
+    /// `string` as `String`, but rustc does not put one where `String` goes.
+    Str,
     Unit,
 }
 

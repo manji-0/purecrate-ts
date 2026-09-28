@@ -613,7 +613,7 @@ fn emit_ty(ty: &Ty) -> String {
     match ty {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "boolean".into(),
-            purecrate_ir::Prim::String => "string".into(),
+            purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "string".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
             other => match other.int() {
                 Some(t) => t.ts_name().into(),
@@ -717,7 +717,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 }
                 purecrate_ir::Callee::Fround => "Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
-                purecrate_ir::Callee::VecLen => String::new(),
+                purecrate_ir::Callee::VecLen | purecrate_ir::Callee::StringFrom => String::new(),
             };
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
@@ -731,7 +731,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
             }
-            if matches!(callee, purecrate_ir::Callee::OptionSome) {
+            if matches!(callee, purecrate_ir::Callee::OptionSome | purecrate_ir::Callee::StringFrom) {
                 return emit_expr(&args[0], indent);
             }
             let a = args

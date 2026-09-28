@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(get.body, Expr::Field { base: Box::new(Expr::var("self")), name: Name::new("0") });
         let Item::Fn(tags) = &krate[3] else { panic!("fn") };
         assert_eq!(tags.params[0].ty, Ty::Vec(Box::new(Ty::Named(Name::new("Id")))));
-        assert_eq!(tags.params[1].ty, Ty::Prim(purecrate_ir::Prim::String));
+        assert_eq!(tags.params[1].ty, Ty::Prim(purecrate_ir::Prim::Str));
     }
 
     #[test]

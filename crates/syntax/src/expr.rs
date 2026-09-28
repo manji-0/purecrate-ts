@@ -437,6 +437,8 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::ResultOk
             } else if segs == ["Err"] {
                 Callee::ResultErr
+            } else if segs == ["String", "from"] {
+                Callee::StringFrom
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
             } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {

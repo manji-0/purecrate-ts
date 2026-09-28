@@ -1,20 +1,22 @@
-pub fn decode(code: u8, text: String) -> Command {
+pub fn decode(code: u8) -> Command {
     if code == 0 {
-        Command::AddLine(Line { sku: Sku(text), unit_price: Yen(100), qty: 2 })
+        Command::AddLine(Line { sku: Sku(String::from("a")), unit_price: Yen(100), qty: 2 })
     } else if code == 1 {
-        Command::AddLine(Line { sku: Sku(text), unit_price: Yen(250), qty: 1 })
+        Command::AddLine(Line { sku: Sku(String::from("b")), unit_price: Yen(250), qty: 1 })
     } else if code == 2 {
-        Command::AddLine(Line { sku: Sku(text), unit_price: Yen(100), qty: 0 })
+        Command::AddLine(Line { sku: Sku(String::from("a")), unit_price: Yen(100), qty: 0 })
     } else if code == 3 {
-        Command::RemoveSku(Sku(text))
+        Command::RemoveSku(Sku(String::from("a")))
     } else if code == 4 {
         Command::Place
     } else if code == 5 {
         Command::Pay(Yen(200))
     } else if code == 6 {
         Command::Pay(Yen(450))
-    } else if code == 7 || code == 8 {
-        Command::Ship(text)
+    } else if code == 7 {
+        Command::Ship(String::from(""))
+    } else if code == 8 {
+        Command::Ship(String::from("T1"))
     } else {
         Command::Cancel(CancelReason::ByCustomer)
     }
@@ -30,11 +32,11 @@ pub fn summary(order: &Order) -> i64 {
     }
 }
 
-pub fn run4(a: u8, ta: String, b: u8, tb: String, c: u8, tc: String, d: u8, td: String) -> Result<i64, OrderError> {
+pub fn run4(a: u8, b: u8, c: u8, d: u8) -> Result<i64, OrderError> {
     let order = Order::Draft { lines: Lines::Nil };
-    let order = step(order, decode(a, ta))?;
-    let order = step(order, decode(b, tb))?;
-    let order = step(order, decode(c, tc))?;
-    let order = step(order, decode(d, td))?;
+    let order = step(order, decode(a))?;
+    let order = step(order, decode(b))?;
+    let order = step(order, decode(c))?;
+    let order = step(order, decode(d))?;
     Ok(summary(&order))
 }

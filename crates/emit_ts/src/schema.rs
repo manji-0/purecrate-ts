@@ -352,7 +352,7 @@ fn domain_ty(ty: &Ty) -> String {
     match ty {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "boolean".into(),
-            purecrate_ir::Prim::String => "string".into(),
+            purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "string".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
             other => other
                 .int()
@@ -400,7 +400,7 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> String {
     match ty {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "bool".into(),
-            purecrate_ir::Prim::String => "str".into(),
+            purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "str".into(),
             purecrate_ir::Prim::Unit => "unit".into(),
             other => other
                 .int()

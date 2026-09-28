@@ -165,7 +165,8 @@ impl Refs {
                     | Callee::Int { .. }
                     | Callee::Fround
                     | Callee::AsFloat(_)
-                    | Callee::VecLen => {}
+                    | Callee::VecLen
+                    | Callee::StringFrom => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }

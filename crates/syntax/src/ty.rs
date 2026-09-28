@@ -92,7 +92,8 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         "usize" => Ok(Ty::Prim(Prim::Usize)),
         "f32" => Ok(Ty::Prim(Prim::F32)),
         "f64" => Ok(Ty::Prim(Prim::F64)),
-        "String" | "str" => Ok(Ty::Prim(Prim::String)),
+        "String" => Ok(Ty::Prim(Prim::String)),
+        "str" => Ok(Ty::Prim(Prim::Str)),
         "Option" => Ok(Ty::option(first_generic(&last.arguments)?)),
         "Vec" => Ok(Ty::Vec(Box::new(first_generic(&last.arguments)?))),
         "Result" => {

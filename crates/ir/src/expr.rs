@@ -89,6 +89,8 @@ pub enum Callee {
     OptionNone,
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
+    /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
+    StringFrom,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
