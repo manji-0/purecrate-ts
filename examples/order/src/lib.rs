@@ -1,6 +1,26 @@
 pub struct Yen(i64);
 
+impl Yen {
+    pub fn new(amount: i64) -> Result<Yen, OrderError> {
+        if amount < 0 {
+            Err(OrderError::NegativeAmount)
+        } else {
+            Ok(Yen(amount))
+        }
+    }
+}
+
 pub struct Sku(String);
+
+impl Sku {
+    pub fn new(code: String) -> Result<Sku, OrderError> {
+        if code == "" {
+            Err(OrderError::EmptySku)
+        } else {
+            Ok(Sku(code))
+        }
+    }
+}
 
 pub struct Line {
     pub sku: Sku,
@@ -42,6 +62,8 @@ pub enum OrderError {
     AmountMismatch { expected: Yen, got: Yen },
     EmptyTracking,
     InvalidTransition,
+    NegativeAmount,
+    EmptySku,
 }
 
 pub fn add_line(lines: Lines, line: Line) -> Lines {

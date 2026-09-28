@@ -22,6 +22,8 @@ impl support::Show for order::OrderError {
             order::OrderError::AmountMismatch { .. } => "AmountMismatch".into(),
             order::OrderError::EmptyTracking => "EmptyTracking".into(),
             order::OrderError::InvalidTransition => "InvalidTransition".into(),
+            order::OrderError::NegativeAmount => "NegativeAmount".into(),
+            order::OrderError::EmptySku => "EmptySku".into(),
         }
     }
 }
@@ -40,6 +42,9 @@ fn generated_order_lifecycle_matches_rust() {
                 }
             }
         }
+        for code in 0u8..3 {
+            cases.push(case!(order::open_with(code)));
+        }
         cases
     });
     for reached in [
@@ -53,6 +58,9 @@ fn generated_order_lifecycle_matches_rust() {
         "Err(AmountMismatch)",
         "Err(EmptyTracking)",
         "Err(InvalidTransition)",
+        "Err(EmptySku)",
+        "Err(NegativeAmount)",
+        "Ok(1000300)",
     ] {
         assert!(cases.iter().any(|c| c.rust == reached), "no run reaches {reached}");
     }

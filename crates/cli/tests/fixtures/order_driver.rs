@@ -40,3 +40,11 @@ pub fn run4(a: u8, b: u8, c: u8, d: u8) -> Result<i64, OrderError> {
     let order = step(order, decode(d))?;
     Ok(summary(&order))
 }
+
+pub fn open_with(code: u8) -> Result<i64, OrderError> {
+    let sku = if code == 0 { Sku::new(String::from(""))? } else { Sku::new(String::from("a"))? };
+    let unit_price = if code == 1 { Yen::new(-1i64)? } else { Yen::new(100i64)? };
+    let line = Line { sku, unit_price, qty: 3u32 };
+    let order = step(Order::Draft { lines: Lines::Nil }, Command::AddLine(line))?;
+    Ok(summary(&order))
+}
