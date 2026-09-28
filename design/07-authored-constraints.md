@@ -151,7 +151,7 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 
 ### 4.5 ワイヤ形式はメモリ上の値と別である
 
-生成物の enum は `kind` 内部タグである。serde の既定 JSON（外部タグ、unit バリアントは文字列）とは一致しない（[design/05](./05-type-sharing-scope.md) §2.2）。`JSON.parse` の結果を、そのまま関数の引数にはできない。`--schema` を付けたときだけ、公開した struct と enum のワイヤ用スキーマが `src/purecrate-wire.ts` に出る。読み取りだけであり、ドメイン値から JSON を書く側はまだない（[design/08](./08-limits-and-roadmap.md) §5.2）。
+生成物の enum は `kind` 内部タグである。serde の既定 JSON（外部タグ、unit バリアントは文字列）とは一致しない（[design/05](./05-type-sharing-scope.md) §2.2）。`JSON.parse` の結果を、そのまま関数の引数にはできない。`--schema` を付けたときだけ、公開した struct と enum のワイヤ用スキーマが `src/purecrate-wire.ts` に出る。読み取りだけであり、ドメイン値から JSON を書く側はまだない（[design/08](./08-limits-and-roadmap.md) §5.3）。
 
 `#[serde(...)]` は拒否する。フィールド名は Rust の名前のまま出る。
 
