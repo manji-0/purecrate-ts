@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern, Reason};
+use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern, Pos, Reason};
 
 use crate::Diagnostic;
 
@@ -20,7 +20,13 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for (i, item) in krate.items.iter().enumerate() {
         if let Item::Fn(f) = item {
-            walk(&f.body, &mut |arms| match_arms(i, arms, &enums, &mut out));
+            walk(&f.body, None, &mut |arms, at| {
+                let before = out.len();
+                match_arms(i, arms, &enums, &mut out);
+                if let Some(at) = at {
+                    crate::locate(&mut out[before..], at);
+                }
+            });
         }
     }
     out
@@ -92,9 +98,14 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     }
 }
 
-fn walk(expr: &Expr, on_match: &mut impl FnMut(&[Arm])) {
+/// `at` is the innermost `Expr::At` around `expr`.
+fn walk(expr: &Expr, at: Option<Pos>, on_match: &mut impl FnMut(&[Arm], Option<Pos>)) {
+    let at = match expr {
+        Expr::At { at, .. } => Some(*at),
+        _ => at,
+    };
     if let Expr::Match { arms, .. } = expr {
-        on_match(arms);
+        on_match(arms, at);
     }
-    expr.children().into_iter().for_each(|c| walk(c, on_match));
+    expr.children().into_iter().for_each(|c| walk(c, at, on_match));
 }

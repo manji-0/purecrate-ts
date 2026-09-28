@@ -148,6 +148,7 @@ impl Refs {
 
     fn expr(&mut self, expr: &Expr) {
         match expr {
+            Expr::At { expr, .. } => self.expr(expr),
             Expr::Call { callee, args } => {
                 match callee {
                     Callee::Fn(n) | Callee::StructNew(n) | Callee::Variant { ty: n, .. } => {

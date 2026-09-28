@@ -13,7 +13,7 @@ mod rename;
 mod resolve;
 mod types;
 
-use purecrate_ir::{Crate, Reason};
+use purecrate_ir::{Crate, Item, Pos, Reason};
 
 pub use reach::prune_unreachable;
 
@@ -23,6 +23,9 @@ pub struct Diagnostic {
     pub item: usize,
     /// Other items involved, e.g. the earlier definition in a collision.
     pub also: Vec<usize>,
+    /// The statement, block tail or `match` arm the problem is in, when the
+    /// input carries positions (`parse_source_spanned`). Otherwise the item.
+    pub at: Option<Pos>,
     pub reason: Reason,
     /// What the reason is about when that varies, e.g. the undefined name.
     pub detail: Option<String>,
@@ -34,6 +37,7 @@ impl Diagnostic {
         Self {
             item,
             also: Vec::new(),
+            at: None,
             reason,
             detail: None,
             message: message.into(),
@@ -51,6 +55,14 @@ impl Diagnostic {
     }
 }
 
+/// Gives `at` to the diagnostics a pass reported while inside `Expr::At`.
+/// The innermost `At` is left first, so it wins.
+fn locate(found: &mut [Diagnostic], at: Pos) {
+    for d in found {
+        d.at.get_or_insert(at);
+    }
+}
+
 /// The crate ready to print, or why it is outside the v0 subset.
 /// Numeric code is rewritten so the printed TS keeps Rust's debug-build
 /// semantics; run this once, on parser output.
@@ -61,10 +73,19 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     out.extend(position::check(krate));
     if out.is_empty() {
         match types::elaborate(krate) {
-            Ok(typed) => match complete::check(&typed) {
-                missing if missing.is_empty() => return Ok(lift::lift(rename::rename(typed))),
-                missing => out = missing,
-            },
+            Ok(mut typed) => {
+                // Typing rebuilds the bodies without `At`; clones of untyped
+                // subtrees may still hold one.
+                for item in &mut typed.items {
+                    if let Item::Fn(f) = item {
+                        f.body.strip_positions();
+                    }
+                }
+                match complete::check(&typed) {
+                    missing if missing.is_empty() => return Ok(lift::lift(rename::rename(typed))),
+                    missing => out = missing,
+                }
+            }
             Err(errors) => out = errors,
         }
     }

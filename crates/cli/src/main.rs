@@ -118,7 +118,12 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
     };
     let mut report: Vec<String> = Vec::new();
     for d in &diagnostics {
-        report.push(format!("{}: [{}] {}", at(d.item), d.reason, d.message));
+        // The statement or arm inside the item when known, else the item's name.
+        let place = match d.at {
+            Some(p) => format!("{}:{}:{}", src.display(), p.line, p.col),
+            None => at(d.item),
+        };
+        report.push(format!("{place}: [{}] {}", d.reason, d.message));
         for &other in &d.also {
             report.push(format!("  note: see {}", at(other)));
         }

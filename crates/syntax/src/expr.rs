@@ -1,12 +1,12 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Pos, Reason, Ty, UnOp,
     VariantBind, Wrapper,
     NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
 
-use crate::item::{snippet, Cx, ParseError};
+use crate::item::{snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
 
 pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
@@ -84,7 +84,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 arms.push(Arm {
                     pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
                         .map_err(|e| e.or_at(arm.pat.span()))?,
-                    body: lower_expr(cx, &arm.body)?,
+                    body: at(arm.body.span(), lower_expr(cx, &arm.body)?),
                 });
             }
             Ok(Expr::Match {
@@ -156,6 +156,18 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
     }
 }
 
+/// `expr`, marked with where its source starts, for diagnostics.
+fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
+    let LineCol { line, col } = LineCol::of(span);
+    Expr::At {
+        at: Pos {
+            line: line as u32,
+            col: col as u32,
+        },
+        expr: Box::new(expr),
+    }
+}
+
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
     lower_block_node(cx, block).map_err(|e| e.or_at(block.span()))
 }
@@ -175,14 +187,15 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
     let mut tail: Option<Expr> = None;
     let last = block.stmts.len().saturating_sub(1);
     for (i, stmt) in block.stmts.iter().enumerate() {
+        let span = stmt.span();
         match stmt {
-            syn::Stmt::Local(local) => stmts.push(lower_local(cx, local)?),
-            syn::Stmt::Expr(e, None) if i == last => tail = Some(lower_expr(cx, e)?),
+            syn::Stmt::Local(local) => stmts.push((span, lower_local(cx, local)?)),
+            syn::Stmt::Expr(e, None) if i == last => tail = Some(at(span, lower_expr(cx, e)?)),
             // `return x;` ends the block with the same meaning as `return x`.
             syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
-                tail = Some(lower_expr(cx, e)?)
+                tail = Some(at(span, lower_expr(cx, e)?))
             }
-            syn::Stmt::Expr(e, _) => stmts.push(Stmt::Effect(lower_expr(cx, e)?)),
+            syn::Stmt::Expr(e, _) => stmts.push((span, Stmt::Effect(lower_expr(cx, e)?))),
             syn::Stmt::Item(_) => return Err(ParseError::new(Reason::BlockItem, "items inside blocks are not in v0")),
             syn::Stmt::Macro(m) => {
                 let name = path_text(&m.mac.path);
@@ -191,23 +204,26 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
         }
     }
     let acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
-    Ok(stmts.into_iter().rev().fold(acc, |then, stmt| match stmt {
-        Stmt::Let {
-            name,
-            mutable,
-            ty,
-            value,
-        } => Expr::Let {
-            name,
-            mutable,
-            ty,
-            value: Box::new(value),
-            then: Box::new(then),
-        },
-        Stmt::Effect(first) => Expr::Seq {
-            first: Box::new(first),
-            then: Box::new(then),
-        },
+    Ok(stmts.into_iter().rev().fold(acc, |then, (span, stmt)| {
+        let node = match stmt {
+            Stmt::Let {
+                name,
+                mutable,
+                ty,
+                value,
+            } => Expr::Let {
+                name,
+                mutable,
+                ty,
+                value: Box::new(value),
+                then: Box::new(then),
+            },
+            Stmt::Effect(first) => Expr::Seq {
+                first: Box::new(first),
+                then: Box::new(then),
+            },
+        };
+        at(span, node)
     }))
 }
 

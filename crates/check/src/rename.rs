@@ -106,6 +106,7 @@ impl Renamer {
 
     fn expr(&mut self, e: Expr, env: &Env) -> Expr {
         match e {
+            Expr::At { .. } => unreachable!("`accept` removes positions before renaming"),
             Expr::Var(n) => Expr::Var(env.get(n.as_str()).cloned().unwrap_or(n)),
             Expr::Let {
                 name,

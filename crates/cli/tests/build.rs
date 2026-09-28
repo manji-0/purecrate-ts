@@ -79,7 +79,7 @@ fn rejected_crate_reports_locations_and_leaves_out_alone() {
     );
     assert!(stderr.contains(&format!("  note: see {path}:6:12")), "{stderr}");
     assert!(
-        stderr.contains(&format!("{path}:10:8: [check/non-exhaustive] match on `Event` is missing `Event::Dec`")),
+        stderr.contains(&format!("{path}:11:5: [check/non-exhaustive] match on `Event` is missing `Event::Dec`")),
         "{stderr}"
     );
     assert!(stderr.contains("2 error(s); nothing written"), "{stderr}");
@@ -223,4 +223,32 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
     assert!(!out.join("src/unused.ts").exists());
     assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
     fs::remove_dir_all(&dir).ok();
+}
+
+/// A check diagnostic points at the statement, block tail or `match` arm it
+/// is about, not at the function's name.
+#[test]
+fn check_diagnostics_point_inside_the_function() {
+    let src = fixture("rejected_inside.rs");
+    let result = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let path = src.display();
+    assert!(!result.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{path}:11:17: [check/undefined-name] `undefined_name` is not a parameter")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("{path}:13:5: [check/undefined-fn] function `unknown_fn` is not defined")),
+        "{stderr}"
+    );
+
+    let src = fixture("rejected_types.rs");
+    let result = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let path = src.display();
+    assert!(
+        stderr.contains(&format!("{path}:3:5: [check/type-mismatch] expected `i32`, found `bool`")),
+        "{stderr}"
+    );
 }

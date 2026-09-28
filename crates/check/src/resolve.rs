@@ -179,6 +179,11 @@ impl<'a> Cx<'_, 'a> {
 
     fn expr(&mut self, expr: &Expr) {
         match expr {
+            Expr::At { at, expr } => {
+                let before = self.out.len();
+                self.expr(expr);
+                crate::locate(&mut self.out[before..], *at);
+            }
             Expr::Var(n) if !self.in_scope(n.as_str()) => {
                 self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", n.as_str()))
             }

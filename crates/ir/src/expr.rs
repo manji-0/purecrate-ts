@@ -259,6 +259,20 @@ pub enum Expr {
         expr: Box<Expr>,
     },
     Unreachable,
+    /// Where `expr` starts in the source: a statement, a block's tail, or a
+    /// `match` arm. Only the parser's spanned output has it, for diagnostics;
+    /// `check::accept` removes it, so later passes never see it.
+    At {
+        at: Pos,
+        expr: Box<Expr>,
+    },
+}
+
+/// A 1-based line and column in the source file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pos {
+    pub line: u32,
+    pub col: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -299,7 +313,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::Closure { body, .. } => vec![body],
-            Expr::Ignored { expr, .. } => vec![expr],
+            Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
     }
 
@@ -334,7 +348,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::Closure { body, .. } => vec![body],
-            Expr::Ignored { expr, .. } => vec![expr],
+            Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
     }
 
@@ -376,8 +390,24 @@ impl Expr {
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()
                 .any(|b| b.needs_statements() || b.lifts()),
-            Expr::Ignored { expr, .. } => expr.needs_statements(),
+            Expr::Ignored { expr, .. } | Expr::At { expr, .. } => expr.needs_statements(),
             _ => false,
+        }
+    }
+
+    /// Removes every `At`, keeping what it wraps.
+    pub fn strip_positions(&mut self) {
+        while let Expr::At { expr, .. } = self {
+            *self = std::mem::replace(&mut **expr, Expr::Unreachable);
+        }
+        self.children_mut().into_iter().for_each(Expr::strip_positions);
+    }
+
+    /// `At` wrappers removed from the outside of this expression only.
+    pub fn unpositioned(&self) -> &Expr {
+        match self {
+            Expr::At { expr, .. } => expr.unpositioned(),
+            other => other,
         }
     }
 

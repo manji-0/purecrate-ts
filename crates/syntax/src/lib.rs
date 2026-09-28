@@ -12,11 +12,21 @@ use syn::parse_file;
 pub use item::{LineCol, ParseError};
 pub use survey::{module_decls, survey_files, Unit, UnitKind};
 
+/// Without source positions: bodies carry no `Expr::At`.
 pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError> {
-    parse_source_spanned(crate_name, source).map(|(krate, _)| krate)
+    parse_source_spanned(crate_name, source).map(|(mut krate, _)| {
+        for item in &mut krate.items {
+            if let Item::Fn(f) = item {
+                f.body.strip_positions();
+            }
+        }
+        krate
+    })
 }
 
 /// Also returns where each item's name is, parallel to `Crate::items`.
+/// Function bodies mark statements, block tails and `match` arms with
+/// `Expr::At`, so diagnostics can point inside a function.
 pub fn parse_source_spanned(
     crate_name: &str,
     source: &str,

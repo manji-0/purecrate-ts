@@ -5,7 +5,7 @@
 //! wrap them in an arrow function, where they would leave only that.
 //! Assignment and expression statements are statements for the same reason.
 
-use purecrate_ir::{Crate, Expr, Item, Reason};
+use purecrate_ir::{Crate, Expr, Item, Pos, Reason};
 
 use crate::Diagnostic;
 
@@ -23,23 +23,30 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for (i, item) in krate.items.iter().enumerate() {
         if let Item::Fn(f) = item {
-            visit(&f.body, Ctx::Stmt, &mut |m| out.push(Diagnostic::at(i, Reason::Position, m)));
+            visit(&f.body, Ctx::Stmt, None, &mut |m, at| {
+                let mut d = Diagnostic::at(i, Reason::Position, m);
+                d.at = at;
+                out.push(d);
+            });
         }
     }
     out
 }
 
-fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
+/// `at` is the innermost `Expr::At` around `expr`.
+fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String, Option<Pos>)) {
     match expr {
+        Expr::At { at, expr } => visit(expr, ctx, Some(*at), report),
         Expr::Return(value) => {
             if ctx != Ctx::Stmt {
                 report(
                     "`return` inside a larger expression is not in v0; \
                      make it the value of an arm, a `let`, or the tail"
                         .into(),
+                    at,
                 );
             }
-            visit(value, Ctx::Strict, report);
+            visit(value, Ctx::Strict, at, report);
         }
         Expr::Try { expr, .. } => {
             if ctx == Ctx::Nested {
@@ -47,9 +54,10 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
                     "`?` inside `&&`, `||`, or an `if`/`match` used within a larger expression \
                      is not in v0; bind it with `let` first"
                         .into(),
+                    at,
                 );
             }
-            visit(expr, Ctx::Strict, report);
+            visit(expr, Ctx::Strict, at, report);
         }
         Expr::Assign { value, .. } => {
             if ctx != Ctx::Stmt {
@@ -57,37 +65,38 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
                     "assignment inside a larger expression is not in v0; \
                      write it as its own statement"
                         .into(),
+                    at,
                 );
             }
-            visit(value, value_ctx(value), report);
+            visit(value, value_ctx(value), at, report);
         }
         Expr::Seq { first, then } if ctx == Ctx::Stmt => {
-            visit(first, Ctx::Stmt, report);
-            visit(then, Ctx::Stmt, report);
+            visit(first, Ctx::Stmt, at, report);
+            visit(then, Ctx::Stmt, at, report);
         }
         Expr::Let { value, then, .. } if ctx == Ctx::Stmt => {
-            visit(value, value_ctx(value), report);
-            visit(then, Ctx::Stmt, report);
+            visit(value, value_ctx(value), at, report);
+            visit(then, Ctx::Stmt, at, report);
         }
         Expr::If { cond, then, else_ } if ctx == Ctx::Stmt => {
-            visit(cond, Ctx::Strict, report);
+            visit(cond, Ctx::Strict, at, report);
             let branch = if expr.needs_statements() {
                 Ctx::Stmt
             } else {
                 Ctx::Nested
             };
-            visit(then, branch, report);
-            visit(else_, branch, report);
+            visit(then, branch, at, report);
+            visit(else_, branch, at, report);
         }
         Expr::Match { scrutinee, arms } if ctx == Ctx::Stmt => {
-            visit(scrutinee, Ctx::Strict, report);
-            arms.iter().for_each(|a| visit(&a.body, Ctx::Stmt, report));
+            visit(scrutinee, Ctx::Strict, at, report);
+            arms.iter().for_each(|a| visit(&a.body, Ctx::Stmt, at, report));
         }
-        Expr::Closure { body, .. } => visit(body, Ctx::Stmt, report),
+        Expr::Closure { body, .. } => visit(body, Ctx::Stmt, at, report),
         Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => expr
             .children()
             .into_iter()
-            .for_each(|c| visit(c, Ctx::Nested, report)),
+            .for_each(|c| visit(c, Ctx::Nested, at, report)),
         _ => {
             let strict = expr.strict_children();
             for child in expr.children() {
@@ -96,7 +105,7 @@ fn visit(expr: &Expr, ctx: Ctx, report: &mut impl FnMut(String)) {
                 } else {
                     Ctx::Nested
                 };
-                visit(child, inner, report);
+                visit(child, inner, at, report);
             }
         }
     }

@@ -222,6 +222,13 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
         match expr {
+            // The position ends here: the typed body has no `At`.
+            Expr::At { at, expr } => {
+                let before = self.out.len();
+                let typed = self.expr(expr, want);
+                crate::locate(&mut self.out[before..], *at);
+                typed
+            }
             Expr::Ignored { wrapper, expr } => {
                 let inner_want = want.map(Ty::peel);
                 let (expr, ty) = self.expr(expr, inner_want);

@@ -689,6 +689,7 @@ fn emit_ty(ty: &Ty) -> String {
 
 fn emit_expr(expr: &Expr, indent: usize) -> String {
     match expr {
+        Expr::At { .. } => unreachable!("emit takes `check::accept` output, which has no positions"),
         Expr::Ignored { wrapper, expr } => {
             format!("/* {} */ {}", wrapper.comment(), emit_expr(expr, indent))
         }
@@ -1025,6 +1026,7 @@ impl Refs {
 
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
         match expr {
+            Expr::At { expr, .. } => self.expr(krate, expr),
             Expr::Match { scrutinee, arms } => {
                 self.never |= arms
                     .iter()
