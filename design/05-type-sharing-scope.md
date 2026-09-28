@@ -135,7 +135,9 @@ zod、valibot、arktype は別パッケージの薄いアダプタである。�
 
 `--schema zod|valibot|arktype` を付けたときだけ、公開した struct と enum のワイヤ用スキーマを `src/purecrate-wire.ts` に出す。形は serde の既定 JSON で、結果はドメインのブランド型である。指定していないライブラリのスキーマは出さない。
 
-arktype は、morph を含むオブジェクトを一つの和にすると実行時に拒否する。enum はバリアントを一つずつ試し、再帰する struct は一つの `type.module` に置く。
+arktype は、morph を含むオブジェクトを一つの和にすると実行時に拒否する。enum はバリアントを一つずつ試す。arktype のスキーマは、どれも `unknown` からの morph で、`Wire<T>` と型を注釈する。JSON の形は初回の読み取りで組み立てる（`memo`）。これで、再帰する型や、ファイルの後ろで宣言するスキーマも参照できる。以前は再帰する struct を一つの `type.module` に置いていたが、モジュールの外の enum を参照できず、`Box` の中の struct を初期化前に読んで、import した時点で `ReferenceError` になっていた（2026-09-28 に置き換え）。
+
+生成したワイヤ用スキーマは、TypeScript 6 と 7 の `tsc --strict` を通す。型の形を網羅した fixture（`crates/cli/tests/fixtures/wire_shapes.rs`）を三つのライブラリで生成し、型検査と、serde の既定 JSON の読み取り・拒否を node で確かめている（`crates/cli/tests/wire.rs`）。zod と valibot の struct は、パースしたオブジェクトをそのまま返さず、フィールドごとに組み立てる。値が `undefined` になりうるフィールド（`()`）を、スキーマの推論が省略可能にするからである。
 
 ### 7.6 この実装で決めたこと
 

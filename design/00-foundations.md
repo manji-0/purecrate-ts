@@ -305,7 +305,7 @@ purecrate-ts/
     counter/     # 最小遷移クレート
     counter-ts/  # その TS パッケージ（生成物。ゴールデン）
   scripts/
-    verify.sh    # cargo test + 生成物の tsc
+    verify.sh    # cargo test + 生成物とランタイムの tsc（TypeScript 6・7）
 ```
 
 各クレートの公開関数も、可能なら純粋にする。ファイル I/O は `cli` と `pack` に閉じる。

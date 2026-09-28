@@ -7,7 +7,7 @@ Rust で書いた純粋なドメイン関数を、WASM なしの TypeScript パ�
 ## 必要条件
 
 - Rust（edition 2021）。依存は `vendor/` にあり、`cargo --offline` でビルドできる。`check` と `build` は入力を `rustc` でもコンパイルするので、実行時にも `rustc` が要る（`RUSTC` で差し替え可）。
-- 生成物の型検査と、Rust との差分テストには Node と `npx`（TypeScript 5）が要る。
+- 生成物の型検査と、Rust との差分テストには Node と `npx` が要る。型検査は TypeScript 6 と 7 の両方で行う（`npx -p typescript@6` と `@7` を取りに行く）。
 
 ## 使い方
 
@@ -35,7 +35,7 @@ purecrate-ts survey <crate-path>... [--json]
 ./scripts/verify.sh
 ```
 
-`cargo test --offline`、examples/counter の生成物とのドリフト検出、examples/order の `check`、そのパッケージの `tsc` を順に走らせる。差分テストは、同じ入力を Rust と生成 TS（Node）の両方で実行して比べる。
+`cargo test --offline`、examples/counter の生成物とのドリフト検出、examples/order の `check`、ランタイムパッケージ（`packages/`）と counter の生成物への TypeScript 6・7 の `tsc` を順に走らせる。差分テストは、同じ入力を Rust と生成 TS（Node）の両方で実行して比べる。
 
 ## 受理するもの
 

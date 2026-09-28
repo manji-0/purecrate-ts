@@ -31,7 +31,7 @@
 | 項目 | 要求 | 現状 |
 | --- | --- | --- |
 | 戻り値 | `f(x)` と `f'(x')` が値として等しい（`x'` は `x` の TS 表現） | counter で差分テスト済み |
-| 型 | TS の型が Rust の型を過不足なく表す（`i64` → `bigint` など） | counter、差分テストの全 fixture、zod のワイヤスキーマを tsc strict で検査（差分ハーネスは実行の前に `tsc -p` を通す） |
+| 型 | TS の型が Rust の型を過不足なく表す（`i64` → `bigint` など） | counter、差分テストの全 fixture、zod・valibot・arktype のワイヤスキーマを、TypeScript 6 と 7 の tsc strict で検査（差分ハーネスは実行の前に `tsc -p` を通す） |
 | 想定失敗 | `Result::Err` は同じバリアント・同じ値 | `?`・早期 `return` を含む差分テストで一致（control、vending の全 1296 系列） |
 | 整数演算 | 除算の切り捨て、剰余の符号、オーバーフローが一致 | 一致（§2.4、演算子ごとの差分テスト） |
 | 想定外失敗（panic） | Rust で panic する入力の扱い | 算術の panic は TS でも throw（§5 の決定）。`unreachable!` は `assertNever` |
