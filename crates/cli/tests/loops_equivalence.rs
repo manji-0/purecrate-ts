@@ -1,4 +1,4 @@
-//! `for i in a..b` (design/08 §5.3): empty and negative ranges, `i64`,
+//! `for i in a..b` (design/02 §2): empty and negative ranges, `i64`,
 //! early `return`, `?` in the body, nesting, a closure over the variable,
 //! bounds read once, shadowing, and panics in the bounds and in the body.
 

@@ -1,6 +1,6 @@
 //! `examples/iban` agrees with the generated package, and with the same
-//! rules written in idiomatic Rust (`idiomatic`, the line count design/08
-//! §5.2 compares against), on valid IBANs, each one-character change of
+//! rules written in idiomatic Rust (`idiomatic`, the line count design/07
+//! §2 compares against), on valid IBANs, each one-character change of
 //! them, and malformed input.
 
 #[macro_use]

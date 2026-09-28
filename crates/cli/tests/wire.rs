@@ -3,7 +3,7 @@
 //! has every type form a schema prints: each integer width, floats, `()`,
 //! `Option` (missing or `null`), `Vec`, tuples, newtypes, `Box`, unit, tuple
 //! and struct variants, and recursive enums and structs. `Id`, `Label` and
-//! `Sealed` are closed (design/05 §7.7): read by shape, as serde's derive does,
+//! `Sealed` are closed (design/04 §5): read by shape, as serde's derive does,
 //! and built through the package-internal constructor.
 //!
 //! 64-bit integers come as serde_json writes them, JSON numbers, read from

@@ -1,13 +1,15 @@
 # purecrate-ts
 
-Converts pure domain functions written in Rust into a TypeScript package without WASM. The output consists of ordinary TS values, passes `tsc --strict`, and for accepted inputs returns the same results as a Rust debug build.
+Share **behavior**, not just types, between Rust and TypeScript.
 
-It does not compile arbitrary Rust. The target is new code written within [the PureCrate constraints](design/07-authored-constraints.md). The intended use is representing states and events as ADTs and sharing transitions such as `fn step(state, event) -> Result<State, Error>`. For the overall design, see [design/00-foundations.md](design/00-foundations.md).
+purecrate-ts translates pure domain functions written in Rust into an ordinary TypeScript package, without WASM. The output is plain `Readonly` values and functions that pass `tsc --strict`. For every accepted input they return the same result as a Rust debug build, and differential tests check this. Anything whose meaning cannot be preserved is rejected with its location, and no output is written.
+
+It is not a compiler for arbitrary Rust. You write new domain code within [the PureCrate constraints](design/02-authoring.md): states and events as ADTs, and transitions such as `fn step(state, event) -> Result<State, Error>`. Start with [design/00-overview.md](design/00-overview.md).
 
 ## Requirements
 
-- Rust (edition 2021). Dependencies are in `vendor/` and build with `cargo --offline`. `check` and `build` also compile the input with `rustc`, so `rustc` is needed at run time too (override with `RUSTC`). The input's edition is read from `Cargo.toml` (`[package] edition`, or `[workspace.package]` when inherited; 2015 if unspecified, as with cargo). A standalone file without `Cargo.toml` uses 2021, overridable with `--edition`.
-- Type-checking the output and differential tests against Rust need Node and `npx`. Type checking runs on both TypeScript 6 and 7 (fetching `npx -p typescript@6` and `@7`).
+- Rust (edition 2021). Dependencies are vendored; build with `cargo --offline`. `check` and `build` also run the input through `rustc`, so `rustc` is needed at run time too (override with `RUSTC`). The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`; 2015 if unset). A standalone file uses 2021 unless you pass `--edition`.
+- Node and `npx` to type-check the output and to run differential tests. Type checking runs on TypeScript 6 and 7.
 
 ## Usage
 
@@ -15,21 +17,28 @@ It does not compile arbitrary Rust. The target is new code written within [the P
 cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter-ts
 ```
 
-`<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file. If `--name` is omitted, the package name from `Cargo.toml` is used.
-
 ```text
-purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
-purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
+purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
+purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
 purecrate-ts survey <crate-path>... [--json]
 ```
 
-`check` rejects unacceptable definitions with `path:line:col` and a reason code, and writes no files. After the subset check passes, it runs the input through rustc and, if it does not compile, rejects with rustc's error code, e.g. `[rustc/E0382]`. If `check` passes, the input compiles as a library. With `--out`, it also checks byte equality with existing output. `survey` outputs JSON saying whether public functions and public types are acceptable together with everything they reference.
+- `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file. `--name` defaults to the `Cargo.toml` package name.
+- `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
+- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. `purecrate` is not yet on npm, so pack it from `packages/`.
+- `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types. Read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
+- Never edit generated packages. Change the Rust and regenerate.
 
-The output is an npm package. `npm run build` emits JavaScript and declarations to `dist`, which `exports` points to (it runs automatically before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`, and `version` is taken from the crate's `Cargo.toml`. `purecrate` is not yet published to npm, so for now pack it from `packages/` and install it.
+## What you can write
 
-Numeric brands live in the `purecrate` package. Only with `--schema` are wire schemas for that library emitted to `src/purecrate-wire.ts`. They read serde's default JSON into the domain's branded types. Schemas for libraries not specified are not emitted. serde_json writes `i64` / `u64` as JSON numbers, so read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`. Integers above 2^53 then become `bigint` without loss.
+- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match`
+- local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`
+- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; widening with `i64::from(x)`
+- growing sequences as recursive enums; `Vec` read by index and `len`
+- `String::from("…")`, string `==`, string contents through `s.as_bytes()`
+- structs with private fields stay closed: TS gets values only from your public constructors
 
-Do not edit generated packages. To change them, change the Rust and regenerate.
+There is no decimal type. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). For the full rules, see [design/02](design/02-authoring.md). For what TS callers must observe, see [design/03 §5](design/03-output.md#5-caller-contract).
 
 ## Testing
 
@@ -37,36 +46,22 @@ Do not edit generated packages. To change them, change the Rust and regenerate.
 ./scripts/verify.sh
 ```
 
-Runs, in order: `cargo test --offline`, drift detection against the examples/counter output, `check` on examples/order, and `tsc` on TypeScript 6 and 7 for the runtime packages (`packages/`) and the counter output. Differential tests run the same inputs in both Rust and the generated TS (Node) and compare.
+This runs `cargo test --offline` (goldens, plus differential tests that run the same inputs through Rust and the generated TS), drift detection on examples/counter, `check` on examples/order, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
 
-## What is accepted
-
-Roughly, v0 can express the following. For details and constraints on callers of the generated TS, see [design/07-authored-constraints.md](design/07-authored-constraints.md). For the full set of limits and the order in which to lift them, see [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md).
-
-- structs, enums (`kind` discriminated unions), single-element tuple structs (newtypes)
-- `Option`, `Result`, `?`, `if let`, exhaustive `match`
-- Local `let mut`. Updates return new values. `&mut` is rejected
-- Integer arithmetic matches a Rust debug build. Overflow and division by zero throw. `i64` / `u64` are `bigint`
-- Integers of different widths are converted with `i64::from(x)`, only for widenings that have a `From` in std
-- Fixed strings are built with `String::from("…")`. `String` and `&str` are compared with `==`
-- Local closures that capture only immutable bindings
-- Struct update `S { a: e, ..base }`
-- Growing sequences are recursive enums. `Vec` is read by index and `len` for sequences whose length is fixed outside
-
-No decimal types. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). State types do not hold mutable arrays.
-
-## Design notes
+## Design documents
 
 | Document | Contents |
 | --- | --- |
-| [design/00-foundations.md](design/00-foundations.md) | Subset, type mapping, pipeline |
-| [design/02-kamae-ts-emit.md](design/02-kamae-ts-emit.md) | Shape of the generated TS |
-| [design/04-objective-means-demand.md](design/04-objective-means-demand.md) | Objective, equivalence, semantic decisions |
-| [design/05-type-sharing-scope.md](design/05-type-sharing-scope.md) | Boundary with JSON |
-| [design/06-acceptance-survey.md](design/06-acceptance-survey.md) | Record of measuring existing crates. Not a metric going forward |
-| [design/07-authored-constraints.md](design/07-authored-constraints.md) | Constraints when writing new code, and constraints remaining on the TS side |
-| [design/08-limits-and-roadmap.md](design/08-limits-and-roadmap.md) | Full set of limits, and the order to lift them |
+| [00-overview](design/00-overview.md) | Claim, focus, current state, map of the documents |
+| [01-equivalence](design/01-equivalence.md) | What "same result" means, the domain, known gaps, verification |
+| [02-authoring](design/02-authoring.md) | What the Rust author can write, and how |
+| [03-output](design/03-output.md) | The shape of the generated TS, and the caller contract |
+| [04-wire](design/04-wire.md) | Reading serde JSON into domain values |
+| [05-architecture](design/05-architecture.md) | Pipeline, crates, IR |
+| [06-strategy](design/06-strategy.md) | Alternatives, demand, success and withdrawal criteria |
+| [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps |
+| [90-acceptance-survey](design/90-acceptance-survey.md) | Archive: measurements of existing crates |
 
 ## License
 
-The crate's `license` is MIT.
+MIT.

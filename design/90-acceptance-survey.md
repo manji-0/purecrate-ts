@@ -1,13 +1,17 @@
-# Acceptance rate measurement (2026-09-27)
+# Acceptance survey of existing crates (archive)
 
-Measurement for design/04 §3.5-1. We ran `purecrate-ts survey` over publicly available Rust code and counted how many public functions and public types are accepted as-is.
+Status: archive (measured 2026-09-27, progress to 2026-09-28). Not a metric: the target is new code written within the constraints ([00 §2](./00-overview.md#2-focus)).
+
+<!-- derived-from ./05-architecture.md#5-cli -->
+
+Originally a measurement for the demand plan. We ran `purecrate-ts survey` over publicly available Rust code and counted how many public functions and public types are accepted as-is.
 
 ## 0. Conclusions
 
 1. **Public functions in existing code are almost never accepted.** Across the 8 domain-focused entries, 1 of 956 functions (0.1%).
-2. **About half of public types are accepted.** 44 of 87 types (51%). Sharing types only (design/05) is realistic even for existing code.
+2. **About half of public types are accepted.** 44 of 87 types (51%). Sharing types only ([04](./04-wire.md)) is realistic even for existing code.
 3. **The first barrier for functions is references in signatures (`&T`, `&self`); the next is standard library methods.** A prototype that treats references as values did not increase acceptance; the top rejection reason shifted to `expr/method-call` (`collect`, `len`, `to_string`, etc.) (§3).
-4. **We decided the target is "new code written within the PureCrate constraints"** (design/07). The acceptance rates in this document remain as the rationale for not converting existing code as-is. Priorities from here on are owned by design/07.
+4. **We decided the target is "new code written within the PureCrate constraints"** ([02](./02-authoring.md)). The acceptance rates in this document remain as the rationale for not converting existing code as-is. Priorities from here on are owned by [07](./07-roadmap.md).
 
 ## 1. Method
 
@@ -115,9 +119,9 @@ References are merely the first barrier in the signature; bodies are written wit
 
 ## 4. Interpretation
 
-- **Type sharing works for existing code.** Half of public types pass as-is, and the main causes for the rest (`cfg`, generics, newtypes, `usize`) can be handled within type definitions. This is consistent with design/05's conclusion (build the boundary codec first).
+- **Type sharing works for existing code.** Half of public types pass as-is, and the main causes for the rest (`cfg`, generics, newtypes, `usize`) can be handled within type definitions. This is consistent with [04](./04-wire.md)'s conclusion (build the boundary codec first).
 - **Behaviour sharing hardly works for existing code as-is.** Domain functions take `&self` and `&str` and are written with `iter().map().collect()` and `s.len()`. These are Rust idioms and do not compromise purity. What falls outside the subset is the "style of writing", not the "properties".
-- String methods (`len`, `to_uppercase`, `replace`) run directly into the open point in design/04 §1.3 (the UTF-8 vs UTF-16 difference). Accepting them requires pinning down the semantic difference with differential tests.
+- String methods (`len`, `to_uppercase`, `replace`) run directly into the open point in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) (the UTF-8 vs UTF-16 difference). Accepting them requires pinning down the semantic difference with differential tests.
 
 ## 5. Next priorities (proposal)
 
@@ -196,7 +200,7 @@ For the 126 functions excluding idsmith, the top reasons became spread out.
 
 ### 6.4 After TODO 31 (local closures)
 
-Closures bound with `let` become typed arrow functions (mapping in design/02 §6.2). The 339 `expr/closure` cases went to 0. Acceptance still does not change (functions 4 / 1026, types unchanged). As expected, std methods and character handling behind the closures became visible.
+Closures bound with `let` become typed arrow functions (mapping in [03 §3](./03-output.md#3-shapes)). The 339 `expr/closure` cases went to 0. Acceptance still does not change (functions 4 / 1026, types unchanged). As expected, std methods and character handling behind the closures became visible.
 
 | Count | Reason code | Main contents |
 | --- | --- | --- |

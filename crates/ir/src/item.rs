@@ -40,7 +40,7 @@ pub struct Struct {
     pub fields: Vec<Field>,
     /// Some field is not `pub`. Outside the crate Rust builds the value only
     /// through the crate's functions, so the TS type is branded and its
-    /// companion has no `of` (design/04 §1.6).
+    /// companion has no `of` (design/01 §4).
     pub closed: bool,
 }
 

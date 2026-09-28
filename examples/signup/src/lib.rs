@@ -9,7 +9,7 @@
 //   stands in for the list of known-compromised values.
 //
 // Both are closed types: the fields are not `pub`, so the value comes only
-// from `parse` (design/04 §1.6).
+// from `parse` (design/01 §4).
 
 pub struct Email(String);
 

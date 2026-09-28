@@ -2,7 +2,7 @@
 //! and gives every struct and enum in them a canonical `Show`, derived from
 //! the PureCrate IR. The TS side prints the same text from the same IR
 //! (`crates/cli/tests/support`), so a case compares the whole value, not a
-//! projection a test chose by hand (design/04 §1.4.1).
+//! projection a test chose by hand (design/01 §7).
 //!
 //! ```ignore
 //! purecrate_canon::fixture!(mod order = "../../examples/order/src/lib.rs", "fixtures/order_driver.rs");

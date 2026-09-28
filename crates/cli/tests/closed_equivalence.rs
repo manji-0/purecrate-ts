@@ -1,4 +1,4 @@
-//! Closed structs (design/04 §1.6): a struct with a field that is not `pub`
+//! Closed structs (design/01 §4): a struct with a field that is not `pub`
 //! is branded and has no `of`, so outside the crate its value comes only from
 //! the crate's functions, as in Rust. Inside the package, construction goes
 //! through the file's `$of`, also from another file and in a struct update.

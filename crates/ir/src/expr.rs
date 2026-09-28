@@ -90,7 +90,7 @@ pub enum Callee {
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
     /// `str::as_bytes`, on a `String` or `&str`: the UTF-8 bytes as a
-    /// `&[u8]`. Prints as `Str.bytes(s)` (design/04 §1.5).
+    /// `&[u8]`. Prints as `Str.bytes(s)` (design/01 §6).
     StrBytes,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,

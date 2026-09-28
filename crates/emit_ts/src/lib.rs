@@ -24,7 +24,7 @@ const TRY_LET_TEMP: &str = "$v_";
 const FOR_END: &str = "$e_";
 
 thread_local! {
-    /// Closed structs of the crate `emit` is printing (design/04 §1.6). The
+    /// Closed structs of the crate `emit` is printing (design/01 §4). The
     /// expression printer has no `Crate`; `emit` sets this for its duration.
     static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
 }
@@ -370,7 +370,7 @@ fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
 }
 
 /// A struct with a field that is not `pub`: branded, so an object literal is
-/// not one, and with no `of` on the companion (design/04 §1.6).
+/// not one, and with no `of` on the companion (design/01 §4).
 fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> String {
     let name = st.name.as_str();
     let shape = st
