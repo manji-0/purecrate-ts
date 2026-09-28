@@ -1,5 +1,6 @@
 mod args;
 mod drift;
+mod rustc;
 mod survey;
 
 use std::collections::BTreeMap;
@@ -79,7 +80,6 @@ fn run_survey(inputs: &[Input], json: bool) -> Result<(), String> {
     }
 }
 
-/// Parse, check, prune, emit. `consequence` ends the error summary line.
 fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
     match schema {
         None => Ok(None),
@@ -89,6 +89,8 @@ fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
     }
 }
 
+/// Parse, check, compile with rustc, prune, emit. `consequence` ends the
+/// error summary line.
 fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<Package, String> {
     let src = &input.src;
     let text = fs::read_to_string(src).map_err(|e| format!("read {}: {e}", src.display()))?;
@@ -97,7 +99,17 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
         None => format!("{}: {e}", src.display()),
     })?;
     let diagnostics = match accept(&krate) {
-        Ok(typed) => return Ok(assemble_with(&prune_unreachable(&typed), schema)),
+        Ok(typed) => {
+            return match rustc::compile(src) {
+                Ok(()) => Ok(assemble_with(&prune_unreachable(&typed), schema)),
+                Err(rustc::Failure::Other(e)) => Err(e),
+                Err(rustc::Failure::Rejected(errors)) => {
+                    let mut report: Vec<String> = errors.iter().map(|e| e.line()).collect();
+                    report.push(summary(errors.len(), consequence));
+                    Err(report.join("\n"))
+                }
+            }
+        }
         Err(d) => d,
     };
     let at = |i: usize| {
@@ -111,11 +123,15 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
             report.push(format!("  note: see {}", at(other)));
         }
     }
-    report.push(match consequence {
-        "" => format!("{} error(s)", diagnostics.len()),
-        c => format!("{} error(s); {c}", diagnostics.len()),
-    });
+    report.push(summary(diagnostics.len(), consequence));
     Err(report.join("\n"))
+}
+
+fn summary(errors: usize, consequence: &str) -> String {
+    match consequence {
+        "" => format!("{errors} error(s)"),
+        c => format!("{errors} error(s); {c}"),
+    }
 }
 
 fn check_drift(input: &Input, out: &Path, pkg: &Package) -> Result<(), String> {

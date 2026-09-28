@@ -15,8 +15,9 @@ the matching purecrate-* adapter.
 
 <crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
 single .rs file.
-check without --out only runs the subset checks; with --out it also fails
-when <dir> differs from what build would write.
+check and build run the subset checks, then compile the crate with rustc
+(RUSTC overrides the binary); a crate rustc rejects is rejected. check
+with --out also fails when <dir> differs from what build would write.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
 one JSON object per crate.";
