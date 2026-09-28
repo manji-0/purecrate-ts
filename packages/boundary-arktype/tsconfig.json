@@ -5,7 +5,12 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "customConditions": [
+      "purecrate-source"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

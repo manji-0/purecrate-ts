@@ -248,12 +248,15 @@ pub fn link_purecrate(dir: &std::path::Path) {
 /// last JS compiler, 7 the native one. `scripts/verify.sh` uses the same list.
 pub const TS_MAJORS: &[&str] = &["6", "7"];
 
-/// `tsc -p` over the generated package, as a consumer reads it, under each
-/// of `TS_MAJORS`.
+/// Resolves the runtime packages in this repository to their sources; their
+/// `exports` point at `dist`, which is a build output.
+pub const SOURCE_CONDITION: &str = purecrate_pack::SOURCE_CONDITION;
+
+/// `tsc -p` over the generated package under each of `TS_MAJORS`.
 pub fn typecheck(dir: &std::path::Path) {
     for major in TS_MAJORS {
         let output = Command::new("npx")
-            .args(["-y", "-p", &format!("typescript@{major}"), "tsc", "-p", "."])
+            .args(["-y", "-p", &format!("typescript@{major}"), "tsc", "-p", ".", "--customConditions", SOURCE_CONDITION])
             .current_dir(dir)
             .output()
             .expect("run npx tsc (set PURECRATE_SKIP_NODE=1 to skip)");
@@ -293,6 +296,7 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
     typecheck(&dir);
 
     let output = Command::new("node")
+        .arg(format!("--conditions={SOURCE_CONDITION}"))
         .arg("driver.ts")
         .current_dir(&dir)
         .output()

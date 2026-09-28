@@ -2,10 +2,29 @@
   "name": "purecrate-arktype",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
-  "private": true,
-  "dependencies": {
+  "description": "arktype adapters for the wire schemas purecrate-ts generates.",
+  "exports": {
+    ".": {
+      "purecrate-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "purecrate": "^0.1.0",
+    "arktype": "^2.1.22"
+  },
+  "devDependencies": {
+    "purecrate": "file:../boundary",
     "arktype": "2.1.22",
-    "purecrate": "file:../boundary"
+    "typescript": "^6.0.0 || ^7.0.0"
   }
 }

@@ -180,6 +180,7 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
         )
         .expect("write driver");
         let output = Command::new("node")
+            .arg(format!("--conditions={}", support::SOURCE_CONDITION))
             .arg("driver.ts")
             .current_dir(&dir)
             .output()

@@ -1,8 +1,23 @@
 {
   "name": "counter",
+  "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
-  "dependencies": {
-    "purecrate": "0.1.0"
+  "exports": {
+    ".": {
+      "purecrate-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "purecrate": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.0 || ^7.0.0"
   }
 }

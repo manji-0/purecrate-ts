@@ -32,6 +32,8 @@ pub struct Input {
     pub name: String,
     /// The Rust edition rustc compiles the input with.
     pub edition: String,
+    /// The generated package's version: the crate's, else `0.1.0`.
+    pub version: String,
 }
 
 /// For a source file with no `Cargo.toml` to read.
@@ -140,37 +142,41 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
         None => infer_name(&src, crate_dir.as_deref())
             .ok_or_else(|| format!("cannot infer a crate name for {}; pass --name", src.display()))?,
     };
-    let edition = infer_edition(crate_dir.as_deref())?;
-    Ok(Input { src, name, edition })
+    let (edition, version) = match crate_dir.filter(|d| d.join("Cargo.toml").is_file()) {
+        None => (DEFAULT_EDITION.to_string(), purecrate_pack::DEFAULT_VERSION.to_string()),
+        Some(dir) => {
+            // A manifest without an edition is 2015, as cargo reads it.
+            let edition = package_field(&dir, "edition")?.unwrap_or_else(|| "2015".into());
+            if !EDITIONS.contains(&edition.as_str()) {
+                return Err(format!("{}: edition {edition} is not one of {}", dir.display(), EDITIONS.join(", ")));
+            }
+            let version = package_field(&dir, "version")?.unwrap_or_else(|| purecrate_pack::DEFAULT_VERSION.into());
+            (edition, version)
+        }
+    };
+    Ok(Input { src, name, edition, version })
 }
 
-/// `[package] edition`; `edition.workspace = true` reads `[workspace.package]`
-/// from the nearest enclosing manifest that has it. A manifest without an
-/// edition is 2015, as cargo reads it.
-fn infer_edition(crate_dir: Option<&Path>) -> Result<String, String> {
-    let Some(dir) = crate_dir else { return Ok(DEFAULT_EDITION.into()) };
-    let Ok(manifest) = fs::read_to_string(dir.join("Cargo.toml")) else {
-        return Ok(DEFAULT_EDITION.into());
-    };
-    let edition = match manifest_value(&manifest, "package", "edition") {
+/// `[package] key` in `dir/Cargo.toml`. `key.workspace = true` reads
+/// `[workspace.package]` from the nearest enclosing manifest that has it.
+fn package_field(dir: &Path, key: &str) -> Result<Option<String>, String> {
+    let manifest = fs::read_to_string(dir.join("Cargo.toml")).map_err(|e| format!("read {}/Cargo.toml: {e}", dir.display()))?;
+    match manifest_value(&manifest, "package", key) {
+        None => Ok(None),
+        Some(Value::Text(v)) => Ok(Some(v)),
         Some(Value::Inherited) => dir
             .ancestors()
             .skip(1)
             .find_map(|d| {
                 let text = fs::read_to_string(d.join("Cargo.toml")).ok()?;
-                match manifest_value(&text, "workspace.package", "edition")? {
-                    Value::Text(e) => Some(e),
+                match manifest_value(&text, "workspace.package", key)? {
+                    Value::Text(v) => Some(v),
                     Value::Inherited => None,
                 }
             })
-            .ok_or_else(|| format!("{}: edition.workspace = true, but no workspace sets an edition", dir.display()))?,
-        Some(Value::Text(e)) => e,
-        None => "2015".into(),
-    };
-    if !EDITIONS.contains(&edition.as_str()) {
-        return Err(format!("{}: edition {edition} is not one of {}", dir.display(), EDITIONS.join(", ")));
+            .map(Some)
+            .ok_or_else(|| format!("{}: {key}.workspace = true, but no workspace sets {key}", dir.display())),
     }
-    Ok(edition)
 }
 
 /// `Cargo.toml` `[package] name`, else the crate directory, else the file stem.
@@ -254,6 +260,7 @@ mod tests {
                     src: dir.join("src/lib.rs"),
                     name: "counter".into(),
                     edition: "2021".into(),
+                    version: "0.1.0".into(),
                 },
                 out: None,
                 schema: None,
@@ -318,6 +325,12 @@ mod tests {
         assert_eq!(edition("[package]\nname = \"k\"\nedition = { workspace = true }\n", &[]).unwrap(), "2024");
         assert!(edition("[package]\nname = \"k\"\nedition = \"2030\"\n", &[]).unwrap_err().contains("2030"));
         assert!(edition("[package]\nname = \"k\"\n", &["--edition", "3000"]).unwrap_err().contains("3000"));
+        fs::write(krate.join("Cargo.toml"), "[package]\nname = \"k\"\nversion.workspace = true\n").unwrap();
+        fs::write(dir.join("Cargo.toml"), "[workspace]\n[workspace.package]\nversion = \"2.3.4\"\n").unwrap();
+        let Command::Check { input, .. } = parse(&args(&["check", krate.to_str().unwrap()])).unwrap() else {
+            unreachable!()
+        };
+        assert_eq!((input.version.as_str(), input.edition.as_str()), ("2.3.4", "2015"));
         fs::remove_dir_all(&dir).ok();
     }
 

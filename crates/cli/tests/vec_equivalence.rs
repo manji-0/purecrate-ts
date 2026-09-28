@@ -66,6 +66,7 @@ fn out_of_range_index_uses_rusts_panic_message() {
     .unwrap();
     support::link_purecrate(&dir);
     let output = std::process::Command::new("node")
+        .arg(format!("--conditions={}", support::SOURCE_CONDITION))
         .arg("driver.ts")
         .current_dir(&dir)
         .output()

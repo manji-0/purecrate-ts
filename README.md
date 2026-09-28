@@ -25,6 +25,8 @@ purecrate-ts survey <crate-path>... [--json]
 
 `check` は受理できない定義を `path:line:col` と理由コードで拒否し、ファイルを書かない。サブセットの検査を通ったあと、入力を rustc にかけ、コンパイルできなければ `[rustc/E0382]` のように rustc のエラーコードで拒否する。`check` が通れば、入力はライブラリとしてコンパイルできる。`--out` を付けると、既存の生成物とのバイト一致も見る。`survey` は公開関数と公開型が、参照先ごと受理できるかを JSON で出す。
 
+生成物は npm のパッケージである。`npm run build` で `dist` に JavaScript と宣言を出し、`exports` はそれを指す（`npm pack` と `npm publish` の前には自動で走る）。ランタイム `purecrate` とスキーマのアダプタは `peerDependencies` で、`version` は crate の `Cargo.toml` から取る。`purecrate` はまだ npm に公開していないので、今は `packages/` から pack して入れる。
+
 数値のブランドはパッケージ `purecrate` にある。`--schema` を付けたときだけ、そのライブラリ向けのワイヤ用スキーマを `src/purecrate-wire.ts` に出す。serde の既定 JSON を、ドメインのブランド型へ読む。指定していないライブラリのスキーマは出さない。serde_json が書く `i64` / `u64` は JSON の数値なので、JSON テキストは `JSON.parse` ではなく `purecrate` の `parseJson` で読む。2^53 を超える整数も落とさずに `bigint` になる。
 
 生成したパッケージは編集しない。変えるときは Rust を変えて作り直す。

@@ -83,7 +83,9 @@ fn generated_counter_matches_rust_step() {
     let dir = scratch_dir();
     write_package(&dir);
     let input: String = cases.iter().map(|(n, e)| format!("{n} {e}\n")).collect();
+    // `purecrate` exports `dist`; its sources stand in for it here.
     let output = Command::new("node")
+        .arg(format!("--conditions={}", purecrate_pack::SOURCE_CONDITION))
         .arg("driver.ts")
         .arg(&input)
         .current_dir(&dir)

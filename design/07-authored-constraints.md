@@ -159,7 +159,11 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 
 ### 4.6 パッケージの読み方
 
-生成 `tsconfig` は `moduleResolution: bundler` と `.ts` 拡張子の import を使う。`deno check` の NodeNext では読めない。消費側は TypeScript 6 か 7 の strict で読む。どちらでも、生成 `tsconfig` のまま警告なく通ることを検査している。
+生成パッケージは npm のパッケージとして配る。ソースは `src/*.ts` で、`.ts` 拡張子の import を使う。`npm run build`（`npm pack` と `npm publish` の前に `prepack` で走る）が、TypeScript 6 か 7 で `dist` に JavaScript と宣言を出す。`.ts` の import は `rewriteRelativeImportExtensions` で `.js` に書き換わる。`exports` は `dist` を指すので、消費側は TypeScript のローダーなしで node から読め、tsc は `nodenext` でも `bundler` でも読める。`--schema` を付けたときは、ワイヤ用スキーマを `<package>/wire` から読む。`version` は crate の `Cargo.toml` の version である（2026-09-29）。
+
+ランタイム `purecrate` と、スキーマのアダプタ `purecrate-zod` などは `peerDependencies` である。ブランド型（`I32` など）は `purecrate` の `unique symbol` で区別されるので、生成パッケージが二つあっても、ランタイムは一つでなければ値を受け渡せない。ランタイムとアダプタも同じ形で `dist` を持つ。このリポジトリの中では、ビルドせずに条件 `purecrate-source`（node の `--conditions`、tsc の `customConditions`）でソースを読む。
+
+生成パッケージを pack して別のプロジェクトに入れ、node で実行し、TypeScript 6・7 の tsc で `nodenext` と `bundler` の両方の型検査を通すことを検査している（`crates/cli/tests/package.rs`）。`purecrate` はまだ npm に公開していない。
 
 予約名は `Result`、`Int`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
 

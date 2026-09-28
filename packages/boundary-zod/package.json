@@ -2,10 +2,29 @@
   "name": "purecrate-zod",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
-  "private": true,
-  "dependencies": {
+  "description": "zod adapters for the wire schemas purecrate-ts generates.",
+  "exports": {
+    ".": {
+      "purecrate-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "purecrate": "^0.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
     "purecrate": "file:../boundary",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "typescript": "^6.0.0 || ^7.0.0"
   }
 }

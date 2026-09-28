@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::{assemble_with, disk_path};
+use purecrate_pack::{assemble_versioned, disk_path};
 use purecrate_syntax::{parse_source_spanned, LineCol};
 
 use args::{Command, Input};
@@ -101,7 +101,7 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
     let diagnostics = match accept(&krate) {
         Ok(typed) => {
             return match rustc::compile(src, &input.edition) {
-                Ok(()) => Ok(assemble_with(&prune_unreachable(&typed), schema)),
+                Ok(()) => Ok(assemble_versioned(&prune_unreachable(&typed), schema, &input.version)),
                 Err(rustc::Failure::Other(e)) => Err(e),
                 Err(rustc::Failure::Rejected(errors)) => {
                     let mut report: Vec<String> = errors.iter().map(|e| e.line()).collect();
@@ -173,7 +173,9 @@ fn read_tree(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
         for entry in entries {
             let path = entry.map_err(|e| format!("read {}: {e}", dir.display()))?.path();
             if path.is_dir() {
-                if path.file_name().and_then(|n| n.to_str()) == Some("node_modules") {
+                // Installed dependencies, and `npm run build` output.
+                let name = path.file_name().and_then(|n| n.to_str());
+                if name == Some("node_modules") || (dir == root && name == Some("dist")) {
                     continue;
                 }
                 stack.push(path);

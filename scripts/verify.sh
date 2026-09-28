@@ -13,9 +13,12 @@ cargo run --offline -q -p purecrate-ts -- check examples/counter --out examples/
 cargo run --offline -q -p purecrate-ts -- check examples/order
 mkdir -p examples/counter-ts/node_modules
 ln -sfn "$(pwd)/packages/boundary" examples/counter-ts/node_modules/purecrate
+# The runtime packages export `dist`; in this repository their sources stand
+# in for it (the purecrate-source condition).
 for major in "${TS_MAJORS[@]}"; do
   for dir in packages/boundary packages/boundary-zod packages/boundary-valibot packages/boundary-arktype examples/counter-ts; do
-    (cd "$dir" && npx -y -p "typescript@$major" tsc -p .) || { echo "verify: tsc $major failed in $dir" >&2; exit 1; }
+    (cd "$dir" && npx -y -p "typescript@$major" tsc -p . --customConditions purecrate-source) \
+      || { echo "verify: tsc $major failed in $dir" >&2; exit 1; }
   done
 done
 echo "verify: ok"
