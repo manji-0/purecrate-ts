@@ -244,20 +244,27 @@ pub fn link_purecrate(dir: &std::path::Path) {
     std::os::unix::fs::symlink(&boundary, &modules).expect("link purecrate");
 }
 
-/// `tsc -p` over the generated package, as a consumer reads it.
+/// TypeScript majors the generated package must type-check under: 6 is the
+/// last JS compiler, 7 the native one. `scripts/verify.sh` uses the same list.
+pub const TS_MAJORS: &[&str] = &["6", "7"];
+
+/// `tsc -p` over the generated package, as a consumer reads it, under each
+/// of `TS_MAJORS`.
 pub fn typecheck(dir: &std::path::Path) {
-    let output = Command::new("npx")
-        .args(["-y", "-p", "typescript@5", "tsc", "-p", "."])
-        .current_dir(dir)
-        .output()
-        .expect("run npx tsc (set PURECRATE_SKIP_NODE=1 to skip)");
-    assert!(
-        output.status.success(),
-        "tsc rejects the generated package in {}:\n{}{}",
-        dir.display(),
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for major in TS_MAJORS {
+        let output = Command::new("npx")
+            .args(["-y", "-p", &format!("typescript@{major}"), "tsc", "-p", "."])
+            .current_dir(dir)
+            .output()
+            .expect("run npx tsc (set PURECRATE_SKIP_NODE=1 to skip)");
+        assert!(
+            output.status.success(),
+            "tsc {major} rejects the generated package in {}:\n{}{}",
+            dir.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 /// Accepts `source`, generates its package, and checks every case agrees.
