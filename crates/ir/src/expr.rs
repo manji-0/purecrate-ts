@@ -91,6 +91,9 @@ pub enum Callee {
     VecLen,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
+    /// `to::from(x)` where std has a lossless `From` (`IntTy::widens_to`).
+    /// `from` is the argument's type, set by `check::accept`.
+    IntFrom { from: Option<IntTy>, to: IntTy },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

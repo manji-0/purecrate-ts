@@ -717,8 +717,19 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 }
                 purecrate_ir::Callee::Fround => "Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
-                purecrate_ir::Callee::VecLen | purecrate_ir::Callee::StringFrom => String::new(),
+                purecrate_ir::Callee::VecLen
+                | purecrate_ir::Callee::StringFrom
+                | purecrate_ir::Callee::IntFrom { .. } => String::new(),
             };
+            if let purecrate_ir::Callee::IntFrom { from, to } = callee {
+                let x = emit_expr(&args[0], indent);
+                let from = from.expect("check::accept sets the source width");
+                return match (from.is_big(), to.is_big()) {
+                    _ if from == *to => x,
+                    (false, true) => format!("(BigInt({x}) as {})", to.ts_name()),
+                    _ => format!("({x} as number as {})", to.ts_name()),
+                };
+            }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
             }
@@ -975,6 +986,9 @@ impl Refs {
                     }
                     Callee::VecLen => {
                         self.nums.insert("Usize".into());
+                    }
+                    Callee::IntFrom { to, .. } => {
+                        self.nums.insert(to.ts_name().to_string());
                     }
                     _ => {}
                 }
@@ -1465,6 +1479,22 @@ export const step = (state: State, event: Event): State => {
             ty: Some(FloatTy::F32),
         };
         assert_eq!(emit_lit(&single), "(Math.fround(0.1) as F32)");
+    }
+
+    #[test]
+    fn integer_from_converts_only_into_bigint() {
+        let from = |from, to| {
+            emit_expr(
+                &Expr::Call {
+                    callee: purecrate_ir::Callee::IntFrom { from: Some(from), to },
+                    args: vec![Expr::var("x")],
+                },
+                0,
+            )
+        };
+        assert_eq!(from(IntTy::U32, IntTy::I64), "(BigInt(x) as I64)");
+        assert_eq!(from(IntTy::U8, IntTy::I32), "(x as number as I32)");
+        assert_eq!(from(IntTy::I64, IntTy::I64), "x");
     }
 }
 

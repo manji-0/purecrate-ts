@@ -948,12 +948,46 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::String)),
             ),
+            Callee::IntFrom { to, .. } => return self.int_from(*to, args, want),
         };
         let e = Expr::Call {
             callee: callee.clone(),
             args,
         };
         (e, self.expect(want, t))
+    }
+
+    /// `to::from(x)`: the argument is typed on its own, then must widen to
+    /// `to` without loss. Narrowing has no `From` in std and stays rejected.
+    fn int_from(&mut self, to: IntTy, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+        let from = match typed.first().map(|(_, t)| t.clone()) {
+            Some(Some(t)) if t != Ty::Never => match self.num(&t) {
+                Some(Num::Int(f)) if f.widens_to(to) => Some(f),
+                Some(Num::Int(f)) => {
+                    self.error(Reason::NumericOp, format!(
+                        "`{}::from` does not take `{}`: std has no lossless conversion between them",
+                        to.as_str(),
+                        f.as_str()
+                    ));
+                    None
+                }
+                _ => {
+                    self.error(Reason::TypeMismatch, format!(
+                        "`{}::from` takes an integer in v0, found `{}`",
+                        to.as_str(),
+                        show(&t)
+                    ));
+                    None
+                }
+            },
+            _ => None,
+        };
+        let e = Expr::Call {
+            callee: Callee::IntFrom { from, to },
+            args: typed.into_iter().map(|(e, _)| e).collect(),
+        };
+        (e, self.expect(want, Some(Ty::Prim(to.into()))))
     }
 
     fn construct_fields(&mut self, ty: &str, variant: Option<&str>, fields: &Fields) -> Fields {

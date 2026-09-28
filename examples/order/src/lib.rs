@@ -5,7 +5,7 @@ pub struct Sku(String);
 pub struct Line {
     pub sku: Sku,
     pub unit_price: Yen,
-    pub qty: i64,
+    pub qty: u32,
 }
 
 pub enum Lines {
@@ -75,7 +75,7 @@ pub fn remove_sku(lines: Lines, sku: &Sku) -> Result<Lines, OrderError> {
 pub fn total(lines: &Lines) -> Yen {
     match lines {
         Lines::Nil => Yen(0),
-        Lines::Cons(line, rest) => Yen(line.unit_price.0 * line.qty + total(rest).0),
+        Lines::Cons(line, rest) => Yen(line.unit_price.0 * i64::from(line.qty) + total(rest).0),
     }
 }
 
@@ -92,7 +92,7 @@ pub fn step(order: Order, cmd: Command) -> Result<Order, OrderError> {
 fn draft(lines: Lines, cmd: Command) -> Result<Order, OrderError> {
     match cmd {
         Command::AddLine(line) => {
-            if line.qty <= 0 {
+            if line.qty == 0 {
                 return Err(OrderError::QtyZero);
             }
             Ok(Order::Draft { lines: add_line(lines, line) })

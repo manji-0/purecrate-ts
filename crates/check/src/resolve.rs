@@ -347,6 +347,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::AsFloat(_) => self.arity("`as float`", 1, argc),
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
+            Callee::IntFrom { to, .. } => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
         }
     }
 

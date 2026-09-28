@@ -106,6 +106,22 @@ impl IntTy {
     pub fn of_suffix(suffix: &str) -> Option<IntTy> {
         IntTy::ALL.into_iter().find(|t| t.as_str() == suffix)
     }
+
+    /// std implements `From<self> for to`. Every such conversion keeps the
+    /// value. `usize` takes only `u8` and `u16`, as in std.
+    pub fn widens_to(self, to: IntTy) -> bool {
+        use IntTy::*;
+        self == to
+            || matches!(
+                (self, to),
+                (U8, U16 | U32 | U64 | Usize | I16 | I32 | I64)
+                    | (U16, U32 | U64 | Usize | I32 | I64)
+                    | (U32, U64 | I64)
+                    | (I8, I16 | I32 | I64)
+                    | (I16, I32 | I64)
+                    | (I32, I64)
+            )
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

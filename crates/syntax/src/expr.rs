@@ -409,6 +409,13 @@ fn wrapper_new(segs: &[String]) -> Option<Wrapper> {
     }
 }
 
+fn int_from(segs: &[String]) -> Option<IntTy> {
+    match segs {
+        [ty, from] if from == "from" => IntTy::of_suffix(ty),
+        _ => None,
+    }
+}
+
 fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, ParseError> {
     let args = args
         .into_iter()
@@ -439,6 +446,8 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::ResultErr
             } else if segs == ["String", "from"] {
                 Callee::StringFrom
+            } else if let Some(to) = int_from(&segs) {
+                Callee::IntFrom { from: None, to }
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
             } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {
