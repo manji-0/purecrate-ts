@@ -57,3 +57,8 @@ pub struct Holder {
     pub floats: Floats,
     pub misc: Misc,
 }
+
+pub struct Sealed {
+    code: i32,
+    pub hint: Option<String>,
+}

@@ -2,7 +2,9 @@
 //! reads serde's default JSON into the domain value. `fixtures/wire_shapes.rs`
 //! has every type form a schema prints: each integer width, floats, `()`,
 //! `Option` (missing or `null`), `Vec`, tuples, newtypes, `Box`, unit, tuple
-//! and struct variants, and recursive enums and structs.
+//! and struct variants, and recursive enums and structs. `Id`, `Label` and
+//! `Sealed` are closed (design/05 §7.7): read by shape, as serde's derive does,
+//! and built through the package-internal constructor.
 //!
 //! 64-bit integers come as serde_json writes them, JSON numbers, read from
 //! the text with `parseJson`; a plain `JSON.parse` rounds those past 2^53 and
@@ -98,6 +100,7 @@ const accepts = [
   // serde_json also reads a unit variant written as a map with a `null` value.
   ["Shape", { Dot: null }, { kind: "Dot" }],
   ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
+  ["Sealed", { code: -1 }, { code: -1, hint: null }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
@@ -119,6 +122,7 @@ const rejects = [
   ["Shape", "Circle"],
   ["Tree", { Node: ["Leaf", 1] }],
   ["Chain", { value: 1.5 }],
+  ["Sealed", { code: 2147483648, hint: "h" }],
   ["Holder", { ...holder, tree: undefined }],
 ];
 

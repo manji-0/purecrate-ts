@@ -55,6 +55,7 @@ pub fn counter_example() -> Crate {
             name: Name::new("n"),
             ty: Ty::i32(),
         }],
+        closed: false,
     });
 
     let arm = |variant: &str, body: Expr| Arm {

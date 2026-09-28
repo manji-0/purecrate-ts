@@ -2,6 +2,7 @@
 
 mod schema;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use schema::{emit_wire, WireSchema};
@@ -21,6 +22,34 @@ const MATCH_TEMP: &str = "$m_";
 const TRY_TEMP: &str = "$t_";
 const TRY_LET_TEMP: &str = "$v_";
 
+thread_local! {
+    /// Closed structs of the crate `emit` is printing (design/04 §1.6). The
+    /// expression printer has no `Crate`; `emit` sets this for its duration.
+    static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+}
+
+fn is_closed(name: &str) -> bool {
+    CLOSED.with(|c| c.borrow().contains(name))
+}
+
+/// The package-internal constructor of a closed struct. It is exported from
+/// the type's file for the other generated files, but not from `index.ts`.
+/// `rename` only appends `$` and digits, so `$of` does not collide.
+pub(crate) fn closed_ctor(name: &str) -> String {
+    format!("{name}$of")
+}
+
+pub(crate) fn closed_names(krate: &Crate) -> BTreeSet<String> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(st) if st.closed => Some(st.name.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct File {
     pub stem: String,
@@ -33,6 +62,13 @@ pub struct Package {
 }
 
 pub fn emit(krate: &Crate) -> Package {
+    let previous = CLOSED.with(|c| c.replace(closed_names(krate)));
+    let package = emit_package(krate);
+    CLOSED.with(|c| c.replace(previous));
+    package
+}
+
+fn emit_package(krate: &Crate) -> Package {
     let mut buckets: BTreeMap<String, Vec<&Item>> = BTreeMap::new();
     for item in &krate.items {
         buckets.entry(item.file_stem()).or_default().push(item);
@@ -262,7 +298,7 @@ fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
 fn emit_struct(krate: &Crate, st: &Struct) -> String {
     let name = st.name.as_str();
     if let Some(inner) = st.newtype_inner() {
-        return emit_newtype(krate, name, inner);
+        return emit_newtype(krate, name, inner, st.closed);
     }
     let fields = st
         .fields
@@ -270,6 +306,9 @@ fn emit_struct(krate: &Crate, st: &Struct) -> String {
         .map(|f| format!("  {}: {};", f.name.as_str(), emit_ty(&f.ty)))
         .collect::<Vec<_>>()
         .join("\n");
+    if st.closed {
+        return emit_closed_struct(krate, st, &fields);
+    }
     let mut out = format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n");
     let params = st
         .fields
@@ -301,14 +340,19 @@ fn emit_struct(krate: &Crate, st: &Struct) -> String {
 /// A newtype is its inner value at runtime (as in serde's JSON), branded so
 /// that `Id` and the bare inner type do not mix. A `unique symbol` key keeps
 /// nested brands from colliding.
-fn emit_newtype(krate: &Crate, name: &str, inner: &Ty) -> String {
+fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
     let inner = emit_ty(inner);
     let mut out = format!(
         "declare const {name}Brand: unique symbol;\n\
          export type {name} = {inner} & {{ readonly [{name}Brand]: true }};\n\n"
     );
+    if closed {
+        out.push_str(&closed_ctor_src(name, &format!("value: {inner}"), "value"));
+    }
     out.push_str(&format!("export const {name} = {{\n"));
-    out.push_str(&format!("  of: (value: {inner}): {name} => value as {name},\n"));
+    if !closed {
+        out.push_str(&format!("  of: (value: {inner}): {name} => value as {name},\n"));
+    }
     for m in methods_on(krate, name) {
         out.push_str(&format!(
             "  {n}: {impl},\n",
@@ -318,6 +362,42 @@ fn emit_newtype(krate: &Crate, name: &str, inner: &Ty) -> String {
     }
     out.push_str("} as const;\n");
     out
+}
+
+/// A struct with a field that is not `pub`: branded, so an object literal is
+/// not one, and with no `of` on the companion (design/04 §1.6).
+fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> String {
+    let name = st.name.as_str();
+    let shape = st
+        .fields
+        .iter()
+        .map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut out = format!(
+        "declare const {name}Brand: unique symbol;\n\
+         export type {name} = Readonly<{{\n{fields}\n}}> & {{ readonly [{name}Brand]: true }};\n\n"
+    );
+    out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
+    out.push_str(&format!("export const {name} = {{\n"));
+    for m in methods_on(krate, name) {
+        out.push_str(&format!(
+            "  {n}: {impl},\n",
+            n = m.name.as_str(),
+            impl = fn_arrow(m, 1)
+        ));
+    }
+    out.push_str("} as const;\n");
+    out
+}
+
+fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
+    format!(
+        "// A field is not `pub` in Rust: outside the crate, `{name}` values come only from\n\
+         // the crate's functions. The generated files build them here; `index.ts` does not export it.\n\
+         export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",
+        ctor = closed_ctor(name)
+    )
 }
 
 fn emit_free_fn(f: &Fn) -> String {
@@ -377,8 +457,8 @@ fn arrow_expr(expr: &Expr, indent: usize) -> String {
 fn leads_with_brace(expr: &Expr) -> bool {
     match expr {
         Expr::Ignored { expr, .. } => leads_with_brace(expr),
-        Expr::Construct { variant, fields, base: None, .. } => {
-            variant.is_some() || !matches!(fields, Fields::Positional(_))
+        Expr::Construct { ty, variant, fields, base: None } => {
+            variant.is_some() || !(matches!(fields, Fields::Positional(_)) || is_closed(ty.as_str()))
         }
         Expr::Field { base, .. } => leads_with_brace(base),
         Expr::Binary { left, .. } => !matches!(**left, Expr::Binary { .. }) && leads_with_brace(left),
@@ -726,7 +806,13 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         }
         Expr::Construct { ty, variant, fields, base } => match (variant, base) {
             (Some(v), None) => emit_variant_value(ty.as_str(), v.as_str(), fields),
+            (None, None) if is_closed(ty.as_str()) => {
+                format!("{}({})", closed_ctor(ty.as_str()), emit_struct_value(fields))
+            }
             (None, None) => emit_struct_value(fields),
+            (None, Some(base)) if is_closed(ty.as_str()) => {
+                format!("{}{}", closed_ctor(ty.as_str()), emit_struct_update(fields, base))
+            }
             (None, Some(base)) => emit_struct_update(fields, base),
             (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
         },
@@ -748,6 +834,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Variant { ty, variant } => {
                     format!("{}.{}", ty.as_str(), variant.as_str())
                 }
+                purecrate_ir::Callee::StructNew(n) if is_closed(n.as_str()) => closed_ctor(n.as_str()),
                 purecrate_ir::Callee::StructNew(n) => format!("{}.of", n.as_str()),
                 purecrate_ir::Callee::ResultOk => "Result.ok".into(),
                 purecrate_ir::Callee::ResultErr => "Result.err".into(),
@@ -996,6 +1083,8 @@ struct Refs {
     nums: BTreeSet<String>,
     types: BTreeSet<String>,
     values: BTreeSet<String>,
+    /// Closed structs this file builds through their `$of`.
+    ctors: BTreeSet<String>,
 }
 
 impl Refs {
@@ -1045,6 +1134,9 @@ impl Refs {
                     Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {
                         self.values.insert(n.as_str().to_string());
                     }
+                    Callee::StructNew(ty) if closed_in(krate, ty.as_str()) => {
+                        self.ctors.insert(ty.as_str().to_string());
+                    }
                     Callee::Method { ty, .. } | Callee::Variant { ty, .. } | Callee::StructNew(ty) => {
                         self.values.insert(ty.as_str().to_string());
                     }
@@ -1082,7 +1174,10 @@ impl Refs {
                 self.expr(krate, then);
                 self.expr(krate, else_);
             }
-            Expr::Construct { fields, base, .. } => {
+            Expr::Construct { ty, variant, fields, base } => {
+                if variant.is_none() && closed_in(krate, ty.as_str()) {
+                    self.ctors.insert(ty.as_str().to_string());
+                }
                 match fields {
                     Fields::Positional(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
                     Fields::Named(xs) => xs.iter().for_each(|(_, e)| self.expr(krate, e)),
@@ -1135,6 +1230,13 @@ impl Refs {
         self.ty(&f.ret);
         self.expr(krate, &f.body);
     }
+}
+
+fn closed_in(krate: &Crate, name: &str) -> bool {
+    krate
+        .items
+        .iter()
+        .any(|item| matches!(item, Item::Struct(st) if st.closed && st.name.as_str() == name))
 }
 
 fn is_free_fn(krate: &Crate, name: &str) -> bool {
@@ -1194,6 +1296,13 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
         out.push_str(&format!(
             "import {{ {v} }} from \"./{s}.ts\";\n",
             s = Name::new(v.clone()).file_stem()
+        ));
+    }
+    for c in refs.ctors.iter().filter(|c| elsewhere(c)) {
+        out.push_str(&format!(
+            "import {{ {ctor} }} from \"./{s}.ts\";\n",
+            ctor = closed_ctor(c),
+            s = Name::new(c.clone()).file_stem()
         ));
     }
     for t in refs
@@ -1430,6 +1539,7 @@ export const step = (state: State, event: Event): State => {
                 name: Name::new("last"),
                 ty: Ty::option(Ty::Vec(Box::new(Ty::named("Cmd")))),
             }],
+            closed: false,
         }));
         let pkg = emit(&krate);
 

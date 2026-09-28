@@ -4,6 +4,8 @@
 
 use purecrate_ir::{Crate, Item, Struct, Ty, VariantFields, NEWTYPE_FIELD};
 
+use crate::closed_ctor;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireSchema {
     Zod,
@@ -53,8 +55,14 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     for item in krate.exported() {
         if matches!(item, Item::Struct(_) | Item::Enum(_)) {
             let name = item.name().as_str();
-            let value = matches!(item, Item::Struct(s) if s.newtype_inner().is_some());
-            if value {
+            let value = matches!(item, Item::Struct(s) if s.newtype_inner().is_some() && !s.closed);
+            if matches!(item, Item::Struct(s) if s.closed) {
+                out.push_str(&format!(
+                    "import {{ {ctor}, type {name} as {name}$ }} from \"./{}.ts\";\n",
+                    item.file_stem(),
+                    ctor = closed_ctor(name)
+                ));
+            } else if value {
                 out.push_str(&format!(
                     "import {{ {name} as {name}$value, type {name} as {name}$ }} from \"./{}.ts\";\n",
                     item.file_stem()
@@ -106,12 +114,13 @@ fn struct_schema(schema: WireSchema, s: &Struct) -> String {
     let name = s.name.as_str();
     if let Some(inner) = s.newtype_inner() {
         let value = schema_ty(schema, inner);
+        let build = newtype_build(s, "v");
         return match schema {
             WireSchema::Zod => format!(
-                "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => {value}.transform((v): {name}$ => {name}$value.of(v)));\n"
+                "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => {value}.transform((v): {name}$ => {build}));\n"
             ),
             WireSchema::Valibot => format!(
-                "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe({value}, v.transform((v): {name}$ => {name}$value.of(v))));\n"
+                "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe({value}, v.transform((v): {name}$ => {build})));\n"
             ),
             WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
         };
@@ -122,15 +131,36 @@ fn struct_schema(schema: WireSchema, s: &Struct) -> String {
         .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(schema, &f.ty, true)))
         .collect::<Vec<_>>()
         .join(", ");
-    let build = fill(schema, &s.fields, "v");
+    let build = record_build(s, &fill(schema, &s.fields, "v"));
     match schema {
         WireSchema::Zod => format!(
-            "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => z.object({{ {fields} }}).transform((v): {name}$ => ({{ {build} }})));\n"
+            "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => z.object({{ {fields} }}).transform((v): {name}$ => {build}));\n"
         ),
         WireSchema::Valibot => format!(
-            "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe(v.object({{ {fields} }}), v.transform((v): {name}$ => ({{ {build} }}))));\n"
+            "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe(v.object({{ {fields} }}), v.transform((v): {name}$ => {build})));\n"
         ),
         WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
+    }
+}
+
+/// The domain value of a newtype from its parsed inner value. A closed
+/// newtype has no `of`; serde's derive builds it from the shape alone, and so
+/// does the schema, through the package-internal constructor (design/05 §7.7).
+fn newtype_build(s: &Struct, from: &str) -> String {
+    let name = s.name.as_str();
+    if s.closed {
+        format!("{}({from})", closed_ctor(name))
+    } else {
+        format!("{name}$value.of({from})")
+    }
+}
+
+/// `{ a: v.a }`, or through the constructor when the struct is closed.
+fn record_build(s: &Struct, fields: &str) -> String {
+    if s.closed {
+        format!("{}({{ {fields} }})", closed_ctor(s.name.as_str()))
+    } else {
+        format!("({{ {fields} }})")
     }
 }
 
@@ -223,7 +253,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
 fn ark_struct(s: &Struct) -> String {
     let name = s.name.as_str();
     let (shape, build) = match s.newtype_inner() {
-        Some(inner) => (schema_ty(WireSchema::Arktype, inner), format!("{name}$value.of(parsed)")),
+        Some(inner) => (schema_ty(WireSchema::Arktype, inner), newtype_build(s, "parsed")),
         None => {
             let fields = s
                 .fields
@@ -231,7 +261,7 @@ fn ark_struct(s: &Struct) -> String {
                 .map(|f| format!("{}: {}", f.name.as_str(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            (format!("type({{ {fields} }})"), format!("({{ {} }})", fill(WireSchema::Arktype, &s.fields, "parsed")))
+            (format!("type({{ {fields} }})"), record_build(s, &fill(WireSchema::Arktype, &s.fields, "parsed")))
         }
     };
     format!(

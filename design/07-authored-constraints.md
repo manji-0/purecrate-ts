@@ -142,7 +142,8 @@ pub enum Patch {
 | `f32`, `f64` | `F32`, `F64` | `Int.f32.of` / `Int.f64.of` で入れる。`F32` と `F64` は別の型 |
 | `i64`、`u64` | ブランド付き `bigint` | `number` と混ぜない。`JSON.parse` は 2^53 を超える整数の精度を落とすので、serde_json の JSON は `parseJson` で読む |
 | `String` | `string` | `===` は Rust の等価と一致する。`.length` と `[i]` は UTF-16 の単位で、Rust のバイト長・バイト添字ではない。今のサブセットは、その演算を生成しない |
-| newtype | 中身の値にブランドを交差した型 | 実行時の値は中身そのもの。ブランドは JSON を通ると消える。構築は `Meters.of` |
+| newtype | 中身の値にブランドを交差した型 | 実行時の値は中身そのもの。ブランドは JSON を通ると消える。中身が `pub` なら構築は `Meters.of`。非 `pub` なら閉じた型で、クレートの公開関数から得る（§4.7） |
+| 非公開フィールドを持つ struct | ブランド付きの `Readonly` オブジェクト（§4.7） | `of` はない。`Email.parse` のように、Rust の公開関数を呼んで作る |
 | `Vec<T>` | `ReadonlyArray<T>` | 添字と `len` は読める。追加、削除、`map` / `filter` は生成しない。実行時に freeze はしない |
 
 ### 4.4 所有は型の上だけで消える
@@ -167,6 +168,21 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 
 予約名は `Result`、`Int`、数値ブランド（`I32` など）、`assertNever`、`Readonly`、`ReadonlyArray`、`globalThis`、ファイル幹 `index` / `result` / `assert-never` / `int`。判別子のフィールド名 `kind` と、コンパニオンの `of`。ドメインの型にこれらの名前は使えない。生成コードは `Math`・`Number`・`Error`・`BigInt` を `globalThis.Error` のように読むので、ドメインの `Error` 型は使える。フィールド名・バリアント名・メソッド名の `__proto__` は、オブジェクトリテラルでプロトタイプの設定になるので拒否する。バリアントのない enum は TS のユニオンにもワイヤ形式にもならないので拒否する。
 
+### 4.7 閉じた型は公開関数から作る（2026-09-29）
+
+<!-- constrained-by ./04-objective-means-demand.md#16-検証の共有と公開コンストラクタ -->
+
+Rust で非 `pub` のフィールドを一つでも持つ struct は、閉じた型になる。閉じた型について、呼び出し側が守ることは次のとおりである。
+
+- コンパニオンに `of` はない。値は、Rust の公開関数が返したものを使う。`pub fn parse(raw: String) -> Result<Email, EmailError>` は `Email.parse` になる。
+- 型にはブランドが付く。オブジェクトリテラルや生の `string` は、そのままでは閉じた型にならない。`as Email` で型を付けた値は、同値性の約束の外である（design/04 §1.3.1）。
+- フィールドは今までどおり読める。書き換えはできない。
+- ワイヤから読んだ閉じた型の値は、Rust の `Deserialize` と同じく形だけを検査したものである。不変条件までは検査していない（design/05 §7.7）。
+
+消費側から書けないことは、`@ts-expect-error` を付けた消費側のファイルを TypeScript 6 と 7 で検査して確かめている（`crates/cli/tests/closed_equivalence.rs`）。
+
+Rust を書く側から見ると、フィールドを `pub` にするかどうかが、TS で `of` を許すかどうかを決める。不変条件を持つ型は、フィールドを非 `pub` にし、検査つきの公開関数を書く。
+
 ## 5. この評価の後にやること
 
 能力の穴だけを塞ぐ。既存コードの受理率を上げる許可リストは作らない。足す順序は [design/08](./08-limits-and-roadmap.md) にある。
@@ -179,4 +195,4 @@ Rust では `step` が `state` を値で受け取るので、呼び出し後に�
 pub struct Yen(i64);
 ```
 
-生成 TS の実行時の値は `bigint` で、型の上ではその newtype のブランドが付く。端数の丸めは、この型のメソッドとして整数演算で書く。
+生成 TS の実行時の値は `bigint` で、型の上ではその newtype のブランドが付く。端数の丸めは、この型のメソッドとして整数演算で書く。中身が非 `pub` なので閉じた型になる（§4.7）。TS から作れるようにするには、[examples/order](../examples/order/src/lib.rs) の `Yen::new` のような検査つきの公開関数を書く。

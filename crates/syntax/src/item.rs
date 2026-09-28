@@ -274,6 +274,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         return Err(ParseError::new(Reason::Generics, "generic structs are not in v0"));
     }
     reject_field_attrs(&s.fields)?;
+    let closed = s.fields.iter().any(|f| lower_vis(&f.vis) != Vis::Pub);
     let fields = match &s.fields {
         SynFields::Named(n) => n
             .named
@@ -301,6 +302,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         vis: lower_vis(&s.vis),
         name: Name::new(s.ident.to_string()),
         fields,
+        closed,
     })
 }
 
