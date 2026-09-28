@@ -137,7 +137,8 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
         }),
         SynExpr::Closure(c) => lower_closure(cx, c),
-        SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::ForLoop(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
+        SynExpr::ForLoop(f) => lower_for(cx, f),
+        SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
             Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))
         }
         SynExpr::Reference(r) if r.mutability.is_some() => Err(ParseError::new(
@@ -169,6 +170,34 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
         },
         expr: Box::new(expr),
     }
+}
+
+/// `for i in a..b { body }` only: an unlabelled loop over a half-open range,
+/// with a plain name for the variable. `break`, `continue`, `while` and
+/// `loop` stay out.
+fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
+    let reject = |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
+    if f.label.is_some() {
+        return reject("loop labels are not in v0");
+    }
+    let var = match &*f.pat {
+        Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => Name::new(p.ident.to_string()),
+        _ => return reject("`for` takes a plain name for its variable, not `mut`, `_` or a pattern"),
+    };
+    let (start, end) = match &*f.expr {
+        SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => match (&r.start, &r.end) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return reject("`for` takes a range with both ends, `a..b`"),
+        },
+        _ => return reject("`for` takes a half-open integer range `a..b`, not an iterator or `a..=b`"),
+    };
+    Ok(Expr::For {
+        var,
+        ty: None,
+        start: Box::new(lower_expr(cx, start)?),
+        end: Box::new(lower_expr(cx, end)?),
+        body: Box::new(lower_block(cx, &f.body)?),
+    })
 }
 
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {

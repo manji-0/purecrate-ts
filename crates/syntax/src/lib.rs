@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(reason(&body("format!(\"{x}\"); x")), (Reason::Macro, Some("format".into())));
         assert_eq!(reason(&body("std::cmp::max(x, 1)")), (Reason::ExternalPath, Some("std::cmp::max".into())));
         assert_eq!(reason(&body("x as i32")).0, Reason::Cast);
-        assert_eq!(reason(&body("for i in 0..x {} x")).0, Reason::Loop);
+        assert_eq!(reason(&body("while x > 0 {} x")).0, Reason::Loop);
         assert_eq!(
             reason("pub enum E { A { n: i32 } } pub fn f(e: E) -> E { E::A { n: 1, ..e } }").0,
             Reason::StructUpdate

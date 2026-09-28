@@ -291,6 +291,41 @@ impl<'d, 'a> Typer<'d, 'a> {
                     tt,
                 )
             }
+            Expr::For { var, start, end, body, .. } => {
+                // `0..n`: an unsuffixed start takes the end's type. Only the
+                // typing order changes; the start still runs first.
+                let before = self.out.len();
+                let ((s, st), (e, et)) = if is_bare_int(start) {
+                    let (e, et) = self.expr(end, None);
+                    (self.expr(start, et.as_ref()), (e, et))
+                } else {
+                    let (s, st) = self.expr(start, None);
+                    let e = self.expr(end, st.as_ref());
+                    ((s, st), e)
+                };
+                let bound = st.clone().or(et);
+                let int = bound.as_ref().and_then(|t| match self.norm(t) {
+                    Ty::Prim(p) => p.int(),
+                    _ => None,
+                });
+                if int.is_none() && self.out.len() == before {
+                    let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
+                    self.error(Reason::TypeMismatch, format!(
+                        "`for` takes a range `a..b` of one integer type, found `{found}`"
+                    ));
+                }
+                self.scopes.push((var.as_str().to_string(), bound));
+                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+                self.scopes.pop();
+                let e = Expr::For {
+                    var: var.clone(),
+                    ty: int,
+                    start: Box::new(s),
+                    end: Box::new(e),
+                    body: Box::new(b),
+                };
+                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            }
             Expr::Assign { name, value } => {
                 let target = self.lookup(name.as_str());
                 let (value, _) = self.expr(value, target.as_ref());
@@ -1228,5 +1263,14 @@ fn exits(body: &Expr) -> bool {
         Expr::Try { .. } | Expr::Return(_) => true,
         Expr::Closure { .. } => false,
         other => other.children().into_iter().any(exits),
+    }
+}
+
+/// An integer literal without a suffix, possibly negated.
+fn is_bare_int(expr: &Expr) -> bool {
+    match expr.unpositioned() {
+        Expr::Lit(Lit::Int { ty: None, .. }) => true,
+        Expr::Unary { expr, .. } => is_bare_int(expr),
+        _ => false,
     }
 }

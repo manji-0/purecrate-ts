@@ -293,6 +293,13 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(first);
                 self.expr(then);
             }
+            Expr::For { var, start, end, body, .. } => {
+                self.expr(start);
+                self.expr(end);
+                self.scopes.push(vec![(var.as_str().to_string(), false)]);
+                self.expr(body);
+                self.scopes.pop();
+            }
         }
     }
 

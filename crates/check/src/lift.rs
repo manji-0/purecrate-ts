@@ -136,6 +136,24 @@ impl Lifter {
                 first: Box::new(self.stmt(*first)),
                 then: Box::new(self.stmt(*then)),
             },
+            // The bounds run once before the loop; a `?` in the body leaves
+            // from inside it.
+            Expr::For { var, ty, start, end, body } => {
+                let mut hoisted = Vec::new();
+                let start = self.extract_into(*start, &mut hoisted);
+                let end = self.extract_into(*end, &mut hoisted);
+                let body = self.stmt(*body);
+                wrap(
+                    hoisted,
+                    Expr::For {
+                        var,
+                        ty,
+                        start: Box::new(start),
+                        end: Box::new(end),
+                        body: Box::new(body),
+                    },
+                )
+            }
             other => {
                 let (value, hoisted) = self.extract(other);
                 wrap(hoisted, value)

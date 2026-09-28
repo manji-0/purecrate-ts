@@ -126,6 +126,19 @@ impl Renamer {
                     then: self.boxed(then, &inner),
                 }
             }
+            Expr::For { var, ty, start, end, body } => {
+                let start = self.boxed(start, env);
+                let end = self.boxed(end, env);
+                let mut inner = env.clone();
+                let var = self.bind(&var, &mut inner);
+                Expr::For {
+                    var,
+                    ty,
+                    start,
+                    end,
+                    body: self.boxed(body, &inner),
+                }
+            }
             Expr::If { cond, then, else_ } => Expr::If {
                 cond: self.boxed(cond, env),
                 then: self.boxed(then, env),

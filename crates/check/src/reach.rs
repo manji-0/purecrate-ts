@@ -230,6 +230,11 @@ impl Refs {
                 self.expr(first);
                 self.expr(then);
             }
+            Expr::For { start, end, body, .. } => {
+                self.expr(start);
+                self.expr(end);
+                self.expr(body);
+            }
             Expr::Binary { left, right, .. } => {
                 self.expr(left);
                 self.expr(right);

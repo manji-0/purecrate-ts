@@ -244,6 +244,17 @@ pub enum Expr {
         name: Name,
         value: Box<Expr>,
     },
+    /// `for var in start..end { body }`, of type `()`. `start` and `end`
+    /// are one integer type and are evaluated once, in that order, before
+    /// the first iteration. `var` is not `mut`; `body` runs for its effect.
+    /// `ty` is the bounds' type, filled by `check::accept`.
+    For {
+        var: Name,
+        ty: Option<IntTy>,
+        start: Box<Expr>,
+        end: Box<Expr>,
+        body: Box<Expr>,
+    },
     /// `first; then`: `first` runs for its effect, its value is dropped.
     Seq {
         first: Box<Expr>,
@@ -315,6 +326,7 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
+            Expr::For { start, end, body, .. } => vec![start, end, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -350,6 +362,7 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
+            Expr::For { start, end, body, .. } => vec![start, end, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -372,6 +385,8 @@ impl Expr {
             | Expr::Assign { .. }
             | Expr::Seq { .. }
             | Expr::Closure { .. } => Vec::new(),
+            // The body runs zero or more times; the bounds always run.
+            Expr::For { start, end, .. } => vec![start, end],
             _ => self.children(),
         }
     }
@@ -389,6 +404,7 @@ impl Expr {
             | Expr::Return(_)
             | Expr::Try { .. }
             | Expr::Assign { .. }
+            | Expr::For { .. }
             | Expr::Seq { .. } => true,
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()

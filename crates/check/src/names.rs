@@ -204,7 +204,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
 
 fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
     match expr {
-        Expr::Let { name, .. } => f(name),
+        Expr::Let { name, .. } | Expr::For { var: name, .. } => f(name),
         Expr::Match { arms, .. } => arms
             .iter()
             .for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
