@@ -671,6 +671,13 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn match_(&mut self, scrutinee: &Expr, arms: &[Arm], want: Option<&Ty>) -> Typed {
         let (scrutinee, st) = self.expr(scrutinee, None);
+        // The arms' bindings would have no type, and the printed temporary
+        // would be `Result<T, unknown>` in TS (`Ok::<T, E>(x)` is read as
+        // `Ok(x)`). Not reported when a binding of this item already was.
+        if st.is_none() && !self.out.iter().any(|d| d.item == self.item) {
+            self.error(Reason::NeedsAnnotation,
+                "the type of the matched value is not known here; bind it first with `let x: T = ..`".to_string());
+        }
         let st = st.map(|t| self.norm(&t));
         let mut result: Option<Ty> = None;
         let arms = arms

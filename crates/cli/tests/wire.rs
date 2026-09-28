@@ -1,4 +1,8 @@
-//! `--schema zod` writes a wire schema whose parse result is the domain value.
+//! `--schema zod` writes a wire schema that type-checks and whose parse
+//! result is the domain value.
+
+#[allow(dead_code, unused_macros)]
+mod support;
 
 use std::fs;
 use std::process::Command;
@@ -39,6 +43,7 @@ fn zod_wire_parses_serde_json_into_the_domain_value() {
     link(&dir, "purecrate", "boundary");
     link(&dir, "purecrate-zod", "boundary-zod");
     link(&dir, "zod", "boundary-zod/node_modules/zod");
+    support::typecheck(&dir);
     fs::write(
         dir.join("driver.ts"),
         r#"import { Event, State } from "./src/purecrate-wire.ts";

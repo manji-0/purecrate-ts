@@ -1,8 +1,10 @@
 //! Differential harness: each case runs in Rust (this test binary, so debug
 //! overflow checks apply) and in the package generated from the same source
 //! under node. Results compare as text; a Rust panic must be a TS throw
-//! with the same message.
-//! Needs `node` on PATH; `PURECRATE_SKIP_NODE=1` skips.
+//! with the same message. The package must also pass `tsc` with its own
+//! strict tsconfig first: node only strips types, so a type error would
+//! otherwise go unnoticed.
+//! Needs `node` and `npx` on PATH; `PURECRATE_SKIP_NODE=1` skips.
 
 use std::fs;
 use std::panic::{self, UnwindSafe};
@@ -242,6 +244,22 @@ pub fn link_purecrate(dir: &std::path::Path) {
     std::os::unix::fs::symlink(&boundary, &modules).expect("link purecrate");
 }
 
+/// `tsc -p` over the generated package, as a consumer reads it.
+pub fn typecheck(dir: &std::path::Path) {
+    let output = Command::new("npx")
+        .args(["-y", "-p", "typescript@5", "tsc", "-p", "."])
+        .current_dir(dir)
+        .output()
+        .expect("run npx tsc (set PURECRATE_SKIP_NODE=1 to skip)");
+    assert!(
+        output.status.success(),
+        "tsc rejects the generated package in {}:\n{}{}",
+        dir.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// Accepts `source`, generates its package, and checks every case agrees.
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
     assert!(
@@ -265,6 +283,7 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
     }
     fs::write(dir.join("driver.ts"), driver(cases)).expect("write driver");
     link_purecrate(&dir);
+    typecheck(&dir);
 
     let output = Command::new("node")
         .arg("driver.ts")
