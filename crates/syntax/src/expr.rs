@@ -1,6 +1,6 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Reason, Ty, UnOp,
-    VariantBind,
+    VariantBind, Wrapper,
     NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
@@ -397,6 +397,18 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
     }
 }
 
+fn wrapper_new(segs: &[String]) -> Option<Wrapper> {
+    match segs {
+        [name, new] if new == "new" => match name.as_str() {
+            "Box" => Some(Wrapper::Box),
+            "Arc" => Some(Wrapper::Arc),
+            "Mutex" => Some(Wrapper::Mutex),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, ParseError> {
     let args = args
         .into_iter()
@@ -405,14 +417,17 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     match func {
         SynExpr::Path(p) => {
             let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            if segs == ["Box", "new"] {
+            if let Some(wrapper) = wrapper_new(&segs) {
                 if args.len() != 1 {
                     return Err(ParseError::new(
                         Reason::ConstructShape,
-                        format!("`Box::new` takes 1 argument, got {}", args.len()),
+                        format!("`{}::new` takes 1 argument, got {}", wrapper.rust_name(), args.len()),
                     ));
                 }
-                return Ok(args.into_iter().next().unwrap());
+                return Ok(Expr::Ignored {
+                    wrapper,
+                    expr: Box::new(args.into_iter().next().unwrap()),
+                });
             }
             let callee = if segs == ["Some"] {
                 Callee::OptionSome

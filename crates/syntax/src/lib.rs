@@ -80,9 +80,9 @@ mod tests {
 
         assert_eq!(error_at(src).2, "`&mut` borrows are not in v0: `&mut s`");
 
-        let (line, col, msg) = error_at("pub fn f(x: Arc<i32>) -> i32 { 0 }");
+        let (line, col, msg) = error_at("pub fn f(x: Rc<i32>) -> i32 { 0 }");
         assert_eq!((line, col), (1, 13), "{msg}");
-        assert_eq!(msg, "`Arc` is not allowed in v0");
+        assert_eq!(msg, "`Rc` is not allowed in v0");
 
         let (_, _, msg) = error_at("pub fn f(x: std::fs::File) -> i32 { 0 }");
         assert!(msg.contains("qualified type path `std::fs::File`"), "{msg}");

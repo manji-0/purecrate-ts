@@ -153,7 +153,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     /// Expands aliases. Alias cycles are cut after a fixed depth.
     fn norm(&self, ty: &Ty) -> Ty {
-        let mut t = ty.clone();
+        let mut t = ty.peel().clone();
         for _ in 0..32 {
             match &t {
                 Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
@@ -200,6 +200,17 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
         match expr {
+            Expr::Ignored { wrapper, expr } => {
+                let inner_want = want.map(Ty::peel);
+                let (expr, ty) = self.expr(expr, inner_want);
+                (
+                    Expr::Ignored {
+                        wrapper: *wrapper,
+                        expr: Box::new(expr),
+                    },
+                    ty,
+                )
+            }
             Expr::Lit(lit) => self.lit(lit, false, want),
             Expr::Var(n) => {
                 let t = self.lookup(n.as_str());
@@ -1076,6 +1087,7 @@ pub(crate) fn show(ty: &Ty) -> String {
             params.iter().map(show).collect::<Vec<_>>().join(", "),
             show(ret)
         ),
+        Ty::Ignored { wrapper, inner } => format!("{}<{}>", wrapper.rust_name(), show(inner)),
         Ty::Never => "!".into(),
     }
 }

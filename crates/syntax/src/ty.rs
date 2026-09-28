@@ -1,4 +1,4 @@
-use purecrate_ir::{Name, Prim, Reason, Ty};
+use purecrate_ir::{Name, Prim, Reason, Ty, Wrapper};
 use syn::spanned::Spanned;
 use syn::{GenericArgument, PathArguments, Type};
 
@@ -43,8 +43,8 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
 /// Primitives with no chosen TS form yet.
 const UNSUPPORTED_PRIMS: [&str; 4] = ["isize", "u128", "i128", "char"];
 
-const FORBIDDEN_CONTAINERS: [&str; 8] = [
-    "Rc", "Arc", "Cell", "RefCell", "Mutex", "HashMap", "BTreeMap", "HashSet",
+const FORBIDDEN_CONTAINERS: [&str; 6] = [
+    "Rc", "Cell", "RefCell", "HashMap", "BTreeMap", "HashSet",
 ];
 
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
@@ -74,10 +74,10 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
         return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
     }
-    // `Box<T>` is only the indirection rustc requires for a recursive type.
-    // The generated value is `T`; there is no allocation to preserve.
-    if name == "Box" {
-        return first_generic(&last.arguments);
+    // `Box` / `Arc` / `Mutex` are erased to the inner type. Emit keeps a comment
+    // that says why Rust has the wrapper and why single-threaded TS drops it.
+    if let Some(wrapper) = wrapper(&name) {
+        return Ok(Ty::ignored(wrapper, first_generic(&last.arguments)?));
     }
     match name.as_str() {
         "bool" => Ok(Ty::Prim(Prim::Bool)),
@@ -109,6 +109,15 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         _ => Err(ParseError::new(Reason::Generics, format!(
             "user generics are not in v0: {name}"
         ))),
+    }
+}
+
+fn wrapper(name: &str) -> Option<Wrapper> {
+    match name {
+        "Box" => Some(Wrapper::Box),
+        "Arc" => Some(Wrapper::Arc),
+        "Mutex" => Some(Wrapper::Mutex),
+        _ => None,
     }
 }
 

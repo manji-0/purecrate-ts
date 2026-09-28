@@ -1,5 +1,5 @@
 use crate::name::Name;
-use crate::ty::{FloatTy, IntTy, Ty};
+use crate::ty::{FloatTy, IntTy, Ty, Wrapper};
 
 /// Numeric literals carry their Rust type once known: from the source suffix,
 /// or filled in by `check::accept`. An integer without one prints as a JS
@@ -247,6 +247,12 @@ pub enum Expr {
         expr: Box<Expr>,
         on: Option<TryOn>,
     },
+    /// `Box::new` / `Arc::new` / `Mutex::new`. The value is `expr`.
+    /// Emit prints `wrapper`'s comment and then `expr`.
+    Ignored {
+        wrapper: Wrapper,
+        expr: Box<Expr>,
+    },
     Unreachable,
 }
 
@@ -288,6 +294,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::Closure { body, .. } => vec![body],
+            Expr::Ignored { expr, .. } => vec![expr],
         }
     }
 
@@ -322,6 +329,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::Closure { body, .. } => vec![body],
+            Expr::Ignored { expr, .. } => vec![expr],
         }
     }
 
@@ -363,6 +371,7 @@ impl Expr {
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()
                 .any(|b| b.needs_statements() || b.lifts()),
+            Expr::Ignored { expr, .. } => expr.needs_statements(),
             _ => false,
         }
     }

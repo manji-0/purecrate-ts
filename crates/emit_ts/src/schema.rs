@@ -367,6 +367,7 @@ fn domain_ty(ty: &Ty) -> String {
             format!("readonly [{inner}]")
         }
         Ty::Named(name) => format!("{}$", name.as_str()),
+        Ty::Ignored { inner, .. } => domain_ty(inner),
         Ty::Result { ok, err } => format!("Result<{}, {}>", domain_ty(ok), domain_ty(err)),
         Ty::Fn { .. } | Ty::Never => "never".into(),
     }
@@ -443,6 +444,7 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> String {
             WireSchema::Arktype => "type.never".into(),
         },
         Ty::Named(n) => n.as_str().to_string(),
+        Ty::Ignored { inner, .. } => schema_ty_in(schema, inner, struct_field),
         Ty::Fn { .. } | Ty::Never => match schema {
             WireSchema::Zod => "z.never()".into(),
             WireSchema::Valibot => "v.never()".into(),

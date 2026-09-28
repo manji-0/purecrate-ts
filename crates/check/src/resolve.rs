@@ -89,6 +89,7 @@ impl<'a> Cx<'_, 'a> {
                     format!("type `{}` is not defined in this crate", n.as_str()),
                 )
             }
+            Ty::Ignored { inner, .. } => self.ty(inner),
             Ty::Named(_) | Ty::Prim(_) | Ty::Never => {}
             Ty::Fn { params, ret } => {
                 params.iter().for_each(|t| self.ty(t));
@@ -127,12 +128,12 @@ impl<'a> Cx<'_, 'a> {
 
     /// Through aliases; alias cycles stop after a fixed depth.
     fn is_option(&self, ty: &Ty) -> bool {
-        let mut t = ty;
+        let mut t = ty.peel();
         for _ in 0..32 {
             match t {
                 Ty::Option(_) => return true,
                 Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
-                    Some(a) => t = &a.ty,
+                    Some(a) => t = a.ty.peel(),
                     None => return false,
                 },
                 _ => return false,
@@ -259,7 +260,8 @@ impl<'a> Cx<'_, 'a> {
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
-            | Expr::Try { expr: base, .. } => {
+            | Expr::Try { expr: base, .. }
+            | Expr::Ignored { expr: base, .. } => {
                 self.expr(base)
             }
             Expr::Binary { left, right, .. } => {

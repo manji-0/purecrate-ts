@@ -224,6 +224,10 @@ impl Renamer {
                 expr: self.boxed(expr, env),
                 on,
             },
+            Expr::Ignored { wrapper, expr } => Expr::Ignored {
+                wrapper,
+                expr: self.boxed(expr, env),
+            },
             other @ (Expr::Lit(_) | Expr::Unreachable) => other,
         }
     }

@@ -135,6 +135,7 @@ impl Refs {
                 params.iter().for_each(|t| self.ty(t));
                 self.ty(ret);
             }
+            Ty::Ignored { inner, .. } => self.ty(inner),
             Ty::Prim(_) | Ty::Never => {}
         }
     }
@@ -217,7 +218,8 @@ impl Refs {
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
             | Expr::Assign { value: base, .. }
-            | Expr::Try { expr: base, .. } => {
+            | Expr::Try { expr: base, .. }
+            | Expr::Ignored { expr: base, .. } => {
                 self.expr(base)
             }
             Expr::Seq { first, then } => {

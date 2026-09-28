@@ -631,6 +631,9 @@ fn emit_ty(ty: &Ty) -> String {
             format!("readonly [{inner}]")
         }
         Ty::Named(n) => n.as_str().to_string(),
+        Ty::Ignored { wrapper, inner } => {
+            format!("/* {} */ {}", wrapper.comment(), emit_ty(inner))
+        }
         Ty::Fn { params, ret } => {
             let params = params
                 .iter()
@@ -646,6 +649,9 @@ fn emit_ty(ty: &Ty) -> String {
 
 fn emit_expr(expr: &Expr, indent: usize) -> String {
     match expr {
+        Expr::Ignored { wrapper, expr } => {
+            format!("/* {} */ {}", wrapper.comment(), emit_expr(expr, indent))
+        }
         Expr::Lit(lit) => emit_lit(lit),
         Expr::Var(n) => n.as_str().to_string(),
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),
@@ -917,7 +923,7 @@ impl Refs {
                 self.ty(ok);
                 self.ty(err);
             }
-            Ty::Option(inner) | Ty::Vec(inner) => self.ty(inner),
+            Ty::Option(inner) | Ty::Vec(inner) | Ty::Ignored { inner, .. } => self.ty(inner),
             Ty::Tuple(elems) => elems.iter().for_each(|t| self.ty(t)),
             Ty::Fn { params, ret } => {
                 params.iter().for_each(|t| self.ty(t));
@@ -1000,7 +1006,8 @@ impl Refs {
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
             | Expr::Assign { value: base, .. }
-            | Expr::Try { expr: base, .. } => {
+            | Expr::Try { expr: base, .. }
+            | Expr::Ignored { expr: base, .. } => {
                 self.expr(krate, base)
             }
             Expr::Index { base, index } => {
@@ -1123,6 +1130,30 @@ mod tests {
             .find(|f| f.stem == stem)
             .unwrap_or_else(|| panic!("missing {stem}"))
             .source
+    }
+
+    #[test]
+    fn erased_wrappers_keep_their_comment() {
+        use purecrate_ir::{Fn, Item, Param, Vis, Wrapper};
+        let share = Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("share"),
+            owner: None,
+            params: vec![Param {
+                name: Name::new("n"),
+                ty: Ty::ignored(Wrapper::Mutex, Ty::i32()),
+            }],
+            ret: Ty::ignored(Wrapper::Box, Ty::i32()),
+            body: Expr::Ignored {
+                wrapper: Wrapper::Arc,
+                expr: Box::new(Expr::var("n")),
+            },
+        });
+        let pkg = emit(&Crate::new("wraps", vec![share]));
+        let src = file(&pkg, "share");
+        assert!(src.contains(Wrapper::Box.comment()), "{src}");
+        assert!(src.contains(Wrapper::Arc.comment()), "{src}");
+        assert!(src.contains(Wrapper::Mutex.comment()), "{src}");
     }
 
     #[test]

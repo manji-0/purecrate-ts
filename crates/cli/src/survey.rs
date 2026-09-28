@@ -293,7 +293,7 @@ fn references(item: &Item) -> Vec<Ref> {
 fn ty_refs(ty: &Ty, out: &mut Vec<Ref>) {
     match ty {
         Ty::Named(n) => out.push(Ref::Type(n.as_str().to_string())),
-        Ty::Option(t) | Ty::Vec(t) => ty_refs(t, out),
+        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => ty_refs(t, out),
         Ty::Result { ok, err } => {
             ty_refs(ok, out);
             ty_refs(err, out);

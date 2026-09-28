@@ -15,7 +15,7 @@ pub use item::{Alias, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFiel
 pub use krate::Crate;
 pub use name::{to_kebab, Name};
 pub use reason::Reason;
-pub use ty::{FloatTy, IntTy, Prim, Ty};
+pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 
 /// Minimal accepting example: `step(State, Event) -> State`.
 pub fn counter_example() -> Crate {

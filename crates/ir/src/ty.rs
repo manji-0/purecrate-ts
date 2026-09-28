@@ -159,6 +159,41 @@ impl Prim {
     }
 }
 
+/// A Rust wrapper the generated TS drops. The value is the inner type.
+/// `Rc`, `Cell`, and `RefCell` stay rejected: erasing them would change
+/// what a single-threaded program can observe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Wrapper {
+    Box,
+    Arc,
+    Mutex,
+}
+
+impl Wrapper {
+    pub fn rust_name(self) -> &'static str {
+        match self {
+            Wrapper::Box => "Box",
+            Wrapper::Arc => "Arc",
+            Wrapper::Mutex => "Mutex",
+        }
+    }
+
+    /// Placed on the generated type or expression that used to be this wrapper.
+    pub fn comment(self) -> &'static str {
+        match self {
+            Wrapper::Box => {
+                "Box<T> は Rust では再帰型のためのヒープ間接。TS はシングルスレッドなので無視し、T として扱う。"
+            }
+            Wrapper::Arc => {
+                "Arc<T> は Rust ではスレッドをまたぐ共有所有。TS はシングルスレッドなので無視し、T として扱う。"
+            }
+            Wrapper::Mutex => {
+                "Mutex<T> は Rust ではスレッド間の相互排除。TS はシングルスレッドなので無視し、T として扱う。"
+            }
+        }
+    }
+}
+
 /// Value type. No references. `Fn` is the type of a closure; the parser
 /// never produces it, so it cannot reach a signature or a field.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -170,6 +205,8 @@ pub enum Ty {
     Tuple(Vec<Ty>),
     Named(Name),
     Fn { params: Vec<Ty>, ret: Box<Ty> },
+    /// `Box` / `Arc` / `Mutex`. Equal to `inner` for checking. Emit keeps the comment.
+    Ignored { wrapper: Wrapper, inner: Box<Ty> },
     Never,
 }
 
@@ -194,6 +231,21 @@ impl Ty {
         Ty::Result {
             ok: Box::new(ok),
             err: Box::new(err),
+        }
+    }
+
+    pub fn ignored(wrapper: Wrapper, inner: Ty) -> Self {
+        Ty::Ignored {
+            wrapper,
+            inner: Box::new(inner),
+        }
+    }
+
+    /// Drops `Box` / `Arc` / `Mutex` layers. Checking sees the inner type.
+    pub fn peel(&self) -> &Ty {
+        match self {
+            Ty::Ignored { inner, .. } => inner.peel(),
+            other => other,
         }
     }
 }
