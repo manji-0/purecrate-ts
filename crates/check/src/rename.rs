@@ -140,6 +140,16 @@ impl Renamer {
                     body: self.boxed(body, &inner),
                 }
             }
+            Expr::ForChars { var, string, body } => {
+                let string = self.boxed(string, env);
+                let mut inner = env.clone();
+                let var = self.bind(&var, &mut inner);
+                Expr::ForChars {
+                    var,
+                    string,
+                    body: self.boxed(body, &inner),
+                }
+            }
             Expr::If { cond, then, else_ } => Expr::If {
                 cond: self.boxed(cond, env),
                 then: self.boxed(then, env),

@@ -249,6 +249,10 @@ impl Refs {
                 self.expr(end);
                 self.expr(body);
             }
+            Expr::ForChars { string, body, .. } => {
+                self.expr(string);
+                self.expr(body);
+            }
             Expr::Binary { left, right, .. } => {
                 self.expr(left);
                 self.expr(right);

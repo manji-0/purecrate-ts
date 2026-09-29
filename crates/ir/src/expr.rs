@@ -471,6 +471,14 @@ pub enum Expr {
         end: Box<Expr>,
         body: Box<Expr>,
     },
+    /// `for var in string.chars() { body }`, of type `()`. `string` is a
+    /// `String` or `&str`, evaluated once; `var` is each Unicode scalar value
+    /// as a `char`, in order (design/01 §6).
+    ForChars {
+        var: Name,
+        string: Box<Expr>,
+        body: Box<Expr>,
+    },
     /// `first; then`: `first` runs for its effect, its value is dropped.
     Seq {
         first: Box<Expr>,
@@ -543,6 +551,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
+            Expr::ForChars { string, body, .. } => vec![string, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -579,6 +588,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
+            Expr::ForChars { string, body, .. } => vec![string, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -603,6 +613,7 @@ impl Expr {
             | Expr::Closure { .. } => Vec::new(),
             // The body runs zero or more times; the bounds always run.
             Expr::For { start, end, .. } => vec![start, end],
+            Expr::ForChars { string, .. } => vec![string],
             _ => self.children(),
         }
     }
@@ -621,6 +632,7 @@ impl Expr {
             | Expr::Try { .. }
             | Expr::Assign { .. }
             | Expr::For { .. }
+            | Expr::ForChars { .. }
             | Expr::Seq { .. } => true,
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()

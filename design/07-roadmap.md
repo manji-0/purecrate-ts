@@ -83,13 +83,13 @@ The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33
 Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)); the first real use (Oxide `Name`) passes without them, but its rewrite is longer and less idiomatic for their absence:
 
 1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — done 2026-09-30. `check` and `build` already accepted it; `survey` skipped trait impls, so a `#[serde(try_from)]` type looked as if its `impl TryFrom` were missing (`item/serde-attr`). `survey` now reads the impl as `X::try_from`.
-2. **`s.chars()` through iterator `for`** — `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8.
+2. **`s.chars()` through iterator `for`** — done 2026-09-30: `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8 (`for_chars_equivalence.rs`).
 
 Defects to fix first, from the same measurement: `mod r#impl;` skipped silently; `build --out` deleting unrelated files. Fixed: a non-`pub` method reachable on the exported companion, a hole in closed types (2026-09-30, [01 §4](./01-equivalence.md#4-closed-types)).
 
 ### 3.1 When an example needs it
 
-1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` itself is in; `s.chars()` is next (§3).
+1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` and `for c in s.chars()` are in.
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
 3. **std methods** the example calls, via the allow-list (`Vec::is_empty`, `Option::is_some`/`is_none` came up in three of four real sites and in oidc). Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
 4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
@@ -98,7 +98,7 @@ Defects to fix first, from the same measurement: `mod r#impl;` skipped silently;
 
 ## 4. Specified but not yet implemented
 
-`s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
+`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
 
 ## 5. v1: when type expressiveness runs out
 

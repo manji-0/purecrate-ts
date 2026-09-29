@@ -34,6 +34,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
+| A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
 | Owned trees | `Box<T>` (also `Arc<T>`, `Mutex<T>`) erased to `T` | self-referential type alias, with a comment |
 | Invariants | non-`pub` fields + a checked public constructor | closed type, no `of` ([01 §4](./01-equivalence.md#4-closed-types)) |
 
@@ -124,7 +125,7 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
-| `for c in s.chars()` | `s.as_bytes()` read by index in a range `for`, with `b'@'` and `matches!(b, b'0'..=b'9')` (`s.chars()` waits for iterator `for`; a single `char` value can be written as `'@'`, `c.is_ascii_digit()`) |
+| `s.chars().filter(..).count()`, `.rev()`, `.nth(n)`, `for b in s.bytes()` | `for c in s.chars()` with a `let mut` counter and early `return`; bytes through `s.as_bytes()` read by index in a range `for` |
 | `match (s, e)` | one function per state, each ending in `_ => Err(..)` |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 

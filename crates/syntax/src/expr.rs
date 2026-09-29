@@ -173,8 +173,9 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
     }
 }
 
-/// `for i in a..b { body }` only: an unlabelled loop over a half-open range,
-/// with a plain name for the variable. `break`, `continue`, `while` and
+/// `for i in a..b { body }` and `for c in s.chars() { body }` only: an
+/// unlabelled loop over a half-open range or a string's chars, with a plain
+/// name for the variable. Other iterators, `break`, `continue`, `while` and
 /// `loop` stay out.
 fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     let reject = |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
@@ -190,7 +191,18 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             (Some(a), Some(b)) => (a, b),
             _ => return reject("`for` takes a range with both ends, `a..b`"),
         },
-        _ => return reject("`for` takes a half-open integer range `a..b`, not an iterator or `a..=b`"),
+        SynExpr::MethodCall(m) if m.method == "chars" && m.args.is_empty() && m.turbofish.is_none() => {
+            return Ok(Expr::ForChars {
+                var,
+                string: Box::new(lower_expr(cx, &m.receiver)?),
+                body: Box::new(lower_block(cx, &f.body)?),
+            });
+        }
+        _ => {
+            return reject(
+                "`for` takes a half-open integer range `a..b` or a string's `.chars()`, not another iterator or `a..=b`",
+            )
+        }
     };
     Ok(Expr::For {
         var,

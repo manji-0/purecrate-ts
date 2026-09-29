@@ -154,6 +154,19 @@ impl Lifter {
                     },
                 )
             }
+            Expr::ForChars { var, string, body } => {
+                let mut hoisted = Vec::new();
+                let string = self.extract_into(*string, &mut hoisted);
+                let body = self.stmt(*body);
+                wrap(
+                    hoisted,
+                    Expr::ForChars {
+                        var,
+                        string: Box::new(string),
+                        body: Box::new(body),
+                    },
+                )
+            }
             other => {
                 let (value, hoisted) = self.extract(other);
                 wrap(hoisted, value)

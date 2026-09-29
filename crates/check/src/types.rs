@@ -340,6 +340,28 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
+            Expr::ForChars { var, string, body } => {
+                let before = self.out.len();
+                let (s, st) = self.expr(string, None);
+                let is_string = st
+                    .as_ref()
+                    .is_some_and(|t| matches!(self.norm(t), Ty::Prim(Prim::String | Prim::Str)));
+                if !is_string && self.out.len() == before {
+                    let found = st.as_ref().map(show).unwrap_or_else(|| "?".into());
+                    self.error(Reason::TypeMismatch, format!(
+                        "`for c in s.chars()` takes a `String` or `&str`, found `{found}`"
+                    ));
+                }
+                self.scopes.push((var.as_str().to_string(), Some(Ty::Prim(Prim::Char))));
+                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+                self.scopes.pop();
+                let e = Expr::ForChars {
+                    var: var.clone(),
+                    string: Box::new(s),
+                    body: Box::new(b),
+                };
+                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            }
             Expr::Assign { name, value } => {
                 let target = self.lookup(name.as_str());
                 let (value, _) = self.expr(value, target.as_ref());

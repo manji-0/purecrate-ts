@@ -602,6 +602,18 @@ fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut String) {
             emit_for(var.as_str(), ty, start, end, body, indent, out);
             sink.finish("undefined", &pad, out);
         }
+        // A JS string iterates by code point, as `chars` does by scalar
+        // value; the two agree on well-formed strings (design/01 §6).
+        Expr::ForChars { var, string, body } => {
+            out.push_str(&format!(
+                "{pad}for (const {} of ({} as Iterable<Char>)) {{\n",
+                var.as_str(),
+                emit_expr(string, indent)
+            ));
+            emit_stmts(body, indent + 1, Sink::Effect, out);
+            out.push_str(&format!("{pad}}}\n"));
+            sink.finish("undefined", &pad, out);
+        }
         Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
         Expr::Try { .. } => {
             let tmp = format!("{TRY_TEMP}{indent}");
@@ -973,7 +985,9 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         },
         Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
         Expr::If { .. } if expr.needs_statements() => emit_iife(expr, indent),
-        Expr::Try { .. } | Expr::Seq { .. } | Expr::Assign { .. } | Expr::For { .. } => emit_iife(expr, indent),
+        Expr::Try { .. } | Expr::Seq { .. } | Expr::Assign { .. } | Expr::For { .. } | Expr::ForChars { .. } => {
+            emit_iife(expr, indent)
+        }
         Expr::If { cond, then, else_ } => format!(
             "({} ? {} : {})",
             emit_expr(cond, indent),
@@ -1420,6 +1434,11 @@ impl Refs {
             Expr::For { start, end, body, .. } => {
                 self.expr(krate, start);
                 self.expr(krate, end);
+                self.expr(krate, body);
+            }
+            Expr::ForChars { string, body, .. } => {
+                self.char_type = true;
+                self.expr(krate, string);
                 self.expr(krate, body);
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
