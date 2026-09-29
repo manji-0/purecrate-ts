@@ -478,11 +478,18 @@ pub const TS_MAJORS: &[&str] = &["6", "7"];
 pub const SOURCE_CONDITION: &str = purecrate_pack::SOURCE_CONDITION;
 
 /// `tsc -p` over the generated package under each of `TS_MAJORS`.
+///
+/// npx runs from an empty directory: from `dir`, it would find the
+/// `typescript` that a linked adapter package (`node_modules/purecrate-zod`)
+/// has installed, count `typescript@7` as present, and never link `tsc`.
 pub fn typecheck(dir: &std::path::Path) {
+    let neutral = std::env::temp_dir().join("purecrate-npx");
+    std::fs::create_dir_all(&neutral).expect("create npx directory");
     for major in TS_MAJORS {
+        let project = dir.to_str().expect("utf-8 path");
         let output = Command::new("npx")
-            .args(["-y", "-p", &format!("typescript@{major}"), "tsc", "-p", ".", "--customConditions", SOURCE_CONDITION])
-            .current_dir(dir)
+            .args(["-y", "-p", &format!("typescript@{major}"), "tsc", "-p", project, "--customConditions", SOURCE_CONDITION])
+            .current_dir(&neutral)
             .output()
             .expect("run npx tsc (set PURECRATE_SKIP_NODE=1 to skip)");
         assert!(
