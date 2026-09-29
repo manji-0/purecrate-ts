@@ -93,7 +93,7 @@ Status: signup, iban, payment, and invoice are from third-party specs; all four 
 ## 5. Validating demand next
 
 1. More third-party specs. Done for one outside validation (Stripe's PaymentIntent lifecycle, 2026-09-29).
-2. **One real use**: replace a dual-implemented state machine; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. The packages are not on npm yet.
+2. **One real use**: replace a dual-implemented state machine; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. The runtime packages are packed from `packages/` rather than published to npm, since the code they serve is private ([03](./03-output.md)).
 3. **Numbers for §2**: done on Node for payment ([bench/payment](../bench/payment/README.md)). Browsers and Hermes are not measured.
 
 ## References

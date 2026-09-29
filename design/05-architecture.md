@@ -31,7 +31,7 @@ crate source (root and module files)
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §7](./01-equivalence.md#7-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
-TS runtime packages are in `packages/` (`boundary` is published as `purecrate`, plus the three schema adapters). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu) and built with `--offline`. The vendored manifests point at each other by `path`, with tests, benches, and unused optional dependencies removed.
+TS runtime packages are in `packages/` (`boundary` is named `purecrate`, plus the three schema adapters; they are packed from this repository, not published to npm, see [03](./03-output.md)). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu) and built with `--offline`. The vendored manifests point at each other by `path`, with tests, benches, and unused optional dependencies removed.
 
 ## 3. rustc as the final gate
 

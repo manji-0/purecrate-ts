@@ -25,7 +25,7 @@ purecrate-ts survey <crate-path>... [--json]
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
-- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. `purecrate` is not yet on npm, so pack it from `packages/`.
+- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. Neither the runtime nor the generated packages go to the public npm registry; see [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
 - Never edit generated packages. Change the Rust and regenerate.
 
@@ -43,6 +43,25 @@ purecrate-ts survey <crate-path>... [--json]
 - `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Display` / `Error` are allowed and not translated
 
 There is no decimal type. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). For the full rules, see [design/02](design/02-authoring.md). For what TS callers must observe, see [design/03 §5](design/03-output.md#5-caller-contract).
+
+## Distribution
+
+purecrate-ts is meant for domain code that stays private, so its output is never published to npm, and it would sit badly to keep only the shared runtime there. Everything is delivered as tarballs packed from this repository. The runtime `purecrate` (`packages/boundary`) and the schema adapters (`packages/boundary-zod`, `-valibot`, `-arktype`) are **packed from `packages/`**, at the same revision as the `purecrate-ts` binary that generated the code, and installed together with your generated package:
+
+```sh
+mkdir -p tarballs
+# The build script needs TypeScript, so install each package's dev dependencies first.
+(cd packages/boundary && npm install && npm pack --pack-destination ../../tarballs)        # purecrate
+(cd packages/boundary-zod && npm install && npm pack --pack-destination ../../tarballs)    # only with --schema zod
+# The generated package needs the runtime it is built against, then packs itself (`npm run build` runs first).
+(cd <generated-package> && npm install --no-save typescript@6 ../tarballs/purecrate-0.1.0.tgz \
+  && npm pack --pack-destination ../tarballs)
+# In the project that uses it:
+npm install tarballs/purecrate-0.1.0.tgz tarballs/<name>-<version>.tgz
+```
+
+
+Push the same tarballs to a private registry, or vendor them, if several projects consume them. All generated packages in one project must resolve one copy of `purecrate`: brands are `unique symbol`s, so values cross between packages only through a shared runtime. The schema library itself (`zod`, `valibot`, or `arktype`) is an ordinary npm dependency of the consumer. `crates/cli/tests/package.rs` runs exactly this flow.
 
 ## Agent skill
 
