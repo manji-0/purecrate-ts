@@ -87,6 +87,18 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
+        if let Some(rt) = rt.as_ref().filter(|_| args.is_empty()) {
+            let callee = match (self.norm(rt), name.as_str()) {
+                (Ty::Vec(_), "is_empty") => Some(Callee::VecIsEmpty),
+                (Ty::Option(_), "is_some") => Some(Callee::OptionIsSome),
+                (Ty::Option(_), "is_none") => Some(Callee::OptionIsNone),
+                _ => None,
+            };
+            if let Some(callee) = callee {
+                let e = Expr::Call { callee, args: vec![recv] };
+                return (e, self.expect(want, Some(Ty::bool())));
+            }
+        }
         if name.as_str() == "as_bytes" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
@@ -1169,6 +1181,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Prim(Prim::Usize)),
             ),
+            Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
+                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))
+            }
             Callee::StrBytes => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))),

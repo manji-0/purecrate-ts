@@ -248,6 +248,12 @@ pub enum Callee {
     OptionNone,
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
+    /// `Vec::is_empty`. Prints as `.length === 0`.
+    VecIsEmpty,
+    /// `Option::is_some` / `is_none`. `Option<T>` is `T | null` (no nested
+    /// `Option`), so each is one comparison with `null`.
+    OptionIsSome,
+    OptionIsNone,
     /// `str::as_bytes`, on a `String` or `&str`: the UTF-8 bytes as a
     /// `&[u8]`. Prints as `Str.bytes(s)` (design/01 §6).
     StrBytes,

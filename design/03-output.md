@@ -84,7 +84,7 @@ export const Meters = {
 
 A newtype's runtime value is its content, which is also serde's JSON for it. `.0` is the value itself. The brand key is a `unique symbol` so newtypes of newtypes do not collide. `Meters` above is closed (its field is not `pub`), so there is no `of`; with `pub struct Meters(pub i32)` the companion would have `of`.
 
-Methods become companion properties with the receiver first. `Self` is replaced by the type name. `Type::m(x)` becomes `Type.m(x)`; `x.m(y)` is resolved from `x`'s inferred type to `T.m(x, y)`. Only the crate's own inherent methods resolve, plus the std allow-list (`Vec::len`, indexing, `str::as_bytes`).
+Methods become companion properties with the receiver first. `Self` is replaced by the type name. `Type::m(x)` becomes `Type.m(x)`; `x.m(y)` is resolved from `x`'s inferred type to `T.m(x, y)`. Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): `Vec::len` as `.length`, `Vec::is_empty` as `.length === 0`, `Option::is_some` / `is_none` as `!== null` / `=== null`, indexing, and the `str` and `char` methods.
 
 ### Control flow
 

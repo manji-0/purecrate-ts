@@ -95,14 +95,14 @@ From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-na
 
 1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` and `for c in s.chars()` are in.
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
-3. **std methods** the example calls, via the allow-list (`Vec::is_empty`, `Option::is_some`/`is_none` came up in three of four real sites and in oidc). Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
+3. **std methods** the example calls, via the allow-list. `Vec::is_empty` and `Option::is_some`/`is_none` (three of four real sites and oidc) are in, 2026-09-30. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
 4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
 5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc and Stoat's permission flags (both worked around), needed by any spec written in them.
 6. **Building a `Vec` in the crate** (`vec![a, b]` of a fixed length) — oidc's `amr` is a list claim that TS callers expect as an array.
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
+`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, `Vec::is_empty`, `Option::is_some`/`is_none`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
 
 ## 5. v1: when type expressiveness runs out
 

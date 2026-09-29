@@ -107,7 +107,7 @@ Not accepted: tuple scrutinees (`match (state, event)` — split into one functi
 
 ### 3.6 Strings
 
-A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again (`String::from(&s)` copies a `String`; an `Option<String>` is copied with a `match`). `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len` (not `is_empty`: write `len() == 0`), `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
+A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again (`String::from(&s)` copies a `String`; an `Option<String>` is copied with a `match`). `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `is_empty`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
 
 ### 3.7 Types
 
@@ -121,7 +121,6 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `opt.map(..)`, `and_then` | `match` or `?` |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
-| `opt.is_some()`, `is_none()` | `!matches!(opt, None)`, `matches!(opt, None)` |
 | `x & 0x0f`, `x << 8`, `a \| b` | `%`, `*`, `/` by powers of two, where the operands are known non-negative and in range (RFC 4226 truncation in examples/oidc) |
 | `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |

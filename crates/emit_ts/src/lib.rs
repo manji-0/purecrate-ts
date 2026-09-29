@@ -1022,6 +1022,9 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::VecLen
+                | purecrate_ir::Callee::VecIsEmpty
+                | purecrate_ir::Callee::OptionIsSome
+                | purecrate_ir::Callee::OptionIsNone
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::Str(_)
@@ -1063,6 +1066,12 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
+            }
+            match callee {
+                purecrate_ir::Callee::VecIsEmpty => return format!("({}.length === 0)", emit_expr(&args[0], indent)),
+                purecrate_ir::Callee::OptionIsSome => return format!("({} !== null)", emit_expr(&args[0], indent)),
+                purecrate_ir::Callee::OptionIsNone => return format!("({} === null)", emit_expr(&args[0], indent)),
+                _ => {}
             }
             if matches!(callee, purecrate_ir::Callee::Fround) {
                 return format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent));
