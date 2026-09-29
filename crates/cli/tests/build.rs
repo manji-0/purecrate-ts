@@ -209,19 +209,70 @@ fn check_with_out_lists_every_drifted_file() {
 fn successful_build_replaces_out_and_prunes_unreachable_items() {
     let dir = scratch("ok");
     let out = dir.join("pkg");
-    fs::create_dir_all(&out).expect("mkdir out");
-    fs::write(out.join("stale.txt"), "old").expect("write stale");
-
     let src = dir.join("lib.rs");
     let counter = fs::read_to_string(repo().join("examples/counter/src/lib.rs")).expect("read counter");
     fs::write(&src, format!("{counter}\nfn unused(s: State) -> State {{ s }}\n")).expect("write source");
 
+    let first = build(&src, &out);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    fs::write(out.join("src/stale.ts"), "old").expect("write stale");
+
     let result = build(&src, &out);
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
-    assert!(!out.join("stale.txt").exists());
+    assert!(!out.join("src/stale.ts").exists());
     assert!(out.join("src/step.ts").exists());
     assert!(!out.join("src/unused.ts").exists());
     assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// `--out` pointing at a directory of other files (a source tree, a test
+/// driver) is refused whole: replacing it would delete them.
+#[test]
+fn build_refuses_to_replace_a_directory_it_did_not_write() {
+    let dir = scratch("foreign");
+    let out = dir.join("pkg");
+    fs::create_dir_all(out.join("src")).expect("mkdir out");
+    fs::write(out.join("driver.ts"), "keep").expect("write driver");
+    fs::write(out.join("src/index.ts"), "export {};\n").expect("write index");
+    let src = repo().join("examples/counter/src/lib.rs");
+
+    let result = build(&src, &out);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(!result.status.success(), "{stderr}");
+    assert!(stderr.contains("holds no earlier purecrate-ts output"), "{stderr}");
+    assert_eq!(fs::read_to_string(out.join("driver.ts")).expect("driver kept"), "keep");
+    assert!(!out.join("src/step.ts").exists());
+
+    let file = dir.join("file");
+    fs::write(&file, "keep").expect("write file");
+    assert!(!build(&src, &file).status.success());
+    assert_eq!(fs::read_to_string(&file).expect("file kept"), "keep");
+
+    let empty = dir.join("empty");
+    fs::create_dir_all(&empty).expect("mkdir empty");
+    assert!(build(&src, &empty).status.success());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// `mod r#impl;` lives in `impl.rs`, and `r#impl::f` names the same module.
+#[test]
+fn raw_module_names_find_their_files() {
+    let dir = scratch("raw-mod");
+    fs::create_dir_all(dir.join("src")).expect("mkdir src");
+    fs::write(dir.join("src/lib.rs"), "mod r#impl;\n\npub fn four() -> i32 {\n    r#impl::twice(2)\n}\n").expect("write lib");
+    fs::write(dir.join("src/impl.rs"), "pub fn twice(n: i32) -> i32 {\n    n * 2\n}\n").expect("write impl");
+    let result = check(&[dir.as_os_str()]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+
+    let survey = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .args(["survey".as_ref(), dir.as_os_str(), "--json".as_ref()])
+        .output()
+        .expect("run survey");
+    let json = String::from_utf8_lossy(&survey.stdout);
+    assert!(json.contains("src/impl.rs"), "{json}");
+    assert!(json.contains("\"missing_modules\":[]"), "{json}");
     fs::remove_dir_all(&dir).ok();
 }
 

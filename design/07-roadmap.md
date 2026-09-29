@@ -85,7 +85,7 @@ Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real
 1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — done 2026-09-30. `check` and `build` already accepted it; `survey` skipped trait impls, so a `#[serde(try_from)]` type looked as if its `impl TryFrom` were missing (`item/serde-attr`). `survey` now reads the impl as `X::try_from`.
 2. **`s.chars()` through iterator `for`** — done 2026-09-30: `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8 (`for_chars_equivalence.rs`).
 
-Defects to fix first, from the same measurement: `mod r#impl;` skipped silently; `build --out` deleting unrelated files. Fixed: a non-`pub` method reachable on the exported companion, a hole in closed types (2026-09-30, [01 §4](./01-equivalence.md#4-closed-types)).
+Defects found by the same measurement, all fixed 2026-09-30: a non-`pub` method reachable on the exported companion, a hole in closed types ([01 §4](./01-equivalence.md#4-closed-types)); `mod r#impl;` looked up as `r#impl.rs` (skipped by `survey`, an error in `check`); `build --out` emptying a directory it had not written (now refused).
 
 ### 3.1 When an example needs it
 

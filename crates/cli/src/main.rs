@@ -207,8 +207,16 @@ fn read_tree(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
 }
 
 /// Write into a sibling directory, then swap it in, so a failed write never
-/// leaves `out` half-replaced.
+/// leaves `out` half-replaced. Stale files of an earlier build go with it;
+/// a directory that holds anything else is refused, not emptied.
 fn write_replacing(out: &Path, files: &[purecrate_emit_ts::File]) -> Result<(), String> {
+    if !replaceable(out)? {
+        return Err(format!(
+            "{} is not empty and holds no earlier purecrate-ts output (src/index.ts with its header); \
+             nothing written. Choose an empty or new directory for --out",
+            out.display()
+        ));
+    }
     let tmp = sibling(out, "tmp");
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
@@ -235,6 +243,22 @@ fn write_replacing(out: &Path, files: &[purecrate_emit_ts::File]) -> Result<(), 
         fs::rename(&tmp, out).map_err(|e| format!("create {}: {e}", out.display()))?;
     }
     Ok(())
+}
+
+/// `out` is absent, an empty directory, or an earlier build's output.
+fn replaceable(out: &Path) -> Result<bool, String> {
+    if !out.exists() {
+        return Ok(true);
+    }
+    if !out.is_dir() {
+        return Ok(false);
+    }
+    let mut entries = fs::read_dir(out).map_err(|e| format!("read {}: {e}", out.display()))?;
+    if entries.next().is_none() {
+        return Ok(true);
+    }
+    let index = fs::read_to_string(out.join("src/index.ts")).unwrap_or_default();
+    Ok(index.starts_with(purecrate_emit_ts::HEADER))
 }
 
 fn sibling(out: &Path, tag: &str) -> PathBuf {

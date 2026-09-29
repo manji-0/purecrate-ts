@@ -17,7 +17,7 @@ crate source (root and module files)
   → assemble the package (package.json, tsconfig, index, runtime re-exports)
 ```
 
-`--out` is replaced only on success. Each rejection carries `path:line:col` and a reason code (`Reason::code()`, e.g. `expr/method-call`). Problems inside a body point to the statement, the trailing expression, or the `match` arm; the parser marks these with `Expr::At`, removed after checking.
+`--out` is replaced only on success, and only if it is absent, empty, or an earlier build's output (`src/index.ts` beginning with the generated header); any other directory is refused untouched, since replacing it would delete its files. Each rejection carries `path:line:col` and a reason code (`Reason::code()`, e.g. `expr/method-call`). Problems inside a body point to the statement, the trailing expression, or the `match` arm; the parser marks these with `Expr::At`, removed after checking.
 
 ## 2. Crates
 
