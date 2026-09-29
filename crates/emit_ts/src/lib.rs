@@ -143,7 +143,7 @@ fn emit_package(krate: &Crate) -> Package {
 
 fn assert_never_src() -> String {
     format!(
-        "{HEADER}\nexport const assertNever = (x: never): never => {{\n  throw new Error(\"unexpected variant\");\n}};\n"
+        "{HEADER}\nexport const assertNever = (_x: never): never => {{\n  throw new Error(\"unexpected variant\");\n}};\n"
     )
 }
 
