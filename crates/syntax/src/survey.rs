@@ -2,6 +2,7 @@
 //! own, so one unsupported item does not hide the rest.
 
 use purecrate_ir::{Item, Reason};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::Item as SynItem;
 
@@ -45,7 +46,7 @@ pub fn module_decls_vis(source: &str) -> Result<Vec<(Vec<String>, bool)>, ParseE
         for item in items.iter().filter(|i| !is_test_only(i)) {
             if let SynItem::Mod(m) = item {
                 let public = public && matches!(m.vis, syn::Visibility::Public(_));
-                prefix.push(m.ident.to_string());
+                prefix.push(m.ident.unraw().to_string());
                 match &m.content {
                     Some((_, inner)) => walk(inner, prefix, public, out),
                     None => out.push((prefix.clone(), public)),
@@ -63,7 +64,7 @@ pub fn module_decls_vis(source: &str) -> Result<Vec<(Vec<String>, bool)>, ParseE
 fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
     for item in items.iter().filter(|i| !is_test_only(i)) {
         if let SynItem::Mod(m) = item {
-            prefix.push(m.ident.to_string());
+            prefix.push(m.ident.unraw().to_string());
             match &m.content {
                 Some((_, inner)) => collect_mods(inner, prefix, out),
                 None => out.push(prefix.clone()),

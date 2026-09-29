@@ -13,6 +13,7 @@
 use std::collections::HashSet;
 
 use purecrate_ir::{Crate, Reason};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::Item as SynItem;
@@ -86,7 +87,7 @@ fn scan(items: &[SynItem], modules: &mut HashSet<String>, re: &mut Reexports) ->
     for item in items.iter().filter(|i| !is_test_only(i)) {
         match item {
             SynItem::Mod(m) => {
-                modules.insert(m.ident.to_string());
+                modules.insert(m.ident.unraw().to_string());
                 if let Some((_, inner)) = &m.content {
                     scan(inner, modules, re)?;
                 }
@@ -100,7 +101,7 @@ fn scan(items: &[SynItem], modules: &mut HashSet<String>, re: &mut Reexports) ->
 
 fn use_tree(tree: &syn::UseTree, last: Option<String>, re: &mut Reexports) -> Result<(), ParseError> {
     match tree {
-        syn::UseTree::Path(p) => use_tree(&p.tree, Some(p.ident.to_string()), re),
+        syn::UseTree::Path(p) => use_tree(&p.tree, Some(p.ident.unraw().to_string()), re),
         syn::UseTree::Name(n) => {
             re.names.insert(n.ident.to_string());
             Ok(())
@@ -133,7 +134,7 @@ fn flatten(
         match item {
             SynItem::Mod(m) => {
                 if let Some((_, inner)) = m.content {
-                    let name = m.ident.to_string();
+                    let name = m.ident.unraw().to_string();
                     flatten(inner, public && is_pub(&m.vis), Some(&name), re, out);
                 }
             }
@@ -180,7 +181,7 @@ impl VisitMut for StripModules<'_> {
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
         if path.leading_colon.is_none() {
             while path.segments.len() > 1 {
-                let first = path.segments[0].ident.to_string();
+                let first = path.segments[0].ident.unraw().to_string();
                 let module = first == "crate" || first == "self" || first == "super" || self.modules.contains(&first);
                 if !module || !path.segments[0].arguments.is_empty() {
                     break;
