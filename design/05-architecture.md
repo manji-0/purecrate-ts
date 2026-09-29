@@ -73,4 +73,4 @@ purecrate-ts survey <crate-path>... [--json]
 
 `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs`. `--name` defaults to the `Cargo.toml` package name, then the directory name. `check --out` also compares bytes with an existing output, listing differing, missing, and extra files. `survey` reports, per public function and type, whether it is accepted together with everything it references ([90](./90-acceptance-survey.md)).
 
-`scripts/verify.sh` runs `cargo test --offline`, drift detection on examples/counter, `check` on examples/order, and `tsc` on TS 6 and 7 for the runtime packages and the counter output.
+`scripts/verify.sh` runs `cargo test --offline`, drift detection on examples/counter, `check` on the other examples (order, signup, iban, payment, invoice), and `tsc` on TS 6 and 7 for the runtime packages and the counter output.
