@@ -76,13 +76,24 @@ The gap is the scanners: iterator adaptors over tokens and bytes, written as ran
 
 The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has now been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
-## 3. Next, when an example needs it
+## 3. Next
 
-1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` itself is in; `s.chars()` waits for iterator `for`.
+<!-- derived-from ./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts -->
+
+Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)); the first real use (Oxide `Name`) passes without them, but its rewrite is longer and less idiomatic for their absence:
+
+1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — the idiomatic signature, rejected today with a misleading `item/serde-attr`.
+2. **`s.chars()` through iterator `for`** — `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8.
+
+Defects to fix first, from the same measurement: a non-`pub` method reachable on the exported companion (a possible hole in closed types); `mod r#impl;` skipped silently; `build --out` deleting unrelated files.
+
+### 3.1 When an example needs it
+
+1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` itself is in; `s.chars()` is next (§3).
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
-3. **std methods** the example calls, via the allow-list. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
+3. **std methods** the example calls, via the allow-list (`Vec::is_empty`, `Option::is_some`/`is_none` came up in three of four real sites and in oidc). Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
 4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
-5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc (worked around), needed by any spec written in them.
+5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc and Stoat's permission flags (both worked around), needed by any spec written in them.
 6. **Building a `Vec` in the crate** (`vec![a, b]` of a fixed length) — oidc's `amr` is a list claim that TS callers expect as an array.
 
 ## 4. Specified but not yet implemented

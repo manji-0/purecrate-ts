@@ -77,5 +77,6 @@ Six examples are written within the constraints and differentially tested: [orde
 | [06-strategy](./06-strategy.md) | Why this means over alternatives, demand, success and withdrawal criteria |
 | [07-roadmap](./07-roadmap.md) | How additions are chosen, evidence from examples, what comes next, open questions |
 | [90-acceptance-survey](./90-acceptance-survey.md) | Archive: measurement of existing crates. Not a metric |
+| [91-real-use-candidates](./91-real-use-candidates.md) | Record: dual Rust/TS implementations found in public projects, their fit to the subset, and the first real-use target |
 
 Reading order: 00 → 02 → 03 for users; 00 → 01 → 06 → 07 for evaluating the approach.

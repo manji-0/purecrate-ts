@@ -98,6 +98,7 @@ CI (`.github/workflows/verify.yml`) runs it on every push inside `nix develop`, 
 | [06-strategy](design/06-strategy.md) | Alternatives, demand, success and withdrawal criteria |
 | [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps |
 | [90-acceptance-survey](design/90-acceptance-survey.md) | Archive: measurements of existing crates |
+| [91-real-use-candidates](design/91-real-use-candidates.md) | Record: dual Rust/TS implementations found in public projects, their fit to the subset, and the first real-use target |
 
 ## License
 

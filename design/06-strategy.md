@@ -93,7 +93,7 @@ Status: signup, iban, payment, invoice, and oidc are from third-party specs; all
 ## 5. Validating demand next
 
 1. More third-party specs. Done for one outside validation (Stripe's PaymentIntent lifecycle, 2026-09-29).
-2. **One real use**: replace a dual-implemented state machine; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. The runtime packages are packed from `packages/` rather than published to npm, since the code they serve is private ([03](./03-output.md)).
+2. **One real use**: replace a dual implementation; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. The runtime packages are packed from `packages/` rather than published to npm, since the code they serve is private ([03](./03-output.md)). Target chosen 2026-09-30 ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator. Dual implementations with drift turned out common in public Rust + TS projects, and mostly validation rules.
 3. **Numbers for §2**: done on Node for payment ([bench/payment](../bench/payment/README.md)). Browsers and Hermes are not measured.
 
 ## References
