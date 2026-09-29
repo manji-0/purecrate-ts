@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::{assemble_versioned, disk_path};
+use purecrate_pack::{assemble_with_access, disk_path, Access};
 use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
 use args::{Command, Input};
@@ -39,21 +39,22 @@ fn main() -> ExitCode {
 
 fn execute(command: Command) -> Result<(), String> {
     match command {
-        Command::Build { input, out, schema } => {
+        Command::Build { input, out, schema, publishable } => {
             let schema = parse_schema(schema)?;
-            load(&input, "nothing written", schema).and_then(|pkg| write_replacing(&out, &pkg.files))
+            load(&input, "nothing written", schema, access(publishable)).and_then(|pkg| write_replacing(&out, &pkg.files))
         }
-        Command::Check { input, out: None, schema } => {
+        Command::Check { input, out: None, schema, publishable } => {
             let schema = parse_schema(schema)?;
-            load(&input, "", schema).map(|_| ())
+            load(&input, "", schema, access(publishable)).map(|_| ())
         }
         Command::Check {
             input,
             out: Some(out),
             schema,
+            publishable,
         } => {
             let schema = parse_schema(schema)?;
-            load(&input, "", schema).and_then(|pkg| check_drift(&input, &out, &pkg))
+            load(&input, "", schema, access(publishable)).and_then(|pkg| check_drift(&input, &out, &pkg))
         }
         Command::Survey { inputs, json } => run_survey(&inputs, json),
     }
@@ -90,9 +91,17 @@ fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
     }
 }
 
+fn access(publishable: bool) -> Access {
+    if publishable {
+        Access::Publishable
+    } else {
+        Access::Private
+    }
+}
+
 /// Parse, check, compile with rustc, prune, emit. `consequence` ends the
 /// error summary line.
-fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<Package, String> {
+fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Access) -> Result<Package, String> {
     let src = &input.src;
     let files = files::crate_files(src)?;
     let sources: Vec<Source<'_>> = files.iter().map(|f| Source { text: &f.text, public: f.public }).collect();
@@ -103,7 +112,7 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
     let diagnostics = match accept(&krate) {
         Ok(typed) => {
             return match rustc::compile(src, &input.edition) {
-                Ok(()) => Ok(assemble_versioned(&prune_unreachable(&typed), schema, &input.version)),
+                Ok(()) => Ok(assemble_with_access(&prune_unreachable(&typed), schema, &input.version, access)),
                 Err(rustc::Failure::Other(e)) => Err(e),
                 Err(rustc::Failure::Rejected(errors)) => {
                     let mut report: Vec<String> = errors.iter().map(|e| e.line()).collect();

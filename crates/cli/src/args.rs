@@ -6,13 +6,15 @@ use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "\
 usage:
-  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>]
-  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>]
+  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
+  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts survey <crate-path>... [--json]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
 schemas for the public structs and enums. The numeric fields come from
 the matching purecrate-* adapter.
+The generated package.json says \"private\": true, so npm publish refuses it
+(npm pack and installing the tarball work). --publishable leaves that out.
 
 <crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
 single .rs file.
@@ -47,11 +49,13 @@ pub enum Command {
         input: Input,
         out: PathBuf,
         schema: Option<String>,
+        publishable: bool,
     },
     Check {
         input: Input,
         out: Option<PathBuf>,
         schema: Option<String>,
+        publishable: bool,
     },
     Survey { inputs: Vec<Input>, json: bool },
 }
@@ -66,6 +70,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut edition: Option<String> = None;
     let mut out: Option<PathBuf> = None;
     let mut schema: Option<String> = None;
+    let mut publishable = false;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -78,6 +83,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 edition = Some(value.clone());
             }
             "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
+            "--publishable" => publishable = true,
             "--schema" => {
                 let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
                 if !matches!(value.as_str(), "zod" | "valibot" | "arktype") {
@@ -100,8 +106,9 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             input,
             out: out.ok_or("build needs --out <dir>")?,
             schema,
+            publishable,
         }),
-        "check" => Ok(Command::Check { input, out, schema }),
+        "check" => Ok(Command::Check { input, out, schema, publishable }),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -264,14 +271,35 @@ mod tests {
                 },
                 out: None,
                 schema: None,
+                publishable: false,
             }
         );
     }
 
     #[test]
+    fn publishable_is_a_flag_of_build_and_check() {
+        let src = examples().join("counter/src/lib.rs");
+        let src = src.to_str().unwrap();
+        let Command::Build { publishable, .. } = parse(&args(&["build", src, "--out", "o"])).unwrap() else {
+            panic!("expected build");
+        };
+        assert!(!publishable);
+        let Command::Build { publishable, .. } =
+            parse(&args(&["build", src, "--out", "o", "--publishable"])).unwrap()
+        else {
+            panic!("expected build");
+        };
+        assert!(publishable);
+        let Command::Check { publishable, .. } = parse(&args(&["check", src, "--publishable"])).unwrap() else {
+            panic!("expected check");
+        };
+        assert!(publishable);
+    }
+
+    #[test]
     fn lib_rs_path_uses_the_crate_directory_name() {
         let src = examples().join("counter/src/lib.rs");
-        let Command::Build { input, out, schema } =
+        let Command::Build { input, out, schema, .. } =
             parse(&args(&["build", src.to_str().unwrap(), "--out", "o"])).unwrap()
         else {
             panic!("expected build");

@@ -15,7 +15,7 @@ The authoritative rules are in [design/02-authoring.md](https://github.com/manji
 1. Write the crate (`src/lib.rs`, or a single `.rs`; `mod x;` files are read too).
 2. Run `purecrate-ts check <crate-path>` (inside the purecrate-ts repository: `cargo run --offline -p purecrate-ts -- check <crate-path>`; elsewhere build the binary from the repository first). It writes nothing. A failure prints `path:line:col: [reason/code] message`; rustc errors print as `[rustc/E0382]`. `check` also needs `rustc` on the machine.
 3. Fix the first diagnostics, rerun. Let the diagnostic drive: it is cheaper than guessing which construct is out.
-4. `build <crate-path> --out <dir> [--schema zod|valibot|arktype]` emits the package. Never edit generated output; change the Rust and regenerate. Generated packages and the runtime (`purecrate`, plus an adapter with `--schema`) are not on npm: pack the runtime from the repository's `packages/` at the generator's revision and install the tarballs together ([README, Distribution](https://github.com/manji-0/purecrate-ts#distribution)).
+4. `build <crate-path> --out <dir> [--schema zod|valibot|arktype] [--publishable]` emits the package. Its `package.json` is `"private": true` unless `--publishable` is given (pass the same flag to `check --out`). Never edit generated output; change the Rust and regenerate. Generated packages and the runtime (`purecrate`, plus an adapter with `--schema`) are not on npm: pack the runtime from the repository's `packages/` at the generator's revision and install the tarballs together ([README, Distribution](https://github.com/manji-0/purecrate-ts#distribution)).
 
 ## Shape the domain like this
 

@@ -66,8 +66,8 @@ See `crates/ir/src` for the exact definitions; the sketch above is not maintaine
 ## 5. CLI
 
 ```text
-purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
-purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema …]
+purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
+purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema …] [--publishable]
 purecrate-ts survey <crate-path>... [--json]
 ```
 

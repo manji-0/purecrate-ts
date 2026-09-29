@@ -360,3 +360,41 @@ fn module_trees_are_flattened() {
     assert!(stderr.contains("module `rules` has no file"), "{stderr}");
     let _ = fs::remove_dir_all(&dir);
 }
+
+fn build_with(flags: &[&str], out: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .arg("build")
+        .arg(repo().join("examples/counter"))
+        .args(flags)
+        .arg("--out")
+        .arg(out)
+        .output()
+        .expect("run purecrate-ts")
+}
+
+#[test]
+fn generated_package_is_private_unless_publishable() {
+    let dir = scratch("access");
+    let private = dir.join("private");
+    let publishable = dir.join("publishable");
+    assert!(build_with(&[], &private).status.success());
+    assert!(build_with(&["--publishable"], &publishable).status.success());
+    let manifest = |d: &Path| fs::read_to_string(d.join("package.json")).expect("package.json");
+    assert!(manifest(&private).contains("\"private\": true"));
+    assert!(!manifest(&publishable).contains("private"));
+
+    // `check --out` compares with the same access, so the flag must match.
+    let counter = repo().join("examples/counter");
+    let against = |out: &Path, flags: &[&str]| {
+        let mut args: Vec<&std::ffi::OsStr> = vec![counter.as_os_str()];
+        args.extend(flags.iter().map(std::ffi::OsStr::new));
+        args.push("--out".as_ref());
+        args.push(out.as_os_str());
+        check(&args).status.success()
+    };
+    assert!(against(&private, &[]));
+    assert!(against(&publishable, &["--publishable"]));
+    assert!(!against(&publishable, &[]));
+    assert!(!against(&private, &["--publishable"]));
+    fs::remove_dir_all(&dir).ok();
+}

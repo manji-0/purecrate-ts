@@ -15,6 +15,17 @@ const TYPESCRIPT_RANGE: &str = "^6.0.0 || ^7.0.0";
 /// `dist`, for working in this repository without building first.
 pub const SOURCE_CONDITION: &str = "purecrate-source";
 
+/// Whether the generated `package.json` lets `npm publish` through. The code
+/// purecrate-ts serves is usually private, so a package is `Private` unless
+/// asked otherwise: `npm pack` and installing the tarball work, `npm publish`
+/// refuses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Access {
+    #[default]
+    Private,
+    Publishable,
+}
+
 pub fn assemble(krate: &Crate) -> Package {
     assemble_with(krate, None)
 }
@@ -27,6 +38,10 @@ pub fn assemble_with(krate: &Crate, schema: Option<WireSchema>) -> Package {
 /// (run by `prepack`) compiles them to `dist`, which `exports` points at, and
 /// the runtime is a peer dependency so every package shares its brands.
 pub fn assemble_versioned(krate: &Crate, schema: Option<WireSchema>, version: &str) -> Package {
+    assemble_with_access(krate, schema, version, Access::default())
+}
+
+pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: &str, access: Access) -> Package {
     let mut pkg = emit(krate);
     if let Some(schema) = schema {
         pkg.files.push(TsFile {
@@ -35,7 +50,7 @@ pub fn assemble_versioned(krate: &Crate, schema: Option<WireSchema>, version: &s
         });
     }
     let manifests = [
-        ("package.json", package_json(krate.name.as_str(), version, schema)),
+        ("package.json", package_json(krate.name.as_str(), version, schema, access)),
         ("tsconfig.json", tsconfig()),
         ("tsconfig.build.json", tsconfig_build()),
     ];
@@ -59,7 +74,7 @@ fn entry(stem: &str) -> String {
     )
 }
 
-fn package_json(name: &str, version: &str, schema: Option<WireSchema>) -> String {
+fn package_json(name: &str, version: &str, schema: Option<WireSchema>, access: Access) -> String {
     let kebab = purecrate_ir::to_kebab(name);
     let mut exports = vec![format!("    \".\": {}", entry("index"))];
     let mut peers = vec![format!("    \"purecrate\": \"{RUNTIME_RANGE}\"")];
@@ -68,8 +83,12 @@ fn package_json(name: &str, version: &str, schema: Option<WireSchema>) -> String
         peers.push(format!("    \"{}\": \"{RUNTIME_RANGE}\"", schema.package()));
         peers.push(format!("    \"{}\": \"^{}\"", schema.runtime_dep(), schema.version()));
     }
+    let private = match access {
+        Access::Private => "  \"private\": true,\n",
+        Access::Publishable => "",
+    };
     format!(
-        "{{\n  \"name\": \"{kebab}\",\n  \"version\": \"{version}\",\n  \"type\": \"module\",\n  \"exports\": {{\n{exports}\n  }},\n  \"files\": [\"dist\", \"src\"],\n  \"scripts\": {{\n    \"build\": \"tsc -p tsconfig.build.json\",\n    \"prepack\": \"npm run build\"\n  }},\n  \"peerDependencies\": {{\n{peers}\n  }},\n  \"devDependencies\": {{\n    \"typescript\": \"{TYPESCRIPT_RANGE}\"\n  }}\n}}\n",
+        "{{\n  \"name\": \"{kebab}\",\n  \"version\": \"{version}\",\n{private}  \"type\": \"module\",\n  \"exports\": {{\n{exports}\n  }},\n  \"files\": [\"dist\", \"src\"],\n  \"scripts\": {{\n    \"build\": \"tsc -p tsconfig.build.json\",\n    \"prepack\": \"npm run build\"\n  }},\n  \"peerDependencies\": {{\n{peers}\n  }},\n  \"devDependencies\": {{\n    \"typescript\": \"{TYPESCRIPT_RANGE}\"\n  }}\n}}\n",
         exports = exports.join(",\n"),
         peers = peers.join(",\n"),
     )
@@ -91,6 +110,18 @@ fn tsconfig_build() -> String {
 mod tests {
     use super::*;
     use purecrate_ir::counter_example;
+
+    fn manifest(access: Access) -> String {
+        let pkg = assemble_with_access(&counter_example(), None, "1.2.3", access);
+        pkg.files.into_iter().find(|f| f.stem == "package.json").unwrap().source
+    }
+
+    #[test]
+    fn packages_are_private_unless_publishable() {
+        assert!(manifest(Access::default()).contains("  \"private\": true,\n"));
+        assert!(!manifest(Access::Publishable).contains("private"));
+        assert_eq!(manifest(Access::default()), manifest(Access::Private));
+    }
 
     #[test]
     fn counter_package_has_manifest_and_sources() {

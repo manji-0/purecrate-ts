@@ -18,14 +18,14 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 ```
 
 ```text
-purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
-purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype]
+purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
+purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
 purecrate-ts survey <crate-path>... [--json]
 ```
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
-- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. Neither the runtime nor the generated packages go to the public npm registry; see [Distribution](#distribution).
+- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
 - Never edit generated packages. Change the Rust and regenerate.
 
@@ -61,7 +61,7 @@ npm install tarballs/purecrate-0.1.0.tgz tarballs/<name>-<version>.tgz
 ```
 
 
-Push the same tarballs to a private registry, or vendor them, if several projects consume them. All generated packages in one project must resolve one copy of `purecrate`: brands are `unique symbol`s, so values cross between packages only through a shared runtime. The schema library itself (`zod`, `valibot`, or `arktype`) is an ordinary npm dependency of the consumer. `crates/cli/tests/package.rs` runs exactly this flow.
+Push the same tarballs to a private registry, or vendor them, if several projects consume them. Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. The runtime packages in `packages/` are `"private": true` as well; remove it from your copy with `npm pkg delete private` before publishing them to a registry of your own. All generated packages in one project must resolve one copy of `purecrate`: brands are `unique symbol`s, so values cross between packages only through a shared runtime. The schema library itself (`zod`, `valibot`, or `arktype`) is an ordinary npm dependency of the consumer. `crates/cli/tests/package.rs` runs exactly this flow.
 
 ## Agent skill
 
