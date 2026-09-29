@@ -76,6 +76,7 @@ dependencies = [
  "purecrate-syntax",
  "serde_core",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -115,3 +116,10 @@ dependencies = [
 [[package]]
 name = "unicode-ident"
 version = "1.0.12"
+
+[[package]]
+name = "uuid"
+version = "1.26.1"
+dependencies = [
+ "serde_core",
+]

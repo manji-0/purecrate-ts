@@ -1,0 +1,43 @@
+# uuid 1.26.1 from crates.io, for purecrate-ts's tests only: the oracle for
+# `uuid::Uuid` parsing and serde JSON (design/01 §6). Dependencies point at
+# the other vendored crates by path; optional dependencies, dev-dependencies
+# and the features that need them are removed.
+
+[package]
+edition = "2021"
+rust-version = "1.85.0"
+name = "uuid"
+version = "1.26.1"
+authors = [
+    "Ashley Mannix<ashleymannix@live.com.au>",
+    "Dylan DPC<dylan.dpc@gmail.com>",
+    "Hunar Roop Kahlon<hunar.roop@gmail.com>",
+]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "A library to generate and parse UUIDs."
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/uuid-rs/uuid"
+
+[features]
+default = ["std"]
+std = []
+serde = ["dep:serde_core"]
+
+[lib]
+name = "uuid"
+path = "src/lib.rs"
+
+[dependencies.serde_core]
+path = "../serde_core-1.0.228"
+optional = true
+default-features = false
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+priority = 0
