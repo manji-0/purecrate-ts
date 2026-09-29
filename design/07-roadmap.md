@@ -82,7 +82,7 @@ The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33
 
 Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)); the first real use (Oxide `Name`) passes without them, but its rewrite is longer and less idiomatic for their absence:
 
-1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — the idiomatic signature, rejected today with a misleading `item/serde-attr`.
+1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — done 2026-09-30. `check` and `build` already accepted it; `survey` skipped trait impls, so a `#[serde(try_from)]` type looked as if its `impl TryFrom` were missing (`item/serde-attr`). `survey` now reads the impl as `X::try_from`.
 2. **`s.chars()` through iterator `for`** — `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8.
 
 Defects to fix first, from the same measurement: `mod r#impl;` skipped silently; `build --out` deleting unrelated files. Fixed: a non-`pub` method reachable on the exported companion, a hole in closed types (2026-09-30, [01 §4](./01-equivalence.md#4-closed-types)).

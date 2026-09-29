@@ -156,6 +156,22 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
                 unit(UnitKind::Method { owner }, name, is_pub, at, lowered)
             })
             .collect(),
+        // `impl TryFrom<T> for X` is the method `X::try_from`, which
+        // `#[serde(try_from = "T")]` on `X` needs. Not counted as a public
+        // function, as the trait impl is not one in Rust.
+        SynItem::Impl(imp) if is_try_from_impl(imp) => {
+            let lowered = item::lower_item(cx, item.clone()).and_then(|mut items| match items.len() {
+                1 => Ok(items.remove(0).0),
+                _ => Err(ParseError::new(Reason::UnsupportedItem, "expected one method")),
+            });
+            vec![unit(
+                UnitKind::Method { owner: self_name(&imp.self_ty) },
+                "try_from".to_string(),
+                false,
+                LineCol::of(imp.span()),
+                lowered,
+            )]
+        }
         other => {
             let what = match other {
                 SynItem::Impl(_) => "trait impl",
@@ -181,6 +197,13 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
             vec![unit(UnitKind::Other { what }, name, false, LineCol::of(other.span()), lowered)]
         }
     }
+}
+
+fn is_try_from_impl(imp: &syn::ItemImpl) -> bool {
+    imp.trait_
+        .as_ref()
+        .and_then(|(_, p, _)| p.segments.last())
+        .is_some_and(|s| s.ident == "TryFrom")
 }
 
 fn self_name(ty: &syn::Type) -> String {

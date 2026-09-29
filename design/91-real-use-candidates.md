@@ -52,7 +52,7 @@ The pipeline parser, the strongest case on paper (a hand port kept in line by a 
 
 Capabilities, in the order they would have shortened the rewrites:
 
-1. `Result<Self, Self::Error>` in `impl TryFrom<T>` — omicron's idiomatic signature, today reported as `item/serde-attr` with the impl "not judged".
+1. `Result<Self, Self::Error>` in `impl TryFrom<T>` — omicron's idiomatic signature, reported by `survey` as `item/serde-attr` with the impl "not judged". It turned out a `survey` defect: `check` accepts the signature, but `survey` never read trait impls (fixed 2026-09-30).
 2. `s.chars()` through iterator `for` — `Name` hand-decodes UTF-8 in 18 lines to report the offending character; the MCP rewrite does the same for `chars().nth(n)`.
 3. `is_empty` on `Vec`/slices, `Option::is_some`/`is_none` — in three of the four.
 4. Bitwise operators on integers, `u64` included — Stoat's flag sets (a 25-line bit loop instead), after oidc.

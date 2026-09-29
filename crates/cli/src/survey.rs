@@ -270,7 +270,14 @@ enum Ref {
 fn references(item: &Item) -> Vec<Ref> {
     let mut out = Vec::new();
     match item {
-        Item::Struct(s) => s.fields.iter().for_each(|f| ty_refs(&f.ty, &mut out)),
+        Item::Struct(s) => {
+            s.fields.iter().for_each(|f| ty_refs(&f.ty, &mut out));
+            // `#[serde(try_from = "T")]` reads `T` through `impl TryFrom<T>`.
+            if let Some(from) = &s.wire_from {
+                ty_refs(from, &mut out);
+                out.push(Ref::Method(s.name.as_str().to_string(), "try_from".to_string()));
+            }
+        }
         Item::Enum(e) => {
             for v in &e.variants {
                 match &v.fields {

@@ -53,7 +53,7 @@ fn every_module_file_is_read_once_and_tests_are_skipped() {
 #[test]
 fn each_public_item_gets_a_verdict() {
     let json = survey(&["--json"]);
-    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of"] {
+    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of", "Percent", "PercentError"] {
         assert!(item(&json, accepted).contains("\"status\":\"accepted\""), "{}", item(&json, accepted));
     }
     let rejected = [
@@ -86,5 +86,5 @@ fn human_summary_counts_functions_and_types() {
         text.contains("public functions: 13 — accepted 8 (62%), rejected 3, blocked by a dependency 2"),
         "{text}"
     );
-    assert!(text.contains("public types: 3 — accepted 1 (33%), rejected 2, blocked by a dependency 0"), "{text}");
+    assert!(text.contains("public types: 5 — accepted 3 (60%), rejected 2, blocked by a dependency 0"), "{text}");
 }
