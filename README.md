@@ -44,6 +44,16 @@ purecrate-ts survey <crate-path>... [--json]
 
 There is no decimal type. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). For the full rules, see [design/02](design/02-authoring.md). For what TS callers must observe, see [design/03 §5](design/03-output.md#5-caller-contract).
 
+## Agent skill
+
+[`skills/purecrate-authoring`](skills/purecrate-authoring/SKILL.md) teaches a coding agent how to write Rust within the constraints, with the `check` loop, the accepted and rejected constructs, and the common pitfalls. Install it with the GitHub CLI (2.90 or later):
+
+```sh
+gh skill install manji-0/purecrate-ts purecrate-authoring
+```
+
+`--agent` picks the agent (Claude Code, Copilot, Cursor, Codex, …) and `--scope user` installs it for every project. In a clone of this repository, Claude Code reads it through the link `.claude/skills/purecrate-authoring`.
+
 ## Testing
 
 ```sh

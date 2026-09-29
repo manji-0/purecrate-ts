@@ -1,5 +1,6 @@
 ---
 name: purecrate-authoring
+license: MIT
 description: How to write Rust that purecrate-ts accepts and translates to TypeScript with identical behavior. Use this skill whenever the user writes, ports, or fixes Rust domain logic (state machines, validators, `fn step(state, event) -> Result<State, Error>`, money or ID newtypes, wire types with serde) meant for `purecrate-ts check` / `build`, or when `check` rejects code with a reason code like `[expr/method-call]`, `[check/needs-annotation]`, `[pattern/arm]`, or `[rustc/E0382]`. Also use it when adding an example under `examples/`, even if the user only says "share this logic with the frontend" or "make this Rust usable from TS without WASM".
 ---
 
@@ -7,12 +8,12 @@ description: How to write Rust that purecrate-ts accepts and translates to TypeS
 
 purecrate-ts translates a small, pure subset of Rust into a TypeScript package that returns the same result as a Rust debug build. Anything whose meaning it cannot preserve is rejected with a location, and nothing is written. So the job is: write the domain logic in the accepted subset, run `check`, and fix what it names. Do not try to make arbitrary Rust pass; the subset is the point.
 
-The authoritative rules are in `design/02-authoring.md`. Read it when this skill is not enough (§2 capability table, §3.5 `match` arms, §4 rewrites). Working code to copy from is in `examples/` (`counter`, `order`, `signup`, `iban`, `invoice`, `payment`).
+The authoritative rules are in [design/02-authoring.md](https://github.com/manji-0/purecrate-ts/blob/main/design/02-authoring.md). Read it when this skill is not enough (§2 capability table, §3.5 `match` arms, §4 rewrites). Working code to copy from is in [examples/](https://github.com/manji-0/purecrate-ts/blob/main/examples) (`counter`, `order`, `signup`, `iban`, `invoice`, `payment`). When the repository is checked out, read those files locally; otherwise fetch them from the links here.
 
 ## Loop
 
 1. Write the crate (`src/lib.rs`, or a single `.rs`; `mod x;` files are read too).
-2. Run `cargo run --offline -p purecrate-ts -- check <crate-path>`. It writes nothing. A failure prints `path:line:col: [reason/code] message`; rustc errors print as `[rustc/E0382]`. `check` also needs `rustc` on the machine.
+2. Run `purecrate-ts check <crate-path>` (inside the purecrate-ts repository: `cargo run --offline -p purecrate-ts -- check <crate-path>`; elsewhere build the binary from the repository first). It writes nothing. A failure prints `path:line:col: [reason/code] message`; rustc errors print as `[rustc/E0382]`. `check` also needs `rustc` on the machine.
 3. Fix the first diagnostics, rerun. Let the diagnostic drive: it is cheaper than guessing which construct is out.
 4. `build <crate-path> --out <dir> [--schema zod|valibot|arktype]` emits the package. Never edit generated output; change the Rust and regenerate.
 
@@ -53,13 +54,13 @@ The constraints match a functional style, so lean into it rather than fighting i
 
 ## Small things that trip people
 
-- **Names are unique across the whole crate**, modules are flattened, and each type or function becomes a kebab-case file. A type `Group` and a function `group` collide on `group.ts` and are rejected; so is `Command` vs `command`. Rename the helper, not the type. Rust keywords and TS reserved words are rejected, not renamed. The output reserves `Result`, `Int`, `Str`, `Char`, `kind`, `of`, and a few more (`design/02 §3.3`).
+- **Names are unique across the whole crate**, modules are flattened, and each type or function becomes a kebab-case file. A type `Group` and a function `group` collide on `group.ts` and are rejected; so is `Command` vs `command`. Rename the helper, not the type. Rust keywords and TS reserved words are rejected, not renamed. The output reserves `Result`, `Int`, `Str`, `Char`, `kind`, `of`, and a few more (design/02 §3.3).
 - **Integer suffixes are only for when `check` asks** (`[check/needs-annotation]`), and it asks in three places you can predict: a `let mut` accumulator that nothing has typed yet (`let mut sum: u32 = 0;`, the most common one, e.g. when porting `.sum()` to a range `for`), a range whose bounds are used only as indices (`for i in 0..2usize`), and a bare `0` returned as `i64`. Where the type is determined by context, write the bare literal; extra suffixes are noise.
 - **`_` hides new variants.** As in Rust, a variant added later falls into `_` silently. Where that matters, name every arm.
 - **Reading a string means `as_bytes()`**: `b[i] == b'@'`, `matches!(b[i], b'0'..=b'9')`, with `b.len()` for the bound. Byte string literals (`b"pm_"`) do not exist; use `starts_with("pm_")`.
 - **rustc runs too.** A program the subset accepts but rustc rejects fails as `[rustc/E…]`; fix it as you would in ordinary Rust.
-- **Tests and callers**: for what TS callers must observe (values are `Readonly`, `i64` as `bigint`, `Result` values not throws), see `design/03-output.md §5`. When you add a capability or example, add a differential test (`crates/cli/tests/*_equivalence.rs`) that runs the same inputs through Rust and the generated TS.
+- **Tests and callers**: for what TS callers must observe (values are `Readonly`, `i64` as `bigint`, `Result` values not throws), see [design/03-output.md §5](https://github.com/manji-0/purecrate-ts/blob/main/design/03-output.md#5-caller-contract). When you add a capability or example, add a differential test (`crates/cli/tests/*_equivalence.rs` in the purecrate-ts repository) that runs the same inputs through Rust and the generated TS.
 
 ## Adding an example
 
-Write it within the constraints first, from a third-party spec if possible, and record where `check` stopped you in `design/07-roadmap.md §2`. A capability is added to purecrate-ts only when an example cannot be written without it; do not widen the subset just to make one program pass.
+Write it within the constraints first, from a third-party spec if possible, and record where `check` stopped you in `design/07-roadmap.md` §2 of the purecrate-ts repository. A capability is added to purecrate-ts only when an example cannot be written without it; do not widen the subset just to make one program pass.
