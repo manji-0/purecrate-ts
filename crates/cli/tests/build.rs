@@ -1,5 +1,8 @@
 //! Drives the `purecrate-ts` binary: diagnostics, and what happens to `--out`.
 
+#[allow(dead_code, unused_macros)]
+mod support;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -447,5 +450,30 @@ fn generated_package_is_private_unless_publishable() {
     assert!(against(&publishable, &["--publishable"]));
     assert!(!against(&publishable, &[]));
     assert!(!against(&private, &["--publishable"]));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// `--bundle-runtime` output stands alone: it type-checks with no
+/// `node_modules`, and `check --out` compares it like any other.
+#[test]
+fn a_bundled_runtime_package_needs_no_dependencies() {
+    let dir = scratch("bundled");
+    let out = dir.join("pkg");
+    let src = repo().join("examples/counter");
+    let built = build_with(&["--bundle-runtime"], &out);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(out.join("src/purecrate-runtime.ts").exists());
+    assert!(!out.join("node_modules").exists());
+    if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {
+        support::typecheck(&out);
+    }
+
+    let same = check(&[src.as_os_str(), "--bundle-runtime".as_ref(), "--out".as_ref(), out.as_os_str()]);
+    assert!(same.status.success(), "{}", String::from_utf8_lossy(&same.stderr));
+    let peer = check(&[src.as_os_str(), "--out".as_ref(), out.as_os_str()]);
+    assert!(!peer.status.success(), "a peer-runtime build differs from the bundled one");
+
+    let both = check(&[src.as_os_str(), "--bundle-runtime".as_ref(), "--schema".as_ref(), "zod".as_ref()]);
+    assert!(String::from_utf8_lossy(&both.stderr).contains("--bundle-runtime does not go with --schema"));
     fs::remove_dir_all(&dir).ok();
 }

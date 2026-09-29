@@ -18,8 +18,8 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 ```
 
 ```text
-purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
-purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
+purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype | --bundle-runtime] [--publishable]
+purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype | --bundle-runtime] [--publishable]
 purecrate-ts survey <crate-path>... [--json]
 ```
 
@@ -63,6 +63,8 @@ npm install tarballs/purecrate-0.1.0.tgz tarballs/<name>-<version>.tgz
 
 
 Push the same tarballs to a private registry, or vendor them, if several projects consume them. Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. The runtime packages in `packages/` are `"private": true` as well; remove it from your copy with `npm pkg delete private` before publishing them to a registry of your own. All generated packages in one project must resolve one copy of `purecrate`: brands are `unique symbol`s, so values cross between packages only through a shared runtime. The schema library itself (`zod`, `valibot`, or `arktype`) is an ordinary npm dependency of the consumer. `crates/cli/tests/package.rs` runs exactly this flow.
+
+**Vendoring the sources instead.** A project that commits generated code (as it does an OpenAPI client) can skip the tarballs: `build --bundle-runtime` copies the runtime into the package as `src/purecrate-runtime.ts`, so `src/` stands alone with no dependency. Copy it into the project and import `src/index.ts`. The brands are then that package's own, so values do not cross to another generated package; `--schema` is not available this way, since the adapters import `purecrate`. Check the committed copy with `check --bundle-runtime --out <dir>`.
 
 ## Agent skill
 
