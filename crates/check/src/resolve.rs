@@ -371,6 +371,8 @@ impl<'a> Cx<'_, 'a> {
             Callee::CharFromU8 => self.arity("`char::from`", 1, argc),
             Callee::CharFromU32 => self.arity("`char::from_u32`", 1, argc),
             Callee::Char(m) => self.arity(&format!("`char::{}`", m.name()), 1 + m.args(), argc),
+            Callee::UuidParse => self.arity("`Uuid::parse_str`", 1, argc),
+            Callee::UuidNil => self.arity("`Uuid::nil`", 0, argc),
         }
     }
 

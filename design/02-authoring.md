@@ -24,6 +24,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
+| UUIDs | `uuid::Uuid` (or `Uuid` after `use uuid::Uuid;`); `Uuid::parse_str(s)` / `try_parse(s)` returning `Result<Uuid, uuid::Error>`; `Uuid::nil()`; `==`, `<` | `Uuid` (branded canonical `string`); `Uuid.parseStr`; `===`, `<` |
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
@@ -110,7 +111,7 @@ A string literal is `&str` and cannot stand where `String` is expected; write `S
 
 ### 3.7 Types
 
-Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type constructors. No user type parameters, traits, `HashMap`/`BTreeMap` (key equality differs between Rust and JS). `Option<Option<T>>` is rejected (both `None`s become `null`), as are newtypes over `Option`, `()`, or `!` (`null & brand` is `never`); write an enum such as `Patch { Unset, Clear, Set(i32) }` instead. Enums with no variants are rejected, and so are unit structs (`struct S;`; serde writes it as `null`, `struct S {}` as `{}`, and only the latter is kept). `#[derive(Serialize, Deserialize)]` and `use serde::…` pass: the types are the server's wire format too ([04 §3](./04-wire.md#3-current-design)). Of `#[serde(...)]`, only `#[serde(try_from = "T")]` on a struct is accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)); the rest, `#[cfg]`, and `#[cfg_attr]` are rejected. `#[cfg(test)]` items are skipped; `derive`, `doc`, and lint attributes pass. No external crate but `serde` is allowed.
+Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type constructors. No user type parameters, traits, `HashMap`/`BTreeMap` (key equality differs between Rust and JS). `Option<Option<T>>` is rejected (both `None`s become `null`), as are newtypes over `Option`, `()`, or `!` (`null & brand` is `never`); write an enum such as `Patch { Unset, Clear, Set(i32) }` instead. Enums with no variants are rejected, and so are unit structs (`struct S;`; serde writes it as `null`, `struct S {}` as `{}`, and only the latter is kept). `#[derive(Serialize, Deserialize)]` and `use serde::…` pass: the types are the server's wire format too ([04 §3](./04-wire.md#3-current-design)). Of `#[serde(...)]`, only `#[serde(try_from = "T")]` on a struct is accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)); the rest, `#[cfg]`, and `#[cfg_attr]` are rejected. `#[cfg(test)]` items are skipped; `derive`, `doc`, and lint attributes pass. No external crate but `serde` and `uuid` (its `Uuid` and `Error` only, [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)) is allowed; the name `Uuid` is reserved.
 
 ## 4. Rewrites
 
@@ -123,6 +124,7 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `opt.is_some()`, `is_none()` | `!matches!(opt, None)`, `matches!(opt, None)` |
 | `x & 0x0f`, `x << 8`, `a \| b` | `%`, `*`, `/` by powers of two, where the operands are known non-negative and in range (RFC 4226 truncation in examples/oidc) |
 | `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
+| `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
 | `s.chars().filter(..).count()`, `.rev()`, `.nth(n)`, `for b in s.bytes()` | `for c in s.chars()` with a `let mut` counter and early `return`; bytes through `s.as_bytes()` read by index in a range `for` |

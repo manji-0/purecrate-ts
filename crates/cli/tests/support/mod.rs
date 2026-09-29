@@ -82,6 +82,13 @@ impl Js for char {
     }
 }
 
+/// The canonical form, as the generated code holds a `Uuid`.
+impl Js for uuid::Uuid {
+    fn js(&self) -> String {
+        self.hyphenated().to_string().js()
+    }
+}
+
 impl<T: Js> Js for [T] {
     fn js(&self) -> String {
         format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
@@ -191,6 +198,19 @@ impl Show for str {
 impl Show for char {
     fn show(&self) -> String {
         format!("'{}'", self.to_string().show())
+    }
+}
+
+/// `Uuid("…")` with the canonical form: the TS side holds only that form.
+impl Show for uuid::Uuid {
+    fn show(&self) -> String {
+        format!("Uuid({})", self.hyphenated().to_string().show())
+    }
+}
+
+impl Show for uuid::Error {
+    fn show(&self) -> String {
+        "UuidError".into()
     }
 }
 
@@ -358,6 +378,8 @@ fn ts_printer(krate: &Crate, ty: &Ty) -> String {
             Prim::F32 | Prim::F64 => "bits".into(),
             Prim::String | Prim::Str => "str".into(),
             Prim::Char => "chr".into(),
+            Prim::Uuid => "((x) => `Uuid(${str(x)})`)".into(),
+            Prim::UuidError => "(() => \"UuidError\")".into(),
             Prim::Unit => "unit".into(),
             _ => "int".into(),
         },

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Char, Int, type F32, type F64 } from "purecrate";
+import { Char, Int, Uuid, type F32, type F64, type UuidError } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, z.ZodTypeDef, In>;
 
@@ -40,6 +40,15 @@ export const f64: Out<F64, number> = z.number().transform(Int.f64.of) as unknown
 export const str = z.string();
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char: Out<Char, string> = z.string().refine(Char.is, "a single character") as unknown as Out<Char, string>;
+/** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */
+export const uuid: Out<Uuid, string> = z.string().transform((s, ctx) => {
+  const r = Uuid.parseStr(s);
+  if (r.kind === "Ok") return r.value;
+  ctx.addIssue({ code: z.ZodIssueCode.custom, message: "a UUID" });
+  return z.NEVER;
+}) as unknown as Out<Uuid, string>;
+/** `uuid::Error` has no serde form. */
+export const uuidError: Out<UuidError, never> = z.never() as unknown as Out<UuidError, never>;
 export const bool = z.boolean();
 
 /** serde writes `()` as JSON `null`. The domain value is `undefined`. */

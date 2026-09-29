@@ -477,6 +477,20 @@ fn int_from(segs: &[String]) -> Option<IntTy> {
     }
 }
 
+/// `Uuid::parse_str`, `Uuid::try_parse`, `Uuid::nil`, also through `uuid::`.
+fn uuid_fn(segs: &[String]) -> Option<Callee> {
+    let segs: Vec<&str> = segs.iter().map(String::as_str).collect();
+    let rest = match segs.as_slice() {
+        ["uuid", "Uuid", rest @ ..] | ["Uuid", rest @ ..] => rest,
+        _ => return None,
+    };
+    match rest {
+        ["parse_str"] | ["try_parse"] => Some(Callee::UuidParse),
+        ["nil"] => Some(Callee::UuidNil),
+        _ => None,
+    }
+}
+
 fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, ParseError> {
     let args = args
         .into_iter()
@@ -511,6 +525,8 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::CharFromU8
             } else if segs == ["char", "from_u32"] {
                 Callee::CharFromU32
+            } else if let Some(callee) = uuid_fn(&segs) {
+                callee
             } else if let Some(to) = int_from(&segs) {
                 Callee::IntFrom { from: None, to }
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {

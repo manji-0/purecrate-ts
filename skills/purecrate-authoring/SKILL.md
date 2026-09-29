@@ -38,6 +38,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 - `derive(Debug, Clone, Copy, PartialEq, Eq)` pass, but deriving `PartialEq` does not make `==` available on your types.
 - Strings: `String::from("…")`, `==`/`!=`, `len` (UTF-8 bytes), `is_empty`, `starts_with`/`ends_with`/`contains` with a `&str`, contents via `s.as_bytes()` indexed as `&[u8]`. A bare literal is `&str` and cannot stand where `String` is expected.
 - `char`: literals, `==`, `<`, ranges in `match`/`matches!`, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, ASCII methods. Iterate a string's chars with `for c in s.chars() { .. }` (only in a `for` head: no `.rev()`, `.nth()`, `.count()`, or `chars()` as a value).
+- `uuid::Uuid` (the one crate besides `serde`): `Uuid::parse_str(s)` / `Uuid::try_parse(s)` → `Result<Uuid, uuid::Error>`, `Uuid::nil()`, `==`, `<`, and in serde types. Nothing else: take new IDs as parameters instead of `new_v4()`, test with `matches!(Uuid::parse_str(s), Ok(_))` instead of `.is_ok()`. Write the error type as `uuid::Error`; `Uuid` is a reserved name.
 - Control: `if`, `if let`, exhaustive `match`, `for i in a..b` (integer range) and `for c in s.chars()` (early `return`/`?` allowed in both), recursion, local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`.
 - `match` arms: one variant binding fields or `_`; `A | B` binding nothing; a last `_`. Literal and range patterns on integers, `char`, and `&str` also need a last `_`. `matches!(x, p)` follows the same rules.
 

@@ -713,7 +713,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 if let Some(t) = &t {
                     let ok = match self.norm(t) {
                         _ if self.num(t).is_some() => true,
-                        Ty::Prim(Prim::Char) => true,
+                        // The canonical form orders as the 16 bytes do.
+                        Ty::Prim(Prim::Char | Prim::Uuid) => true,
                         Ty::Prim(Prim::Bool | Prim::String | Prim::Str) => !ordered,
                         _ => false,
                     };
@@ -1197,6 +1198,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 all.extend(params);
                 (typed_args(self, all), Some(ret))
             }
+            Callee::UuidParse => (
+                typed_args(self, vec![Ty::Prim(Prim::Str)]),
+                Some(Ty::result(Ty::Prim(Prim::Uuid), Ty::Prim(Prim::UuidError))),
+            ),
+            Callee::UuidNil => (Vec::new(), Some(Ty::Prim(Prim::Uuid))),
         };
         let e = Expr::Call {
             callee: callee.clone(),
@@ -1453,6 +1459,8 @@ pub(crate) fn show(ty: &Ty) -> String {
             Prim::String => "String".into(),
             Prim::Str => "&str".into(),
             Prim::Char => "char".into(),
+            Prim::Uuid => "Uuid".into(),
+            Prim::UuidError => "uuid::Error".into(),
             Prim::Unit => "()".into(),
             Prim::F32 => "f32".into(),
             Prim::F64 => "f64".into(),

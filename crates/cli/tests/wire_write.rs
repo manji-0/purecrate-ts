@@ -222,6 +222,16 @@ fn shape_values() -> Vec<(&'static str, String)> {
                 .unwrap(),
         ),
         ("Letters", serde_json::to_string(&Letters { one: '\0', maybe: None, many: vec![] }).unwrap()),
+        (
+            "Ids",
+            serde_json::to_string(&Ids {
+                one: uuid::Uuid::nil(),
+                maybe: Some(uuid::Uuid::max()),
+                many: vec![uuid::Uuid::from_u128(0x67e5_5044_10b1_426f_9247_bb68_0e5f_e0c8)],
+            })
+            .unwrap(),
+        ),
+        ("Ids", serde_json::to_string(&Ids { one: uuid::Uuid::from_u128(1), maybe: None, many: vec![] }).unwrap()),
     ]
 }
 
@@ -380,5 +390,64 @@ fn try_from_reads_what_the_checked_constructor_accepts() {
              console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
         );
         assert_ok(run_node_with(schema, "try-from", Some(payment::SOURCE), &script));
+    }
+}
+
+/// Every library's schema reads a `Uuid` from exactly the JSON strings
+/// serde reads one from (`Uuid::parse_str`'s four forms, any case), and
+/// `toJson` writes the canonical form serde writes.
+#[test]
+fn uuids_read_what_serde_reads() {
+    use shapes::Ids;
+    let good = uuid::Uuid::from_u128(0x67e5_5044_10b1_426f_9247_bb68_0e5f_e0c8);
+    let mut texts: Vec<String> = Vec::new();
+    for form in [
+        good.hyphenated().to_string(),
+        good.simple().to_string(),
+        good.braced().to_string(),
+        good.urn().to_string(),
+    ] {
+        texts.push(form.to_uppercase());
+        texts.push(form[1..].to_string());
+        texts.push(format!("{form} "));
+        texts.push(form.replacen('6', "g", 1));
+        texts.push(form.replacen('6', "é", 1));
+        texts.push(form);
+    }
+    texts.extend(["", "URN:UUID:67e55044-10b1-426f-9247-bb680e5fe0c8", "{67e5504410b1426f9247bb680e5fe0c8}"].map(String::from));
+    let mut rows = Vec::new();
+    for s in &texts {
+        let text = format!("{{\"one\":{},\"many\":[]}}", serde_json::to_string(s).unwrap());
+        let want = match serde_json::from_str::<uuid::Uuid>(&serde_json::to_string(s).unwrap()) {
+            Ok(u) => serde_json::to_string(&Ids { one: u, maybe: None, many: vec![] }).unwrap(),
+            Err(_) => "Err".to_string(),
+        };
+        rows.push(format!("[{},{}]", js(&text), js(&want)));
+    }
+    // serde_json takes a UUID only as a string.
+    rows.push(format!("[{},{}]", js("{\"one\":7,\"many\":[]}"), js("Err")));
+    let accepted = rows.iter().filter(|r| !r.ends_with("\"Err\"]")).count();
+    // Four forms, and three of them in uppercase: `URN:` is lowercase only.
+    assert!(accepted == 7, "{accepted} accepted");
+    let rows = rows.join(",");
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let (import, valid, parse) = match schema {
+            WireSchema::Zod => ("", "(s, x) => s.safeParse(x).success", "(s, x) => s.parse(x)"),
+            WireSchema::Valibot => ("import * as v from \"valibot\";\n", "(s, x) => v.safeParse(s, x).success", "(s, x) => v.parse(s, x)"),
+            WireSchema::Arktype => ("import { type } from \"arktype\";\n", "(s, x) => !(s(x) instanceof type.errors)", "(s, x) => s.assert(x)"),
+        };
+        let script = format!(
+            "{import}import {{ parseJson }} from \"purecrate\";\n\
+             import * as w from \"./src/purecrate-wire.ts\";\n\
+             const valid = {valid};\nconst parse = {parse};\n\
+             const out = [];\n\
+             for (const [text, want] of [{rows}]) {{\n\
+               const x = parseJson(text);\n\
+               const got = valid(w.Ids, x) ? w.toJson.Ids(parse(w.Ids, x)) : \"Err\";\n\
+               if (got !== want) out.push(`${{text}}: want ${{want}} got ${{got}}`);\n\
+             }}\n\
+             console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
+        );
+        assert_ok(run_node_with(schema, "uuids", Some(shapes::SOURCE), &script));
     }
 }

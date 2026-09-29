@@ -1,6 +1,6 @@
 //! `--schema zod|valibot|arktype` writes a wire schema that type-checks and
 //! reads serde's default JSON into the domain value. `fixtures/wire_shapes.rs`
-//! has every type form a schema prints: each integer width, floats, `char`, `()`,
+//! has every type form a schema prints: each integer width, floats, `char`, `Uuid`, `()`,
 //! `Option` (missing or `null`), `Vec`, tuples, newtypes, `Box`, unit, tuple
 //! and struct variants, and recursive enums and structs. `Id`, `Label` and
 //! `Sealed` are closed (design/04 §5): read by shape, as serde's derive does,
@@ -103,6 +103,9 @@ const accepts = [
   ["Sealed", { code: -1 }, { code: -1, hint: null }],
   ["Letters", { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }, { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }],
   ["Letters", { one: "\n", many: [] }, { one: "\n", maybe: null, many: [] }],
+  // serde reads a `Uuid` from any form `Uuid::parse_str` takes; the value is canonical.
+  ["Ids", { one: "67E55044-10B1-426F-9247-BB680E5FE0C8", maybe: "{67e55044-10b1-426f-9247-bb680e5fe0c8}", many: ["urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8", "67e5504410b1426f9247bb680e5fe0c8"] },
+    { one: "67e55044-10b1-426f-9247-bb680e5fe0c8", maybe: "67e55044-10b1-426f-9247-bb680e5fe0c8", many: ["67e55044-10b1-426f-9247-bb680e5fe0c8", "67e55044-10b1-426f-9247-bb680e5fe0c8"] }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
@@ -134,6 +137,11 @@ const rejects = [
   ["Letters", { one: "\udfff", many: [] }],
   ["Letters", { one: 97, many: [] }],
   ["Letters", { one: "a", many: ["😀😀"] }],
+  ["Ids", { one: "67e55044-10b1-426f-9247-bb680e5fe0c", many: [] }],
+  ["Ids", { one: "URN:UUID:67e55044-10b1-426f-9247-bb680e5fe0c8", many: [] }],
+  ["Ids", { one: "{67e5504410b1426f9247bb680e5fe0c8}", many: [] }],
+  ["Ids", { one: 7, many: [] }],
+  ["Ids", { one: "67e55044-10b1-426f-9247-bb680e5fe0c8", many: ["x"] }],
 ];
 
 const out = [];

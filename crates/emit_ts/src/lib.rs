@@ -122,7 +122,7 @@ fn emit_package(krate: &Crate) -> Package {
         },
         File {
             stem: "str".to_string(),
-            source: format!("{HEADER}\nexport {{ Char, Str }} from \"purecrate\";\n"),
+            source: format!("{HEADER}\nexport {{ Char, Str, Uuid, type UuidError }} from \"purecrate\";\n"),
         },
     ];
 
@@ -184,7 +184,7 @@ fn emit_index(krate: &Crate) -> String {
     out.push_str(
         "export { Int } from \"./int.ts\";\n\
          export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n\
-         export { Char } from \"./str.ts\";\n",
+         export { Char, Uuid, type UuidError } from \"./str.ts\";\n",
     );
     for item in krate.exported() {
         match item {
@@ -903,6 +903,8 @@ fn emit_ty(ty: &Ty) -> String {
             purecrate_ir::Prim::Bool => "boolean".into(),
             purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "string".into(),
             purecrate_ir::Prim::Char => "Char".into(),
+            purecrate_ir::Prim::Uuid => "Uuid".into(),
+            purecrate_ir::Prim::UuidError => "UuidError".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
             other => match other.int() {
                 Some(t) => t.ts_name().into(),
@@ -1028,6 +1030,8 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::CharFromU8 => "Char.fromU8".into(),
                 purecrate_ir::Callee::CharFromU32 => "Char.fromU32".into(),
                 purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),
+                purecrate_ir::Callee::UuidParse => "Uuid.parseStr".into(),
+                purecrate_ir::Callee::UuidNil => "Uuid.nil".into(),
             };
             if let purecrate_ir::Callee::CharCode(to) = callee {
                 let code = format!("Char.code({})", emit_expr(&args[0], indent));
@@ -1284,6 +1288,10 @@ struct Refs {
     /// The `Char` runtime, and the `Char` type, from `./str.ts`.
     char_value: bool,
     char_type: bool,
+    /// The `Uuid` runtime, and the `Uuid` / `UuidError` types, from `./str.ts`.
+    uuid_value: bool,
+    uuid_type: bool,
+    uuid_error: bool,
     /// Brand type names (`I32`, `F64`) this file mentions.
     nums: BTreeSet<String>,
     types: BTreeSet<String>,
@@ -1312,6 +1320,8 @@ impl Refs {
                 self.ty(ret);
             }
             Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
+            Ty::Prim(purecrate_ir::Prim::Uuid) => self.uuid_type = true,
+            Ty::Prim(purecrate_ir::Prim::UuidError) => self.uuid_error = true,
             Ty::Prim(p) => {
                 if let Some(name) = p.int().map(|t| t.ts_name()).or_else(|| p.float().map(|t| t.ts_name())) {
                     self.nums.insert(name.to_string());
@@ -1388,6 +1398,7 @@ impl Refs {
                         }
                     }
                     Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
+                    Callee::UuidParse | Callee::UuidNil => self.uuid_value = true,
                     _ => {}
                 }
                 args.iter().for_each(|a| self.expr(krate, a));
@@ -1544,6 +1555,9 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     let str_names = [
         refs.char_value.then_some("Char"),
         (refs.char_type && !refs.char_value).then_some("type Char"),
+        refs.uuid_value.then_some("Uuid"),
+        (refs.uuid_type && !refs.uuid_value).then_some("type Uuid"),
+        refs.uuid_error.then_some("type UuidError"),
         refs.str.then_some("Str"),
     ]
     .into_iter()

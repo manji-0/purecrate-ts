@@ -1,5 +1,5 @@
 import { type, type Out, type Type } from "arktype";
-import { Char, Int } from "purecrate";
+import { Char, Int, Uuid, type UuidError } from "purecrate";
 
 /**
  * A schema that reads unknown JSON into the domain value `T`. Generated
@@ -48,6 +48,13 @@ export const f64 = type("number").pipe(Int.f64.of);
 export const str = type("string");
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
+/** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */
+export const uuid = type("string").pipe((s, ctx): Uuid => {
+  const r = Uuid.parseStr(s);
+  return r.kind === "Ok" ? r.value : (ctx.error("a UUID") as never);
+});
+/** `uuid::Error` has no serde form. */
+export const uuidError = type("never").pipe((x): UuidError => x);
 export const bool = type("boolean");
 export const unit = type("null").pipe(() => undefined);
 /** JSON `null` is `None`. A missing struct field is handled by the generated schema. */

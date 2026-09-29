@@ -48,6 +48,16 @@ const FORBIDDEN_CONTAINERS: [&str; 6] = [
 ];
 
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
+    // The `uuid` crate is the one outside dependency whose types are modeled
+    // (design/01 §6). Its error is named through the crate, as in
+    // `Result<Uuid, uuid::Error>`, since a bare `Error` is usually the crate's own.
+    let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let plain = path.segments.iter().all(|s| s.arguments.is_empty());
+    match (plain, segs.iter().map(String::as_str).collect::<Vec<_>>().as_slice()) {
+        (true, ["uuid", "Uuid"]) => return Ok(Ty::Prim(Prim::Uuid)),
+        (true, ["uuid", "Error"]) => return Ok(Ty::Prim(Prim::UuidError)),
+        _ => {}
+    }
     if path.segments.len() != 1 || path.leading_colon.is_some() {
         return Err(ParseError::new(Reason::QualifiedPath, format!(
             "qualified type path {} is not in v0; use a crate-local name",
@@ -95,6 +105,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         "String" => Ok(Ty::Prim(Prim::String)),
         "str" => Ok(Ty::Prim(Prim::Str)),
         "char" => Ok(Ty::Prim(Prim::Char)),
+        "Uuid" if generics(&last.arguments)?.is_empty() => Ok(Ty::Prim(Prim::Uuid)),
         "Option" => Ok(Ty::option(first_generic(&last.arguments)?)),
         "Vec" => Ok(Ty::Vec(Box::new(first_generic(&last.arguments)?))),
         "Result" => {

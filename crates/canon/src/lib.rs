@@ -20,6 +20,8 @@
 //! | `bool` | `true` / `false` |
 //! | `String`, `str` | `"…"`; printable ASCII but `"` and `\` as is, others `\u{hex}` |
 //! | `char` | `'"…"'`: the string text between `'` |
+//! | `uuid::Uuid` | `Uuid("…")`: the hyphenated lowercase form |
+//! | `uuid::Error` | `UuidError` |
 //! | `()` | `()` |
 //! | `Option` | `None` / `Some(x)` |
 //! | `Result` | `Ok(x)` / `Err(e)` |

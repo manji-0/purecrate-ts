@@ -183,7 +183,9 @@ impl Refs {
                     | Callee::CharCode(_)
                     | Callee::CharFromU8
                     | Callee::CharFromU32
-                    | Callee::Char(_) => {}
+                    | Callee::Char(_)
+                    | Callee::UuidParse
+                    | Callee::UuidNil => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }

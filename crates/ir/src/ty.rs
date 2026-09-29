@@ -23,6 +23,11 @@ pub enum Prim {
     Str,
     /// A Unicode scalar value: a branded one-code-point `string` (design/01 §6).
     Char,
+    /// `uuid::Uuid`: a branded `string` in the lowercase hyphenated form,
+    /// which serde writes and which orders as the 16 bytes do (design/01 §6).
+    Uuid,
+    /// `uuid::Error`, what `Uuid::parse_str` fails with: an opaque value.
+    UuidError,
     Unit,
 }
 

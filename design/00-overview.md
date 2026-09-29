@@ -58,6 +58,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 - growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`
 - `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()`
 - `char` as a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods
+- `uuid::Uuid` as a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form
 - closed types: structs with private fields keep their invariants (no public `of`)
 - serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike
 - `--schema zod|valibot|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does

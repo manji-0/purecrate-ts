@@ -89,6 +89,8 @@ Defects found by the same measurement, all fixed 2026-09-30: a non-`pub` method 
 
 From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): `--bundle-runtime` added; `assertNever`'s unused parameter fixed. Open: bindings the Rust leaves unused stay unused in TS, which fails a consumer's `noUnusedLocals`; a consumer's CI has no published `purecrate-ts` to run `check --out` with.
 
+`uuid::Uuid` added 2026-09-30, on one example's evidence (Oxide `Name` hand-wrote `Uuid::parse_str` for the two forms its earlier checks let through, a copy that would drift if the check order or the crate changed) and on how common UUID identifiers are in Rust domain code; a deliberate exception to waiting for a second example ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).
+
 ### 3.1 When an example needs it
 
 1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` and `for c in s.chars()` are in.

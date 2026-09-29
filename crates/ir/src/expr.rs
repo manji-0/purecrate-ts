@@ -270,6 +270,11 @@ pub enum Callee {
     CharFromU32,
     /// A `char` method from the allow-list; the receiver is the first argument.
     Char(CharMethod),
+    /// `Uuid::parse_str(s)` / `Uuid::try_parse(s)`: the four forms `uuid`
+    /// accepts, any case, to the canonical form. Prints as `Uuid.parseStr`.
+    UuidParse,
+    /// `Uuid::nil()`.
+    UuidNil,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

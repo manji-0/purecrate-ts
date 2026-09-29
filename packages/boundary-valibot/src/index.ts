@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { Char, Int } from "purecrate";
+import { Char, Int, Uuid, type UuidError } from "purecrate";
 
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   v.pipe(v.number(), v.integer(), v.minValue(min), v.maxValue(max), v.transform(of));
@@ -34,6 +34,17 @@ export const f64 = v.pipe(v.number(), v.transform(Int.f64.of));
 export const str = v.string();
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = v.pipe(v.string(), v.check(Char.is, "a single character"), v.transform((s) => s as Char));
+/** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */
+export const uuid = v.pipe(
+  v.string(),
+  v.check((s) => Uuid.parseStr(s).kind === "Ok", "a UUID"),
+  v.transform((s): Uuid => {
+    const r = Uuid.parseStr(s);
+    return r.kind === "Ok" ? r.value : (undefined as never);
+  }),
+);
+/** `uuid::Error` has no serde form. */
+export const uuidError = v.pipe(v.never(), v.transform((x): UuidError => x));
 export const bool = v.boolean();
 export const unit = v.pipe(v.null(), v.transform(() => undefined));
 export const nullable = <T extends v.GenericSchema>(inner: T) => v.union([inner, v.null()]);

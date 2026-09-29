@@ -2,12 +2,14 @@
 //! erase borrows and do not track moves or lifetimes, so rustc has the last
 //! word: `check` succeeding means the crate compiles as a library.
 //!
-//! The one external crate the input may name is `serde`, for the derives a
-//! server needs on the same types (design/04 §3). rustc gets a stand-in whose
-//! `Serialize`/`Deserialize` derives expand to nothing: they add impls, never
-//! change the code that is translated, so borrows and moves are checked the
-//! same. The real derive, and what it requires (`TryFrom`, `Display`), is
-//! checked by the server's own build.
+//! The external crates the input may name are `serde`, for the derives a
+//! server needs on the same types (design/04 §3), and `uuid`, for its `Uuid`
+//! (design/01 §6). rustc gets stand-ins. serde's `Serialize`/`Deserialize`
+//! derives expand to nothing: they add impls, never change the code that is
+//! translated, so borrows and moves are checked the same. The real derive,
+//! and what it requires (`TryFrom`, `Display`), is checked by the server's
+//! own build. The `uuid` stand-in has the part of its API the subset
+//! accepts, with the same signatures and traits.
 
 use std::env;
 use std::fs;
@@ -43,10 +45,13 @@ pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     let out_dir = scratch();
     fs::create_dir_all(&out_dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", out_dir.display())))?;
     let serde = serde_stub(&rustc, &out_dir)?;
+    let uuid = uuid_stub(&rustc, &out_dir)?;
     let output = Command::new(&rustc)
         .args(["--edition", edition, "--crate-type", "lib", "--emit=metadata"])
         .arg("--extern")
         .arg(format!("serde={}", serde.display()))
+        .arg("--extern")
+        .arg(format!("uuid={}", uuid.display()))
         .arg("-L")
         .arg(&out_dir)
         .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "--out-dir"])
@@ -85,6 +90,48 @@ pub trait Deserialize<'de>: Sized {}
 pub mod ser { pub use super::Serialize; }
 pub mod de { pub use super::Deserialize; pub trait DeserializeOwned {} }
 ";
+
+const UUID_STUB: &str = "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Uuid([u8; 16]);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Error(());
+impl Uuid {
+    pub fn parse_str(_: &str) -> Result<Uuid, Error> { Err(Error(())) }
+    pub const fn try_parse(_: &str) -> Result<Uuid, Error> { Err(Error(())) }
+    pub const fn nil() -> Uuid { Uuid([0; 16]) }
+}
+impl core::fmt::Display for Uuid {
+    fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { Ok(()) }
+}
+impl core::fmt::Display for Error {
+    fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { Ok(()) }
+}
+impl std::error::Error for Error {}
+";
+
+/// Builds the stand-in `uuid` into `dir` and returns the rlib.
+fn uuid_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
+    let src = dir.join("uuid.rs");
+    fs::write(&src, UUID_STUB).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
+    let output = Command::new(rustc)
+        .args(["--edition", "2021", "--crate-name", "uuid", "--crate-type", "rlib", "--cap-lints", "allow", "--out-dir"])
+        .arg(dir)
+        .arg(&src)
+        .output()
+        .map_err(|e| {
+            Failure::Other(format!(
+                "run {}: {e}; check needs rustc to confirm the input compiles (set RUSTC to its path)",
+                Path::new(rustc).display()
+            ))
+        })?;
+    if !output.status.success() {
+        return Err(Failure::Other(format!(
+            "rustc could not build the uuid stand-in:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        )));
+    }
+    Ok(dir.join("libuuid.rlib"))
+}
 
 /// Builds the stand-in `serde` (and its derive crate) into `dir` and returns
 /// the rlib.

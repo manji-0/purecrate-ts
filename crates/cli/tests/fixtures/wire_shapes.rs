@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 pub struct Id(u64);
 
 pub struct Label(String);
@@ -67,4 +69,10 @@ pub struct Letters {
     pub one: char,
     pub maybe: Option<char>,
     pub many: Vec<char>,
+}
+
+pub struct Ids {
+    pub one: Uuid,
+    pub maybe: Option<Uuid>,
+    pub many: Vec<Uuid>,
 }

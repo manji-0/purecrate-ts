@@ -179,6 +179,60 @@ export const Char = {
   toDigit: (c: Char, r: U32): U32 | null => digitValue(c, r) as U32 | null,
 } as const;
 
+declare const UuidBrand: unique symbol;
+/**
+ * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that
+ * serde writes. In that form `===` is Rust's `==`, and string order is the
+ * order of the 16 bytes, as the hyphens sit at the same places in both.
+ */
+export type Uuid = string & { readonly [UuidBrand]: true };
+declare const UuidErrorBrand: unique symbol;
+/** A `uuid::Error`. Nothing translated reads one, so it carries nothing. */
+export type UuidError = { readonly [UuidErrorBrand]: true };
+
+const UUID_ERROR = Object.freeze({}) as UuidError;
+const HEX32 = /^[0-9a-fA-F]{32}$/;
+const HYPHENATED = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * The 32 hex digits of what `uuid`'s parser accepts, chosen by length as it
+ * does: simple (32), hyphenated (36), braced (38), `urn:uuid:` (45; the
+ * prefix in lowercase only). Rust measures in UTF-8 bytes and JS in UTF-16
+ * units, but any non-ASCII character fails the hex check either way.
+ */
+const uuidDigits = (s: string): string | null => {
+  if (s.length === 32) return HEX32.test(s) ? s : null;
+  const body =
+    s.length === 36
+      ? s
+      : s.length === 38 && s.startsWith("{") && s.endsWith("}")
+        ? s.slice(1, 37)
+        : s.length === 45 && s.startsWith("urn:uuid:")
+          ? s.slice(9)
+          : null;
+  return body !== null && HYPHENATED.test(body) ? body.replaceAll("-", "") : null;
+};
+
+/** `uuid::Uuid` operations (design/01 §6). */
+export const Uuid = {
+  /**
+   * `Uuid::parse_str` (and `try_parse`): the canonical form of any string
+   * the `uuid` crate reads, in any case; `Err` otherwise. Shaped as the
+   * generated `Result`.
+   */
+  parseStr: (s: string): Readonly<{ kind: "Ok"; value: Uuid }> | Readonly<{ kind: "Err"; error: UuidError }> => {
+    const d = uuidDigits(s)?.toLowerCase();
+    return d === undefined
+      ? { kind: "Err", error: UUID_ERROR }
+      : {
+          kind: "Ok",
+          value: `${d.slice(0, 8)}-${d.slice(8, 12)}-${d.slice(12, 16)}-${d.slice(16, 20)}-${d.slice(20)}` as Uuid,
+        };
+  },
+  /** `Uuid::nil()`. */
+  nil: (): Uuid => "00000000-0000-0000-0000-000000000000" as Uuid,
+} as const;
+
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
   i8: small<I8>(-128, 127),
