@@ -26,7 +26,7 @@ pub struct Yen(i64);
 
 impl Yen {
     pub fn new(value: i64) -> Result<Yen, InvoiceError> {
-        if value < 0i64 {
+        if value < 0 {
             return Err(InvoiceError::NegativeAmount);
         }
         Ok(Yen(value))
@@ -123,8 +123,8 @@ impl std::error::Error for InvoiceError {}
 
 fn percent(rate: &Rate) -> i64 {
     match rate {
-        Rate::Standard => 10i64,
-        Rate::Reduced => 8i64,
+        Rate::Standard => 10,
+        Rate::Reduced => 8,
     }
 }
 
@@ -132,8 +132,8 @@ fn percent(rate: &Rate) -> i64 {
 fn divide(n: i64, d: i64, rounding: &Rounding) -> i64 {
     match rounding {
         Rounding::Down => n / d,
-        Rounding::Up => (n + d - 1i64) / d,
-        Rounding::HalfUp => (2i64 * n + d) / (2i64 * d),
+        Rounding::Up => (n + d - 1) / d,
+        Rounding::HalfUp => (2 * n + d) / (2 * d),
     }
 }
 
@@ -141,20 +141,20 @@ fn divide(n: i64, d: i64, rounding: &Rounding) -> i64 {
 /// inclusive lines under method 2.
 fn share(line: &Line, rate: &Rate, apart: bool, method: &Method) -> i64 {
     if percent(&line.rate) != percent(rate) {
-        return 0i64;
+        return 0;
     }
     let included = match line.pricing {
         Pricing::Exclusive => !apart,
         Pricing::Inclusive => apart == matches!(method, Method::Separate),
     };
     if !included {
-        return 0i64;
+        return 0;
     }
     match line.pricing {
         Pricing::Exclusive => line.amount.0,
         Pricing::Inclusive => match method {
             Method::Separate => line.amount.0,
-            Method::ToExclusive { conversion } => divide(line.amount.0 * 100i64, 100i64 + percent(rate), conversion),
+            Method::ToExclusive { conversion } => divide(line.amount.0 * 100, 100 + percent(rate), conversion),
         },
     }
 }
@@ -166,12 +166,12 @@ fn taxed(invoice: &Invoice, rate: Rate, apart: bool) -> Group {
         base += share(&invoice.lines[i], &rate, apart, &invoice.method);
     }
     let p = percent(&rate);
-    let d = if apart { 100i64 + p } else { 100i64 };
+    let d = if apart { 100 + p } else { 100 };
     Group { base: Yen(base), tax: Yen(divide(base * p, d, &invoice.rounding)) }
 }
 
 pub fn summarize(invoice: &Invoice) -> Result<Summary, InvoiceError> {
-    if invoice.lines.len() == 0usize {
+    if invoice.lines.len() == 0 {
         return Err(InvoiceError::NoLines);
     }
     let standard = taxed(invoice, Rate::Standard, false);

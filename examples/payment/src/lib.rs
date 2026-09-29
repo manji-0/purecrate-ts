@@ -39,7 +39,7 @@ pub struct Amount(i64);
 
 impl Amount {
     pub fn new(value: i64) -> Result<Amount, PaymentError> {
-        if value < 50i64 || value > 99999999i64 {
+        if value < 50 || value > 99999999 {
             return Err(PaymentError::AmountOutOfRange);
         }
         Ok(Amount(value))
@@ -61,7 +61,7 @@ pub struct PaymentMethodId(String);
 
 impl PaymentMethodId {
     pub fn new(raw: String) -> Result<PaymentMethodId, PaymentError> {
-        if raw.len() < 4usize || !raw.starts_with("pm_") {
+        if raw.len() < 4 || !raw.starts_with("pm_") {
             return Err(PaymentError::InvalidPaymentMethodId);
         }
         Ok(PaymentMethodId(raw))
@@ -326,7 +326,7 @@ fn requires_capture(capturable: i64, event: Event) -> Result<Status, PaymentErro
         } => {
             let received = match amount_to_capture {
                 Some(amount) => {
-                    if amount < 1i64 || amount > capturable {
+                    if amount < 1 || amount > capturable {
                         return Err(PaymentError::InvalidCaptureAmount { capturable });
                     }
                     amount
@@ -335,7 +335,7 @@ fn requires_capture(capturable: i64, event: Event) -> Result<Status, PaymentErro
             };
             let application_fee = match application_fee {
                 Some(fee) => {
-                    if fee < 0i64 {
+                    if fee < 0 {
                         return Err(PaymentError::NegativeApplicationFee);
                     }
                     if fee > received {

@@ -14,7 +14,7 @@ pub struct Sku(String);
 
 impl Sku {
     pub fn new(code: String) -> Result<Sku, OrderError> {
-        if code == "" {
+        if code.is_empty() {
             Err(OrderError::EmptySku)
         } else {
             Ok(Sku(code))
@@ -106,8 +106,7 @@ pub fn step(order: Order, cmd: Command) -> Result<Order, OrderError> {
         Order::Draft { lines } => draft(lines, cmd),
         Order::Placed { lines, total } => placed(lines, total, cmd),
         Order::Paid { lines, total } => paid(lines, total, cmd),
-        Order::Shipped { .. } => Err(OrderError::InvalidTransition),
-        Order::Cancelled { .. } => Err(OrderError::InvalidTransition),
+        Order::Shipped { .. } | Order::Cancelled { .. } => Err(OrderError::InvalidTransition),
     }
 }
 
@@ -129,8 +128,7 @@ fn draft(lines: Lines, cmd: Command) -> Result<Order, OrderError> {
             }
         },
         Command::Cancel(reason) => Ok(Order::Cancelled { reason }),
-        Command::Pay(_) => Err(OrderError::InvalidTransition),
-        Command::Ship(_) => Err(OrderError::InvalidTransition),
+        _ => Err(OrderError::InvalidTransition),
     }
 }
 
@@ -143,25 +141,18 @@ fn placed(lines: Lines, total: Yen, cmd: Command) -> Result<Order, OrderError> {
             Ok(Order::Paid { lines, total })
         }
         Command::Cancel(reason) => Ok(Order::Cancelled { reason }),
-        Command::AddLine(_) => Err(OrderError::InvalidTransition),
-        Command::RemoveSku(_) => Err(OrderError::InvalidTransition),
-        Command::Place => Err(OrderError::InvalidTransition),
-        Command::Ship(_) => Err(OrderError::InvalidTransition),
+        _ => Err(OrderError::InvalidTransition),
     }
 }
 
 fn paid(lines: Lines, total: Yen, cmd: Command) -> Result<Order, OrderError> {
     match cmd {
         Command::Ship(tracking) => {
-            if tracking == "" {
+            if tracking.is_empty() {
                 return Err(OrderError::EmptyTracking);
             }
             Ok(Order::Shipped { lines, total, tracking })
         }
-        Command::AddLine(_) => Err(OrderError::InvalidTransition),
-        Command::RemoveSku(_) => Err(OrderError::InvalidTransition),
-        Command::Place => Err(OrderError::InvalidTransition),
-        Command::Pay(_) => Err(OrderError::InvalidTransition),
-        Command::Cancel(_) => Err(OrderError::InvalidTransition),
+        _ => Err(OrderError::InvalidTransition),
     }
 }

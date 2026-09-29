@@ -59,7 +59,7 @@ impl Email {
         if at == b.len() {
             return Err(EmailError::MissingAt);
         }
-        if at == 0usize {
+        if at == 0 {
             return Err(EmailError::BadLocal);
         }
         for i in 0..at {
@@ -69,14 +69,14 @@ impl Email {
         }
         // Labels of 1 to 63 letters, digits and hyphens, with a letter or
         // digit at both ends, separated by `.`. `i == b.len()` ends the last.
-        let mut start = at + 1usize;
-        for i in (at + 1usize)..(b.len() + 1usize) {
+        let mut start = at + 1;
+        for i in (at + 1)..(b.len() + 1) {
             if i == b.len() || b[i] == b'.' {
                 let n = i - start;
-                if n == 0usize || n > 63usize || b[start] == b'-' || b[i - 1usize] == b'-' {
+                if n == 0 || n > 63 || b[start] == b'-' || b[i - 1] == b'-' {
                     return Err(EmailError::BadDomain);
                 }
-                start = i + 1usize;
+                start = i + 1;
             } else if !is_alnum(b[i]) && b[i] != b'-' {
                 return Err(EmailError::BadDomain);
             }
@@ -96,13 +96,13 @@ impl Password {
         let mut n = 0usize;
         for i in 0..b.len() {
             if !matches!(b[i], 0x80..=0xBF) {
-                n += 1usize;
+                n += 1;
             }
         }
-        if n < 15usize {
+        if n < 15 {
             return Err(PasswordError::TooShort);
         }
-        if n > 64usize {
+        if n > 64 {
             return Err(PasswordError::TooLong);
         }
         if blocked(&raw) {

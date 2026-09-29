@@ -28,15 +28,15 @@ fn is_upper(b: u8) -> bool {
 /// a letter two (A = 10 … Z = 35).
 fn push(acc: u32, c: u8) -> u32 {
     match c {
-        b'0'..=b'9' => (acc * 10u32 + u32::from(c - b'0')) % 97u32,
-        _ => (acc * 100u32 + u32::from(c - b'A') + 10u32) % 97u32,
+        b'0'..=b'9' => (acc * 10 + u32::from(c - b'0')) % 97,
+        _ => (acc * 100 + u32::from(c - b'A') + 10) % 97,
     }
 }
 
 impl Iban {
     pub fn parse(raw: String) -> Result<Iban, IbanError> {
         let b = raw.as_bytes();
-        if b.len() < 15usize || b.len() > 34usize {
+        if b.len() < 15 || b.len() > 34 {
             return Err(IbanError::Length);
         }
         for i in 0..2usize {
@@ -60,7 +60,7 @@ impl Iban {
         for i in 0..4usize {
             acc = push(acc, b[i]);
         }
-        if acc != 1u32 {
+        if acc != 1 {
             return Err(IbanError::Checksum);
         }
         Ok(Iban(raw))
