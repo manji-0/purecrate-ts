@@ -17,8 +17,6 @@ wasm-bindgen --target web --out-dir pkg-web "$wasm"
 
 # Rust → TS.
 (cd "$root" && cargo run --offline -q -p purecrate-ts -- build examples/payment --out bench/payment/ts --name payment)
-mkdir -p ts/node_modules
-ln -sfn "$(cd "$root" && pwd)/packages/boundary" ts/node_modules/purecrate
 npx -y esbuild entry-ts.ts --bundle --format=esm --minify --conditions=purecrate-source --outfile=out/ts.min.mjs --log-level=warning
 npx -y esbuild pkg-web/payment_wasm.js --format=esm --minify --outfile=out/wasm-glue.min.mjs --log-level=warning
 
