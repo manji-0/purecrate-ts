@@ -714,8 +714,8 @@ fn emit_switch_in(
             return;
         }
     }
-    if arms.iter().any(|a| a.pattern.is_int_case()) {
-        emit_int_chain(&subject, arms, indent, sink, out);
+    if arms.iter().any(|a| a.pattern.is_lit_case()) {
+        emit_lit_chain(&subject, arms, indent, sink, out);
         return;
     }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
@@ -759,11 +759,13 @@ fn emit_switch_in(
     ));
 }
 
-/// A `match` on an integer: arms tried in order, the last (`_`) as `else`.
-fn emit_int_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
+/// A `match` on an integer or a `&str`: arms tried in order, the last (`_`)
+/// as `else`. Well-formed strings are equal in UTF-8 exactly when they are in
+/// UTF-16, so `===` is `str` equality.
+fn emit_lit_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
     let pad = "  ".repeat(indent);
     for (i, arm) in arms.iter().enumerate() {
-        let head = match (i, int_test(&arm.pattern, subject)) {
+        let head = match (i, lit_test(&arm.pattern, subject)) {
             (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
             (_, Some(test)) => format!("{pad}}} else if ({test}) {{\n"),
             (_, None) => format!("{pad}}} else {{\n"),
@@ -774,8 +776,8 @@ fn emit_int_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink
     out.push_str(&format!("{pad}}}\n"));
 }
 
-/// The test for an integer arm; `None` for `_`.
-fn int_test(pattern: &Pattern, subject: &str) -> Option<String> {
+/// The test for an integer or string arm; `None` for `_`.
+fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
     match pattern {
         Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
         Pattern::Range { lo, hi, inclusive } => Some(format!(
@@ -787,8 +789,8 @@ fn int_test(pattern: &Pattern, subject: &str) -> Option<String> {
         Pattern::Or(alts) => Some(
             alts.iter()
                 .filter_map(|a| match a {
-                    Pattern::Range { .. } => int_test(a, subject).map(|t| format!("({t})")),
-                    _ => int_test(a, subject),
+                    Pattern::Range { .. } => lit_test(a, subject).map(|t| format!("({t})")),
+                    _ => lit_test(a, subject),
                 })
                 .collect::<Vec<_>>()
                 .join(" || "),
@@ -981,6 +983,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::StrMethod::StartsWith => format!("{s}.startsWith({})", needle()),
                     purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
                     purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
+                    purecrate_ir::StrMethod::AsStr => s,
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
@@ -1246,7 +1249,7 @@ impl Refs {
             Expr::Match { scrutinee, arms } => {
                 self.never |= arms
                     .iter()
-                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_int_case()));
+                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_lit_case()));
                 for a in arms {
                     int_case_lits(&a.pattern, &mut |t| {
                         self.nums.insert(t.ts_name().to_string());

@@ -82,6 +82,8 @@ pub enum StrMethod {
     StartsWith,
     EndsWith,
     Contains,
+    /// The same `string`; lets a `String` be matched against literals.
+    AsStr,
 }
 
 impl StrMethod {
@@ -92,6 +94,7 @@ impl StrMethod {
             "starts_with" => Self::StartsWith,
             "ends_with" => Self::EndsWith,
             "contains" => Self::Contains,
+            "as_str" => Self::AsStr,
             _ => return None,
         })
     }
@@ -103,13 +106,14 @@ impl StrMethod {
             Self::StartsWith => "starts_with",
             Self::EndsWith => "ends_with",
             Self::Contains => "contains",
+            Self::AsStr => "as_str",
         }
     }
 
     /// Arguments after the receiver.
     pub fn needles(self) -> usize {
         match self {
-            Self::Len | Self::IsEmpty => 0,
+            Self::Len | Self::IsEmpty | Self::AsStr => 0,
             Self::StartsWith | Self::EndsWith | Self::Contains => 1,
         }
     }
@@ -174,7 +178,7 @@ pub enum Pattern {
     /// other arms leave (`check::accept`).
     Or(Vec<Pattern>),
     /// `lo..=hi` (`inclusive`) or `lo..hi` on an integer. With `Lit`, only in
-    /// a `match` on an integer, which must end in `_`.
+    /// a `match` on an integer or a `&str`, which must end in `_`.
     Range { lo: Lit, hi: Lit, inclusive: bool },
 }
 
@@ -187,6 +191,20 @@ impl Pattern {
             Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
             _ => false,
         }
+    }
+
+    /// A string literal, or `|` of them: an arm of a `match` on a `&str`.
+    pub fn is_str_case(&self) -> bool {
+        match self {
+            Pattern::Lit(Lit::Str(_)) => true,
+            Pattern::Or(alts) => alts.iter().all(Pattern::is_str_case),
+            _ => false,
+        }
+    }
+
+    /// An arm tried by value in order, as an `if` chain: integer or string.
+    pub fn is_lit_case(&self) -> bool {
+        self.is_int_case() || self.is_str_case()
     }
 
     /// Names the pattern binds, left to right.

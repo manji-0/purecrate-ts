@@ -44,7 +44,7 @@ fn rest<'a>(named: impl Iterator<Item = &'a Pattern>, enums: &[Enum]) -> Pattern
         })
         .collect();
     let wild = || Box::new(Pattern::Wildcard);
-    if named.len() == 2 && !named[0].is_int_case() && !matches!(named[0], Pattern::Variant { .. }) {
+    if named.len() == 2 && !named[0].is_lit_case() && !matches!(named[0], Pattern::Variant { .. }) {
         // `Some`/`None` or `Ok`/`Err` both named: nothing is left.
         return Pattern::Or(Vec::new());
     }
@@ -81,8 +81,8 @@ fn rest<'a>(named: impl Iterator<Item = &'a Pattern>, enums: &[Enum]) -> Pattern
                     .collect(),
             )
         }
-        // Integers: `_` stays the final `else`.
-        Some(p) if p.is_int_case() => Pattern::Wildcard,
+        // Integers and strings: `_` stays the final `else`.
+        Some(p) if p.is_lit_case() => Pattern::Wildcard,
         _ => unreachable!("exhaustive: `_` follows an arm naming a case"),
     }
 }

@@ -71,7 +71,7 @@ The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33
 
 ## 4. Specified but not yet implemented
 
-`char`; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`; `const`/`static`.
+`char`; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
 
 ## 5. v1: when type expressiveness runs out
 

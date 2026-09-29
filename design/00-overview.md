@@ -52,7 +52,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
-- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`); byte literals, integer and range patterns, `matches!`
+- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`); byte literals, integer, range and string literal patterns, `matches!`
 - local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
 - integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; lossless widening via `i64::from(x)`
 - growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`
