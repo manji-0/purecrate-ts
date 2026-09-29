@@ -75,6 +75,13 @@ impl Js for String {
     }
 }
 
+/// A one-code-point string; the `Char` brand exists only in types.
+impl Js for char {
+    fn js(&self) -> String {
+        self.to_string().js()
+    }
+}
+
 impl<T: Js> Js for [T] {
     fn js(&self) -> String {
         format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
@@ -176,6 +183,14 @@ impl Show for str {
         }
         out.push('"');
         out
+    }
+}
+
+/// As a string, between `'`: the TS side cannot tell a one-code-point
+/// string from a `char` otherwise.
+impl Show for char {
+    fn show(&self) -> String {
+        format!("'{}'", self.to_string().show())
     }
 }
 
@@ -318,6 +333,7 @@ const str = (s) => {
   }
   return out + '"';
 };
+const chr = (c) => `'${str(c)}'`;
 const unit = (x) => (x === undefined ? "()" : `not unit: ${String(x)}`);
 const opt = (f) => (x) => (x === null ? "None" : `Some(${f(x)})`);
 const res = (f, g) => (x) => (x.kind === "Ok" ? `Ok(${f(x.value)})` : `Err(${g(x.error)})`);
@@ -341,6 +357,7 @@ fn ts_printer(krate: &Crate, ty: &Ty) -> String {
             Prim::Bool => "String".into(),
             Prim::F32 | Prim::F64 => "bits".into(),
             Prim::String | Prim::Str => "str".into(),
+            Prim::Char => "chr".into(),
             Prim::Unit => "unit".into(),
             _ => "int".into(),
         },

@@ -19,6 +19,7 @@
 //! | `f32`, `f64` | the bits of the value as `f64`, decimal |
 //! | `bool` | `true` / `false` |
 //! | `String`, `str` | `"…"`; printable ASCII but `"` and `\` as is, others `\u{hex}` |
+//! | `char` | `'"…"'`: the string text between `'` |
 //! | `()` | `()` |
 //! | `Option` | `None` / `Some(x)` |
 //! | `Result` | `Ok(x)` / `Err(e)` |

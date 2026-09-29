@@ -495,6 +495,10 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::ResultErr
             } else if segs == ["String", "from"] {
                 Callee::StringFrom
+            } else if segs == ["char", "from"] {
+                Callee::CharFromU8
+            } else if segs == ["char", "from_u32"] {
+                Callee::CharFromU32
             } else if let Some(to) = int_from(&segs) {
                 Callee::IntFrom { from: None, to }
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
@@ -690,7 +694,7 @@ fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
         Pattern::OptionNone => Vec::new(),
         Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => {
             return Err(ParseError::new(Reason::ArmPattern, format!(
-                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer or integer range, a string literal, or be `_` in v0, found {}",
+                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, or be `_` in v0, found {}",
                 describe_pat(pattern)
             )))
         }
@@ -834,6 +838,7 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
             ))),
         },
         syn::Lit::Str(s) => Ok(Lit::Str(s.value())),
+        syn::Lit::Char(c) => Ok(Lit::Char(c.value())),
         // `b'@'` is a `u8`.
         syn::Lit::Byte(b) => Ok(Lit::Int {
             value: i128::from(b.value()),

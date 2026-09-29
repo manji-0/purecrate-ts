@@ -90,7 +90,7 @@ fn emit_package(krate: &Crate) -> Package {
         },
         File {
             stem: "str".to_string(),
-            source: format!("{HEADER}\nexport {{ Str }} from \"purecrate\";\n"),
+            source: format!("{HEADER}\nexport {{ Char, Str }} from \"purecrate\";\n"),
         },
     ];
 
@@ -151,7 +151,8 @@ fn emit_index(krate: &Crate) -> String {
     out.push_str("export { assertNever } from \"./assert-never.ts\";\n");
     out.push_str(
         "export { Int } from \"./int.ts\";\n\
-         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n",
+         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n\
+         export { Char } from \"./str.ts\";\n",
     );
     for item in krate.exported() {
         match item {
@@ -776,10 +777,17 @@ fn emit_lit_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink
     out.push_str(&format!("{pad}}}\n"));
 }
 
-/// The test for an integer or string arm; `None` for `_`.
+/// The test for an integer, `char`, or string arm; `None` for `_`.
 fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
     match pattern {
         Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
+        // By code point: JS orders strings by UTF-16 unit.
+        Pattern::Range { lo: Lit::Char(lo), hi: Lit::Char(hi), inclusive } => Some(format!(
+            "Char.code({subject}) >= {} && Char.code({subject}) {} {}",
+            u32::from(*lo),
+            if *inclusive { "<=" } else { "<" },
+            u32::from(*hi)
+        )),
         Pattern::Range { lo, hi, inclusive } => Some(format!(
             "{subject} >= {} && {subject} {} {}",
             emit_lit(lo),
@@ -796,6 +804,15 @@ fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
                 .join(" || "),
         ),
         _ => None,
+    }
+}
+
+/// A `char` range, which prints through `Char.code`.
+fn has_char_range(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Range { lo: Lit::Char(_), .. } => true,
+        Pattern::Or(alts) => alts.iter().any(has_char_range),
+        _ => false,
     }
 }
 
@@ -845,6 +862,7 @@ fn emit_ty(ty: &Ty) -> String {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "boolean".into(),
             purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "string".into(),
+            purecrate_ir::Prim::Char => "Char".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
             other => match other.int() {
                 Some(t) => t.ts_name().into(),
@@ -960,8 +978,16 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::Str(_)
-                | purecrate_ir::Callee::IntFrom { .. } => String::new(),
+                | purecrate_ir::Callee::IntFrom { .. }
+                | purecrate_ir::Callee::CharCode(_) => String::new(),
+                purecrate_ir::Callee::CharFromU8 => "Char.fromU8".into(),
+                purecrate_ir::Callee::CharFromU32 => "Char.fromU32".into(),
+                purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),
             };
+            if let purecrate_ir::Callee::CharCode(to) = callee {
+                let code = format!("Char.code({})", emit_expr(&args[0], indent));
+                return if to.is_big() { format!("(globalThis.BigInt({code}) as {})", to.ts_name()) } else { code };
+            }
             if let purecrate_ir::Callee::IntFrom { from, to } = callee {
                 let x = emit_expr(&args[0], indent);
                 let from = from.expect("check::accept sets the source width");
@@ -1144,6 +1170,7 @@ fn emit_lit(lit: &Lit) -> String {
             None => digits.clone(),
         },
         Lit::Str(s) => js_string(s),
+        Lit::Char(c) => format!("({} as Char)", js_string(&c.to_string())),
         Lit::Unit => "undefined".into(),
         Lit::Null => "null".into(),
     }
@@ -1209,6 +1236,9 @@ struct Refs {
     result: bool,
     /// `Str` from `./str.ts`.
     str: bool,
+    /// The `Char` runtime, and the `Char` type, from `./str.ts`.
+    char_value: bool,
+    char_type: bool,
     /// Brand type names (`I32`, `F64`) this file mentions.
     nums: BTreeSet<String>,
     types: BTreeSet<String>,
@@ -1234,6 +1264,7 @@ impl Refs {
                 params.iter().for_each(|t| self.ty(t));
                 self.ty(ret);
             }
+            Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
             Ty::Prim(p) => {
                 if let Some(name) = p.int().map(|t| t.ts_name()).or_else(|| p.float().map(|t| t.ts_name())) {
                     self.nums.insert(name.to_string());
@@ -1254,6 +1285,8 @@ impl Refs {
                     int_case_lits(&a.pattern, &mut |t| {
                         self.nums.insert(t.ts_name().to_string());
                     });
+                    self.char_value |= has_char_range(&a.pattern);
+                    self.char_type |= a.pattern.is_char_case();
                 }
                 if !is_place(scrutinee) {
                     if let Some(ty) = scrutinee_ty(arms) {
@@ -1298,6 +1331,13 @@ impl Refs {
                     Callee::IntFrom { to, .. } => {
                         self.nums.insert(to.ts_name().to_string());
                     }
+                    Callee::CharCode(to) => {
+                        self.char_value = true;
+                        if to.is_big() {
+                            self.nums.insert(to.ts_name().to_string());
+                        }
+                    }
+                    Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
                     _ => {}
                 }
                 args.iter().for_each(|a| self.expr(krate, a));
@@ -1364,6 +1404,7 @@ impl Refs {
                 purecrate_ir::Lit::Float { ty: Some(t), .. } => {
                     self.nums.insert(t.ts_name().to_string());
                 }
+                purecrate_ir::Lit::Char(_) => self.char_type = true,
                 _ => {}
             },
             Expr::Var(_) => {}
@@ -1437,8 +1478,16 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     if refs.result {
         out.push_str("import { Result } from \"./result.ts\";\n");
     }
-    if refs.str {
-        out.push_str("import { Str } from \"./str.ts\";\n");
+    let str_names = [
+        refs.char_value.then_some("Char"),
+        (refs.char_type && !refs.char_value).then_some("type Char"),
+        refs.str.then_some("Str"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !str_names.is_empty() {
+        out.push_str(&format!("import {{ {} }} from \"./str.ts\";\n", str_names.join(", ")));
     }
     for v in refs.values.iter().filter(|v| elsewhere(v)) {
         out.push_str(&format!(

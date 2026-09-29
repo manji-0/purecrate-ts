@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -96,6 +96,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     };
                     return (e, self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))));
                 }
+            }
+        }
+        if let Some(m) = CharMethod::from_name(name.as_str()) {
+            if rt.as_ref().is_some_and(|t| self.norm(t) == Ty::Prim(Prim::Char)) {
+                return self.char_method(m, recv, args, want);
             }
         }
         if let Some(m) = StrMethod::from_name(name.as_str()) {
@@ -621,6 +626,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Expr::Lit(lit.clone()),
                 self.expect(want, Some(Ty::Prim(Prim::Str))),
             ),
+            Lit::Char(_) => (
+                Expr::Lit(lit.clone()),
+                self.expect(want, Some(Ty::Prim(Prim::Char))),
+            ),
             Lit::Unit => (
                 Expr::Lit(lit.clone()),
                 self.expect(want, Some(Ty::Prim(Prim::Unit))),
@@ -678,10 +687,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 if t.is_none() {
                     self.unknown("comparison");
                 }
-                if let Some(t) = t {
-                    let ordered = !matches!(op, BinOp::Eq | BinOp::Ne);
-                    let ok = match self.norm(&t) {
-                        _ if self.num(&t).is_some() => true,
+                let ordered = !matches!(op, BinOp::Eq | BinOp::Ne);
+                if let Some(t) = &t {
+                    let ok = match self.norm(t) {
+                        _ if self.num(t).is_some() => true,
+                        Ty::Prim(Prim::Char) => true,
                         Ty::Prim(Prim::Bool | Prim::String | Prim::Str) => !ordered,
                         _ => false,
                     };
@@ -689,9 +699,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                         let what = if ordered { "ordering" } else { "equality" };
                         self.error(Reason::NumericOp, format!(
                             "{what} on `{}` is not in v0; JS compares it differently",
-                            show(&t)
+                            show(t)
                         ));
                     }
+                }
+                // JS orders strings by UTF-16 unit; `char` orders by code point.
+                if ordered && t.is_some_and(|t| self.norm(&t) == Ty::Prim(Prim::Char)) {
+                    let code = |e| Expr::Call { callee: Callee::CharCode(IntTy::U32), args: vec![e] };
+                    return (rebuild(op, code(l), code(r)), self.expect(want, Some(Ty::bool())));
                 }
                 (rebuild(op, l, r), self.expect(want, Some(Ty::bool())))
             }
@@ -783,6 +798,16 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// printer knows `1` from `1n`; a string arm checked against a `&str`.
     /// Other patterns are returned as they are.
     fn lit_pattern(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) -> Pattern {
+        if pattern.is_char_case() {
+            match scrutinee {
+                Some(Ty::Prim(Prim::Char) | Ty::Never) | None => {}
+                Some(t) => self.error(Reason::TypeMismatch, format!(
+                    "`char` patterns do not match a value of type `{}`",
+                    show(t)
+                )),
+            }
+            return pattern.clone();
+        }
         if pattern.is_str_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Str) | Ty::Never) | None => {}
@@ -1138,12 +1163,46 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }),
             ),
             Callee::IntFrom { to, .. } => return self.int_from(*to, args, want),
+            Callee::CharCode(to) => (typed_args(self, vec![Ty::Prim(Prim::Char)]), Some(Ty::Prim((*to).into()))),
+            Callee::CharFromU8 => (typed_args(self, vec![Ty::Prim(Prim::U8)]), Some(Ty::Prim(Prim::Char))),
+            Callee::CharFromU32 => (
+                typed_args(self, vec![Ty::Prim(Prim::U32)]),
+                Some(Ty::option(Ty::Prim(Prim::Char))),
+            ),
+            Callee::Char(m) => {
+                let (params, ret) = char_sig(*m);
+                let mut all = vec![Ty::Prim(Prim::Char)];
+                all.extend(params);
+                (typed_args(self, all), Some(ret))
+            }
         };
         let e = Expr::Call {
             callee: callee.clone(),
             args,
         };
         (e, self.expect(want, t))
+    }
+
+    /// `c.m(args)` for an allow-listed `char` method.
+    fn char_method(&mut self, m: CharMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
+        if args.len() != m.args() {
+            self.error(Reason::ConstructShape, format!(
+                "`char::{}` takes {} argument(s) after the receiver, got {}",
+                m.name(),
+                m.args(),
+                args.len()
+            ));
+        }
+        let (params, ret) = char_sig(m);
+        let mut typed = vec![recv];
+        for (a, p) in args.iter().zip(&params) {
+            typed.push(self.expr(a, Some(p)).0);
+        }
+        let e = Expr::Call {
+            callee: Callee::Char(m),
+            args: typed,
+        };
+        (e, self.expect(want, Some(ret)))
     }
 
     /// `s.m(needles)` for an allow-listed `str` method. A needle must be a
@@ -1186,6 +1245,20 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `to` without loss. Narrowing has no `From` in std and stays rejected.
     fn int_from(&mut self, to: IntTy, args: &[Expr], want: Option<&Ty>) -> Typed {
         let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+        let arg = typed.first().and_then(|(_, t)| t.clone()).map(|t| self.norm(&t));
+        if arg == Some(Ty::Prim(Prim::Char)) {
+            if !matches!(to, IntTy::U32 | IntTy::U64) {
+                self.error(Reason::NumericOp, format!(
+                    "`{}::from` does not take `char`: std converts a `char` only to `u32`, `u64`, and `u128`",
+                    to.as_str()
+                ));
+            }
+            let e = Expr::Call {
+                callee: Callee::CharCode(to),
+                args: typed.into_iter().map(|(e, _)| e).collect(),
+            };
+            return (e, self.expect(want, Some(Ty::Prim(to.into()))));
+        }
         let from = match typed.first().map(|(_, t)| t.clone()) {
             Some(Some(t)) if t != Ty::Never => match self.num(&t) {
                 Some(Num::Int(f)) if f.widens_to(to) => Some(f),
@@ -1357,6 +1430,7 @@ pub(crate) fn show(ty: &Ty) -> String {
             Prim::Bool => "bool".into(),
             Prim::String => "String".into(),
             Prim::Str => "&str".into(),
+            Prim::Char => "char".into(),
             Prim::Unit => "()".into(),
             Prim::F32 => "f32".into(),
             Prim::F64 => "f64".into(),
@@ -1377,6 +1451,20 @@ pub(crate) fn show(ty: &Ty) -> String {
         ),
         Ty::Ignored { wrapper, inner } => format!("{}<{}>", wrapper.rust_name(), show(inner)),
         Ty::Never => "!".into(),
+    }
+}
+
+/// The parameters after the receiver, and the result, of a `char` method.
+fn char_sig(m: CharMethod) -> (Vec<Ty>, Ty) {
+    let char_ = || Ty::Prim(Prim::Char);
+    let u32_ = || Ty::Prim(Prim::U32);
+    match m {
+        CharMethod::ToAsciiLowercase | CharMethod::ToAsciiUppercase => (Vec::new(), char_()),
+        CharMethod::EqIgnoreAsciiCase => (vec![char_()], Ty::bool()),
+        CharMethod::LenUtf8 => (Vec::new(), Ty::Prim(Prim::Usize)),
+        CharMethod::IsDigit => (vec![u32_()], Ty::bool()),
+        CharMethod::ToDigit => (vec![u32_()], Ty::option(u32_())),
+        _ => (Vec::new(), Ty::bool()),
     }
 }
 

@@ -21,6 +21,8 @@ pub enum Prim {
     /// `str` behind a borrow, and the type of a string literal. Same TS
     /// `string` as `String`, but rustc does not put one where `String` goes.
     Str,
+    /// A Unicode scalar value: a branded one-code-point `string` (design/01 §6).
+    Char,
     Unit,
 }
 

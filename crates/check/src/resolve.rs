@@ -361,7 +361,10 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),
-            Callee::IntFrom { to, .. } => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
+            Callee::IntFrom { to, .. } | Callee::CharCode(to) => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
+            Callee::CharFromU8 => self.arity("`char::from`", 1, argc),
+            Callee::CharFromU32 => self.arity("`char::from_u32`", 1, argc),
+            Callee::Char(m) => self.arity(&format!("`char::{}`", m.name()), 1 + m.args(), argc),
         }
     }
 
