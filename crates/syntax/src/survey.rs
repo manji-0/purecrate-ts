@@ -39,6 +39,27 @@ pub fn module_decls(source: &str) -> Result<Vec<Vec<String>>, ParseError> {
     Ok(out)
 }
 
+/// `module_decls` with whether each is reached through `pub` modules only.
+pub fn module_decls_vis(source: &str) -> Result<Vec<(Vec<String>, bool)>, ParseError> {
+    fn walk(items: &[SynItem], prefix: &mut Vec<String>, public: bool, out: &mut Vec<(Vec<String>, bool)>) {
+        for item in items.iter().filter(|i| !is_test_only(i)) {
+            if let SynItem::Mod(m) = item {
+                let public = public && matches!(m.vis, syn::Visibility::Public(_));
+                prefix.push(m.ident.to_string());
+                match &m.content {
+                    Some((_, inner)) => walk(inner, prefix, public, out),
+                    None => out.push((prefix.clone(), public)),
+                }
+                prefix.pop();
+            }
+        }
+    }
+    let file = parse(source)?;
+    let mut out = Vec::new();
+    walk(&file.items, &mut Vec::new(), true, &mut out);
+    Ok(out)
+}
+
 fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
     for item in items.iter().filter(|i| !is_test_only(i)) {
         if let SynItem::Mod(m) = item {

@@ -1,0 +1,26 @@
+# scripts/verify.sh on every push and pull request: cargo tests (goldens,
+# Rust/TS differential tests, wire tests), check on every example, and tsc
+# on TypeScript 6 and 7.
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          # parseJson needs JSON.parse source text access (Node 21+).
+          node-version: 24
+      - name: Install schema adapters' dependencies
+        run: |
+          for p in boundary-zod boundary-valibot boundary-arktype; do
+            (cd "packages/$p" && npm ci --ignore-scripts)
+          done
+      - name: Verify
+        run: ./scripts/verify.sh

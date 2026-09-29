@@ -453,7 +453,7 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
 /// can call them), and `TryFrom<T>` becomes the method `try_from`.
 enum TraitImpl {
     Skipped,
-    TryFrom(syn::Type),
+    TryFrom,
 }
 
 fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
@@ -465,7 +465,7 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
         ["TryFrom"] | ["convert", "TryFrom"] | ["std" | "core", "convert", "TryFrom"] => {
             match &path.segments.last()?.arguments {
                 syn::PathArguments::AngleBracketed(a) => match a.args.first() {
-                    Some(syn::GenericArgument::Type(t)) if a.args.len() == 1 => Some(TraitImpl::TryFrom(t.clone())),
+                    Some(syn::GenericArgument::Type(_)) if a.args.len() == 1 => Some(TraitImpl::TryFrom),
                     _ => None,
                 },
                 _ => None,
@@ -547,7 +547,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             return Err(ParseError::new(Reason::ImplShape, "impl type must be a simple name").or_at(imp.self_ty.span()))
         }
     };
-    if matches!(kind, Some(TraitImpl::TryFrom(_))) {
+    if matches!(kind, Some(TraitImpl::TryFrom)) {
         return lower_try_from(cx, &imp, &owner_ident);
     }
     let owner = Name::new(owner_ident.to_string());

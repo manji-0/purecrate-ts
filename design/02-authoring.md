@@ -66,9 +66,12 @@ pub struct Yen(i64);   // closed: construct via a checked `Yen::new`
 
 ### 3.3 Names are unique across the crate
 
-Modules are flattened; module paths never appear in TS names.
+Modules are flattened; module paths never appear in TS names. A crate may be split into inline modules and module files (`mod x;` as `x.rs` or `x/mod.rs`; `#[path]` is not followed), since 2026-09-29; before that `check` required one file although this section already described flattening.
 
-1. The defined name, or the `pub use` target name, is the public name.
+- A path through the crate's modules names the item alone: `crate::money::Yen`, `super::Yen`, and `money::Yen` are `Yen`.
+- An item is exported as in Rust's public surface: `pub` with every enclosing module `pub`, or named by a `pub use` (a `pub use m::*` exports module `m`'s items). Other items are generated without `export` if reachable.
+
+1. The defined name is the public name. `pub use a::B as C` is rejected: it would export a name the item does not have.
 2. Two types or two free functions with the same name are rejected, listing both paths. This includes non-public items reached from the public surface. Nothing is auto-prefixed.
 3. Names that are Rust keywords or TS reserved words are rejected, not renamed.
 4. Methods live in companions (`State.apply`) and do not collide with a free `apply`.

@@ -7,7 +7,7 @@ Status: current (2026-09-29)
 ## 1. Pipeline
 
 ```
-crate source
+crate source (root and module files)
   → parse (syn) into IR, rejecting unknown syntax at its location
   → flatten modules, resolve names, collect the public surface and what it reaches
   → type every expression (in-house bidirectional inference) and rewrite arithmetic

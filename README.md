@@ -23,7 +23,7 @@ purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year
 purecrate-ts survey <crate-path>... [--json]
 ```
 
-- `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file. `--name` defaults to the `Cargo.toml` package name.
+- `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
 - The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime `purecrate` and the schema adapters are `peerDependencies`. `version` comes from `Cargo.toml`. `purecrate` is not yet on npm, so pack it from `packages/`.
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
@@ -38,6 +38,7 @@ purecrate-ts survey <crate-path>... [--json]
 - growing sequences as recursive enums; `Vec` read by index and `len`
 - `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a string needle, string contents through `s.as_bytes()`
 - structs with private fields stay closed: TS gets values only from your public constructors
+- modules, inline or in files: flattened, with exports following Rust's public surface
 - `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Display` / `Error` are allowed and not translated
 
 There is no decimal type. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). For the full rules, see [design/02](design/02-authoring.md). For what TS callers must observe, see [design/03 §5](design/03-output.md#5-caller-contract).
@@ -48,7 +49,7 @@ There is no decimal type. Write money as an integer newtype in the smallest unit
 ./scripts/verify.sh
 ```
 
-This runs `cargo test --offline` (goldens, differential tests that run the same inputs through Rust and the generated TS, and wire tests against the vendored serde_json), drift detection on examples/counter, `check` on the other examples, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
+CI (`.github/workflows/verify.yml`) runs it on every push, after `npm ci` in the three adapter packages. It runs `cargo test --offline` (goldens, differential tests that run the same inputs through Rust and the generated TS, and wire tests against the vendored serde_json), drift detection on examples/counter, `check` on the other examples, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
 
 `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
