@@ -121,7 +121,7 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `a == b` on structs/enums | an `eq` method (JS structural comparison differs) |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
-| `'@'`, `c.is_ascii_digit()` | `b'@'`, `matches!(b, b'0'..=b'9')` |
+| `for c in s.chars()` | `s.as_bytes()` read by index in a range `for`, with `b'@'` and `matches!(b, b'0'..=b'9')` (`s.chars()` waits for iterator `for`; a single `char` value can be written as `'@'`, `c.is_ascii_digit()`) |
 | `match (s, e)` | one function per state, each ending in `_ => Err(..)` |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
