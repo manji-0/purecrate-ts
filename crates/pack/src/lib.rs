@@ -4,10 +4,6 @@ use purecrate_ir::Crate;
 /// The version a package gets when the crate's manifest names none.
 pub const DEFAULT_VERSION: &str = "0.1.0";
 
-/// The runtime (`purecrate`) and adapter (`purecrate-*`) versions a generated
-/// package accepts.
-const RUNTIME_RANGE: &str = "^0.1.0";
-
 /// The TypeScript majors the package builds and type-checks with.
 const TYPESCRIPT_RANGE: &str = "^6.0.0 || ^7.0.0";
 
@@ -26,24 +22,24 @@ pub enum Access {
     Publishable,
 }
 
-/// Where the runtime comes from. `Peer`: the package depends on `purecrate`,
-/// which every generated package in a project shares, so values cross
-/// between them. `Bundled`: the runtime's source is copied into the package
-/// as `src/purecrate-runtime.ts`, so the sources stand alone, for projects
-/// that vendor generated code rather than install it. Brands are then the
-/// package's own: its values do not type-check against another package's.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Runtime {
-    #[default]
-    Peer,
-    Bundled,
-}
+/// The file the runtime is copied to (`src/<stem>.ts`). `check` reserves it,
+/// and the adapters' stems (`purecrate-zod`, ...).
+pub const RUNTIME_STEM: &str = "purecrate-runtime";
 
-/// The file a bundled runtime is written to (`src/<stem>.ts`). `check`
-/// reserves the name.
-pub const BUNDLED_RUNTIME_STEM: &str = "purecrate-runtime";
-
+/// The runtime and schema adapters, at the revision of this binary. Every
+/// package carries its own copy: there is nothing to install beside it but
+/// the schema library, and the copy cannot fall out of step with the code
+/// generated against it. The runtime's brands are keyed by string, so values
+/// still pass between packages that each carry a copy.
 const RUNTIME_SOURCE: &str = include_str!("../../../packages/boundary/src/index.ts");
+
+fn adapter_source(schema: WireSchema) -> &'static str {
+    match schema {
+        WireSchema::Zod => include_str!("../../../packages/boundary-zod/src/index.ts"),
+        WireSchema::Valibot => include_str!("../../../packages/boundary-valibot/src/index.ts"),
+        WireSchema::Arktype => include_str!("../../../packages/boundary-arktype/src/index.ts"),
+    }
+}
 
 pub fn assemble(krate: &Crate) -> Package {
     assemble_with(krate, None)
@@ -54,51 +50,40 @@ pub fn assemble_with(krate: &Crate, schema: Option<WireSchema>) -> Package {
 }
 
 /// The TS sources plus a manifest that makes them an npm package: `build`
-/// (run by `prepack`) compiles them to `dist`, which `exports` points at, and
-/// the runtime is a peer dependency so every package shares its brands.
+/// (run by `prepack`) compiles them to `dist`, which `exports` points at.
 pub fn assemble_versioned(krate: &Crate, schema: Option<WireSchema>, version: &str) -> Package {
     assemble_with_access(krate, schema, version, Access::default())
 }
 
 pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: &str, access: Access) -> Package {
-    assemble_packaged(krate, schema, version, access, Runtime::Peer)
-}
-
-/// `assemble_with_access`, choosing where the runtime comes from. A bundled
-/// runtime does not go with `schema`: the adapters import `purecrate`.
-pub fn assemble_packaged(
-    krate: &Crate,
-    schema: Option<WireSchema>,
-    version: &str,
-    access: Access,
-    runtime: Runtime,
-) -> Package {
-    assert!(
-        runtime == Runtime::Peer || schema.is_none(),
-        "a bundled runtime does not go with a schema adapter"
-    );
     let mut pkg = emit(krate);
     if let Some(schema) = schema {
         pkg.files.push(TsFile {
             stem: "purecrate-wire".to_string(),
             source: emit_wire(krate, schema),
         });
-    }
-    if runtime == Runtime::Bundled {
-        let local = format!("from \"./{BUNDLED_RUNTIME_STEM}.ts\";");
-        for file in &mut pkg.files {
-            file.source = file.source.replace("from \"purecrate\";", &local);
-        }
         pkg.files.push(TsFile {
-            stem: BUNDLED_RUNTIME_STEM.to_string(),
-            source: format!(
-                "{HEADER}// The purecrate runtime (MIT, https://github.com/manji-0/purecrate-ts,\n\
-                 // packages/boundary), copied in by `build --bundle-runtime`.\n\n{RUNTIME_SOURCE}"
-            ),
+            stem: schema.package().to_string(),
+            source: copied(schema.package(), &format!("packages/boundary-{}", schema.runtime_dep()), adapter_source(schema)),
         });
     }
+    pkg.files.push(TsFile {
+        stem: RUNTIME_STEM.to_string(),
+        source: copied("purecrate", "packages/boundary", RUNTIME_SOURCE),
+    });
+    // The sources above name the runtime and adapter as packages; here they
+    // are files beside them.
+    let mut local = vec![("purecrate".to_string(), RUNTIME_STEM.to_string())];
+    if let Some(schema) = schema {
+        local.push((schema.package().to_string(), schema.package().to_string()));
+    }
+    for file in &mut pkg.files {
+        for (package, stem) in &local {
+            file.source = file.source.replace(&format!("from \"{package}\";"), &format!("from \"./{stem}.ts\";"));
+        }
+    }
     let manifests = [
-        ("package.json", package_json(krate.name.as_str(), version, schema, access, runtime)),
+        ("package.json", package_json(krate.name.as_str(), version, schema, access)),
         ("tsconfig.json", tsconfig()),
         ("tsconfig.build.json", tsconfig_build()),
     ];
@@ -106,6 +91,15 @@ pub fn assemble_packaged(
         pkg.files.insert(i, TsFile { stem: stem.to_string(), source });
     }
     pkg
+}
+
+/// A copy of a hand-written file from `packages/`, marked as generated so
+/// `build` may replace it, and with its license.
+fn copied(package: &str, dir: &str, source: &str) -> String {
+    format!(
+        "{HEADER}// `{package}` from purecrate-ts ({dir}; MIT, https://github.com/manji-0/purecrate-ts),\n\
+         // copied in at the generator's revision.\n\n{source}"
+    )
 }
 
 pub fn disk_path(stem: &str) -> String {
@@ -122,16 +116,14 @@ fn entry(stem: &str) -> String {
     )
 }
 
-fn package_json(name: &str, version: &str, schema: Option<WireSchema>, access: Access, runtime: Runtime) -> String {
+/// The one dependency left is the schema library, which the consumer's
+/// own code uses too.
+fn package_json(name: &str, version: &str, schema: Option<WireSchema>, access: Access) -> String {
     let kebab = purecrate_ir::to_kebab(name);
     let mut exports = vec![format!("    \".\": {}", entry("index"))];
     let mut peers = Vec::new();
-    if runtime == Runtime::Peer {
-        peers.push(format!("    \"purecrate\": \"{RUNTIME_RANGE}\""));
-    }
     if let Some(schema) = schema {
         exports.push(format!("    \"./wire\": {}", entry("purecrate-wire")));
-        peers.push(format!("    \"{}\": \"{RUNTIME_RANGE}\"", schema.package()));
         peers.push(format!("    \"{}\": \"^{}\"", schema.runtime_dep(), schema.version()));
     }
     let private = match access {
@@ -179,22 +171,21 @@ mod tests {
     }
 
     #[test]
-    fn a_bundled_runtime_replaces_the_purecrate_dependency() {
-        let pkg = assemble_packaged(&counter_example(), None, "1.2.3", Access::default(), Runtime::Bundled);
-        let runtime = pkg.files.iter().find(|f| f.stem == BUNDLED_RUNTIME_STEM).expect("runtime file");
-        assert!(runtime.source.starts_with(HEADER) && runtime.source.contains("export const Int = {"));
+    fn the_runtime_and_the_adapter_are_copied_in() {
+        let pkg = assemble_with(&counter_example(), Some(WireSchema::Zod));
+        let file = |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
+        assert!(file(RUNTIME_STEM).starts_with(HEADER) && file(RUNTIME_STEM).contains("export const Int = {"));
+        assert!(file("purecrate-zod").contains("from \"./purecrate-runtime.ts\";"));
+        assert!(file("purecrate-wire").contains("from \"./purecrate-zod.ts\";"));
         for f in &pkg.files {
-            assert!(!f.source.contains("from \"purecrate\""), "{} still imports purecrate", f.stem);
+            assert!(!f.source.contains("from \"purecrate"), "{} imports a purecrate package", f.stem);
         }
-        let manifest = &pkg.files.iter().find(|f| f.stem == "package.json").unwrap().source;
+        let manifest = file("package.json");
+        assert!(manifest.contains("\"peerDependencies\": {\n    \"zod\": \"^"), "{manifest}");
+        assert!(!manifest.contains("purecrate\""), "{manifest}");
+        let plain = assemble(&counter_example());
+        let manifest = &plain.files.iter().find(|f| f.stem == "package.json").unwrap().source;
         assert!(!manifest.contains("peerDependencies"), "{manifest}");
-        let peer = manifest_of(Runtime::Peer);
-        assert!(peer.contains("\"purecrate\": \"^0.1.0\""), "{peer}");
-    }
-
-    fn manifest_of(runtime: Runtime) -> String {
-        let pkg = assemble_packaged(&counter_example(), None, "1.2.3", Access::default(), runtime);
-        pkg.files.into_iter().find(|f| f.stem == "package.json").unwrap().source
     }
 
     #[test]

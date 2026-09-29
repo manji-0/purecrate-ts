@@ -41,13 +41,13 @@ fn js(s: &str) -> String {
     out
 }
 
-/// Writes the zod package for `source` (or an empty directory when `None`),
-/// links the runtime, runs `script` on node, and returns its stdout.
-fn run_node(name: &str, source: Option<&str>, script: &str) -> Option<String> {
+/// Writes the zod package for `source`, links the schema library, runs
+/// `script` on node, and returns its stdout.
+fn run_node(name: &str, source: &str, script: &str) -> Option<String> {
     run_node_with(WireSchema::Zod, name, source, script)
 }
 
-fn run_node_with(schema: WireSchema, name: &str, source: Option<&str>, script: &str) -> Option<String> {
+fn run_node_with(schema: WireSchema, name: &str, source: &str, script: &str) -> Option<String> {
     if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
         return None;
     }
@@ -60,24 +60,21 @@ fn run_node_with(schema: WireSchema, name: &str, source: Option<&str>, script: &
         fs::remove_dir_all(&dir).ok();
     }
     fs::create_dir_all(&dir).expect("mkdir");
-    link(&dir, "purecrate", "boundary");
-    if let Some(source) = source {
-        let krate = parse_source(name, source).expect("parse");
-        let typed = accept(&krate).unwrap_or_else(|d| panic!("{name} rejected: {d:#?}"));
-        for file in assemble_with(&typed, Some(schema)).files {
-            let path = dir.join(disk_path(&file.stem));
-            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-            fs::write(path, file.source).expect("write");
-        }
-        let lib = schema.runtime_dep();
-        let package = format!("boundary-{lib}");
-        link(&dir, schema.package(), &package);
-        link(&dir, lib, &format!("{package}/node_modules/{lib}"));
-        if schema == WireSchema::Arktype {
-            link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
-        }
-        support::typecheck(&dir);
+    let krate = parse_source(name, source).expect("parse");
+    let typed = accept(&krate).unwrap_or_else(|d| panic!("{name} rejected: {d:#?}"));
+    for file in assemble_with(&typed, Some(schema)).files {
+        let path = dir.join(disk_path(&file.stem));
+        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        fs::write(path, file.source).expect("write");
     }
+    // The runtime and adapter are in the package; only the library is not.
+    let lib = schema.runtime_dep();
+    let package = format!("boundary-{lib}");
+    link(&dir, lib, &format!("{package}/node_modules/{lib}"));
+    if schema == WireSchema::Arktype {
+        link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
+    }
+    support::typecheck(&dir);
     fs::write(dir.join("driver.ts"), script).expect("write driver");
     let output = Command::new("node")
         .arg(format!("--conditions={}", support::SOURCE_CONDITION))
@@ -151,7 +148,7 @@ fn floats_are_written_as_serde_json_writes_them() {
         .map(|x| format!("[{},{}]", js(&format!("{:08x}", x.to_bits())), js(&serde_json::to_string(x).unwrap())))
         .collect();
     let script = format!(
-        "import {{ Json }} from \"purecrate\";\n\
+        "import {{ Json }} from \"./src/purecrate-runtime.ts\";\n\
          const f64 = (h) => new Float64Array(new BigUint64Array([BigInt(\"0x\" + h)]).buffer)[0];\n\
          const f32 = (h) => new Float32Array(new Uint32Array([parseInt(h, 16)]).buffer)[0];\n\
          const out = [];\n\
@@ -161,7 +158,7 @@ fn floats_are_written_as_serde_json_writes_them() {
         rows64.join(","),
         rows32.join(",")
     );
-    assert_ok(run_node("floats", None, &script));
+    assert_ok(run_node("floats", shapes::SOURCE, &script));
 }
 
 fn shape_values() -> Vec<(&'static str, String)> {
@@ -245,7 +242,7 @@ fn shapes_read_from_serde_json_are_written_back_byte_for_byte() {
         .map(|(ty, text)| format!("[{},{}]", js(ty), js(text)))
         .collect();
     let script = format!(
-        "import {{ parseJson, Int }} from \"purecrate\";\n\
+        "import {{ parseJson, Int }} from \"./src/purecrate-runtime.ts\";\n\
          import * as w from \"./src/purecrate-wire.ts\";\n\
          const out = [];\n\
          for (const [ty, text] of [{}]) {{\n\
@@ -261,7 +258,7 @@ fn shapes_read_from_serde_json_are_written_back_byte_for_byte() {
          console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n",
         rows.join(",")
     );
-    assert_ok(run_node("shapes", Some(shapes::SOURCE), &script));
+    assert_ok(run_node("shapes", shapes::SOURCE, &script));
 }
 
 /// A state rebuilt by running its events again (`step` consumes the
@@ -317,7 +314,7 @@ fn a_client_step_on_server_json_writes_what_the_server_writes() {
         }
     }
     let script = format!(
-        "import {{ parseJson }} from \"purecrate\";\n\
+        "import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\
          import * as w from \"./src/purecrate-wire.ts\";\n\
          import {{ step }} from \"./src/index.ts\";\n\
          const out = [];\n\
@@ -333,7 +330,7 @@ fn a_client_step_on_server_json_writes_what_the_server_writes() {
          console.log(out.length === 0 ? \"ok\" : out.slice(0, 20).join(\"\\n\"));\n",
         rows.join(",")
     );
-    assert_ok(run_node("payment", Some(payment::SOURCE), &script));
+    assert_ok(run_node("payment", payment::SOURCE, &script));
 }
 
 /// `#[serde(try_from = "T")]` (design/04 §5): serde reads `T` and calls
@@ -378,7 +375,7 @@ fn try_from_reads_what_the_checked_constructor_accepts() {
             WireSchema::Arktype => ("import { type } from \"arktype\";\n", "(s, x) => !(s(x) instanceof type.errors)", "(s, x) => s.assert(x)"),
         };
         let script = format!(
-            "{import}import {{ parseJson }} from \"purecrate\";\n\
+            "{import}import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\
              import * as w from \"./src/purecrate-wire.ts\";\n\
              const valid = {valid};\nconst parse = {parse};\n\
              const out = [];\n\
@@ -389,7 +386,7 @@ fn try_from_reads_what_the_checked_constructor_accepts() {
              }}\n\
              console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
         );
-        assert_ok(run_node_with(schema, "try-from", Some(payment::SOURCE), &script));
+        assert_ok(run_node_with(schema, "try-from", payment::SOURCE, &script));
     }
 }
 
@@ -437,7 +434,7 @@ fn uuids_read_what_serde_reads() {
             WireSchema::Arktype => ("import { type } from \"arktype\";\n", "(s, x) => !(s(x) instanceof type.errors)", "(s, x) => s.assert(x)"),
         };
         let script = format!(
-            "{import}import {{ parseJson }} from \"purecrate\";\n\
+            "{import}import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\
              import * as w from \"./src/purecrate-wire.ts\";\n\
              const valid = {valid};\nconst parse = {parse};\n\
              const out = [];\n\
@@ -448,6 +445,6 @@ fn uuids_read_what_serde_reads() {
              }}\n\
              console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
         );
-        assert_ok(run_node_with(schema, "uuids", Some(shapes::SOURCE), &script));
+        assert_ok(run_node_with(schema, "uuids", shapes::SOURCE, &script));
     }
 }

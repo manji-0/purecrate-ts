@@ -47,15 +47,6 @@ fn write_package(dir: &Path) {
         fs::write(path, file.source).expect("write");
     }
     fs::write(dir.join("driver.ts"), DRIVER).expect("write driver");
-    link_purecrate(dir);
-}
-
-fn link_purecrate(dir: &Path) {
-    let boundary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/boundary");
-    let modules = dir.join("node_modules/purecrate");
-    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir");
-    let _ = fs::remove_file(&modules);
-    std::os::unix::fs::symlink(boundary, &modules).expect("link purecrate");
 }
 
 fn scratch_dir() -> PathBuf {

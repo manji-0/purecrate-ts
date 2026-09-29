@@ -453,27 +453,25 @@ fn generated_package_is_private_unless_publishable() {
     fs::remove_dir_all(&dir).ok();
 }
 
-/// `--bundle-runtime` output stands alone: it type-checks with no
-/// `node_modules`, and `check --out` compares it like any other.
+/// The output stands alone: with the runtime copied in, it type-checks with
+/// no `node_modules`, and with `--schema zod` with only `zod` beside it.
 #[test]
-fn a_bundled_runtime_package_needs_no_dependencies() {
-    let dir = scratch("bundled");
-    let out = dir.join("pkg");
-    let src = repo().join("examples/counter");
-    let built = build_with(&["--bundle-runtime"], &out);
+fn generated_packages_need_only_the_schema_library() {
+    let dir = scratch("standalone");
+    let plain = dir.join("plain");
+    let built = build_with(&[], &plain);
     assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
-    assert!(out.join("src/purecrate-runtime.ts").exists());
-    assert!(!out.join("node_modules").exists());
+    assert!(plain.join("src/purecrate-runtime.ts").exists());
+    let wired = dir.join("wired");
+    let built = build_with(&["--schema", "zod"], &wired);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(wired.join("src/purecrate-zod.ts").exists());
     if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {
-        support::typecheck(&out);
+        support::typecheck(&plain);
+        let zod = repo().join("packages/boundary-zod/node_modules/zod");
+        fs::create_dir_all(wired.join("node_modules")).expect("mkdir node_modules");
+        std::os::unix::fs::symlink(&zod, wired.join("node_modules/zod")).expect("link zod");
+        support::typecheck(&wired);
     }
-
-    let same = check(&[src.as_os_str(), "--bundle-runtime".as_ref(), "--out".as_ref(), out.as_os_str()]);
-    assert!(same.status.success(), "{}", String::from_utf8_lossy(&same.stderr));
-    let peer = check(&[src.as_os_str(), "--out".as_ref(), out.as_os_str()]);
-    assert!(!peer.status.success(), "a peer-runtime build differs from the bundled one");
-
-    let both = check(&[src.as_os_str(), "--bundle-runtime".as_ref(), "--schema".as_ref(), "zod".as_ref()]);
-    assert!(String::from_utf8_lossy(&both.stderr).contains("--bundle-runtime does not go with --schema"));
     fs::remove_dir_all(&dir).ok();
 }

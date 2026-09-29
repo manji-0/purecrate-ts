@@ -83,7 +83,6 @@ fn a_consumer_cannot_build_a_closed_type() {
         fs::write(path, file.source).expect("write");
     }
     fs::write(dir.join("src/consumer.ts"), CONSUMER).expect("write consumer");
-    support::link_purecrate(&dir);
     support::typecheck(&dir);
     fs::remove_dir_all(&dir).ok();
 }

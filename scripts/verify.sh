@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # v0 acceptance: Rust tests (golden + TS/Rust equivalence via node), drift of
-# the committed counter package, then tsc over it and the runtime packages
-# under each supported TypeScript major (see TS_MAJORS in
-# crates/cli/tests/support/mod.rs).
+# the committed counter package, then tsc over it (it carries its runtime, so
+# it needs nothing installed) and over the runtime and adapter sources that
+# every package copies, under each supported TypeScript major (see TS_MAJORS
+# in crates/cli/tests/support/mod.rs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,10 +17,8 @@ cargo run --offline -q -p purecrate-ts -- check examples/iban
 cargo run --offline -q -p purecrate-ts -- check examples/payment
 cargo run --offline -q -p purecrate-ts -- check examples/invoice
 cargo run --offline -q -p purecrate-ts -- check examples/oidc
-mkdir -p examples/counter-ts/node_modules
-ln -sfn "$(pwd)/packages/boundary" examples/counter-ts/node_modules/purecrate
-# The runtime packages export `dist`; in this repository their sources stand
-# in for it (the purecrate-source condition).
+# The adapters import the runtime package, which exports `dist`; here its
+# sources stand in for it (the purecrate-source condition).
 for major in "${TS_MAJORS[@]}"; do
   for dir in packages/boundary packages/boundary-zod packages/boundary-valibot packages/boundary-arktype examples/counter-ts; do
     (cd "$dir" && npx -y -p "typescript@$major" tsc -p . --customConditions purecrate-source) \

@@ -6,18 +6,17 @@ use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "\
 usage:
-  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib> | --bundle-runtime] [--publishable]
-  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib> | --bundle-runtime] [--publishable]
+  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
+  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts survey <crate-path>... [--json]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
-schemas for the public structs and enums. The numeric fields come from
-the matching purecrate-* adapter.
+schemas for the public structs and enums.
 The generated package.json says \"private\": true, so npm publish refuses it
 (npm pack and installing the tarball work). --publishable leaves that out.
---bundle-runtime copies the purecrate runtime into src/purecrate-runtime.ts
-instead of depending on the purecrate package, so the sources can be
-vendored as they are; not with --schema.
+The runtime is copied into src/purecrate-runtime.ts (and the adapter into
+src/purecrate-<lib>.ts), so the package needs nothing installed but the
+schema library.
 
 <crate-path> is a crate directory (reads src/lib.rs, else src/main.rs) or a
 single .rs file.
@@ -53,14 +52,12 @@ pub enum Command {
         out: PathBuf,
         schema: Option<String>,
         publishable: bool,
-        bundle_runtime: bool,
     },
     Check {
         input: Input,
         out: Option<PathBuf>,
         schema: Option<String>,
         publishable: bool,
-        bundle_runtime: bool,
     },
     Survey { inputs: Vec<Input>, json: bool },
 }
@@ -76,7 +73,6 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut out: Option<PathBuf> = None;
     let mut schema: Option<String> = None;
     let mut publishable = false;
-    let mut bundle_runtime = false;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -90,7 +86,6 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             }
             "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
             "--publishable" => publishable = true,
-            "--bundle-runtime" => bundle_runtime = true,
             "--schema" => {
                 let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
                 if !matches!(value.as_str(), "zod" | "valibot" | "arktype") {
@@ -103,9 +98,6 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             other => path = Some(PathBuf::from(other)),
         }
     }
-    if bundle_runtime && schema.is_some() {
-        return Err("--bundle-runtime does not go with --schema: the schema adapters import the purecrate package".into());
-    }
     let path = path.ok_or("missing <crate-path>")?;
     let mut input = resolve_input(&path, name)?;
     if let Some(e) = edition {
@@ -117,15 +109,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             out: out.ok_or("build needs --out <dir>")?,
             schema,
             publishable,
-            bundle_runtime,
         }),
-        "check" => Ok(Command::Check {
-            input,
-            out,
-            schema,
-            publishable,
-            bundle_runtime,
-        }),
+        "check" => Ok(Command::Check { input, out, schema, publishable }),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -289,7 +274,6 @@ mod tests {
                 out: None,
                 schema: None,
                 publishable: false,
-                bundle_runtime: false,
             }
         );
     }

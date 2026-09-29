@@ -15,9 +15,6 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build"
   },
-  "peerDependencies": {
-    "purecrate": "^0.1.0"
-  },
   "devDependencies": {
     "typescript": "^6.0.0 || ^7.0.0"
   }

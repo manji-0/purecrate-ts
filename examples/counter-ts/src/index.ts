@@ -4,7 +4,7 @@ export { Result } from "./result.ts";
 export { assertNever } from "./assert-never.ts";
 export { Int } from "./int.ts";
 export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from "./int.ts";
-export { Char, Uuid, type UuidError } from "./str.ts";
+export { Char, Uuid, type UuidError, parseJson } from "./str.ts";
 export { Event } from "./event.ts";
 export { State } from "./state.ts";
 export { step } from "./step.ts";

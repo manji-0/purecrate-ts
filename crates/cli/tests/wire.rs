@@ -184,8 +184,6 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
             fs::write(path, file.source).expect("write");
         }
         let package = format!("boundary-{lib}");
-        link(&dir, "purecrate", "boundary");
-        link(&dir, schema.package(), &package);
         link(&dir, lib, &format!("{package}/node_modules/{lib}"));
         if schema == WireSchema::Arktype {
             link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
@@ -196,7 +194,7 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
         fs::write(
             dir.join("driver.ts"),
             format!(
-                "{import}import {{ parseJson }} from \"purecrate\";\nimport * as w from \"./src/purecrate-wire.ts\";\n\
+                "{import}import {{ parseJson }} from \"./src/index.ts\";\nimport * as w from \"./src/purecrate-wire.ts\";\n\
                  const parse = {parse};\nconst valid = {valid};\n{CASES}"
             ),
         )

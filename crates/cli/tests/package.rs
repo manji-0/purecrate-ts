@@ -1,10 +1,12 @@
 //! A generated package is usable from `node_modules` the way npm delivers it:
-//! built to `dist` by its own `build` script, packed, and installed next to
-//! the runtime (`purecrate`) and a schema adapter as peer dependencies. The
-//! consumer runs it under plain node and type-checks it with `nodenext` and
-//! `bundler` resolution, reading the packages' declarations
-//! (`skipLibCheck: false`). Each TypeScript major builds and checks it.
-//! Offline: every tarball is packed from this repository.
+//! built to `dist` by its own `build` script, packed, and installed with
+//! nothing beside it but the schema library (the runtime and the adapter are
+//! copied in). A second generated package, carrying its own runtime copy,
+//! takes the first one's `I32` as its own. The consumer runs both under plain
+//! node and type-checks them with `nodenext` and `bundler` resolution,
+//! reading the packages' declarations (`skipLibCheck: false`). Each
+//! TypeScript major builds and checks them. Offline: every tarball is packed
+//! here.
 
 #[allow(dead_code, unused_macros)]
 mod support;
@@ -30,21 +32,31 @@ pub fn step(s: State, e: Event) -> State {
 }
 ";
 
-const MAIN_JS: &str = r#"import { step, Event, Int } from "shop";
+/// A second package, which knows nothing of `shop`.
+const PRICING: &str = "
+pub fn double(n: i32) -> i32 {
+    n * 2i32
+}
+";
+
+const MAIN_JS: &str = r#"import { step, Event, Int, parseJson } from "shop";
 import { State as StateWire } from "shop/wire";
-import { parseJson } from "purecrate";
+import { double } from "pricing";
 const s = StateWire.parse(parseJson('{"n":1,"total":9007199254740993}'));
 const t = step(s, Event.Add(Int.i32.of(2)));
-console.log(`${t.n} ${t.total}`);
+console.log(`${t.n} ${t.total} ${double(t.n)}`);
 "#;
 
-const MAIN_TS: &str = r#"import { step, Event, Int, type State, type Yen } from "shop";
+const MAIN_TS: &str = r#"import { step, Event, Int, parseJson, type I32, type State, type Yen } from "shop";
 import { State as StateWire } from "shop/wire";
-import { parseJson } from "purecrate";
+import { double, type I32 as PricingI32 } from "pricing";
 const s: State = StateWire.parse(parseJson('{"n":1,"total":9007199254740993}'));
 const t: State = step(s, Event.Add(Int.i32.of(2)));
 const total: Yen = t.total;
-console.log(`${t.n} ${total}`);
+// Each package carries a copy of the runtime; its brands are the same type.
+const doubled: I32 = double(t.n);
+const back: PricingI32 = doubled;
+console.log(`${t.n} ${total} ${back}`);
 "#;
 
 fn repo() -> PathBuf {
@@ -62,19 +74,11 @@ fn run(cmd: &mut Command, what: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-fn copy(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("mkdir");
-    for entry in fs::read_dir(from).expect("read_dir") {
-        let path = entry.expect("entry").path();
-        let name = path.file_name().expect("name");
-        if name == "node_modules" || name == "dist" || name == "package-lock.json" {
-            continue;
-        }
-        if path.is_dir() {
-            copy(&path, &to.join(name));
-        } else {
-            fs::copy(&path, to.join(name)).expect("copy");
-        }
+fn write(dir: &Path, pkg: &purecrate_emit_ts::Package) {
+    for file in &pkg.files {
+        let path = dir.join(disk_path(&file.stem));
+        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        fs::write(path, &file.source).expect("write");
     }
 }
 
@@ -121,33 +125,19 @@ fn packed_package_installs_runs_and_type_checks() {
         let tarballs = dir.join("tarballs");
         fs::create_dir_all(&tarballs).expect("mkdir");
 
-        let runtime = dir.join("purecrate");
-        copy(&repo().join("packages/boundary"), &runtime);
-        tsc(major, &runtime, "tsconfig.build.json");
-
         let zod = repo().join("packages/boundary-zod/node_modules/zod");
-        let adapter = dir.join("purecrate-zod");
-        copy(&repo().join("packages/boundary-zod"), &adapter);
-        link(&adapter, "purecrate", &runtime);
-        link(&adapter, "zod", &zod);
-        tsc(major, &adapter, "tsconfig.build.json");
+        let shop = dir.join("shop");
+        write(&shop, &assemble_versioned(&typed, Some(WireSchema::Zod), "1.2.3"));
+        link(&shop, "zod", &zod);
+        tsc(major, &shop, "tsconfig.build.json");
 
-        let generated = dir.join("shop");
-        for file in assemble_versioned(&typed, Some(WireSchema::Zod), "1.2.3").files {
-            let path = generated.join(disk_path(&file.stem));
-            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-            fs::write(path, file.source).expect("write");
-        }
-        link(&generated, "purecrate", &runtime);
-        link(&generated, "purecrate-zod", &adapter);
-        link(&generated, "zod", &zod);
-        tsc(major, &generated, "tsconfig.build.json");
+        let pricing_krate = parse_source("pricing", PRICING).expect("parse pricing");
+        let pricing = dir.join("pricing");
+        write(&pricing, &assemble_versioned(&accept(&pricing_krate).expect("accept pricing"), None, "0.1.0"));
+        tsc(major, &pricing, "tsconfig.build.json");
 
-        let packed: Vec<PathBuf> = [&runtime, &adapter, &zod, &generated]
-            .into_iter()
-            .map(|d| pack(d, &tarballs))
-            .collect();
-        assert!(packed[3].ends_with("shop-1.2.3.tgz"), "{}", packed[3].display());
+        let packed: Vec<PathBuf> = [&shop, &pricing, &zod].into_iter().map(|d| pack(d, &tarballs)).collect();
+        assert!(packed[0].ends_with("shop-1.2.3.tgz"), "{}", packed[0].display());
 
         let consumer = dir.join("consumer");
         fs::create_dir_all(&consumer).expect("mkdir consumer");
@@ -162,7 +152,7 @@ fn packed_package_installs_runs_and_type_checks() {
         );
         fs::write(consumer.join("main.mjs"), MAIN_JS).expect("write main.mjs");
         let out = run(Command::new("node").arg("main.mjs").current_dir(&consumer), "node main.mjs");
-        assert_eq!(out.trim(), "3 9007199254740993");
+        assert_eq!(out.trim(), "3 9007199254740993 6");
 
         fs::write(consumer.join("main.ts"), MAIN_TS).expect("write main.ts");
         for (module, resolution) in [("nodenext", "nodenext"), ("preserve", "bundler")] {

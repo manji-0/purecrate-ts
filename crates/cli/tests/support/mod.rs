@@ -483,14 +483,6 @@ fn driver(krate: &Crate, cases: &[Case]) -> String {
     out
 }
 
-pub fn link_purecrate(dir: &std::path::Path) {
-    let boundary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/boundary");
-    let modules = dir.join("node_modules/purecrate");
-    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir node_modules");
-    let _ = fs::remove_file(&modules);
-    std::os::unix::fs::symlink(&boundary, &modules).expect("link purecrate");
-}
-
 /// TypeScript majors the generated package must type-check under: 6 is the
 /// last JS compiler, 7 the native one. `scripts/verify.sh` uses the same list.
 pub const TS_MAJORS: &[&str] = &["6", "7"];
@@ -546,7 +538,6 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
         fs::write(path, file.source).expect("write");
     }
     fs::write(dir.join("driver.ts"), driver(&krate, cases)).expect("write driver");
-    link_purecrate(&dir);
     typecheck(&dir);
 
     let output = Command::new("node")

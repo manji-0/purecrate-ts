@@ -24,7 +24,7 @@ const TS_TYPE_KEYWORDS: &[&str] = &[
 
 /// Top-level names the emitted package defines; see also `TS_GLOBALS`.
 const PACKAGE_NAMES: &[&str] = &[
-    "Result", "assertNever", "Int", "Str", "Char", "Uuid", "UuidError", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
+    "Result", "assertNever", "Int", "Str", "Char", "Uuid", "UuidError", "parseJson", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
 ];
 
 fn is_generated(name: &str) -> bool {
@@ -32,7 +32,7 @@ fn is_generated(name: &str) -> bool {
 }
 
 /// File stems the emitted package already uses.
-const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int", "str", "purecrate-wire", "purecrate-runtime"];
+const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int", "str", "purecrate-wire", "purecrate-runtime", "purecrate-zod", "purecrate-valibot", "purecrate-arktype"];
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();

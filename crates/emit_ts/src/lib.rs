@@ -122,7 +122,7 @@ fn emit_package(krate: &Crate) -> Package {
         },
         File {
             stem: "str".to_string(),
-            source: format!("{HEADER}\nexport {{ Char, Str, Uuid, type UuidError }} from \"purecrate\";\n"),
+            source: format!("{HEADER}\nexport {{ Char, Str, Uuid, type UuidError, parseJson }} from \"purecrate\";\n"),
         },
     ];
 
@@ -184,7 +184,7 @@ fn emit_index(krate: &Crate) -> String {
     out.push_str(
         "export { Int } from \"./int.ts\";\n\
          export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n\
-         export { Char, Uuid, type UuidError } from \"./str.ts\";\n",
+         export { Char, Uuid, type UuidError, parseJson } from \"./str.ts\";\n",
     );
     for item in krate.exported() {
         match item {
