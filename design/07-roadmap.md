@@ -87,6 +87,8 @@ Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real
 
 Defects found by the same measurement, all fixed 2026-09-30: a non-`pub` method reachable on the exported companion, a hole in closed types ([01 §4](./01-equivalence.md#4-closed-types)); `mod r#impl;` looked up as `r#impl.rs` (skipped by `survey`, an error in `check`); `build --out` emptying a directory it had not written (now refused).
 
+From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): `--bundle-runtime` added; `assertNever`'s unused parameter fixed. Open: bindings the Rust leaves unused stay unused in TS, which fails a consumer's `noUnusedLocals`; a consumer's CI has no published `purecrate-ts` to run `check --out` with.
+
 ### 3.1 When an example needs it
 
 1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` and `for c in s.chars()` are in.

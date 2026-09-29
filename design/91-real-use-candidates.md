@@ -64,3 +64,25 @@ Defects found on the way:
 - `mod r#impl;` and `mod r#trait;` are looked up as `r#impl.rs` and silently skipped (fixed 2026-09-30).
 - `survey` reports one cause per function, which understates rewrite work; an all-causes mode is wanted for estimates.
 - `build --out` deletes unrelated files in the output directory (fixed 2026-09-30: a directory `build` did not write is refused).
+
+## 5. Oxide `Name`, done locally
+
+<!-- derived-from #3-decision -->
+
+2026-09-30, on local branches of omicron (`c925805`) and console (`14ec752`); nothing is proposed upstream yet.
+
+**omicron.** A new crate, `name-rules`, holds `check_name(&str) -> Result<(), NameError>` (89 lines, written to the subset with `for c in s.chars()`, the UUID forms checked by hand); `Name::try_from` calls it and turns the error into the same message with `Display` (38 lines became 2). The crate's `ts/` is `build --bundle-runtime` output. Its test runs the previous implementation, with the real `uuid::Uuid::parse_str`, against `check_name` on about 120,000 inputs: same result and message on all. `omicron-common` still compiles.
+
+**console.** `tools/generate_api_client.sh` also fetches `name-rules/ts/src/*` at the pinned omicron commit into `app/api/__generated__/name-rules/`, adding the MPL header except to the bundled runtime. `validateName` calls `check_name` and maps each `NameError` to the console's wording with an exhaustive `match`: the rule is gone from the console, the wording stays (15 lines before, 16 after). `tsc`, `oxlint`, `oxfmt --check`, and the unit tests pass (the 4 failures are webkit browser specs that fail the same without the change).
+
+**Measured on 106,000 names** against omicron's Rust: the generated TS agrees on every result, including the offending character. The hand-written copy accepted all 6,000 UUID-shaped names the API rejects, and on 33,852 others reported a different first error than the API (uppercase first letters, length in UTF-16 units instead of bytes). Two console tests changed accordingly (`Abc` now says the first character is wrong, as the API does), and UUID and byte-length cases were added.
+
+What the vendoring asked of purecrate-ts, and of the consumer:
+
+- **The runtime was not installable.** A project that commits generated code has no tarball step. `--bundle-runtime` was added: the runtime is copied into `src/`, and the sources stand alone.
+- **`noUnusedParameters`** failed on `assertNever`'s parameter in every package; renamed `_x`. Generated code still carries any binding the Rust leaves unused (rustc only warns), which a consumer with `noUnusedLocals` rejects.
+- **License headers.** The console requires its MPL header on every `.ts`; the bundled runtime is MIT and had to be excluded from that check by path.
+- **Lint.** oxlint's `number-arg-out-of-range` flags the runtime's `toExponential(99)` (valid since ES2018); the console ignores the vendored runtime.
+- **Keeping `ts/` current in omicron** needs `purecrate-ts check --bundle-runtime --out name-rules/ts` in its CI, so omicron's CI would have to install purecrate-ts, which is not published anywhere.
+
+Lines: omicron −36 in `common`, +89 for the rule and +138 of equivalence tests; the console loses the rule but not its wording, so its line count does not drop. The gain is agreement, not size: three copies (Rust, console, and the OpenAPI pattern, which still accepts uppercase and the 32-hex form) became two, and the console's is now checked rather than kept by hand.
