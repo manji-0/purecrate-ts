@@ -649,7 +649,7 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
 /// binds its fields to plain names, names several variants of one enum with
 /// `A | B` binding nothing, or is `_` (the variants no other arm names).
 fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
-    if pattern.is_int_case() {
+    if pattern.is_lit_case() {
         return Ok(pattern);
     }
     match &pattern {
@@ -690,7 +690,7 @@ fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
         Pattern::OptionNone => Vec::new(),
         Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => {
             return Err(ParseError::new(Reason::ArmPattern, format!(
-                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer or integer range, or be `_` in v0, found {}",
+                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer or integer range, a string literal, or be `_` in v0, found {}",
                 describe_pat(pattern)
             )))
         }

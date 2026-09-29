@@ -62,7 +62,10 @@ fn label(ty: &str, case: &str) -> String {
 
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
     if arms.iter().any(|a| a.pattern.is_int_case()) {
-        return int_arms(i, arms, out);
+        return lit_arms(i, arms, "integer", Pattern::is_int_case, out);
+    }
+    if arms.iter().any(|a| a.pattern.is_str_case()) {
+        return lit_arms(i, arms, "string", Pattern::is_str_case, out);
     }
     let mut ty: Option<&str> = None;
     let mut seen: Vec<&str> = Vec::new();
@@ -126,15 +129,19 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     }
 }
 
-/// Integers cannot be listed out, so the arms are tried in order and a last
-/// `_` takes the rest, as an `if` chain in TS.
-fn int_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
-    let (last, named) = arms.split_last().expect("an integer case was found");
-    if let Some(other) = named.iter().find(|a| !a.pattern.is_int_case()) {
-        let found = if other.pattern == Pattern::Wildcard { "`_` must be the last arm" } else { "match mixes integer and variant arms" };
+/// Integers and strings cannot be listed out, so the arms are tried in order
+/// and a last `_` takes the rest, as an `if` chain in TS.
+fn lit_arms(i: usize, arms: &[Arm], kind: &str, is_case: fn(&Pattern) -> bool, out: &mut Vec<Diagnostic>) {
+    let (last, named) = arms.split_last().expect("a literal case was found");
+    if let Some(other) = named.iter().find(|a| !is_case(&a.pattern)) {
+        let found = if other.pattern == Pattern::Wildcard {
+            "`_` must be the last arm".to_string()
+        } else {
+            format!("match mixes {kind} arms with other arms")
+        };
         out.push(Diagnostic::at(i, Reason::ArmPattern, found));
     } else if last.pattern != Pattern::Wildcard {
-        out.push(Diagnostic::at(i, Reason::NonExhaustive, "a match on integers must end in a `_` arm in v0"));
+        out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("a match on {kind}s must end in a `_` arm in v0")));
     }
 }
 

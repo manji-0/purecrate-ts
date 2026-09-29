@@ -39,3 +39,28 @@ fn string_and_str_compare_in_either_order() {
 fn string_from_takes_one_argument() {
     assert_rejects("pub fn f() -> String { String::from(\"a\", \"b\") }", "`String::from` takes 1 argument");
 }
+
+#[test]
+fn string_patterns_match_a_str() {
+    assert_clean("pub fn f(s: &str) -> i32 { match s { \"a\" => 1, \"b\" | \"c\" => 2, _ => 3 } }");
+    assert_clean("pub fn f(s: String) -> i32 { match s.as_str() { \"a\" => 1, _ => 2 } }");
+    assert_clean("pub fn f(s: &str) -> bool { matches!(s, \"a\" | \"b\") }");
+    assert_rejects(
+        "pub fn f(s: String) -> i32 { match s { \"a\" => 1, _ => 2 } }",
+        "string patterns match a `&str`, found `String`; match on `s.as_str()`",
+    );
+    assert_rejects("pub fn f(x: i32) -> i32 { match x { \"a\" => 1, _ => 2 } }", "string patterns do not match a value of type `i32`");
+}
+
+#[test]
+fn a_match_on_strings_ends_in_a_wildcard() {
+    assert_rejects("pub fn f(s: &str) -> i32 { match s { \"a\" => 1 } }", "a match on strings must end in a `_` arm");
+    assert_rejects("pub fn f(s: &str) -> i32 { match s { _ => 0, \"a\" => 1 } }", "`_` must be the last arm");
+    assert_rejects("pub fn f(s: &str) -> i32 { match s { \"a\" => 1, 2 => 2, _ => 3 } }", "match mixes integer arms with other arms");
+}
+
+#[test]
+fn as_str_is_only_on_a_string() {
+    assert_clean("pub fn f(s: String) -> bool { s.as_str() == \"a\" }");
+    assert_rejects("pub fn f(s: &str) -> bool { s.as_str() == \"a\" }", "as_str");
+}

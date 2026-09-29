@@ -279,7 +279,8 @@ mod tests {
         rejects("Cmd::Stop => 0, Cmd::Move(a, _) | Cmd::Move(_, a) => a", "`|` arms may not bind names");
         rejects("Cmd::Stop | _ => 0", "each side of `|` must name an enum variant");
         rejects("Cmd::Stop | Cmd::Move(1, _) => 0", "found a literal");
-        let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" => 1, _ => 2 } }").expect_err("str pattern");
+        parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | \"b\" => 1, _ => 2 } }").expect("str pattern");
+        let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | 1 => 1, _ => 2 } }").expect_err("mixed");
         assert!(err.message.contains("found a literal"), "{}", err.message);
         let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, 1 if x > 0) }").expect_err("guard");
         assert!(err.message.contains("match guards are not in v0"), "{}", err.message);

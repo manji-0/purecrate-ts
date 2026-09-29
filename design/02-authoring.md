@@ -29,7 +29,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32` with debug semantics | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
-| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.bytes(s)` |
+| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; an `if` chain of `===`; `Str.bytes(s)` |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
@@ -93,16 +93,17 @@ An arm is one of:
 - several variants of the same enum joined by `|`, binding nothing (`Event::Pay(_) | Event::Ship { .. } =>`);
 - `_`, as the last arm, taking every case no other arm names. A `_` after arms covering everything is accepted and dropped (rustc warns); a `match` whose only arm is `_` is rejected;
 - on an integer: a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `|`. The last arm must be `_`, even where the ranges cover every value. Arms are tried in order, as in Rust.
+- on a `&str`: a string literal, or several joined by `|` (`"card" | "credit_card" =>`). The last arm must be `_`. A `String` is matched through `s.as_str()`, as rustc requires.
 
 `matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; a guard (`p if c`) is rejected.
 
 The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too. As in Rust, a variant added later falls into `_` silently; write every arm where that matters.
 
-Not accepted: tuple scrutinees (`match (state, event)` — split into one function per state), `|` arms that bind names, binding-only arms, guards, nested patterns, string, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
+Not accepted: tuple scrutinees (`match (state, event)` — split into one function per state), `|` arms that bind names, binding-only arms, guards, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
 
 ### 3.6 Strings
 
-A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again. `len`, `is_empty`, `starts_with`, `ends_with`, and `contains` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
+A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again. `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
 
 ### 3.7 Types
 

@@ -100,7 +100,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         if let Some(m) = StrMethod::from_name(name.as_str()) {
             if let Some(rt) = &rt {
-                if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
+                let rt = self.norm(rt);
+                // `str::as_str` is unstable; only `String` has one.
+                if matches!(rt, Ty::Prim(Prim::String)) || (rt == Ty::Prim(Prim::Str) && m != StrMethod::AsStr) {
                     return self.str_method(m, recv, args, want);
                 }
             }
@@ -763,7 +765,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.scopes.truncate(depth);
                 result = join(result.take(), t);
                 Arm {
-                    pattern: self.int_pattern(&arm.pattern, st.as_ref()),
+                    pattern: self.lit_pattern(&arm.pattern, st.as_ref()),
                     body,
                 }
             })
@@ -778,8 +780,21 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// An integer arm with every literal given the scrutinee's type, so the
-    /// printer knows `1` from `1n`. Other patterns are returned as they are.
-    fn int_pattern(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) -> Pattern {
+    /// printer knows `1` from `1n`; a string arm checked against a `&str`.
+    /// Other patterns are returned as they are.
+    fn lit_pattern(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) -> Pattern {
+        if pattern.is_str_case() {
+            match scrutinee {
+                Some(Ty::Prim(Prim::Str) | Ty::Never) | None => {}
+                Some(Ty::Prim(Prim::String)) => self.error(Reason::TypeMismatch,
+                    "string patterns match a `&str`, found `String`; match on `s.as_str()`".to_string()),
+                Some(t) => self.error(Reason::TypeMismatch, format!(
+                    "string patterns do not match a value of type `{}`",
+                    show(t)
+                )),
+            }
+            return pattern.clone();
+        }
         if !pattern.is_int_case() {
             return pattern.clone();
         }
@@ -1118,6 +1133,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(match m {
                     StrMethod::Len => Ty::Prim(Prim::Usize),
+                    StrMethod::AsStr => Ty::Prim(Prim::Str),
                     _ => Ty::bool(),
                 }),
             ),
@@ -1156,6 +1172,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let ret = match m {
             StrMethod::Len => Ty::Prim(Prim::Usize),
+            StrMethod::AsStr => Ty::Prim(Prim::Str),
             StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
         };
         let e = Expr::Call {
