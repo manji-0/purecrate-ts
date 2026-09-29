@@ -30,8 +30,29 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// `& | ^` and the shifts, on integers only. `check::accept` rewrites
+    /// each into a `Callee::Int` call; none is printed as a JS operator.
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
+impl BinOp {
+    /// `& | ^`: both operands and the result have one integer type.
+    pub fn is_bitwise(self) -> bool {
+        matches!(self, BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor)
+    }
+
+    /// `<< >>`: the result has the left operand's type; the right operand
+    /// is any integer.
+    pub fn is_shift(self) -> bool {
+        matches!(self, BinOp::Shl | BinOp::Shr)
+    }
+}
+
+/// `!` is logical on `bool` and bitwise on an integer, as in Rust.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnOp {
     Not,
@@ -39,7 +60,9 @@ pub enum UnOp {
 }
 
 /// Integer arithmetic with Rust debug-build semantics: truncating division,
-/// and a throw wherever Rust would panic (overflow, zero divisor).
+/// and a throw wherever Rust would panic (overflow, zero divisor, a shift
+/// amount outside `0..bits`). Bitwise results wrap to the width; they never
+/// panic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntOp {
     Add,
@@ -48,14 +71,26 @@ pub enum IntOp {
     Div,
     Rem,
     Neg,
+    And,
+    Or,
+    Xor,
+    /// `!x`.
+    Not,
+    /// The amount is the second argument, of any integer type.
+    Shl,
+    Shr,
 }
 
 impl IntOp {
     pub fn arity(self) -> usize {
         match self {
-            IntOp::Neg => 1,
+            IntOp::Neg | IntOp::Not => 1,
             _ => 2,
         }
+    }
+
+    pub fn is_shift(self) -> bool {
+        matches!(self, IntOp::Shl | IntOp::Shr)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -66,6 +101,12 @@ impl IntOp {
             IntOp::Div => "div",
             IntOp::Rem => "rem",
             IntOp::Neg => "neg",
+            IntOp::And => "and",
+            IntOp::Or => "or",
+            IntOp::Xor => "xor",
+            IntOp::Not => "not",
+            IntOp::Shl => "shl",
+            IntOp::Shr => "shr",
         }
     }
 }

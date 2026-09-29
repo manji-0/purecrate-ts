@@ -750,7 +750,76 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (r, _) = self.expr(right, Some(&Ty::bool()));
                 (rebuild(op, l, r), self.expect(want, Some(Ty::bool())))
             }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                let (l, lt, r, rt) = self.pair(left, right, want);
+                match join(lt, rt).filter(|t| *t != Ty::Never) {
+                    Some(t) => self.bit_call(op, t, vec![l, r]),
+                    None => {
+                        self.unknown("bitwise operator");
+                        (rebuild(op, l, r), None)
+                    }
+                }
+            }
+            // Rust types the amount on its own: an unsuffixed literal there is
+            // `i32`, whatever the left side is.
+            BinOp::Shl | BinOp::Shr => {
+                let (l, lt) = self.expr(left, want);
+                let amount_hint = is_bare_int(right).then(|| Ty::Prim(Prim::I32));
+                let (r, rt) = self.expr(right, amount_hint.as_ref());
+                if let Some(rt) = rt.as_ref().filter(|t| **t != Ty::Never) {
+                    if !matches!(self.num(rt), Some(Num::Int(_))) {
+                        self.error(Reason::NumericOp, format!("a shift amount is an integer, found `{}`", show(rt)));
+                    }
+                }
+                match lt.filter(|t| *t != Ty::Never) {
+                    Some(t) => self.bit_call(op, t, vec![l, r]),
+                    None => {
+                        self.unknown("shift");
+                        (rebuild(op, l, r), None)
+                    }
+                }
+            }
         }
+    }
+
+    /// `& | ^ << >>` and `!` on an integer of type `t`, as a `Callee::Int`
+    /// call. `usize` is refused: Rust gives it 64 bits, which its `number`
+    /// cannot hold, so `!x` or `x << 20` would have no TS value.
+    fn bit_call(&mut self, op: BinOp, t: Ty, args: Vec<Expr>) -> Typed {
+        let int_op = int_op(op);
+        let what = match op {
+            BinOp::BitAnd => "`&`",
+            BinOp::BitOr => "`|`",
+            BinOp::BitXor => "`^`",
+            BinOp::Shl => "`<<`",
+            BinOp::Shr => "`>>`",
+            _ => "`!`",
+        };
+        match self.num(&t) {
+            Some(Num::Int(IntTy::Usize)) => {
+                self.error(Reason::NumericOp, format!(
+                    "{what} on `usize` is not in v0: `usize` is a JS number checked to 2^53, not 64 bits; use `u32` or `u64`"
+                ));
+            }
+            Some(Num::Int(it)) => {
+                let e = Expr::Call { callee: Callee::Int { ty: it, op: int_op }, args };
+                return (e, Some(t));
+            }
+            _ if self.norm(&t) == Ty::bool() && op != BinOp::Shl && op != BinOp::Shr => {
+                let hint = match op {
+                    BinOp::BitAnd => "`&&`",
+                    BinOp::BitOr => "`||`",
+                    _ => "`!=`",
+                };
+                self.error(Reason::NumericOp, format!(
+                    "{what} on `bool` is not in v0; write {hint} (both sides are evaluated with {what}, so bind the right side first if it has an effect)"
+                ));
+            }
+            _ => self.error(Reason::NumericOp, format!("{what} on `{}` is not in v0", show(&t))),
+        }
+        let mut args = args.into_iter();
+        let (l, r) = (args.next().expect("two operands"), args.next().expect("two operands"));
+        (rebuild(op, l, r), Some(t))
     }
 
     fn unary(&mut self, op: UnOp, inner: &Expr, want: Option<&Ty>) -> Typed {
@@ -783,13 +852,29 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (e, Some(t))
             }
+            // Logical on `bool`, bitwise on an integer: the operand decides.
             UnOp::Not => {
-                let (e, t) = self.expr(inner, Some(&Ty::bool()));
-                let e = Expr::Unary {
-                    op,
-                    expr: Box::new(e),
-                };
-                (e, t.map(|_| Ty::bool()))
+                let (e, t) = self.expr(inner, want);
+                let int = t.as_ref().filter(|t| **t != Ty::Never).and_then(|t| match self.num(t) {
+                    Some(Num::Int(it)) => Some(it),
+                    _ => None,
+                });
+                match (int, t) {
+                    (Some(IntTy::Usize), Some(t)) => {
+                        self.error(Reason::NumericOp,
+                            "`!` on `usize` is not in v0: `usize` is a JS number checked to 2^53, not 64 bits; use `u32` or `u64`".to_string());
+                        (Expr::Unary { op, expr: Box::new(e) }, Some(t))
+                    }
+                    (Some(it), t) => {
+                        let e = Expr::Call { callee: Callee::Int { ty: it, op: IntOp::Not }, args: vec![e] };
+                        (e, t)
+                    }
+                    (None, Some(t)) if t != Ty::Never && self.norm(&t) != Ty::bool() => {
+                        self.error(Reason::NumericOp, format!("cannot apply `!` to `{}`", show(&t)));
+                        (Expr::Unary { op, expr: Box::new(e) }, None)
+                    }
+                    (None, t) => (Expr::Unary { op, expr: Box::new(e) }, t.map(|_| Ty::bool())),
+                }
             }
         }
     }
@@ -1167,7 +1252,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::Int { ty, op } => {
                 let t = Ty::Prim((*ty).into());
-                (typed_args(self, vec![t.clone(); op.arity()]), Some(t))
+                // A shift amount keeps its own type.
+                let n = if op.is_shift() { 1 } else { op.arity() };
+                (typed_args(self, vec![t.clone(); n]), Some(t))
             }
             Callee::Fround => (
                 typed_args(self, vec![Ty::Prim(Prim::F64)]),
@@ -1406,6 +1493,9 @@ fn needs_context(expr: &Expr) -> bool {
             left,
             right,
         } => needs_context(left) && needs_context(right),
+        Expr::Binary { op, left, right } if op.is_bitwise() => needs_context(left) && needs_context(right),
+        Expr::Binary { op, left, .. } if op.is_shift() => needs_context(left),
+        Expr::Unary { op: UnOp::Not, expr } => needs_context(expr),
         Expr::If { then, else_, .. } => needs_context(then) && needs_context(else_),
         Expr::Let { then, .. } | Expr::Seq { then, .. } => needs_context(then),
         _ => false,
@@ -1438,6 +1528,11 @@ fn int_op(op: BinOp) -> IntOp {
         BinOp::Mul => IntOp::Mul,
         BinOp::Div => IntOp::Div,
         BinOp::Rem => IntOp::Rem,
+        BinOp::BitAnd => IntOp::And,
+        BinOp::BitOr => IntOp::Or,
+        BinOp::BitXor => IntOp::Xor,
+        BinOp::Shl => IntOp::Shl,
+        BinOp::Shr => IntOp::Shr,
         other => unreachable!("{other:?} is not arithmetic"),
     }
 }

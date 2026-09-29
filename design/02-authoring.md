@@ -28,7 +28,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
-| Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32` with debug semantics (no bitwise `& \| ^ !` or shifts `<< >>`) | `Int.<ty>.*` |
+| Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
 | Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; an `if` chain of `===`; `Str.bytes(s)` |
@@ -121,7 +121,8 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `opt.map(..)`, `and_then` | `match` or `?` |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
-| `x & 0x0f`, `x << 8`, `a \| b` | `%`, `*`, `/` by powers of two, where the operands are known non-negative and in range (RFC 4226 truncation in examples/oidc) |
+| `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
+| `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
 | `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |

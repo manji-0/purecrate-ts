@@ -39,6 +39,7 @@ fn missing(expr: &Expr, float_call: bool) -> Option<&'static str> {
             op: BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem,
             ..
         } if !float_call => Some("an arithmetic operand"),
+        Expr::Binary { op, .. } if op.is_bitwise() || op.is_shift() => Some("a bitwise operand"),
         Expr::Unary { op: UnOp::Neg, .. } if !float_call => Some("a negated operand"),
         _ => None,
     };

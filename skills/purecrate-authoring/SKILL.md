@@ -33,7 +33,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 
 ## Accepted, at a glance
 
-- Integers `i8`–`i32`, `u8`–`u32` (`Int.*`, checked), `i64`/`u64` as `bigint`, `f32`/`f64`, `usize` (safe-integer range). Operators `+ - * / %` and comparisons; no bitwise `& | ^ !` or shifts (`[expr/operator]`). Widening only via `i64::from(x)` where std has `From`. No `as`, `.into()`, `try_from` (except the serde form above).
+- Integers `i8`–`i32`, `u8`–`u32` (`Int.*`, checked), `i64`/`u64` as `bigint`, `f32`/`f64`, `usize` (safe-integer range). Operators `+ - * / %`, comparisons, bitwise `& | ^ !` and shifts `<< >>` (with `op=`); a shift amount outside `0..bits` panics as in Rust. Not bitwise on `usize` (53 bits in TS) or on `bool` (write `&&`, `||`, `!=`). Widening only via `i64::from(x)` where std has `From`. No `as`, `.into()`, `try_from` (except the serde form above).
 - **std methods are an allow-list**, and this is all of it: on strings `len`, `is_empty`, `starts_with`/`ends_with`/`contains`, `as_bytes`, `as_str`; on `Vec` and `as_bytes()` results, indexing, `len`, and `is_empty`; on `Option`, `is_some` and `is_none`; on `char`, the ASCII methods (`is_ascii_*`, `to_ascii_*case`, `eq_ignore_ascii_case`), `is_digit`/`to_digit`, `len_utf8`. Everything else (`unwrap_or`, `is_ok`, `max`, `pow`, `checked_*`, `div_euclid`, `from_be_bytes`, `u8::is_ascii_digit`, …) is `[expr/method-call]`, whose message says "only methods of the crate's own inherent impls"; it means "not on the allow-list".
 - `derive(Debug, Clone, Copy, PartialEq, Eq)` pass, but deriving `PartialEq` does not make `==` available on your types.
 - Strings: `String::from("…")`, `==`/`!=`, `len` (UTF-8 bytes), `is_empty`, `starts_with`/`ends_with`/`contains` with a `&str`, contents via `s.as_bytes()` indexed as `&[u8]`. A bare literal is `&str` and cannot stand where `String` is expected.
@@ -51,7 +51,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `match (state, event)` | one function per state |
 | match guards `p if c`, nested patterns, `|` arms that bind names | an `if` inside the arm; split the match |
 | `a == b` on structs/enums/`Option` (`[check/numeric-op]`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method |
-| `x & 0x7f`, `x << 8`, `a \| b` | `%`, `*`, `/` by powers of two, when operands are non-negative and in range |
+| `x & 1`, `x >> 3` on `usize` | a `u32`/`u64` for bit fields |
 | `b.is_ascii_digit()` on a `u8` | `matches!(b, b'0'..=b'9')` |
 | `s < t` on `String` | an enum or integer |
 | `format!`, `.to_string()`, `.to_owned()`, `.into()`, `clone` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)`, an `Option<String>` with a `match` |

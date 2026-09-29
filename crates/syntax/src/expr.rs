@@ -321,6 +321,11 @@ fn compound_op(op: SynBinOp) -> Option<SynBinOp> {
         SynBinOp::MulAssign(_) => SynBinOp::Mul(token::Star::default()),
         SynBinOp::DivAssign(_) => SynBinOp::Div(token::Slash::default()),
         SynBinOp::RemAssign(_) => SynBinOp::Rem(token::Percent::default()),
+        SynBinOp::BitAndAssign(_) => SynBinOp::BitAnd(token::And::default()),
+        SynBinOp::BitOrAssign(_) => SynBinOp::BitOr(token::Or::default()),
+        SynBinOp::BitXorAssign(_) => SynBinOp::BitXor(token::Caret::default()),
+        SynBinOp::ShlAssign(_) => SynBinOp::Shl(token::Shl::default()),
+        SynBinOp::ShrAssign(_) => SynBinOp::Shr(token::Shr::default()),
         _ => return None,
     })
 }
@@ -901,6 +906,11 @@ fn lower_bin(op: SynBinOp) -> Result<BinOp, ParseError> {
         SynBinOp::Ge(_) => BinOp::Ge,
         SynBinOp::And(_) => BinOp::And,
         SynBinOp::Or(_) => BinOp::Or,
+        SynBinOp::BitAnd(_) => BinOp::BitAnd,
+        SynBinOp::BitOr(_) => BinOp::BitOr,
+        SynBinOp::BitXor(_) => BinOp::BitXor,
+        SynBinOp::Shl(_) => BinOp::Shl,
+        SynBinOp::Shr(_) => BinOp::Shr,
         _ => return Err(ParseError::new(Reason::UnsupportedOperator, "unsupported binary operator")),
     })
 }

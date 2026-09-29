@@ -67,6 +67,48 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
+/**
+ * The amount of a shift, of any integer type. A debug build panics unless it
+ * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
+ * bits shifted out of the result are dropped without a panic.
+ */
+const shiftAmount = (n: number | bigint, bits: number, what: string): number =>
+  n < 0 || n >= bits ? panic(`shift ${what} with overflow`) : Number(n);
+
+/**
+ * `& | ^ ! << >>` on a width of at most 32 bits. The JS operators work on
+ * int32; `wrap` sign- or zero-extends the low `bits` back into the width.
+ */
+const bits32 = <T extends number>(bits: number, signed: boolean) => {
+  const s = 32 - bits;
+  const wrap = (n: number): T => (signed ? (n << s) >> s : (n << s) >>> s) as T;
+  return {
+    and: (a: T, b: T): T => wrap(a & b),
+    or: (a: T, b: T): T => wrap(a | b),
+    xor: (a: T, b: T): T => wrap(a ^ b),
+    not: (a: T): T => wrap(~a),
+    shl: (a: T, n: number | bigint): T => wrap(a << shiftAmount(n, bits, "left")),
+    shr: (a: T, n: number | bigint): T => {
+      const k = shiftAmount(n, bits, "right");
+      return wrap(signed ? a >> k : a >>> k);
+    },
+  } as const;
+};
+
+/** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
+const bits64 = <T extends bigint>(signed: boolean) => {
+  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+  const v = (x: T): bigint => x as bigint;
+  return {
+    and: (a: T, b: T): T => wrap(v(a) & v(b)),
+    or: (a: T, b: T): T => wrap(v(a) | v(b)),
+    xor: (a: T, b: T): T => wrap(v(a) ^ v(b)),
+    not: (a: T): T => wrap(~v(a)),
+    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, 64, "left"))),
+    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
+  } as const;
+};
+
 const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
 
 /**
@@ -231,15 +273,16 @@ export const Uuid = {
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  i8: small<I8>(-128, 127),
-  i16: small<I16>(-32768, 32767),
-  i32: small<I32>(-2147483648, 2147483647),
-  u8: small<U8>(0, 255),
-  u16: small<U16>(0, 65535),
-  u32: small<U32>(0, 4294967295),
+  i8: { ...small<I8>(-128, 127), ...bits32<I8>(8, true) },
+  i16: { ...small<I16>(-32768, 32767), ...bits32<I16>(16, true) },
+  i32: { ...small<I32>(-2147483648, 2147483647), ...bits32<I32>(32, true) },
+  u8: { ...small<U8>(0, 255), ...bits32<U8>(8, false) },
+  u16: { ...small<U16>(0, 65535), ...bits32<U16>(16, false) },
+  u32: { ...small<U32>(0, 4294967295), ...bits32<U32>(32, false) },
+  // No bitwise operators: Rust's `usize` has 64 bits, this one 53.
   usize: small<Usize>(0, 9007199254740991),
-  i64: big<I64>(-9223372036854775808n, 9223372036854775807n),
-  u64: big<U64>(0n, 18446744073709551615n),
+  i64: { ...big<I64>(-9223372036854775808n, 9223372036854775807n), ...bits64<I64>(true) },
+  u64: { ...big<U64>(0n, 18446744073709551615n), ...bits64<U64>(false) },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
   },

@@ -97,7 +97,7 @@ From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-na
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
 3. **std methods** the example calls, via the allow-list. `Vec::is_empty` and `Option::is_some`/`is_none` (three of four real sites and oidc) are in, 2026-09-30. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
 4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
-5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc and Stoat's permission flags (both worked around), needed by any spec written in them.
+5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc and Stoat's permission flags (both worked around), needed by any spec written in them. Done 2026-09-30 (not on `usize` or `bool`).
 6. **Building a `Vec` in the crate** (`vec![a, b]` of a fixed length) — oidc's `amr` is a list claim that TS callers expect as an array.
 
 ## 4. Specified but not yet implemented

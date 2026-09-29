@@ -64,6 +64,7 @@ Validation has three layers. **Shape** (is this JSON an `Order`?) is the wire sc
 | Rust | Generated TS |
 | --- | --- |
 | integer `+ - * / %`, unary `-` | `Int.<ty>.add(a, b)` etc. `/` truncates; overflow and division by zero throw Rust's panic message; `-0` is normalized to `0` |
+| integer `& \| ^`, `!`, `<< >>` (2026-09-30) | `Int.<ty>.and(a, b)`, `or`, `xor`, `not`, `shl`, `shr`. Results wrap to the width (JS int32 operators, then sign- or zero-extension; `BigInt.asIntN`/`asUintN` for 64 bits) and never panic; a shift amount of any integer type outside `0..bits`, compared as its whole value (`-1`, `2^32 + 1`), throws `attempt to shift left with overflow` as a debug build panics. An unsuffixed amount is `i32`, as in rustc. `usize` is refused: Rust gives it 64 bits, the TS `number` 53. `& \| ^` on `bool` are refused in favor of `&& \|\| !=` (`bits_equivalence.rs`: every width, operator, and amount type, boundary values, compound assignment, RFC 4226 truncation) |
 | `f32` arithmetic | `Math.fround(a op b)`. `f32` literals are rounded once from decimal by the converter (not via `f64`) |
 | `f64` arithmetic | JS operators |
 | `i64` / `u64` literals | `5n` |
