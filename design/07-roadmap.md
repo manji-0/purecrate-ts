@@ -64,14 +64,14 @@ The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33
 
 ## 3. Next, when an example needs it
 
-1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time.
+1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` itself is in; `s.chars()` waits for iterator `for`.
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
 3. **std methods** the example calls, via the allow-list. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
 4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
 
 ## 4. Specified but not yet implemented
 
-`char`; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
+`s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `const`/`static`.
 
 ## 5. v1: when type expressiveness runs out
 

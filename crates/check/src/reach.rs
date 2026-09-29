@@ -179,7 +179,11 @@ impl Refs {
                     | Callee::StrBytes
                     | Callee::StringFrom
                     | Callee::Str(_)
-                    | Callee::IntFrom { .. } => {}
+                    | Callee::IntFrom { .. }
+                    | Callee::CharCode(_)
+                    | Callee::CharFromU8
+                    | Callee::CharFromU32
+                    | Callee::Char(_) => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }

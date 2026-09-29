@@ -23,6 +23,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Closed ADTs | struct, enum, newtype (content not `Option`, `()`, `!`) | `Readonly` objects, `kind` unions, brands |
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
+| Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
@@ -93,6 +94,7 @@ An arm is one of:
 - several variants of the same enum joined by `|`, binding nothing (`Event::Pay(_) | Event::Ship { .. } =>`);
 - `_`, as the last arm, taking every case no other arm names. A `_` after arms covering everything is accepted and dropped (rustc warns); a `match` whose only arm is `_` is rejected;
 - on an integer: a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `|`. The last arm must be `_`, even where the ranges cover every value. Arms are tried in order, as in Rust.
+- on a `char`: a literal (`'@'`), a range with a literal at both ends (`'a'..='z'`), or several joined by `|`. The last arm must be `_`.
 - on a `&str`: a string literal, or several joined by `|` (`"card" | "credit_card" =>`). The last arm must be `_`. A `String` is matched through `s.as_str()`, as rustc requires.
 
 `matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; a guard (`p if c`) is rejected.

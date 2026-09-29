@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Int, type F32, type F64 } from "purecrate";
+import { Char, Int, type F32, type F64 } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, z.ZodTypeDef, In>;
 
@@ -38,6 +38,8 @@ export const f32: Out<F32, number> = z.number().transform(Int.f32.of) as unknown
 export const f64: Out<F64, number> = z.number().transform(Int.f64.of) as unknown as Out<F64, number>;
 
 export const str = z.string();
+/** serde reads a `char` from a string of exactly one scalar value. */
+export const char: Out<Char, string> = z.string().refine(Char.is, "a single character") as unknown as Out<Char, string>;
 export const bool = z.boolean();
 
 /** serde writes `()` as JSON `null`. The domain value is `undefined`. */

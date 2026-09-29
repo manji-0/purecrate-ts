@@ -62,3 +62,9 @@ pub struct Sealed {
     code: i32,
     pub hint: Option<String>,
 }
+
+pub struct Letters {
+    pub one: char,
+    pub maybe: Option<char>,
+    pub many: Vec<char>,
+}

@@ -10,6 +10,7 @@ pub enum Lit {
     Int { value: i128, ty: Option<IntTy> },
     Float { digits: String, ty: Option<FloatTy> },
     Str(String),
+    Char(char),
     Unit,
     Null,
 }
@@ -119,6 +120,114 @@ impl StrMethod {
     }
 }
 
+/// `char` methods that look only at ASCII or at the code point, so no
+/// Unicode table is involved (design/01 §6). Each prints as `Char.<ts>(c,
+/// ..)`; the receiver is the first argument.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CharMethod {
+    IsAscii,
+    IsAsciiAlphabetic,
+    IsAsciiAlphanumeric,
+    IsAsciiControl,
+    IsAsciiDigit,
+    IsAsciiGraphic,
+    IsAsciiHexdigit,
+    IsAsciiLowercase,
+    IsAsciiPunctuation,
+    IsAsciiUppercase,
+    /// Space, tab, LF, FF, CR. Not VT, unlike `is_whitespace` and JS `\s`.
+    IsAsciiWhitespace,
+    ToAsciiLowercase,
+    ToAsciiUppercase,
+    /// Takes `&char`.
+    EqIgnoreAsciiCase,
+    /// UTF-8 bytes, as `usize`.
+    LenUtf8,
+    /// Takes a `u32` radix; panics outside 2..=36 as Rust does.
+    IsDigit,
+    /// Takes a `u32` radix; `Option<u32>`.
+    ToDigit,
+}
+
+impl CharMethod {
+    pub const ALL: [CharMethod; 17] = [
+        CharMethod::IsAscii,
+        CharMethod::IsAsciiAlphabetic,
+        CharMethod::IsAsciiAlphanumeric,
+        CharMethod::IsAsciiControl,
+        CharMethod::IsAsciiDigit,
+        CharMethod::IsAsciiGraphic,
+        CharMethod::IsAsciiHexdigit,
+        CharMethod::IsAsciiLowercase,
+        CharMethod::IsAsciiPunctuation,
+        CharMethod::IsAsciiUppercase,
+        CharMethod::IsAsciiWhitespace,
+        CharMethod::ToAsciiLowercase,
+        CharMethod::ToAsciiUppercase,
+        CharMethod::EqIgnoreAsciiCase,
+        CharMethod::LenUtf8,
+        CharMethod::IsDigit,
+        CharMethod::ToDigit,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == name)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::IsAscii => "is_ascii",
+            Self::IsAsciiAlphabetic => "is_ascii_alphabetic",
+            Self::IsAsciiAlphanumeric => "is_ascii_alphanumeric",
+            Self::IsAsciiControl => "is_ascii_control",
+            Self::IsAsciiDigit => "is_ascii_digit",
+            Self::IsAsciiGraphic => "is_ascii_graphic",
+            Self::IsAsciiHexdigit => "is_ascii_hexdigit",
+            Self::IsAsciiLowercase => "is_ascii_lowercase",
+            Self::IsAsciiPunctuation => "is_ascii_punctuation",
+            Self::IsAsciiUppercase => "is_ascii_uppercase",
+            Self::IsAsciiWhitespace => "is_ascii_whitespace",
+            Self::ToAsciiLowercase => "to_ascii_lowercase",
+            Self::ToAsciiUppercase => "to_ascii_uppercase",
+            Self::EqIgnoreAsciiCase => "eq_ignore_ascii_case",
+            Self::LenUtf8 => "len_utf8",
+            Self::IsDigit => "is_digit",
+            Self::ToDigit => "to_digit",
+        }
+    }
+
+    /// Arguments after the receiver.
+    pub fn args(self) -> usize {
+        match self {
+            Self::EqIgnoreAsciiCase | Self::IsDigit | Self::ToDigit => 1,
+            _ => 0,
+        }
+    }
+
+    /// The runtime's name: `Char.<ts_name>`.
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Self::IsAscii => "isAscii",
+            Self::IsAsciiAlphabetic => "isAsciiAlphabetic",
+            Self::IsAsciiAlphanumeric => "isAsciiAlphanumeric",
+            Self::IsAsciiControl => "isAsciiControl",
+            Self::IsAsciiDigit => "isAsciiDigit",
+            Self::IsAsciiGraphic => "isAsciiGraphic",
+            Self::IsAsciiHexdigit => "isAsciiHexdigit",
+            Self::IsAsciiLowercase => "isAsciiLowercase",
+            Self::IsAsciiPunctuation => "isAsciiPunctuation",
+            Self::IsAsciiUppercase => "isAsciiUppercase",
+            Self::IsAsciiWhitespace => "isAsciiWhitespace",
+            Self::ToAsciiLowercase => "toAsciiLowercase",
+            Self::ToAsciiUppercase => "toAsciiUppercase",
+            Self::EqIgnoreAsciiCase => "eqIgnoreAsciiCase",
+            Self::LenUtf8 => "lenUtf8",
+            Self::IsDigit => "isDigit",
+            Self::ToDigit => "toDigit",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
@@ -150,6 +259,17 @@ pub enum Callee {
     /// `to::from(x)` where std has a lossless `From` (`IntTy::widens_to`).
     /// `from` is the argument's type, set by `check::accept`.
     IntFrom { from: Option<IntTy>, to: IntTy },
+    /// `u32::from(c)` / `u64::from(c)`: the code point. `check::accept`
+    /// rewrites an `IntFrom` on a `char` to this, and wraps both sides of a
+    /// `char` ordering in it: JS orders strings by UTF-16 unit, which puts
+    /// U+E000..=U+FFFF above the supplementary planes.
+    CharCode(IntTy),
+    /// `char::from(b)` for a `u8`.
+    CharFromU8,
+    /// `char::from_u32(n)`: `None` for a surrogate or past U+10FFFF.
+    CharFromU32,
+    /// A `char` method from the allow-list; the receiver is the first argument.
+    Char(CharMethod),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,8 +307,18 @@ impl Pattern {
     /// an integer.
     pub fn is_int_case(&self) -> bool {
         match self {
-            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { .. } => true,
+            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { lo: Lit::Int { .. }, .. } => true,
             Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
+            _ => false,
+        }
+    }
+
+    /// A `char` literal or range, or `|` of them: an arm of a `match` on a
+    /// `char`.
+    pub fn is_char_case(&self) -> bool {
+        match self {
+            Pattern::Lit(Lit::Char(_)) | Pattern::Range { lo: Lit::Char(_), .. } => true,
+            Pattern::Or(alts) => alts.iter().all(Pattern::is_char_case),
             _ => false,
         }
     }
@@ -202,9 +332,10 @@ impl Pattern {
         }
     }
 
-    /// An arm tried by value in order, as an `if` chain: integer or string.
+    /// An arm tried by value in order, as an `if` chain: integer, `char`,
+    /// or string.
     pub fn is_lit_case(&self) -> bool {
-        self.is_int_case() || self.is_str_case()
+        self.is_int_case() || self.is_char_case() || self.is_str_case()
     }
 
     /// Names the pattern binds, left to right.

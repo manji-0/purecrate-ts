@@ -64,6 +64,9 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     if arms.iter().any(|a| a.pattern.is_int_case()) {
         return lit_arms(i, arms, "integer", Pattern::is_int_case, out);
     }
+    if arms.iter().any(|a| a.pattern.is_char_case()) {
+        return lit_arms(i, arms, "char", Pattern::is_char_case, out);
+    }
     if arms.iter().any(|a| a.pattern.is_str_case()) {
         return lit_arms(i, arms, "string", Pattern::is_str_case, out);
     }
@@ -129,7 +132,7 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     }
 }
 
-/// Integers and strings cannot be listed out, so the arms are tried in order
+/// Integers, `char`s, and strings cannot be listed out, so the arms are tried in order
 /// and a last `_` takes the rest, as an `if` chain in TS.
 fn lit_arms(i: usize, arms: &[Arm], kind: &str, is_case: fn(&Pattern) -> bool, out: &mut Vec<Diagnostic>) {
     let (last, named) = arms.split_last().expect("a literal case was found");

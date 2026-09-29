@@ -216,6 +216,12 @@ fn shape_values() -> Vec<(&'static str, String)> {
         ("Sealed", serde_json::to_string(&sealed_of(-1, Some("h".into()))).unwrap()),
         ("Id", serde_json::to_string(&id_of(0)).unwrap()),
         ("Label", serde_json::to_string(&label_of("l".into())).unwrap()),
+        (
+            "Letters",
+            serde_json::to_string(&Letters { one: '"', maybe: Some('😀'), many: vec!['\\', '\n', '\u{7f}', '\u{2028}', '\u{10ffff}'] })
+                .unwrap(),
+        ),
+        ("Letters", serde_json::to_string(&Letters { one: '\0', maybe: None, many: vec![] }).unwrap()),
     ]
 }
 

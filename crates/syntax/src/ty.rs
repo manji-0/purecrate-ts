@@ -41,7 +41,7 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
 }
 
 /// Primitives with no chosen TS form yet.
-const UNSUPPORTED_PRIMS: [&str; 4] = ["isize", "u128", "i128", "char"];
+const UNSUPPORTED_PRIMS: [&str; 3] = ["isize", "u128", "i128"];
 
 const FORBIDDEN_CONTAINERS: [&str; 6] = [
     "Rc", "Cell", "RefCell", "HashMap", "BTreeMap", "HashSet",
@@ -94,6 +94,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         "f64" => Ok(Ty::Prim(Prim::F64)),
         "String" => Ok(Ty::Prim(Prim::String)),
         "str" => Ok(Ty::Prim(Prim::Str)),
+        "char" => Ok(Ty::Prim(Prim::Char)),
         "Option" => Ok(Ty::option(first_generic(&last.arguments)?)),
         "Vec" => Ok(Ty::Vec(Box::new(first_generic(&last.arguments)?))),
         "Result" => {

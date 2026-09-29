@@ -98,15 +98,15 @@ fn header(schema: WireSchema) -> String {
     let own: &str = match schema {
         WireSchema::Zod => "\
 import { z } from \"zod\";
-import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-zod\";
+import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-zod\";
 ",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
-import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-valibot\";
+import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-valibot\";
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, u8, unit, usize, type Wire } from \"purecrate-arktype\";
+import { bool, char, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, u8, unit, usize, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ Json }} from \"purecrate\";\n{own}")
@@ -401,6 +401,7 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> String {
         Ty::Prim(p) => match p {
             purecrate_ir::Prim::Bool => "bool".into(),
             purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "str".into(),
+            purecrate_ir::Prim::Char => "char".into(),
             purecrate_ir::Prim::Unit => "unit".into(),
             other => other
                 .int()
@@ -524,7 +525,7 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> String {
     match ty {
         Ty::Prim(p) => match p {
             Prim::Bool => format!("Json.bool({value})"),
-            Prim::String | Prim::Str => format!("Json.str({value})"),
+            Prim::String | Prim::Str | Prim::Char => format!("Json.str({value})"),
             Prim::Unit => "\"null\"".into(),
             other => match other.float() {
                 Some(FloatTy::F32) => format!("Json.f32({value})"),

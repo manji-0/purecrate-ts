@@ -1,5 +1,5 @@
 import { type, type Out, type Type } from "arktype";
-import { Int } from "purecrate";
+import { Char, Int } from "purecrate";
 
 /**
  * A schema that reads unknown JSON into the domain value `T`. Generated
@@ -46,6 +46,8 @@ export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of
 export const f32 = type("number").pipe(Int.f32.of);
 export const f64 = type("number").pipe(Int.f64.of);
 export const str = type("string");
+/** serde reads a `char` from a string of exactly one scalar value. */
+export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
 export const bool = type("boolean");
 export const unit = type("null").pipe(() => undefined);
 /** JSON `null` is `None`. A missing struct field is handled by the generated schema. */

@@ -29,7 +29,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | `i64`, `u64` | branded `bigint` (`I64`, `U64`) |
 | `usize` | `Usize`, checked 0..2^53−1 |
 | `String`, `&str` | `string` |
-| `char` | branded one-code-point `string` (specified, not implemented) |
+| `char` | `Char`, a branded one-code-point `string` |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |

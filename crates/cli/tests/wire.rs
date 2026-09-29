@@ -1,6 +1,6 @@
 //! `--schema zod|valibot|arktype` writes a wire schema that type-checks and
 //! reads serde's default JSON into the domain value. `fixtures/wire_shapes.rs`
-//! has every type form a schema prints: each integer width, floats, `()`,
+//! has every type form a schema prints: each integer width, floats, `char`, `()`,
 //! `Option` (missing or `null`), `Vec`, tuples, newtypes, `Box`, unit, tuple
 //! and struct variants, and recursive enums and structs. `Id`, `Label` and
 //! `Sealed` are closed (design/04 §5): read by shape, as serde's derive does,
@@ -101,6 +101,8 @@ const accepts = [
   ["Shape", { Dot: null }, { kind: "Dot" }],
   ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
   ["Sealed", { code: -1 }, { code: -1, hint: null }],
+  ["Letters", { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }, { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }],
+  ["Letters", { one: "\n", many: [] }, { one: "\n", maybe: null, many: [] }],
 ];
 const rejects = [
   ["Ints", { ...ints, a: 128 }],
@@ -124,6 +126,14 @@ const rejects = [
   ["Chain", { value: 1.5 }],
   ["Sealed", { code: 2147483648, hint: "h" }],
   ["Holder", { ...holder, tree: undefined }],
+  // serde reads a `char` from a string of exactly one scalar value.
+  ["Letters", { one: "", many: [] }],
+  ["Letters", { one: "ab", many: [] }],
+  ["Letters", { one: "e\u{301}", many: [] }],
+  ["Letters", { one: "\ud800", many: [] }],
+  ["Letters", { one: "\udfff", many: [] }],
+  ["Letters", { one: 97, many: [] }],
+  ["Letters", { one: "a", many: ["😀😀"] }],
 ];
 
 const out = [];
