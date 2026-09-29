@@ -1,6 +1,8 @@
 //! `match` becomes `switch (x.kind)` with `assertNever` in `default`, or a
-//! two-way `if` for `Option`/`Result`. Every arm must name a case of one type
-//! and every case must appear once.
+//! two-way `if` for `Option`/`Result`. Every arm must name cases of one type
+//! (one, or several with `A | B`) and every case must appear once, unless a
+//! last `_` arm takes the cases no other arm names. As in rustc, a `_` that
+//! takes nothing is allowed (`matches!` makes one); it is dropped.
 
 use std::collections::HashMap;
 
@@ -32,7 +34,14 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     out
 }
 
-/// Which type an arm's pattern belongs to, and the case it names.
+/// Which type an arm's pattern belongs to, and the cases it names.
+fn cases_of(pattern: &Pattern) -> Option<Vec<(&str, &str)>> {
+    match pattern {
+        Pattern::Or(alts) => alts.iter().map(case_of).collect(),
+        other => case_of(other).map(|c| vec![c]),
+    }
+}
+
 fn case_of(pattern: &Pattern) -> Option<(&str, &str)> {
     match pattern {
         Pattern::Variant { ty, variant, .. } => Some((ty.as_str(), variant.as_str())),
@@ -40,7 +49,7 @@ fn case_of(pattern: &Pattern) -> Option<(&str, &str)> {
         Pattern::OptionNone => Some(("Option", "None")),
         Pattern::ResultOk(_) => Some(("Result", "Ok")),
         Pattern::ResultErr(_) => Some(("Result", "Err")),
-        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) => None,
+        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => None,
     }
 }
 
@@ -52,28 +61,47 @@ fn label(ty: &str, case: &str) -> String {
 }
 
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
+    if arms.iter().any(|a| a.pattern.is_int_case()) {
+        return int_arms(i, arms, out);
+    }
     let mut ty: Option<&str> = None;
     let mut seen: Vec<&str> = Vec::new();
-    for arm in arms {
-        let Some((t, case)) = case_of(&arm.pattern) else {
-            out.push(Diagnostic::at(i, Reason::ArmPattern, "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err`"));
-            return;
-        };
-        match ty {
-            None => ty = Some(t),
-            Some(first) if first != t => {
-                out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match mixes cases of `{first}` and `{t}`")));
+    let mut rest = false;
+    for (n, arm) in arms.iter().enumerate() {
+        if arm.pattern == Pattern::Wildcard {
+            if n + 1 != arms.len() {
+                out.push(Diagnostic::at(i, Reason::ArmPattern, "`_` must be the last arm"));
                 return;
             }
-            Some(_) => {}
+            rest = true;
+            continue;
         }
-        if seen.contains(&case) {
-            out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("{} is matched more than once", label(t, case))));
+        let Some(cases) = cases_of(&arm.pattern) else {
+            out.push(Diagnostic::at(i, Reason::ArmPattern, "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, or be `_`"));
+            return;
+        };
+        for (t, case) in cases {
+            match ty {
+                None => ty = Some(t),
+                Some(first) if first != t => {
+                    out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match mixes cases of `{first}` and `{t}`")));
+                    return;
+                }
+                Some(_) => {}
+            }
+            if seen.contains(&case) {
+                out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("{} is matched more than once", label(t, case))));
+            }
+            seen.push(case);
         }
-        seen.push(case);
     }
     let Some(ty) = ty else {
-        out.push(Diagnostic::at(i, Reason::NonExhaustive, "match has no arms"));
+        let message = if rest {
+            "a match whose only arm is `_` names no type; bind the value with `let` instead"
+        } else {
+            "match has no arms"
+        };
+        out.push(Diagnostic::at(i, Reason::NonExhaustive, message));
         return;
     };
     let all: Vec<&str> = match ty {
@@ -90,11 +118,23 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
         .filter(|c| !seen.contains(c))
         .map(|c| label(ty, c))
         .collect();
-    if !missing.is_empty() {
+    if !rest && !missing.is_empty() {
         out.push(Diagnostic::at(
             i, Reason::NonExhaustive,
             format!("match on `{ty}` is missing {}", missing.join(", ")),
         ));
+    }
+}
+
+/// Integers cannot be listed out, so the arms are tried in order and a last
+/// `_` takes the rest, as an `if` chain in TS.
+fn int_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
+    let (last, named) = arms.split_last().expect("an integer case was found");
+    if let Some(other) = named.iter().find(|a| !a.pattern.is_int_case()) {
+        let found = if other.pattern == Pattern::Wildcard { "`_` must be the last arm" } else { "match mixes integer and variant arms" };
+        out.push(Diagnostic::at(i, Reason::ArmPattern, found));
+    } else if last.pattern != Pattern::Wildcard {
+        out.push(Diagnostic::at(i, Reason::NonExhaustive, "a match on integers must end in a `_` arm in v0"));
     }
 }
 

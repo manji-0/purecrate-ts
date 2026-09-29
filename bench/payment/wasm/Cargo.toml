@@ -1,0 +1,30 @@
+# Not part of the workspace: builds `examples/payment` for wasm-bindgen so
+# design/06 §2 can compare it with the generated TS (see ../README.md).
+# Needs the network for its dependencies, unlike the workspace.
+[package]
+name = "payment-wasm"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.118"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
+serde-wasm-bindgen = "0.6"
+
+[features]
+default = ["json"]
+# `step_json`; without it the module has only the serde-wasm-bindgen paths.
+json = ["dep:serde_json"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+# The generated TS keeps debug-build integer semantics; so does this.
+overflow-checks = true
+
+[workspace]

@@ -1,0 +1,88 @@
+//! Replaces a trailing `_` arm with the cases the other arms leave, so the
+//! printer lists every case (`case "A": case "B":`) and TS still checks the
+//! `switch` is exhaustive. `exhaustive` has already required that `_` is
+//! last and follows at least one arm. A `_` that takes no case is dropped.
+
+use purecrate_ir::{Crate, Enum, Expr, Item, Pattern, VariantBind, VariantFields};
+
+pub fn expand(mut krate: Crate) -> Crate {
+    let enums: Vec<Enum> = krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum(e) => Some(e.clone()),
+            _ => None,
+        })
+        .collect();
+    for item in &mut krate.items {
+        if let Item::Fn(f) = item {
+            walk(&mut f.body, &enums);
+        }
+    }
+    krate
+}
+
+fn walk(expr: &mut Expr, enums: &[Enum]) {
+    if let Expr::Match { arms, .. } = expr {
+        if let Some((last, named)) = arms.split_last_mut() {
+            if last.pattern == Pattern::Wildcard {
+                last.pattern = rest(named.iter().map(|a| &a.pattern), enums);
+            }
+        }
+        if arms.last().is_some_and(|a| a.pattern == Pattern::Or(Vec::new())) {
+            arms.pop();
+        }
+    }
+    expr.children_mut().into_iter().for_each(|c| walk(c, enums));
+}
+
+fn rest<'a>(named: impl Iterator<Item = &'a Pattern>, enums: &[Enum]) -> Pattern {
+    let named: Vec<&Pattern> = named
+        .flat_map(|p| match p {
+            Pattern::Or(alts) => alts.iter().collect(),
+            other => vec![other],
+        })
+        .collect();
+    let wild = || Box::new(Pattern::Wildcard);
+    if named.len() == 2 && !named[0].is_int_case() && !matches!(named[0], Pattern::Variant { .. }) {
+        // `Some`/`None` or `Ok`/`Err` both named: nothing is left.
+        return Pattern::Or(Vec::new());
+    }
+    match named.first() {
+        Some(Pattern::OptionSome(_)) => Pattern::OptionNone,
+        Some(Pattern::OptionNone) => Pattern::OptionSome(wild()),
+        Some(Pattern::ResultOk(_)) => Pattern::ResultErr(wild()),
+        Some(Pattern::ResultErr(_)) => Pattern::ResultOk(wild()),
+        Some(Pattern::Variant { ty, .. }) => {
+            let e = enums
+                .iter()
+                .find(|e| e.name == *ty)
+                .expect("exhaustive: the arms name a known enum");
+            let taken = |v: &str| {
+                named
+                    .iter()
+                    .any(|p| matches!(p, Pattern::Variant { variant, .. } if variant.as_str() == v))
+            };
+            Pattern::Or(
+                e.variants
+                    .iter()
+                    .filter(|v| !taken(v.name.as_str()))
+                    .map(|v| Pattern::Variant {
+                        ty: ty.clone(),
+                        variant: v.name.clone(),
+                        bind: match &v.fields {
+                            VariantFields::Unit => VariantBind::Unit,
+                            VariantFields::Tuple(tys) => {
+                                VariantBind::Tuple(tys.iter().map(|_| Pattern::Wildcard).collect())
+                            }
+                            VariantFields::Struct(_) => VariantBind::Struct(Vec::new()),
+                        },
+                    })
+                    .collect(),
+            )
+        }
+        // Integers: `_` stays the final `else`.
+        Some(p) if p.is_int_case() => Pattern::Wildcard,
+        _ => unreachable!("exhaustive: `_` follows an arm naming a case"),
+    }
+}

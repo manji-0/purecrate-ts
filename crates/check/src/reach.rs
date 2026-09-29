@@ -103,7 +103,14 @@ impl Refs {
 
     fn item(&mut self, item: &Item) {
         match item {
-            Item::Struct(s) => s.fields.iter().for_each(|f| self.ty(&f.ty)),
+            Item::Struct(s) => {
+                s.fields.iter().for_each(|f| self.ty(&f.ty));
+                // The wire schema reads `T` and calls `try_from`.
+                if let Some(t) = &s.wire_from {
+                    self.ty(t);
+                    self.methods.push((s.name.as_str().to_string(), "try_from".to_string()));
+                }
+            }
             Item::Enum(e) => {
                 for v in &e.variants {
                     match &v.fields {
@@ -141,8 +148,10 @@ impl Refs {
     }
 
     fn pattern(&mut self, p: &Pattern) {
-        if let Pattern::Variant { ty, .. } = p {
-            self.name(ty);
+        match p {
+            Pattern::Variant { ty, .. } => self.name(ty),
+            Pattern::Or(alts) => alts.iter().for_each(|alt| self.pattern(alt)),
+            _ => {}
         }
     }
 
@@ -169,6 +178,7 @@ impl Refs {
                     | Callee::VecLen
                     | Callee::StrBytes
                     | Callee::StringFrom
+                    | Callee::Str(_)
                     | Callee::IntFrom { .. } => {}
                 }
                 args.iter().for_each(|a| self.expr(a));

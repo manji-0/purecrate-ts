@@ -69,6 +69,52 @@ impl IntOp {
     }
 }
 
+/// `str` methods whose result does not depend on UTF-8 versus UTF-16 for a
+/// well-formed string, or that go through the runtime's `Str` when it does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrMethod {
+    /// UTF-8 byte count, as `usize`. Prints as `Str.len(s)`.
+    Len,
+    IsEmpty,
+    /// Takes a `&str` needle. A prefix, suffix or substring of UTF-8 bytes
+    /// on char boundaries is one of UTF-16 units too, and both needles are
+    /// well-formed, so the JS methods agree.
+    StartsWith,
+    EndsWith,
+    Contains,
+}
+
+impl StrMethod {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "len" => Self::Len,
+            "is_empty" => Self::IsEmpty,
+            "starts_with" => Self::StartsWith,
+            "ends_with" => Self::EndsWith,
+            "contains" => Self::Contains,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Len => "len",
+            Self::IsEmpty => "is_empty",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::Contains => "contains",
+        }
+    }
+
+    /// Arguments after the receiver.
+    pub fn needles(self) -> usize {
+        match self {
+            Self::Len | Self::IsEmpty => 0,
+            Self::StartsWith | Self::EndsWith | Self::Contains => 1,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
@@ -94,6 +140,9 @@ pub enum Callee {
     StrBytes,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
+    /// A `str` method from the allow-list (design/01 §6). The first argument
+    /// is the receiver, a `String` or `&str`.
+    Str(StrMethod),
     /// `to::from(x)` where std has a lossless `From` (`IntTy::widens_to`).
     /// `from` is the argument's type, set by `check::accept`.
     IntFrom { from: Option<IntTy>, to: IntTy },
@@ -120,9 +169,26 @@ pub enum Pattern {
     OptionNone,
     ResultOk(Box<Pattern>),
     ResultErr(Box<Pattern>),
+    /// `A | B`: variants of one enum, binding no names. A trailing `_` arm
+    /// on an enum becomes one after checking, naming every variant the
+    /// other arms leave (`check::accept`).
+    Or(Vec<Pattern>),
+    /// `lo..=hi` (`inclusive`) or `lo..hi` on an integer. With `Lit`, only in
+    /// a `match` on an integer, which must end in `_`.
+    Range { lo: Lit, hi: Lit, inclusive: bool },
 }
 
 impl Pattern {
+    /// An integer literal or range, or `|` of them: an arm of a `match` on
+    /// an integer.
+    pub fn is_int_case(&self) -> bool {
+        match self {
+            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { .. } => true,
+            Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
+            _ => false,
+        }
+    }
+
     /// Names the pattern binds, left to right.
     pub fn bindings(&self) -> Vec<&Name> {
         let mut out = Vec::new();
@@ -141,7 +207,8 @@ impl Pattern {
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
                 p.collect_bindings(out)
             }
-            Pattern::Wildcard | Pattern::Lit(_) | Pattern::OptionNone => {}
+            Pattern::Or(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
+            Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
         }
     }
 }

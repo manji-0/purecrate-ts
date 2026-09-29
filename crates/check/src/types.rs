@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
+    Arm, BinOp, Callee, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -95,6 +95,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                         args: vec![recv],
                     };
                     return (e, self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))));
+                }
+            }
+        }
+        if let Some(m) = StrMethod::from_name(name.as_str()) {
+            if let Some(rt) = &rt {
+                if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
+                    return self.str_method(m, recv, args, want);
                 }
             }
         }
@@ -756,7 +763,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.scopes.truncate(depth);
                 result = join(result.take(), t);
                 Arm {
-                    pattern: arm.pattern.clone(),
+                    pattern: self.int_pattern(&arm.pattern, st.as_ref()),
                     body,
                 }
             })
@@ -768,6 +775,58 @@ impl<'d, 'a> Typer<'d, 'a> {
             },
             result,
         )
+    }
+
+    /// An integer arm with every literal given the scrutinee's type, so the
+    /// printer knows `1` from `1n`. Other patterns are returned as they are.
+    fn int_pattern(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) -> Pattern {
+        if !pattern.is_int_case() {
+            return pattern.clone();
+        }
+        let ty = match scrutinee.and_then(|t| self.num(t)) {
+            Some(Num::Int(t)) => Some(t),
+            _ => {
+                if let Some(t) = scrutinee {
+                    self.error(Reason::TypeMismatch, format!(
+                        "integer patterns do not match a value of type `{}`",
+                        show(t)
+                    ));
+                }
+                None
+            }
+        };
+        self.fill_int(pattern, ty)
+    }
+
+    fn fill_int(&mut self, pattern: &Pattern, ty: Option<IntTy>) -> Pattern {
+        match pattern {
+            Pattern::Lit(lit) => Pattern::Lit(self.int_lit(lit, ty)),
+            Pattern::Range { lo, hi, inclusive } => Pattern::Range {
+                lo: self.int_lit(lo, ty),
+                hi: self.int_lit(hi, ty),
+                inclusive: *inclusive,
+            },
+            Pattern::Or(alts) => Pattern::Or(alts.iter().map(|a| self.fill_int(a, ty)).collect()),
+            other => other.clone(),
+        }
+    }
+
+    fn int_lit(&mut self, lit: &Lit, ty: Option<IntTy>) -> Lit {
+        match lit {
+            Lit::Int { value, ty: written } => {
+                if let (Some(w), Some(t)) = (written, ty) {
+                    if *w != t {
+                        self.error(Reason::TypeMismatch, format!(
+                            "pattern `{value}{}` does not match a value of type `{}`",
+                            w.as_str(),
+                            t.as_str()
+                        ));
+                    }
+                }
+                Lit::Int { value: *value, ty: ty.or(*written) }
+            }
+            other => other.clone(),
+        }
     }
 
     /// `scrutinee` is the normalized type of the matched value, when known.
@@ -797,8 +856,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.error(Reason::TypeMismatch, format!("pattern `None` does not match a value of type `{}`", show(t)));
                 (None, None)
             }
-            (Pattern::OptionNone | Pattern::Wildcard | Pattern::Lit(_), _) => (None, None),
+            (Pattern::OptionNone | Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. }, _) => (None, None),
             (Pattern::Variant { .. }, _) => return self.bind_variant(pattern, scrutinee),
+            // The alternatives bind nothing (checked by the parser).
+            (Pattern::Or(alts), _) => {
+                alts.iter().for_each(|alt| self.bind(alt, scrutinee));
+                return;
+            }
         };
         if let Some(n) = name {
             self.scopes.push((n, ty));
@@ -1050,6 +1114,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::String)),
             ),
+            Callee::Str(m) => (
+                args.iter().map(|a| self.expr(a, None).0).collect(),
+                Some(match m {
+                    StrMethod::Len => Ty::Prim(Prim::Usize),
+                    _ => Ty::bool(),
+                }),
+            ),
             Callee::IntFrom { to, .. } => return self.int_from(*to, args, want),
         };
         let e = Expr::Call {
@@ -1057,6 +1128,41 @@ impl<'d, 'a> Typer<'d, 'a> {
             args,
         };
         (e, self.expect(want, t))
+    }
+
+    /// `s.m(needles)` for an allow-listed `str` method. A needle must be a
+    /// string: `char` and closure patterns are not in the allow-list.
+    fn str_method(&mut self, m: StrMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
+        if args.len() != m.needles() {
+            self.error(Reason::ConstructShape, format!(
+                "`str::{}` takes {} argument(s) after the receiver, got {}",
+                m.name(),
+                m.needles(),
+                args.len()
+            ));
+        }
+        let mut typed = vec![recv];
+        for a in args {
+            let (e, t) = self.expr(a, None);
+            match t.map(|t| self.norm(&t)) {
+                Some(Ty::Prim(Prim::String | Prim::Str)) | Some(Ty::Never) | None => {}
+                Some(other) => self.error(Reason::TypeMismatch, format!(
+                    "`str::{}` takes a `&str` pattern in v0, found `{}`",
+                    m.name(),
+                    show(&other)
+                )),
+            }
+            typed.push(e);
+        }
+        let ret = match m {
+            StrMethod::Len => Ty::Prim(Prim::Usize),
+            StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
+        };
+        let e = Expr::Call {
+            callee: Callee::Str(m),
+            args: typed,
+        };
+        (e, self.expect(want, Some(ret)))
     }
 
     /// `to::from(x)`: the argument is typed on its own, then must widen to

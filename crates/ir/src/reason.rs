@@ -36,6 +36,7 @@ pub enum Reason {
     // Items.
     Generics,
     TupleStruct,
+    UnitStruct,
     TraitImpl,
     UnsupportedItem,
     Module,
@@ -106,6 +107,7 @@ impl Reason {
             Reason::UnsupportedOperator => "expr/operator",
             Reason::Generics => "item/generics",
             Reason::TupleStruct => "item/tuple-struct",
+            Reason::UnitStruct => "item/unit-struct",
             Reason::TraitImpl => "item/trait-impl",
             Reason::UnsupportedItem => "item/other",
             Reason::Module => "item/module",

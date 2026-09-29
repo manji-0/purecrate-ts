@@ -27,9 +27,9 @@ The use cases in focus, and how well they fit today ([06-strategy §3](./06-stra
 
 | Use case | Fit |
 | --- | --- |
-| Workflows and state machines (order lifecycle, approvals) | High. examples/order |
+| Workflows and state machines (order lifecycle, approvals, payment status) | High. examples/order, examples/payment |
 | Optimistic UI / offline-first (same transition on client and server) | High |
-| Pricing, fees, tax (integer newtypes in the smallest unit) | High |
+| Pricing, fees, tax (integer newtypes in the smallest unit) | High. examples/invoice |
 | Input validation (checked constructors) | Medium. examples/signup, examples/iban |
 | Turn-based game rules | Medium (recursion depth) |
 
@@ -52,15 +52,16 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
-- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match`
+- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`); byte literals, integer and range patterns, `matches!`
 - local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
 - integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; lossless widening via `i64::from(x)`
 - growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`
-- `String::from("…")`, string `==`, string contents via `s.as_bytes()`
+- `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()`
 - closed types: structs with private fields keep their invariants (no public `of`)
-- `--schema zod|valibot|arktype` reads serde's default JSON into domain values
+- serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike
+- `--schema zod|valibot|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does
 
-Three examples are written within the constraints and differentially tested: [order](../examples/order/src/lib.rs) (author's own), [signup](../examples/signup/src/lib.rs) and [iban](../examples/iban/src/lib.rs) (from third-party specifications).
+Five examples are written within the constraints and differentially tested: [order](../examples/order/src/lib.rs) (author's own), [signup](../examples/signup/src/lib.rs), [iban](../examples/iban/src/lib.rs), [payment](../examples/payment/src/lib.rs), and [invoice](../examples/invoice/src/lib.rs) (from third-party specifications). Against wasm-bindgen on the same source, the payment transition is 28–113× cheaper per call and about 20× smaller gzipped ([bench/payment](../bench/payment/README.md)).
 
 ## 5. Documents
 

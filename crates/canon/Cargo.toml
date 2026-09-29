@@ -13,3 +13,5 @@ proc-macro = true
 purecrate-ir = { path = "../ir" }
 purecrate-syntax = { path = "../syntax" }
 proc-macro2 = { path = "../../vendor/proc-macro2-1.0.78", default-features = false, features = ["span-locations"] }
+syn = { path = "../../vendor/syn-2.0.52", default-features = false, features = ["full", "parsing", "printing", "clone-impls"] }
+quote = { path = "../../vendor/quote-1.0.35", default-features = false }

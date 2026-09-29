@@ -1,6 +1,12 @@
 {
   "name": "purecrate-valibot",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manji-0/purecrate-ts.git",
+    "directory": "packages/boundary-valibot"
+  },
   "type": "module",
   "description": "valibot adapters for the wire schemas purecrate-ts generates.",
   "exports": {

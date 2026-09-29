@@ -27,6 +27,16 @@
 //! | `Box`, `Arc`, `Mutex` | the inner value |
 //! | struct | `S { a: x, b: y }`; newtype `S(x)`; no fields `S` |
 //! | enum | `E::V`, `E::V(x, y)`, `E::V { a: x }` |
+//!
+//! Every struct and enum also gets `Js`, the TS literal of the same value
+//! (a newtype is its content, as brands exist only in types; enums are
+//! `kind` objects), so a case can pass whole domain values as arguments.
+//!
+//! Every struct and enum also gets `serde_core::Serialize`, making the same
+//! data-model calls `#[derive(Serialize)]` makes with no attributes, so
+//! `serde_json::to_string` gives the JSON a Rust server would send
+//! (design/04). The derive itself is not used: its vendored `syn` is older
+//! than `serde_derive` accepts.
 
 use proc_macro::TokenStream;
 use purecrate_ir::{Item, Struct, VariantFields, NEWTYPE_FIELD};
@@ -56,7 +66,13 @@ pub fn fixture(input: TokenStream) -> TokenStream {
     let at = |p: &str| format!("concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/\", {p:?})");
     let mut out = format!("#[allow(dead_code)]\nmod {module} {{\n");
     for p in &paths {
-        out.push_str(&format!("    include!({});\n", at(p)));
+        let text = std::fs::read_to_string(root.join(p)).expect("read again");
+        if text.contains("serde") {
+            out.push_str(&without_serde(&text));
+            out.push('\n');
+        } else {
+            out.push_str(&format!("    include!({});\n", at(p)));
+        }
     }
     let joined = paths
         .iter()
@@ -68,8 +84,16 @@ pub fn fixture(input: TokenStream) -> TokenStream {
     ));
     for item in &krate.items {
         match item {
-            Item::Struct(st) => out.push_str(&show_struct(st)),
-            Item::Enum(en) => out.push_str(&show_enum(en)),
+            Item::Struct(st) => {
+                out.push_str(&show_struct(st));
+                out.push_str(&serialize_struct(st));
+                out.push_str(&js_struct(st));
+            }
+            Item::Enum(en) => {
+                out.push_str(&show_enum(en));
+                out.push_str(&serialize_enum(en));
+                out.push_str(&js_enum(en));
+            }
             Item::Alias(_) | Item::Fn(_) => {}
         }
     }
@@ -175,4 +199,157 @@ fn named<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, Str
         .collect::<Vec<_>>()
         .join(", ");
     (pattern, args)
+}
+
+const SER: &str = "::serde_core::Serialize";
+
+fn serialize_impl(name: &str, body: &str) -> String {
+    format!(
+        "    impl {SER} for {name} {{\n        fn serialize<S: ::serde_core::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {{\n            #[allow(unused_imports)]\n            use ::serde_core::ser::{{SerializeStruct, SerializeStructVariant, SerializeTupleVariant}};\n            {body}\n        }}\n    }}\n"
+    )
+}
+
+fn serialize_struct(st: &Struct) -> String {
+    let name = st.name.as_str();
+    let body = match st.fields.as_slice() {
+        [f] if f.name.as_str() == NEWTYPE_FIELD => format!("s.serialize_newtype_struct({name:?}, &self.0)"),
+        fields => {
+            let mut body = format!("let mut t = s.serialize_struct({name:?}, {})?;", fields.len());
+            for f in fields {
+                let field = f.name.as_str();
+                body.push_str(&format!(" t.serialize_field({field:?}, &self.{field})?;"));
+            }
+            body.push_str(" t.end()");
+            body
+        }
+    };
+    serialize_impl(name, &body)
+}
+
+fn serialize_enum(en: &purecrate_ir::Enum) -> String {
+    let name = en.name.as_str();
+    let mut arms = String::new();
+    for (i, v) in en.variants.iter().enumerate() {
+        let var = v.name.as_str();
+        let arm = match &v.fields {
+            VariantFields::Unit => format!("{name}::{var} => s.serialize_unit_variant({name:?}, {i}, {var:?}),"),
+            VariantFields::Tuple(tys) if tys.len() == 1 => {
+                format!("{name}::{var}(f0) => s.serialize_newtype_variant({name:?}, {i}, {var:?}, f0),")
+            }
+            VariantFields::Tuple(tys) => {
+                let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
+                let fields = binds
+                    .iter()
+                    .map(|b| format!(" t.serialize_field({b})?;"))
+                    .collect::<String>();
+                format!(
+                    "{name}::{var}({}) => {{ let mut t = s.serialize_tuple_variant({name:?}, {i}, {var:?}, {})?;{fields} t.end() }}",
+                    binds.join(", "),
+                    tys.len()
+                )
+            }
+            VariantFields::Struct(fs) => {
+                let names = fs.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
+                let fields = names
+                    .iter()
+                    .map(|n| format!(" t.serialize_field({n:?}, {n})?;"))
+                    .collect::<String>();
+                format!(
+                    "{name}::{var} {{ {} }} => {{ let mut t = s.serialize_struct_variant({name:?}, {i}, {var:?}, {})?;{fields} t.end() }}",
+                    names.join(", "),
+                    fs.len()
+                )
+            }
+        };
+        arms.push_str(&format!("                {arm}\n"));
+    }
+    serialize_impl(name, &format!("match self {{\n{arms}            }}"))
+}
+
+/// The file without its serde derives, `#[serde(...)]` attributes, and `use
+/// serde` items: the test crate has no serde_derive, and the `Serialize`
+/// impls above stand in for the derive. Spans are lost, so only files that
+/// mention serde go this way; the rest are `include!`d.
+fn without_serde(text: &str) -> String {
+    use quote::ToTokens;
+    let mut file: syn::File = syn::parse_str(text).unwrap_or_else(|e| panic!("fixture!: {e}"));
+    file.items.retain(|item| match item {
+        syn::Item::Use(u) => !u.to_token_stream().to_string().contains("serde"),
+        _ => true,
+    });
+    for item in &mut file.items {
+        let attrs = match item {
+            syn::Item::Struct(s) => &mut s.attrs,
+            syn::Item::Enum(e) => &mut e.attrs,
+            _ => continue,
+        };
+        attrs.retain(|a| !a.path().is_ident("serde"));
+        for attr in attrs.iter_mut().filter(|a| a.path().is_ident("derive")) {
+            let kept: Vec<syn::Path> = attr
+                .parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
+                .expect("derive list")
+                .into_iter()
+                .filter(|p| !matches!(p.segments.last().map(|s| s.ident.to_string()).as_deref(), Some("Serialize" | "Deserialize")))
+                .collect();
+            *attr = syn::parse_quote!(#[derive(#(#kept),*)]);
+        }
+    }
+    file.to_token_stream().to_string()
+}
+
+const JS: &str = "crate::support::Js";
+
+fn js_impl(name: &str, body: &str) -> String {
+    format!("    impl {JS} for {name} {{\n        fn js(&self) -> String {{\n            {body}\n        }}\n    }}\n")
+}
+
+/// `{ a: .., b: .. }` from the `Js` of each `<prefix><name>`.
+fn js_fields<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, String) {
+    let names: Vec<&str> = names.collect();
+    let pattern = names.iter().map(|n| format!("{n}: {{}}")).collect::<Vec<_>>().join(", ");
+    let args = names.iter().map(|n| format!("{JS}::js({prefix}{n})")).collect::<Vec<_>>().join(", ");
+    (pattern, args)
+}
+
+fn js_struct(st: &Struct) -> String {
+    let name = st.name.as_str();
+    let body = match st.fields.as_slice() {
+        [f] if f.name.as_str() == NEWTYPE_FIELD => format!("{JS}::js(&self.0)"),
+        [] => "\"({})\".to_string()".to_string(),
+        fields => {
+            let (pattern, args) = js_fields(fields.iter().map(|f| f.name.as_str()), "&self.");
+            format!("format!(\"({{{{ {pattern} }}}})\", {args})")
+        }
+    };
+    js_impl(name, &body)
+}
+
+fn js_enum(en: &purecrate_ir::Enum) -> String {
+    let name = en.name.as_str();
+    let mut arms = String::new();
+    for v in &en.variants {
+        let var = v.name.as_str();
+        let arm = match &v.fields {
+            VariantFields::Unit => format!("{name}::{var} => \"({{ kind: \\\"{var}\\\" }})\".to_string(),"),
+            VariantFields::Tuple(tys) => {
+                let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
+                let holes = vec!["{}"; tys.len()].join(", ");
+                let args = binds.iter().map(|b| format!("{JS}::js({b})")).collect::<Vec<_>>().join(", ");
+                format!(
+                    "{name}::{var}({}) => format!(\"({{{{ kind: \\\"{var}\\\", content: [{holes}] }}}})\", {args}),",
+                    binds.join(", ")
+                )
+            }
+            VariantFields::Struct(fields) => {
+                let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
+                let (pattern, args) = js_fields(names.iter().copied(), "");
+                format!(
+                    "{name}::{var} {{ {} }} => format!(\"({{{{ kind: \\\"{var}\\\", {pattern} }}}})\", {args}),",
+                    names.join(", ")
+                )
+            }
+        };
+        arms.push_str(&format!("                {arm}\n"));
+    }
+    js_impl(name, &format!("match self {{\n{arms}            }}"))
 }

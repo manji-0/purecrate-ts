@@ -23,32 +23,55 @@ Every addition comes with a differential test.
 | order (5 states, `Yen`, `Sku`) | author | quantities as `u32` × `i64` price; `String` literals in a test driver | lossless widening (`widen_equivalence.rs`, 20 widenings at both ends); `String::from` (and closed the literal-in-`String` hole) |
 | signup (WHATWG email, NIST SP 800-63B-4 length) | third party | nothing readable from a string but `==`; `Ok(())` rejected as `expected (), found ()` and printed as `[]`; `email` vs `Email` file collision | `str::as_bytes`; `Lit::Unit` fix; renamed the driver (known rule) |
 | iban (ISO 13616-1, ISO 7064 MOD 97-10) | third party | nothing; but line count over threshold | integer-range `for` |
+| invoice (NTA インボイスQ&A 問57, 問59: consumption tax per rate, rounded once per invoice) | third party | nothing; rejected on the way: a tuple `let`, match guards (three times), a tuple scrutinee, `Vec::is_empty`, `Group`/`group` file collision; the first draft's transitions were 2.2×, a restructured one (a filtered sum per group, as the idiomatic code does) 1.4× | a `Js` literal for every fixture type, so tests pass whole values (`Invoice`) |
+| payment (Stripe PaymentIntent lifecycle) | third party | nothing on the first pass; but transition lines at 2.1× (28 of 160 were `=> Err(InvalidTransition)`); the client sends events back, so values must be written as serde JSON; `terms`/`outcome`/`amount` driver functions collided with types (known rule) | `_` and binding-free `A \| B` arms; `toJson` (and rejected unit structs, which serde writes differently from `struct S {}`) |
 
-Semantic cross-checks beyond Rust-vs-TS: signup's acceptance matches WHATWG's own regular expression on node; iban matches an idiomatic-Rust implementation on published valid IBANs, one-character mutations, and malformed input.
+Semantic cross-checks beyond Rust-vs-TS: signup's acceptance matches WHATWG's own regular expression on node; iban matches an idiomatic-Rust implementation on published valid IBANs, one-character mutations, and malformed input; payment matches an idiomatic-Rust implementation (tuple `match` with guards and a wildcard) on every four-event run under each capture and confirmation method. For payment the client-side step on the server's JSON also writes the server's bytes for every reachable state and event (`wire_write.rs`).
 
 Line counts (non-blank, non-comment) against idiomatic Rust, threshold 2×:
 
-| Example | Idiomatic | Recursion only | With range `for` |
-| --- | --- | --- | --- |
-| Email (WHATWG) | 28 | 79 (2.8×) | 52 (1.9×) |
-| Password (NIST) | 17 | 28 (1.6×) | 24 (1.4×) |
-| IBAN | 24 | 57 (2.4×) | 45 (1.9×) |
+| Example | Idiomatic | Recursion only | With range `for` | With byte literals and `matches!` |
+| --- | --- | --- | --- | --- |
+| Email (WHATWG) | 28 | 79 (2.8×) | 52 (1.9×) | 42 (1.5×) |
+| Password (NIST) | 17 | 28 (1.6×) | 24 (1.4×) | 24 (1.4×) |
+| IBAN | 24 | 57 (2.4×) | 45 (1.9×) | 44 (1.8×) |
 
-All are inside the threshold with little margin. Most of the remaining gap is spelling character classes as numeric comparisons. **The next candidate if the threshold is hit again: literal/range patterns in `match` and byte literals.**
+With range `for` all were inside the threshold with little margin, most of the rest being character classes spelled as numeric comparisons. Byte literals, integer literal and range patterns, and `matches!` were added next (2026-09-29, `int_patterns_equivalence.rs`). They took the local part of the e-mail address from 14 lines of comparisons to one `matches!`; IBAN barely moved, as its gap is the loops. A `match … { … => true, _ => false }` without `matches!` was longer than the comparisons it replaced (IBAN 50 lines), which is why `matches!` came with it.
+
+2026-09-29, after the above: payment's ID check read `b[0] != 112u8 || b[1] != 109u8 || b[2] != 95u8`; `str::len`, `is_empty`, `starts_with`, `ends_with`, and `contains` were added to the allow-list, and it reads `!raw.starts_with("pm_")`.
+
+Payment, transition logic only (the types are the same length, 94 lines, on both sides):
+
+| Example | Idiomatic | One arm per variant | With `_` and `A \| B` |
+| --- | --- | --- | --- |
+| PaymentIntent (Stripe) | 76 | 160 (2.1×) | 135 (1.8×) |
+
+The rest of the gap is one function per state instead of a tuple `match`, and `match` on `Option` where idiomatic code calls `ok_or`, `unwrap_or`, `map`, and `min`.
+
+2026-09-29, preparing payment for a real server: a crate that derived serde failed `check` (rustc had no serde), and closed types could not keep their invariants on the wire. `check` now compiles against a stand-in serde; `#[serde(try_from = "T")]` with `impl TryFrom<T>` is accepted, and `impl Display` / `Error` are skipped ([04 §5](./04-wire.md#5-closed-types-on-the-wire)). payment reads `Amount` and `PaymentMethodId` through their constructors on both sides.
+
+Invoice, logic only (types differ mostly by derive lines and the checked `Yen`):
+
+| Example | Idiomatic | First draft | Restructured |
+| --- | --- | --- | --- |
+| Invoice (NTA) | 48 | 104 (2.2×) | 68 (1.4×) |
+
+The first draft kept four running totals in a struct updated line by line; the restructured one sums each group with a range `for`, as the idiomatic code sums with `filter`. Every rejection on the way had a subset spelling. Match guards were the most frequent (three in invoice, and the idiomatic payment uses two): the candidate if a guard is ever the only way to keep an example under the threshold.
+
+The NTA's own worked examples (60,000 × 10/110 ≒ 5,454; 23,894 × 10% ≒ 2,389 where rounding per line would give 2,388; 問59's receipt at 948 both ways) are asserted in `invoice_equivalence.rs`, next to an idiomatic-Rust cross-check and the Rust/TS differential test (about 11,400 invoices, overflow included).
+
+The type/function file-name collision (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has now been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
 ## 3. Next, when an example needs it
 
-1. **Boundary encoding** — write serde JSON from domain values (`bigint` as a JSON number, decide `NaN`) ([04 §6](./04-wire.md#6-open-questions)).
-2. **`#[serde(try_from)]`** — uphold closed-type invariants on the wire ([04 §5](./04-wire.md#5-closed-types-on-the-wire)).
-3. **Character-class notation** — literal/range patterns, `b'@'` (see §2).
-4. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time.
-5. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
-6. **std methods** the example calls, via the allow-list. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
-7. **Match ergonomics** — if missing `_ =>` makes transition tables unreadable.
+1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time.
+2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
+3. **std methods** the example calls, via the allow-list. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
+4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`.
 
 ## 4. Specified but not yet implemented
 
-`char`; `String::len`, byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b`, iterator `for`; literal patterns; byte literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`; `const`/`static`.
+`char`; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`; `const`/`static`.
 
 ## 5. v1: when type expressiveness runs out
 
@@ -68,6 +91,6 @@ Waits for an example that cannot be written without it.
 ## 7. Open questions
 
 - Should output typing come from rustc's type information instead of the in-house inference ([05 §3](./05-architecture.md#3-rustc-as-the-final-gate))?
-- `NaN` over JSON, and Hermes support for `JSON.parse` source text ([04 §6](./04-wire.md#6-open-questions)).
+- Hermes support for `JSON.parse` source text ([04 §7](./04-wire.md#7-open-questions)).
 - A shared error type with field paths for validation ([01 §4](./01-equivalence.md#4-closed-types)).
 - Demand: see [06 §5](./06-strategy.md#5-validating-demand-next).

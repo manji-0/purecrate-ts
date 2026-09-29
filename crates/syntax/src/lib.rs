@@ -97,7 +97,7 @@ mod tests {
         let (_, _, msg) = error_at("pub fn f(x: std::fs::File) -> i32 { 0 }");
         assert!(msg.contains("qualified type path `std::fs::File`"), "{msg}");
 
-        let (line, col, msg) = error_at(&with_arms("Cmd::Stop => 0,\n _ => 1"));
+        let (line, col, msg) = error_at(&with_arms("Cmd::Stop => 0,\n other => 1"));
         assert_eq!(line, 4, "{msg}");
         assert_eq!(col, 2, "{msg}");
 
@@ -240,9 +240,25 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_and_binding_free_or_arms_are_accepted() {
+        parse_source("c", &with_arms("Cmd::Stop => 0, _ => 1")).expect("`_`");
+        parse_source("c", &with_arms("Cmd::Stop | Cmd::Move(_, _) => 0")).expect("`|`");
+    }
+
+    #[test]
     fn unsupported_arm_patterns_are_rejected() {
-        rejects("Cmd::Stop => 0, _ => 1", "found `_`");
         rejects("Cmd::Stop => 0, other => 1", "found binding `other`");
+        rejects("Cmd::Stop => 0, Cmd::Move(a, _) | Cmd::Move(_, a) => a", "`|` arms may not bind names");
+        rejects("Cmd::Stop | _ => 0", "each side of `|` must name an enum variant");
+        rejects("Cmd::Stop | Cmd::Move(1, _) => 0", "found a literal");
+        let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" => 1, _ => 2 } }").expect_err("str pattern");
+        assert!(err.message.contains("found a literal"), "{}", err.message);
+        let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, 1 if x > 0) }").expect_err("guard");
+        assert!(err.message.contains("match guards are not in v0"), "{}", err.message);
+        let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, _) }").expect_err("always true");
+        assert!(err.message.contains("always `true`"), "{}", err.message);
+        let err = parse_source("c", "pub fn f(x: i32) -> i32 { match x { 5.. => 1, _ => 2 } }").expect_err("half-open");
+        assert!(err.message.contains("range patterns need a literal at both ends"), "{}", err.message);
         rejects("Cmd::Move(1, b) => b, Cmd::Stop => 0", "found a literal");
         rejects(
             "Cmd::Move(a, Dir::Up) => a, Cmd::Stop => 0",

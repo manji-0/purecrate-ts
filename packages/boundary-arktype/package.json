@@ -1,6 +1,12 @@
 {
   "name": "purecrate-arktype",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manji-0/purecrate-ts.git",
+    "directory": "packages/boundary-arktype"
+  },
   "type": "module",
   "description": "arktype adapters for the wire schemas purecrate-ts generates.",
   "exports": {

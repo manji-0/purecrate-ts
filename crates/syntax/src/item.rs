@@ -149,8 +149,8 @@ fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
         let (reason, message) = if path.is_ident("serde") {
             (
                 Reason::SerdeAttr,
-                "`#[serde(...)]` changes the JSON shape, which v0 does not model yet; \
-                 remove it or keep this type out of the crate",
+                "`#[serde(...)]` changes the JSON shape, which v0 does not model; \
+                 the one exception is `#[serde(try_from = \"T\")]` on a struct",
             )
         } else if path.is_ident("cfg") || path.is_ident("cfg_attr") {
             (
@@ -182,6 +182,30 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
     }
 }
 
+/// `#[serde(try_from = "T")]`, the one serde attribute v0 models.
+fn is_try_from_attr(attr: &syn::Attribute) -> bool {
+    attr.path().is_ident("serde") && wire_from_attr(attr).is_ok()
+}
+
+/// The type named by `#[serde(try_from = "T")]`, with nothing else in it.
+fn wire_from_attr(attr: &syn::Attribute) -> Result<syn::Type, ParseError> {
+    let not_try_from = || {
+        ParseError::new(
+            Reason::SerdeAttr,
+            "the only `#[serde(...)]` in v0 is `#[serde(try_from = \"T\")]` on a struct; other attributes change the JSON shape",
+        )
+        .or_at(attr.span())
+    };
+    let nv: syn::MetaNameValue = attr.parse_args().map_err(|_| not_try_from())?;
+    if !nv.path.is_ident("try_from") {
+        return Err(not_try_from());
+    }
+    match &nv.value {
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => s.parse::<syn::Type>().map_err(|_| not_try_from()),
+        _ => Err(not_try_from()),
+    }
+}
+
 /// `#[cfg(test)]` items are absent from the build the TS mirrors.
 pub fn is_test_only(item: &SynItem) -> bool {
     item_attrs(item).iter().any(|attr| {
@@ -200,17 +224,23 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
         SynItem::Struct(s) => vec![LineCol::of(s.ident.span())],
         SynItem::Fn(f) => vec![LineCol::of(f.sig.ident.span())],
         SynItem::Type(t) => vec![LineCol::of(t.ident.span())],
+        // One per lowered method; `type Error` of a `TryFrom` impl is not one.
         SynItem::Impl(imp) => imp
             .items
             .iter()
-            .map(|i| match i {
-                syn::ImplItem::Fn(f) => LineCol::of(f.sig.ident.span()),
-                other => LineCol::of(other.span()),
+            .filter_map(|i| match i {
+                syn::ImplItem::Fn(f) => Some(LineCol::of(f.sig.ident.span())),
+                _ => None,
             })
             .collect(),
         _ => Vec::new(),
     };
-    reject_attrs(item_attrs(&item))?;
+    let attrs: Vec<syn::Attribute> = item_attrs(&item)
+        .iter()
+        .filter(|a| !(matches!(item, SynItem::Struct(_)) && is_try_from_attr(a)))
+        .cloned()
+        .collect();
+    reject_attrs(&attrs)?;
     let items = lower_item_node(cx, item).map_err(|e| e.or_at(span))?;
     Ok(items.into_iter().zip(names).collect())
 }
@@ -286,7 +316,14 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?,
-        SynFields::Unit => Vec::new(),
+        // serde writes `struct S;` as `null` and `struct S {}` as `{}`; the IR
+        // keeps only the fields, so one spelling is taken (design/04 §3).
+        SynFields::Unit => {
+            return Err(ParseError::new(
+                Reason::UnitStruct,
+                "unit structs are not in v0; write `struct S {}` or an enum",
+            ))
+        }
         SynFields::Unnamed(u) if u.unnamed.len() == 1 => vec![Field {
             name: Name::new(NEWTYPE_FIELD),
             ty: lower_type(&u.unnamed[0].ty)?,
@@ -298,11 +335,19 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
             ))
         }
     };
+    let mut wire_from = None;
+    for attr in s.attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        if wire_from.is_some() {
+            return Err(ParseError::new(Reason::SerdeAttr, "`#[serde(try_from)]` is given twice").or_at(attr.span()));
+        }
+        wire_from = Some(lower_type(&wire_from_attr(attr)?)?);
+    }
     Ok(Struct {
         vis: lower_vis(&s.vis),
         name: Name::new(s.ident.to_string()),
         fields,
         closed,
+        wire_from,
     })
 }
 
@@ -403,9 +448,95 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
     }
 }
 
+/// The trait impls v0 takes: `Display` and `Error` are skipped (a server
+/// needs them, for serde's `try_from` among others, and nothing translated
+/// can call them), and `TryFrom<T>` becomes the method `try_from`.
+enum TraitImpl {
+    Skipped,
+    TryFrom(syn::Type),
+}
+
+fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
+    let idents: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let idents: Vec<&str> = idents.iter().map(String::as_str).collect();
+    match idents.as_slice() {
+        ["Display"] | ["fmt", "Display"] | ["std" | "core", "fmt", "Display"] => Some(TraitImpl::Skipped),
+        ["Error"] | ["error", "Error"] | ["std" | "core", "error", "Error"] => Some(TraitImpl::Skipped),
+        ["TryFrom"] | ["convert", "TryFrom"] | ["std" | "core", "convert", "TryFrom"] => {
+            match &path.segments.last()?.arguments {
+                syn::PathArguments::AngleBracketed(a) => match a.args.first() {
+                    Some(syn::GenericArgument::Type(t)) if a.args.len() == 1 => Some(TraitImpl::TryFrom(t.clone())),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `impl TryFrom<T> for X { type Error = E; fn try_from(value: T) -> Result<Self, Self::Error> }`
+/// as `X::try_from`, public like the trait, with `Self::Error` read as `E`.
+fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Result<Vec<Item>, ParseError> {
+    let error = imp
+        .items
+        .iter()
+        .find_map(|i| match i {
+            syn::ImplItem::Type(t) if t.ident == "Error" => Some(t.ty.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| ParseError::new(Reason::ImplShape, "`impl TryFrom` needs `type Error = ..`"))?;
+    let owner = Name::new(owner_ident.to_string());
+    let mut out = Vec::new();
+    for item in &imp.items {
+        match item {
+            syn::ImplItem::Type(t) if t.ident == "Error" => {}
+            syn::ImplItem::Fn(f) if f.sig.ident == "try_from" => {
+                reject_attrs(&f.attrs)?;
+                let mut f = f.clone();
+                SelfError(&error).visit_impl_item_fn_mut(&mut f);
+                SelfIsOwner(owner_ident).visit_impl_item_fn_mut(&mut f);
+                let public = Visibility::Public(Default::default());
+                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block)
+                    .map_err(|e| e.or_at(item.span()))?;
+                out.push(Item::Fn(lowered));
+            }
+            other => {
+                return Err(ParseError::new(Reason::ImplShape, "`impl TryFrom` has only `type Error` and `fn try_from`")
+                    .or_at(other.span()))
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Rewrites the type `Self::Error` to the impl's `type Error`.
+struct SelfError<'a>(&'a syn::Type);
+
+impl VisitMut for SelfError<'_> {
+    fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+        if let syn::Type::Path(p) = ty {
+            let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            if p.qself.is_none() && idents == ["Self", "Error"] {
+                *ty = self.0.clone();
+                return;
+            }
+        }
+        visit_mut::visit_type_mut(self, ty);
+    }
+
+    fn visit_item_mut(&mut self, _: &mut SynItem) {}
+}
+
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
-    if imp.trait_.is_some() {
-        return Err(ParseError::new(Reason::TraitImpl, "trait impls are not in v0"));
+    let kind = match &imp.trait_ {
+        None => None,
+        Some((_, path, _)) => Some(trait_impl(path).ok_or_else(|| {
+            ParseError::new(Reason::TraitImpl, "trait impls are not in v0, except `Display`, `Error` (skipped) and `TryFrom<T>`")
+        })?),
+    };
+    if matches!(kind, Some(TraitImpl::Skipped)) {
+        return Ok(Vec::new());
     }
     if has_type_generics(&imp.generics) {
         return Err(ParseError::new(Reason::Generics, "generic impls are not in v0"));
@@ -416,6 +547,9 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             return Err(ParseError::new(Reason::ImplShape, "impl type must be a simple name").or_at(imp.self_ty.span()))
         }
     };
+    if matches!(kind, Some(TraitImpl::TryFrom(_))) {
+        return lower_try_from(cx, &imp, &owner_ident);
+    }
     let owner = Name::new(owner_ident.to_string());
     let mut out = Vec::new();
     for item in &imp.items {

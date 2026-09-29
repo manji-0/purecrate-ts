@@ -1,6 +1,13 @@
 //! The input must also compile. The subset checks see syntax and types but
 //! erase borrows and do not track moves or lifetimes, so rustc has the last
 //! word: `check` succeeding means the crate compiles as a library.
+//!
+//! The one external crate the input may name is `serde`, for the derives a
+//! server needs on the same types (design/04 §3). rustc gets a stand-in whose
+//! `Serialize`/`Deserialize` derives expand to nothing: they add impls, never
+//! change the code that is translated, so borrows and moves are checked the
+//! same. The real derive, and what it requires (`TryFrom`, `Display`), is
+//! checked by the server's own build.
 
 use std::env;
 use std::fs;
@@ -35,8 +42,13 @@ pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let out_dir = scratch();
     fs::create_dir_all(&out_dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", out_dir.display())))?;
+    let serde = serde_stub(&rustc, &out_dir)?;
     let output = Command::new(&rustc)
         .args(["--edition", edition, "--crate-type", "lib", "--emit=metadata"])
+        .arg("--extern")
+        .arg(format!("serde={}", serde.display()))
+        .arg("-L")
+        .arg(&out_dir)
         .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "--out-dir"])
         .arg(&out_dir)
         .arg(src)
@@ -57,6 +69,65 @@ pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
         return Err(Failure::Other(format!("rustc failed on {}:\n{}", src.display(), stderr.trim_end())));
     }
     Err(Failure::Rejected(errors))
+}
+
+const SERDE_DERIVE_STUB: &str = "extern crate proc_macro;
+use proc_macro::TokenStream;
+#[proc_macro_derive(Serialize, attributes(serde))]
+pub fn serialize(_: TokenStream) -> TokenStream { TokenStream::new() }
+#[proc_macro_derive(Deserialize, attributes(serde))]
+pub fn deserialize(_: TokenStream) -> TokenStream { TokenStream::new() }
+";
+
+const SERDE_STUB: &str = "pub use serde_derive::{Deserialize, Serialize};
+pub trait Serialize {}
+pub trait Deserialize<'de>: Sized {}
+pub mod ser { pub use super::Serialize; }
+pub mod de { pub use super::Deserialize; pub trait DeserializeOwned {} }
+";
+
+/// Builds the stand-in `serde` (and its derive crate) into `dir` and returns
+/// the rlib.
+fn serde_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
+    let build = |name: &str, source: &str, args: &[&str]| -> Result<(), Failure> {
+        let src = dir.join(format!("{name}.rs"));
+        fs::write(&src, source).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
+        let output = Command::new(rustc)
+            .args(["--edition", "2021", "--crate-name", name, "--cap-lints", "allow", "--out-dir"])
+            .arg(dir)
+            .args(args)
+            .arg(&src)
+            .output()
+            .map_err(|e| {
+                Failure::Other(format!(
+                    "run {}: {e}; check needs rustc to confirm the input compiles (set RUSTC to its path)",
+                    Path::new(rustc).display()
+                ))
+            })?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(Failure::Other(format!(
+                "rustc could not build the serde stand-in:\n{}",
+                String::from_utf8_lossy(&output.stderr).trim_end()
+            )))
+        }
+    };
+    build("serde_derive", SERDE_DERIVE_STUB, &["--crate-type", "proc-macro"])?;
+    let derive = fs::read_dir(dir)
+        .map_err(|e| Failure::Other(format!("read {}: {e}", dir.display())))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| {
+            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            (stem == "serde_derive" || stem == "libserde_derive") && p.extension().is_some_and(|e| e != "rs")
+        })
+        .ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
+    build(
+        "serde",
+        SERDE_STUB,
+        &["--crate-type", "rlib", "--extern", &format!("serde_derive={}", derive.display())],
+    )?;
+    Ok(dir.join("libserde.rlib"))
 }
 
 fn scratch() -> PathBuf {

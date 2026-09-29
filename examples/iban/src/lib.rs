@@ -17,20 +17,19 @@ pub enum IbanError {
 }
 
 fn is_digit(b: u8) -> bool {
-    b >= 48u8 && b <= 57u8
+    matches!(b, b'0'..=b'9')
 }
 
 fn is_upper(b: u8) -> bool {
-    b >= 65u8 && b <= 90u8
+    matches!(b, b'A'..=b'Z')
 }
 
 /// One character into the running remainder: a digit is one decimal digit,
 /// a letter two (A = 10 … Z = 35).
 fn push(acc: u32, c: u8) -> u32 {
-    if is_digit(c) {
-        (acc * 10u32 + u32::from(c - 48u8)) % 97u32
-    } else {
-        (acc * 100u32 + u32::from(c - 55u8)) % 97u32
+    match c {
+        b'0'..=b'9' => (acc * 10u32 + u32::from(c - b'0')) % 97u32,
+        _ => (acc * 100u32 + u32::from(c - b'A') + 10u32) % 97u32,
     }
 }
 

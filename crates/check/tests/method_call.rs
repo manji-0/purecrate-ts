@@ -27,7 +27,8 @@ fn vec_len_and_index_are_accepted() {
     assert_clean("pub fn f(xs: Vec<i32>, i: usize) -> i32 { xs[i] }");
     assert_clean("pub fn f(xs: &[i32]) -> i32 { if xs.len() == 0 { 0 } else { xs[0] } }");
     assert_rejects("pub fn f(xs: Vec<i32>) -> i32 { xs[0i32] }", "expected `usize`, found `i32`");
-    assert_rejects("pub fn f(s: String) -> usize { s.len() }", "`.len()` on `String` is not in v0");
+    // `String::len` is the allow-listed UTF-8 byte count (`str_methods_come_from_the_allow_list`).
+    assert_clean("pub fn f(s: String) -> usize { s.len() }");
     assert_rejects("pub fn f(s: String) -> i32 { s[0] }", "cannot index `String`");
 }
 
@@ -52,4 +53,17 @@ fn long_method_chains_type_in_linear_time() {
     let start = std::time::Instant::now();
     assert_clean(&src);
     assert!(start.elapsed() < std::time::Duration::from_secs(20), "{:?}", start.elapsed());
+}
+
+/// The `str` allow-list (design/01 §6): the methods, receivers and needles
+/// it names, and nothing else.
+#[test]
+fn str_methods_come_from_the_allow_list() {
+    assert_clean("pub fn f(s: String, t: &str) -> bool { s.starts_with(t) && t.ends_with(\"x\") && s.contains(&s) && !t.is_empty() }");
+    assert_clean("pub fn f(s: &str) -> usize { s.len() }");
+    assert_rejects("pub fn f(s: &str) -> bool { s.starts_with(1u8) }", "`str::starts_with` takes a `&str` pattern in v0, found `u8`");
+    assert_rejects("pub fn f(s: &str) -> bool { s.starts_with() }", "`str::starts_with` takes 1 argument(s) after the receiver, got 0");
+    assert_rejects("pub fn f(s: &str) -> bool { s.is_empty(s) }", "`str::is_empty` takes 0 argument(s) after the receiver, got 1");
+    assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
+    assert_rejects("pub fn f(s: &str) -> bool { s.trim() == \"\" }", "`.trim()` on `&str` is not in v0");
 }

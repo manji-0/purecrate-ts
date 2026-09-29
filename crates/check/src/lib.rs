@@ -11,7 +11,9 @@ mod position;
 mod reach;
 mod rename;
 mod resolve;
+mod rest;
 mod types;
+mod wire;
 
 use purecrate_ir::{Crate, Item, Pos, Reason};
 
@@ -71,6 +73,7 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     out.extend(resolve::check(krate));
     out.extend(exhaustive::check(krate));
     out.extend(position::check(krate));
+    out.extend(wire::check(krate));
     if out.is_empty() {
         match types::elaborate(krate) {
             Ok(mut typed) => {
@@ -82,7 +85,7 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
                 match complete::check(&typed) {
-                    missing if missing.is_empty() => return Ok(lift::lift(rename::rename(typed))),
+                    missing if missing.is_empty() => return Ok(lift::lift(rename::rename(rest::expand(typed)))),
                     missing => out = missing,
                 }
             }

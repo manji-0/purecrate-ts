@@ -1,0 +1,6 @@
+# Build outputs of measure.sh.
+/pkg/
+/pkg-web/
+/out/
+/ts/
+/wasm/target*/

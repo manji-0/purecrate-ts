@@ -1,6 +1,7 @@
 //! Wire schemas for one chosen library. The shape is serde's default JSON.
 //! Numeric fields use the shared `purecrate-*` adapter, so the result is the
-//! domain brand (`I32`, not a bare `number`).
+//! domain brand (`I32`, not a bare `number`). `toJson` writes the same shape
+//! back, as serde_json writes the Rust value, with no schema library.
 
 use purecrate_ir::{Crate, Item, Struct, Ty, VariantFields, NEWTYPE_FIELD};
 
@@ -55,8 +56,13 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     for item in krate.exported() {
         if matches!(item, Item::Struct(_) | Item::Enum(_)) {
             let name = item.name().as_str();
-            let value = matches!(item, Item::Struct(s) if s.newtype_inner().is_some() && !s.closed);
-            if matches!(item, Item::Struct(s) if s.closed) {
+            let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
+            if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
+                out.push_str(&format!(
+                    "import {{ {name} as {name}$value, type {name} as {name}$ }} from \"./{}.ts\";\n",
+                    item.file_stem()
+                ));
+            } else if matches!(item, Item::Struct(s) if s.closed) {
                 out.push_str(&format!(
                     "import {{ {ctor}, type {name} as {name}$ }} from \"./{}.ts\";\n",
                     item.file_stem(),
@@ -84,27 +90,26 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             (Item::Alias(_) | Item::Fn(_), _) => {}
         }
     }
+    out.push_str(&to_json(krate));
     out
 }
 
 fn header(schema: WireSchema) -> String {
-    match schema {
+    let own: &str = match schema {
         WireSchema::Zod => "\
 import { z } from \"zod\";
 import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-zod\";
-"
-        .into(),
+",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
 import { bool, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, usize } from \"purecrate-valibot\";
-"
-        .into(),
+",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
 import { bool, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, u8, unit, usize, type Wire } from \"purecrate-arktype\";
-"
-        .into(),
-    }
+",
+    };
+    format!("import {{ Json }} from \"purecrate\";\n{own}")
 }
 
 /// Zod and valibot. The domain value is built field by field: a schema's
@@ -112,6 +117,9 @@ import { bool, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, 
 /// (`unit?: undefined`), which the domain type does not accept.
 fn struct_schema(schema: WireSchema, s: &Struct) -> String {
     let name = s.name.as_str();
+    if let Some(from) = &s.wire_from {
+        return try_from_schema(schema, s, from);
+    }
     if let Some(inner) = s.newtype_inner() {
         let value = schema_ty(schema, inner);
         let build = newtype_build(s, "v");
@@ -140,6 +148,46 @@ fn struct_schema(schema: WireSchema, s: &Struct) -> String {
             "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe(v.object({{ {fields} }}), v.transform((v): {name}$ => {build})));\n"
         ),
         WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
+    }
+}
+
+/// `#[serde(try_from = "T")]`: read `T`, then `S.try_from`; `Err` fails the
+/// read, as serde fails deserialization (design/04 §5). The value comes
+/// only from the checked constructor, so a closed type keeps its invariant.
+fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty) -> String {
+    let name = s.name.as_str();
+    let from = schema_ty(schema, from);
+    match schema {
+        WireSchema::Zod => format!(
+            "\nexport const {name}: z.ZodType<{name}$, z.ZodTypeDef, unknown> = z.lazy(() => {from}.transform((v, ctx): {name}$ => {{\n\
+             \x20 const r = {name}$value.try_from(v);\n\
+             \x20 if (r.kind === \"Err\") {{\n\
+             \x20   ctx.addIssue({{ code: z.ZodIssueCode.custom, message: \"{name}\" }});\n\
+             \x20   return z.NEVER;\n\
+             \x20 }}\n\
+             \x20 return r.value;\n\
+             }}));\n"
+        ),
+        WireSchema::Valibot => format!(
+            "\nexport const {name}: v.GenericSchema<unknown, {name}$> = v.lazy(() => v.pipe({from}, v.rawTransform(({{ dataset, addIssue, NEVER }}): {name}$ => {{\n\
+             \x20 const r = {name}$value.try_from(dataset.value);\n\
+             \x20 if (r.kind === \"Err\") {{\n\
+             \x20   addIssue({{ message: \"{name}\" }});\n\
+             \x20   return NEVER;\n\
+             \x20 }}\n\
+             \x20 return r.value;\n\
+             }})));\n"
+        ),
+        WireSchema::Arktype => format!(
+            "\nconst {name}$wire = memo(() => {from});\n\
+             export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
+             \x20 const parsed = {name}$wire()(v);\n\
+             \x20 if (parsed instanceof type.errors) return ctx.error(\"{name}\") as never;\n\
+             \x20 const r = {name}$value.try_from(parsed);\n\
+             \x20 if (r.kind === \"Err\") return ctx.error(\"{name}\") as never;\n\
+             \x20 return r.value;\n\
+             }});\n"
+        ),
     }
 }
 
@@ -252,6 +300,9 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
 /// unordered union of two object morphs.
 fn ark_struct(s: &Struct) -> String {
     let name = s.name.as_str();
+    if let Some(from) = &s.wire_from {
+        return try_from_schema(WireSchema::Arktype, s, from);
+    }
     let (shape, build) = match s.newtype_inner() {
         Some(inner) => (schema_ty(WireSchema::Arktype, inner), newtype_build(s, "parsed")),
         None => {
@@ -399,5 +450,120 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> String {
             WireSchema::Valibot => "v.never()".into(),
             WireSchema::Arktype => "type.never".into(),
         },
+    }
+}
+
+/// `toJson.T(x)`: the JSON text serde_json writes for the Rust value of `x`
+/// (design/04 §6). Struct fields in declaration order; a newtype is its
+/// content; enums are externally tagged, a one-field tuple variant as the
+/// field itself.
+fn to_json(krate: &Crate) -> String {
+    let mut out = String::from(
+        "\n/** Each type written as serde_json writes the Rust value. */\nexport const toJson = {\n",
+    );
+    for item in krate.exported() {
+        match item {
+            Item::Struct(s) => {
+                let name = s.name.as_str();
+                let body = match s.newtype_inner() {
+                    Some(inner) => write_json(inner, "x", 0),
+                    None => object_json(s.fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x."),
+                };
+                out.push_str(&format!("  {name}: (x: {name}$): string => {body},\n"));
+            }
+            Item::Enum(e) => {
+                let name = e.name.as_str();
+                out.push_str(&format!("  {name}: (x: {name}$): string => {{\n    switch (x.kind) {{\n"));
+                for v in &e.variants {
+                    let var = v.name.as_str();
+                    let value = match &v.fields {
+                        VariantFields::Unit => format!("\"\\\"{var}\\\"\""),
+                        VariantFields::Tuple(tys) if tys.len() == 1 => {
+                            format!("`{{\"{var}\":{}}}`", splice(&write_json(&tys[0], "x.content[0]", 0)))
+                        }
+                        VariantFields::Tuple(tys) => {
+                            let elems = tys
+                                .iter()
+                                .enumerate()
+                                .map(|(i, t)| splice(&write_json(t, &format!("x.content[{i}]"), 0)))
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            format!("`{{\"{var}\":[{elems}]}}`")
+                        }
+                        VariantFields::Struct(fields) => {
+                            let inner = object_json(fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x.");
+                            format!("`{{\"{var}\":{}}}`", splice(&inner))
+                        }
+                    };
+                    out.push_str(&format!("      case \"{var}\":\n        return {value};\n"));
+                }
+                out.push_str("    }\n  },\n");
+            }
+            Item::Alias(_) | Item::Fn(_) => {}
+        }
+    }
+    out.push_str("} as const;\n");
+    out
+}
+
+/// `{"a":…,"b":…}` for fields read from `<prefix><name>`.
+fn object_json<'a>(fields: impl Iterator<Item = (&'a str, &'a Ty)>, prefix: &str) -> String {
+    let pairs = fields
+        .map(|(name, ty)| format!("\"{name}\":{}", splice(&write_json(ty, &format!("{prefix}{name}"), 0))))
+        .collect::<Vec<_>>();
+    if pairs.is_empty() {
+        return "\"{}\"".into();
+    }
+    format!("`{{{}}}`", pairs.join(","))
+}
+
+/// A TS expression for the JSON text of `value`, of type `ty`. `depth`
+/// names the parameters of nested array writers apart.
+fn write_json(ty: &Ty, value: &str, depth: usize) -> String {
+    use purecrate_ir::{FloatTy, Prim};
+    match ty {
+        Ty::Prim(p) => match p {
+            Prim::Bool => format!("Json.bool({value})"),
+            Prim::String | Prim::Str => format!("Json.str({value})"),
+            Prim::Unit => "\"null\"".into(),
+            other => match other.float() {
+                Some(FloatTy::F32) => format!("Json.f32({value})"),
+                Some(FloatTy::F64) => format!("Json.f64({value})"),
+                None => format!("Json.int({value})"),
+            },
+        },
+        Ty::Option(inner) => format!("({value} === null ? \"null\" : {})", write_json(inner, value, depth)),
+        Ty::Vec(inner) => {
+            let v = format!("v{depth}");
+            format!("Json.array({value}, ({v}) => {})", write_json(inner, &v, depth + 1))
+        }
+        Ty::Tuple(elems) => {
+            let parts = elems
+                .iter()
+                .enumerate()
+                .map(|(i, t)| splice(&write_json(t, &format!("{value}[{i}]"), depth)))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("`[{parts}]`")
+        }
+        Ty::Result { ok, err } => format!(
+            "({value}.kind === \"Ok\" ? `{{\"Ok\":{}}}` : `{{\"Err\":{}}}`)",
+            splice(&write_json(ok, &format!("{value}.value"), depth)),
+            splice(&write_json(err, &format!("{value}.error"), depth))
+        ),
+        Ty::Named(n) => format!("toJson.{}({value})", n.as_str()),
+        Ty::Ignored { inner, .. } => write_json(inner, value, depth),
+        Ty::Fn { .. } | Ty::Never => "\"null\"".into(),
+    }
+}
+
+/// `expr` placed inside a template literal: a constant string or a nested
+/// template is inlined, anything else becomes `${expr}`.
+fn splice(expr: &str) -> String {
+    match expr {
+        "\"null\"" => "null".into(),
+        "\"{}\"" => "{}".into(),
+        _ if expr.len() > 1 && expr.starts_with('`') && expr.ends_with('`') => expr[1..expr.len() - 1].into(),
+        _ => format!("${{{expr}}}"),
     }
 }

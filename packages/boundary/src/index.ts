@@ -106,6 +106,15 @@ export const Str = {
     }
     return out as unknown as ReadonlyArray<U8>;
   },
+  /** `str::len`: the number of UTF-8 bytes. */
+  len: (s: string): Usize => {
+    let n = 0;
+    for (const c of s) {
+      const p = c.codePointAt(0) as number;
+      n += p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+    }
+    return n as Usize;
+  },
 } as const;
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
@@ -125,4 +134,68 @@ export const Int = {
   f64: {
     of: (value: number): F64 => value as F64,
   },
+} as const;
+
+/** Shortest digits and decimal exponent: `digits` × 10^(`point` − length). */
+const decimal = (x: number): { digits: string; point: number } => {
+  const [mantissa, exponent] = x.toExponential().split("e");
+  return { digits: mantissa.replace("-", "").replace(".", ""), point: Number(exponent) + 1 };
+};
+
+/**
+ * A finite float laid out as ryu writes it for serde_json: `1.0`, `0.001`,
+ * `1e16`, `1.5e-7`. Plain notation holds for 10^(`low`) ≤ |x| < 10^`high`.
+ */
+const ryu = (x: number, digits: string, point: number, high: number, low: number): string => {
+  const sign = x < 0 || Object.is(x, -0) ? "-" : "";
+  if (x === 0) return `${sign}0.0`;
+  const length = digits.length;
+  if (point >= length && point <= high) return `${sign}${digits}${"0".repeat(point - length)}.0`;
+  if (point > 0 && point <= high) return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+  if (point > low && point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+  const rest = length === 1 ? "" : `.${digits.slice(1)}`;
+  return `${sign}${digits[0]}${rest}e${point - 1}`;
+};
+
+/**
+ * Writes domain values as serde_json writes the Rust value (design/04 §6):
+ * integers exactly (`bigint` included), floats as ryu lays them out, and
+ * non-finite floats as `null`, which serde_json then cannot read back.
+ * Generated `toJson` encoders compose these.
+ */
+export const Json = {
+  int: (n: number | bigint): string => String(n),
+  bool: (b: boolean): string => (b ? "true" : "false"),
+  /** JSON.stringify escapes as serde_json does for well-formed strings. */
+  str: (s: string): string => JSON.stringify(s),
+  f64: (x: number): string => {
+    if (!Number.isFinite(x)) return "null";
+    const { digits, point } = decimal(x);
+    return ryu(x, digits, point, 16, -5);
+  },
+  /**
+   * The shortest digits that read back as the same `f32`. When two are
+   * equally near, ryu takes the even one; `toPrecision` rounds half up.
+   */
+  f32: (x: number): string => {
+    if (!Number.isFinite(x)) return "null";
+    // At most 9 digits are needed; 100 give the exact value of any `f32`
+    // whose expansion could end in a tie.
+    const [exact, exponent] = Math.abs(x).toExponential(99).split("e");
+    const all = exact.replace(".", "");
+    for (let p = 1; p <= 9; p++) {
+      const shorter = Number(x.toPrecision(p));
+      if (Math.fround(shorter) !== x) continue;
+      let digits = decimal(shorter).digits;
+      let point = decimal(shorter).point;
+      const tie = all[p] === "5" && /^0*$/.test(all.slice(p + 1));
+      if (tie && Number(all[p - 1]) % 2 === 0) {
+        const down = Number(`${x < 0 ? "-" : ""}${all[0]}.${all.slice(1, p)}e${exponent}`);
+        if (Math.fround(down) === x) ({ digits, point } = decimal(down));
+      }
+      return ryu(x, digits, point, 13, -6);
+    }
+    return "null";
+  },
+  array: <T>(xs: ReadonlyArray<T>, write: (x: T) => string): string => `[${xs.map((x) => write(x)).join(",")}]`,
 } as const;
