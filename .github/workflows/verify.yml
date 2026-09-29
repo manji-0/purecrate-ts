@@ -1,6 +1,6 @@
 # scripts/verify.sh on every push and pull request: cargo tests (goldens,
 # Rust/TS differential tests, wire tests), check on every example, and tsc
-# on TypeScript 6 and 7.
+# on TypeScript 6 and 7. Rust and Node come from flake.nix, as locally.
 name: verify
 
 on:
@@ -12,15 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v7
-        with:
-          # parseJson needs JSON.parse source text access (Node 21+).
-          node-version: 24
+      - uses: cachix/install-nix-action@v31.11.1
       - name: Install schema adapters' dependencies
         run: |
           for p in boundary-zod boundary-valibot boundary-arktype; do
-            (cd "packages/$p" && npm ci --ignore-scripts)
+            nix develop --command npm ci --ignore-scripts --prefix "packages/$p"
           done
       - name: Verify
-        run: ./scripts/verify.sh
+        run: nix develop --command ./scripts/verify.sh

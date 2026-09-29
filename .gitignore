@@ -3,3 +3,4 @@ target/
 corpus/src/
 node_modules/
 dist/
+.direnv/

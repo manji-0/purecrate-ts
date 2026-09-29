@@ -79,7 +79,9 @@ gh skill install manji-0/purecrate-ts purecrate-authoring
 ./scripts/verify.sh
 ```
 
-CI (`.github/workflows/verify.yml`) runs it on every push, after `npm ci` in the three adapter packages. It runs `cargo test --offline` (goldens, differential tests that run the same inputs through Rust and the generated TS, and wire tests against the vendored serde_json), drift detection on examples/counter, `check` on the other examples, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
+It needs Rust and Node 21+ (CI uses 24). `nix develop`, or direnv with the checked-in `.envrc`, provides rustc 1.98.1 (the release the differential tests' panic messages were measured on) and Node 24; TypeScript and the schema libraries still come from npm.
+
+CI (`.github/workflows/verify.yml`) runs it on every push inside `nix develop`, after `npm ci` in the three adapter packages. It runs `cargo test --offline` (goldens, differential tests that run the same inputs through Rust and the generated TS, and wire tests against the vendored serde_json), drift detection on examples/counter, `check` on the other examples, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
 
 `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
