@@ -121,6 +121,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Ok(Expr::Return(Box::new(inner)))
         }
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
+        SynExpr::Macro(m) if m.mac.path.is_ident("matches") => lower_matches(cx, &m.mac),
         SynExpr::Macro(m) => Err(ParseError::new(
             Reason::Macro,
             format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
@@ -536,6 +537,47 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     }
 }
 
+/// `matches!(e, p)` is std's `match e { p => true, _ => false }`. A guard
+/// (`p if c`) is rejected like any match guard.
+fn lower_matches(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError> {
+    let (scrutinee, pat, guard) = mac
+        .parse_body_with(|input: syn::parse::ParseStream| {
+            let e: SynExpr = input.parse()?;
+            input.parse::<syn::Token![,]>()?;
+            let p = Pat::parse_multi_with_leading_vert(input)?;
+            let guard = input.peek(syn::Token![if]);
+            if guard {
+                input.parse::<syn::Token![if]>()?;
+                input.parse::<SynExpr>()?;
+            }
+            if input.peek(syn::Token![,]) {
+                input.parse::<syn::Token![,]>()?;
+            }
+            Ok((e, p, guard))
+        })
+        .map_err(|e| ParseError::new(Reason::Macro, format!("`matches!` expects `matches!(value, pattern)`: {e}")))?;
+    if guard {
+        return Err(ParseError::new(Reason::MatchGuard, "match guards are not in v0"));
+    }
+    let pattern = arm_pattern(lower_pat(cx, &pat)?).map_err(|e| e.or_at(pat.span()))?;
+    if pattern == Pattern::Wildcard {
+        return Err(ParseError::new(Reason::ArmPattern, "`matches!(x, _)` is always `true`; write `true`"));
+    }
+    Ok(Expr::Match {
+        scrutinee: Box::new(lower_expr(cx, &scrutinee)?),
+        arms: vec![
+            Arm {
+                pattern,
+                body: Expr::Lit(Lit::Bool(true)),
+            },
+            Arm {
+                pattern: Pattern::Wildcard,
+                body: Expr::Lit(Lit::Bool(false)),
+            },
+        ],
+    })
+}
+
 fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
     lower_pat_node(cx, pat).map_err(|e| e.or_at(pat.span()))
 }
@@ -548,6 +590,20 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
             Ok(Pattern::Var(Name::new(id.ident.to_string())))
         }
         Pat::Lit(l) => Ok(Pattern::Lit(lower_lit(&l.lit)?)),
+        Pat::Range(r) => {
+            let bound = |e: &Option<Box<syn::Expr>>| match e.as_deref() {
+                Some(SynExpr::Lit(l)) => lower_lit(&l.lit),
+                _ => Err(ParseError::new(
+                    Reason::UnsupportedPattern,
+                    "range patterns need a literal at both ends in v0",
+                )),
+            };
+            Ok(Pattern::Range {
+                lo: bound(&r.start)?,
+                hi: bound(&r.end)?,
+                inclusive: matches!(r.limits, syn::RangeLimits::Closed(_)),
+            })
+        }
         Pat::Path(p) => path_variant_pat(cx, &p.path, VariantBind::Unit),
         Pat::TupleStruct(t) => {
             let bind = VariantBind::Tuple(
@@ -576,6 +632,12 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
             path_variant_pat(cx, &s.path, bind)
         }
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
+        Pat::Or(o) => Ok(Pattern::Or(
+            o.cases
+                .iter()
+                .map(|p| lower_pat(cx, p))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
         other => Err(ParseError::new(
             Reason::UnsupportedPattern,
             format!("unsupported pattern {}", snippet(other)),
@@ -584,9 +646,41 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
 }
 
 /// v0 prints `match` as `switch (x.kind)`: each arm names one variant and
-/// binds its fields to plain names.
+/// binds its fields to plain names, names several variants of one enum with
+/// `A | B` binding nothing, or is `_` (the variants no other arm names).
 fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
-    let inner: Vec<&Pattern> = match &pattern {
+    if pattern.is_int_case() {
+        return Ok(pattern);
+    }
+    match &pattern {
+        Pattern::Wildcard => return Ok(pattern),
+        Pattern::Or(alts) => {
+            for alt in alts {
+                if !matches!(alt, Pattern::Variant { .. }) {
+                    return Err(ParseError::new(Reason::ArmPattern, format!(
+                        "each side of `|` must name an enum variant in v0, found {}",
+                        describe_pat(alt)
+                    )));
+                }
+                variant_fields(alt)?;
+                if let Some(name) = alt.bindings().first() {
+                    return Err(ParseError::new(Reason::ArmPattern, format!(
+                        "`|` arms may not bind names in v0, found binding `{}`; write one arm per variant",
+                        name.as_str()
+                    )));
+                }
+            }
+            return Ok(pattern);
+        }
+        _ => {}
+    }
+    variant_fields(&pattern)?;
+    Ok(pattern)
+}
+
+/// Checks that `pattern` names a case and binds only names or `_` inside.
+fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
+    let inner: Vec<&Pattern> = match pattern {
         Pattern::Variant { bind, .. } => match bind {
             VariantBind::Unit => Vec::new(),
             VariantBind::Tuple(pats) => pats.iter().collect(),
@@ -594,10 +688,10 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
         },
         Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![&**p],
         Pattern::OptionNone => Vec::new(),
-        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) => {
+        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => {
             return Err(ParseError::new(Reason::ArmPattern, format!(
-                "match arms must name an enum variant, `Some`/`None` or `Ok`/`Err` in v0, found {}",
-                describe_pat(&pattern)
+                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer or integer range, or be `_` in v0, found {}",
+                describe_pat(pattern)
             )))
         }
     };
@@ -610,7 +704,7 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
             describe_pat(bad)
         )));
     }
-    Ok(pattern)
+    Ok(())
 }
 
 fn describe_pat(pattern: &Pattern) -> String {
@@ -625,6 +719,8 @@ fn describe_pat(pattern: &Pattern) -> String {
         Pattern::OptionNone => "nested `None`".into(),
         Pattern::ResultOk(_) => "nested `Ok(..)`".into(),
         Pattern::ResultErr(_) => "nested `Err(..)`".into(),
+        Pattern::Or(_) => "`|`".into(),
+        Pattern::Range { .. } => "a range".into(),
     }
 }
 
@@ -738,6 +834,11 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
             ))),
         },
         syn::Lit::Str(s) => Ok(Lit::Str(s.value())),
+        // `b'@'` is a `u8`.
+        syn::Lit::Byte(b) => Ok(Lit::Int {
+            value: i128::from(b.value()),
+            ty: Some(IntTy::U8),
+        }),
         _ => Err(ParseError::new(Reason::UnsupportedLiteral, "unsupported literal")),
     }
 }

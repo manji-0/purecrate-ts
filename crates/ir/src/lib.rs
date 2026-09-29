@@ -10,7 +10,7 @@ mod name;
 mod reason;
 mod ty;
 
-pub use expr::{Arm, BinOp, Callee, ClosureParam, Expr, Fields, IntOp, Lit, Pattern, Pos, TryOn, UnOp, VariantBind};
+pub use expr::{Arm, BinOp, Callee, ClosureParam, Expr, Fields, IntOp, Lit, Pattern, Pos, StrMethod, TryOn, UnOp, VariantBind};
 pub use item::{Alias, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD};
 pub use krate::Crate;
 pub use name::{to_kebab, Name};
@@ -56,6 +56,7 @@ pub fn counter_example() -> Crate {
             ty: Ty::i32(),
         }],
         closed: false,
+        wire_from: None,
     });
 
     let arm = |variant: &str, body: Expr| Arm {

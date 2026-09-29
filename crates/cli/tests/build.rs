@@ -276,3 +276,28 @@ fn rustc_uses_the_manifest_edition() {
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
     fs::remove_dir_all(&dir).ok();
 }
+
+/// A server derives serde on the same types (design/04 §3): `check` gives
+/// rustc a stand-in `serde`, and still catches what rustc catches.
+#[test]
+fn serde_derives_compile_under_check() {
+    let dir = std::env::temp_dir().join(format!("purecrate-serde-derive-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "use serde::{Deserialize, Serialize};\n\n#[derive(Serialize, Deserialize)]\npub struct S {\n    pub n: i32,\n}\n\n\
+         #[derive(serde::Serialize, serde::Deserialize)]\npub enum E {\n    A,\n}\n\npub fn get(s: S) -> i32 {\n    s.n\n}\n",
+    )
+    .expect("write");
+    let ok = check(&[src.as_os_str()]);
+    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+
+    fs::write(&src, "#[derive(serde::Serialize)]\npub struct S {\n    pub n: String,\n}\n\npub fn get(s: S) -> String {\n    let t = s;\n    s.n\n}\n")
+        .expect("write");
+    let moved = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&moved.stderr);
+    assert!(stderr.contains("[rustc/E0382]"), "{stderr}");
+    let _ = fs::remove_dir_all(&dir);
+}

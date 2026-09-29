@@ -96,6 +96,43 @@ impl<T: Js> Js for Option<T> {
     }
 }
 
+/// `Box`, `Arc` and `Mutex` are erased in TS.
+impl<T: Js + ?Sized> Js for Box<T> {
+    fn js(&self) -> String {
+        (**self).js()
+    }
+}
+
+impl<T: Js + ?Sized> Js for std::sync::Arc<T> {
+    fn js(&self) -> String {
+        (**self).js()
+    }
+}
+
+impl<T: Js> Js for std::sync::Mutex<T> {
+    fn js(&self) -> String {
+        self.lock().expect("unpoisoned").js()
+    }
+}
+
+impl Js for () {
+    fn js(&self) -> String {
+        "undefined".into()
+    }
+}
+
+impl<A: Js, B: Js> Js for (A, B) {
+    fn js(&self) -> String {
+        format!("[{}, {}]", self.0.js(), self.1.js())
+    }
+}
+
+impl<A: Js, B: Js, C: Js> Js for (A, B, C) {
+    fn js(&self) -> String {
+        format!("[{}, {}, {}]", self.0.js(), self.1.js(), self.2.js())
+    }
+}
+
 /// A value as canonical text: the format `purecrate_canon::fixture!` gives
 /// every struct and enum, and the TS driver prints from the same IR
 /// (`ts_printer`). Floats are their bits, so `-0` and `0` differ.

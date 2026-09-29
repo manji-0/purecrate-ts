@@ -47,3 +47,38 @@ fn nested_matches_are_checked() {
     );
     assert_eq!(messages(&src), vec!["match on `Dir` is missing `Dir::Down`".to_string()]);
 }
+
+#[test]
+fn a_last_wildcard_takes_the_remaining_variants() {
+    assert_clean(&run("match c { Cmd::Stop => 0, _ => 1 }"));
+    assert_clean(&run("match c { Cmd::Stop | Cmd::Move(_, _) => 0, Cmd::Paint { .. } => 1 }"));
+    assert_clean(&run("match c { Cmd::Stop | Cmd::Paint { .. } => 0, _ => 1 }"));
+    assert_clean(&format!(
+        "{DEFS}pub fn f(x: Option<i32>, r: Result<i32, i32>) -> i32 {{ \
+         let a = match x {{ Some(v) => v, _ => 0 }}; \
+         let b = match r {{ Err(e) => e, _ => 0 }}; a + b }}"
+    ));
+}
+
+#[test]
+fn misplaced_wildcards_are_rejected() {
+    assert_rejects(&run("match c { _ => 1, Cmd::Stop => 0 }"), "`_` must be the last arm");
+    assert_rejects(&run("match d { _ => 1 }"), "a match whose only arm is `_`");
+    // As in rustc (a warning there), a `_` that takes nothing is accepted.
+    assert_clean(&run("match d { Dir::Up => 1, Dir::Down => 2, _ => 3 }"));
+    assert_clean(&run("match d { Dir::Up | Dir::Down => 1, _ => 3 }"));
+    assert_rejects(&run("match d { Dir::Up | Dir::Up => 1, Dir::Down => 3 }"), "`Dir::Up` is matched more than once");
+    assert_rejects(&run("match c { Cmd::Stop | Dir::Up => 1, _ => 3 }"), "match mixes cases of `Cmd` and `Dir`");
+    assert_rejects(&run("match c { Cmd::Stop | Cmd::Move(_, _) => 0 }"), "match on `Cmd` is missing `Cmd::Paint`");
+}
+
+#[test]
+fn integer_arms_end_in_a_wildcard() {
+    assert_clean(&format!("{DEFS}pub fn g(b: u8) -> i32 {{ match b {{ b'0'..=b'9' | b'_' => 1, 200..255 => 2, _ => 3 }} }}"));
+    assert_clean(&format!("{DEFS}pub fn g(x: i64) -> i32 {{ match x {{ -1 => 1, 0..=9 => 2, _ => 3 }} }}"));
+    assert_rejects(&format!("{DEFS}pub fn g(b: u8) -> i32 {{ match b {{ 0..=255 => 1 }} }}"), "a match on integers must end in a `_` arm");
+    assert_rejects(&format!("{DEFS}pub fn g(b: u8) -> i32 {{ match b {{ _ => 1, 0 => 2 }} }}"), "`_` must be the last arm");
+    assert_rejects(&run("match c { Cmd::Stop => 0, 1 => 1, _ => 2 }"), "match mixes integer and variant arms");
+    assert_rejects(&format!("{DEFS}pub fn g(b: u8) -> i32 {{ match b {{ 1i32 => 1, _ => 2 }} }}"), "pattern `1i32` does not match a value of type `u8`");
+    assert_rejects(&format!("{DEFS}pub fn g(s: bool) -> i32 {{ match s {{ 1 => 1, _ => 2 }} }}"), "integer patterns do not match a value of type `bool`");
+}

@@ -37,7 +37,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | Recursion depth | Measured 2026-09-28 (list length, Node 24.21, macOS): TS passes 10,000 levels and throws `RangeError` at 12,000. Rust debug passes 50,000 on the main thread and **aborts** at 100,000 (not a catchable panic; test threads have 2 MB). Even "both fail" does not hold |
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
 | Release wrapping | Not matched |
-| Non-finite `f64` over JSON | serde_json writes `NaN` as `null`. Undecided ([04 §6](./04-wire.md#6-open-questions)) |
+| Non-finite `f64` over JSON | serde_json and `toJson` both write `NaN` and infinities as `null`, and neither reads `null` back as a float. Same bytes, same asymmetry ([04 §6](./04-wire.md#6-writing-domain-values)) |
 | Unicode-table methods | If added, equivalence holds only for code points assigned in both toolchains' Unicode versions (both 17.0 as of 2026-09-27) |
 
 ## 4. Closed types
@@ -50,7 +50,7 @@ In Rust, a struct with any non-`pub` field cannot be built by a literal outside 
 - A struct whose fields are all `pub` is **open** and gets `of`, as in Rust anyone can build it.
 - Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
 
-So the domain for closed types is: values returned by public functions, or read from the wire (by shape only, as serde's derive does; [04 §5](./04-wire.md#5-closed-types-on-the-wire)). Rust has the same set, so correspondence is kept.
+So the domain for closed types is: values returned by public functions, or read from the wire, by shape as serde's derive does or, with `#[serde(try_from = "T")]`, through the checked constructor ([04 §5](./04-wire.md#5-closed-types-on-the-wire)). Rust has the same set, so correspondence is kept.
 
 Not closed at runtime: `as` still works, fields are readable, objects are not frozen. Classes with `#private` fields would close it, but break idiomatic values, JSON, and structured cloning.
 
@@ -76,7 +76,7 @@ Before this was built, the output computed `i32` `7 / 2` as `3.5`, `i32::MAX + 1
 
 Decided 2026-09-27; only parts are implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)).
 
-- **Strings reproduce UTF-8 byte units.** The TS value is a plain `string`; encoding-dependent operations go through the runtime `Str`. `len` counts UTF-8 bytes, `&s[a..b]` slices at byte positions and throws like Rust off a char boundary, `bytes`/`as_bytes` yield `u8`s, `chars` yields code points, ordering is code-point order (JS `<` orders U+E000–U+FFFF above supplementary planes; Rust does not). Implemented: `as_bytes` (`strings_equivalence.rs`, including empty, 2–4-byte characters, out-of-range indices).
+- **Strings reproduce UTF-8 byte units.** The TS value is a plain `string`; encoding-dependent operations go through the runtime `Str`. `len` counts UTF-8 bytes, `&s[a..b]` slices at byte positions and throws like Rust off a char boundary, `bytes`/`as_bytes` yield `u8`s, `chars` yields code points, ordering is code-point order (JS `<` orders U+E000–U+FFFF above supplementary planes; Rust does not). Implemented: `as_bytes` (`strings_equivalence.rs`, including empty, 2–4-byte characters, out-of-range indices); `len` as `Str.len`, and `is_empty`, `starts_with`, `ends_with`, `contains` with a `&str` needle as the JS `length === 0`, `startsWith`, `endsWith`, `includes` (`str_methods_equivalence.rs`, every pairing of 14 strings from empty to U+10FFFF). For well-formed strings a prefix, suffix, or substring on char boundaries is the same in UTF-8 bytes and UTF-16 units, so these four need no encoding step; `char` and closure needles are rejected.
 - **`char`** is a branded one-code-point `string`. JSON matches serde. Ordering and `as u32` use `codePointAt(0)`.
 - **`usize`** is a `number` checked to 0..2^53−1 (§3).
 - **std methods** come from an exact-match allow-list keyed by (receiver type, method), each with its own differential test over empty, non-ASCII, supplementary-plane, boundary, and panicking inputs. A method that cannot be matched is rejected, not accepted with a documented difference. Examples: `f64::to_string` (Rust `1000000000000000000000`, JS `1e+21`) is rejected; `str::trim` is not JS `trim()` (which also strips U+FEFF).
@@ -88,12 +88,13 @@ Decided 2026-09-27; only parts are implemented ([07 §4](./07-roadmap.md#4-speci
 | --- | --- |
 | Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings |
 | Types | `tsc --strict` on TypeScript 6 and 7 for every fixture, the runtime packages, and the wire schemas |
+| Wire | Readers against serde's default JSON; `toJson` against the vendored serde_json byte for byte (`wire_write.rs`) |
 | Determinism | `check --out` compares bytes with the existing output |
 | Compilability | rustc must accept the input ([05 §3](./05-architecture.md#3-rustc-as-the-final-gate)) |
 | Rejection quality | Every rejection has `path:line:col` and a reason code, and nothing is written |
 
 **Canonical form** (since 2026-09-29): both sides render values from the same IR types. On the Rust side the test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/support`. On the TS side the harness generates a printer per type. The form resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`); floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`. Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed; it is now caught.
 
-Remaining projections: cases routed through a driver returning a scalar compare only what the driver reads (examples/order adds `trace4` to compare the whole final state), and the counter acceptance test compares only `State.n`.
+Arguments are whole values too (since 2026-09-29): `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust. Remaining projections: cases routed through a driver returning a scalar compare only what the driver reads (examples/order adds `trace4` to compare the whole final state), and the counter acceptance test compares only `State.n`.
 
-All of this is measured on examples, so equivalence is as strong as the examples' coverage. Where exhaustive enumeration is small, it is used (all 1296 sequences for control and vending; all 4-step sequences for order).
+All of this is measured on examples, so equivalence is as strong as the examples' coverage. Where exhaustive enumeration is small, it is used (all 1296 sequences for control and vending; all 4-step sequences for order and, under each capture and confirmation method, for payment).

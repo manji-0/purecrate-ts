@@ -21,7 +21,7 @@ Teams with a Rust backend and a TS frontend want the same decisions (a transitio
 
 F is stronger when:
 
-- **Calls are small and frequent.** WASM pays encoding and copying at each crossing; many small calls can be slower than JS (wasm-bindgen #2355). F has no boundary.
+- **Calls are small and frequent.** WASM pays encoding and copying at each crossing; many small calls can be slower than JS (wasm-bindgen #2355). F has no boundary. Measured on examples/payment ([bench/payment](../bench/payment/README.md), Node 24): 12 ns per `step` for F against 345 ns with the state kept in WASM and 1.1–1.4 µs with plain objects crossing; 0.5 ms to the first result against 1.7–2.2 ms; 1.8 KB gzipped against 36 KB for the smallest WASM module with its glue.
 - **Values should be plain TS.** Crux's web shell serializes with bincode; F's values go straight into React state.
 - **The output should be readable.** Generated TS can be reviewed and stepped through.
 - *WASM is unavailable* — no longer a main argument: React Native 0.84's Hermes V1 (2026-02) supports WASM, though wasm-bindgen output is unconfirmed there.
@@ -54,11 +54,11 @@ Reading: **the adjacent market is large; direct demand is unverified.** Because 
 
 | Use case | Demand (est.) | Writable | Author's cost |
 | --- | --- | --- | --- |
-| Workflows, state machines | medium | **high** (order) | no `_ =>`; arms = states × events |
+| Workflows, state machines | medium | **high** (order, payment) | one function per state; `_ =>` since 2026-09-29 |
 | Optimistic UI, offline-first | medium–high | high | sequences as recursive enums |
 | Turn-based game rules | medium | medium | loops as recursion; recursion-depth limit |
-| **Input validation** | **high** | **medium** (signup, iban) | bytes via `as_bytes`; no regex; ≈1.4–1.9× lines |
-| Pricing, fees, tax | medium | high | integer newtypes, no decimal |
+| **Input validation** | **high** | **medium** (signup, iban) | bytes via `as_bytes`, classes via `matches!`; no regex; ≈1.4–1.8× lines |
+| Pricing, fees, tax | medium | high (invoice) | integer newtypes, no decimal; rounding written as integer division; ≈1.4× lines |
 | Edge functions | low–medium | high | none (WASM works too) |
 
 **Demand and capability are misaligned**: validation has the most signals and is the hardest to write; state machines are the easiest and have only indirect signals. This is the main strategic risk. Closed types, `as_bytes`, and range `for` were added to narrow the gap.
@@ -88,13 +88,13 @@ The author's own examples cannot validate the constraints: the author writes aro
    - silent wrong values on accepted input keep appearing (guide: one or more per new example);
    - no real use replacing a dual implementation is ever obtained.
 
-Status: signup and iban are from third-party specs. Both first exceeded 2× (2.8×, 2.4×) and returned under it (1.9×) after range `for` ([07 §2](./07-roadmap.md#2-evidence-from-examples)). No real-world replacement yet.
+Status: signup, iban, payment, and invoice are from third-party specs; all four could be written. signup and iban first exceeded 2× (2.8×, 2.4×) and returned under it (1.9×) after range `for`; payment's transitions first measured 2.1× and returned to 1.8× after `_` and `A | B` arms ([07 §2](./07-roadmap.md#2-evidence-from-examples)). invoice's first draft measured 2.2× and a restructured one 1.4× with no new capability. No silent wrong value appeared in any of them. No real-world replacement yet.
 
 ## 5. Validating demand next
 
-1. More third-party specs, including one from outside validation.
-2. **One real use**: replace a dual-implemented state machine; record lines removed and what the tests guarantee.
-3. **Numbers for §2**: bundle size, time to first call, and per-call cost for the same transition under wasm-bindgen and under F.
+1. More third-party specs. Done for one outside validation (Stripe's PaymentIntent lifecycle, 2026-09-29).
+2. **One real use**: replace a dual-implemented state machine; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. The packages are not on npm yet.
+3. **Numbers for §2**: done on Node for payment ([bench/payment](../bench/payment/README.md)). Browsers and Hermes are not measured.
 
 ## References
 

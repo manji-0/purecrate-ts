@@ -21,14 +21,15 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Capability | Written as | Generated TS |
 | --- | --- | --- |
 | Closed ADTs | struct, enum, newtype (content not `Option`, `()`, `!`) | `Readonly` objects, `kind` unions, brands |
-| Exhaustiveness | `match` on one enum, one arm per variant | `switch` + `assertNever` |
+| Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
+| Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
 | Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32` with debug semantics | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
-| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.bytes(s)` |
+| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.bytes(s)` |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
@@ -77,19 +78,32 @@ Reserved by the output: `Result`, `Int`, `Str`, `Char`, the numeric brands, `ass
 
 ### 3.4 Public surface
 
-`pub` items become exports with no attribute: `pub struct` / `enum` / `type` / `fn`, and `pub fn` in inherent `impl`s (receiver becomes the first parameter). Non-public items reachable from these are generated without `export`. `pub(crate)` / `pub(super)` count as private. Not translated: `const`, `static` (use functions), trait definitions and trait impls.
+`pub` items become exports with no attribute: `pub struct` / `enum` / `type` / `fn`, and `pub fn` in inherent `impl`s (receiver becomes the first parameter). Non-public items reachable from these are generated without `export`. `pub(crate)` / `pub(super)` count as private. Not translated: `const`, `static` (use functions), trait definitions and trait impls, except: `impl TryFrom<T> for X` becomes the method `X.try_from` (it must have `type Error` and `fn try_from` only), and `impl Display` / `impl std::error::Error` are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
 
-### 3.5 Each `match` arm names one variant
+### 3.5 `match` arms name variants
 
-Arms are enum variants, `Some`/`None`, or `Ok`/`Err`. Not accepted: tuple scrutinees (`match (state, event)` — split into one function per state), `_ =>` and `A | B =>` (write every arm; transitions grow as states × events), binding-only arms, guards, nested patterns, literal and range patterns, `let else`.
+<!-- derived-from ./07-roadmap.md#2-evidence-from-examples -->
+
+An arm is one of:
+
+- one variant, `Some`/`None`, or `Ok`/`Err`, binding its fields to names or `_`;
+- several variants of the same enum joined by `|`, binding nothing (`Event::Pay(_) | Event::Ship { .. } =>`);
+- `_`, as the last arm, taking every case no other arm names. A `_` after arms covering everything is accepted and dropped (rustc warns); a `match` whose only arm is `_` is rejected;
+- on an integer: a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `|`. The last arm must be `_`, even where the ranges cover every value. Arms are tried in order, as in Rust.
+
+`matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; a guard (`p if c`) is rejected.
+
+The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too. As in Rust, a variant added later falls into `_` silently; write every arm where that matters.
+
+Not accepted: tuple scrutinees (`match (state, event)` — split into one function per state), `|` arms that bind names, binding-only arms, guards, nested patterns, string, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
 
 ### 3.6 Strings
 
-A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again. Read contents through `as_bytes()`: index, `len`, `u8` comparisons, recursion or range `for`. Byte literals are not yet available (`64u8` for `b'@'`).
+A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again. `len`, `is_empty`, `starts_with`, `ends_with`, and `contains` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
 
 ### 3.7 Types
 
-Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type constructors. No user type parameters, traits, `HashMap`/`BTreeMap` (key equality differs between Rust and JS). `Option<Option<T>>` is rejected (both `None`s become `null`), as are newtypes over `Option`, `()`, or `!` (`null & brand` is `never`); write an enum such as `Patch { Unset, Clear, Set(i32) }` instead. Enums with no variants are rejected. `#[serde(...)]`, `#[cfg]`, and `#[cfg_attr]` are rejected; `#[cfg(test)]` items are skipped; `derive`, `doc`, and lint attributes pass. External crates are not allowed.
+Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type constructors. No user type parameters, traits, `HashMap`/`BTreeMap` (key equality differs between Rust and JS). `Option<Option<T>>` is rejected (both `None`s become `null`), as are newtypes over `Option`, `()`, or `!` (`null & brand` is `never`); write an enum such as `Patch { Unset, Clear, Set(i32) }` instead. Enums with no variants are rejected, and so are unit structs (`struct S;`; serde writes it as `null`, `struct S {}` as `{}`, and only the latter is kept). `#[derive(Serialize, Deserialize)]` and `use serde::…` pass: the types are the server's wire format too ([04 §3](./04-wire.md#3-current-design)). Of `#[serde(...)]`, only `#[serde(try_from = "T")]` on a struct is accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)); the rest, `#[cfg]`, and `#[cfg_attr]` are rejected. `#[cfg(test)]` items are skipped; `derive`, `doc`, and lint attributes pass. No external crate but `serde` is allowed.
 
 ## 4. Rewrites
 
@@ -101,8 +115,8 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `a == b` on structs/enums | an `eq` method (JS structural comparison differs) |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
-| `'@'`, `c.is_ascii_digit()` | `64u8`, `b >= 48u8 && b <= 57u8` |
-| `match (s, e)` | one function per state |
+| `'@'`, `c.is_ascii_digit()` | `b'@'`, `matches!(b, b'0'..=b'9')` |
+| `match (s, e)` | one function per state, each ending in `_ => Err(..)` |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
 Closures cannot capture `let mut` (a JS closure would see later reassignments; rebind with `let` first), and cannot be parameters, return values, or fields.

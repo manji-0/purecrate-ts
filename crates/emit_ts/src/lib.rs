@@ -640,6 +640,10 @@ fn peel(expr: &Expr) -> &Expr {
 fn scrutinee_ty(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Name> {
     arms.iter().find_map(|arm| match &arm.pattern {
         Pattern::Variant { ty, .. } => Some(ty),
+        Pattern::Or(alts) => alts.iter().find_map(|alt| match alt {
+            Pattern::Variant { ty, .. } => Some(ty),
+            _ => None,
+        }),
         _ => None,
     })
 }
@@ -710,11 +714,34 @@ fn emit_switch_in(
             return;
         }
     }
+    if arms.iter().any(|a| a.pattern.is_int_case()) {
+        emit_int_chain(&subject, arms, indent, sink, out);
+        return;
+    }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
     for arm in arms {
-        if let Pattern::Variant { variant, bind, .. } = &arm.pattern {
-            out.push_str(&format!("{pad1}case \"{v}\":", v = variant.as_str()));
-            let prelude = bind_prelude(bind, &subject, &"  ".repeat(indent + 2));
+        // `A | B` binds nothing: its cases share one body.
+        let (variants, bind) = match &arm.pattern {
+            Pattern::Variant { variant, bind, .. } => (vec![variant], Some(bind)),
+            Pattern::Or(alts) => (
+                alts.iter()
+                    .filter_map(|alt| match alt {
+                        Pattern::Variant { variant, .. } => Some(variant),
+                        _ => None,
+                    })
+                    .collect(),
+                None,
+            ),
+            _ => continue,
+        };
+        if let Some((last, first)) = variants.split_last() {
+            for v in first {
+                out.push_str(&format!("{pad1}case \"{v}\":\n", v = v.as_str()));
+            }
+            out.push_str(&format!("{pad1}case \"{v}\":", v = last.as_str()));
+            let prelude = bind
+                .map(|bind| bind_prelude(bind, &subject, &"  ".repeat(indent + 2)))
+                .unwrap_or_default();
             let braced = !prelude.is_empty() || declares_at_top(&arm.body);
             out.push_str(if braced { " {\n" } else { "\n" });
             out.push_str(&prelude);
@@ -730,6 +757,60 @@ fn emit_switch_in(
     out.push_str(&format!(
         "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
     ));
+}
+
+/// A `match` on an integer: arms tried in order, the last (`_`) as `else`.
+fn emit_int_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    for (i, arm) in arms.iter().enumerate() {
+        let head = match (i, int_test(&arm.pattern, subject)) {
+            (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
+            (_, Some(test)) => format!("{pad}}} else if ({test}) {{\n"),
+            (_, None) => format!("{pad}}} else {{\n"),
+        };
+        out.push_str(&head);
+        emit_stmts(&arm.body, indent + 1, sink, out);
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+/// The test for an integer arm; `None` for `_`.
+fn int_test(pattern: &Pattern, subject: &str) -> Option<String> {
+    match pattern {
+        Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
+        Pattern::Range { lo, hi, inclusive } => Some(format!(
+            "{subject} >= {} && {subject} {} {}",
+            emit_lit(lo),
+            if *inclusive { "<=" } else { "<" },
+            emit_lit(hi)
+        )),
+        Pattern::Or(alts) => Some(
+            alts.iter()
+                .filter_map(|a| match a {
+                    Pattern::Range { .. } => int_test(a, subject).map(|t| format!("({t})")),
+                    _ => int_test(a, subject),
+                })
+                .collect::<Vec<_>>()
+                .join(" || "),
+        ),
+        _ => None,
+    }
+}
+
+/// The integer types of the literals in an integer arm.
+fn int_case_lits(pattern: &Pattern, f: &mut impl FnMut(purecrate_ir::IntTy)) {
+    match pattern {
+        Pattern::Lit(Lit::Int { ty: Some(t), .. }) => f(*t),
+        Pattern::Range { lo, hi, .. } => {
+            for l in [lo, hi] {
+                if let Lit::Int { ty: Some(t), .. } = l {
+                    f(*t);
+                }
+            }
+        }
+        Pattern::Or(alts) => alts.iter().for_each(|a| int_case_lits(a, f)),
+        _ => {}
+    }
 }
 
 /// `Option` is `T | null` and `Result` is `kind`-tagged, so both narrow
@@ -876,6 +957,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::VecLen
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StringFrom
+                | purecrate_ir::Callee::Str(_)
                 | purecrate_ir::Callee::IntFrom { .. } => String::new(),
             };
             if let purecrate_ir::Callee::IntFrom { from, to } = callee {
@@ -889,6 +971,17 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
                 return format!("Str.bytes({})", emit_expr(&args[0], indent));
+            }
+            if let purecrate_ir::Callee::Str(m) = callee {
+                let s = emit_expr(&args[0], indent);
+                let needle = || emit_expr(&args[1], indent);
+                return match m {
+                    purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
+                    purecrate_ir::StrMethod::IsEmpty => format!("({s}.length === 0)"),
+                    purecrate_ir::StrMethod::StartsWith => format!("{s}.startsWith({})", needle()),
+                    purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
+                    purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
+                };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
@@ -1153,7 +1246,12 @@ impl Refs {
             Expr::Match { scrutinee, arms } => {
                 self.never |= arms
                     .iter()
-                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }));
+                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_int_case()));
+                for a in arms {
+                    int_case_lits(&a.pattern, &mut |t| {
+                        self.nums.insert(t.ts_name().to_string());
+                    });
+                }
                 if !is_place(scrutinee) {
                     if let Some(ty) = scrutinee_ty(arms) {
                         self.types.insert(ty.as_str().to_string());
@@ -1190,6 +1288,10 @@ impl Refs {
                         self.nums.insert("Usize".into());
                     }
                     Callee::StrBytes => self.str = true,
+                    Callee::Str(purecrate_ir::StrMethod::Len) => {
+                        self.str = true;
+                        self.nums.insert("Usize".into());
+                    }
                     Callee::IntFrom { to, .. } => {
                         self.nums.insert(to.ts_name().to_string());
                     }
@@ -1583,6 +1685,7 @@ export const step = (state: State, event: Event): State => {
                 ty: Ty::option(Ty::Vec(Box::new(Ty::named("Cmd")))),
             }],
             closed: false,
+            wire_from: None,
         }));
         let pkg = emit(&krate);
 

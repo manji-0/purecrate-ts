@@ -38,23 +38,13 @@ pub enum SignupError {
 }
 
 fn is_alnum(b: u8) -> bool {
-    (b >= 48u8 && b <= 57u8) || (b >= 65u8 && b <= 90u8) || (b >= 97u8 && b <= 122u8)
+    matches!(b, b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z')
 }
 
 /// The local part's bytes besides letters and digits: .!#$%&'*+/=?^_`{|}~-
 fn is_local(b: u8) -> bool {
     is_alnum(b)
-        || b == 46u8
-        || b == 33u8
-        || (b >= 35u8 && b <= 39u8)
-        || b == 42u8
-        || b == 43u8
-        || b == 45u8
-        || b == 47u8
-        || b == 61u8
-        || b == 63u8
-        || (b >= 94u8 && b <= 96u8)
-        || (b >= 123u8 && b <= 126u8)
+        || matches!(b, b'.' | b'!' | b'#'..=b'\'' | b'*' | b'+' | b'-' | b'/' | b'=' | b'?' | b'^'..=b'`' | b'{'..=b'~')
 }
 
 impl Email {
@@ -62,7 +52,7 @@ impl Email {
         let b = raw.as_bytes();
         let mut at = b.len();
         for i in 0..b.len() {
-            if b[i] == 64u8 && at == b.len() {
+            if b[i] == b'@' && at == b.len() {
                 at = i;
             }
         }
@@ -81,13 +71,13 @@ impl Email {
         // digit at both ends, separated by `.`. `i == b.len()` ends the last.
         let mut start = at + 1usize;
         for i in (at + 1usize)..(b.len() + 1usize) {
-            if i == b.len() || b[i] == 46u8 {
+            if i == b.len() || b[i] == b'.' {
                 let n = i - start;
-                if n == 0usize || n > 63usize || b[start] == 45u8 || b[i - 1usize] == 45u8 {
+                if n == 0usize || n > 63usize || b[start] == b'-' || b[i - 1usize] == b'-' {
                     return Err(EmailError::BadDomain);
                 }
                 start = i + 1usize;
-            } else if !is_alnum(b[i]) && b[i] != 45u8 {
+            } else if !is_alnum(b[i]) && b[i] != b'-' {
                 return Err(EmailError::BadDomain);
             }
         }
@@ -105,7 +95,7 @@ impl Password {
         let b = raw.as_bytes();
         let mut n = 0usize;
         for i in 0..b.len() {
-            if b[i] < 128u8 || b[i] >= 192u8 {
+            if !matches!(b[i], 0x80..=0xBF) {
                 n += 1usize;
             }
         }

@@ -11,7 +11,7 @@ crate source
   → parse (syn) into IR, rejecting unknown syntax at its location
   → flatten modules, resolve names, collect the public surface and what it reaches
   → type every expression (in-house bidirectional inference) and rewrite arithmetic
-  → check exhaustiveness and the subset rules
+  → check exhaustiveness and the subset rules; replace a last `_` arm with the cases it takes
   → rustc --crate-type lib --emit=metadata (pass/fail only)
   → print TS from the IR
   → assemble the package (package.json, tsconfig, index, runtime re-exports)
@@ -25,19 +25,19 @@ crate source
 | --- | --- |
 | `ir` | IR data types. No dependencies, no I/O |
 | `syntax` | syn → IR; `survey` |
-| `check` | names, resolution, reachability, typing, exhaustiveness, renaming (`check::accept`) |
-| `emit_ts` | IR → TS strings; wire schemas (`schema.rs`) |
+| `check` | names, resolution, reachability, typing, exhaustiveness, `_` expansion, renaming (`check::accept`) |
+| `emit_ts` | IR → TS strings; wire schemas and `toJson` (`schema.rs`) |
 | `pack` | package assembly |
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
-| `canon` | test-only proc-macro for canonical value printing ([01 §7](./01-equivalence.md#7-verification)) |
+| `canon` | test-only proc-macro: canonical value printing ([01 §7](./01-equivalence.md#7-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
-TS runtime packages are in `packages/` (`boundary` is published as `purecrate`, plus the three schema adapters). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident) and built with `--offline`.
+TS runtime packages are in `packages/` (`boundary` is published as `purecrate`, plus the three schema adapters). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu) and built with `--offline`. The vendored manifests point at each other by `path`, with tests, benches, and unused optional dependencies removed.
 
 ## 3. rustc as the final gate
 
-The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position). Since 2026-09-28, `check` and `build` run the input through rustc after the subset check and reject its errors as `[rustc/E0382]` etc. A passing `check` means the input compiles as a library. rustc is therefore required at run time (`RUSTC` overrides the binary). The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
+The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position). Since 2026-09-28, `check` and `build` run the input through rustc after the subset check and reject its errors as `[rustc/E0382]` etc. A passing `check` means the input compiles as a library. rustc is therefore required at run time (`RUSTC` overrides the binary). The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3](./04-wire.md#3-current-design)). The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
 
-rustc's type information is **not** read. The typing that decides output is the in-house inference; whether to switch is open ([07 §6](./07-roadmap.md#7-open-questions)). rust-analyzer or `rustc_public` would be more precise but heavy to depend on and maintain.
+rustc's type information is **not** read. The typing that decides output is the in-house inference; whether to switch is open ([07 §7](./07-roadmap.md#7-open-questions)). rust-analyzer or `rustc_public` would be more precise but heavy to depend on and maintain.
 
 ## 4. IR
 

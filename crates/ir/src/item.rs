@@ -42,6 +42,9 @@ pub struct Struct {
     /// through the crate's functions, so the TS type is branded and its
     /// companion has no `of` (design/01 §4).
     pub closed: bool,
+    /// `#[serde(try_from = "T")]`: the wire form is `T`'s, read and then
+    /// checked by `impl TryFrom<T> for Self` (design/04 §5).
+    pub wire_from: Option<Ty>,
 }
 
 impl Struct {

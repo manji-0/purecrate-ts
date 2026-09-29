@@ -360,6 +360,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
+            Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),
             Callee::IntFrom { to, .. } => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
         }
     }
@@ -439,7 +440,8 @@ impl<'a> Cx<'_, 'a> {
     fn pattern(&mut self, pattern: &Pattern, bound: &mut Vec<String>) {
         match pattern {
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
-            Pattern::Wildcard | Pattern::Lit(_) | Pattern::OptionNone => {}
+            Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
+            Pattern::Or(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
                 self.pattern(p, bound)
             }
