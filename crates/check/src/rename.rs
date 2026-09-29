@@ -93,6 +93,7 @@ impl Renamer {
             Pattern::ResultOk(p) => Pattern::ResultOk(Box::new(self.pattern(*p, env))),
             Pattern::ResultErr(p) => Pattern::ResultErr(Box::new(self.pattern(*p, env))),
             Pattern::Or(ps) => Pattern::Or(ps.into_iter().map(|p| self.pattern(p, env)).collect()),
+            Pattern::Tuple(ps) => Pattern::Tuple(ps.into_iter().map(|p| self.pattern(p, env)).collect()),
             other @ (Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone) => other,
         }
     }

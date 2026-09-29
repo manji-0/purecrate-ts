@@ -455,7 +455,7 @@ impl<'a> Cx<'_, 'a> {
         match pattern {
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
-            Pattern::Or(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),
+            Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
                 self.pattern(p, bound)
             }

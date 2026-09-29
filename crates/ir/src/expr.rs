@@ -352,9 +352,33 @@ pub enum Pattern {
     /// `lo..=hi` (`inclusive`) or `lo..hi` on an integer. With `Lit`, only in
     /// a `match` on an integer or a `&str`, which must end in `_`.
     Range { lo: Lit, hi: Lit, inclusive: bool },
+    /// `(p, q)`: an arm of a `match` on a tuple, such as `match (state,
+    /// event)`. Each element is `_`, a binding, or a pattern a `match` arm
+    /// may have; tuples do not nest. rustc has checked the arms are
+    /// exhaustive, so they print as an `if` chain in order.
+    Tuple(Vec<Pattern>),
 }
 
 impl Pattern {
+    /// A tuple pattern, or `|` of them: an arm of a `match` on a tuple.
+    pub fn is_tuple_case(&self) -> bool {
+        match self {
+            Pattern::Tuple(_) => true,
+            Pattern::Or(alts) => alts.iter().any(|a| matches!(a, Pattern::Tuple(_))),
+            _ => false,
+        }
+    }
+
+    /// The patterns an arm tests values with: a tuple's elements (of every
+    /// alternative, for `|`), or the pattern itself.
+    pub fn columns(&self) -> Vec<&Pattern> {
+        match self {
+            Pattern::Tuple(ps) => ps.iter().collect(),
+            Pattern::Or(alts) if self.is_tuple_case() => alts.iter().flat_map(Pattern::columns).collect(),
+            other => vec![other],
+        }
+    }
+
     /// An integer literal or range, or `|` of them: an arm of a `match` on
     /// an integer.
     pub fn is_int_case(&self) -> bool {
@@ -408,7 +432,7 @@ impl Pattern {
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
                 p.collect_bindings(out)
             }
-            Pattern::Or(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
+            Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
         }
     }

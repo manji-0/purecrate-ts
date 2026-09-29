@@ -704,6 +704,9 @@ fn emit_switch(
     sink: Sink,
     out: &mut String,
 ) {
+    if arms.iter().any(|a| a.pattern.is_tuple_case()) {
+        return emit_tuple_match(scrutinee, arms, indent, sink, out);
+    }
     // Statements after this one may hold another `match` at the same depth;
     // a block keeps the two temporaries apart.
     if !is_place(scrutinee) && !matches!(sink, Sink::Return) {
@@ -798,6 +801,193 @@ fn emit_switch_in(
     out.push_str(&format!(
         "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
     ));
+}
+
+/// The places a tuple scrutinee's elements are read from, when every element
+/// is one: `match (state, event)` then tests `state` and `event` themselves.
+fn tuple_places(scrutinee: &Expr) -> Option<Vec<&Expr>> {
+    match peel(scrutinee) {
+        Expr::Tuple(xs) if xs.iter().all(is_place) => Some(xs.iter().collect()),
+        _ => None,
+    }
+}
+
+/// The alternatives of a tuple arm, as element lists.
+fn tuple_alts(pattern: &Pattern) -> Vec<&[Pattern]> {
+    match pattern {
+        Pattern::Tuple(ps) => vec![ps.as_slice()],
+        Pattern::Or(alts) => alts
+            .iter()
+            .filter_map(|a| match a {
+                Pattern::Tuple(ps) => Some(ps.as_slice()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The number of elements the tuple arms match.
+fn tuple_width(arms: &[purecrate_ir::Arm]) -> usize {
+    arms.iter()
+        .find_map(|a| tuple_alts(&a.pattern).first().map(|ps| ps.len()))
+        .expect("a tuple match has a tuple arm")
+}
+
+/// The enum element `i` of the tuple arms names, to annotate its temporary.
+fn column_ty(arms: &[purecrate_ir::Arm], i: usize) -> Option<&purecrate_ir::Name> {
+    arms.iter()
+        .flat_map(|a| tuple_alts(&a.pattern))
+        .filter_map(|ps| ps.get(i))
+        .find_map(|p| match p {
+            Pattern::Variant { ty, .. } => Some(ty),
+            Pattern::Or(alts) => alts.iter().find_map(|a| match a {
+                Pattern::Variant { ty, .. } => Some(ty),
+                _ => None,
+            }),
+            _ => None,
+        })
+}
+
+/// A last tuple arm that tests something: the chain then needs a final
+/// `else`, which rustc's exhaustiveness check says is never taken.
+fn tuple_match_closes(arms: &[purecrate_ir::Arm]) -> bool {
+    let subjects: Vec<String> = (0..tuple_width(arms)).map(|i| format!("_{i}")).collect();
+    arms.iter().all(|a| tuple_test(&a.pattern, &subjects).is_some())
+}
+
+/// A `match` on a tuple, as an `if` chain in arm order. Places are tested as
+/// they are; otherwise every element is evaluated first, left to right, as
+/// Rust builds the tuple.
+fn emit_tuple_match(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let places = tuple_places(scrutinee);
+    let block = places.is_none() && !matches!(sink, Sink::Return);
+    let inner = if block { indent + 1 } else { indent };
+    let ipad = "  ".repeat(inner);
+    if block {
+        out.push_str(&format!("{pad}{{\n"));
+    }
+    let subjects: Vec<String> = match places {
+        Some(xs) => xs.into_iter().map(|x| emit_expr(x, inner)).collect(),
+        None => {
+            let base = sink.temp(inner);
+            match peel(scrutinee) {
+                Expr::Tuple(xs) => xs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, x)| {
+                        let tmp = format!("{base}_{i}");
+                        let value = emit_expr(x, inner);
+                        let decl = match (column_ty(arms, i), peel(x)) {
+                            (Some(ty), Expr::Construct { .. }) => format!("{tmp} = {value} as {}", ty.as_str()),
+                            (Some(ty), _) => format!("{tmp}: {} = {value}", ty.as_str()),
+                            (None, _) => format!("{tmp} = {value}"),
+                        };
+                        out.push_str(&format!("{ipad}const {decl};\n"));
+                        tmp
+                    })
+                    .collect(),
+                _ => {
+                    let names: Vec<String> = (0..tuple_width(arms)).map(|i| format!("{base}_{i}")).collect();
+                    out.push_str(&format!("{ipad}const [{}] = {};\n", names.join(", "), emit_expr(scrutinee, inner)));
+                    names
+                }
+            }
+        }
+    };
+    let mut open = false;
+    for (k, arm) in arms.iter().enumerate() {
+        let test = tuple_test(&arm.pattern, &subjects);
+        // `_ => {}` as a statement: no `else` at all.
+        if k > 0 && test.is_none() && matches!(sink, Sink::Effect) && arm.body == Expr::Lit(Lit::Unit) {
+            open = false;
+            break;
+        }
+        out.push_str(&match (k, &test) {
+            (0, Some(t)) => format!("{ipad}if ({t}) {{\n"),
+            (_, Some(t)) => format!("{ipad}}} else if ({t}) {{\n"),
+            (0, None) => format!("{ipad}{{\n"),
+            (_, None) => format!("{ipad}}} else {{\n"),
+        });
+        out.push_str(&tuple_prelude(&arm.pattern, &subjects, &"  ".repeat(inner + 1)));
+        emit_stmts(&arm.body, inner + 1, sink, out);
+        open = test.is_some();
+        // Arms after one that takes everything are unreachable (rustc warns).
+        if !open {
+            break;
+        }
+    }
+    if open {
+        out.push_str(&format!("{ipad}}} else {{\n{ipad}  return assertNever(undefined as never);\n"));
+    }
+    out.push_str(&format!("{ipad}}}\n"));
+    if block {
+        out.push_str(&format!("{pad}}}\n"));
+    }
+}
+
+/// The condition of a tuple arm, `None` when it takes every value.
+fn tuple_test(pattern: &Pattern, subjects: &[String]) -> Option<String> {
+    match pattern {
+        Pattern::Tuple(ps) => {
+            let tests: Vec<String> = ps
+                .iter()
+                .zip(subjects)
+                .filter_map(|(p, s)| element_test(p, s))
+                .collect();
+            match tests.len() {
+                0 => None,
+                1 => tests.into_iter().next(),
+                _ => Some(tests.iter().map(|t| grouped(t)).collect::<Vec<_>>().join(" && ")),
+            }
+        }
+        Pattern::Or(alts) => {
+            let tests: Option<Vec<String>> = alts.iter().map(|a| tuple_test(a, subjects)).collect();
+            tests.map(|ts| ts.iter().map(|t| grouped(t)).collect::<Vec<_>>().join(" || "))
+        }
+        _ => None,
+    }
+}
+
+/// `(t)` when `t` joins tests with `&&` or `||`.
+fn grouped(t: &str) -> String {
+    if t.contains(" && ") || t.contains(" || ") {
+        format!("({t})")
+    } else {
+        t.to_string()
+    }
+}
+
+/// The test for one element of a tuple arm, `None` for `_` or a binding.
+fn element_test(pattern: &Pattern, subject: &str) -> Option<String> {
+    match pattern {
+        Pattern::Wildcard | Pattern::Var(_) => None,
+        Pattern::Variant { variant, .. } => Some(format!("{subject}.kind === \"{}\"", variant.as_str())),
+        Pattern::Or(alts) if !pattern.is_lit_case() => Some(
+            alts.iter()
+                .filter_map(|a| element_test(a, subject))
+                .collect::<Vec<_>>()
+                .join(" || "),
+        ),
+        p if p.is_lit_case() => lit_test(p, subject),
+        p => two_way_test(p, subject),
+    }
+}
+
+/// The `const`s a tuple arm binds, read from the elements it has tested.
+fn tuple_prelude(pattern: &Pattern, subjects: &[String], pad: &str) -> String {
+    let Pattern::Tuple(ps) = pattern else {
+        return String::new();
+    };
+    ps.iter()
+        .zip(subjects)
+        .map(|(p, s)| match p {
+            Pattern::Var(n) => format!("{pad}const {} = {s};\n", n.as_str()),
+            Pattern::Variant { bind, .. } => bind_prelude(bind, s, pad),
+            other => two_way_prelude(other, s, pad),
+        })
+        .collect()
 }
 
 /// A `match` on an integer or a `&str`: arms tried in order, the last (`_`)
@@ -1343,20 +1533,38 @@ impl Refs {
         }
     }
 
+    /// The integer brands and `Char` that literal and range patterns print.
+    fn arm_literals<'p>(&mut self, patterns: impl Iterator<Item = &'p Pattern>) {
+        for p in patterns {
+            int_case_lits(p, &mut |t| {
+                self.nums.insert(t.ts_name().to_string());
+            });
+            self.char_value |= has_char_range(p);
+            self.char_type |= p.is_char_case();
+        }
+    }
+
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
         match expr {
             Expr::At { expr, .. } => self.expr(krate, expr),
+            Expr::Match { scrutinee, arms } if arms.iter().any(|a| a.pattern.is_tuple_case()) => {
+                self.never |= tuple_match_closes(arms);
+                self.arm_literals(arms.iter().flat_map(|a| a.pattern.columns()));
+                if tuple_places(scrutinee).is_none() && matches!(peel(scrutinee), Expr::Tuple(_)) {
+                    for i in 0..tuple_width(arms) {
+                        if let Some(ty) = column_ty(arms, i) {
+                            self.types.insert(ty.as_str().to_string());
+                        }
+                    }
+                }
+                self.expr(krate, scrutinee);
+                arms.iter().for_each(|a| self.expr(krate, &a.body));
+            }
             Expr::Match { scrutinee, arms } => {
                 self.never |= arms
                     .iter()
                     .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_lit_case()));
-                for a in arms {
-                    int_case_lits(&a.pattern, &mut |t| {
-                        self.nums.insert(t.ts_name().to_string());
-                    });
-                    self.char_value |= has_char_range(&a.pattern);
-                    self.char_type |= a.pattern.is_char_case();
-                }
+                self.arm_literals(arms.iter().map(|a| &a.pattern));
                 if !is_place(scrutinee) {
                     if let Some(ty) = scrutinee_ty(arms) {
                         self.types.insert(ty.as_str().to_string());

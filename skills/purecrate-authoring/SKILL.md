@@ -24,8 +24,8 @@ The crate path needs only `src/lib.rs`; `Cargo.toml` is optional (it supplies th
 The constraints match a functional style, so lean into it rather than fighting it.
 
 - **State and events are ADTs.** Structs, enums (become `kind` unions), newtypes. A transition takes the state and returns the next one: `fn step(state: State, event: Event) -> Result<State, Error>`. No `&mut`, no field assignment, no `mut` parameters. `&self` and `&T` are fine (read as values). Write `fn apply(self, e) -> Self`, not `apply(&mut self, e)`.
-- **One function per state** instead of `match (state, event)`. Each ends in `_ => Err(..InvalidTransition)`. `order` and `payment` show the pattern.
-- **Growing sequences are recursive enums** (`enum Lines { Nil, Cons(Line, Box<Lines>) }`), returned as new values. `Vec<T>` only comes from the caller (a parameter or a field of one): read it with `xs[i]` and `xs.len()`. The crate cannot build one: no `vec!`, `Vec::from`, `push`, `to_vec`, `map`/`filter`/`collect`, and `[a, b]` is an array that rustc will not accept as a `Vec`. No `is_empty` on `Vec`. `&[u8]` parameters are fine.
+- **Transitions as `match (state, event)`**, one arm per allowed pair and a last `(s, _) => Err(..InvalidTransition)` or `_ =>`. Elements are `_`, a binding, or a pattern an arm may have (a variant binding its fields, `A | B`, `Some(x)`, a literal or range); tuples do not nest. `order` and `payment` predate this and use one function per state, which also works.
+- **Growing sequences are recursive enums** (`enum Lines { Nil, Cons(Line, Box<Lines>) }`), returned as new values. `Vec<T>` only comes from the caller (a parameter or a field of one): read it with `xs[i]` and `xs.len()`. The crate cannot build one: no `vec!`, `Vec::from`, `push`, `to_vec`, `map`/`filter`/`collect`, and `[a, b]` is an array that rustc will not accept as a `Vec`. `&[u8]` parameters are fine.
 - **Invariants live in closed types**: non-`pub` fields plus a checked public constructor (`Yen::new(v) -> Result<Yen, E>`). TS then gets values only from your constructor. This is what makes validation shared, so prefer it to public fields.
 - **Money is an integer newtype in the smallest unit** (`struct Yen(i64)`), rounding is integer arithmetic. There is no decimal, no floats-for-money.
 - **Expected failures are `Result`/`Option`** with `?` and early `return`; nothing throws except integer overflow, division by zero, and out-of-range indexing, which panic exactly as a Rust debug build does.
@@ -40,7 +40,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 - `char`: literals, `==`, `<`, ranges in `match`/`matches!`, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, ASCII methods. Iterate a string's chars with `for c in s.chars() { .. }` (only in a `for` head: no `.rev()`, `.nth()`, `.count()`, or `chars()` as a value).
 - `uuid::Uuid` (the one crate besides `serde`): `Uuid::parse_str(s)` / `Uuid::try_parse(s)` → `Result<Uuid, uuid::Error>`, `Uuid::nil()`, `==`, `<`, and in serde types. Nothing else: take new IDs as parameters instead of `new_v4()`, test with `matches!(Uuid::parse_str(s), Ok(_))` instead of `.is_ok()`. Write the error type as `uuid::Error`; `Uuid` is a reserved name.
 - Control: `if`, `if let`, exhaustive `match`, `for i in a..b` (integer range) and `for c in s.chars()` (early `return`/`?` allowed in both), recursion, local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`.
-- `match` arms: one variant binding fields or `_`; `A | B` binding nothing; a last `_`. Literal and range patterns on integers, `char`, and `&str` also need a last `_`. `matches!(x, p)` follows the same rules.
+- `match` arms: one variant binding fields or `_`; `A | B` binding nothing; a last `_`. Literal and range patterns on integers, `char`, and `&str` also need a last `_`. On a tuple (`match (a, b)`), each element is `_`, a binding, or one of these, and no last `_` is needed (rustc checks exhaustiveness). `matches!(x, p)` follows the same rules.
 
 ## Not accepted, and what to write
 
@@ -48,7 +48,6 @@ The constraints match a functional style, so lean into it rather than fighting i
 | --- | --- |
 | `iter().map(..).collect()`, `for x in xs`, `while`, `loop`, `break` | index + recursion, or a range `for` with early `return` |
 | `opt.map(..)`, `and_then`, `unwrap_or` | `match` or `?` |
-| `match (state, event)` | one function per state |
 | match guards `p if c`, nested patterns, `|` arms that bind names | an `if` inside the arm; split the match |
 | `a == b` on structs/enums/`Option` (`[check/numeric-op]`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method |
 | `x & 1`, `x >> 3` on `usize` | a `u32`/`u64` for bit fields |

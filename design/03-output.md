@@ -88,7 +88,7 @@ Methods become companion properties with the receiver first. `Self` is replaced 
 
 ### Control flow
 
-- `match` → `switch (e.kind)` with `default: return assertNever(e)`. `if let` → `kind` test with narrowing. `Option` branches on `=== null`.
+- `match` → `switch (e.kind)` with `default: return assertNever(e)`. `if let` → `kind` test with narrowing. `Option` branches on `=== null`. A `match` on a tuple → `if (state.kind === "A" && event.kind === "B") { … } else if …`, element tests joined by `&&`, the arm's bindings read from the tested elements; elements that are not places go into `const`s first, in order. When the last arm tests something, a final `else` returns `assertNever(…)` (rustc has checked the arms are exhaustive).
 - `?` → `if (r.kind === "Err") return r;` (for `Option`, `if (r === null) return null;`). A `?` inside an expression is hoisted into a preceding `const` to preserve evaluation order.
 - A `match` / `if` used as a value becomes `let x: T;` plus an assignment per arm.
 - `S { a: 1, ..s }` → `({ ...s, a: 1 })`; a `?` in an explicit field exits before `s` is evaluated.

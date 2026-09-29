@@ -22,6 +22,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | --- | --- | --- |
 | Closed ADTs | struct, enum, newtype (content not `Option`, `()`, `!`) | `Readonly` objects, `kind` unions, brands |
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
+| Transition tables | `match (state, event)`: tuple arms whose elements are `_`, a binding, or an arm pattern | an `if` chain in arm order, `&&` of the element tests |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | UUIDs | `uuid::Uuid` (or `Uuid` after `use uuid::Uuid;`); `Uuid::parse_str(s)` / `try_parse(s)` returning `Result<Uuid, uuid::Error>`; `Uuid::nil()`; `==`, `<` | `Uuid` (branded canonical `string`); `Uuid.parseStr`; `===`, `<` |
@@ -97,13 +98,14 @@ An arm is one of:
 - `_`, as the last arm, taking every case no other arm names. A `_` after arms covering everything is accepted and dropped (rustc warns); a `match` whose only arm is `_` is rejected;
 - on an integer: a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `|`. The last arm must be `_`, even where the ranges cover every value. Arms are tried in order, as in Rust.
 - on a `char`: a literal (`'@'`), a range with a literal at both ends (`'a'..='z'`), or several joined by `|`. The last arm must be `_`.
+- on a tuple (`match (state, event)`, 2026-09-30): a tuple whose elements are each `_`, a binding, or any of the above (`(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`); several tuples joined by `|` when they bind nothing; or a last `_`. rustc checks exhaustiveness, so no `_` is required, and arms are tried in order as in Rust. The tuple is not built: elements that are places (`state`, `self.phase`) are tested as they are, anything else is evaluated first, left to right.
 - on a `&str`: a string literal, or several joined by `|` (`"card" | "credit_card" =>`). The last arm must be `_`. A `String` is matched through `s.as_str()`, as rustc requires.
 
 `matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; a guard (`p if c`) is rejected.
 
 The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too. As in Rust, a variant added later falls into `_` silently; write every arm where that matters.
 
-Not accepted: tuple scrutinees (`match (state, event)` — split into one function per state), `|` arms that bind names, binding-only arms, guards, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
+Not accepted: tuples inside tuple patterns, `|` arms that bind names, binding-only arms, guards, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
 
 ### 3.6 Strings
 

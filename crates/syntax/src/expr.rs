@@ -669,6 +669,12 @@ fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {
             path_variant_pat(cx, &s.path, bind)
         }
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
+        Pat::Tuple(t) if t.elems.len() > 1 => Ok(Pattern::Tuple(
+            t.elems
+                .iter()
+                .map(|p| lower_pat(cx, p))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
         Pat::Or(o) => Ok(Pattern::Or(
             o.cases
                 .iter()
@@ -691,6 +697,28 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
     }
     match &pattern {
         Pattern::Wildcard => return Ok(pattern),
+        Pattern::Tuple(elems) => {
+            tuple_elems(elems)?;
+            return Ok(pattern);
+        }
+        Pattern::Or(alts) if pattern.is_tuple_case() => {
+            for alt in alts {
+                let Pattern::Tuple(elems) = alt else {
+                    return Err(ParseError::new(Reason::ArmPattern, format!(
+                        "each side of `|` must be a tuple pattern here, found {}",
+                        describe_pat(alt)
+                    )));
+                };
+                tuple_elems(elems)?;
+            }
+            if let Some(name) = pattern.bindings().first() {
+                return Err(ParseError::new(Reason::ArmPattern, format!(
+                    "`|` arms may not bind names in v0, found binding `{}`; write one arm per tuple",
+                    name.as_str()
+                )));
+            }
+            return Ok(pattern);
+        }
         Pattern::Or(alts) => {
             for alt in alts {
                 if !matches!(alt, Pattern::Variant { .. }) {
@@ -715,6 +743,23 @@ fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
     Ok(pattern)
 }
 
+/// The elements of a tuple arm: `_`, a binding, or what an arm of its own
+/// may be. A tuple inside a tuple is not flattened.
+fn tuple_elems(elems: &[Pattern]) -> Result<(), ParseError> {
+    for elem in elems {
+        match elem {
+            Pattern::Wildcard | Pattern::Var(_) => {}
+            p if p.is_tuple_case() => {
+                return Err(ParseError::new(Reason::NestedPattern, "tuple patterns may not nest in v0"));
+            }
+            p => {
+                arm_pattern(p.clone())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Checks that `pattern` names a case and binds only names or `_` inside.
 fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
     let inner: Vec<&Pattern> = match pattern {
@@ -725,7 +770,12 @@ fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
         },
         Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![&**p],
         Pattern::OptionNone => Vec::new(),
-        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => {
+        Pattern::Wildcard
+        | Pattern::Var(_)
+        | Pattern::Lit(_)
+        | Pattern::Or(_)
+        | Pattern::Range { .. }
+        | Pattern::Tuple(_) => {
             return Err(ParseError::new(Reason::ArmPattern, format!(
                 "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, or be `_` in v0, found {}",
                 describe_pat(pattern)
@@ -758,6 +808,7 @@ fn describe_pat(pattern: &Pattern) -> String {
         Pattern::ResultErr(_) => "nested `Err(..)`".into(),
         Pattern::Or(_) => "`|`".into(),
         Pattern::Range { .. } => "a range".into(),
+        Pattern::Tuple(_) => "a tuple".into(),
     }
 }
 

@@ -49,7 +49,12 @@ fn case_of(pattern: &Pattern) -> Option<(&str, &str)> {
         Pattern::OptionNone => Some(("Option", "None")),
         Pattern::ResultOk(_) => Some(("Result", "Ok")),
         Pattern::ResultErr(_) => Some(("Result", "Err")),
-        Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::Or(_) | Pattern::Range { .. } => None,
+        Pattern::Wildcard
+        | Pattern::Var(_)
+        | Pattern::Lit(_)
+        | Pattern::Or(_)
+        | Pattern::Range { .. }
+        | Pattern::Tuple(_) => None,
     }
 }
 
@@ -61,6 +66,9 @@ fn label(ty: &str, case: &str) -> String {
 }
 
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
+    if arms.iter().any(|a| a.pattern.is_tuple_case()) {
+        return tuple_arms(i, arms, out);
+    }
     if arms.iter().any(|a| a.pattern.is_int_case()) {
         return lit_arms(i, arms, "integer", Pattern::is_int_case, out);
     }
@@ -129,6 +137,44 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
             i, Reason::NonExhaustive,
             format!("match on `{ty}` is missing {}", missing.join(", ")),
         ));
+    }
+}
+
+/// A `match` on a tuple is tried arm by arm, as an `if` chain. rustc has
+/// checked it is exhaustive; here every arm must be a tuple of one width, or
+/// a last `_`.
+fn tuple_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
+    let width = |p: &Pattern| match p {
+        Pattern::Tuple(ps) => Some(ps.len()),
+        Pattern::Or(alts) => alts.first().and_then(|a| match a {
+            Pattern::Tuple(ps) => Some(ps.len()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let first = arms.iter().find_map(|a| width(&a.pattern));
+    for (n, arm) in arms.iter().enumerate() {
+        match &arm.pattern {
+            Pattern::Wildcard if n + 1 == arms.len() => {}
+            Pattern::Wildcard => {
+                out.push(Diagnostic::at(i, Reason::ArmPattern, "`_` must be the last arm"));
+                return;
+            }
+            p if p.is_tuple_case() => {
+                let widths = match p {
+                    Pattern::Or(alts) => alts.iter().map(width).collect(),
+                    other => vec![width(other)],
+                };
+                if widths.iter().any(|w| *w != first) {
+                    out.push(Diagnostic::at(i, Reason::ArmPattern, "tuple arms of one `match` must have one width"));
+                    return;
+                }
+            }
+            _ => {
+                out.push(Diagnostic::at(i, Reason::ArmPattern, "a match on a tuple takes tuple patterns, or a last `_`"));
+                return;
+            }
+        }
     }
 }
 

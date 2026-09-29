@@ -150,7 +150,7 @@ impl Refs {
     fn pattern(&mut self, p: &Pattern) {
         match p {
             Pattern::Variant { ty, .. } => self.name(ty),
-            Pattern::Or(alts) => alts.iter().for_each(|alt| self.pattern(alt)),
+            Pattern::Or(alts) | Pattern::Tuple(alts) => alts.iter().for_each(|alt| self.pattern(alt)),
             _ => {}
         }
     }

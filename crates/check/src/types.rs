@@ -914,10 +914,41 @@ impl<'d, 'a> Typer<'d, 'a> {
         )
     }
 
+    /// The normalized element types of a tuple scrutinee of `width`, or
+    /// `None`s after reporting a scrutinee that is not one.
+    fn tuple_elems(&mut self, width: usize, scrutinee: Option<&Ty>) -> Vec<Option<Ty>> {
+        match scrutinee {
+            Some(Ty::Tuple(ts)) if ts.len() == width => ts.iter().map(|t| Some(self.norm(t))).collect(),
+            Some(t) if *t != Ty::Never => {
+                self.error(Reason::TypeMismatch, format!(
+                    "a tuple pattern of {width} elements does not match a value of type `{}`",
+                    show(t)
+                ));
+                vec![None; width]
+            }
+            _ => vec![None; width],
+        }
+    }
+
     /// An integer arm with every literal given the scrutinee's type, so the
     /// printer knows `1` from `1n`; a string arm checked against a `&str`.
-    /// Other patterns are returned as they are.
+    /// A tuple arm is checked element by element. Other patterns are
+    /// returned as they are.
     fn lit_pattern(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) -> Pattern {
+        match pattern {
+            // `bind` has reported a scrutinee that is not a tuple.
+            Pattern::Tuple(ps) => {
+                let tys = match scrutinee {
+                    Some(Ty::Tuple(ts)) if ts.len() == ps.len() => ts.iter().map(|t| Some(self.norm(t))).collect(),
+                    _ => vec![None; ps.len()],
+                };
+                return Pattern::Tuple(ps.iter().zip(&tys).map(|(p, t)| self.lit_pattern(p, t.as_ref())).collect());
+            }
+            Pattern::Or(alts) if pattern.is_tuple_case() => {
+                return Pattern::Or(alts.iter().map(|a| self.lit_pattern(a, scrutinee)).collect());
+            }
+            _ => {}
+        }
         if pattern.is_char_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Char) | Ty::Never) | None => {}
@@ -1021,6 +1052,12 @@ impl<'d, 'a> Typer<'d, 'a> {
             // The alternatives bind nothing (checked by the parser).
             (Pattern::Or(alts), _) => {
                 alts.iter().for_each(|alt| self.bind(alt, scrutinee));
+                return;
+            }
+            (Pattern::Tuple(ps), _) => {
+                for (p, t) in ps.iter().zip(self.tuple_elems(ps.len(), scrutinee)) {
+                    self.bind(p, t.as_ref());
+                }
                 return;
             }
         };
