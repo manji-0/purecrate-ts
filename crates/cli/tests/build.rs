@@ -301,3 +301,62 @@ fn serde_derives_compile_under_check() {
     assert!(stderr.contains("[rustc/E0382]"), "{stderr}");
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// A crate of several files and inline modules (design/02 §3.3): paths lose
+/// their module prefix, exports follow Rust's public surface, and a
+/// diagnostic names the file it is in.
+#[test]
+fn module_trees_are_flattened() {
+    let dir = std::env::temp_dir().join(format!("purecrate-modules-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let src = dir.join("src");
+    fs::create_dir_all(src.join("money")).expect("mkdir");
+    fs::write(dir.join("Cargo.toml"), "[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").expect("write");
+    fs::write(
+        src.join("lib.rs"),
+        "pub mod money;\nmod rules;\n\npub use rules::apply;\n\npub fn total(a: money::Yen, b: crate::money::Yen) -> money::Yen {\n    money::Yen::add(a, b)\n}\n\n\
+         mod inline {\n    pub fn hidden() -> i32 {\n        1\n    }\n}\n\npub fn shown() -> i32 {\n    inline::hidden()\n}\n",
+    )
+    .expect("write");
+    fs::write(src.join("money.rs"), "pub mod rounding;\n\npub struct Yen(pub i64);\n\nimpl Yen {\n    pub fn add(a: Yen, b: Yen) -> Yen {\n        Yen(a.0 + b.0)\n    }\n}\n").expect("write");
+    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 / 2i64)\n}\n").expect("write");
+    fs::write(
+        src.join("rules.rs"),
+        "use crate::money::rounding::half;\nuse crate::money::Yen;\n\npub fn apply(y: Yen) -> Yen {\n    helper(half(y))\n}\n\npub fn helper(y: Yen) -> Yen {\n    Yen(y.0 + 1i64)\n}\n",
+    )
+    .expect("write");
+
+    let out = dir.join("out");
+    let built = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .args(["build".as_ref(), dir.as_os_str(), "--out".as_ref(), out.as_os_str()])
+        .output()
+        .expect("run");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let index = fs::read_to_string(out.join("src/index.ts")).expect("index");
+    for name in ["total", "Yen", "half", "apply", "shown"] {
+        assert!(index.contains(&format!("export {{ {name} }}")), "{name} not exported:\n{index}");
+    }
+    for name in ["helper", "hidden"] {
+        assert!(!index.contains(&format!("export {{ {name} }}")), "{name} exported:\n{index}");
+        assert!(out.join(format!("src/{name}.ts")).exists(), "{name} not generated");
+    }
+
+    // A rejection inside a module file names that file.
+    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 as i64)\n}\n").expect("write");
+    let bad = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(stderr.contains("money/rounding.rs:4:"), "{stderr}");
+
+    // Two items of one name in different modules collide.
+    fs::write(src.join("money/rounding.rs"), "pub fn apply() -> i32 {\n    1\n}\n").expect("write");
+    let clash = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&clash.stderr);
+    assert!(!clash.status.success() && stderr.contains("apply"), "{stderr}");
+
+    // A missing module file is reported, not skipped.
+    fs::remove_file(src.join("rules.rs")).expect("rm");
+    let missing = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(stderr.contains("module `rules` has no file"), "{stderr}");
+    let _ = fs::remove_dir_all(&dir);
+}

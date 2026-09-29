@@ -1,8 +1,9 @@
-//! Lower a single Rust source file into a flattened PureCrate IR.
-//! The caller supplies the crate name and the source text.
+//! Lower a crate's source files into a flattened PureCrate IR. The caller
+//! supplies the crate name and the text of the root and every module file.
 
 mod expr;
 mod item;
+mod modules;
 mod survey;
 mod ty;
 
@@ -10,7 +11,8 @@ use purecrate_ir::{Crate, Item, Reason};
 use syn::parse_file;
 
 pub use item::{LineCol, ParseError};
-pub use survey::{module_decls, survey_files, Unit, UnitKind};
+pub use modules::{parse_files_spanned, Source};
+pub use survey::{module_decls, module_decls_vis, survey_files, Unit, UnitKind};
 
 /// Without source positions: bodies carry no `Expr::At`.
 pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError> {
@@ -32,6 +34,13 @@ pub fn parse_source_spanned(
     source: &str,
 ) -> Result<(Crate, Vec<LineCol>), ParseError> {
     let file = parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
+    if file.items.iter().any(|i| matches!(i, syn::Item::Mod(_)) && !item::is_test_only(i)) {
+        // One file with modules: the module-aware path, which reads the
+        // inline ones and reports an out-of-line one as missing.
+        return parse_files_spanned(crate_name, &[Source { text: source, public: true }])
+            .map(|(krate, spans)| (krate, spans.into_iter().map(|(_, at)| at).collect()))
+            .map_err(|(_, e)| e);
+    }
     let mut cx = item::Cx::scan(&file);
     let mut items: Vec<Item> = Vec::new();
     let mut spans: Vec<LineCol> = Vec::new();
@@ -209,6 +218,25 @@ mod tests {
                    #[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n";
         let krate = parse_source("c", src).expect("parse");
         assert_eq!(krate.items.len(), 1);
+    }
+
+    #[test]
+    fn inline_modules_flatten_with_rusts_public_surface() {
+        use purecrate_ir::Vis;
+        let src = "mod a {\n    pub fn one() -> i32 { 1 }\n    pub fn two() -> i32 { 2 }\n}\n\
+                   pub mod b {\n    pub fn three() -> i32 { super::a::one() }\n    fn four() -> i32 { 4 }\n}\n\
+                   mod c {\n    pub fn five() -> i32 { 5 }\n}\n\
+                   pub use a::one;\npub use c::*;\n";
+        let krate = parse_source("m", src).expect("parse");
+        let vis = |name: &str| krate.items.iter().find(|i| i.name().as_str() == name).map(|i| i.vis());
+        assert_eq!(vis("one"), Some(Vis::Pub), "re-exported by name");
+        assert_eq!(vis("two"), Some(Vis::Internal), "private module, not re-exported");
+        assert_eq!(vis("three"), Some(Vis::Pub), "pub module");
+        assert_eq!(vis("four"), Some(Vis::Internal));
+        assert_eq!(vis("five"), Some(Vis::Pub), "glob re-export");
+
+        let err = parse_source("m", "mod a {\n    pub fn one() -> i32 { 1 }\n}\npub use a::one as uno;\n").expect_err("rename");
+        assert!(err.message.contains("renames an export"), "{}", err.message);
     }
 
     #[test]

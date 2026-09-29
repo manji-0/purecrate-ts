@@ -1,5 +1,6 @@
 mod args;
 mod drift;
+mod files;
 mod rustc;
 mod survey;
 
@@ -13,7 +14,7 @@ use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_emit_ts::WireSchema;
 use purecrate_pack::{assemble_versioned, disk_path};
-use purecrate_syntax::{parse_source_spanned, LineCol};
+use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
 use args::{Command, Input};
 
@@ -93,10 +94,11 @@ fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
 /// error summary line.
 fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<Package, String> {
     let src = &input.src;
-    let text = fs::read_to_string(src).map_err(|e| format!("read {}: {e}", src.display()))?;
-    let (krate, spans) = parse_source_spanned(&input.name, &text).map_err(|e| match e.at {
-        Some(_) => format!("{}:{e}", src.display()),
-        None => format!("{}: {e}", src.display()),
+    let files = files::crate_files(src)?;
+    let sources: Vec<Source<'_>> = files.iter().map(|f| Source { text: &f.text, public: f.public }).collect();
+    let (krate, spans) = parse_files_spanned(&input.name, &sources).map_err(|(i, e)| match e.at {
+        Some(_) => format!("{}:{e}", files[i].path.display()),
+        None => format!("{}: {e}", files[i].path.display()),
     })?;
     let diagnostics = match accept(&krate) {
         Ok(typed) => {
@@ -113,14 +115,14 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>) -> Result<
         Err(d) => d,
     };
     let at = |i: usize| {
-        let LineCol { line, col } = spans[i];
-        format!("{}:{line}:{col}", src.display())
+        let (file, LineCol { line, col }) = spans[i];
+        format!("{}:{line}:{col}", files[file].path.display())
     };
     let mut report: Vec<String> = Vec::new();
     for d in &diagnostics {
         // The statement or arm inside the item when known, else the item's name.
         let place = match d.at {
-            Some(p) => format!("{}:{}:{}", src.display(), p.line, p.col),
+            Some(p) => format!("{}:{}:{}", files[spans[d.item].0].path.display(), p.line, p.col),
             None => at(d.item),
         };
         report.push(format!("{place}: [{}] {}", d.reason, d.message));
