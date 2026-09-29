@@ -12,8 +12,12 @@ impl Email {
         } else if raw == "admin" {
             Err(EmailError::Reserved)
         } else {
-            Ok(Email(raw))
+            Ok(Email::unchecked(raw))
         }
+    }
+
+    fn unchecked(raw: String) -> Email {
+        Email(raw)
     }
 }
 
@@ -32,8 +36,12 @@ impl Account {
         if age < 18 {
             Err(SignupError::TooYoung)
         } else {
-            Ok(Account { email, age })
+            Ok(Account::with_age(email, age))
         }
+    }
+
+    fn with_age(email: Email, age: u8) -> Account {
+        Account { email, age }
     }
 
     pub fn birthday(self) -> Account {
@@ -61,7 +69,7 @@ pub fn signup(code: u8, age: u8) -> Result<u8, SignupError> {
 }
 
 pub fn adult(email: Email) -> Account {
-    Account { email, age: 18u8 }
+    Account::with_age(email, 18u8)
 }
 
 pub fn adult_after(code: u8) -> Result<u8, EmailError> {

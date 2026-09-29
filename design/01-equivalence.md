@@ -47,6 +47,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over (decided and implemented 2026-09-29, `crates/cli/tests/closed_equivalence.rs`).
 
 - A struct with a non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes, is **closed**. It gets a `unique symbol` brand, and its companion has no `of`. The generator builds values through an internal `Email$of`, exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
+- Methods that are not `pub` are not on the companion either: they are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Until 2026-09-30 every method sat on the exported companion, so a private `fn unchecked(raw) -> Email` let TS callers build what Rust callers cannot (found measuring Windmill's MCP scope, [91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
 - A struct whose fields are all `pub` is **open** and gets `of`, as in Rust anyone can build it.
 - Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
 

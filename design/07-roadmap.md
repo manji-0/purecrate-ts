@@ -85,7 +85,7 @@ Decided 2026-09-30, from measuring real dual implementations ([91 §4](./91-real
 1. **`Result<Self, Self::Error>` in `impl TryFrom<T>`** — the idiomatic signature, rejected today with a misleading `item/serde-attr`.
 2. **`s.chars()` through iterator `for`** — `for c in s.chars()` only (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8.
 
-Defects to fix first, from the same measurement: a non-`pub` method reachable on the exported companion (a possible hole in closed types); `mod r#impl;` skipped silently; `build --out` deleting unrelated files.
+Defects to fix first, from the same measurement: `mod r#impl;` skipped silently; `build --out` deleting unrelated files. Fixed: a non-`pub` method reachable on the exported companion, a hole in closed types (2026-09-30, [01 §4](./01-equivalence.md#4-closed-types)).
 
 ### 3.1 When an example needs it
 

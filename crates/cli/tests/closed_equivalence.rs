@@ -2,6 +2,8 @@
 //! is branded and has no `of`, so outside the crate its value comes only from
 //! the crate's functions, as in Rust. Inside the package, construction goes
 //! through the file's `$of`, also from another file and in a struct update.
+//! Methods that are not `pub` stay off the exported companion, since one
+//! (`Email::unchecked`) can build the closed type without its check.
 
 #[macro_use]
 mod support;
@@ -57,6 +59,10 @@ const e: Email = "x";
 const a: Account = { email: e, age };
 // @ts-expect-error: the package-internal constructor is not exported
 pkg.Email$of;
+// @ts-expect-error: a method that is not `pub` is not on the companion
+Email.unchecked("x");
+// @ts-expect-error: nor exported under its internal name
+pkg.Account$with_age;
 void a;
 "#;
 
