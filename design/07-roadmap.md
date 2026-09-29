@@ -96,7 +96,7 @@ From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-na
 1. **Strings and `char`** — as specified in [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods), one method at a time. `char` and `for c in s.chars()` are in.
 2. **Iteration** — `while`, `break`/`continue`, iterator `for`, when range `for` plus recursion is not enough.
 3. **std methods** the example calls, via the allow-list. `Vec::is_empty` and `Option::is_some`/`is_none` (three of four real sites and oidc) are in, 2026-09-30. Iterator `map`/`filter`/`collect` are not added: they are how state sequences grow as arrays.
-4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`. Done 2026-09-30: tuple arms of `_`, bindings, and arm patterns, `|` of whole tuples binding nothing; not nested tuples (`tuple_match_equivalence.rs`).
+4. **Tuple scrutinees** — `match (state, event)`, if one function per state keeps an example over the threshold after `_`. Done 2026-09-30: tuple arms of `_`, bindings, and arm patterns, `|` of whole tuples binding nothing; not nested tuples (`tuple_match_equivalence.rs`). Printed as nested `switch`es, one per element, so TS checks exhaustiveness too rather than trusting rustc's; the cost is copies of arms that several cases reach.
 5. **Bitwise operators and shifts** on the fixed-width integers — asked for by oidc and Stoat's permission flags (both worked around), needed by any spec written in them. Done 2026-09-30 (not on `usize` or `bool`).
 6. **Building a `Vec` in the crate** (`vec![a, b]` of a fixed length) — oidc's `amr` is a list claim that TS callers expect as an array.
 

@@ -140,9 +140,9 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     }
 }
 
-/// A `match` on a tuple is tried arm by arm, as an `if` chain. rustc has
-/// checked it is exhaustive; here every arm must be a tuple of one width, or
-/// a last `_`.
+/// A `match` on a tuple is split into one `match` per element after typing
+/// (`tuple`), each listing every case. rustc has checked the tuple arms are
+/// exhaustive; here every arm must be a tuple of one width, or a last `_`.
 fn tuple_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
     let width = |p: &Pattern| match p {
         Pattern::Tuple(ps) => Some(ps.len()),

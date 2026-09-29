@@ -354,8 +354,8 @@ pub enum Pattern {
     Range { lo: Lit, hi: Lit, inclusive: bool },
     /// `(p, q)`: an arm of a `match` on a tuple, such as `match (state,
     /// event)`. Each element is `_`, a binding, or a pattern a `match` arm
-    /// may have; tuples do not nest. rustc has checked the arms are
-    /// exhaustive, so they print as an `if` chain in order.
+    /// may have; tuples do not nest. `check::accept` splits the `match` into
+    /// one `match` per element (`check::tuple`), so none reaches emit.
     Tuple(Vec<Pattern>),
 }
 

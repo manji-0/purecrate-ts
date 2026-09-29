@@ -12,6 +12,7 @@ mod reach;
 mod rename;
 mod resolve;
 mod rest;
+mod tuple;
 mod types;
 mod wire;
 

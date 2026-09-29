@@ -24,9 +24,7 @@ pub fn expand(mut krate: Crate) -> Crate {
 
 fn walk(expr: &mut Expr, enums: &[Enum]) {
     if let Expr::Match { arms, .. } = expr {
-        // A `_` after tuple arms stays the final `else` of the `if` chain.
-        let tuple = arms.iter().any(|a| a.pattern.is_tuple_case());
-        if let Some((last, named)) = arms.split_last_mut().filter(|_| !tuple) {
+        if let Some((last, named)) = arms.split_last_mut() {
             if last.pattern == Pattern::Wildcard {
                 last.pattern = rest(named.iter().map(|a| &a.pattern), enums);
             }

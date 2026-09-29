@@ -59,3 +59,24 @@ fn generated_tuple_matches_match_rust() {
     });
     support::assert_equivalent("tuple_match", SOURCE, &cases);
 }
+
+/// Every enum element is matched by a `switch` that names every variant and
+/// ends in `assertNever`, so TS checks exhaustiveness itself.
+#[test]
+fn every_enum_element_ends_in_assert_never() {
+    let krate = purecrate_syntax::parse_source("tuple_match", SOURCE).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let step = purecrate_pack::assemble(&typed)
+        .files
+        .into_iter()
+        .find(|f| f.stem == "step")
+        .expect("step.ts")
+        .source;
+    assert!(step.contains("switch (event.kind)"), "{step}");
+    assert!(step.contains("return assertNever(event);"), "{step}");
+    assert!(step.contains("switch (state.kind)"), "{step}");
+    assert!(step.contains("return assertNever(state);"), "{step}");
+    for v in ["Idle", "Running", "Paused", "Done"] {
+        assert!(step.contains(&format!("case \"{v}\":")), "{v} missing:\n{step}");
+    }
+}

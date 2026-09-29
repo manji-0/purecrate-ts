@@ -33,6 +33,13 @@ pub struct Variant {
 /// Named fields cannot start with a digit, so this marks the shape.
 pub const NEWTYPE_FIELD: &str = "0";
 
+/// Field name of a tuple's element `i` in `Expr::Field`, printed `t[i]`.
+/// Only `check::accept` writes one, when it splits a `match` on a tuple
+/// value (the source cannot write `t.0` on a tuple).
+pub fn tuple_field(i: usize) -> crate::Name {
+    crate::Name::new(format!("[{i}]"))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Struct {
     pub vis: Vis,

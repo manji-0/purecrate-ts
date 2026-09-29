@@ -50,6 +50,8 @@ struct Typer<'d, 'a> {
     out: &'d mut Vec<Diagnostic>,
     ret: Ty,
     scopes: Vec<(String, Option<Ty>)>,
+    /// Names made up by `tuple::lower` so far in this function.
+    fresh: usize,
 }
 
 type Typed = (Expr, Option<Ty>);
@@ -62,6 +64,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             out,
             ret: Ty::Prim(Prim::Unit),
             scopes: Vec::new(),
+            fresh: 0,
         }
     }
 
@@ -904,7 +907,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                     body,
                 }
             })
-            .collect();
+            .collect::<Vec<Arm>>();
+        // Typed; now one `match` per element, so TS checks each is exhaustive.
+        if let Some(Ty::Tuple(ts)) = &st {
+            if arms.iter().any(|a| a.pattern.is_tuple_case()) {
+                let tys = ts.iter().map(|t| self.norm(t)).collect();
+                return (crate::tuple::lower(self.defs, scrutinee, tys, arms, &mut self.fresh), result);
+            }
+        }
         (
             Expr::Match {
                 scrutinee: Box::new(scrutinee),
