@@ -15,6 +15,7 @@ cargo run --offline -q -p purecrate-ts -- check examples/signup
 cargo run --offline -q -p purecrate-ts -- check examples/iban
 cargo run --offline -q -p purecrate-ts -- check examples/payment
 cargo run --offline -q -p purecrate-ts -- check examples/invoice
+cargo run --offline -q -p purecrate-ts -- check examples/oidc
 mkdir -p examples/counter-ts/node_modules
 ln -sfn "$(pwd)/packages/boundary" examples/counter-ts/node_modules/purecrate
 # The runtime packages export `dist`; in this repository their sources stand

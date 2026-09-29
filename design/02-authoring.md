@@ -1,6 +1,6 @@
 # Writing Rust within the constraints
 
-Status: current (2026-09-29)
+Status: current (2026-09-30)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -27,7 +27,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
-| Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32` with debug semantics | `Int.<ty>.*` |
+| Integers | `+ - * / %` on `i8`–`i32`, `u8`–`u32` with debug semantics (no bitwise `& \| ^ !` or shifts `<< >>`) | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
 | Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; an `if` chain of `===`; `Str.bytes(s)` |
@@ -51,7 +51,7 @@ Sequences that grow or shrink are recursive enums returned as new values, the co
 pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 ```
 
-`Vec<T>` is only for sequences whose length is fixed outside the function: built with `[a, b]`, read with `xs[i]` and `xs.len()` (both `usize`; out of bounds throws Rust's message). No `push`, `map`/`filter`/`collect`, or `vec!`.
+`Vec<T>` is only for sequences the caller supplies, as a parameter or a field of one: read with `xs[i]` and `xs.len()` (both `usize`; out of bounds throws Rust's message). The crate cannot build one: `vec!`, `Vec::new`/`from`, `push`, `to_vec`, and `map`/`filter`/`collect` are rejected, and `[a, b]` is an array, which rustc does not accept as a `Vec` (and `[T; N]` types are rejected). A sequence the crate returns is a recursive enum. `&[u8]` parameters are accepted and read the same way.
 
 `Rc`, `Cell`, and `RefCell` stay rejected: even single-threaded, collapsing shared writes into values changes results. `Box` and `Arc` can be read with `*x`; `Mutex` has no `lock`, so it can only be built and held.
 
@@ -105,7 +105,7 @@ Not accepted: tuple scrutinees (`match (state, event)` — split into one functi
 
 ### 3.6 Strings
 
-A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again. `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
+A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again (`String::from(&s)` copies a `String`; an `Option<String>` is copied with a `match`). `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len` (not `is_empty`: write `len() == 0`), `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
 
 ### 3.7 Types
 
@@ -118,7 +118,10 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `xs.iter().map(f).collect()` | index + recursion or range `for`; return new sequences as recursive enums |
 | `opt.map(..)`, `and_then` | `match` or `?` |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
-| `a == b` on structs/enums | an `eq` method (JS structural comparison differs) |
+| `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
+| `opt.is_some()`, `is_none()` | `!matches!(opt, None)`, `matches!(opt, None)` |
+| `x & 0x0f`, `x << 8`, `a \| b` | `%`, `*`, `/` by powers of two, where the operands are known non-negative and in range (RFC 4226 truncation in examples/oidc) |
+| `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
 | `for c in s.chars()` | `s.as_bytes()` read by index in a range `for`, with `b'@'` and `matches!(b, b'0'..=b'9')` (`s.chars()` waits for iterator `for`; a single `char` value can be written as `'@'`, `c.is_ascii_digit()`) |

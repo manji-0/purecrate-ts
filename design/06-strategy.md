@@ -88,7 +88,7 @@ The author's own examples cannot validate the constraints: the author writes aro
    - silent wrong values on accepted input keep appearing (guide: one or more per new example);
    - no real use replacing a dual implementation is ever obtained.
 
-Status: signup, iban, payment, and invoice are from third-party specs; all four could be written. signup and iban first exceeded 2× (2.8×, 2.4×) and returned under it (1.9×) after range `for`; payment's transitions first measured 2.1× and returned to 1.8× after `_` and `A | B` arms ([07 §2](./07-roadmap.md#2-evidence-from-examples)). invoice's first draft measured 2.2× and a restructured one 1.4× with no new capability. No silent wrong value appeared in any of them. No real-world replacement yet.
+Status: signup, iban, payment, invoice, and oidc are from third-party specs; all five could be written (oidc at 1.65× for its logic, from the authoring skill alone). signup and iban first exceeded 2× (2.8×, 2.4×) and returned under it (1.9×) after range `for`; payment's transitions first measured 2.1× and returned to 1.8× after `_` and `A | B` arms ([07 §2](./07-roadmap.md#2-evidence-from-examples)). invoice's first draft measured 2.2× and a restructured one 1.4× with no new capability. No silent wrong value appeared in any of them. No real-world replacement yet.
 
 ## 5. Validating demand next
 

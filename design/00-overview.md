@@ -27,7 +27,7 @@ The use cases in focus, and how well they fit today ([06-strategy §3](./06-stra
 
 | Use case | Fit |
 | --- | --- |
-| Workflows and state machines (order lifecycle, approvals, payment status) | High. examples/order, examples/payment |
+| Workflows and state machines (order lifecycle, approvals, payment status) | High. examples/order, examples/payment, examples/oidc |
 | Optimistic UI / offline-first (same transition on client and server) | High |
 | Pricing, fees, tax (integer newtypes in the smallest unit) | High. examples/invoice |
 | Input validation (checked constructors) | Medium. examples/signup, examples/iban |
@@ -62,7 +62,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 - serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike
 - `--schema zod|valibot|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does
 
-Five examples are written within the constraints and differentially tested: [order](../examples/order/src/lib.rs) (author's own), [signup](../examples/signup/src/lib.rs), [iban](../examples/iban/src/lib.rs), [payment](../examples/payment/src/lib.rs), and [invoice](../examples/invoice/src/lib.rs) (from third-party specifications). Against wasm-bindgen on the same source, the payment transition is 28–113× cheaper per call and about 20× smaller gzipped ([bench/payment](../bench/payment/README.md)).
+Six examples are written within the constraints and differentially tested: [order](../examples/order/src/lib.rs) (author's own), [signup](../examples/signup/src/lib.rs), [iban](../examples/iban/src/lib.rs), [payment](../examples/payment/src/lib.rs), [invoice](../examples/invoice/src/lib.rs), and [oidc](../examples/oidc/src/lib.rs) (from third-party specifications). Against wasm-bindgen on the same source, the payment transition is 28–113× cheaper per call and about 20× smaller gzipped ([bench/payment](../bench/payment/README.md)).
 
 ## 5. Documents
 
