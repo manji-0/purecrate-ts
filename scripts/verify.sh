@@ -14,6 +14,7 @@ cargo run --offline -q -p purecrate-ts -- check examples/counter --out examples/
 cargo run --offline -q -p purecrate-ts -- check examples/order
 cargo run --offline -q -p purecrate-ts -- check examples/signup
 cargo run --offline -q -p purecrate-ts -- check examples/iban
+cargo run --offline -q -p purecrate-ts -- check examples/semver
 cargo run --offline -q -p purecrate-ts -- check examples/payment
 cargo run --offline -q -p purecrate-ts -- check examples/invoice
 cargo run --offline -q -p purecrate-ts -- check examples/oidc

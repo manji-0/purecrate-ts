@@ -36,6 +36,7 @@ mod order_of_eval_equivalence;
 mod package;
 mod payment_equivalence;
 mod rest_equivalence;
+mod semver_equivalence;
 mod signup_equivalence;
 mod slicing_equivalence;
 mod std_methods_equivalence;
