@@ -116,9 +116,10 @@ impl Cx {
                     })
                     .collect(),
             },
-            Expr::ForChars { var, string, body } => Expr::ForChars {
+            Expr::ForEach { var, over, source, body } => Expr::ForEach {
                 var: self.param_name(var),
-                string,
+                over,
+                source,
                 body,
             },
             Expr::Closure { params, ret, body } => Expr::Closure {

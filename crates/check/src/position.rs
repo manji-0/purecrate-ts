@@ -78,7 +78,7 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
             visit(end, Ctx::Strict, at, report);
             visit(body, Ctx::Stmt, at, report);
         }
-        Expr::ForChars { string, body, .. } => {
+        Expr::ForEach { source: string, body, .. } => {
             if ctx != Ctx::Stmt {
                 report("`for` inside a larger expression is not in v0; write it as its own statement".into(), at);
             }

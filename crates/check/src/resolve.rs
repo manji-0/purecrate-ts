@@ -312,7 +312,7 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(body);
                 self.scopes.pop();
             }
-            Expr::ForChars { var, string, body } => {
+            Expr::ForEach { var, source: string, body, .. } => {
                 self.expr(string);
                 self.scopes.push(vec![(var.as_str().to_string(), false)]);
                 self.expr(body);

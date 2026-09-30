@@ -456,6 +456,18 @@ pub struct ClosureParam {
     pub ty: Option<Ty>,
 }
 
+/// What a `for` walks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Over {
+    /// `s.chars()`: each Unicode scalar value of a `String` or `&str`, as a
+    /// `char` (design/01 §6).
+    Chars,
+    /// `s.bytes()`: each UTF-8 byte of a `String` or `&str`, as a `u8`.
+    Bytes,
+    /// `xs`, `&xs`, or `xs.iter()` on a `Vec` or slice: each element.
+    Items,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Arm {
     pub pattern: Pattern,
@@ -558,12 +570,12 @@ pub enum Expr {
         end: Box<Expr>,
         body: Box<Expr>,
     },
-    /// `for var in string.chars() { body }`, of type `()`. `string` is a
-    /// `String` or `&str`, evaluated once; `var` is each Unicode scalar value
-    /// as a `char`, in order (design/01 §6).
-    ForChars {
+    /// `for var in <source> { body }` over what `over` says, of type `()`.
+    /// `source` is evaluated once; `var` takes each item in order.
+    ForEach {
         var: Name,
-        string: Box<Expr>,
+        over: Over,
+        source: Box<Expr>,
         body: Box<Expr>,
     },
     /// `first; then`: `first` runs for its effect, its value is dropped.
@@ -639,7 +651,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
-            Expr::ForChars { string, body, .. } => vec![string, body],
+            Expr::ForEach { source: string, body, .. } => vec![string, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -677,7 +689,7 @@ impl Expr {
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
-            Expr::ForChars { string, body, .. } => vec![string, body],
+            Expr::ForEach { source: string, body, .. } => vec![string, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -702,7 +714,7 @@ impl Expr {
             | Expr::Closure { .. } => Vec::new(),
             // The body runs zero or more times; the bounds always run.
             Expr::For { start, end, .. } => vec![start, end],
-            Expr::ForChars { string, .. } => vec![string],
+            Expr::ForEach { source: string, .. } => vec![string],
             _ => self.children(),
         }
     }
@@ -721,7 +733,7 @@ impl Expr {
             | Expr::Try { .. }
             | Expr::Assign { .. }
             | Expr::For { .. }
-            | Expr::ForChars { .. }
+            | Expr::ForEach { .. }
             | Expr::Seq { .. } => true,
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()

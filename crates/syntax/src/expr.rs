@@ -1,5 +1,5 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Pattern, Pos, Reason, Ty, UnOp,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Reason, Ty, UnOp,
     VariantBind, Wrapper,
     NEWTYPE_FIELD,
 };
@@ -184,10 +184,18 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
     }
 }
 
-/// `for i in a..b { body }` and `for c in s.chars() { body }` only: an
-/// unlabelled loop over a half-open range or a string's chars, with a plain
-/// name for the variable. Other iterators, `break`, `continue`, `while` and
-/// `loop` stay out.
+/// Iterator adaptors, named so that `for` over one says so rather than
+/// failing later on the method call.
+const ITERATOR_ADAPTORS: &[&str] = &[
+    "enumerate", "rev", "zip", "map", "filter", "filter_map", "skip", "take", "step_by", "windows", "chunks",
+    "cloned", "copied", "peekable", "char_indices", "split", "lines", "keys", "values",
+];
+
+/// `for` over a half-open integer range, a string's `chars()` or
+/// `bytes()`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
+/// with a plain name for the variable. Whether `xs` is a `Vec` is checked
+/// with the types. Iterator adaptors (`enumerate`, `rev`, `zip`, ...) and
+/// `a..=b` stay out.
 fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     let reject = |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
     if f.label.is_some() {
@@ -197,23 +205,40 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => Name::new(p.ident.to_string()),
         _ => return reject("`for` takes a plain name for its variable, not `mut`, `_` or a pattern"),
     };
+    let each = |over: Over, source: &SynExpr| -> Result<Expr, ParseError> {
+        Ok(Expr::ForEach {
+            var: var.clone(),
+            over,
+            source: Box::new(lower_expr(cx, source)?),
+            body: Box::new(lower_block(cx, &f.body)?),
+        })
+    };
     let (start, end) = match &*f.expr {
         SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => match (&r.start, &r.end) {
             (Some(a), Some(b)) => (a, b),
             _ => return reject("`for` takes a range with both ends, `a..b`"),
         },
-        SynExpr::MethodCall(m) if m.method == "chars" && m.args.is_empty() && m.turbofish.is_none() => {
-            return Ok(Expr::ForChars {
-                var,
-                string: Box::new(lower_expr(cx, &m.receiver)?),
-                body: Box::new(lower_block(cx, &f.body)?),
-            });
+        SynExpr::Range(_) => return reject("`for` takes a half-open range `a..b`, not `a..=b`"),
+        SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && m.method == "chars" => {
+            return each(Over::Chars, &m.receiver);
         }
-        _ => {
-            return reject(
-                "`for` takes a half-open integer range `a..b` or a string's `.chars()`, not another iterator or `a..=b`",
-            )
+        SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && m.method == "bytes" => {
+            return each(Over::Bytes, &m.receiver);
         }
+        SynExpr::MethodCall(m)
+            if m.args.is_empty() && m.turbofish.is_none() && (m.method == "iter" || m.method == "into_iter") =>
+        {
+            return each(Over::Items, &m.receiver);
+        }
+        SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
+            return reject(&format!(
+                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, or `s.bytes()`, and keep an index or a counter by hand",
+                m.method
+            ))
+        }
+        // Any other value, `s.as_bytes()` or a method returning a `Vec`
+        // included: the types say whether it is one.
+        other => return each(Over::Items, other),
     };
     Ok(Expr::For {
         var,

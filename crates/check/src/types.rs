@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Crate, Expr, Over, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -447,24 +447,32 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
-            Expr::ForChars { var, string, body } => {
+            Expr::ForEach { var, over, source: string, body } => {
                 let before = self.out.len();
                 let (s, st) = self.expr(string, None);
-                let is_string = st
-                    .as_ref()
-                    .is_some_and(|t| matches!(self.norm(t), Ty::Prim(Prim::String | Prim::Str)));
-                if !is_string && self.out.len() == before {
+                let norm = st.as_ref().map(|t| self.norm(t));
+                let item = match (over, &norm) {
+                    (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Some(Ty::Prim(Prim::Char)),
+                    (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Some(Ty::Prim(Prim::U8)),
+                    (Over::Items, Some(Ty::Vec(t))) => Some((**t).clone()),
+                    _ => None,
+                };
+                if item.is_none() && self.out.len() == before {
                     let found = st.as_ref().map(show).unwrap_or_else(|| "?".into());
-                    self.error(Reason::TypeMismatch, format!(
-                        "`for c in s.chars()` takes a `String` or `&str`, found `{found}`"
-                    ));
+                    let what = match over {
+                        Over::Chars => "`for c in s.chars()` takes a `String` or `&str`",
+                        Over::Bytes => "`for b in s.bytes()` takes a `String` or `&str`",
+                        Over::Items => "`for x in xs` takes a range `a..b`, a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), `s.chars()`, or `s.bytes()`",
+                    };
+                    self.error(Reason::TypeMismatch, format!("{what}, found `{found}`"));
                 }
-                self.scopes.push((var.as_str().to_string(), Some(Ty::Prim(Prim::Char))));
+                self.scopes.push((var.as_str().to_string(), item));
                 let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
                 self.scopes.pop();
-                let e = Expr::ForChars {
+                let e = Expr::ForEach {
                     var: var.clone(),
-                    string: Box::new(s),
+                    over: *over,
+                    source: Box::new(s),
                     body: Box::new(b),
                 };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))

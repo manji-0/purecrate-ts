@@ -257,7 +257,7 @@ impl Refs {
                 self.expr(end);
                 self.expr(body);
             }
-            Expr::ForChars { string, body, .. } => {
+            Expr::ForEach { source: string, body, .. } => {
                 self.expr(string);
                 self.expr(body);
             }

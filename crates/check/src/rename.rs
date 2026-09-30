@@ -143,13 +143,14 @@ impl Renamer {
                     body: self.boxed(body, &inner),
                 }
             }
-            Expr::ForChars { var, string, body } => {
+            Expr::ForEach { var, over, source: string, body } => {
                 let string = self.boxed(string, env);
                 let mut inner = env.clone();
                 let var = self.bind(&var, &mut inner);
-                Expr::ForChars {
+                Expr::ForEach {
                     var,
-                    string,
+                    over,
+                    source: string,
                     body: self.boxed(body, &inner),
                 }
             }

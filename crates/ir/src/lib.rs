@@ -10,7 +10,7 @@ mod name;
 mod reason;
 mod ty;
 
-pub use expr::{Arm, BinOp, Callee, CharMethod, ClosureParam, Expr, Fields, IntOp, Lit, Pattern, Pos, StrMethod, TryOn, UnOp, VariantBind};
+pub use expr::{Arm, BinOp, Callee, CharMethod, ClosureParam, Expr, Fields, IntOp, Lit, Over, Pattern, Pos, StrMethod, TryOn, UnOp, VariantBind};
 pub use item::{Alias, Const, CONSTS_STEM, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD, tuple_field};
 pub use krate::Crate;
 pub use name::{to_kebab, Name};
