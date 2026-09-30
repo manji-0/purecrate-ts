@@ -12,8 +12,6 @@
 
 use crate::support;
 
-#[allow(dead_code, unused_macros)]
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

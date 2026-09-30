@@ -2,8 +2,6 @@
 
 use crate::support;
 
-#[allow(dead_code, unused_macros)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};

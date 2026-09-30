@@ -12,8 +12,6 @@
 
 use crate::support;
 
-#[allow(dead_code, unused_macros)]
-
 use std::fs;
 use std::process::Command;
 
