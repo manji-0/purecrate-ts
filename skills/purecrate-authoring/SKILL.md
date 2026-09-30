@@ -70,7 +70,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 - **`_` hides new variants.** As in Rust, a variant added later falls into `_` silently. Where that matters, name every arm.
 - **Reading a string**: `for c in s.chars()` for characters (`c.is_ascii_digit()`, `matches!(c, 'a'..='z')`); `as_bytes()` when positions matter: `b[i] == b'@'`, `matches!(b[i], b'0'..=b'9')`, with `b.len()` for the bound. Byte string literals (`b"pm_"`) do not exist; use `starts_with("pm_")`.
 - **rustc runs too.** A program the subset accepts but rustc rejects fails as `[rustc/E…]`; fix it as you would in ordinary Rust.
-- **Tests and callers**: for what TS callers must observe (values are `Readonly`, `i64` as `bigint`, `Result` values not throws), see [design/03-output.md §5](https://github.com/manji-0/purecrate-ts/blob/main/design/03-output.md#5-caller-contract). When you add a capability or example, add a differential test (`crates/cli/tests/*_equivalence.rs` in the purecrate-ts repository) that runs the same inputs through Rust and the generated TS.
+- **Tests and callers**: for what TS callers must observe (values are `Readonly`, `i64` as `bigint`, `Result` values not throws), see [design/03-output.md §5](https://github.com/manji-0/purecrate-ts/blob/main/design/03-output.md#5-caller-contract). When you add a capability or example, add a differential test (`crates/cli/tests/it/*_equivalence.rs` in the purecrate-ts repository) that runs the same inputs through Rust and the generated TS.
 
 ## Adding an example
 

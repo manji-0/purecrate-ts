@@ -44,7 +44,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 
 <!-- derived-from #2-domain -->
 
-In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over (decided and implemented 2026-09-29, `crates/cli/tests/closed_equivalence.rs`).
+In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over (decided and implemented 2026-09-29, `crates/cli/tests/it/closed_equivalence.rs`).
 
 - A struct with a non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes, is **closed**. It gets a `unique symbol` brand, and its companion has no `of`. The generator builds values through an internal `Email$of`, exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
 - Methods that are not `pub` are not on the companion either: they are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Until 2026-09-30 every method sat on the exported companion, so a private `fn unchecked(raw) -> Email` let TS callers build what Rust callers cannot (found measuring Windmill's MCP scope, [91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
@@ -102,7 +102,7 @@ Decided 2026-09-27; only parts are implemented ([07 §4](./07-roadmap.md#4-speci
 | Compilability | rustc must accept the input ([05 §3](./05-architecture.md#3-rustc-as-the-final-gate)) |
 | Rejection quality | Every rejection has `path:line:col` and a reason code, and nothing is written |
 
-**Canonical form** (since 2026-09-29): both sides render values from the same IR types. On the Rust side the test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/support`. On the TS side the harness generates a printer per type. The form resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`); floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`. Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed; it is now caught.
+**Canonical form** (since 2026-09-29): both sides render values from the same IR types. On the Rust side the test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/it/support`. On the TS side the harness generates a printer per type. The form resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`); floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`. Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed; it is now caught.
 
 Arguments are whole values too (since 2026-09-29): `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust. Remaining projections: cases routed through a driver returning a scalar compare only what the driver reads (examples/order adds `trace4` to compare the whole final state), and the counter acceptance test compares only `State.n`.
 

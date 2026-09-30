@@ -74,7 +74,7 @@ Use the output either way:
 npm install tarballs/<name>-<version>.tgz
 ```
 
-Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and the runtime's brands (`I32`, `Char`, `Uuid`, ...) are keyed by string, so a value from one package is the same type in another. Closed types of your own crate keep a `unique symbol` brand, so only your crate's functions build them. `crates/cli/tests/package.rs` runs this flow with two packages.
+Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and the runtime's brands (`I32`, `Char`, `Uuid`, ...) are keyed by string, so a value from one package is the same type in another. Closed types of your own crate keep a `unique symbol` brand, so only your crate's functions build them. `crates/cli/tests/it/package.rs` runs this flow with two packages.
 
 ## Agent skill
 

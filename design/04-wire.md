@@ -49,7 +49,7 @@ Reading rules (serde's default behavior):
 
 Library notes: zod and valibot build structs field by field, because inference makes `undefined`-valued (`()`) fields optional. Their schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`; the adapters' `unitVariant` and zod's `optionalField` spell rules 4 and 2 once (2026-09-30, before which every schema was `lazy` and printed on one line). arktype rejects a union of objects containing morphs, so enums try variants in turn; each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve (an earlier `type.module` design hit a `ReferenceError` at import). A nested read that fails hands its errors to the morph's traversal (`fail`, through `ArkErrors.merge`), so they keep their path; before 2026-09-30 the morph replaced them with one error at its own root. When no variant matches, an object keyed by a variant's name reports that variant's errors (`Confirm.outcome`), anything else one error for the enum.
 
-Verification: `fixtures/wire_shapes.rs` covers every type form; for all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node against serde-default JSON and malformed inputs (`crates/cli/tests/wire.rs`).
+Verification: `fixtures/wire_shapes.rs` covers every type form; for all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node against serde-default JSON and malformed inputs (`crates/cli/tests/it/wire.rs`).
 
 ## 4. Out of scope
 
@@ -88,7 +88,7 @@ Implemented 2026-09-29, when examples/payment needed it: in an optimistic update
 
 Unit structs are rejected ([02 §3.7](./02-authoring.md#37-types)): serde writes `struct S;` as `null` and `struct S {}` as `{}`, and the IR keeps only the fields.
 
-Verification (`crates/cli/tests/wire_write.rs`) against the vendored serde_json, over `Serialize` impls that `purecrate_canon::fixture!` generates with the data-model calls `#[derive(Serialize)]` makes (the derive itself needs a newer `syn` than the vendored one):
+Verification (`crates/cli/tests/it/wire_write.rs`) against the vendored serde_json, over `Serialize` impls that `purecrate_canon::fixture!` generates with the data-model calls `#[derive(Serialize)]` makes (the derive itself needs a newer `syn` than the vendored one):
 
 - floats: 80,000 pseudo-random bit patterns and boundary values (2,000,000 once, by hand), text equal;
 - shapes: every type form in `wire_shapes.rs`, written by serde_json, read by the schema, and written back, text equal;

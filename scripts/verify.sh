@@ -3,7 +3,7 @@
 # the committed counter package, then tsc over it (it carries its runtime, so
 # it needs nothing installed) and over the runtime and adapter sources that
 # every package copies, under each supported TypeScript major (see TS_MAJORS
-# in crates/cli/tests/support/mod.rs).
+# in crates/cli/tests/it/support/mod.rs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

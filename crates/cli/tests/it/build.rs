@@ -1,0 +1,473 @@
+//! Drives the `purecrate-ts` binary: diagnostics, and what happens to `--out`.
+
+use crate::support;
+
+#[allow(dead_code, unused_macros)]
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+}
+
+fn scratch(tag: &str) -> PathBuf {
+    support::scratch(&format!("build-{tag}"))
+}
+
+fn build(src: &Path, out: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .args(["build"])
+        .arg(src)
+        .args(["--name", "fixture", "--out"])
+        .arg(out)
+        .output()
+        .expect("run purecrate-ts")
+}
+
+fn check(args: &[&std::ffi::OsStr]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .arg("check")
+        .args(args)
+        .output()
+        .expect("run purecrate-ts")
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("mkdir");
+    for entry in fs::read_dir(from).expect("read_dir") {
+        let path = entry.expect("entry").path();
+        let dest = to.join(path.file_name().expect("name"));
+        if path.is_dir() {
+            copy_tree(&path, &dest);
+        } else {
+            fs::copy(&path, &dest).expect("copy");
+        }
+    }
+}
+
+fn leftovers(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .expect("read scratch")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains("purecrate-"))
+        .collect()
+}
+
+#[test]
+fn rejected_crate_reports_locations_and_leaves_out_alone() {
+    let dir = scratch("rejected");
+    let out = dir.join("pkg");
+    fs::create_dir_all(&out).expect("mkdir out");
+    fs::write(out.join("keep.txt"), "previous build").expect("write sentinel");
+
+    let src = fixture("rejected.rs");
+    let result = build(&src, &out);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    let path = src.display();
+    assert!(
+        stderr.contains(&format!("{path}:10:8: [check/name-collision] `Step` and `step` would both be emitted as `step.ts`")),
+        "{stderr}"
+    );
+    assert!(stderr.contains(&format!("  note: see {path}:6:12")), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{path}:11:5: [check/non-exhaustive] match on `Event` is missing `Event::Dec`")),
+        "{stderr}"
+    );
+    assert!(stderr.contains("2 error(s); nothing written"), "{stderr}");
+
+    assert_eq!(fs::read_to_string(out.join("keep.txt")).unwrap(), "previous build");
+    assert!(!out.join("src").exists());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn parse_errors_also_leave_out_alone() {
+    let dir = scratch("parse");
+    let src = dir.join("bad.rs");
+    fs::write(&src, "pub struct S { pub n: i32 }\npub fn f(s: S) -> i32 {\n    let r = &mut s;\n    0\n}\n")
+        .expect("write source");
+    let out = dir.join("pkg");
+
+    let result = build(&src, &out);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{}:3:13: [expr/borrow] `&mut` borrows are not in v0: `&mut s`", src.display())),
+        "{stderr}"
+    );
+    assert!(!out.exists());
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// Each passes the subset checks, which erase borrows and do not track
+/// moves or lifetimes. rustc rejects each with the given code.
+const RUSTC_ONLY: [(&str, &str); 11] = [
+    ("E0308", "pub fn g(n: i32) -> i32 { n } pub fn f(n: i32) -> i32 { g(&n) }"),
+    ("E0308", "pub fn g(s: &str) -> bool { s == \"\" } pub fn f(s: String) -> bool { g(s) }"),
+    ("E0308", "pub struct S { pub n: i32 } pub fn g(s: &S) -> i32 { s.n } pub fn f(s: S) -> i32 { g(s) }"),
+    ("E0308", "pub struct S { pub n: i32 } pub fn g(s: S) -> i32 { s.n } pub fn f(s: &S) -> i32 { g(s) }"),
+    ("E0507", "pub struct T(String); pub fn f(t: &T) -> String { t.0 }"),
+    ("E0507", "pub struct S { pub n: i32 } pub fn f(s: &S) -> S { *s }"),
+    ("E0382", "pub struct S { pub n: i32 } pub fn g(s: S) -> i32 { s.n } pub fn f(s: S) -> i32 { g(s) + g(s) }"),
+    ("E0382", "pub fn f(s: String) -> bool { let t = s; s == t }"),
+    ("E0382", "pub struct S { pub a: String, pub b: i32 } pub fn f(s: S) -> String { let t = S { b: 1, ..s }; s.a }"),
+    ("E0308", "pub enum E { A(String) } pub fn f(e: &E) -> String { match e { E::A(s) => s } }"),
+    ("E0106", "pub fn f(a: &str, b: &str) -> &str { a }"),
+];
+
+#[test]
+fn rustc_rejects_what_the_subset_checks_let_through() {
+    let dir = scratch("rustc");
+    for (i, (code, source)) in RUSTC_ONLY.iter().enumerate() {
+        let src = dir.join(format!("hole{i}.rs"));
+        fs::write(&src, format!("{source}\n")).expect("write source");
+        let out = dir.join(format!("pkg{i}"));
+        let result = build(&src, &out);
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert_eq!(result.status.code(), Some(1), "{source}\n{stderr}");
+        assert!(
+            stderr.contains(&format!("{}:1:", src.display())) && stderr.contains(&format!("[rustc/{code}]")),
+            "{source}\n{stderr}"
+        );
+        assert!(stderr.contains("error(s); nothing written"), "{stderr}");
+        assert!(!out.exists(), "{source}");
+    }
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn check_fails_closed_without_rustc() {
+    let result = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .arg("check")
+        .arg(repo().join("examples/counter"))
+        .env("RUSTC", "/nonexistent/rustc")
+        .output()
+        .expect("run purecrate-ts");
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("check needs rustc to confirm the input compiles"), "{stderr}");
+}
+
+#[test]
+fn check_without_out_runs_the_subset_checks_and_rustc() {
+    let ok = check(&[repo().join("examples/counter").as_os_str()]);
+    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+
+    let bad = check(&[fixture("rejected.rs").as_os_str()]);
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert_eq!(bad.status.code(), Some(1), "{stderr}");
+    assert!(stderr.ends_with("2 error(s)\n"), "{stderr}");
+}
+
+#[test]
+fn check_with_out_passes_on_the_committed_golden() {
+    let crate_dir = repo().join("examples/counter");
+    let golden = repo().join("examples/counter-ts");
+    let result = check(&[crate_dir.as_os_str(), "--out".as_ref(), golden.as_os_str()]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+}
+
+#[test]
+fn check_with_out_lists_every_drifted_file() {
+    let dir = scratch("drift");
+    let out = dir.join("pkg");
+    copy_tree(&repo().join("examples/counter-ts"), &out);
+    fs::write(out.join("src/step.ts"), "// edited by hand\n").expect("edit");
+    fs::remove_file(out.join("src/event.ts")).expect("remove");
+    fs::write(out.join("src/notes.ts"), "").expect("extra");
+
+    let crate_dir = repo().join("examples/counter");
+    let result = check(&[crate_dir.as_os_str(), "--out".as_ref(), out.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("3 file(s) out of date"), "{stderr}");
+    let listed: Vec<&str> = stderr.lines().filter(|l| l.starts_with("  ")).collect();
+    assert_eq!(
+        listed,
+        ["  missing  src/event.ts", "  extra    src/notes.ts", "  differs  src/step.ts"],
+        "{stderr}"
+    );
+    assert!(stderr.contains("run: purecrate-ts build"), "{stderr}");
+    assert_eq!(fs::read_to_string(out.join("src/step.ts")).unwrap(), "// edited by hand\n");
+
+    let missing_dir = check(&[crate_dir.as_os_str(), "--out".as_ref(), dir.join("nope").as_os_str()]);
+    assert!(String::from_utf8_lossy(&missing_dir.stderr).contains("out of date"));
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn successful_build_replaces_out_and_prunes_unreachable_items() {
+    let dir = scratch("ok");
+    let out = dir.join("pkg");
+    let src = dir.join("lib.rs");
+    let counter = fs::read_to_string(repo().join("examples/counter/src/lib.rs")).expect("read counter");
+    fs::write(&src, format!("{counter}\nfn unused(s: State) -> State {{ s }}\n")).expect("write source");
+
+    let first = build(&src, &out);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    fs::write(out.join("src/stale.ts"), "old").expect("write stale");
+
+    let result = build(&src, &out);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(!out.join("src/stale.ts").exists());
+    assert!(out.join("src/step.ts").exists());
+    assert!(!out.join("src/unused.ts").exists());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// `--out` pointing at a directory of other files (a source tree, a test
+/// driver) is refused whole: replacing it would delete them.
+#[test]
+fn build_refuses_to_replace_a_directory_it_did_not_write() {
+    let dir = scratch("foreign");
+    let out = dir.join("pkg");
+    fs::create_dir_all(out.join("src")).expect("mkdir out");
+    fs::write(out.join("driver.ts"), "keep").expect("write driver");
+    fs::write(out.join("src/index.ts"), "export {};\n").expect("write index");
+    let src = repo().join("examples/counter/src/lib.rs");
+
+    let result = build(&src, &out);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(!result.status.success(), "{stderr}");
+    assert!(stderr.contains("holds no earlier purecrate-ts output"), "{stderr}");
+    assert_eq!(fs::read_to_string(out.join("driver.ts")).expect("driver kept"), "keep");
+    assert!(!out.join("src/step.ts").exists());
+
+    let file = dir.join("file");
+    fs::write(&file, "keep").expect("write file");
+    assert!(!build(&src, &file).status.success());
+    assert_eq!(fs::read_to_string(&file).expect("file kept"), "keep");
+
+    let empty = dir.join("empty");
+    fs::create_dir_all(&empty).expect("mkdir empty");
+    assert!(build(&src, &empty).status.success());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// `mod r#impl;` lives in `impl.rs`, and `r#impl::f` names the same module.
+#[test]
+fn raw_module_names_find_their_files() {
+    let dir = scratch("raw-mod");
+    fs::create_dir_all(dir.join("src")).expect("mkdir src");
+    fs::write(dir.join("src/lib.rs"), "mod r#impl;\n\npub fn four() -> i32 {\n    r#impl::twice(2)\n}\n").expect("write lib");
+    fs::write(dir.join("src/impl.rs"), "pub fn twice(n: i32) -> i32 {\n    n * 2\n}\n").expect("write impl");
+    let result = check(&[dir.as_os_str()]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+
+    let survey = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .args(["survey".as_ref(), dir.as_os_str(), "--json".as_ref()])
+        .output()
+        .expect("run survey");
+    let json = String::from_utf8_lossy(&survey.stdout);
+    assert!(json.contains("src/impl.rs"), "{json}");
+    assert!(json.contains("\"missing_modules\":[]"), "{json}");
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// A check diagnostic points at the call, statement, block tail or `match`
+/// arm it is about, not at the function's name.
+#[test]
+fn check_diagnostics_point_inside_the_function() {
+    let src = fixture("rejected_inside.rs");
+    let result = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let path = src.display();
+    assert!(!result.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{path}:11:17: [check/undefined-name] `undefined_name` is not a parameter")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("{path}:13:9: [check/undefined-fn] function `unknown_fn` is not defined")),
+        "{stderr}"
+    );
+
+    let src = fixture("rejected_types.rs");
+    let result = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let path = src.display();
+    assert!(
+        stderr.contains(&format!("{path}:3:5: [check/type-mismatch] expected `i32`, found `bool`")),
+        "{stderr}"
+    );
+}
+
+/// rustc compiles the input with the crate's edition. `gen` is a reserved
+/// keyword from 2024, so the same source passes as 2021 and fails as 2024.
+#[test]
+fn rustc_uses_the_manifest_edition() {
+    let dir = scratch("edition");
+    fs::create_dir_all(dir.join("src")).expect("mkdir src");
+    fs::write(dir.join("src/lib.rs"), "pub fn f(a: i32) -> i32 {\n    let gen = a;\n    gen\n}\n").expect("write lib");
+    let manifest = |edition: &str| {
+        fs::write(dir.join("Cargo.toml"), format!("[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"))
+            .expect("write manifest")
+    };
+    manifest("2024");
+    let result = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(!result.status.success(), "{stderr}");
+    assert!(stderr.contains("src/lib.rs:2:9: [rustc/error] expected identifier, found reserved keyword `gen`"), "{stderr}");
+    let forced = check(&[dir.as_os_str(), "--edition".as_ref(), "2021".as_ref()]);
+    assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
+    manifest("2021");
+    let result = check(&[dir.as_os_str()]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// A server derives serde on the same types (design/04 §3): `check` gives
+/// rustc a stand-in `serde`, and still catches what rustc catches.
+#[test]
+fn serde_derives_compile_under_check() {
+    let dir = support::scratch("serde-derive");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "use serde::{Deserialize, Serialize};\n\n#[derive(Serialize, Deserialize)]\npub struct S {\n    pub n: i32,\n}\n\n\
+         #[derive(serde::Serialize, serde::Deserialize)]\npub enum E {\n    A,\n}\n\npub fn get(s: S) -> i32 {\n    s.n\n}\n",
+    )
+    .expect("write");
+    let ok = check(&[src.as_os_str()]);
+    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+
+    fs::write(&src, "#[derive(serde::Serialize)]\npub struct S {\n    pub n: String,\n}\n\npub fn get(s: S) -> String {\n    let t = s;\n    s.n\n}\n")
+        .expect("write");
+    let moved = check(&[src.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&moved.stderr);
+    assert!(stderr.contains("[rustc/E0382]"), "{stderr}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A crate of several files and inline modules (design/02 §3.3): paths lose
+/// their module prefix, exports follow Rust's public surface, and a
+/// diagnostic names the file it is in.
+#[test]
+fn module_trees_are_flattened() {
+    let dir = support::scratch("modules");
+    let _ = fs::remove_dir_all(&dir);
+    let src = dir.join("src");
+    fs::create_dir_all(src.join("money")).expect("mkdir");
+    fs::write(dir.join("Cargo.toml"), "[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").expect("write");
+    fs::write(
+        src.join("lib.rs"),
+        "pub mod money;\nmod rules;\n\npub use rules::apply;\n\npub fn total(a: money::Yen, b: crate::money::Yen) -> money::Yen {\n    money::Yen::add(a, b)\n}\n\n\
+         mod inline {\n    pub fn hidden() -> i32 {\n        1\n    }\n}\n\npub fn shown() -> i32 {\n    inline::hidden()\n}\n",
+    )
+    .expect("write");
+    fs::write(src.join("money.rs"), "pub mod rounding;\n\npub struct Yen(pub i64);\n\nimpl Yen {\n    pub fn add(a: Yen, b: Yen) -> Yen {\n        Yen(a.0 + b.0)\n    }\n}\n").expect("write");
+    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 / 2i64)\n}\n").expect("write");
+    fs::write(
+        src.join("rules.rs"),
+        "use crate::money::rounding::half;\nuse crate::money::Yen;\n\npub fn apply(y: Yen) -> Yen {\n    helper(half(y))\n}\n\npub fn helper(y: Yen) -> Yen {\n    Yen(y.0 + 1i64)\n}\n",
+    )
+    .expect("write");
+
+    let out = dir.join("out");
+    let built = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .args(["build".as_ref(), dir.as_os_str(), "--out".as_ref(), out.as_os_str()])
+        .output()
+        .expect("run");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let index = fs::read_to_string(out.join("src/index.ts")).expect("index");
+    for name in ["total", "Yen", "half", "apply", "shown"] {
+        assert!(index.contains(&format!("export {{ {name} }}")), "{name} not exported:\n{index}");
+    }
+    for name in ["helper", "hidden"] {
+        assert!(!index.contains(&format!("export {{ {name} }}")), "{name} exported:\n{index}");
+        assert!(out.join(format!("src/{name}.ts")).exists(), "{name} not generated");
+    }
+
+    // A rejection inside a module file names that file.
+    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 as i64)\n}\n").expect("write");
+    let bad = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(stderr.contains("money/rounding.rs:4:"), "{stderr}");
+
+    // Two items of one name in different modules collide.
+    fs::write(src.join("money/rounding.rs"), "pub fn apply() -> i32 {\n    1\n}\n").expect("write");
+    let clash = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&clash.stderr);
+    assert!(!clash.status.success() && stderr.contains("apply"), "{stderr}");
+
+    // A missing module file is reported, not skipped.
+    fs::remove_file(src.join("rules.rs")).expect("rm");
+    let missing = check(&[dir.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(stderr.contains("module `rules` has no file"), "{stderr}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+fn build_with(flags: &[&str], out: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+        .arg("build")
+        .arg(repo().join("examples/counter"))
+        .args(flags)
+        .arg("--out")
+        .arg(out)
+        .output()
+        .expect("run purecrate-ts")
+}
+
+#[test]
+fn generated_package_is_private_unless_publishable() {
+    let dir = scratch("access");
+    let private = dir.join("private");
+    let publishable = dir.join("publishable");
+    assert!(build_with(&[], &private).status.success());
+    assert!(build_with(&["--publishable"], &publishable).status.success());
+    let manifest = |d: &Path| fs::read_to_string(d.join("package.json")).expect("package.json");
+    assert!(manifest(&private).contains("\"private\": true"));
+    assert!(!manifest(&publishable).contains("private"));
+
+    // `check --out` compares with the same access, so the flag must match.
+    let counter = repo().join("examples/counter");
+    let against = |out: &Path, flags: &[&str]| {
+        let mut args: Vec<&std::ffi::OsStr> = vec![counter.as_os_str()];
+        args.extend(flags.iter().map(std::ffi::OsStr::new));
+        args.push("--out".as_ref());
+        args.push(out.as_os_str());
+        check(&args).status.success()
+    };
+    assert!(against(&private, &[]));
+    assert!(against(&publishable, &["--publishable"]));
+    assert!(!against(&publishable, &[]));
+    assert!(!against(&private, &["--publishable"]));
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// The output stands alone: with the runtime copied in, it type-checks with
+/// no `node_modules`, and with `--schema zod` with only `zod` beside it.
+#[test]
+fn generated_packages_need_only_the_schema_library() {
+    let dir = scratch("standalone");
+    let plain = dir.join("plain");
+    let built = build_with(&[], &plain);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(plain.join("src/purecrate-runtime.ts").exists());
+    let wired = dir.join("wired");
+    let built = build_with(&["--schema", "zod"], &wired);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(wired.join("src/purecrate-zod.ts").exists());
+    if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {
+        support::typecheck(&plain);
+        let zod = repo().join("packages/boundary-zod/node_modules/zod");
+        fs::create_dir_all(wired.join("node_modules")).expect("mkdir node_modules");
+        std::os::unix::fs::symlink(&zod, wired.join("node_modules/zod")).expect("link zod");
+        support::typecheck(&wired);
+    }
+    fs::remove_dir_all(&dir).ok();
+}

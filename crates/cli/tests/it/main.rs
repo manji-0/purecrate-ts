@@ -1,0 +1,52 @@
+//! One test binary for the CLI crate: every test file is a module, so the
+//! suite links once and its tests run in parallel.
+
+#[macro_use]
+mod support;
+
+mod arith_equivalence;
+mod ast_equivalence;
+mod bits_equivalence;
+mod borrow_equivalence;
+mod build;
+mod chars_equivalence;
+mod closed_equivalence;
+mod closures_equivalence;
+mod control_equivalence;
+mod counter_equivalence;
+mod flags_equivalence;
+mod for_chars_equivalence;
+mod for_each_equivalence;
+mod golden;
+mod guards_equivalence;
+mod iban_equivalence;
+mod int_patterns_equivalence;
+mod invoice_equivalence;
+mod loops_equivalence;
+mod methods_equivalence;
+mod oidc_equivalence;
+mod option_methods_equivalence;
+mod order_equivalence;
+mod order_of_eval_equivalence;
+mod package;
+mod payment_equivalence;
+mod rest_equivalence;
+mod signup_equivalence;
+mod std_methods_equivalence;
+mod str_methods_equivalence;
+mod str_patterns_equivalence;
+mod strict_types_equivalence;
+mod strings_equivalence;
+mod survey;
+mod syntax_safety_equivalence;
+mod tuple_match_equivalence;
+mod unused_equivalence;
+mod update_equivalence;
+mod uuid_equivalence;
+mod vec_build_equivalence;
+mod vec_equivalence;
+mod vending_equivalence;
+mod while_break_equivalence;
+mod widen_equivalence;
+mod wire;
+mod wire_write;
