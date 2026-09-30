@@ -260,12 +260,11 @@ pub fn has_token(list: &String, word: &str) -> bool {
 /// RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
 /// `MAX_STATE_LEN` bytes.
 fn state_is_valid(state: &String) -> bool {
-    let b = state.as_bytes();
-    if b.len() == 0 || b.len() > MAX_STATE_LEN {
+    if state.is_empty() || state.len() > MAX_STATE_LEN {
         return false;
     }
-    for i in 0..b.len() {
-        if b[i] < 0x20 || b[i] > 0x7e {
+    for b in state.bytes() {
+        if !matches!(b, 0x20..=0x7e) {
             return false;
         }
     }
@@ -275,13 +274,11 @@ fn state_is_valid(state: &String) -> bool {
 /// RFC 7636 §4.1 / §4.2: 43..=128 characters of
 /// unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
 pub fn pkce_string_is_valid(s: &String) -> bool {
-    let b = s.as_bytes();
-    if b.len() < PKCE_MIN_LEN || b.len() > PKCE_MAX_LEN {
+    if s.len() < PKCE_MIN_LEN || s.len() > PKCE_MAX_LEN {
         return false;
     }
-    for i in 0..b.len() {
-        let ok = matches!(b[i], b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~');
-        if !ok {
+    for b in s.bytes() {
+        if !matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~') {
             return false;
         }
     }
@@ -291,16 +288,15 @@ pub fn pkce_string_is_valid(s: &String) -> bool {
 /// A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
 /// At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
 fn parse_seconds(s: &String) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() == 0 || b.len() > MAX_SECONDS_DIGITS {
+    if s.is_empty() || s.len() > MAX_SECONDS_DIGITS {
         return None;
     }
     let mut value: i64 = 0;
-    for i in 0..b.len() {
-        if !matches!(b[i], b'0'..=b'9') {
+    for b in s.bytes() {
+        if !matches!(b, b'0'..=b'9') {
             return None;
         }
-        value = value * 10 + i64::from(b[i] - b'0');
+        value = value * 10 + i64::from(b - b'0');
     }
     Some(value)
 }
@@ -365,8 +361,8 @@ fn copy_optional(s: &Option<String>) -> Option<String> {
 
 fn redirect_uri_registered(client: &Client, uri: &String) -> bool {
     // OIDC Core §3.1.2.1: exact match using simple string comparison.
-    for i in 0..client.redirect_uris.len() {
-        if client.redirect_uris[i] == *uri {
+    for registered in &client.redirect_uris {
+        if registered == uri {
             return true;
         }
     }
@@ -593,16 +589,15 @@ pub fn truncate_mac(mac: &Vec<u8>, digits: OtpDigits) -> Option<u32> {
 /// Parses a submitted OTP: exactly `digits` ASCII digits, leading zeros
 /// included.
 fn parse_otp(code: &String, digits: OtpDigits) -> Option<u32> {
-    let b = code.as_bytes();
-    if b.len() != digit_count(digits) {
+    if code.len() != digit_count(digits) {
         return None;
     }
     let mut value: u32 = 0;
-    for i in 0..b.len() {
-        if !matches!(b[i], b'0'..=b'9') {
+    for b in code.bytes() {
+        if !matches!(b, b'0'..=b'9') {
             return None;
         }
-        value = value * 10 + u32::from(b[i] - b'0');
+        value = value * 10 + u32::from(b - b'0');
     }
     Some(value)
 }
@@ -630,8 +625,7 @@ pub fn check_totp(code: &String, now: i64, enrollment: &TotpEnrollment, candidat
         None => return OtpCheck::Malformed,
     };
     let mut replayed = false;
-    for i in 0..candidates.len() {
-        let c = &candidates[i];
+    for c in candidates {
         if c.step >= current - 1 && c.step <= current + 1 {
             let matched = match truncate_mac(&c.mac, enrollment.digits) {
                 Some(value) => value == submitted,
