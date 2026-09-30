@@ -46,7 +46,19 @@ Why `&self` can be a value: the output never mutates arguments, and interior mut
 
 ### 3.1 State is a value; sequences are recursive enums
 
+<!-- constrained-by ./07-roadmap.md#6-not-doing -->
+
 A transition takes the state and returns the next one. No `&mut`, no field assignment, no `mut` parameters. Past events are not accumulated in state; the caller keeps them.
+
+A history or log is kept this way: the transition returns what happened next to the next state, the caller appends it to its own list (an ordinary growing array or table, outside the crate), and the state keeps only the summary the rules read (a count, a last timestamp, a version).
+
+```rust
+pub struct Order { pub status: Status, pub version: u32, pub failed_attempts: u8 }
+
+pub fn step(order: Order, cmd: Command) -> Result<(Order, OrderEvent), OrderError>
+```
+
+In TS this is `Result<readonly [Order, OrderEvent], OrderError>`. The state still determines the result alone. What to avoid is a field that points at a log someone else updates (a history ID whose contents the rules read): it is an input the signature does not show. A rule that needs the whole history takes it as a parameter, `history: &[OrderEvent]`, read by index like any `Vec` the caller supplies. The exception is a history that is itself the domain state, such as an undo stack; that is a sequence in state, and a recursive enum.
 
 Sequences that grow or shrink are recursive enums returned as new values, the counterpart of kamae's `[...lines, line]`:
 
