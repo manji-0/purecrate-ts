@@ -4,7 +4,7 @@ use purecrate_ir::{
     NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
-use syn::{BinOp as SynBinOp, Expr as SynExpr, Member, Pat, UnOp as SynUnOp};
+use syn::{BinOp as SynBinOp, Expr as SynExpr, Item as SynItem, Member, Pat, UnOp as SynUnOp};
 
 use crate::item::{snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
@@ -402,8 +402,48 @@ enum Stmt {
     Effect(Expr),
 }
 
+/// A block's `const` items, as immutable typed `let`s at its top in
+/// declaration order: an item is visible from the whole block, and rustc,
+/// which runs on the input, rejects a const whose evaluation fails, so the
+/// TS computation never panics where Rust would have folded a value.
 fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
+    let consts: Vec<&syn::ItemConst> = block
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            syn::Stmt::Item(SynItem::Const(c)) => Some(c),
+            _ => None,
+        })
+        .collect();
+    let names = consts.iter().map(|c| c.ident.to_string()).collect();
+    cx.with_local_consts(names, || lower_block_stmts(cx, block, &consts))
+}
+
+fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) -> Result<Expr, ParseError> {
     let mut stmts = Vec::new();
+    for c in consts {
+        let span = c.span();
+        let lowered = (|| {
+            if c.ident == "_" {
+                return Err(ParseError::new(Reason::UnsupportedItem, "`const _` is not in v0").detail("const"));
+            }
+            Ok(Stmt::Let {
+                name: Name::new(c.ident.to_string()),
+                mutable: false,
+                ty: Some(lower_type(&c.ty)?),
+                value: lower_expr(cx, &c.expr)?,
+            })
+        })();
+        match lowered {
+            Ok(stmt) => stmts.push((span, stmt)),
+            Err(e) => {
+                let e = e.or_at(span);
+                if !cx.recover(&e) {
+                    return Err(e);
+                }
+            }
+        }
+    }
     let mut tail: Option<Expr> = None;
     let last = block.stmts.len().saturating_sub(1);
     for (i, stmt) in block.stmts.iter().enumerate() {
@@ -416,7 +456,11 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
                 lower_expr(cx, e).map(|e| tail = Some(at(span, e)))
             }
             syn::Stmt::Expr(e, _) => lower_expr(cx, e).map(|e| stmts.push((span, Stmt::Effect(e)))),
-            syn::Stmt::Item(_) => Err(ParseError::new(Reason::BlockItem, "items inside blocks are not in v0")),
+            syn::Stmt::Item(SynItem::Const(_)) => Ok(()),
+            syn::Stmt::Item(_) => Err(ParseError::new(
+                Reason::BlockItem,
+                "items inside blocks other than `const` are not in v0; move the item to the crate level",
+            )),
             syn::Stmt::Macro(m) => {
                 let name = path_text(&m.mac.path);
                 Err(ParseError::new(Reason::Macro, format!("macro `{name}!` is not in v0")).detail(name))
@@ -485,6 +529,7 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         });
     }
     let (name, mutable) = match pat {
+        Pat::Ident(id) if cx.is_local_const(&id.ident.to_string()) => return Err(const_pattern(&id.ident.to_string())),
         Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
             (Name::new(id.ident.to_string()), id.mutability.is_some())
         }

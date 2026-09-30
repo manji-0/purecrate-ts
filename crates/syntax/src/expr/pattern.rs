@@ -167,6 +167,7 @@ pub(super) fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> 
     match pat {
         Pat::Wild(_) => Ok(Pattern::Wildcard),
         Pat::Ident(id) if id.ident == "None" && id.subpat.is_none() => Ok(Pattern::OptionNone),
+        Pat::Ident(id) if cx.is_local_const(&id.ident.to_string()) => Err(const_pattern(&id.ident.to_string())),
         Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
             Ok(Pattern::Var(Name::new(id.ident.to_string())))
         }
@@ -528,4 +529,13 @@ fn strip_refs(mut pat: &Pat) -> &Pat {
         pat = &r.pat;
     }
     pat
+}
+
+/// Rust matches a const's value where its name stands in a pattern; the IR
+/// would bind a new name that matches anything.
+pub(super) fn const_pattern(name: &str) -> ParseError {
+    ParseError::new(
+        Reason::UnsupportedPattern,
+        format!("`{name}` is a const: matching against a const is not in v0; compare with `==` or write its value"),
+    )
 }

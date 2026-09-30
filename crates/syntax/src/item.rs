@@ -95,6 +95,9 @@ pub struct Cx {
     /// be lowered is recorded here and stands in as `unreachable`, so the
     /// rest of the item is still lowered and every cause is found.
     recovered: std::cell::RefCell<Option<Vec<ParseError>>>,
+    /// `const` items of the blocks being lowered, innermost last: a name
+    /// here compares in a pattern, which the IR cannot express.
+    local_consts: std::cell::RefCell<Vec<String>>,
 }
 
 impl Cx {
@@ -129,6 +132,7 @@ impl Cx {
             variants,
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
+            local_consts: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -167,6 +171,21 @@ impl Cx {
             }
             None => false,
         }
+    }
+
+    /// Runs `f` with `names` in scope as a block's `const` items.
+    pub fn with_local_consts<T>(&self, names: Vec<String>, f: impl FnOnce() -> T) -> T {
+        let n = names.len();
+        self.local_consts.borrow_mut().extend(names);
+        let out = f();
+        let mut scope = self.local_consts.borrow_mut();
+        let keep = scope.len() - n;
+        scope.truncate(keep);
+        out
+    }
+
+    pub fn is_local_const(&self, name: &str) -> bool {
+        self.local_consts.borrow().iter().any(|c| c == name)
     }
 
     /// A name no Rust identifier can have (`$` is not in one).

@@ -24,6 +24,7 @@ mod guards_equivalence;
 mod iban_equivalence;
 mod int_patterns_equivalence;
 mod invoice_equivalence;
+mod local_consts_equivalence;
 mod loops_equivalence;
 mod methods_equivalence;
 mod oidc_equivalence;

@@ -58,7 +58,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `format!`, `.to_string()`, `.to_owned()`, `.into()`, `clone` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)`, an `Option<String>` with a `match` |
 | `Vec::from`, `vec![x; n]`, returning `[a, b]` | `vec![a, b]` for a fixed list; a recursive enum (`enum Lines { Nil, Cons(Line, Box<Lines>) }`) for one that grows |
 | generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell` | concrete types, functions, recursive enums |
-| `static`, `const` inside `impl` | a crate-level `const` |
+| `static`, `const` inside `impl` | a crate-level `const` (a `const` inside a function body is fine from 0.4.0) |
 | `x as u32` on an integer | `u32::from(x)` where std widens |
 | `Option<Option<T>>`, newtype over `Option`/`()`, unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |
 | `&mut` anything | take `self`, return the new value |

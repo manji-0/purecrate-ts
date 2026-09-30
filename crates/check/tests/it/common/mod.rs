@@ -23,6 +23,14 @@ pub fn assert_clean(source: &str) {
     assert_compiles(source);
 }
 
+/// Refused while parsing, before any check runs.
+pub fn assert_parse_rejects(source: &str, needle: &str) {
+    match parse_source("c", source) {
+        Ok(_) => panic!("expected a parse error containing {needle:?}"),
+        Err(e) => assert!(e.message.contains(needle), "expected a parse error containing {needle:?}, got {e:?}"),
+    }
+}
+
 pub fn assert_rejects(source: &str, needle: &str) {
     let found = messages(source);
     assert!(

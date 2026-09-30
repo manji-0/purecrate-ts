@@ -1,7 +1,7 @@
 //! `const` items and `as` on enums: what is folded, and what is refused.
 
 
-use crate::common::{assert_clean, assert_rejects, diagnostics};
+use crate::common::{assert_clean, assert_parse_rejects, assert_rejects, diagnostics};
 
 #[test]
 fn consts_fold_from_literals_consts_and_discriminants() {
@@ -66,5 +66,22 @@ fn consts_share_one_file() {
     assert_rejects(
         "pub const MAX: u32 = 9;\npub fn consts() -> u32 { MAX }",
         "would both be emitted as `consts.ts`, which holds the crate's consts",
+    );
+}
+
+#[test]
+fn a_local_const_is_a_let_at_the_top_of_its_block() {
+    assert_clean("pub fn f(x: u32) -> u32 { let y = x * K; const K: u32 = 3; y }");
+    assert_parse_rejects(
+        "pub fn f(x: Option<u32>) -> u32 { const LIMIT: u32 = 3; match x { Some(LIMIT) => 1, _ => 0 } }",
+        "`LIMIT` is a const: matching against a const is not in v0",
+    );
+    assert_parse_rejects(
+        "pub fn f() -> u32 { const K: u32 = 3; let K = 4; K }",
+        "`K` is a const: matching against a const is not in v0",
+    );
+    assert_parse_rejects(
+        "pub fn f() -> u32 { fn g() -> u32 { 1 } g() }",
+        "items inside blocks other than `const` are not in v0",
     );
 }
