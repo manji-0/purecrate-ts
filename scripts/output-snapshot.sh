@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generates every example and every test fixture, without a schema and with
-# each schema library, and prints one digest of all the bytes written (and of
-# which inputs were rejected). A refactor that must not change the output
+# each schema library, surveys every crate, and prints one digest of all the
+# bytes written (and of which inputs were rejected). A refactor that must not change the output
 # keeps this digest: run it before and after.
 #
 #   scripts/output-snapshot.sh [<out-dir>]   # default: a temporary directory
@@ -38,6 +38,15 @@ for input in "${inputs[@]}"; do
     fi
     rm -f "$out/gen/$name.$schema.err"
   done
+done
+
+# `survey` reports, first cause and every cause, over each crate it can read.
+mkdir -p "$out/gen/survey"
+for dir in examples/*/ crates/cli/tests/fixtures/survey/; do
+  [ -f "$dir/src/lib.rs" ] || continue
+  name=$(echo "${dir%/}" | tr '/.' '__')
+  "$bin" survey "$dir" --json | sed "s|$PWD/||g" >"$out/gen/survey/$name.json"
+  "$bin" survey "$dir" --json --all-causes | sed "s|$PWD/||g" >"$out/gen/survey/$name.all.json"
 done
 
 (cd "$out/gen" && find . -type f | LC_ALL=C sort | xargs shasum -a 256) >"$out/manifest.txt"
