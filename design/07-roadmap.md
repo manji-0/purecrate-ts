@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-01, after 0.4.1)
+Status: current (2026-10-01, after 0.5.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -304,7 +304,7 @@ From evaluating 0.4.0 ([bench/payment](../bench/payment/README.md)). No change t
 - Each package's runtime keeps only what its code uses: payment's bundle 3.1 → 2.3 KB gzipped; first call 1.18 → 0.52 ms with the regular expression built lazily.
 - Fixed-seed random cases join the differential tests ([01 §8](./01-equivalence.md#8-verification)).
 
-### 8.6 0.5.0: ordering (unreleased)
+### 8.6 0.5.0: ordering (2026-10-01)
 
 Why: semver, written from the authoring skill alone, was the first example over 2× after rustfmt normalization, and its ordering was most of the gap (§2.2): 57 lines against 25, with `std::cmp::Ordering`, `cmp`, and `String` order all refused.
 
