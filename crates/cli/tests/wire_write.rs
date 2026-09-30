@@ -479,3 +479,37 @@ fn a_refused_try_from_names_its_error() {
         assert!(out.contains(want), "{schema:?}: {out}");
     }
 }
+
+/// An error keeps its location: a bad field of a struct is reported at the
+/// field in every library, and arktype, which tries variants by hand, also
+/// reports a bad field inside the variant the object names.
+#[test]
+fn errors_keep_their_location() {
+    let terms = r#"{ amount: 50, capture: "Nope", confirmation: "Manual" }"#;
+    let event = r#"{ Confirm: { method: null, outcome: "Bogus" } }"#;
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let (import, path) = match schema {
+            WireSchema::Zod => ("", "(s, x) => { const r = s.safeParse(x); return r.success ? \"accepted\" : r.error.issues[0].path.join(\".\"); }"),
+            WireSchema::Valibot => (
+                "import * as v from \"valibot\";\n",
+                "(s, x) => { const r = v.safeParse(s, x); return r.success ? \"accepted\" : (r.issues[0].path ?? []).map((p) => p.key).join(\".\"); }",
+            ),
+            WireSchema::Arktype => (
+                "import { type } from \"arktype\";\n",
+                "(s, x) => { const r = s(x); return r instanceof type.errors ? r[0].path.join(\".\") : \"accepted\"; }",
+            ),
+        };
+        let script = format!(
+            "{import}import * as w from \"./src/purecrate-wire.ts\";\n\
+             const path = {path};\n\
+             console.log(path(w.Terms, {terms}));\n\
+             console.log(path(w.Event, {event}));\n"
+        );
+        let Some(out) = run_node_with(schema, "error-paths", payment::SOURCE, &script) else { return };
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.first(), Some(&"capture"), "{schema:?}: {out}");
+        if schema == WireSchema::Arktype {
+            assert_eq!(lines.get(1), Some(&"Confirm.outcome"), "{out}");
+        }
+    }
+}

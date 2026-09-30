@@ -1,4 +1,4 @@
-import { type, type Out, type Type } from "arktype";
+import { type, type ArkErrors, type Out, type Traversal, type Type } from "arktype";
 import { Char, Int, Uuid, type UuidError } from "purecrate";
 
 /**
@@ -7,6 +7,21 @@ import { Char, Int, Uuid, type UuidError } from "purecrate";
  * not make TypeScript infer `any`.
  */
 export type Wire<T> = Type<(In: unknown) => Out<T>>;
+
+/**
+ * Hands the errors of a nested read to the traversal a morph runs in: they
+ * keep their location, prefixed with the morph's path, and the morph's own
+ * result is dropped. A fresh `ctx.error` instead would replace a field's
+ * error with one at the parent.
+ */
+export const fail = (ctx: Traversal, errors: ArkErrors): never => {
+  ctx.errors.merge(errors);
+  return undefined as never;
+};
+
+/** Whether `v` is an object with its own key `name`: serde's wrapper of variant `name`. */
+export const keyed = (v: unknown, name: string): boolean =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && Object.hasOwn(v, name);
 
 /** Builds a definition on first use, so it may refer to schemas declared later. */
 export const memo = <T>(make: () => T): (() => T) => {
@@ -62,5 +77,5 @@ export const nullable = <T extends Type<any>>(inner: T): Wire<T["infer"] | null>
   type("unknown").pipe((v, ctx): T["infer"] | null => {
     if (v === null) return null;
     const parsed = inner(v);
-    return parsed instanceof type.errors ? (ctx.error(parsed.summary) as never) : parsed;
+    return parsed instanceof type.errors ? fail(ctx, parsed) : parsed;
   }) as unknown as Wire<T["infer"] | null>;

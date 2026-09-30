@@ -300,7 +300,7 @@ import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, 
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, char, f32, f64, i16, i32, i64, i8, memo, nullable, str, u16, u32, u64, u8, unit, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
+import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, str, u16, u32, u64, u8, unit, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ Json }} from \"purecrate\";\n{own}")
@@ -401,7 +401,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, e
             "\nconst {name}$wire = memo(() => {from});\n\
              export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
              \x20 const parsed = {name}$wire()(v);\n\
-             \x20 if (parsed instanceof type.errors) return ctx.error(\"{name}\") as never;\n\
+             \x20 if (parsed instanceof type.errors) return fail(ctx, parsed);\n\
              \x20 const r = {name}$value.try_from(parsed);\n\
              \x20 if (r.kind === \"Err\") return ctx.error({message}) as never;\n\
              \x20 return r.value;\n\
@@ -531,7 +531,7 @@ fn ark_struct(s: &Struct, error_enum: bool) -> String {
         "\nconst {name}$wire = memo(() => {shape});\n\
          export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
          \x20 const parsed = {name}$wire()(v);\n\
-         \x20 if (parsed instanceof type.errors) return ctx.error(\"{name}\") as never;\n\
+         \x20 if (parsed instanceof type.errors) return fail(ctx, parsed);\n\
          \x20 return {build};\n\
          }});\n"
     )
@@ -560,7 +560,12 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
             return (
                 format!("const {arm} = memo(() => type({{ \"+\": \"reject\", {name}: \"null\" }}));\n"),
                 format!(
-                    "  if (v === \"{name}\" || !({arm}()(v) instanceof type.errors)) return {{ kind: \"{name}\" }};\n"
+                    "  if (v === \"{name}\") return {{ kind: \"{name}\" }};\n\
+                     \x20 {{\n\
+                     \x20   const parsed = {arm}()(v);\n\
+                     \x20   if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\" }};\n\
+                     \x20   if (keyed(v, \"{name}\")) return fail(ctx, parsed);\n\
+                     \x20 }}\n"
                 ),
             );
         }
@@ -580,7 +585,7 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
     (
         format!("const {arm} = memo(() => type({{ \"+\": \"reject\", {name}: {shape} }}));\n"),
         format!(
-            "  {{\n    const parsed = {arm}()(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", {value} }};\n  }}\n"
+            "  {{\n    const parsed = {arm}()(v);\n    if (!(parsed instanceof type.errors)) return {{ kind: \"{name}\", {value} }};\n    if (keyed(v, \"{name}\")) return fail(ctx, parsed);\n  }}\n"
         ),
     )
 }
