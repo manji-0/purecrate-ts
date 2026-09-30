@@ -52,8 +52,10 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
-- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!`
+- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!`
 - local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
+- `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`; `while` with `break` and `continue`
+- `Option` read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map`
 - integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`
 - crate-level `const` items folded at check time; enum discriminants read with `as`
 - growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`, built as a fixed list `vec![a, b]`

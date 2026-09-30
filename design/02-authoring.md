@@ -22,11 +22,13 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | --- | --- | --- |
 | Closed ADTs | struct, enum, newtype (content not `Option`, `()`, `!`) | `Readonly` objects, `kind` unions, brands |
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
+| Guards | `p if c =>` on any arm, a binding arm (`n if n > 3`) included, and in `matches!`; a guarded arm does not count toward exhaustiveness | an `if` chain over standalone matches, tried in order |
 | Transition tables | `match (state, event)`: tuple arms whose elements are `_`, a binding, or an arm pattern | nested `switch`es, one per element, each listing every case + `assertNever` |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | UUIDs | `uuid::Uuid` (or `Uuid` after `use uuid::Uuid;`); `Uuid::parse_str(s)` / `try_parse(s)` returning `Result<Uuid, uuid::Error>`; `Uuid::nil()`; `==`, `<` | `Uuid` (branded canonical `string`); `Uuid.parseStr`; `===`, `<` |
 | Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
+| Optional values | `o.is_some()`, `is_none()`, `unwrap_or(d)`, `ok_or(e)` (the argument evaluated first, as in Rust), `map(\|x\| ..)` or `map(f)` (a closure without `?` or `return`) | the `match` std writes, the receiver bound once |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
@@ -137,8 +139,9 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 
 | Instead of | Write |
 | --- | --- |
-| `xs.iter().map(f).collect()` | index + recursion or range `for`; return new sequences as recursive enums |
-| `opt.map(..)`, `and_then` | `match` or `?` |
+| `xs.iter().map(f).collect()` | `for x in &xs`; return new sequences as recursive enums |
+| `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
+| `?` inside a guard, `\|` arms that bind names, nested patterns | bind the `?` result with `let` first; split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
@@ -147,9 +150,9 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `x as u32` on an integer | `u32::from(x)` where std widens; `as` reads only a fieldless enum's discriminant |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
-| `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |
-| `s.chars().filter(..).count()`, `.rev()`, `.nth(n)`, `for b in s.bytes()` | `for c in s.chars()` with a `let mut` counter and early `return`; bytes through `s.as_bytes()` read by index in a range `for` |
-| `match (s, e)` | one function per state, each ending in `_ => Err(..)` |
+| `loop`, `while let`, labelled `break`, `break` with a value | `while cond` with `break`, or a `for` with early `return` |
+| `.enumerate()`, `.rev()`, `.zip(..)` | a `let mut` counter in `for x in &xs`, or a range `for` over indices |
+| `s.chars().filter(..).count()`, `.rev()`, `.nth(n)` | `for c in s.chars()` with a `let mut` counter and early `return`; bytes by position through `s.as_bytes()` read by index |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
 Closures cannot capture `let mut` (a JS closure would see later reassignments; rebind with `let` first), and cannot be parameters, return values, or fields.

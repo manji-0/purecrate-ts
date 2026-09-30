@@ -1,6 +1,6 @@
 # Generated TypeScript
 
-Status: current (2026-09-29)
+Status: current (2026-09-30)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -89,6 +89,8 @@ Methods become companion properties with the receiver first. `Self` is replaced 
 ### Control flow
 
 - `match` → `switch (e.kind)` with `default: return assertNever(e)`. `if let` → `kind` test with narrowing. `Option` branches on `=== null`. A `match` on a tuple is split into nested `match`es, one element at a time, choosing the first element the first remaining arm tests (`check::tuple`): `switch (event.kind) { case "Reset": … case "Tick": switch (state.kind) { … default: return assertNever(state); } … default: return assertNever(event); }`. Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness; integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time. Elements that are not places go into `const`s first, in order (`$e1`, `$e2`); field and payload bindings are read into `$f`/`$v` names, then into the arm's own names. A body several cases reach is copied into each; cases with the same code and no bindings share a `case` list. A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`, since an annotation would keep the narrowing of an enclosing `switch`.
+- Guarded arms → an `if` chain: per arm in order, one match tests pattern and guard and another takes the body, with the scrutinee bound once. `unwrap_or`, `ok_or`, and `map` → the `match` std writes, with the receiver and an eager argument bound first.
+- `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` → `for..of`; `while` → `while`. A loop that a `break` or `continue` leaves gets a label, since a bare `break` inside the `switch` a `match` prints as would leave the `switch`.
 - `?` → `if (r.kind === "Err") return r;` (for `Option`, `if (r === null) return null;`). A `?` inside an expression is hoisted into a preceding `const` to preserve evaluation order.
 - A `match` / `if` used as a value becomes `let x: T;` plus an assignment per arm.
 - `S { a: 1, ..s }` → `({ ...s, a: 1 })`; a `?` in an explicit field exits before `s` is evaluated.

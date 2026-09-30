@@ -45,9 +45,11 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 ## What you can write
 
-- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing and a last `_`), and `match (state, event)` on tuples
+- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing, a last `_`, and guards `p if c`), and `match (state, event)` on tuples
 - byte literals `b'@'`, integer literal and range patterns in `match` (ending in `_`) and `matches!(b, b'0'..=b'9')`
 - local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`
+- `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`; `while` with `break` and `continue`
+- `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`
 - integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`
 - crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
 - growing sequences as recursive enums; `Vec` read by index and `len`, built as a fixed list `vec![a, b]`

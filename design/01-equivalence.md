@@ -1,6 +1,6 @@
 # Equivalence
 
-Status: current (2026-09-29)
+Status: current (2026-09-30)
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
