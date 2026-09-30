@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "purecrate-canon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "purecrate-ir",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "purecrate-check"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "purecrate-ir",
  "purecrate-syntax",
@@ -38,18 +38,18 @@ dependencies = [
 
 [[package]]
 name = "purecrate-emit-ts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "purecrate-ir",
 ]
 
 [[package]]
 name = "purecrate-ir"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "purecrate-pack"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "purecrate-emit-ts",
  "purecrate-ir",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "purecrate-syntax"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "purecrate-ir",
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "purecrate-ts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "purecrate-canon",
  "purecrate-check",

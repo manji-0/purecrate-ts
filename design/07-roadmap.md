@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-09-30, after 0.1.0)
+Status: current (2026-09-30, after 0.2.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -136,7 +136,7 @@ Waits for an example that cannot be written without it.
 
 0.1.0 (2026-09-30) shipped what §3.1 lists as done. Decided the same day: later releases take language capabilities first, in the order the examples' measured gaps give, and adoption is left to happen on its own, with no outreach and no requests to adopt ([06 §5](./06-strategy.md#5-validating-demand-next)). Distribution work waits for someone to need it.
 
-### 0.2.0: iteration
+### 0.2.0: iteration (released 2026-09-30)
 
 The largest gap measured so far: oidc's lexical helpers at 3.2× idiomatic Rust (§2), and Windmill's scope and pipeline parsers ([91 §2](./91-real-use-candidates.md#2-fit-measured)), all index bookkeeping over bytes and tokens that idiomatic code writes as iteration.
 
