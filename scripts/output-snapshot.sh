@@ -6,7 +6,9 @@
 #
 #   scripts/output-snapshot.sh [<out-dir>]   # default: a temporary directory
 #
-# The per-file hashes go to <out-dir>/manifest.txt, to diff two runs.
+# The per-file hashes go to <out-dir>/manifest.txt, to diff two runs, and the
+# bytes of each input's generated code (no schema, the copied runtime left
+# out) to <out-dir>/sizes.txt; the examples' sizes are printed too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -50,5 +52,12 @@ for dir in examples/*/ crates/cli/tests/fixtures/survey/; do
 done
 
 (cd "$out/gen" && find . -type f | LC_ALL=C sort | xargs shasum -a 256) >"$out/manifest.txt"
+for input in "${inputs[@]}"; do
+  src="$out/gen/$(echo "$input" | tr '/.' '__')/none/src"
+  [ -d "$src" ] || continue
+  bytes=$(find "$src" -name '*.ts' ! -name purecrate-runtime.ts -exec cat {} + | wc -c | tr -d ' ')
+  echo "$bytes $input"
+done >"$out/sizes.txt"
 digest=$(shasum -a 256 <"$out/manifest.txt" | cut -d' ' -f1)
 echo "$digest  ($(wc -l <"$out/manifest.txt" | tr -d ' ') files, manifest in $out/manifest.txt)"
+grep ' examples/' "$out/sizes.txt" | sed 's/^/  bytes /'
