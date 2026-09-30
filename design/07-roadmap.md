@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-01, after 0.4.0)
+Status: current (2026-10-01, after 0.4.1)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -266,6 +266,10 @@ Why: oidc's lexical helpers are still 2.2× idiomatic Rust (§2.2), and in the c
 - **Integer helpers.** `min`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, `wrapping_*` forms of the operators, each against Rust's debug-build result (payment's idiomatic code calls `min`). Done 2026-09-30 (`int_methods_equivalence.rs`), on every integer type, `usize` in Rust's 64 bits.
 - **From the measurement** (added 2026-09-30): a consumer after `s.split(c)` (oidc's `has_token` is now `list.split(' ').any(|t| t == word)`), and `bool` literal patterns (`(true, None, _)` in a tuple `match`), both refused in the rewrites. Verified by `consumers_equivalence.rs` and `bool_patterns_equivalence.rs`.
 - **Measurement.** oidc's lexical helpers, payment, and invoice rewritten with guards, the `Option` methods, and the above, and measured again against their idiomatic references (§2.2). Done 2026-09-30: guards, tuple `match`, the `Option` methods, `all` / `any`, `min`, and `pow` carried the reduction; slicing, `strip_*`, local `const`, `position` / `count` / `sum` / `enumerate`, and the checked, saturating, and wrapping forms went unused by these three (§2.2). Kept anyway (decided 2026-09-30): each is implemented and tested, preserves meaning exactly, and answers a leading cause in the corpus ([90 §7](./90-acceptance-survey.md#7-re-measured-with-030-2026-09-30): slicing ranges and `chars()` as a value); the rule of §1 still decides what comes next.
+
+### 0.4.1: smaller output (released 2026-10-01)
+
+From evaluating 0.4.0 ([bench/payment](../bench/payment/README.md)): guards compile into the tuple decision tree (payment's generated code 47.9 → 23.5 KB), each package's runtime keeps only what its code uses (payment's bundle 3.1 → 2.3 KB gzipped, first call 1.18 → 0.52 ms with the regular expression built lazily), and fixed-seed random cases join the differential tests. No change to what is accepted.
 
 ### Later, on evidence
 

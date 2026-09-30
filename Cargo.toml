@@ -7,7 +7,7 @@ default-members = ["crates/ir", "crates/check", "crates/emit_ts", "crates/syntax
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.4.0"
+version = "0.4.1"
 
 # Line tables only: panics and backtraces keep their locations, and linking
 # the test binaries is about a quarter faster. Overflow checks and debug
