@@ -81,6 +81,16 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             _ => {}
         }
+        if pattern.is_bool_case() {
+            match scrutinee {
+                Some(Ty::Prim(Prim::Bool) | Ty::Never) | None => {}
+                Some(t) => self.error(Reason::TypeMismatch, format!(
+                    "`bool` patterns do not match a value of type `{}`",
+                    show(t)
+                )),
+            }
+            return pattern.clone();
+        }
         if pattern.is_char_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Char) | Ty::Never) | None => {}

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Pattern, Pos, Reason};
+use purecrate_ir::{Arm, Crate, Enum, Expr, Item, Lit, Pattern, Pos, Reason};
 
 use crate::Diagnostic;
 
@@ -68,6 +68,9 @@ fn label(ty: &str, case: &str) -> String {
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
     if arms.iter().any(|a| a.pattern.is_tuple_case()) {
         return tuple_arms(i, arms, out);
+    }
+    if arms.iter().any(|a| a.pattern.is_bool_case()) {
+        return bool_arms(i, arms, out);
     }
     if arms.iter().any(|a| a.pattern.is_int_case()) {
         return lit_arms(i, arms, "integer", Pattern::is_int_case, out);
@@ -191,6 +194,42 @@ fn lit_arms(i: usize, arms: &[Arm], kind: &str, is_case: fn(&Pattern) -> bool, o
         out.push(Diagnostic::at(i, Reason::ArmPattern, found));
     } else if last.pattern != Pattern::Wildcard {
         out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("a match on {kind}s must end in a `_` arm in v0")));
+    }
+}
+
+/// `true` and `false` can be listed out: without a last `_`, the arms must
+/// name both (`rest` then makes the last arm the `else`).
+fn bool_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
+    let (last, named) = arms.split_last().expect("a bool case was found");
+    if let Some(other) = named.iter().find(|a| !a.pattern.is_bool_case()) {
+        let found = if other.pattern == Pattern::Wildcard {
+            "`_` must be the last arm".to_string()
+        } else {
+            "match mixes `bool` arms with other arms".to_string()
+        };
+        out.push(Diagnostic::at(i, Reason::ArmPattern, found));
+        return;
+    }
+    if last.pattern == Pattern::Wildcard {
+        return;
+    }
+    if !last.pattern.is_bool_case() {
+        out.push(Diagnostic::at(i, Reason::ArmPattern, "match mixes `bool` arms with other arms"));
+        return;
+    }
+    let named_value = |b: bool| arms.iter().any(|a| bools(&a.pattern).contains(&b));
+    for b in [true, false] {
+        if !named_value(b) {
+            out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match on `bool` is missing `{b}`")));
+        }
+    }
+}
+
+fn bools(pattern: &Pattern) -> Vec<bool> {
+    match pattern {
+        Pattern::Lit(Lit::Bool(b)) => vec![*b],
+        Pattern::Or(alts) => alts.iter().flat_map(bools).collect(),
+        _ => Vec::new(),
     }
 }
 

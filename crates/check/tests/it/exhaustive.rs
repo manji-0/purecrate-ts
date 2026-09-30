@@ -81,3 +81,11 @@ fn integer_arms_end_in_a_wildcard() {
     assert_rejects(&format!("{DEFS}pub fn g(b: u8) -> i32 {{ match b {{ 1i32 => 1, _ => 2 }} }}"), "pattern `1i32` does not match a value of type `u8`");
     assert_rejects(&format!("{DEFS}pub fn g(s: bool) -> i32 {{ match s {{ 1 => 1, _ => 2 }} }}"), "integer patterns do not match a value of type `bool`");
 }
+
+#[test]
+fn a_match_on_bool_names_both_or_ends_in_a_wildcard() {
+    assert_clean("pub fn f(b: bool) -> u32 { match b { true => 1, false => 0 } }");
+    assert_clean("pub fn f(b: bool) -> u32 { match b { false => 1, _ => 0 } }");
+    assert_rejects("pub fn f(b: bool) -> u32 { match b { true => 1 } }", "match on `bool` is missing `false`");
+    assert_rejects("pub fn f(x: u32) -> u32 { match x { true => 1, _ => 0 } }", "`bool` patterns do not match a value of type `u32`");
+}

@@ -1,6 +1,6 @@
 //! Iterator consumers: `all`, `any`, `position`, `count`, and `sum` over
 //! `chars()`, `bytes()`, and `iter()`, with a closure or a function name,
-//! stopping where std stops; `sum` overflowing; and `for` over
+//! stopping where std stops, and after `split(c)`; `sum` overflowing; and `for` over
 //! `.enumerate()` with `continue`.
 
 use crate::support;
@@ -19,6 +19,11 @@ fn generated_consumers_match_rust() {
             cases.push(case!(consumers::at_sign(s)));
             cases.push(case!(consumers::chars(s)));
             cases.push(case!(consumers::byte_sum(s)));
+            cases.push(case!(consumers::pieces(s)));
+            for w in ["", "a", "b", "Hi", "there"] {
+                cases.push(case!(consumers::has_token(s, w)));
+                cases.push(case!(consumers::token_at(s, w)));
+            }
             for c in ['@', 'a', '😀', 'z'] {
                 cases.push(case!(consumers::char_at(s, c)));
             }

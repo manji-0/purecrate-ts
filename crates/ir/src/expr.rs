@@ -578,10 +578,19 @@ impl Pattern {
         }
     }
 
+    /// `true` or `false`, or `|` of them: an arm of a `match` on a `bool`.
+    pub fn is_bool_case(&self) -> bool {
+        match self {
+            Pattern::Lit(Lit::Bool(_)) => true,
+            Pattern::Or(alts) => alts.iter().all(Pattern::is_bool_case),
+            _ => false,
+        }
+    }
+
     /// An arm tried by value in order, as an `if` chain: integer, `char`,
-    /// or string.
+    /// string, or `bool`.
     pub fn is_lit_case(&self) -> bool {
-        self.is_int_case() || self.is_char_case() || self.is_str_case()
+        self.is_int_case() || self.is_char_case() || self.is_str_case() || self.is_bool_case()
     }
 
     /// Names the pattern binds, left to right.

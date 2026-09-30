@@ -24,6 +24,20 @@ pub fn expand(mut krate: Crate) -> Crate {
 
 fn walk(expr: &mut Expr, enums: &[Enum]) {
     if let Expr::Match { arms, .. } = expr {
+        // `true => a, false => b`: `exhaustive` has checked both are named,
+        // so the last arm takes what is left. One arm naming both
+        // (`false | true`) becomes `true` and `_` with the same body.
+        if arms.iter().all(|a| a.pattern.is_bool_case()) {
+            if arms.len() == 1 {
+                let body = arms[0].body.clone();
+                arms[0].pattern = Pattern::Lit(purecrate_ir::Lit::Bool(true));
+                arms.push(purecrate_ir::Arm { pattern: Pattern::Wildcard, body });
+            } else if let Some(last) = arms.last_mut() {
+                last.pattern = Pattern::Wildcard;
+            }
+            expr.children_mut().into_iter().for_each(|c| walk(c, enums));
+            return;
+        }
         if let Some((last, named)) = arms.split_last_mut() {
             if last.pattern == Pattern::Wildcard {
                 last.pattern = rest(named.iter().map(|a| &a.pattern), enums);

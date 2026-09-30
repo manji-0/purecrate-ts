@@ -75,3 +75,16 @@ pub fn last_index(xs: &[u32], target: u32) -> Option<usize> {
     }
     found
 }
+
+// After `split(c)`: the pieces, empty ones included.
+pub fn has_token(list: &str, word: &str) -> bool {
+    list.split(' ').any(|token| token == word)
+}
+
+pub fn pieces(list: &str) -> usize {
+    list.split(',').count()
+}
+
+pub fn token_at(list: &str, word: &str) -> Option<usize> {
+    list.split(' ').position(|token| token == word)
+}

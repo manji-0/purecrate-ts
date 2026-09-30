@@ -45,5 +45,7 @@ fn split_takes_a_char_and_stands_in_a_for_head() {
         "pub fn f(s: &str) -> u32 { let mut n = 0u32; for _t in s.split(\"ab\") { n += 1; } n }",
         "`split` takes a `char` separator in v0",
     );
-    assert_rejects("pub fn f(s: &str) -> bool { s.split(' ').count() > 1 }", "`.split()` on `&str` is not on the std allow-list");
+    // A consumer may follow it; any other use of the pieces may not.
+    assert_clean("pub fn f(s: &str) -> bool { s.split(' ').count() > 1 }");
+    assert_rejects("pub fn f(s: &str) -> usize { s.split(' ').len() }", "`.split()` on `&str` is not on the std allow-list");
 }

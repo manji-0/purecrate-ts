@@ -214,25 +214,27 @@ impl<'d, 'a> Typer<'d, 'a> {
             "count" | "sum" => 0,
             _ => return None,
         };
-        let Expr::MethodCall { receiver: source, name: adaptor, args: none } = receiver.unpositioned() else {
+        let Expr::MethodCall { receiver: source, name: adaptor, args: adaptor_args } = receiver.unpositioned() else {
             return None;
         };
-        let over = match adaptor.as_str() {
-            "chars" => Over::Chars,
-            "bytes" => Over::Bytes,
-            "iter" | "into_iter" => Over::Items,
+        let (over, source) = match (adaptor.as_str(), adaptor_args.as_slice()) {
+            ("chars", []) => (Over::Chars, (**source).clone()),
+            ("bytes", []) => (Over::Bytes, (**source).clone()),
+            ("iter" | "into_iter", []) => (Over::Items, (**source).clone()),
+            // `s.split(c)` as a `for` gives it: the pieces, a `char` apart.
+            ("split", [sep]) => (
+                Over::Items,
+                Expr::Call { callee: Callee::StrSplit, args: vec![(**source).clone(), sep.clone()] },
+            ),
             _ => return None,
         };
-        if !none.is_empty() {
-            return None;
-        }
         let failed = (Expr::Lit(Lit::Unit), None);
         if args.len() != takes {
             self.error(Reason::ConstructShape, format!("`{name}` takes {takes} argument(s), got {}", args.len()));
             return Some(failed);
         }
         let before = self.out.len();
-        let (source, st) = self.expr(source, None);
+        let (source, st) = self.expr(&source, None);
         let item = match (over, st.as_ref().map(|t| self.norm(t))) {
             (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
             (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),

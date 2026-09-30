@@ -229,12 +229,7 @@ const SHA1_LEN: usize = 20;
 /// Whether the space-delimited list `list` contains `word` as a whole token
 /// (scope: RFC 6749 §3.3; prompt and acr_values: OIDC Core §3.1.2.1).
 pub fn has_token(list: &String, word: &str) -> bool {
-    for token in list.split(' ') {
-        if token == word {
-            return true;
-        }
-    }
-    false
+    list.split(' ').any(|token| token == word)
 }
 
 /// RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
