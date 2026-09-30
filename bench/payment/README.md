@@ -4,7 +4,7 @@
 
 Numbers for [design/06 §2](../../design/06-strategy.md#2-alternatives): the same Rust source, [examples/payment](../../examples/payment/src/lib.rs), called from JS as the generated TS package (F) and as WASM built with wasm-bindgen (B).
 
-`./measure.sh` builds both and prints everything below. The WASM crate is outside the workspace and fetches its dependencies (serde, serde-wasm-bindgen, wasm-bindgen 0.2.118 to match the CLI) from crates.io. `build.rs` copies the example unchanged: it already derives serde, reading `Amount` and `PaymentMethodId` through `#[serde(try_from)]`. `cargo test` in `wasm/` checks those derives with the real serde. Both sides keep debug-build integer semantics: the release profile sets `overflow-checks = true`.
+`./measure.sh` builds both and prints everything below. The WASM crate is outside the workspace and fetches its dependencies (from outside the repository's directory, so the workspace's vendored sources do not apply) (serde, serde-wasm-bindgen, wasm-bindgen 0.2.118 to match the CLI) from crates.io. `build.rs` copies the example unchanged: it already derives serde, reading `Amount` and `PaymentMethodId` through `#[serde(try_from)]`. `cargo test` in `wasm/` checks those derives with the real serde. Both sides keep debug-build integer semantics: the release profile sets `overflow-checks = true`.
 
 ## Variants
 
@@ -19,36 +19,38 @@ A run is `create` plus four events: attach a card, confirm (3D Secure required),
 
 ## Results
 
-2026-09-29, Apple M5 Max, Node 24.21, rustc 1.98.1, wasm-bindgen 0.2.118, esbuild 0.28.
+2026-10-01, purecrate-ts after 0.4.0 (payment rewritten with a tuple `match`, guards, and the `Option` methods; the runtime with the 0.4.0 methods), Apple M5 Max, Node 24.20, rustc 1.98.1, wasm-bindgen 0.2.118, esbuild 0.28.
 
 Size, in bytes (raw / gzip -9):
 
 | Artifact | Size |
 | --- | --- |
-| TS bundle (esbuild, minified; `create`, `step`, constructors, runtime) | 6,036 / 1,795 |
-| WASM, all three boundaries, opt-level 3 | 235,891 / 80,585 |
-| WASM, serde-wasm-bindgen only, opt-level z, `wasm-opt -Oz` | 72,716 / 32,746 |
+| TS bundle (esbuild, minified; `create`, `step`, constructors, runtime) | 9,383 / 3,101 |
+| WASM, all three boundaries, opt-level 3 | 235,252 / 80,195 |
+| WASM, serde-wasm-bindgen only, opt-level z, `wasm-opt -Oz` | 72,296 / 32,772 |
 | wasm-bindgen web glue (minified) | 7,708 / 2,959 |
 
-The smallest WASM plus glue is about 20× the TS bundle, gzipped.
+The smallest WASM plus glue is about 11.5× the TS bundle, gzipped.
 
 Time from script start to the first `step` result, including module load and WASM compilation (median of 21 fresh Node processes):
 
 | Variant | ms |
 | --- | --- |
-| `ts` | 0.46 |
-| `json` | 2.22 |
-| `swb` | 1.86 |
-| `handle` | 1.73 |
+| `ts` | 0.72 |
+| `json` | 2.30 |
+| `swb` | 1.84 |
+| `handle` | 1.64 |
 
 Per-call cost after warm-up (median of 5 rounds of 200,000 runs; one run is five calls):
 
 | Variant | ns per run | ns per call | vs. `ts` |
 | --- | --- | --- | --- |
-| `ts` | 61 | 12 | 1× |
-| `handle` | 1,726 | 345 | 28× |
-| `swb` | 5,692 | 1,138 | 93× |
-| `json` | 6,867 | 1,373 | 113× |
+| `ts` | 74 | 15 | 1× |
+| `handle` | 1,734 | 347 | 23× |
+| `swb` | 5,670 | 1,134 | 76× |
+| `json` | 7,128 | 1,426 | 95× |
+
+Against the first measurement (2026-09-29, before 0.4.0): the TS bundle grew from 6,036 / 1,795 bytes, mostly the runtime's integer methods and slicing, which every package carries whether it calls them or not; the first call went from 0.46 to 0.72 ms for the same reason. A 1.18 ms first call measured the same day came from the runtime's Unicode-property regular expression, compiled at module load; it is now built when first used. The WASM numbers did not move.
 
 ## Reading
 

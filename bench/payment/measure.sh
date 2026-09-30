@@ -3,13 +3,20 @@
 # (median of 21 fresh node processes), and per-call costs. See README.md.
 set -euo pipefail
 cd "$(dirname "$0")"
+here="$(pwd)"
 root=../..
 
 # Rust → WASM. The rustup toolchain's rust-lld may not find its libLLVM
 # (a broken install); pointing dyld at the toolchain's lib fixes that.
 toolchain_lib="$(dirname "$(dirname "$(rustup which rustc)")")/lib"
-(cd wasm && RUSTC="$(rustup which rustc)" DYLD_FALLBACK_LIBRARY_PATH="$toolchain_lib" \
-  "$(rustup which cargo)" build --release --target wasm32-unknown-unknown -q)
+# Cargo reads configuration from the working directory up; the repository's
+# replaces crates.io with the workspace's vendor/, which this crate does not
+# use. So it is built from outside the repository.
+wasm_cargo() {
+  (cd "${TMPDIR:-/tmp}" && RUSTC="$(rustup which rustc)" DYLD_FALLBACK_LIBRARY_PATH="$toolchain_lib" \
+    "$(rustup which cargo)" build --manifest-path "$here/wasm/Cargo.toml" --release --target wasm32-unknown-unknown -q "$@")
+}
+wasm_cargo
 wasm=wasm/target/wasm32-unknown-unknown/release/payment_wasm.wasm
 rm -rf pkg pkg-web out
 wasm-bindgen --target nodejs --out-dir pkg "$wasm"
@@ -29,8 +36,7 @@ echo "wasm web glue:    $(size out/wasm-glue.min.mjs) / $(gz out/wasm-glue.min.m
 
 # The smallest module a single-boundary app would ship: no serde_json,
 # opt-level z, then binaryen's wasm-opt -Oz.
-(cd wasm && RUSTC="$(rustup which rustc)" DYLD_FALLBACK_LIBRARY_PATH="$toolchain_lib" CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
-  "$(rustup which cargo)" build --release --target wasm32-unknown-unknown -q --no-default-features --target-dir target-z)
+CARGO_PROFILE_RELEASE_OPT_LEVEL=z wasm_cargo --no-default-features --target-dir "$here/wasm/target-z"
 wasm-bindgen --target web --out-dir out/pkg-z wasm/target-z/wasm32-unknown-unknown/release/payment_wasm.wasm
 npx -y -p binaryen wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
   --enable-reference-types --enable-multivalue out/pkg-z/payment_wasm_bg.wasm -o out/smallest.wasm

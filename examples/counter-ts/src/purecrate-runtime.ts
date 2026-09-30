@@ -264,9 +264,12 @@ export const Str = {
  * (design/01 §3).
  */
 const debugChar = (c: string): string =>
-  /[\p{Grapheme_Extend}\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/u.test(c) && c !== " "
+  (escaped ??= new RegExp("[\\p{Grapheme_Extend}\\p{Zs}\\p{Zl}\\p{Zp}\\p{Cc}\\p{Cf}\\p{Cs}\\p{Co}\\p{Cn}]", "u")).test(c) && c !== " "
     ? `\\u{${(c.codePointAt(0) as number).toString(16)}}`
     : c;
+// Built on first use: a literal with Unicode properties costs about half a
+// millisecond when the module loads, for a message only a panic prints.
+let escaped: RegExp | undefined;
 
 const utf8Len = (s: string): Usize => {
   let n = 0;

@@ -103,7 +103,7 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 
 `.github/workflows/release.yml` builds the release binaries when a `vX.Y.Z` tag is pushed (the tag must match the workspace version, and `CHANGELOG.md` must have its section, which becomes the release notes); run it by hand to build and smoke-test every target without publishing.
 
-`bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
+`scripts/line-counts.py` counts each example's logic against its idiomatic reference, both formatted by rustfmt ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
 ## Design documents
 

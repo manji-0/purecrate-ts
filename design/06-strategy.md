@@ -25,9 +25,11 @@ Teams with a Rust backend and a TS frontend want the same decisions (a transitio
 
   | Measure | F | WASM |
   | --- | --- | --- |
-  | Per `step` | 12 ns | 345 ns with the state kept in WASM; 1.1–1.4 µs with plain objects crossing |
-  | To the first result | 0.5 ms | 1.7–2.2 ms |
-  | Size, gzipped | 1.8 KB | 36 KB for the smallest WASM module with its glue |
+  | Per `step` | 15 ns | 347 ns with the state kept in WASM; 1.1–1.4 µs with plain objects crossing |
+  | To the first result | 0.7 ms | 1.6–2.3 ms |
+  | Size, gzipped | 3.1 KB | 36 KB for the smallest WASM module with its glue |
+
+  Measured again 2026-10-01, after 0.4.0; the first measurement (2026-09-29) had F at 12 ns, 0.5 ms, and 1.8 KB, before the runtime gained 0.4.0's methods.
 
 - **Values should be plain TS.** Crux's web shell serializes with bincode; F's values go straight into React state.
 - **The output should be readable.** Generated TS can be reviewed and stepped through.
@@ -115,15 +117,15 @@ The author's own examples cannot validate the constraints: the author writes aro
 | Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
 | No real use | Open. No real-world replacement yet (§5.2) |
 
-Line counts against idiomatic Rust ([07 §2](./07-roadmap.md#2-evidence-from-examples)):
+Line counts against idiomatic Rust ([07 §2](./07-roadmap.md#2-evidence-from-examples)), logic only. Since 2026-10-01 both sides are formatted with rustfmt at width 120 before counting (`scripts/line-counts.py`), so layout does not decide the ratio; the earlier figures, taken as written, are the history.
 
 | Example | Ratio | History |
 | --- | --- | --- |
-| signup | 1.9× | 2.8× at first; under 2× after range `for` |
-| iban | 1.9× | 2.4× at first; under 2× after range `for` |
-| payment (transitions) | 1.8× | 2.1× at first; under 2× after `_` and `A \| B` arms |
-| invoice | 1.4× | 2.2× for the first draft; 1.4× restructured, with no new capability |
-| oidc | 1.65× (its logic) | written from the authoring skill alone |
+| signup | 1.5× (email), 1.4× (password) | 2.8× at first; under 2× after range `for`; measured by hand, no idiomatic module in its test |
+| iban | 1.8× | 2.4× at first; 1.9× after range `for` |
+| payment | 1.6× | 2.1× at first, 1.8× after `_` and `A \| B` arms; one tuple `match` in 0.4.0 |
+| invoice | 1.6× | 2.2× for the first draft, 1.4× restructured (as written) |
+| oidc | 1.3× | 1.65× written from the authoring skill alone; 0.4.0 rewrite |
 
 ## 5. Validating demand next
 

@@ -101,7 +101,7 @@ oidc was rewritten as capabilities were added (all 2026-09-30):
 | payment logic | 36 | 163 | 111 |
 | invoice logic | 34 | 74 | 66 |
 
-payment's and invoice's idiomatic references are written one arm or field per line, so their ratios read high against rustfmt output; the before and after columns are comparable with each other.
+payment's and invoice's idiomatic references are written one arm or field per line, so their ratios read high against rustfmt output; the before and after columns are comparable with each other. Formatted alike with rustfmt at width 120 (`scripts/line-counts.py`, 2026-10-01), logic against logic: iban 44 / 24 (1.8×), invoice 75 / 48 (1.6×), oidc 423 / 327 (1.3×), payment 96 / 61 (1.6×).
 
 - **Used:** guards everywhere a state or a field chose the path (oidc's request validation and `begin`, payment's manual capture and confirmation, invoice's `share`); tuple `match` (oidc's `step` in place of three handlers, PKCE and code redemption; payment's `step` in place of five per-state functions; invoice's `share`); `ok_or`, `unwrap_or`, `map` (payment's four `Option` matches, oidc's `prompt`, `max_age`, and freshness); `all` and `any` (oidc's byte checks and redirect-URI lookup); `min` (payment's fee cap) and `pow` (oidc's digit modulus).
 - **Not used by these three:** slicing and `strip_*`, `const` in a function, `position`, `count`, `sum`, `enumerate`, the `checked_*` / `saturating_*` / `wrapping_*` forms, tuple `let` (tried in invoice; with long names rustfmt made it longer).
