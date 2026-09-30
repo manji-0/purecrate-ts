@@ -29,6 +29,10 @@ pub struct Unit {
     pub name: String,
     pub public: bool,
     pub lowered: Result<Item, ParseError>,
+    /// With `all_causes`: every expression or statement of the item that
+    /// could not be lowered (and was stood in for), in source order. The
+    /// item is then outside the subset even though `lowered` is `Ok`.
+    pub causes: Vec<ParseError>,
 }
 
 /// Out-of-line `mod x;` declarations, as paths relative to the declaring
@@ -75,8 +79,9 @@ fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<S
 }
 
 /// A file `syn` cannot parse fails the whole survey; everything else is
-/// reported per unit.
-pub fn survey_files(sources: &[&str]) -> Result<Vec<Unit>, (usize, ParseError)> {
+/// reported per unit. With `all_causes`, an item is lowered past the
+/// expressions it cannot take, and each of them is a cause (`Unit::causes`).
+pub fn survey_files(sources: &[&str], all_causes: bool) -> Result<Vec<Unit>, (usize, ParseError)> {
     let files = sources
         .iter()
         .enumerate()
@@ -92,7 +97,7 @@ pub fn survey_files(sources: &[&str]) -> Result<Vec<Unit>, (usize, ParseError)> 
         let mut items = Vec::new();
         flatten(&f.items, &mut items);
         for item in items {
-            units.extend(units_of(&mut cx, i, item));
+            units.extend(units_of(&mut cx, i, item, all_causes));
         }
     }
     Ok(units)
@@ -117,21 +122,35 @@ fn flatten<'a>(items: &'a [SynItem], out: &mut Vec<&'a SynItem>) {
     }
 }
 
-fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
-    let unit = |kind, name: String, public, at, lowered| Unit {
+/// Lowers `item` to the one IR item it makes, recording in recovery mode
+/// the causes it stood in for.
+fn lower_one(cx: &mut Cx, item: SynItem, all_causes: bool, what: &str) -> (Result<Item, ParseError>, Vec<ParseError>) {
+    let what = what.to_string();
+    let run = move |cx: &mut Cx| {
+        item::lower_item(cx, item).and_then(|mut items| match items.len() {
+            1 => Ok(items.remove(0).0),
+            _ => Err(ParseError::new(Reason::UnsupportedItem, format!("expected one {what}"))),
+        })
+    };
+    if all_causes {
+        cx.recovering(run)
+    } else {
+        (run(cx), Vec::new())
+    }
+}
+
+fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<Unit> {
+    let unit = |kind, name: String, public, at, (lowered, causes): (Result<Item, ParseError>, Vec<ParseError>)| Unit {
         file,
         at,
         kind,
         name,
         public,
         lowered,
+        causes,
     };
     let one = |cx: &mut Cx, kind, name: String, public, at| {
-        let lowered = item::lower_item(cx, item.clone()).and_then(|mut items| match items.len() {
-            1 => Ok(items.remove(0).0),
-            _ => Err(ParseError::new(Reason::UnsupportedItem, "expected one item")),
-        });
-        vec![unit(kind, name, public, at, lowered)]
+        vec![unit(kind, name, public, at, lower_one(cx, item.clone(), all_causes, "item"))]
     };
     let public = |vis: &syn::Visibility| matches!(vis, syn::Visibility::Public(_));
     match item {
@@ -150,10 +169,7 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
                     syn::ImplItem::Fn(f) => (f.sig.ident.to_string(), public(&f.vis), LineCol::of(f.sig.ident.span())),
                     other => ("?".to_string(), false, LineCol::of(other.span())),
                 };
-                let lowered = item::lower_item(cx, SynItem::Impl(single)).and_then(|mut items| match items.len() {
-                    1 => Ok(items.remove(0).0),
-                    _ => Err(ParseError::new(Reason::UnsupportedItem, "expected one method")),
-                });
+                let lowered = lower_one(cx, SynItem::Impl(single), all_causes, "method");
                 unit(UnitKind::Method { owner }, name, is_pub, at, lowered)
             })
             .collect(),
@@ -161,10 +177,7 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
         // `#[serde(try_from = "T")]` on `X` needs. Not counted as a public
         // function, as the trait impl is not one in Rust.
         SynItem::Impl(imp) if is_try_from_impl(imp) => {
-            let lowered = item::lower_item(cx, item.clone()).and_then(|mut items| match items.len() {
-                1 => Ok(items.remove(0).0),
-                _ => Err(ParseError::new(Reason::UnsupportedItem, "expected one method")),
-            });
+            let lowered = lower_one(cx, item.clone(), all_causes, "method");
             vec![unit(
                 UnitKind::Method { owner: self_name(&imp.self_ty) },
                 "try_from".to_string(),
@@ -193,8 +206,11 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem) -> Vec<Unit> {
                 SynItem::Trait(t) => t.ident.to_string(),
                 _ => String::new(),
             };
-            let lowered = item::lower_item(cx, other.clone())
-                .and_then(|_| Err(ParseError::new(Reason::UnsupportedItem, format!("{what} is not in v0"))));
+            let lowered = (
+                item::lower_item(cx, other.clone())
+                    .and_then(|_| Err(ParseError::new(Reason::UnsupportedItem, format!("{what} is not in v0")))),
+                Vec::new(),
+            );
             vec![unit(UnitKind::Other { what }, name, false, LineCol::of(other.span()), lowered)]
         }
     }

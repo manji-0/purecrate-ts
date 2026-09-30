@@ -62,7 +62,7 @@ Defects found on the way:
 
 - A non-`pub` method (`McpScopeConfig::any`) appears on the exported companion object, so TS callers can reach what Rust callers cannot. Confirmed as a hole in closed types (a private method returning the type builds it unchecked) and fixed the same day ([01 §4](./01-equivalence.md#4-closed-types)).
 - `mod r#impl;` and `mod r#trait;` are looked up as `r#impl.rs` and silently skipped (fixed 2026-09-30).
-- `survey` reports one cause per function, which understates rewrite work; an all-causes mode is wanted for estimates.
+- `survey` reports one cause per function, which understates rewrite work; an all-causes mode is wanted for estimates (added 2026-09-30 as `--all-causes`).
 - `build --out` deletes unrelated files in the output directory (fixed 2026-09-30: a directory `build` did not write is refused).
 
 ## 5. Oxide `Name`, done locally

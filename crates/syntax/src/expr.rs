@@ -10,7 +10,10 @@ use crate::item::{snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
 
 pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
-    lower_expr_node(cx, expr).map_err(|e| e.or_at(expr.span()))
+    match lower_expr_node(cx, expr).map_err(|e| e.or_at(expr.span())) {
+        Err(e) if cx.recover(&e) => Ok(Expr::Unreachable),
+        other => other,
+    }
 }
 
 fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
@@ -277,7 +280,10 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
 }
 
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
-    lower_block_node(cx, block).map_err(|e| e.or_at(block.span()))
+    match lower_block_node(cx, block).map_err(|e| e.or_at(block.span())) {
+        Err(e) if cx.recover(&e) => Ok(Expr::Unreachable),
+        other => other,
+    }
 }
 
 enum Stmt {
@@ -296,18 +302,26 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
     let last = block.stmts.len().saturating_sub(1);
     for (i, stmt) in block.stmts.iter().enumerate() {
         let span = stmt.span();
-        match stmt {
-            syn::Stmt::Local(local) => stmts.push((span, lower_local(cx, local)?)),
-            syn::Stmt::Expr(e, None) if i == last => tail = Some(at(span, lower_expr(cx, e)?)),
+        let lowered = match stmt {
+            syn::Stmt::Local(local) => lower_local(cx, local).map(|l| stmts.push((span, l))),
+            syn::Stmt::Expr(e, None) if i == last => lower_expr(cx, e).map(|e| tail = Some(at(span, e))),
             // `return x;` ends the block with the same meaning as `return x`.
             syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
-                tail = Some(at(span, lower_expr(cx, e)?))
+                lower_expr(cx, e).map(|e| tail = Some(at(span, e)))
             }
-            syn::Stmt::Expr(e, _) => stmts.push((span, Stmt::Effect(lower_expr(cx, e)?))),
-            syn::Stmt::Item(_) => return Err(ParseError::new(Reason::BlockItem, "items inside blocks are not in v0")),
+            syn::Stmt::Expr(e, _) => lower_expr(cx, e).map(|e| stmts.push((span, Stmt::Effect(e)))),
+            syn::Stmt::Item(_) => Err(ParseError::new(Reason::BlockItem, "items inside blocks are not in v0")),
             syn::Stmt::Macro(m) => {
                 let name = path_text(&m.mac.path);
-                return Err(ParseError::new(Reason::Macro, format!("macro `{name}!` is not in v0")).detail(name));
+                Err(ParseError::new(Reason::Macro, format!("macro `{name}!` is not in v0")).detail(name))
+            }
+        };
+        // In recovery (`survey --all-causes`) a statement that fails is
+        // recorded and left out, and the rest of the block goes on.
+        if let Err(e) = lowered {
+            let e = e.or_at(span);
+            if !cx.recover(&e) {
+                return Err(e);
             }
         }
     }

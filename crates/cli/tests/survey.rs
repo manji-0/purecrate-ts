@@ -83,8 +83,29 @@ fn human_summary_counts_functions_and_types() {
     let text = survey(&[]);
     assert!(text.starts_with("crate survey-demo (4 file(s))"), "{text}");
     assert!(
-        text.contains("public functions: 13 — accepted 8 (62%), rejected 3, blocked by a dependency 2"),
+        text.contains("public functions: 14 — accepted 8 (57%), rejected 4, blocked by a dependency 2"),
         "{text}"
     );
     assert!(text.contains("public types: 5 — accepted 3 (60%), rejected 2, blocked by a dependency 0"), "{text}");
+}
+
+/// Without `--all-causes` a function reports the first cause the parser
+/// meets; with it, every cause, the type check's included.
+#[test]
+fn all_causes_lists_every_cause_of_a_function() {
+    let first = survey(&["--json"]);
+    let one = item(&first, "many");
+    assert!(one.contains("\"code\":\"expr/macro\""), "{one}");
+    for later in ["expr/loop", "expr/method-call", "expr/cast"] {
+        assert!(!one.contains(&format!("\"code\":\"{later}\"")), "{one}");
+    }
+    let all = survey(&["--json", "--all-causes"]);
+    let every = item(&all, "many");
+    for code in ["expr/macro", "expr/loop", "expr/method-call", "expr/cast"] {
+        assert!(every.contains(&format!("\"code\":\"{code}\"")), "{code} missing in {every}");
+    }
+    // Items with one cause, or none, read the same either way.
+    for name in ["abs_of", "twice", "lookup"] {
+        assert_eq!(item(&first, name), item(&all, name), "{name}");
+    }
 }

@@ -56,7 +56,7 @@ fn execute(command: Command) -> Result<(), String> {
             let schema = parse_schema(schema)?;
             load(&input, "", schema, access(publishable)).and_then(|pkg| check_drift(&input, &out, &pkg))
         }
-        Command::Survey { inputs, json } => run_survey(&inputs, json),
+        Command::Survey { inputs, json, all_causes } => run_survey(&inputs, json, all_causes),
         Command::Version => {
             println!("purecrate-ts {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -69,14 +69,14 @@ fn execute(command: Command) -> Result<(), String> {
 }
 
 /// A crate that cannot be surveyed is reported and skipped; the others run.
-fn run_survey(inputs: &[Input], json: bool) -> Result<(), String> {
+fn run_survey(inputs: &[Input], json: bool, all_causes: bool) -> Result<(), String> {
     let mut failed = Vec::new();
     for input in inputs {
         let (files, missing) = survey::collect_files(&input.src);
         let report = if files.is_empty() {
             Err(format!("read {}: not found", input.src.display()))
         } else {
-            survey::survey(&input.name, files, missing)
+            survey::survey(&input.name, files, missing, all_causes)
         };
         match report {
             Ok(r) if json => println!("{}", r.json()),

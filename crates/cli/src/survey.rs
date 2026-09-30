@@ -92,9 +92,9 @@ fn module_dir(file: &Path, is_root: bool) -> PathBuf {
     }
 }
 
-pub fn survey(krate: &str, files: Vec<(PathBuf, String)>, missing: Vec<String>) -> Result<Report, String> {
+pub fn survey(krate: &str, files: Vec<(PathBuf, String)>, missing: Vec<String>, all_causes: bool) -> Result<Report, String> {
     let sources: Vec<&str> = files.iter().map(|(_, t)| t.as_str()).collect();
-    let units = survey_files(&sources).map_err(|(i, e)| format!("{}:{e}", files[i].0.display()))?;
+    let units = survey_files(&sources, all_causes).map_err(|(i, e)| format!("{}:{e}", files[i].0.display()))?;
     let index = Index::new(&units);
     let mut verdicts = Vec::new();
     let mut others = BTreeMap::new();
@@ -180,6 +180,8 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
         Ok(item) => item,
         Err(e) => return Outcome::Rejected(vec![Cause::parse(e)]),
     };
+    // With `--all-causes`: what the item's own lowering stood in for.
+    let recovered: Vec<Cause> = units[start].causes.iter().map(Cause::parse).collect();
     let mut seen = BTreeSet::from([start]);
     let mut stack = vec![(start, item)];
     let mut blockers = Vec::new();
@@ -213,16 +215,20 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                     continue;
                 }
                 match &units[j].lowered {
-                    Ok(dep) => stack.push((j, dep)),
-                    Err(e) => blockers.push((j, Cause::parse(e))),
+                    Ok(dep) if units[j].causes.is_empty() => stack.push((j, dep)),
+                    Ok(_) => blockers.push((j, units[j].causes.iter().map(Cause::parse).collect())),
+                    Err(e) => blockers.push((j, vec![Cause::parse(e)])),
                 }
             }
         }
     }
-    if let Some((j, cause)) = blockers.into_iter().min_by_key(|(j, _)| *j) {
+    if let Some((j, causes)) = blockers.into_iter().min_by_key(|(j, _)| *j) {
+        if !recovered.is_empty() {
+            return Outcome::Rejected(recovered);
+        }
         return Outcome::Blocked {
             by: display_name(&units[j]),
-            causes: vec![cause],
+            causes,
         };
     }
     let order: Vec<usize> = seen.into_iter().collect();
@@ -231,7 +237,8 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
         .map(|&j| units[j].lowered.clone().expect("blockers were handled"))
         .collect();
     match accept(&Crate::new(krate, items)) {
-        Ok(_) => Outcome::Accepted,
+        Ok(_) if recovered.is_empty() => Outcome::Accepted,
+        Ok(_) => Outcome::Rejected(recovered),
         Err(diagnostics) => {
             let at = |d: &purecrate_check::Diagnostic| order[d.item];
             let cause = |d: &purecrate_check::Diagnostic| Cause {
@@ -239,7 +246,10 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                 detail: d.detail.clone(),
                 message: d.message.clone(),
             };
-            let own: Vec<Cause> = diagnostics.iter().filter(|d| at(d) == start).map(cause).collect();
+            let own: Vec<Cause> = recovered
+                .into_iter()
+                .chain(diagnostics.iter().filter(|d| at(d) == start).map(cause))
+                .collect();
             if !own.is_empty() {
                 return Outcome::Rejected(own);
             }

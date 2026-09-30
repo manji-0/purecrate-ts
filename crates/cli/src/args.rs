@@ -9,7 +9,7 @@ usage:
   purecrate-ts --version | --help
   purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
-  purecrate-ts survey <crate-path>... [--json]
+  purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
 schemas for the public structs and enums.
@@ -29,7 +29,9 @@ with no manifest, or --edition. check
 with --out also fails when <dir> differs from what build would write.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
-one JSON object per crate.";
+one JSON object per crate. --all-causes lowers each item past what it
+cannot take and lists every cause, not just the first, to estimate a
+rewrite.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Input {
@@ -60,7 +62,7 @@ pub enum Command {
         schema: Option<String>,
         publishable: bool,
     },
-    Survey { inputs: Vec<Input>, json: bool },
+    Survey { inputs: Vec<Input>, json: bool, all_causes: bool },
     Version,
     Help,
 }
@@ -125,10 +127,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
 
 fn parse_survey(rest: &[String]) -> Result<Command, String> {
     let mut json = false;
+    let mut all_causes = false;
     let mut inputs = Vec::new();
     for arg in rest {
         match arg.as_str() {
             "--json" => json = true,
+            "--all-causes" => all_causes = true,
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}")),
             other => inputs.push(resolve_input(Path::new(other), None)?),
         }
@@ -136,7 +140,7 @@ fn parse_survey(rest: &[String]) -> Result<Command, String> {
     if inputs.is_empty() {
         return Err("missing <crate-path>".into());
     }
-    Ok(Command::Survey { inputs, json })
+    Ok(Command::Survey { inputs, json, all_causes })
 }
 
 fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {

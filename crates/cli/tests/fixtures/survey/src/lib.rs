@@ -43,6 +43,17 @@ pub fn abs_of(n: i32) -> i32 {
     n.abs()
 }
 
+/// Four causes: two the parser meets (`format!`, `loop`) and two the type
+/// check meets (`trim`, `as` on an integer).
+pub fn many(n: i32, s: &str) -> i64 {
+    let text = format!("{n}");
+    let k = s.trim().len();
+    loop {
+        break;
+    }
+    n as i64
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

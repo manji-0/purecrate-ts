@@ -91,6 +91,10 @@ pub struct Cx {
     variants: HashSet<(String, String)>,
     /// Names made up while lowering (`$g1`, ... for guarded scrutinees).
     fresh: std::cell::Cell<u32>,
+    /// When set (`survey --all-causes`), an expression or block that cannot
+    /// be lowered is recorded here and stands in as `unreachable`, so the
+    /// rest of the item is still lowered and every cause is found.
+    recovered: std::cell::RefCell<Option<Vec<ParseError>>>,
 }
 
 impl Cx {
@@ -124,6 +128,7 @@ impl Cx {
             variant_owner,
             variants,
             fresh: std::cell::Cell::new(0),
+            recovered: std::cell::RefCell::new(None),
         }
     }
 
@@ -141,6 +146,27 @@ impl Cx {
 
     pub fn enum_for_variant(&self, variant: &str) -> Option<String> {
         self.variant_owner.get(variant).cloned()
+    }
+
+    /// Runs `f` recording the expressions it cannot lower instead of
+    /// failing on the first; returns what `f` returned and those errors.
+    pub fn recovering<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> (T, Vec<ParseError>) {
+        *self.recovered.borrow_mut() = Some(Vec::new());
+        let out = f(self);
+        let errors = self.recovered.borrow_mut().take().unwrap_or_default();
+        (out, errors)
+    }
+
+    /// In recovery, records `e` and returns `true`: the caller stands in
+    /// a placeholder. Otherwise `false`, and the caller fails with `e`.
+    pub fn recover(&self, e: &ParseError) -> bool {
+        match self.recovered.borrow_mut().as_mut() {
+            Some(errors) => {
+                errors.push(e.clone());
+                true
+            }
+            None => false,
+        }
     }
 
     /// A name no Rust identifier can have (`$` is not in one).

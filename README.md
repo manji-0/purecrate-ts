@@ -32,7 +32,7 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 ```text
 purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
 purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
-purecrate-ts survey <crate-path>... [--json]
+purecrate-ts survey <crate-path>... [--json] [--all-causes]
 ```
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
@@ -40,6 +40,7 @@ purecrate-ts survey <crate-path>... [--json]
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
 - The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime and, with `--schema`, the adapter are copied into `src/`; the schema library is the only peer dependency. `version` comes from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `purecrate`'s `parseJson`, not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
+- `survey` reports, for each public function and type, whether it is accepted with everything it refers to, and the first cause when it is not. `--all-causes` lowers each item past what it cannot take and lists every cause, the type check's included, to estimate a rewrite.
 - Never edit generated packages. Change the Rust and regenerate.
 
 ## What you can write
