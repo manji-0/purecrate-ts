@@ -242,6 +242,8 @@ The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can r
 
 **What.** The runtime (`packages/boundary`) is copied in as `src/purecrate-runtime.ts`. With `--schema`, the adapter is copied in as `src/purecrate-<lib>.ts`. Both are copied at the generator's revision. The schema library is the only `peerDependencies` entry.
 
+**Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files name it (`Int.<ty>.<op>` for each type's bitwise operators and methods, `Str.<member>`, `Json`), and leaves the markers out (`crates/pack/src/trim.rs`). The types, each integer type's `of` and arithmetic, and what the index exports to callers (`Char`, `Uuid`, `parseJson`) are always kept. Why: the runtime's `Int` is one object that generated code always names, so a bundler cannot drop what it does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. Since 2026-10-01; payment's copy is 14.5 KB of the runtime's 23 KB, counter's 10.7 KB.
+
 **Brands.** The runtime's brands are keyed by string (`{ readonly "purecrate.I32": true }`), so packages that each carry a copy exchange values. A crate's own closed types keep `unique symbol` brands.
 
 **Why.** It removes the version skew between generator and runtime. Nothing has to be installed that is not on npm.

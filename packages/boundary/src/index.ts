@@ -3,6 +3,10 @@
  * carries its own copy (src/purecrate-runtime.ts). The brands are keyed by
  * string, not by `unique symbol`, so an `I32` or a `Uuid` from one package's
  * copy is the same type as another's and values pass between packages.
+ *
+ * A package's copy keeps only what its code uses: the region and needs
+ * comments below mark code kept when any use they list is found in the
+ * package, and are left out of the copy (crates/pack/src/trim.rs).
  */
 export type I8 = number & { readonly "purecrate.I8": true };
 export type I16 = number & { readonly "purecrate.I16": true };
@@ -63,6 +67,7 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
+// #region methods.i8 methods.i16 methods.i32 methods.u8 methods.u16 methods.u32 methods.usize methods.i64 methods.u64
 /**
  * The integer methods, from the exact result: `x.checked_add(y)` is it or
  * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
@@ -126,9 +131,14 @@ const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number
   } as const;
 };
 
+// #endregion
+
+// #region methods.usize
 const small64 = (n: bigint): Usize =>
   n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+// #endregion
 
+// #region bits.i8 bits.i16 bits.i32 bits.u8 bits.u16 bits.u32 bits.i64 bits.u64
 /**
  * The amount of a shift, of any integer type. A debug build panics unless it
  * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
@@ -136,7 +146,9 @@ const small64 = (n: bigint): Usize =>
  */
 const shiftAmount = (n: number | bigint, bits: number, what: string): number =>
   n < 0 || n >= bits ? panic(`shift ${what} with overflow`) : Number(n);
+// #endregion
 
+// #region bits.i8 bits.i16 bits.i32 bits.u8 bits.u16 bits.u32
 /**
  * `& | ^ ! << >>` on a width of at most 32 bits. The JS operators work on
  * int32; `wrap` sign- or zero-extends the low `bits` back into the width.
@@ -156,7 +168,9 @@ const bits32 = <T extends number>(bits: number, signed: boolean) => {
     },
   } as const;
 };
+// #endregion
 
+// #region bits.i64 bits.u64
 /** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
 const bits64 = <T extends bigint>(signed: boolean) => {
   const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
@@ -170,7 +184,9 @@ const bits64 = <T extends bigint>(signed: boolean) => {
     shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
   } as const;
 };
+// #endregion
 
+// #region parseJson
 const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
 
 /**
@@ -191,6 +207,7 @@ export const parseJson = (text: string): unknown =>
       ? BigInt(context.source)
       : value,
   );
+// #endregion
 
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
@@ -199,6 +216,7 @@ export const parseJson = (text: string): unknown =>
  * its bytes here are not specified.
  */
 export const Str = {
+  // #region str.bytes
   /** `str::as_bytes`: the UTF-8 bytes. */
   bytes: (s: string): ReadonlyArray<U8> => {
     const out: number[] = [];
@@ -211,8 +229,12 @@ export const Str = {
     }
     return out as unknown as ReadonlyArray<U8>;
   },
+  // #endregion
+  // #region str.len
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
+  // #endregion
+  // #region str.slice
   /**
    * `&s[start..end]` at UTF-8 byte positions (`end` absent for `&s[start..]`).
    * Panics as Rust does, in its order: a position past the end, a reversed
@@ -246,12 +268,18 @@ export const Str = {
     if (from < 0 || to < 0) panicWith(inside as string);
     return s.slice(from, to);
   },
+  // #endregion
+  // #region str.stripPrefix
   /** `str::strip_prefix` with a `&str`. */
   stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
+  // #endregion
+  // #region str.stripSuffix
   /** `str::strip_suffix` with a `&str`. */
   stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
+  // #endregion
 } as const;
 
+// #region str.slice
 /**
  * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
  * for a grapheme extender or a code point that is not printable (the
@@ -266,7 +294,9 @@ const debugChar = (c: string): string =>
 // Built on first use: a literal with Unicode properties costs about half a
 // millisecond when the module loads, for a message only a panic prints.
 let escaped: RegExp | undefined;
+// #endregion
 
+// #region str.len str.slice
 const utf8Len = (s: string): Usize => {
   let n = 0;
   for (const c of s) n += utf8Width(c);
@@ -277,7 +307,9 @@ const utf8Width = (c: string): number => {
   const p = c.codePointAt(0) as number;
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
 };
+// #endregion
 
+// #region char
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
 const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
@@ -285,15 +317,20 @@ const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
 const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
   r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
+// #endregion
+// #region char methods.usize str.slice
 const panicWith = (message: string): never => {
   throw new Error(message);
 };
+// #endregion
+// #region char
 const digitValue = (c: Char, r: U32): number | null => {
   const base = radix(r);
   const p = code(c);
   const d = p >= 0x30 && p <= 0x39 ? p - 0x30 : (p | 0x20) >= 0x61 && (p | 0x20) <= 0x7a ? (p | 0x20) - 0x61 + 10 : 99;
   return d < base ? d : null;
 };
+// #endregion
 
 /**
  * `char` operations (design/01 §6). Ordering and ranges go through `code`:
@@ -302,11 +339,14 @@ const digitValue = (c: Char, r: U32): number | null => {
  * Unicode-table ones (`is_alphabetic`, ...) are not.
  */
 export const Char = {
+  // #region char.is
   /** Checks `s` is one Unicode scalar value, as serde reads a `char`. */
   is: (s: string): s is Char => {
     const p = s.codePointAt(0);
     return p !== undefined && s.length === (p > 0xffff ? 2 : 1) && (p < 0xd800 || p > 0xdfff);
   },
+  // #endregion
+  // #region char
   /** `u32::from(c)`: the code point. */
   code: (c: Char): U32 => code(c) as U32,
   /** `char::from(b)`: U+0000..=U+00FF. */
@@ -335,6 +375,7 @@ export const Char = {
   /** ASCII digits and letters only, as Rust; panics on a radix outside 2..=36. */
   isDigit: (c: Char, r: U32): boolean => digitValue(c, r) !== null,
   toDigit: (c: Char, r: U32): U32 | null => digitValue(c, r) as U32 | null,
+  // #endregion
 } as const;
 
 /**
@@ -346,6 +387,7 @@ export type Uuid = string & { readonly "purecrate.Uuid": true };
 /** A `uuid::Error`. Nothing translated reads one, so it carries nothing. */
 export type UuidError = { readonly "purecrate.UuidError": true };
 
+// #region uuid
 const UUID_ERROR = Object.freeze({}) as UuidError;
 const HEX32 = /^[0-9a-fA-F]{32}$/;
 const HYPHENATED = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -388,31 +430,55 @@ export const Uuid = {
   /** `Uuid::nil()`. */
   nil: (): Uuid => "00000000-0000-0000-0000-000000000000" as Uuid,
 } as const;
+// #endregion
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  i8: { ...small<I8>(-128, 127), ...bits32<I8>(8, true), ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8) },
-  i16: { ...small<I16>(-32768, 32767), ...bits32<I16>(16, true), ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16) },
+  i8: {
+    ...small<I8>(-128, 127),
+    ...bits32<I8>(8, true), // #needs bits.i8
+    ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8), // #needs methods.i8
+  },
+  i16: {
+    ...small<I16>(-32768, 32767),
+    ...bits32<I16>(16, true), // #needs bits.i16
+    ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16), // #needs methods.i16
+  },
   i32: {
     ...small<I32>(-2147483648, 2147483647),
-    ...bits32<I32>(32, true),
-    ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32),
+    ...bits32<I32>(32, true), // #needs bits.i32
+    ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32), // #needs methods.i32
   },
-  u8: { ...small<U8>(0, 255), ...bits32<U8>(8, false), ...methods(0n, 255n, 8, false, (n) => Number(n) as U8) },
-  u16: { ...small<U16>(0, 65535), ...bits32<U16>(16, false), ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16) },
-  u32: { ...small<U32>(0, 4294967295), ...bits32<U32>(32, false), ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32) },
+  u8: {
+    ...small<U8>(0, 255),
+    ...bits32<U8>(8, false), // #needs bits.u8
+    ...methods(0n, 255n, 8, false, (n) => Number(n) as U8), // #needs methods.u8
+  },
+  u16: {
+    ...small<U16>(0, 65535),
+    ...bits32<U16>(16, false), // #needs bits.u16
+    ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16), // #needs methods.u16
+  },
+  u32: {
+    ...small<U32>(0, 4294967295),
+    ...bits32<U32>(32, false), // #needs bits.u32
+    ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32), // #needs methods.u32
+  },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
-  usize: { ...small<Usize>(0, 9007199254740991), ...methods(0n, 18446744073709551615n, 64, false, small64) },
+  usize: {
+    ...small<Usize>(0, 9007199254740991),
+    ...methods(0n, 18446744073709551615n, 64, false, small64), // #needs methods.usize
+  },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
-    ...bits64<I64>(true),
-    ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64),
+    ...bits64<I64>(true), // #needs bits.i64
+    ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64), // #needs methods.i64
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...bits64<U64>(false),
-    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64),
+    ...bits64<U64>(false), // #needs bits.u64
+    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64), // #needs methods.u64
   },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
@@ -422,6 +488,7 @@ export const Int = {
   },
 } as const;
 
+// #region json
 /** Shortest digits and decimal exponent: `digits` × 10^(`point` − length). */
 const decimal = (x: number): { digits: string; point: number } => {
   const [mantissa, exponent] = x.toExponential().split("e");
@@ -485,3 +552,4 @@ export const Json = {
   },
   array: <T>(xs: ReadonlyArray<T>, write: (x: T) => string): string => `[${xs.map((x) => write(x)).join(",")}]`,
 } as const;
+// #endregion

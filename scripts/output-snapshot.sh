@@ -7,8 +7,8 @@
 #   scripts/output-snapshot.sh [<out-dir>]   # default: a temporary directory
 #
 # The per-file hashes go to <out-dir>/manifest.txt, to diff two runs, and the
-# bytes of each input's generated code (no schema, the copied runtime left
-# out) to <out-dir>/sizes.txt; the examples' sizes are printed too.
+# bytes of each input's generated code (no schema) to <out-dir>/sizes.txt,
+# without and with the copied runtime; the examples' sizes are printed too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -56,7 +56,8 @@ for input in "${inputs[@]}"; do
   src="$out/gen/$(echo "$input" | tr '/.' '__')/none/src"
   [ -d "$src" ] || continue
   bytes=$(find "$src" -name '*.ts' ! -name purecrate-runtime.ts -exec cat {} + | wc -c | tr -d ' ')
-  echo "$bytes $input"
+  all=$(find "$src" -name '*.ts' -exec cat {} + | wc -c | tr -d ' ')
+  echo "$bytes $all $input"
 done >"$out/sizes.txt"
 digest=$(shasum -a 256 <"$out/manifest.txt" | cut -d' ' -f1)
 echo "$digest  ($(wc -l <"$out/manifest.txt" | tr -d ' ') files, manifest in $out/manifest.txt)"

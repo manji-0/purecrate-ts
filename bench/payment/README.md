@@ -19,38 +19,45 @@ A run is `create` plus four events: attach a card, confirm (3D Secure required),
 
 ## Results
 
-2026-10-01, purecrate-ts after 0.4.0 (payment rewritten with a tuple `match`, guards, and the `Option` methods; the runtime with the 0.4.0 methods), Apple M5 Max, Node 24.20, rustc 1.98.1, wasm-bindgen 0.2.118, esbuild 0.28.
+2026-10-01, purecrate-ts after 0.4.0 with the runtime cut to what the package uses (payment rewritten with a tuple `match`, guards, and the `Option` methods), Apple M5 Max, Node 24.20, rustc 1.98.1, wasm-bindgen 0.2.118, esbuild 0.28.
 
 Size, in bytes (raw / gzip -9):
 
 | Artifact | Size |
 | --- | --- |
-| TS bundle (esbuild, minified; `create`, `step`, constructors, runtime) | 9,383 / 3,101 |
+| TS bundle (esbuild, minified; `create`, `step`, constructors, runtime) | 7,281 / 2,268 |
 | WASM, all three boundaries, opt-level 3 | 235,252 / 80,195 |
 | WASM, serde-wasm-bindgen only, opt-level z, `wasm-opt -Oz` | 72,296 / 32,772 |
 | wasm-bindgen web glue (minified) | 7,708 / 2,959 |
 
-The smallest WASM plus glue is about 11.5× the TS bundle, gzipped.
+The smallest WASM plus glue is about 16× the TS bundle, gzipped.
 
 Time from script start to the first `step` result, including module load and WASM compilation (median of 21 fresh Node processes):
 
 | Variant | ms |
 | --- | --- |
-| `ts` | 0.72 |
-| `json` | 2.30 |
-| `swb` | 1.84 |
-| `handle` | 1.64 |
+| `ts` | 0.52 |
+| `json` | 2.25 |
+| `swb` | 1.76 |
+| `handle` | 1.63 |
 
 Per-call cost after warm-up (median of 5 rounds of 200,000 runs; one run is five calls):
 
 | Variant | ns per run | ns per call | vs. `ts` |
 | --- | --- | --- | --- |
 | `ts` | 74 | 15 | 1× |
-| `handle` | 1,734 | 347 | 23× |
-| `swb` | 5,670 | 1,134 | 76× |
-| `json` | 7,128 | 1,426 | 95× |
+| `handle` | 1,787 | 357 | 24× |
+| `swb` | 5,757 | 1,151 | 77× |
+| `json` | 6,983 | 1,397 | 93× |
 
-Against the first measurement (2026-09-29, before 0.4.0): the TS bundle grew from 6,036 / 1,795 bytes, mostly the runtime's integer methods and slicing, which every package carries whether it calls them or not; the first call went from 0.46 to 0.72 ms for the same reason. A 1.18 ms first call measured the same day came from the runtime's Unicode-property regular expression, compiled at module load; it is now built when first used. The WASM numbers did not move.
+History of the TS side (the WASM side did not move):
+
+| Measured | Bundle (raw / gzip) | First call | What changed |
+| --- | --- | --- | --- |
+| 2026-09-29 | 6,036 / 1,795 | 0.46 ms | first measurement |
+| 2026-10-01 | 9,383 / 3,101 | 1.18 ms | after 0.4.0: the runtime's integer methods and slicing in every package, and a Unicode-property regular expression compiled at module load |
+| 2026-10-01 | 9,383 / 3,101 | 0.72 ms | the regular expression built on first use |
+| 2026-10-01 | 7,281 / 2,268 | 0.52 ms | the runtime cut to what the package uses |
 
 ## Reading
 

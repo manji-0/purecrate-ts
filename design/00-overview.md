@@ -87,7 +87,7 @@ Six examples are written within the constraints and differentially tested:
 | [invoice](../examples/invoice/src/lib.rs) | third-party specification |
 | [oidc](../examples/oidc/src/lib.rs) | third-party specification |
 
-Against wasm-bindgen on the same source, the payment transition is 23–95× cheaper per call and about 11× smaller gzipped (measured 2026-10-01) ([bench/payment](../bench/payment/README.md)).
+Against wasm-bindgen on the same source, the payment transition is 24–93× cheaper per call and about 16× smaller gzipped (measured 2026-10-01) ([bench/payment](../bench/payment/README.md)).
 
 ## 5. Documents
 

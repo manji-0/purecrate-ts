@@ -31,7 +31,7 @@ crate source (root and module files)
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
-- **Runtime packages.** The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)).
+- **Runtime packages.** The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package, the runtime cut to what the package uses ([03](./03-output.md)).
 - **Purity.** File I/O is confined to `cli` and `pack`; everything else is pure.
 - **Dependencies.** Dependencies are ordinary crates.io requirements, read from `vendor/` through source replacement (`.cargo/config.toml`) and built with `--offline`.
 

@@ -1,6 +1,8 @@
 use purecrate_emit_ts::{emit, emit_wire, File as TsFile, Package, WireSchema, HEADER};
 use purecrate_ir::Crate;
 
+mod trim;
+
 /// The version a package gets when the crate's manifest names none.
 pub const DEFAULT_VERSION: &str = "0.1.0";
 
@@ -30,7 +32,8 @@ pub const RUNTIME_STEM: &str = "purecrate-runtime";
 /// package carries its own copy: there is nothing to install beside it but
 /// the schema library, and the copy cannot fall out of step with the code
 /// generated against it. The runtime's brands are keyed by string, so values
-/// still pass between packages that each carry a copy.
+/// still pass between packages that each carry a copy. The copy keeps only
+/// the parts the package's code uses (`trim`).
 const RUNTIME_SOURCE: &str = include_str!("../../../packages/boundary/src/index.ts");
 
 fn adapter_source(schema: WireSchema) -> &'static str {
@@ -67,9 +70,13 @@ pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: 
             source: copied(schema.package(), &format!("packages/boundary-{}", schema.runtime_dep()), adapter_source(schema)),
         });
     }
+    // Every package's index exports `Char`, `Uuid`, and `parseJson` for its
+    // callers, so those stay whole; a caller's bundler drops them unused.
+    let mut uses = trim::uses(pkg.files.iter().map(|f| f.source.as_str()));
+    uses.extend(trim::EXPORTED.iter().map(|u| u.to_string()));
     pkg.files.push(TsFile {
         stem: RUNTIME_STEM.to_string(),
-        source: copied("purecrate", "packages/boundary", RUNTIME_SOURCE),
+        source: copied("purecrate", "packages/boundary", &trim::trim(RUNTIME_SOURCE, &uses)),
     });
     // The sources above name the runtime and adapter as packages; here they
     // are files beside them.

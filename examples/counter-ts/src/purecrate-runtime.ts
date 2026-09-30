@@ -7,6 +7,10 @@
  * carries its own copy (src/purecrate-runtime.ts). The brands are keyed by
  * string, not by `unique symbol`, so an `I32` or a `Uuid` from one package's
  * copy is the same type as another's and values pass between packages.
+ *
+ * A package's copy keeps only what its code uses: the region and needs
+ * comments below mark code kept when any use they list is found in the
+ * package, and are left out of the copy (crates/pack/src/trim.rs).
  */
 export type I8 = number & { readonly "purecrate.I8": true };
 export type I16 = number & { readonly "purecrate.I16": true };
@@ -67,113 +71,10 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
-/**
- * The integer methods, from the exact result: `x.checked_add(y)` is it or
- * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
- * low `bits`, and the others panic outside the range as a debug build does.
- * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
- * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
- */
-const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number, signed: boolean, to: (n: bigint) => T) => {
-  const v = (x: T): bigint => BigInt(x);
-  const inRange = (n: bigint): boolean => n >= lo && n <= hi;
-  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? to(n) : panic(`${what} with overflow`));
-  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? to(n) : null);
-  const clamp = (n: bigint): T => to(n < lo ? lo : n > hi ? hi : n);
-  const wrap = (n: bigint): T => to(signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n));
-  // `a ** e`, or `null` where it is certainly outside the range: a base of
-  // magnitude 2 or more to an exponent of `bits` or more.
-  const power = (a: bigint, e: number): bigint | null =>
-    e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= bits ? null : a ** BigInt(e);
-  const modPower = (a: bigint, e: number): bigint => {
-    const m = 1n << BigInt(bits);
-    let base = BigInt.asUintN(bits, a);
-    let acc = 1n;
-    for (let k = e; k > 0; k = Math.floor(k / 2)) {
-      if (k % 2 === 1) acc = (acc * base) % m;
-      base = (base * base) % m;
-    }
-    return acc;
-  };
-  const quotient = (a: bigint, b: bigint): bigint | null => (b === 0n ? null : a / b);
-  const zero = (b: T, what: string): void => {
-    if (v(b) === 0n) panic(what);
-  };
-  return {
-    min: (a: T, b: T): T => (a <= b ? a : b),
-    max: (a: T, b: T): T => (a >= b ? a : b),
-    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"),
-    pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
-    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
-    checkedSub: (a: T, b: T): T | null => checked(v(a) - v(b)),
-    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
-    checkedDiv: (a: T, b: T): T | null => checked(quotient(v(a), v(b))),
-    // `MIN % -1` is `None`: the quotient it comes from overflows.
-    checkedRem: (a: T, b: T): T | null =>
-      checked(quotient(v(a), v(b))) === null ? null : to(v(a) % v(b)),
-    checkedNeg: (a: T): T | null => checked(-v(a)),
-    checkedPow: (a: T, e: U32): T | null => checked(power(v(a), e)),
-    saturatingAdd: (a: T, b: T): T => clamp(v(a) + v(b)),
-    saturatingSub: (a: T, b: T): T => clamp(v(a) - v(b)),
-    saturatingMul: (a: T, b: T): T => clamp(v(a) * v(b)),
-    saturatingPow: (a: T, e: U32): T => {
-      const n = power(v(a), e);
-      return n !== null ? clamp(n) : to(v(a) < 0n && e % 2 === 1 ? lo : hi);
-    },
-    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)),
-    wrappingSub: (a: T, b: T): T => wrap(v(a) - v(b)),
-    wrappingMul: (a: T, b: T): T => wrap(v(a) * v(b)),
-    wrappingDiv: (a: T, b: T): T => (zero(b, "divide by zero"), wrap(v(a) / v(b))),
-    wrappingRem: (a: T, b: T): T => (zero(b, "calculate the remainder with a divisor of zero"), wrap(v(a) % v(b))),
-    wrappingNeg: (a: T): T => wrap(-v(a)),
-    wrappingPow: (a: T, e: U32): T => wrap(modPower(v(a), e)),
-  } as const;
-};
 
-const small64 = (n: bigint): Usize =>
-  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
 
-/**
- * The amount of a shift, of any integer type. A debug build panics unless it
- * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
- * bits shifted out of the result are dropped without a panic.
- */
-const shiftAmount = (n: number | bigint, bits: number, what: string): number =>
-  n < 0 || n >= bits ? panic(`shift ${what} with overflow`) : Number(n);
 
-/**
- * `& | ^ ! << >>` on a width of at most 32 bits. The JS operators work on
- * int32; `wrap` sign- or zero-extends the low `bits` back into the width.
- */
-const bits32 = <T extends number>(bits: number, signed: boolean) => {
-  const s = 32 - bits;
-  const wrap = (n: number): T => (signed ? (n << s) >> s : (n << s) >>> s) as T;
-  return {
-    and: (a: T, b: T): T => wrap(a & b),
-    or: (a: T, b: T): T => wrap(a | b),
-    xor: (a: T, b: T): T => wrap(a ^ b),
-    not: (a: T): T => wrap(~a),
-    shl: (a: T, n: number | bigint): T => wrap(a << shiftAmount(n, bits, "left")),
-    shr: (a: T, n: number | bigint): T => {
-      const k = shiftAmount(n, bits, "right");
-      return wrap(signed ? a >> k : a >>> k);
-    },
-  } as const;
-};
 
-/** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
-const bits64 = <T extends bigint>(signed: boolean) => {
-  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
-  const v = (x: T): bigint => x as bigint;
-  return {
-    and: (a: T, b: T): T => wrap(v(a) & v(b)),
-    or: (a: T, b: T): T => wrap(v(a) | v(b)),
-    xor: (a: T, b: T): T => wrap(v(a) ^ v(b)),
-    not: (a: T): T => wrap(~v(a)),
-    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, 64, "left"))),
-    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
-  } as const;
-};
 
 const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
 
@@ -203,84 +104,9 @@ export const parseJson = (text: string): unknown =>
  * its bytes here are not specified.
  */
 export const Str = {
-  /** `str::as_bytes`: the UTF-8 bytes. */
-  bytes: (s: string): ReadonlyArray<U8> => {
-    const out: number[] = [];
-    for (const c of s) {
-      const p = c.codePointAt(0) as number;
-      if (p < 0x80) out.push(p);
-      else if (p < 0x800) out.push(0xc0 | (p >> 6), 0x80 | (p & 0x3f));
-      else if (p < 0x10000) out.push(0xe0 | (p >> 12), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
-      else out.push(0xf0 | (p >> 18), 0x80 | ((p >> 12) & 0x3f), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
-    }
-    return out as unknown as ReadonlyArray<U8>;
-  },
-  /** `str::len`: the number of UTF-8 bytes. */
-  len: (s: string): Usize => utf8Len(s),
-  /**
-   * `&s[start..end]` at UTF-8 byte positions (`end` absent for `&s[start..]`).
-   * Panics as Rust does, in its order: a position past the end, a reversed
-   * range, then a position inside a character, shown as `Debug` shows it.
-   */
-  slice: (s: string, start: Usize, end?: Usize): string => {
-    const len = utf8Len(s);
-    const stop = end ?? len;
-    if (start > len) panicWith(`start byte index ${start} is out of bounds for string of length ${len}`);
-    if (stop > len) panicWith(`end byte index ${stop} is out of bounds for string of length ${len}`);
-    if (start > stop) panicWith(`byte range starts at ${start} but ends at ${stop}`);
-    let byte = 0;
-    let unit = 0;
-    let from = -1;
-    let to = -1;
-    let inside: string | null = null;
-    for (const c of s) {
-      const w = utf8Width(c);
-      if (byte === start) from = unit;
-      if (byte === stop) to = unit;
-      for (const [which, at] of [["start", start], ["end", stop]] as const) {
-        if (inside === null && at > byte && at < byte + w) {
-          inside = `${which} byte index ${at} is not a char boundary; it is inside '${debugChar(c)}' (bytes ${byte}..${byte + w} of string)`;
-        }
-      }
-      byte += w;
-      unit += c.length;
-    }
-    if (byte === start) from = unit;
-    if (byte === stop) to = unit;
-    if (from < 0 || to < 0) panicWith(inside as string);
-    return s.slice(from, to);
-  },
-  /** `str::strip_prefix` with a `&str`. */
-  stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
-  /** `str::strip_suffix` with a `&str`. */
-  stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
 } as const;
 
-/**
- * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
- * for a grapheme extender or a code point that is not printable (the
- * categories core's `printable.py` escapes), itself otherwise. The tables are
- * the JS engine's; they agree with Rust's where both use one Unicode version
- * (design/01 §3).
- */
-const debugChar = (c: string): string =>
-  (escaped ??= new RegExp("[\\p{Grapheme_Extend}\\p{Zs}\\p{Zl}\\p{Zp}\\p{Cc}\\p{Cf}\\p{Cs}\\p{Co}\\p{Cn}]", "u")).test(c) && c !== " "
-    ? `\\u{${(c.codePointAt(0) as number).toString(16)}}`
-    : c;
-// Built on first use: a literal with Unicode properties costs about half a
-// millisecond when the module loads, for a message only a panic prints.
-let escaped: RegExp | undefined;
 
-const utf8Len = (s: string): Usize => {
-  let n = 0;
-  for (const c of s) n += utf8Width(c);
-  return n as Usize;
-};
-
-const utf8Width = (c: string): number => {
-  const p = c.codePointAt(0) as number;
-  return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
-};
 
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
@@ -395,28 +221,34 @@ export const Uuid = {
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  i8: { ...small<I8>(-128, 127), ...bits32<I8>(8, true), ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8) },
-  i16: { ...small<I16>(-32768, 32767), ...bits32<I16>(16, true), ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16) },
+  i8: {
+    ...small<I8>(-128, 127),
+  },
+  i16: {
+    ...small<I16>(-32768, 32767),
+  },
   i32: {
     ...small<I32>(-2147483648, 2147483647),
-    ...bits32<I32>(32, true),
-    ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32),
   },
-  u8: { ...small<U8>(0, 255), ...bits32<U8>(8, false), ...methods(0n, 255n, 8, false, (n) => Number(n) as U8) },
-  u16: { ...small<U16>(0, 65535), ...bits32<U16>(16, false), ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16) },
-  u32: { ...small<U32>(0, 4294967295), ...bits32<U32>(32, false), ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32) },
+  u8: {
+    ...small<U8>(0, 255),
+  },
+  u16: {
+    ...small<U16>(0, 65535),
+  },
+  u32: {
+    ...small<U32>(0, 4294967295),
+  },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
-  usize: { ...small<Usize>(0, 9007199254740991), ...methods(0n, 18446744073709551615n, 64, false, small64) },
+  usize: {
+    ...small<Usize>(0, 9007199254740991),
+  },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
-    ...bits64<I64>(true),
-    ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64),
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...bits64<U64>(false),
-    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64),
   },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
@@ -426,66 +258,3 @@ export const Int = {
   },
 } as const;
 
-/** Shortest digits and decimal exponent: `digits` × 10^(`point` − length). */
-const decimal = (x: number): { digits: string; point: number } => {
-  const [mantissa, exponent] = x.toExponential().split("e");
-  return { digits: mantissa.replace("-", "").replace(".", ""), point: Number(exponent) + 1 };
-};
-
-/**
- * A finite float laid out as ryu writes it for serde_json: `1.0`, `0.001`,
- * `1e16`, `1.5e-7`. Plain notation holds for 10^(`low`) ≤ |x| < 10^`high`.
- */
-const ryu = (x: number, digits: string, point: number, high: number, low: number): string => {
-  const sign = x < 0 || Object.is(x, -0) ? "-" : "";
-  if (x === 0) return `${sign}0.0`;
-  const length = digits.length;
-  if (point >= length && point <= high) return `${sign}${digits}${"0".repeat(point - length)}.0`;
-  if (point > 0 && point <= high) return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
-  if (point > low && point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
-  const rest = length === 1 ? "" : `.${digits.slice(1)}`;
-  return `${sign}${digits[0]}${rest}e${point - 1}`;
-};
-
-/**
- * Writes domain values as serde_json writes the Rust value (design/04 §6):
- * integers exactly (`bigint` included), floats as ryu lays them out, and
- * non-finite floats as `null`, which serde_json then cannot read back.
- * Generated `toJson` encoders compose these.
- */
-export const Json = {
-  int: (n: number | bigint): string => String(n),
-  bool: (b: boolean): string => (b ? "true" : "false"),
-  /** JSON.stringify escapes as serde_json does for well-formed strings. */
-  str: (s: string): string => JSON.stringify(s),
-  f64: (x: number): string => {
-    if (!Number.isFinite(x)) return "null";
-    const { digits, point } = decimal(x);
-    return ryu(x, digits, point, 16, -5);
-  },
-  /**
-   * The shortest digits that read back as the same `f32`. When two are
-   * equally near, ryu takes the even one; `toPrecision` rounds half up.
-   */
-  f32: (x: number): string => {
-    if (!Number.isFinite(x)) return "null";
-    // At most 9 digits are needed; 100 give the exact value of any `f32`
-    // whose expansion could end in a tie.
-    const [exact, exponent] = Math.abs(x).toExponential(99).split("e");
-    const all = exact.replace(".", "");
-    for (let p = 1; p <= 9; p++) {
-      const shorter = Number(x.toPrecision(p));
-      if (Math.fround(shorter) !== x) continue;
-      let digits = decimal(shorter).digits;
-      let point = decimal(shorter).point;
-      const tie = all[p] === "5" && /^0*$/.test(all.slice(p + 1));
-      if (tie && Number(all[p - 1]) % 2 === 0) {
-        const down = Number(`${x < 0 ? "-" : ""}${all[0]}.${all.slice(1, p)}e${exponent}`);
-        if (Math.fround(down) === x) ({ digits, point } = decimal(down));
-      }
-      return ryu(x, digits, point, 13, -6);
-    }
-    return "null";
-  },
-  array: <T>(xs: ReadonlyArray<T>, write: (x: T) => string): string => `[${xs.map((x) => write(x)).join(",")}]`,
-} as const;

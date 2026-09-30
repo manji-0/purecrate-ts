@@ -25,11 +25,11 @@ Teams with a Rust backend and a TS frontend want the same decisions (a transitio
 
   | Measure | F | WASM |
   | --- | --- | --- |
-  | Per `step` | 15 ns | 347 ns with the state kept in WASM; 1.1–1.4 µs with plain objects crossing |
-  | To the first result | 0.7 ms | 1.6–2.3 ms |
-  | Size, gzipped | 3.1 KB | 36 KB for the smallest WASM module with its glue |
+  | Per `step` | 15 ns | 357 ns with the state kept in WASM; 1.2–1.4 µs with plain objects crossing |
+  | To the first result | 0.5 ms | 1.6–2.3 ms |
+  | Size, gzipped | 2.3 KB | 36 KB for the smallest WASM module with its glue |
 
-  Measured again 2026-10-01, after 0.4.0; the first measurement (2026-09-29) had F at 12 ns, 0.5 ms, and 1.8 KB, before the runtime gained 0.4.0's methods.
+  Measured again 2026-10-01, after 0.4.0 and with the runtime cut to what the package uses; the first measurement (2026-09-29) had F at 12 ns, 0.5 ms, and 1.8 KB (history in [bench/payment](../bench/payment/README.md)).
 
 - **Values should be plain TS.** Crux's web shell serializes with bincode; F's values go straight into React state.
 - **The output should be readable.** Generated TS can be reviewed and stepped through.
