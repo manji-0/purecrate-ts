@@ -33,7 +33,8 @@ fn tuples_do_not_nest() {
 #[test]
 fn elements_follow_the_arm_rules() {
     assert_parse_rejects(&run("match (o, n) { (Some(Some(_)), _) => 1, _ => 0 }"), "variant fields may only bind names");
-    assert_parse_rejects(&run("match (n, n) { (0, 0) if true => 1, _ => 0 }"), "match guards");
+    // Guards on tuple arms are accepted (`guards_equivalence.rs`).
+    assert_clean(&run("match (n, d) { (0, Dir::Up) if o.is_some() => 1, (m, _) if m > 3 => 2, _ => 0 }"));
 }
 
 #[test]

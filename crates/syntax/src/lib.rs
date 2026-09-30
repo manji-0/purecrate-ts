@@ -286,10 +286,9 @@ mod tests {
         parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | \"b\" => 1, _ => 2 } }").expect("str pattern");
         let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | 1 => 1, _ => 2 } }").expect_err("mixed");
         assert!(err.message.contains("found a literal"), "{}", err.message);
-        let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, 1 if x > 0) }").expect_err("guard");
-        assert!(err.message.contains("match guards are not in v0"), "{}", err.message);
+        parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, 1..=9 if x % 2 == 0) }").expect("guard");
         let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, _) }").expect_err("always true");
-        assert!(err.message.contains("always `true`"), "{}", err.message);
+        assert!(err.message.contains("does not test `x`"), "{}", err.message);
         let err = parse_source("c", "pub fn f(x: i32) -> i32 { match x { 5.. => 1, _ => 2 } }").expect_err("half-open");
         assert!(err.message.contains("range patterns need a literal at both ends"), "{}", err.message);
         rejects("Cmd::Move(1, b) => b, Cmd::Stop => 0", "found a literal");

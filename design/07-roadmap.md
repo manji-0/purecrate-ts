@@ -147,7 +147,7 @@ The largest gap measured so far: oidc's lexical helpers at 3.2× idiomatic Rust 
 
 ### 0.3.0: guards and `Option`
 
-- Match guards: invoice reached for them three times and the idiomatic payment uses two. A guarded arm is tried in order and does not count toward exhaustiveness, in the TS check as in rustc's.
+- Match guards: invoice reached for them three times and the idiomatic payment uses two. A guarded arm is tried in order and does not count toward exhaustiveness, in the TS check as in rustc's. Done 2026-09-30 (`guards_equivalence.rs`), also on binding arms and in `matches!`. A first version put the arms after a guard inside the `_` of a `switch` on the same value, which TS narrowed so that the later `switch` could not name the other variants; each test and take is now a standalone `match` in an `if` chain.
 - `Option::unwrap_or`, `ok_or`, and `map` with a closure: most of payment's remaining gap (§2). `unwrap_or(e)` evaluates `e` first, as Rust does.
 - `survey` reporting every cause per function, to estimate a rewrite ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
 

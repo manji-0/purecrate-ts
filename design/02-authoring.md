@@ -117,11 +117,13 @@ An arm is one of:
 - on a tuple (`match (state, event)`, 2026-09-30): a tuple whose elements are each `_`, a binding, or any of the above (`(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`); several tuples joined by `|` when they bind nothing; or a last `_`. No `_` is required where the arms cover every case, and the first arm that matches wins, as in Rust. The tuple is not built: elements that are places (`state`, `self.phase`) are matched as they are, anything else is evaluated first, left to right. The output matches one element at a time, and every enum, `Option`, or `Result` element with a `switch` (or `if`) that names every case and ends in `assertNever`, so TS checks exhaustiveness of each on its own, not only rustc. An arm that several cases reach is printed once per case (`(_, Event::Reset)` appears under every state); cases that reach the same code and bind nothing share one `case` list.
 - on a `&str`: a string literal, or several joined by `|` (`"card" | "credit_card" =>`). The last arm must be `_`. A `String` is matched through `s.as_str()`, as rustc requires.
 
-`matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; a guard (`p if c`) is rejected.
+`matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; `matches!(x, p if c)` is `match x { p => c, _ => false }`.
+
+Guards (`p if c =>`) are accepted on any of these arms, and on a binding arm (`n if n > 3 =>`, not in a tuple match). Arms are tried in order and a guard runs only when its pattern matched, as in Rust; the arms without guards must be exhaustive by themselves, which rustc checks. A `?` inside a guard is refused. A `match` with guards prints as an `if` chain, one small `switch` per arm to test it and one to take it, rather than as one `switch`: longer, but each `switch` stands where TS narrows nothing it would contradict.
 
 The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too. As in Rust, a variant added later falls into `_` silently; write every arm where that matters.
 
-Not accepted: tuples inside tuple patterns, `|` arms that bind names, binding-only arms, guards, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
+Not accepted: tuples inside tuple patterns, `|` arms that bind names, binding-only arms without a guard, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
 
 ### 3.6 Strings
 

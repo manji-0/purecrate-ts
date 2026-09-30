@@ -42,7 +42,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 - `char`: literals, `==`, `<`, ranges in `match`/`matches!`, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, ASCII methods. Iterate a string's chars with `for c in s.chars() { .. }` (only in a `for` head: no `.rev()`, `.nth()`, `.count()`, or `chars()` as a value).
 - `uuid::Uuid` (the one crate besides `serde`): `Uuid::parse_str(s)` / `Uuid::try_parse(s)` → `Result<Uuid, uuid::Error>`, `Uuid::nil()`, `==`, `<`, and in serde types. Nothing else: take new IDs as parameters instead of `new_v4()`, test with `matches!(Uuid::parse_str(s), Ok(_))` instead of `.is_ok()`. Write the error type as `uuid::Error`; `Uuid` is a reserved name.
 - Control: `if`, `if let`, exhaustive `match`, `for i in a..b` (integer range), `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(' ')` (a `char` separator; `t` is each `&str` piece, empty ones included), and `for x in &xs` / `xs.iter()` over a `Vec` or slice (early `return`/`?` allowed in all; no adaptors such as `enumerate` or `rev`: keep a counter), `while cond { .. }`, `break` and `continue` (no labels, no `loop`, no `while let`; a jump stands as a statement or a `match`/`if` arm, not inside a value), recursion, local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`.
-- `match` arms: one variant binding fields or `_`; `A | B` binding nothing; a last `_`. Literal and range patterns on integers, `char`, and `&str` also need a last `_`. On a tuple (`match (a, b)`), each element is `_`, a binding, or one of these, and no last `_` is needed (rustc checks exhaustiveness). `matches!(x, p)` follows the same rules.
+- `match` arms: one variant binding fields or `_`; `A | B` binding nothing; a last `_`. Literal and range patterns on integers, `char`, and `&str` also need a last `_`. On a tuple (`match (a, b)`), each element is `_`, a binding, or one of these, and no last `_` is needed (rustc checks exhaustiveness). `matches!(x, p)` follows the same rules. Guards (`p if c =>`, and `n if n > 3 =>` outside tuple matches) are accepted; arms are tried in order and the unguarded arms must be exhaustive by themselves.
 
 ## Not accepted, and what to write
 
@@ -50,7 +50,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | --- | --- |
 | `iter().map(..).collect()`, `.enumerate()`, `.rev()`, `loop`, `while let`, labelled `break` | `for x in &xs` with a counter, `while cond` with `break`, or a range `for` with early `return` |
 | `opt.map(..)`, `and_then`, `unwrap_or` | `match` or `?` |
-| match guards `p if c`, nested patterns, `|` arms that bind names | an `if` inside the arm; split the match |
+| nested patterns, `|` arms that bind names, `?` inside a guard | split the match; bind the `?` result with `let` first |
 | `a == b` on structs/enums/`Option` (`[check/comparison]`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method |
 | `x & 1`, `x >> 3` on `usize` | a `u32`/`u64` for bit fields |
 | `b.is_ascii_digit()` on a `u8` | `matches!(b, b'0'..=b'9')` |

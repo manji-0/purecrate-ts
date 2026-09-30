@@ -75,12 +75,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 else_: Box::new(else_),
             })
         }
+        SynExpr::Match(m) if m.arms.iter().any(|a| a.guard.is_some()) => lower_guarded(cx, &m.expr, &m.arms),
         SynExpr::Match(m) => {
             let mut arms = Vec::new();
             for arm in &m.arms {
-                if arm.guard.is_some() {
-                    return Err(ParseError::new(Reason::MatchGuard, "match guards are not in v0"));
-                }
                 arms.push(Arm {
                     pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
                         .map_err(|e| e.or_at(arm.pat.span()))?,
@@ -639,39 +637,154 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     }
 }
 
-/// `matches!(e, p)` is std's `match e { p => true, _ => false }`. A guard
-/// (`p if c`) is rejected like any match guard.
+/// A `match` with guards, as one without: arms are tried in order, and a
+/// guarded arm is `if match $g { p => guard, _ => false } { match $g { p =>
+/// body, _ => unreachable } } else { <the arms after it> }`, where `$g` holds
+/// the scrutinee (each element of a tuple scrutinee) so it is evaluated
+/// once. The guard runs only when its pattern matched, and the arms left
+/// after the guarded ones must be exhaustive by themselves, as rustc
+/// requires. `n if n > 3 =>` binds `n` to the scrutinee.
+fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm]) -> Result<Expr, ParseError> {
+    // Bind the scrutinee (or each tuple element) once.
+    let mut binds: Vec<(Name, Expr)> = Vec::new();
+    let subject = match scrutinee {
+        SynExpr::Tuple(t) if !t.elems.is_empty() => {
+            let mut elems = Vec::new();
+            for e in &t.elems {
+                let name = cx.fresh("g");
+                binds.push((name.clone(), lower_expr(cx, e)?));
+                elems.push(Expr::Var(name));
+            }
+            Expr::Tuple(elems)
+        }
+        other => {
+            let name = cx.fresh("g");
+            binds.push((name.clone(), lower_expr(cx, other)?));
+            Expr::Var(name)
+        }
+    };
+    let tuple = matches!(subject, Expr::Tuple(_));
+    let mut lowered = Vec::new();
+    for arm in arms {
+        let raw = lower_pat(cx, &arm.pat)?;
+        let guard = match &arm.guard {
+            Some((_, g)) => Some(lower_expr(cx, g)?),
+            None => None,
+        };
+        let pattern = match (&raw, &guard) {
+            (Pattern::Var(_), Some(_)) if !tuple => raw,
+            _ => arm_pattern(raw).map_err(|e| e.or_at(arm.pat.span()))?,
+        };
+        lowered.push((pattern, guard, at(arm.body.span(), lower_expr(cx, &arm.body)?)));
+    }
+    let chain = guard_chain(&subject, &lowered);
+    Ok(binds.into_iter().rev().fold(chain, |then, (name, value)| Expr::Let {
+        name,
+        mutable: false,
+        ty: None,
+        value: Box::new(value),
+        then: Box::new(then),
+    }))
+}
+
+/// `if hit_1 { take_1 } else if hit_2 { take_2 } .. else { unreachable }`,
+/// arm by arm in order: `hit` is `match $g { p => guard, _ => false }` and
+/// `take` is `match $g { p => body, _ => unreachable }`. Each `match` stands
+/// alone rather than inside another on the same value, so TS narrows
+/// nothing that a later `switch` would contradict. A pattern that always
+/// matches (`_`, a binding, a tuple of those) needs no `match`.
+fn guard_chain(subject: &Expr, arms: &[(Pattern, Option<Expr>, Expr)]) -> Expr {
+    let mut acc = Expr::Unreachable;
+    for (pattern, guard, body) in arms.iter().rev() {
+        let (hit, take) = match always_binds(subject, pattern) {
+            Some(lets) => {
+                let wrap = |e: &Expr| {
+                    lets.iter().rev().fold(e.clone(), |then, (name, value)| Expr::Let {
+                        name: name.clone(),
+                        mutable: false,
+                        ty: None,
+                        value: Box::new(value.clone()),
+                        then: Box::new(then),
+                    })
+                };
+                (guard.as_ref().map(wrap), wrap(body))
+            }
+            None => {
+                let two = |first: Expr, rest: Expr| Expr::Match {
+                    scrutinee: Box::new(subject.clone()),
+                    arms: vec![
+                        Arm { pattern: pattern.clone(), body: first },
+                        Arm { pattern: Pattern::Wildcard, body: rest },
+                    ],
+                };
+                let hit = two(guard.clone().unwrap_or(Expr::Lit(Lit::Bool(true))), Expr::Lit(Lit::Bool(false)));
+                (Some(hit), two(body.clone(), Expr::Unreachable))
+            }
+        };
+        acc = match hit {
+            None => take,
+            Some(hit) => Expr::If {
+                cond: Box::new(hit),
+                then: Box::new(take),
+                else_: Box::new(acc),
+            },
+        };
+    }
+    acc
+}
+
+/// For a pattern that matches every value: the names it binds, each with
+/// what it binds to.
+fn always_binds(subject: &Expr, pattern: &Pattern) -> Option<Vec<(Name, Expr)>> {
+    match (pattern, subject) {
+        (Pattern::Wildcard, _) => Some(Vec::new()),
+        (Pattern::Var(n), s) => Some(vec![(n.clone(), s.clone())]),
+        (Pattern::Tuple(ps), Expr::Tuple(xs)) if ps.len() == xs.len() => {
+            let mut out = Vec::new();
+            for (p, x) in ps.iter().zip(xs) {
+                out.extend(always_binds(x, p)?);
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// `matches!(e, p)` is std's `match e { p => true, _ => false }`, and
+/// `matches!(e, p if c)` is `match e { p => c, _ => false }`.
 fn lower_matches(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError> {
     let (scrutinee, pat, guard) = mac
         .parse_body_with(|input: syn::parse::ParseStream| {
             let e: SynExpr = input.parse()?;
             input.parse::<syn::Token![,]>()?;
             let p = Pat::parse_multi_with_leading_vert(input)?;
-            let guard = input.peek(syn::Token![if]);
-            if guard {
+            let guard = if input.peek(syn::Token![if]) {
                 input.parse::<syn::Token![if]>()?;
-                input.parse::<SynExpr>()?;
-            }
+                Some(input.parse::<SynExpr>()?)
+            } else {
+                None
+            };
             if input.peek(syn::Token![,]) {
                 input.parse::<syn::Token![,]>()?;
             }
             Ok((e, p, guard))
         })
         .map_err(|e| ParseError::new(Reason::Macro, format!("`matches!` expects `matches!(value, pattern)`: {e}")))?;
-    if guard {
-        return Err(ParseError::new(Reason::MatchGuard, "match guards are not in v0"));
-    }
     let pattern = arm_pattern(lower_pat(cx, &pat)?).map_err(|e| e.or_at(pat.span()))?;
     if pattern == Pattern::Wildcard {
-        return Err(ParseError::new(Reason::ArmPattern, "`matches!(x, _)` is always `true`; write `true`"));
+        return Err(ParseError::new(
+            Reason::ArmPattern,
+            "`matches!(x, _)` does not test `x`; write `true`, or the condition of `_ if c`",
+        ));
     }
+    let hit = match guard {
+        Some(g) => lower_expr(cx, &g)?,
+        None => Expr::Lit(Lit::Bool(true)),
+    };
     Ok(Expr::Match {
         scrutinee: Box::new(lower_expr(cx, &scrutinee)?),
         arms: vec![
-            Arm {
-                pattern,
-                body: Expr::Lit(Lit::Bool(true)),
-            },
+            Arm { pattern, body: hit },
             Arm {
                 pattern: Pattern::Wildcard,
                 body: Expr::Lit(Lit::Bool(false)),

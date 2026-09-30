@@ -89,6 +89,8 @@ pub struct Cx {
     structs: HashSet<String>,
     variant_owner: HashMap<String, String>,
     variants: HashSet<(String, String)>,
+    /// Names made up while lowering (`$g1`, ... for guarded scrutinees).
+    fresh: std::cell::Cell<u32>,
 }
 
 impl Cx {
@@ -121,6 +123,7 @@ impl Cx {
             structs,
             variant_owner,
             variants,
+            fresh: std::cell::Cell::new(0),
         }
     }
 
@@ -138,6 +141,12 @@ impl Cx {
 
     pub fn enum_for_variant(&self, variant: &str) -> Option<String> {
         self.variant_owner.get(variant).cloned()
+    }
+
+    /// A name no Rust identifier can have (`$` is not in one).
+    pub fn fresh(&self, prefix: &str) -> Name {
+        self.fresh.set(self.fresh.get() + 1);
+        Name::new(format!("${prefix}{}", self.fresh.get()))
     }
 }
 
