@@ -1,6 +1,6 @@
 # Architecture
 
-Status: current (2026-09-29)
+Status: current (2026-09-30)
 
 <!-- derived-from ./00-overview.md#3-how-it-holds-together -->
 
@@ -32,6 +32,20 @@ crate source (root and module files)
 | `canon` | test-only proc-macro: canonical value printing ([01 §7](./01-equivalence.md#7-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
 The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu) and built with `--offline`. The vendored manifests point at each other by `path`, with tests, benches, and unused optional dependencies removed.
+
+### 2.1 Inside the crates
+
+Files follow the stages of their crate, not IR node kinds:
+
+| Crate | Files |
+| --- | --- |
+| `syntax` | `item.rs` items and the lowering context, `expr.rs` expressions and blocks, `expr/pattern.rs` patterns, `match`, guards and `matches!`, `ty.rs` types, `survey.rs` |
+| `check` | one file per pass (`names`, `resolve`, `exhaustive`, `position`, `wire`, `rest`, `rename`, `lift`, `unused`, `consts`, `tuple`, `reach`); typing in `types.rs` (entry, `Typer`, scopes) with `types/ops.rs` operators and literals, `types/patterns.rs` `match`, `types/calls.rs` calls, closures, construction and `?`, `types/methods.rs` methods, `Option` combinators and `as` |
+| `emit_ts` | `lib.rs` package assembly and per-file output, `items.rs` declarations, `stmt.rs` statements, loops and `switch`, `expr.rs` expressions, literals and types, `imports.rs` what a file imports, `schema.rs` wire schemas |
+
+`stmt.rs` and `expr.rs` call each other on purpose: a statement holds expressions, and an expression that needs statements prints as an arrow function around them. The child modules of `types` and `emit_ts` share their parent's items through `use super::*`, so the graph shows few edges between them.
+
+Passes that only collect (reachability, emit's imports, `survey`'s references) handle the variants they care about and walk the rest through `Expr::children` and `Expr::own_types`, both matched exhaustively in `ir`. Passes that transform or check (typing, positions, lifting, renaming, printing) match every variant themselves, so a new variant is a compile error in each until it is handled.
 
 ## 3. rustc as the final gate
 
