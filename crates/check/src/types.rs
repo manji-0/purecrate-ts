@@ -1438,6 +1438,20 @@ impl<'d, 'a> Typer<'d, 'a> {
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))),
             ),
+            Callee::StrSplit => {
+                let (s, st) = self.expr(&args[0], None);
+                if let Some(t) = st.as_ref().filter(|t| !matches!(self.norm(t), Ty::Prim(Prim::String | Prim::Str) | Ty::Never)) {
+                    self.error(Reason::TypeMismatch, format!("`split` takes a `String` or `&str`, found `{}`", show(t)));
+                }
+                let (sep, sept) = self.expr(&args[1], Some(&Ty::Prim(Prim::Char)));
+                if let Some(t) = sept.as_ref().filter(|t| !matches!(self.norm(t), Ty::Prim(Prim::Char) | Ty::Never)) {
+                    self.error(Reason::TypeMismatch, format!(
+                        "`split` takes a `char` separator in v0, found `{}` (a `&str` separator may be empty, where Rust and JS split differently)",
+                        show(t)
+                    ));
+                }
+                (vec![s, sep], Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str)))))
+            }
             Callee::StringFrom => (
                 typed_args(self, vec![Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::String)),

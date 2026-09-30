@@ -182,6 +182,7 @@ impl Refs {
                     | Callee::OptionIsSome
                     | Callee::OptionIsNone
                     | Callee::StrBytes
+                    | Callee::StrSplit
                     | Callee::StringFrom
                     | Callee::Str(_)
                     | Callee::IntFrom { .. }

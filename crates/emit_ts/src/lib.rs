@@ -1131,6 +1131,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::OptionIsSome
                 | purecrate_ir::Callee::OptionIsNone
                 | purecrate_ir::Callee::StrBytes
+                | purecrate_ir::Callee::StrSplit
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::Str(_)
                 | purecrate_ir::Callee::IntFrom { .. }
@@ -1156,6 +1157,9 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
                 return format!("Str.bytes({})", emit_expr(&args[0], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::StrSplit) {
+                return format!("{}.split({})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
             }
             if let purecrate_ir::Callee::Str(m) = callee {
                 let s = emit_expr(&args[0], indent);

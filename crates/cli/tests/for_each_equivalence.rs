@@ -1,4 +1,5 @@
-//! `for` over a `Vec` or slice and over `s.bytes()`: every spelling of the
+//! `for` over a `Vec` or slice, over `s.bytes()`, and over `s.split(c)`
+//! (empty pieces, separators of every UTF-8 length): every spelling of the
 //! source, overflow in the body (the first one panics on both sides), `?`
 //! and early `return` inside nested loops, and a `match` in the body.
 
@@ -41,6 +42,15 @@ fn generated_for_each_matches_rust() {
             vec![line(3, -7), line(0, i64::MIN)],
         ] {
             cases.push(case!(for_each::total(lines.clone())));
+        }
+        let texts = ["", " ", "a", "a b", " a  b ", "openid profile", "aébéc", "😀x😀", "é", "x\u{10ffff}y"];
+        for s in texts {
+            for sep in [' ', 'é', '😀', 'x', '\u{10ffff}'] {
+                cases.push(case!(for_each::pieces(s, sep)));
+            }
+            for word in ["", "a", "b", "openid", "é"] {
+                cases.push(case!(for_each::has_word(s, word)));
+            }
         }
         for xs in [vec![], vec![None], vec![Some(0u8), None, Some(255)]] {
             cases.push(case!(for_each::count_some(xs.clone())));

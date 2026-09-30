@@ -387,6 +387,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
+            Callee::StrSplit => self.arity("`str::split`", 2, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),
             Callee::IntFrom { to, .. } | Callee::CharCode(to) => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),

@@ -137,3 +137,30 @@ pub fn classify(s: &str) -> Vec<u32> {
     }
     vec![digits, letters, others]
 }
+
+/// Pieces of `s` split at `sep`, empty ones included, and their byte total.
+pub fn pieces(s: &str, sep: char) -> Vec<u32> {
+    let mut count = 0u32;
+    let mut empty = 0u32;
+    let mut bytes = 0u32;
+    for piece in s.split(sep) {
+        count += 1;
+        if piece.is_empty() {
+            empty += 1;
+        }
+        for _b in piece.bytes() {
+            bytes += 1;
+        }
+    }
+    vec![count, empty, bytes]
+}
+
+/// A whole token of a space-delimited list, as `scope` is read.
+pub fn has_word(list: &str, word: &str) -> bool {
+    for token in list.split(' ') {
+        if token == word {
+            return true;
+        }
+    }
+    false
+}

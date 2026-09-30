@@ -206,11 +206,11 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
 /// failing later on the method call.
 const ITERATOR_ADAPTORS: &[&str] = &[
     "enumerate", "rev", "zip", "map", "filter", "filter_map", "skip", "take", "step_by", "windows", "chunks",
-    "cloned", "copied", "peekable", "char_indices", "split", "lines", "keys", "values",
+    "cloned", "copied", "peekable", "char_indices", "split_whitespace", "splitn", "rsplit", "lines", "keys", "values",
 ];
 
-/// `for` over a half-open integer range, a string's `chars()` or
-/// `bytes()`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
+/// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
+/// or `split(c)` on a `char`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
 /// with a plain name for the variable. Whether `xs` is a `Vec` is checked
 /// with the types. Iterator adaptors (`enumerate`, `rev`, `zip`, ...) and
 /// `a..=b` stay out.
@@ -247,6 +247,17 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             if m.args.is_empty() && m.turbofish.is_none() && (m.method == "iter" || m.method == "into_iter") =>
         {
             return each(Over::Items, &m.receiver);
+        }
+        SynExpr::MethodCall(m) if m.args.len() == 1 && m.turbofish.is_none() && m.method == "split" => {
+            return Ok(Expr::ForEach {
+                var,
+                over: Over::Items,
+                source: Box::new(Expr::Call {
+                    callee: Callee::StrSplit,
+                    args: vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?],
+                }),
+                body: Box::new(lower_block(cx, &f.body)?),
+            });
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(

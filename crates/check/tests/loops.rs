@@ -38,3 +38,13 @@ fn while_break_and_continue_stand_as_statements() {
     assert!(parse("pub fn f() -> u32 { loop { break; } 0 }").contains("`loop` is not in v0"));
     assert!(parse("pub fn f() -> u32 { 'a: while true { break 'a; } 0 }").contains("loop labels are not in v0"));
 }
+
+#[test]
+fn split_takes_a_char_and_stands_in_a_for_head() {
+    assert_clean("pub fn f(s: &str) -> u32 { let mut n = 0u32; for t in s.split(',') { if !t.is_empty() { n += 1; } } n }");
+    assert_rejects(
+        "pub fn f(s: &str) -> u32 { let mut n = 0u32; for _t in s.split(\"ab\") { n += 1; } n }",
+        "`split` takes a `char` separator in v0",
+    );
+    assert_rejects("pub fn f(s: &str) -> bool { s.split(' ').count() > 1 }", "`.split()` on `&str` is not on the std allow-list");
+}
