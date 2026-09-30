@@ -1,6 +1,6 @@
 # Architecture
 
-Status: current (2026-09-30)
+Status: current (2026-10-01, 0.4.1)
 
 <!-- derived-from ./00-overview.md#3-how-it-holds-together -->
 
@@ -67,8 +67,6 @@ Passes that only collect (reachability, emit's imports, `survey`'s references) h
 **Edition.** The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
 
 **Type information is not read.** The typing that decides output is the in-house inference; whether to switch is open ([07 §7](./07-roadmap.md#7-open-questions)). rust-analyzer or `rustc_public` would be more precise but heavy to depend on and maintain.
-
-**History.** In place since 2026-09-28.
 
 ## 4. IR
 

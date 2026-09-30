@@ -1,6 +1,6 @@
 # Wire boundary
 
-Status: current (2026-09-30)
+Status: current (2026-10-01, 0.4.1)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -25,7 +25,7 @@ Shared behavior is useless if the values it consumes still arrive through hand-w
 
 ## 2. Decision: boundary schemas, not type declarations
 
-Decided 2026-09-27. Of the options considered:
+Of the options considered:
 
 - **Leave it out of scope** — rejected: hand-written conversion undermines the central promise exactly where data enters.
 - **Compete on type-only generation (ts-rs, specta)** — rejected: most DTO crates rely on generics, external types, and serde attributes, and chasing them pulls away from verified behavior.
@@ -46,7 +46,7 @@ Each adapter's library is a peer dependency of the generated package:
 
 | Adapter | Targets |
 | --- | --- |
-| `purecrate-zod` | zod 4.6 (since 2026-09-30; zod 3 before) |
+| `purecrate-zod` | zod 4.6 (zod 3 up to purecrate-ts 0.2) |
 | `purecrate-valibot` | valibot 1.1 |
 | `purecrate-arktype` | arktype 2.1 |
 
@@ -55,7 +55,7 @@ Each adapter's library is a peer dependency of the generated package:
 - **Derives pass.** The input's types may derive `Serialize`/`Deserialize` (and `use serde::…`), so the server reads and writes the same types.
 - **How `check` handles them.** `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`). The translated code is unaffected, and the real derive is checked by the server's build.
 - **Attributes are rejected.** `#[serde(...)]` is rejected everywhere with its location, so a renamed wire format is never silently accepted. The one exception is `#[serde(try_from = "T")]` (§5).
-- **History.** Before the stand-in (until 2026-09-29), a crate that derived serde failed `check` with `cannot find crate serde`.
+- **Why a stand-in.** Without it, a crate that derives serde fails `check` with `cannot find crate serde`.
 
 ### 3.3 Reading rules
 
@@ -67,15 +67,15 @@ These follow serde's default behavior. Other sections refer to them by number.
    - A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"e\u0301"`, and a lone surrogate are rejected, as serde_json rejects them.
    - A `Uuid` is read from any string `Uuid::parse_str` accepts and becomes the canonical form; anything else, and a JSON array of bytes (which serde_json never passes to `Uuid`), is rejected. `toJson` writes the canonical form, as serde does.
    - `uuid::Error` has no JSON form in Rust; its schema rejects every value.
-4. **Enum objects and struct fields.** The object wrapping a variant has exactly one key; extra keys are rejected. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. History: `{"Circle":1.5,"Rect":[1,2]}` used to read as `Circle`; fixed 2026-09-28.
+4. **Enum objects and struct fields.** The object wrapping a variant has exactly one key; extra keys are rejected. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`.
 
 ### 3.4 Per-library notes
 
-- **zod and valibot.** Structs are built field by field, because inference makes `undefined`-valued (`()`) fields optional. Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once. History: this dates from 2026-09-30; before it, every schema was `lazy` and printed on one line.
+- **zod and valibot.** Structs are built field by field, because inference makes `undefined`-valued (`()`) fields optional. Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once.
 - **arktype.**
   - Enums try variants in turn, because arktype rejects a union of objects containing morphs.
-  - Each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve. History: an earlier `type.module` design hit a `ReferenceError` at import.
-  - A nested read that fails hands its errors to the morph's traversal (`fail`, through `ArkErrors.merge`), so they keep their path. History: before 2026-09-30 the morph replaced them with one error at its own root.
+  - Each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve. (A `type.module` design hit a `ReferenceError` at import.)
+  - A nested read that fails hands its errors to the morph's traversal (`fail`, through `ArkErrors.merge`), so they keep their path.
   - When no variant matches, an object keyed by a variant's name reports that variant's errors (`Confirm.outcome`), anything else one error for the enum.
 
 ### 3.5 Verification
@@ -93,7 +93,7 @@ Parsing JSON inside transitions; type declarations alone as a ts-rs replacement;
 serde's `#[derive(Deserialize)]` builds closed types by shape without calling the smart constructor. If the TS schema called the checked constructor, TS would reject JSON that Rust accepts.
 
 1. **By shape.** Without an attribute, closed types are read by shape and branded through `Email$of`. Same set as Rust; invariants are not upheld on the wire, as in Rust.
-2. **Through the constructor.** `#[serde(try_from = "T")]` on a struct, with `impl TryFrom<T> for X` (translated as `X.try_from`; `check` requires it, since rustc sees only the stand-in serde). The schema reads `T` as serde would, then calls `X.try_from`; `Err` fails the read, as serde fails deserialization. Serializing is unchanged (by shape), so `toJson` writes what serde writes. `impl Display` for the error, which serde requires, is skipped by the translator. Added 2026-09-29, for examples/payment: `Amount` and `PaymentMethodId`.
+2. **Through the constructor.** `#[serde(try_from = "T")]` on a struct, with `impl TryFrom<T> for X` (translated as `X.try_from`; `check` requires it, since rustc sees only the stand-in serde). The schema reads `T` as serde would, then calls `X.try_from`; `Err` fails the read, as serde fails deserialization. Serializing is unchanged (by shape), so `toJson` writes what serde writes. `impl Display` for the error, which serde requires, is skipped by the translator. examples/payment reads `Amount` and `PaymentMethodId` this way.
 
 **Errors.** A refused value fails with an issue naming the type and, when the error type is an enum, the variant `try_from` returned (`Amount: AmountOutOfRange`); zod's issue also carries the error value in `params.error`.
 
@@ -127,8 +127,6 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 - floats: 80,000 pseudo-random bit patterns and boundary values (2,000,000 once, by hand), text equal;
 - shapes: every type form in `wire_shapes.rs`, written by serde_json, read by the schema, and written back, text equal;
 - payment: every state reachable in three events under each capture and confirmation method, times every event: the client's `toJson(step(read(state), read(event)))` equals the server's `serde_json::to_string(&step(state, event))`.
-
-**History.** Implemented 2026-09-29, when examples/payment needed it.
 
 ## 7. Open questions
 

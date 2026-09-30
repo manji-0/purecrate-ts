@@ -80,7 +80,7 @@ Defects found on the way:
 What the vendoring asked of purecrate-ts, and of the consumer:
 
 - **The runtime was not installable.** A project that commits generated code has no tarball step. `--bundle-runtime` was added: the runtime is copied into `src/`, and the sources stand alone. The same day this became the only way (the runtime and adapter are copied into every package, with string-keyed brands so values still cross between packages).
-- **`noUnusedParameters`** failed on `assertNever`'s parameter in every package; renamed `_x`. Generated code still carried any binding the Rust leaves unused (rustc only warns), which a consumer with `noUnusedLocals` rejects; fixed 2026-09-30 ([07 §3.2](./07-roadmap.md#32-defects-found-by-real-use)).
+- **`noUnusedParameters`** failed on `assertNever`'s parameter in every package; renamed `_x`. Generated code still carried any binding the Rust leaves unused (rustc only warns), which a consumer with `noUnusedLocals` rejects; fixed 2026-09-30 ([07 §3.2](./07-roadmap.md#81-010-2026-09-30)).
 - **License headers.** The console requires its MPL header on every `.ts`; the bundled runtime is MIT and had to be excluded from that check by path.
 - **Lint.** oxlint's `number-arg-out-of-range` flags the runtime's `toExponential(99)` (valid since ES2018); the console ignores the vendored runtime.
 - **Keeping `ts/` current in omicron** needs `purecrate-ts check --out name-rules/ts` in its CI, so omicron's CI would have to install purecrate-ts, which is not published anywhere.

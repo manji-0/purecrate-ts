@@ -1,6 +1,6 @@
 # Writing Rust within the constraints
 
-Status: current (2026-09-30)
+Status: current (2026-10-01, 0.4.1)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -149,8 +149,6 @@ Rules:
 - `__proto__` as a field, variant, or method name is rejected.
 - A domain `Error` type is fine. Generated code uses `globalThis.Error`.
 
-Note: multi-file crates are accepted since 2026-09-29. Before that, `check` required one file, although this section already described flattening.
-
 ### 3.4 Public surface
 
 #### Exported
@@ -221,8 +219,6 @@ Output:
 - Every enum, `Option`, or `Result` element gets a `switch` (or `if`) that names every case and ends in `assertNever`. So TS checks exhaustiveness of each element on its own, not only rustc.
 - An arm that several cases reach is printed once per case: `(_, Event::Reset)` appears under every state.
 - Cases that reach the same code and bind nothing share one `case` list.
-
-Note: tuple matches are accepted since 2026-09-30.
 
 #### Guards
 

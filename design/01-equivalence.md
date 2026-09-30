@@ -1,6 +1,6 @@
 # Equivalence
 
-Status: current (2026-09-30)
+Status: current (2026-10-01, 0.4.1)
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
@@ -44,7 +44,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 
 <!-- derived-from #2-domain -->
 
-In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over. Decided and implemented 2026-09-29; verified by `crates/cli/tests/it/closed_equivalence.rs`.
+In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over. Verified by `crates/cli/tests/it/closed_equivalence.rs`.
 
 | Rust struct | Kind | TS companion | Values come from |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Which function is the "checked constructor" is not inferred. Whatever public fun
 ### 4.1 Internal names
 
 - **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
-- **Non-`pub` methods** are not on the companion either. They are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. History: until 2026-09-30 every method sat on the exported companion, so a private `fn unchecked(raw) -> Email` let TS callers build what Rust callers cannot (found measuring Windmill's MCP scope, [91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
+- **Non-`pub` methods** are not on the companion either. They are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Otherwise a private `fn unchecked(raw) -> Email` would let TS callers build what Rust callers cannot (a hole found by real use, [07 §8.1](./07-roadmap.md#81-010-2026-09-30)).
 
 ### 4.2 The domain of a closed type
 
@@ -98,11 +98,9 @@ Inference is bidirectional and closed within the expression tree. It does not us
 ### 5.2 Integer arithmetic
 
 - **Rule.** `/` truncates. Overflow and division by zero throw Rust's panic message. `-0` is normalized to `0`.
-- **History.** Before this was built, the output computed `i32` `7 / 2` as `3.5`, `i32::MAX + 1` as `2147483648`, and `1 / 0` as `Infinity` (measured 2026-09-27). The cause was that the IR had no types.
+- **Why typed.** Printed as JS operators, `i32` `7 / 2` would be `3.5`, `i32::MAX + 1` `2147483648`, and `1 / 0` `Infinity`, which is what the output computed before the IR had types.
 
 ### 5.3 Bitwise operators and shifts
-
-Added 2026-09-30.
 
 - **Results wrap to the width** and never panic: JS int32 operators, then sign- or zero-extension; `BigInt.asIntN`/`asUintN` for 64 bits.
 - **Shift amounts.** An amount of any integer type outside `0..bits`, compared as its whole value (`-1`, `2^32 + 1`), throws `attempt to shift left with overflow`, as a debug build panics. An unsuffixed amount is `i32`, as in rustc.
@@ -113,7 +111,7 @@ Added 2026-09-30.
 
 <!-- derived-from #3-known-non-equivalences -->
 
-Decided 2026-09-27 and implemented one method at a time as examples asked ([07 §3.1](./07-roadmap.md#31-when-an-example-needs-it)). Two rules hold throughout:
+Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how-additions-are-chosen)). Two rules hold throughout:
 
 - **Allow-list, exact match.** A method is accepted by (receiver type, method), each with its own differential test over empty, non-ASCII, supplementary-plane, boundary, and panicking inputs. A method that cannot be matched is rejected, not accepted with a documented difference: `f64::to_string` (Rust `1000000000000000000000`, JS `1e+21`) and `str::trim` (JS `trim()` also strips U+FEFF) are out.
 - **Well-formed strings only.** Rust strings are UTF-8 and JS strings UTF-16. Every equivalence below relies on a string holding only whole scalar values, which a Rust `String` always does; a TS string with lone surrogates is outside the domain (§2).
@@ -138,19 +136,17 @@ What prints as the plain JS operation, and why that is the same:
 
 - **Prefix, suffix, substring.** On well-formed strings a match on char boundaries is the same in UTF-8 bytes and UTF-16 units, so `is_empty`, `starts_with`, `ends_with`, `contains` need no encoding step. `char` and closure needles are rejected (tested: every pairing of 14 strings from empty to U+10FFFF).
 - **Equality and literal patterns.** Well-formed strings are equal as UTF-8 exactly when they are as UTF-16, so `==` and string literal patterns print as `===`; `String::as_str` prints as the string itself (tested: 16 strings including the literals, a shared prefix, NFC vs NFD, U+FFFF, and a supplementary-plane neighbor).
-- **`for c in s.chars()`** (2026-09-30). A JS string iterates by code point, which for well-formed strings is Rust's sequence of scalar values, so it prints as `for (const c of s)` (tested: 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
-- **`for t in s.split(c)`** with a `char` separator (2026-09-30) prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list, except before a consumer (§7).
+- **`for c in s.chars()`.** A JS string iterates by code point, which for well-formed strings is Rust's sequence of scalar values, so it prints as `for (const c of s)` (tested: 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
+- **`for t in s.split(c)`** with a `char` separator prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list, except before a consumer (§7).
 
 What goes through the runtime, and what it keeps:
 
-- **Slicing** `&s[a..b]`, `&s[a..]`, `&s[..b]` (2026-09-30) goes through `Str.slice`, which takes UTF-8 byte positions. It panics as Rust does and in Rust's order: a start past the end, an end past the end, a reversed range, then a start or end inside a character. That last message shows the character as `Debug` does, escaping a grapheme extender or a code point of category Zs (but space), Zl, Zp, Cc, Cf, Cs, Co, or Cn as `\u{..}`; the runtime tests these with the engine's Unicode properties, which agree with Rust's tables where both use one Unicode version (§3). `&xs[a..b]` on a `Vec` or slice checks the same order with Rust's slice messages (tested: seven strings covering every UTF-8 width and each escaped category, every start and end up to one past the length, nested slices, `as_bytes()`, and `Vec`s).
+- **Slicing** `&s[a..b]`, `&s[a..]`, `&s[..b]` goes through `Str.slice`, which takes UTF-8 byte positions. It panics as Rust does and in Rust's order: a start past the end, an end past the end, a reversed range, then a start or end inside a character. That last message shows the character as `Debug` does, escaping a grapheme extender or a code point of category Zs (but space), Zl, Zp, Cc, Cf, Cs, Co, or Cn as `\u{..}`; the runtime tests these with the engine's Unicode properties, which agree with Rust's tables where both use one Unicode version (§3). `&xs[a..b]` on a `Vec` or slice checks the same order with Rust's slice messages (tested: seven strings covering every UTF-8 width and each escaped category, every start and end up to one past the length, nested slices, `as_bytes()`, and `Vec`s).
 - **`strip_prefix` / `strip_suffix`** with a `&str` return `Option<&str>`. A prefix or suffix of a well-formed string on char boundaries has the same extent in UTF-8 and UTF-16, so the rest is the same string.
 
 Specified, not yet implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)): `String` ordering, which would compare code points, since JS `<` orders U+E000–U+FFFF above the supplementary planes and Rust does not.
 
 ### 6.2 `char`
-
-Implemented 2026-09-29.
 
 - **Representation.** A branded one-code-point `string` (`Char`). The brand also excludes lone surrogates, as a Rust `char` is a Unicode scalar value. JSON matches serde: a string of exactly one scalar value, anything else a schema failure.
 - **Ordering.** Comparisons and range patterns use `Char.code` (`codePointAt(0)`), never the strings, for the UTF-16 order given above.
@@ -161,7 +157,7 @@ Tested on 40 characters across every UTF-8 length boundary and the surrogate gap
 
 ### 6.3 `uuid::Uuid`
 
-Implemented 2026-09-30, from the Oxide `Name` rule, which had to spell `Uuid::parse_str` by hand ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)). Verified against `uuid` 1.26.1.
+Added for the Oxide `Name` rule, which had to spell `Uuid::parse_str` by hand ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)). Verified against `uuid` 1.26.1.
 
 - **Representation.** A branded `string` that only ever holds the lowercase hyphenated form (8-4-4-4-12), the one serde writes. In that form `===` is Rust's `==`, and JS string order is the order of the 16 bytes, since the hyphens sit at the same places in every value, so `==` and `<` print as themselves.
 - **Parsing.** `parse_str` and `try_parse` accept what the crate's parser does, chosen by UTF-8 length as it chooses: 32 hex digits, hyphenated (36), braced (38), and `urn:uuid:` (45, the prefix in lowercase only), hex in either case; the result is the canonical form. The TS parser measures UTF-16 units, but a non-ASCII character fails the hex check at either length, so the accepted sets are equal. `uuid::Error` is opaque: nothing translated can read or compare it.
@@ -176,8 +172,8 @@ A `number` checked to 0..2^53−1; the gap above that is in §3.
 
 ### 6.5 Other methods
 
-- **`Vec` and slices** (2026-09-30): `len`, and `is_empty` as `.length === 0`, on values, borrows, fields, slices, and `as_bytes()` results.
-- **`Option::is_some` / `is_none`** (2026-09-30) print as `!== null` / `=== null`. This holds because `Option<T>` is `T | null` with nested `Option` rejected, so a falsy payload (`0`, `0n`, `false`, `""`) is still `Some`.
+- **`Vec` and slices**: `len`, and `is_empty` as `.length === 0`, on values, borrows, fields, slices, and `as_bytes()` results.
+- **`Option::is_some` / `is_none`** print as `!== null` / `=== null`. This holds because `Option<T>` is `T | null` with nested `Option` rejected, so a falsy payload (`0`, `0n`, `false`, `""`) is still `Some`.
 - **Unicode-table methods** (`to_uppercase`, `is_alphabetic`, …) are not accepted. If added, they carry the version gap of §3, and their differential tests first check that both toolchains' Unicode versions agree; `ß` → `SS` and final sigma were measured to match.
 
 ## 7. Rewritten constructs
@@ -186,32 +182,83 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 
 | Construct | Becomes | Verified by |
 | --- | --- | --- |
-| `Option::unwrap_or`, `ok_or`, `map` | the `match` std writes | `option_methods_equivalence.rs` |
-| match guards | an `if` at the leaf of the decision tree | `guards_equivalence.rs` |
-| `vec![a, b]` | the array literal | `vec_build_equivalence.rs` |
-| tuple patterns in `let`, closure parameters, `for` | a one-arm tuple `match` | `destructure_equivalence.rs` |
-| `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | the loop std runs | `consumers_equivalence.rs` |
-| `bool` patterns | an `if` chain, the last named arm the `else` | `bool_patterns_equivalence.rs` |
-| `const`, enum discriminants | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
-| `const` in a block | a `let` at the top of the block | `local_consts_equivalence.rs` |
-| integer methods | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
+| [`Option::unwrap_or`, `ok_or`, `map`](#71-option-methods) | the `match` std writes | `option_methods_equivalence.rs` |
+| [match guards](#72-match-guards) | an `if` at the leaf of the decision tree | `guards_equivalence.rs` |
+| [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | the loop std runs | `consumers_equivalence.rs` |
+| [`bool` patterns](#74-bool-patterns) | an `if` chain, the last named arm the `else` | `bool_patterns_equivalence.rs` |
+| [tuple patterns](#75-tuple-patterns) in `let`, closure parameters, `for` | a one-arm tuple `match` | `destructure_equivalence.rs` |
+| [`vec![a, b]`](#76-veca-b) | the array literal | `vec_build_equivalence.rs` |
+| [`const`, enum discriminants](#77-const-and-discriminants) | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
+| [`const` in a block](#78-const-in-a-block) | a `let` at the top of the block | `local_consts_equivalence.rs` |
+| [integer methods](#79-integer-methods) | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
 
-- **`Option::unwrap_or`, `ok_or`, `map`** (2026-09-30). The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`. A closure passed to `map` may not use `?` or `return`, which would leave the enclosing function once inlined.
-- **Match guards** (2026-09-30; decision tree 2026-10-01). A `match` with a guard goes through the decision tree of a tuple `match` (a single value as a tuple of one): each element is tested once on a path, and where an arm's pattern has matched, its guard is tested with the arm's bindings read from their places; if it is false, the `else` is the tree of the arms after it that can still match there. A guard therefore runs only when its pattern matched, and the arms are tried in Rust's order. A guarded arm covers nothing, so `A if g => .., _ => ..` sends a failing `A` to `_`. Where two literal arms may overlap (a range and a literal inside it), the later one is tested again after the earlier guard fails. A `?` or `return` in a guard is refused. Tested with a guard that overflows only where its pattern matched, `_` after a guarded arm, overlapping literal arms, `bool` elements, and a name read only by the guard. The first two designs (arms after a guard inside the `_` of a `switch` on the same value, which TS narrowed; then an `if` chain of standalone matches per arm, which repeated every element's `switch` per arm and made payment's `step` 31.6 KB) are gone.
-- **Scalar consumers** (2026-09-30). `all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` become the loop std's default methods run: the source is bound once, the closure's body is inlined with its parameter bound to each item, and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it. Inlining is why the closure may not use `?` or `return`. `position` counts items (chars, not bytes, on `chars()`). `sum` adds from zero left to right with the checked operator, so it panics on overflow where a debug build does; it is refused on floats, whose `Sum` starts from `-0.0`. `for (i, x) in ...enumerate()` reads a `usize` counter into `i` and advances it at the top of each pass, so `continue` keeps it right. Tested on strings of every width, early stops before an overflow, `sum` overflowing either way, and `continue` in an enumerated loop.
-- **`bool` patterns** (2026-09-30). `true` and `false` are tried in order as an `if` chain, like integer literals; a `match` naming both needs no `_`, and its last arm becomes the `else`. In a tuple `match` they split like any literal column. Tested with both named, one and `_`, `false | true`, a three-element tuple `match` with a guard, and `matches!`.
-- **Tuple patterns** (2026-09-30) in `let`, a closure parameter, or a `for` variable become `match value { (a, b) => rest }`, which Rust's irrefutable pattern is: the value is evaluated once (a tuple expression left to right, so the first overflow panics), then each element is bound. A `mut` element binds a fresh name that the body rebinds with `let mut`. Tested with `mut` and `_` elements, an annotation, overflow in either element, `&(a, b)` over `iter()`, and `break` / `continue` in the loop.
-- **`vec![a, b]`** (2026-09-30) prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
-- **`const`** (2026-09-30) is folded by `check` with rustc's const-evaluation rules (checked arithmetic, wrapped shifts with the amount checked), and the TS holds the value, not the computation. rustc rejects a const that overflows, so there is nothing to throw at run time, and module load order cannot matter. A const in a pattern is refused: Rust compares with its value, where the IR would bind a new name that matches anything.
-- **`const` in a block** (2026-09-30) is not folded: it becomes an immutable, typed `let` at the top of its block, in declaration order, so it is visible from the whole block as an item is. The value is computed at run time rather than folded, which is the same value: rustc, which runs on the input, rejects a const whose evaluation overflows, so the computation cannot panic where Rust would have folded one. A local const in a pattern is refused like a crate one, and so is a `let` of its name (rustc reads that `let` as a pattern too). Tested with a use before the declaration, a crate const and a discriminant in the value, an unused and a float const, one named like a crate item, one inside a `match` arm, and overflow computed from one.
-- **Integer methods** (2026-09-30). `x.min(y)`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, and `wrapping_*` forms are computed from the exact result in `bigint`: `checked_*` gives it or `None` outside the type's range (and on a zero divisor, and on `MIN / -1`), `saturating_*` clamps it, `wrapping_*` keeps its low bits, and `abs` and `pow` panic outside the range as a debug build does ("attempt to negate with overflow", "attempt to exponentiate with overflow", measured on 1.98.1). An exponent is a `u32`; a power is not formed when its magnitude is certainly past the range (a base of magnitude two or more to an exponent of the type's width or more), and `wrapping_pow` works modulo 2^bits. `saturating_pow` of a negative base to an odd exponent saturates to `MIN`, as std does. Tested at every type's edges, `(-2).pow(31)` and `i8` powers near 127 included.
+A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
+
+### 7.1 `Option` methods
+
+The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`.
+
+### 7.2 Match guards
+
+A `match` with a guard goes through the decision tree of a tuple `match` (a single value as a tuple of one): each element is tested once on a path, and where an arm's pattern has matched, its guard is tested with the arm's bindings read from their places; if it is false, the `else` is the tree of the arms after it that can still match there.
+
+- A guard runs only when its pattern matched, and the arms are tried in Rust's order.
+- A guarded arm covers nothing, so `A if g => .., _ => ..` sends a failing `A` to `_`.
+- Where two literal arms may overlap (a range and a literal inside it), the later one is tested again after the earlier guard fails.
+- A `?` or `return` in a guard is refused.
+
+Tested with a guard that overflows only where its pattern matched, `_` after a guarded arm, overlapping literal arms, `bool` elements, and a name read only by the guard. Two earlier printings were replaced by this one ([07 §8.3](./07-roadmap.md#83-030-guards-and-option-2026-09-30)).
+
+### 7.3 Scalar consumers
+
+`all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` become the loop std's default methods run: the source is bound once, the closure's body is inlined with its parameter bound to each item, and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it.
+
+- `position` counts items (chars, not bytes, on `chars()`).
+- `sum` adds from zero left to right with the checked operator, so it panics on overflow where a debug build does; it is refused on floats, whose `Sum` starts from `-0.0`.
+- `for (i, x) in ...enumerate()` reads a `usize` counter into `i` and advances it at the top of each pass, so `continue` keeps it right.
+
+Tested on strings of every width, early stops before an overflow, `sum` overflowing either way, and `continue` in an enumerated loop.
+
+### 7.4 `bool` patterns
+
+`true` and `false` are tried in order as an `if` chain, like integer literals; a `match` naming both needs no `_`, and its last arm becomes the `else`. In a tuple `match` they split like any literal column. Tested with both named, one and `_`, `false | true`, a three-element tuple `match` with a guard, and `matches!`.
+
+### 7.5 Tuple patterns
+
+In `let`, a closure parameter, or a `for` variable, a tuple pattern becomes `match value { (a, b) => rest }`, which Rust's irrefutable pattern is: the value is evaluated once (a tuple expression left to right, so the first overflow panics), then each element is bound. A `mut` element binds a fresh name that the body rebinds with `let mut`. Tested with `mut` and `_` elements, an annotation, overflow in either element, `&(a, b)` over `iter()`, and `break` / `continue` in the loop.
+
+### 7.6 `vec![a, b]`
+
+Prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
+
+### 7.7 `const` and discriminants
+
+- **`const`** is folded by `check` with rustc's const-evaluation rules (checked arithmetic, wrapped shifts with the amount checked), and the TS holds the value, not the computation. rustc rejects a const that overflows, so there is nothing to throw at run time, and module load order cannot matter.
+- **A const in a pattern is refused**: Rust compares with its value, where the IR would bind a new name that matches anything.
 - **Discriminants** of a fieldless enum (explicit, or one past the previous; the first `0`) are folded the same way, in the `#[repr]` type or `isize` (64 bits). `e as T` is accepted only when `T` holds every discriminant, so the cast never truncates or wraps; it prints as a table indexed by `kind` (a constant variant folds to the literal). Every other `as` stays rejected.
+
+### 7.8 `const` in a block
+
+Not folded: it becomes an immutable, typed `let` at the top of its block, in declaration order, so it is visible from the whole block as an item is. The value is computed at run time rather than folded, which is the same value: rustc, which runs on the input, rejects a const whose evaluation overflows, so the computation cannot panic where Rust would have folded one. A local const in a pattern is refused like a crate one, and so is a `let` of its name (rustc reads that `let` as a pattern too). Tested with a use before the declaration, a crate const and a discriminant in the value, an unused and a float const, one named like a crate item, one inside a `match` arm, and overflow computed from one.
+
+### 7.9 Integer methods
+
+`x.min(y)`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, and `wrapping_*` forms are computed from the exact result in `bigint`:
+
+| Form | Result |
+| --- | --- |
+| `checked_*` | the exact result, or `None` outside the type's range (and on a zero divisor, and on `MIN / -1`) |
+| `saturating_*` | clamped to the range; `saturating_pow` of a negative base to an odd exponent saturates to `MIN`, as std does |
+| `wrapping_*` | the low bits; `wrapping_pow` works modulo 2^bits |
+| `abs`, `pow` | panic outside the range as a debug build does ("attempt to negate with overflow", "attempt to exponentiate with overflow", measured on 1.98.1) |
+
+An exponent is a `u32`; a power is not formed when its magnitude is certainly past the range (a base of magnitude two or more to an exponent of the type's width or more). Tested at every type's edges, `(-2).pow(31)` and `i8` powers near 127 included.
 
 ## 8. Verification
 
 | Check | Mechanism |
 | --- | --- |
-| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings. Inputs are chosen by hand at the edges; where the logic has many paths (integer methods, slicing, guards), a fixed-seed generator adds random ones, half at the edges of each width (`support::Rng`, 2026-10-01) |
+| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings. Inputs are chosen by hand at the edges; where the logic has many paths (integer methods, slicing, guards), a fixed-seed generator adds random ones, half at the edges of each width (`support::Rng`) |
 | Types | `tsc --strict` on TypeScript 6 and 7 for every fixture, the runtime packages, and the wire schemas |
 | Wire | Readers against serde's default JSON; `toJson` against the vendored serde_json byte for byte (`wire_write.rs`) |
 | Determinism | `check --out` compares bytes with the existing output |
@@ -220,16 +267,16 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 
 ### 8.1 Canonical form
 
-Since 2026-09-29, both sides render values from the same IR types.
+Both sides render values from the same IR types.
 
 - **Rust side.** The test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/it/support`.
 - **TS side.** The harness generates a printer per type.
 - **Form.** It resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`). Floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`.
-- **Why.** Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed. It is now caught.
+- **Why.** Hand-picked projections missed a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch`; whole values catch it.
 
 ### 8.2 Whole-value arguments
 
-Since 2026-09-29, arguments are whole values too: `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust.
+Arguments are whole values too: `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust.
 
 Remaining projections:
 

@@ -1,6 +1,6 @@
 # Strategy: means, demand, and criteria
 
-Status: analysis, revised 2026-09-30
+Status: analysis, revised 2026-10-01
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
@@ -29,7 +29,7 @@ Teams with a Rust backend and a TS frontend want the same decisions (a transitio
   | To the first result | 0.5 ms | 1.6–2.3 ms |
   | Size, gzipped | 2.3 KB | 36 KB for the smallest WASM module with its glue |
 
-  Measured again 2026-10-01, after 0.4.0 and with the runtime cut to what the package uses; the first measurement (2026-09-29) had F at 12 ns, 0.5 ms, and 1.8 KB (history in [bench/payment](../bench/payment/README.md)).
+  Measured with 0.4.1 (the runtime cut to what the package uses). The first measurement, before 0.4.0, had F at 12 ns, 0.5 ms, and 1.8 KB ([bench/payment](../bench/payment/README.md)).
 
 - **Values should be plain TS.** Crux's web shell serializes with bincode; F's values go straight into React state.
 - **The output should be readable.** Generated TS can be reviewed and stepped through.
@@ -70,7 +70,7 @@ Reading: **the adjacent market is large; direct demand is unverified.** Because 
 
 | Use case | Demand (est.) | Writable | Author's cost |
 | --- | --- | --- | --- |
-| Workflows, state machines | medium | **high** (order, payment) | one function per state; `_ =>` since 2026-09-29 |
+| Workflows, state machines | medium | **high** (order, payment) | payment at 1.6× idiomatic lines |
 | Optimistic UI, offline-first | medium–high | high | sequences as recursive enums |
 | Turn-based game rules | medium | medium | loops as recursion; recursion-depth limit |
 | **Input validation** | **high** | **medium** (signup, iban) | bytes via `as_bytes`, classes via `matches!`; no regex; ≈1.4–1.8× lines |
@@ -117,7 +117,7 @@ The author's own examples cannot validate the constraints: the author writes aro
 | Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
 | No real use | Open. No real-world replacement yet (§5.2) |
 
-Line counts against idiomatic Rust ([07 §2](./07-roadmap.md#2-evidence-from-examples)), logic only. Since 2026-10-01 both sides are formatted with rustfmt at width 120 before counting (`scripts/line-counts.py`), so layout does not decide the ratio; the earlier figures, taken as written, are the history.
+Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120 (`scripts/line-counts.py`); the history column was taken as written. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
 
 | Example | Ratio | History |
 | --- | --- | --- |
@@ -131,15 +131,15 @@ Line counts against idiomatic Rust ([07 §2](./07-roadmap.md#2-evidence-from-exa
 
 ### 5.1 More third-party specs
 
-Done: Stripe's PaymentIntent lifecycle (payment, 2026-09-29), then invoice (NTA) and oidc (OIDC Core, PKCE, TOTP); results in [07 §2](./07-roadmap.md#2-evidence-from-examples).
+Done: Stripe's PaymentIntent lifecycle (payment), then invoice (NTA) and oidc (OIDC Core, PKCE, TOTP); results in [07 §2](./07-roadmap.md#2-evidence-from-examples).
 
 ### 5.2 One real use
 
 - **Goal.** Replace a dual implementation; record lines removed and what the tests guarantee.
 - **Status.** Still open, and the only withdrawal criterion not yet answered.
-- **Target.** Chosen 2026-09-30 ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator.
-- **Done locally.** The same day, on local branches ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): the console runs omicron's rule, generated, and agrees with it on 106,000 names where the hand-written copy disagreed on 39,852. Not yet proposed upstream, so the criterion stays open until it is used there.
-- **No outreach.** Decided 2026-09-30 with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)). The local branches stay as evidence, and the criterion is answered only by an adoption that happens without being asked for.
+- **Target** ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator.
+- **Done locally**, on local branches ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): the console runs omicron's rule, generated, and agrees with it on 106,000 names where the hand-written copy disagreed on 39,852. Not yet proposed upstream, so the criterion stays open until it is used there.
+- **No outreach.** Decided with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)). The local branches stay as evidence, and the criterion is answered only by an adoption that happens without being asked for.
 - **Packaging.** Generated packages carry their runtime, so nothing but the schema library is installed beside them ([03](./03-output.md)).
 - **Finding.** Dual implementations with drift turned out common in public Rust + TS projects, and mostly validation rules.
 
