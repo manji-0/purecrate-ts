@@ -349,10 +349,16 @@ pub fn quietly<T>(f: impl FnOnce() -> T) -> T {
             }
         }));
     });
-    QUIET.with(|q| q.set(true));
-    let out = f();
-    QUIET.with(|q| q.set(false));
-    out
+    // Restored on drop: a panic that escapes `f`, or a nested `quietly`,
+    // leaves the flag as it found it.
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            QUIET.with(|q| q.set(self.0));
+        }
+    }
+    let _restore = Restore(QUIET.with(|q| q.replace(true)));
+    f()
 }
 
 /// A fresh directory for one test. The tests share one process, so the pid
