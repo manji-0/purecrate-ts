@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-09-30, after 0.3.0)
+Status: current (2026-10-01, after 0.4.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -253,7 +253,7 @@ All items done 2026-09-30.
 - **zod 4.6.** The zod adapter and the generated zod code moved to zod 4.6 the same day (peer `^4.6.0`; `z.ZodType<T, In>` without `ZodTypeDef`, issues with `code: "custom"`). A breaking change for users on zod 3, who stay on purecrate-ts 0.2.
 - **arktype errors.** arktype's schemas keep nested errors at their path instead of replacing them with one at the type. Verified by `errors_keep_their_location` in `wire_write.rs`.
 
-### 0.4.0: iteration, part two (planned)
+### 0.4.0: iteration, part two (released 2026-10-01)
 
 <!-- derived-from ./90-acceptance-survey.md#7-re-measured-with-030-2026-09-30 -->
 

@@ -1,6 +1,6 @@
 # Overview
 
-Status: current (2026-09-30, release 0.3.0). Replaces the old `00-foundations.md` as the entry point.
+Status: current (2026-10-01, release 0.4.0). Replaces the old `00-foundations.md` as the entry point.
 
 ## 1. Claim
 
@@ -61,14 +61,14 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 | --- | --- |
 | Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; growing sequences as recursive enums (`Box` erased) |
 | Closed types | structs with private fields keep their invariants (no public `of`) |
-| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!` |
-| Bindings | local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }` |
-| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`; `while` with `break` and `continue` |
-| Numbers | integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)` |
+| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, `bool`, range and string literal patterns, `matches!`; tuple patterns in `let`, closure parameters, and `for` |
+| Bindings | local `let mut`, local `const`, local closures over immutable bindings, struct update `S { a, ..base }` |
+| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`, with `.enumerate()`; `while` with `break` and `continue`; `all` / `any` / `position` / `count` / `sum` on them |
+| Numbers | integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`; `min` / `max` / `abs` / `pow` and the checked, saturating, and wrapping forms |
 | Constants | crate-level `const` items folded at check time; enum discriminants read with `as` |
 | `Option` | read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map` |
-| `Vec` | read by index and `len`, built as a fixed list `vec![a, b]` |
-| Strings | `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()` |
+| `Vec` | read by index, `len`, and slices, built as a fixed list `vec![a, b]` |
+| Strings | `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix`, slices at byte positions, string contents via `s.as_bytes()` |
 | `char` | a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods |
 | `uuid::Uuid` | a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form |
 | serde | serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |

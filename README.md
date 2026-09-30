@@ -11,7 +11,7 @@ It is not a compiler for arbitrary Rust. You write new domain code within [the P
 Download the binary for your platform from the [latest release](https://github.com/manji-0/purecrate-ts/releases/latest) (Linux x86_64 and aarch64, macOS x86_64 and arm64), or build it from a tag:
 
 ```sh
-cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.3.0 purecrate-ts
+cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.4.0 purecrate-ts
 ```
 
 The binary carries the runtime and the schema adapters; it needs only `rustc` on the `PATH` (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
@@ -45,16 +45,17 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 ## What you can write
 
-- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing, a last `_`, and guards `p if c`), and `match (state, event)` on tuples
+- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing, a last `_`, and guards `p if c`), `match (state, event)` on tuples, and `true` / `false` arms
 - byte literals `b'@'`, integer literal and range patterns in `match` (ending in `_`) and `matches!(b, b'0'..=b'9')`
-- local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`
-- `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`; `while` with `break` and `continue`
+- local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`, `const` items in function bodies, tuple patterns in `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in &pairs`
+- `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`, and `.enumerate()` of any of them; `while` with `break` and `continue`
+- `all`, `any`, `position`, `count`, and integer `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()`
 - `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`
-- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`
+- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`; `min`, `max`, `abs`, `pow`, and `checked_*` / `saturating_*` / `wrapping_*`
 - crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
-- growing sequences as recursive enums; `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
+- growing sequences as recursive enums; `Vec` read by index, `len`, and slices `&xs[a..b]`, built as a fixed list `vec![a, b]`
 - `char` as a branded one-code-point string: literals, ranges in `match` / `matches!`, ordering by code point, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, the ASCII methods
-- `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a string needle, string contents through `s.as_bytes()`
+- `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a string needle, slices `&s[a..b]` at byte positions, string contents through `s.as_bytes()`
 - structs with private fields stay closed: TS gets values only from your public constructors
 - modules, inline or in files: flattened, with exports following Rust's public surface
 - `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Display` / `Error` are allowed and not translated
