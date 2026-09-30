@@ -1,6 +1,6 @@
 # Overview
 
-Status: current (2026-09-29). Replaces the old `00-foundations.md` as the entry point.
+Status: current (2026-09-30, release 0.1.0). Replaces the old `00-foundations.md` as the entry point.
 
 
 ## 1. Claim
@@ -52,9 +52,10 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
-- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`); byte literals, integer, `char`, range and string literal patterns, `matches!`
+- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!`
 - local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
-- integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; lossless widening via `i64::from(x)`
+- integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`
+- crate-level `const` items folded at check time; enum discriminants read with `as`
 - growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
 - `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()`
 - `char` as a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods

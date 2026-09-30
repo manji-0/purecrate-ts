@@ -6,14 +6,26 @@ purecrate-ts translates pure domain functions written in Rust into an ordinary T
 
 It is not a compiler for arbitrary Rust. You write new domain code within [the PureCrate constraints](design/02-authoring.md): states and events as ADTs, and transitions such as `fn step(state, event) -> Result<State, Error>`. Start with [design/00-overview.md](design/00-overview.md).
 
+## Install
+
+Download the binary for your platform from the [latest release](https://github.com/manji-0/purecrate-ts/releases/latest) (Linux x86_64 and aarch64, macOS x86_64 and arm64), or build it from a tag:
+
+```sh
+cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.1.0 purecrate-ts
+```
+
+The binary carries the runtime and the schema adapters; it needs only `rustc` on the `PATH` (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Requirements
 
-- Rust (edition 2021). Dependencies are vendored; build with `cargo --offline`. `check` and `build` also run the input through `rustc`, so `rustc` is needed at run time too (override with `RUSTC`); the input may use `serde`, for which `check` gives rustc a stand-in. The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`; 2015 if unset). A standalone file uses 2021 unless you pass `--edition`.
+- Rust (edition 2021) to build from source. Dependencies are vendored; build with `cargo --offline`. `check` and `build` also run the input through `rustc`, so `rustc` is needed at run time too (override with `RUSTC`); the input may use `serde`, for which `check` gives rustc a stand-in. The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`; 2015 if unset). A standalone file uses 2021 unless you pass `--edition`.
 - Node and `npx` to type-check the output and to run differential tests. Type checking runs on TypeScript 6 and 7.
 
 ## Usage
 
 ```sh
+purecrate-ts build examples/counter --out /tmp/counter-ts
+# from a clone, without installing:
 cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter-ts
 ```
 
@@ -32,10 +44,11 @@ purecrate-ts survey <crate-path>... [--json]
 
 ## What you can write
 
-- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing and a last `_`)
+- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing and a last `_`), and `match (state, event)` on tuples
 - byte literals `b'@'`, integer literal and range patterns in `match` (ending in `_`) and `matches!(b, b'0'..=b'9')`
 - local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`
-- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; widening with `i64::from(x)`
+- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`
+- crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
 - growing sequences as recursive enums; `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
 - `char` as a branded one-code-point string: literals, ranges in `match` / `matches!`, ordering by code point, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, the ASCII methods
 - `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a string needle, string contents through `s.as_bytes()`
@@ -51,7 +64,7 @@ A generated package carries everything it runs on. The runtime (`packages/bounda
 
 Use the output either way:
 
-- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write.
+- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write; pin the release binary (or `cargo install --git … --tag`) there so the check and the committed output come from the same version.
 - **Install it as a package.** `npm pack` it (the `prepack` script builds `dist`) and install the tarball, or push it to a private registry.
 
 ```sh
@@ -81,6 +94,8 @@ gh skill install manji-0/purecrate-ts purecrate-authoring
 It needs Rust and Node 21+ (CI uses 24). `nix develop`, or direnv with the checked-in `.envrc`, provides rustc 1.98.1 (the release the differential tests' panic messages were measured on) and Node 24; TypeScript and the schema libraries still come from npm.
 
 CI (`.github/workflows/verify.yml`) runs it on every push inside `nix develop`, after `npm ci` in the three adapter packages. It runs `cargo test --offline` (goldens, differential tests that run the same inputs through Rust and the generated TS, and wire tests against the vendored serde_json), drift detection on examples/counter, `check` on the other examples, and `tsc` on TypeScript 6 and 7 for the runtime packages and the counter output.
+
+`.github/workflows/release.yml` builds the release binaries when a `vX.Y.Z` tag is pushed (the tag must match the workspace version, and `CHANGELOG.md` must have its section, which becomes the release notes); run it by hand to build and smoke-test every target without publishing.
 
 `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 

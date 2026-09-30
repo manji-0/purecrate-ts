@@ -1,0 +1,97 @@
+# Release binaries. A pushed tag `vX.Y.Z` (matching the workspace version)
+# drafts a GitHub release with the CHANGELOG section as notes, attaches a
+# tarball per target, and publishes it. Run by hand (workflow_dispatch), it
+# builds and smoke-tests every target without publishing anything.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # The release the differential tests' panic messages were measured on
+  # (flake.nix).
+  RUST_VERSION: "1.98.1"
+  GH_TOKEN: ${{ github.token }}
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag against the workspace version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match workspace version $version" >&2
+            exit 1
+          fi
+      - name: Draft the release
+        run: |
+          # The CHANGELOG section for this version, without its heading.
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { inside = index($0, "## " v " ") == 1; next }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2; exit 1; }
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+  build:
+    needs: draft
+    # Runs when `draft` succeeded, and when it was skipped (workflow_dispatch).
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 for an older glibc, so the binary runs on more systems.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, run: true }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, run: true }
+          - { target: aarch64-apple-darwin, os: macos-15, run: true }
+          # Cross-built on the arm64 runner, which cannot run it.
+          - { target: x86_64-apple-darwin, os: macos-15, run: false }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "${{ matrix.target }}"
+          rustup default "$RUST_VERSION"
+      - name: Build
+        run: cargo build --offline --locked --release -p purecrate-ts --target "${{ matrix.target }}"
+      - name: Package
+        run: |
+          name="purecrate-ts-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/purecrate-ts" README.md CHANGELOG.md LICENSE "$name/"
+          tar czf "$name.tar.gz" "$name"
+          if command -v sha256sum >/dev/null; then sha256sum "$name.tar.gz"; else shasum -a 256 "$name.tar.gz"; fi > "$name.tar.gz.sha256"
+          echo "PKG=$name" >> "$GITHUB_ENV"
+      - name: Smoke test
+        if: matrix.run
+        run: |
+          "$PKG/purecrate-ts" --version
+          "$PKG/purecrate-ts" check examples/counter --out examples/counter-ts
+          "$PKG/purecrate-ts" check examples/oidc
+      - name: Attach to the release
+        if: env.IS_TAG == 'true'
+        run: gh release upload "$GITHUB_REF_NAME" "$PKG.tar.gz" "$PKG.tar.gz.sha256"
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
