@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Callee, Crate, Expr, Fields, Item, Pattern, Ty, VariantFields, Vis};
+use purecrate_ir::{Callee, Crate, Expr, Item, Pattern, Ty, VariantFields, Vis};
 
 pub fn prune_unreachable(krate: &Crate) -> Crate {
     let keep = reachable(krate);
@@ -157,127 +157,24 @@ impl Refs {
         }
     }
 
+    /// The items `expr` names; everything else is walked through.
     fn expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::At { expr, .. } => self.expr(expr),
-            Expr::Call { callee, args } => {
-                match callee {
-                    Callee::Fn(n) | Callee::StructNew(n) | Callee::Variant { ty: n, .. } => {
-                        self.name(n)
-                    }
-                    Callee::Method { ty, name } => {
-                        self.name(ty);
-                        self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));
-                    }
-                    Callee::Local(_)
-                    | Callee::ResultOk
-                    | Callee::ResultErr
-                    | Callee::OptionSome
-                    | Callee::OptionNone
-                    | Callee::Int { .. }
-                    | Callee::Fround
-                    | Callee::AsFloat(_)
-                    | Callee::VecLen
-                    | Callee::VecIsEmpty
-                    | Callee::OptionIsSome
-                    | Callee::OptionIsNone
-                    | Callee::StrBytes
-                    | Callee::StrSplit
-                    | Callee::StringFrom
-                    | Callee::Str(_)
-                    | Callee::IntFrom { .. }
-                    | Callee::CharCode(_)
-                    | Callee::CharFromU8
-                    | Callee::CharFromU32
-                    | Callee::Char(_)
-                    | Callee::UuidParse
-                    | Callee::UuidNil
-                    | Callee::Discriminant { .. } => {}
+            Expr::Call { callee, .. } => match callee {
+                Callee::Fn(n) | Callee::StructNew(n) | Callee::Variant { ty: n, .. } => self.name(n),
+                Callee::Method { ty, name } => {
+                    self.name(ty);
+                    self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));
                 }
-                args.iter().for_each(|a| self.expr(a));
-            }
-            Expr::Closure { params, ret, body } => {
-                params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
-                if let Some(t) = ret {
-                    self.ty(t);
-                }
-                self.expr(body);
-            }
-            Expr::MethodCall { receiver, args, .. } => {
-                self.expr(receiver);
-                args.iter().for_each(|a| self.expr(a));
-            }
-            Expr::Construct { ty, fields, base, .. } => {
-                self.name(ty);
-                match fields {
-                    Fields::Positional(xs) => xs.iter().for_each(|x| self.expr(x)),
-                    Fields::Named(xs) => xs.iter().for_each(|(_, x)| self.expr(x)),
-                    Fields::Unit => {}
-                }
-                if let Some(b) = base {
-                    self.expr(b);
-                }
-            }
-            Expr::Match { scrutinee, arms } => {
-                self.expr(scrutinee);
-                for arm in arms {
-                    self.pattern(&arm.pattern);
-                    self.expr(&arm.body);
-                }
-            }
-            Expr::Let { ty, value, then, .. } => {
-                if let Some(t) = ty {
-                    self.ty(t);
-                }
-                self.expr(value);
-                self.expr(then);
-            }
-            Expr::If { cond, then, else_ } => {
-                self.expr(cond);
-                self.expr(then);
-                self.expr(else_);
-            }
-            Expr::Index { base, index } => {
-                self.expr(base);
-                self.expr(index);
-            }
-            Expr::Field { base, .. }
-            | Expr::Unary { expr: base, .. }
-            | Expr::Return(base)
-            | Expr::Assign { value: base, .. }
-            | Expr::Try { expr: base, .. }
-            | Expr::Ignored { expr: base, .. } => {
-                self.expr(base)
-            }
-            Expr::Seq { first, then } => {
-                self.expr(first);
-                self.expr(then);
-            }
-            Expr::For { start, end, body, .. } => {
-                self.expr(start);
-                self.expr(end);
-                self.expr(body);
-            }
-            Expr::ForEach { source: string, body, .. } => {
-                self.expr(string);
-                self.expr(body);
-            }
-            Expr::Binary { left, right, .. } => {
-                self.expr(left);
-                self.expr(right);
-            }
-            Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|x| self.expr(x)),
-            Expr::Cast { expr, to } => {
-                self.ty(to);
-                self.expr(expr);
-            }
+                _ => {}
+            },
+            Expr::Construct { ty, .. } => self.name(ty),
+            Expr::Match { arms, .. } => arms.iter().for_each(|arm| self.pattern(&arm.pattern)),
             // A const; `rename` keeps local names off every item name.
             Expr::Var(n) => self.name(n),
-            Expr::While { cond, body } => {
-                self.expr(cond);
-                self.expr(body);
-            }
-            Expr::Lit(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {}
+            _ => {}
         }
+        expr.own_types().into_iter().for_each(|t| self.ty(t));
+        expr.children().into_iter().for_each(|c| self.expr(c));
     }
 }

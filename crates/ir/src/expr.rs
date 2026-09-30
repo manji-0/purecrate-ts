@@ -633,6 +633,42 @@ pub enum TryOn {
 }
 
 impl Expr {
+    /// Types written in this node itself, not in its subexpressions: a
+    /// `let` annotation, a closure's parameter and return types, the target
+    /// of `as`. With `children`, what a pass that collects names walks.
+    pub fn own_types(&self) -> Vec<&Ty> {
+        match self {
+            Expr::Let { ty, .. } => ty.iter().collect(),
+            Expr::Closure { params, ret, .. } => params.iter().filter_map(|p| p.ty.as_ref()).chain(ret).collect(),
+            Expr::Cast { to, .. } => vec![to],
+            Expr::Lit(_)
+            | Expr::Var(_)
+            | Expr::If { .. }
+            | Expr::Match { .. }
+            | Expr::Call { .. }
+            | Expr::MethodCall { .. }
+            | Expr::Construct { .. }
+            | Expr::Field { .. }
+            | Expr::Index { .. }
+            | Expr::Tuple(_)
+            | Expr::Array(_)
+            | Expr::Unary { .. }
+            | Expr::Binary { .. }
+            | Expr::Assign { .. }
+            | Expr::Return(_)
+            | Expr::Try { .. }
+            | Expr::Seq { .. }
+            | Expr::For { .. }
+            | Expr::ForEach { .. }
+            | Expr::While { .. }
+            | Expr::Break
+            | Expr::Continue
+            | Expr::Unreachable
+            | Expr::Ignored { .. }
+            | Expr::At { .. } => Vec::new(),
+        }
+    }
+
     /// Direct subexpressions in evaluation order.
     pub fn children(&self) -> Vec<&Expr> {
         match self {

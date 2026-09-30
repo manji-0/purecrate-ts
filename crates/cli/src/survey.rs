@@ -340,14 +340,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             _ => {}
         },
         Expr::MethodCall { name, .. } => out.push(Ref::ReceiverCall(name.as_str().to_string())),
-        Expr::Closure { params, ret, .. } => {
-            params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| ty_refs(t, out));
-            if let Some(t) = ret {
-                ty_refs(t, out);
-            }
-        }
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
-        Expr::Let { ty: Some(t), .. } => ty_refs(t, out),
         Expr::Match { arms, .. } => {
             for arm in arms {
                 pattern_refs(&arm.pattern, out);
@@ -355,6 +348,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
         }
         _ => {}
     }
+    expr.own_types().into_iter().for_each(|t| ty_refs(t, out));
     for child in expr.children() {
         expr_refs(child, out);
     }

@@ -1464,9 +1464,10 @@ impl Refs {
         }
     }
 
+    /// What the printed code of `expr` will import; everything else is
+    /// walked through.
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
         match expr {
-            Expr::At { expr, .. } => self.expr(krate, expr),
             Expr::Match { scrutinee, arms } => {
                 self.never |= arms
                     .iter()
@@ -1477,11 +1478,9 @@ impl Refs {
                         self.types.insert(ty.as_str().to_string());
                     }
                 }
-                self.expr(krate, scrutinee);
-                arms.iter().for_each(|a| self.expr(krate, &a.body));
             }
             Expr::Unreachable => self.never = true,
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, .. } => {
                 match callee {
                     Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {
                         self.values.insert(n.as_str().to_string());
@@ -1531,72 +1530,17 @@ impl Refs {
                     }
                     _ => {}
                 }
-                args.iter().for_each(|a| self.expr(krate, a));
             }
-            Expr::Let { ty, value, then, .. } => {
-                if let Some(t) = ty {
-                    self.ty(t);
-                }
-                self.expr(krate, value);
-                self.expr(krate, then);
-            }
-            Expr::If { cond, then, else_ } => {
-                self.expr(krate, cond);
-                self.expr(krate, then);
-                self.expr(krate, else_);
-            }
-            Expr::Construct { ty, variant, fields, base } => {
+            Expr::Construct { ty, variant, .. } => {
                 if variant.is_none() && closed_in(krate, ty.as_str()) {
                     self.ctors.insert(ty.as_str().to_string());
                 }
-                match fields {
-                    Fields::Positional(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
-                    Fields::Named(xs) => xs.iter().for_each(|(_, e)| self.expr(krate, e)),
-                    Fields::Unit => {}
-                }
-                if let Some(b) = base {
-                    self.expr(krate, b);
-                }
             }
-            Expr::Field { base, .. }
-            | Expr::Unary { expr: base, .. }
-            | Expr::Return(base)
-            | Expr::Assign { value: base, .. }
-            | Expr::Try { expr: base, .. }
-            | Expr::Ignored { expr: base, .. } => {
-                self.expr(krate, base)
-            }
-            Expr::Index { base, index } => {
-                self.expr(krate, base);
-                self.expr(krate, index);
-            }
-            Expr::Binary { left, right, .. } | Expr::Seq { first: left, then: right } => {
-                self.expr(krate, left);
-                self.expr(krate, right);
-            }
-            Expr::For { start, end, body, .. } => {
-                self.expr(krate, start);
-                self.expr(krate, end);
-                self.expr(krate, body);
-            }
-            Expr::ForEach { over, source: string, body, .. } => {
-                match over {
-                    purecrate_ir::Over::Chars => self.char_type = true,
-                    purecrate_ir::Over::Bytes => self.str = true,
-                    purecrate_ir::Over::Items => {}
-                }
-                self.expr(krate, string);
-                self.expr(krate, body);
-            }
-            Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|e| self.expr(krate, e)),
-            Expr::MethodCall { .. } => expr.children().into_iter().for_each(|e| self.expr(krate, e)),
-            Expr::Closure { params, ret, body } => {
-                params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
-                if let Some(t) = ret {
-                    self.ty(t);
-                }
-                self.expr(krate, body);
-            }
+            Expr::ForEach { over, .. } => match over {
+                purecrate_ir::Over::Chars => self.char_type = true,
+                purecrate_ir::Over::Bytes => self.str = true,
+                purecrate_ir::Over::Items => {}
+            },
             Expr::Lit(lit) => match lit {
                 purecrate_ir::Lit::Int { ty: Some(t), .. } => {
                     self.nums.insert(t.ts_name().to_string());
@@ -1610,13 +1554,11 @@ impl Refs {
             Expr::Var(n) if is_const(krate, n.as_str()) => {
                 self.values.insert(n.as_str().to_string());
             }
-            Expr::Var(_) | Expr::Break | Expr::Continue => {}
-            Expr::While { cond, body } => {
-                self.expr(krate, cond);
-                self.expr(krate, body);
-            }
             Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
+            _ => {}
         }
+        expr.own_types().into_iter().for_each(|t| self.ty(t));
+        expr.children().into_iter().for_each(|c| self.expr(krate, c));
     }
 
     fn fn_sig_and_body(&mut self, krate: &Crate, f: &Fn) {
