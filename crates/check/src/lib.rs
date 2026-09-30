@@ -14,6 +14,7 @@ mod resolve;
 mod rest;
 mod tuple;
 mod types;
+mod unused;
 mod wire;
 
 use purecrate_ir::{Crate, Item, Pos, Reason};
@@ -86,7 +87,7 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
                 match complete::check(&typed) {
-                    missing if missing.is_empty() => return Ok(lift::lift(rename::rename(rest::expand(typed)))),
+                    missing if missing.is_empty() => return Ok(unused::drop_unused(lift::lift(rename::rename(rest::expand(typed))))),
                     missing => out = missing,
                 }
             }

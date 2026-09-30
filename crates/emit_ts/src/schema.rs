@@ -91,7 +91,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
         }
     }
     out.push_str(&to_json(krate));
-    out
+    super::imports::prune_unused(&out)
 }
 
 fn header(schema: WireSchema) -> String {

@@ -1,5 +1,6 @@
 //! Print a `Crate` into kamae-ts files. No I/O.
 
+mod imports;
 mod schema;
 
 use std::cell::RefCell;
@@ -231,7 +232,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Fn(_) => {}
         }
     }
-    out
+    imports::prune_unused(&out)
 }
 
 /// The `pub` methods, closing the companion object, then the others as
@@ -617,6 +618,10 @@ fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut String) {
             sink.finish("undefined", &pad, out);
         }
         Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
+        // `x?;`: only the early return; there is no value to bind.
+        Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
+            emit_try_exit(&format!("{TRY_LET_TEMP}{TRY_TEMP}{indent}"), inner, *on, indent, out);
+        }
         Expr::Try { .. } => {
             let tmp = format!("{TRY_TEMP}{indent}");
             emit_let(&tmp, false, None, expr, indent, out);
@@ -633,15 +638,12 @@ fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
     match value {
         Expr::Try { expr, on } => {
             let tmp = format!("{TRY_LET_TEMP}{name}");
-            out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
-            match on {
-                Some(TryOn::Option) => out.push_str(&format!(
-                    "{pad}if ({tmp} === null) return null;\n{pad}{keyword} {name}{annotation} = {tmp};\n"
-                )),
-                Some(TryOn::Result) | None => out.push_str(&format!(
-                    "{pad}if ({tmp}.kind === \"Err\") return {tmp};\n{pad}{keyword} {name}{annotation} = {tmp}.value;\n"
-                )),
-            }
+            emit_try_exit(&tmp, expr, *on, indent, out);
+            let payload = match on {
+                Some(TryOn::Option) => tmp,
+                Some(TryOn::Result) | None => format!("{tmp}.value"),
+            };
+            out.push_str(&format!("{pad}{keyword} {name}{annotation} = {payload};\n"));
         }
         v if v.needs_statements() => {
             out.push_str(&format!("{pad}let {name}{annotation};\n"));
@@ -666,6 +668,17 @@ fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
             "{pad}{keyword} {name}{annotation} = {};\n",
             emit_expr(v, indent)
         )),
+    }
+}
+
+/// `const tmp = expr;` and the early return of `expr?` when it holds `None`
+/// or an `Err`.
+fn emit_try_exit(tmp: &str, expr: &Expr, on: Option<TryOn>, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
+    match on {
+        Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
+        Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),
     }
 }
 
