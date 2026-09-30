@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "\
 usage:
+  purecrate-ts --version | --help
   purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts survey <crate-path>... [--json]
@@ -60,10 +61,17 @@ pub enum Command {
         publishable: bool,
     },
     Survey { inputs: Vec<Input>, json: bool },
+    Version,
+    Help,
 }
 
 pub fn parse(args: &[String]) -> Result<Command, String> {
     let (verb, rest) = args.split_first().ok_or("missing command")?;
+    match verb.as_str() {
+        "--version" | "-V" => return Ok(Command::Version),
+        "--help" | "-h" | "help" => return Ok(Command::Help),
+        _ => {}
+    }
     if verb == "survey" {
         return parse_survey(rest);
     }
@@ -256,6 +264,14 @@ mod tests {
 
     fn examples() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
+    }
+
+    #[test]
+    fn version_and_help_take_no_crate() {
+        assert_eq!(parse(&args(&["--version"])).unwrap(), Command::Version);
+        assert_eq!(parse(&args(&["-V"])).unwrap(), Command::Version);
+        assert_eq!(parse(&args(&["--help"])).unwrap(), Command::Help);
+        assert_eq!(parse(&args(&["help"])).unwrap(), Command::Help);
     }
 
     #[test]

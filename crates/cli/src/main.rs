@@ -57,6 +57,14 @@ fn execute(command: Command) -> Result<(), String> {
             load(&input, "", schema, access(publishable)).and_then(|pkg| check_drift(&input, &out, &pkg))
         }
         Command::Survey { inputs, json } => run_survey(&inputs, json),
+        Command::Version => {
+            println!("purecrate-ts {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
+        Command::Help => {
+            println!("{}", args::USAGE);
+            Ok(())
+        }
     }
 }
 
