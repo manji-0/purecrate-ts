@@ -105,7 +105,7 @@ From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-na
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `while`, `loop`, `break`/`continue`, `a..=b` in `for`, iterator `for`; byte string literals; the std allow-list beyond `Vec::len`, `Vec::is_empty`, `Option::is_some`/`is_none`, indexing, `str::as_bytes`, `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `String::as_str`; `static` and associated consts.
+`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static` and associated consts.
 
 ## 5. v1: when type expressiveness runs out
 

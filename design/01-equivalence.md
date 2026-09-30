@@ -76,22 +76,87 @@ Before this was built, the output computed `i32` `7 / 2` as `3.5`, `i32::MAX + 1
 
 ## 6. Strings, `char`, `usize`, std methods
 
-Decided 2026-09-27; only parts are implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)).
+<!-- derived-from #3-known-non-equivalences -->
 
-- **Strings reproduce UTF-8 byte units.** The TS value is a plain `string`; encoding-dependent operations go through the runtime `Str`. `len` counts UTF-8 bytes, `&s[a..b]` slices at byte positions and throws like Rust off a char boundary, `bytes`/`as_bytes` yield `u8`s, `chars` yields code points, ordering is code-point order (JS `<` orders U+E000–U+FFFF above supplementary planes; Rust does not). Implemented: `as_bytes` (`strings_equivalence.rs`, including empty, 2–4-byte characters, out-of-range indices); `len` as `Str.len`, and `is_empty`, `starts_with`, `ends_with`, `contains` with a `&str` needle as the JS `length === 0`, `startsWith`, `endsWith`, `includes` (`str_methods_equivalence.rs`, every pairing of 14 strings from empty to U+10FFFF). For well-formed strings a prefix, suffix, or substring on char boundaries is the same in UTF-8 bytes and UTF-16 units, so these four need no encoding step; `char` and closure needles are rejected. String literal patterns print as `===` for the same reason: well-formed strings are equal as UTF-8 exactly when they are as UTF-16; `String::as_str` prints as the string itself (`str_patterns_equivalence.rs`, 16 strings including the literals, a shared prefix, NFC vs NFD, U+FFFF, and a supplementary-plane neighbor). `chars` only as `for c in s.chars()` (2026-09-30): a JS string iterates by code point, which is Rust's sequence of scalar values for well-formed strings, so it prints as `for (const c of s)` (`for_chars_equivalence.rs`, 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
-- **`char`** is a branded one-code-point `string` (`Char`); the brand also excludes lone surrogates, as a Rust `char` is a Unicode scalar value. JSON matches serde: a string of exactly one scalar value, anything else a schema failure. Ordering and range patterns compare `Char.code` (`codePointAt(0)`), never the strings: JS orders by UTF-16 unit, which puts U+E000–U+FFFF above the supplementary planes. Conversions are std's `From` only: `u32::from(c)`, `u64::from(c)`, `char::from(u8)`, `char::from_u32(n)` (`None` for a surrogate or past U+10FFFF); `as` stays rejected. Methods are the ASCII and code-point ones, which need no Unicode table: `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit`/`to_digit` (panicking outside radix 2..=36 with Rust's message). The table-driven ones (`is_alphabetic`, `is_whitespace`, …) and `to_uppercase` (an iterator) are rejected. Implemented 2026-09-29 (`chars_equivalence.rs`: 40 characters across every UTF-8 length boundary and the surrogate gap, all pairs for ordering, radixes 0–37, every `u8`, `from_u32` around the gap; `wire.rs`, `wire_write.rs` for JSON).
-- **`uuid::Uuid`** is a branded `string` (`Uuid`) that only ever holds the lowercase hyphenated form (8-4-4-4-12), the one serde writes. In that form `===` is Rust's `==`, and JS string order is the order of the 16 bytes, since the hyphens sit at the same places in every value, so `==` and `<` print as themselves. `Uuid::parse_str` and `try_parse` accept what the `uuid` crate's parser does, chosen by UTF-8 length as it chooses: 32 hex digits, hyphenated (36), braced (38), and `urn:uuid:` (45, the prefix in lowercase only), hex in either case; the result is the canonical form. The TS parser measures UTF-16 units, but a non-ASCII character fails the hex check at either length, so the accepted sets are equal. `uuid::Error` is an opaque value: nothing translated can read or compare it. `Uuid::nil()` is the only constructor besides parsing; generating (`new_v4`), `to_string`, and byte access are rejected. The JSON form is serde's: read from any string `parse_str` accepts, written canonical. Implemented 2026-09-30, from the Oxide `Name` rule, which had to spell `Uuid::parse_str` by hand ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)). Verified against `uuid` 1.26.1, vendored for the tests: `uuid_equivalence.rs` runs about 3,400 strings (every form the crate prints in three cases, each with one-character edits, cuts, extensions, and wrappings, and non-ASCII characters at the length boundaries) and all pairs of 45 UUIDs for ordering; `wire.rs` and `wire_write.rs` read and write it through each schema library against serde_json.
-- **`usize`** is a `number` checked to 0..2^53−1 (§3).
-- **std methods** come from an exact-match allow-list keyed by (receiver type, method), each with its own differential test over empty, non-ASCII, supplementary-plane, boundary, and panicking inputs. A method that cannot be matched is rejected, not accepted with a documented difference. Examples: `f64::to_string` (Rust `1000000000000000000000`, JS `1e+21`) is rejected; `str::trim` is not JS `trim()` (which also strips U+FEFF). Beyond `str` and `char` (2026-09-30): `Vec::len`, `Vec::is_empty` as `.length === 0`, and `Option::is_some` / `is_none` as `!== null` / `=== null`, which holds because `Option<T>` is `T | null` with nested `Option` rejected, so a falsy payload (`0`, `0n`, `false`, `""`) is still `Some` (`std_methods_equivalence.rs`, on values, borrows, fields, slices, and `as_bytes()` results).
-- **`Option::unwrap_or`, `ok_or`, `map`** become the `match` std writes, with the receiver bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does (JS `??` would skip it, and a `d` that overflows would then not panic); `map(f)` runs `f` only on `Some`. A closure passed to `map` may not use `?` or `return`, which would leave the enclosing function once inlined. `option_methods_equivalence.rs`, 2026-09-30.
-- **Match guards** are rewritten before checking into an `if` chain over standalone matches: for each arm in order, `match $g { p => guard, _ => false }` tests it and `match $g { p => body, _ => unreachable }` takes it, with the scrutinee (each element of a tuple one) bound once to `$g`. A guard therefore runs only when its pattern matched, as in Rust, which a guard that overflows for other variants checks (`guards_equivalence.rs`, 2026-09-30).
-- **`for t in s.split(c)`** with a `char` separator prints as `s.split(c)`: one code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps, leading, trailing, and between adjacent separators. A `&str` separator is refused: an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS). Only as the source of a `for`; `split` as a value stays off the allow-list. Implemented 2026-09-30 (`for_each_equivalence.rs`: ten strings against separators of every UTF-8 length).
-- **`vec![a, b]`** prints as the array literal `[a, b]`, elements evaluated left to right as in Rust; the `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Implemented 2026-09-30 (`vec_build_equivalence.rs`: element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported).
-- **`const`** items are folded by `check` with rustc's const-evaluation rules (checked arithmetic, wrapped shifts with the amount checked), and the TS holds the value, not the computation: rustc rejects a const that overflows, so there is nothing to throw at run time, and module load order cannot matter. A const in a pattern is refused: Rust compares with its value, where the IR would bind a new name that matches anything. Implemented 2026-09-30 (`flags_equivalence.rs`, `consts.rs` in `check`).
+Decided 2026-09-27 and implemented one method at a time as examples asked ([07 §3.1](./07-roadmap.md#31-when-an-example-needs-it)). Two rules hold throughout:
+
+- **Allow-list, exact match.** A method is accepted by (receiver type, method), each with its own differential test over empty, non-ASCII, supplementary-plane, boundary, and panicking inputs. A method that cannot be matched is rejected, not accepted with a documented difference: `f64::to_string` (Rust `1000000000000000000000`, JS `1e+21`) and `str::trim` (JS `trim()` also strips U+FEFF) are out.
+- **Well-formed strings only.** Rust strings are UTF-8 and JS strings UTF-16. Every equivalence below relies on a string holding only whole scalar values, which a Rust `String` always does; a TS string with lone surrogates is outside the domain (§2).
+
+| Receiver | Accepted | TS | Verified by |
+| --- | --- | --- | --- |
+| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` (a `&str` needle), `as_bytes`, `as_str`, `==`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes`, `Str.bytes`, the string, `===` | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs` |
+| a string in a `for` head | `chars()`, `bytes()`, `split(c)` with a `char` | `for..of` over `s`, `Str.bytes(s)`, `s.split(c)` | `for_chars_equivalence.rs`, `for_each_equivalence.rs` |
+| `char` | literals, `==`, `<`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs` |
+| `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0` | `std_methods_equivalence.rs` |
+| `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
+
+`wire.rs` and `wire_write.rs` cover the JSON forms of `char` and `Uuid` against serde_json through each schema library.
+
+### 6.1 Strings
+
+The TS value is a plain `string`; operations that depend on the encoding go through the runtime `Str`, and reproduce UTF-8 byte units: `len` counts UTF-8 bytes, and `bytes` / `as_bytes` yield `u8`s.
+
+What prints as the plain JS operation, and why that is the same:
+
+- **Prefix, suffix, substring.** On well-formed strings a match on char boundaries is the same in UTF-8 bytes and UTF-16 units, so `is_empty`, `starts_with`, `ends_with`, `contains` need no encoding step. `char` and closure needles are rejected (tested: every pairing of 14 strings from empty to U+10FFFF).
+- **Equality and literal patterns.** Well-formed strings are equal as UTF-8 exactly when they are as UTF-16, so `==` and string literal patterns print as `===`; `String::as_str` prints as the string itself (tested: 16 strings including the literals, a shared prefix, NFC vs NFD, U+FFFF, and a supplementary-plane neighbor).
+- **`for c in s.chars()`** (2026-09-30). A JS string iterates by code point, which for well-formed strings is Rust's sequence of scalar values, so it prints as `for (const c of s)` (tested: 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
+- **`for t in s.split(c)`** with a `char` separator (2026-09-30) prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list.
+
+Specified, not yet implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)): byte slicing `&s[a..b]`, which would throw like Rust off a char boundary, and `String` ordering, which would compare code points, since JS `<` orders U+E000–U+FFFF above the supplementary planes and Rust does not.
+
+### 6.2 `char`
+
+Implemented 2026-09-29.
+
+- **Representation.** A branded one-code-point `string` (`Char`). The brand also excludes lone surrogates, as a Rust `char` is a Unicode scalar value. JSON matches serde: a string of exactly one scalar value, anything else a schema failure.
+- **Ordering.** Comparisons and range patterns use `Char.code` (`codePointAt(0)`), never the strings, for the UTF-16 order given above.
+- **Conversions** are std's `From` only; `char::from_u32(n)` is `None` for a surrogate or past U+10FFFF, and `as` stays rejected.
+- **Methods** are the ASCII and code-point ones, which need no Unicode table; `to_digit` and `is_digit` panic outside radix 2..=36 with Rust's message. The table-driven ones (`is_alphabetic`, `is_whitespace`, …) and `to_uppercase` (an iterator) are rejected; see §6.5.
+
+Tested on 40 characters across every UTF-8 length boundary and the surrogate gap, all pairs for ordering, radixes 0–37, every `u8`, and `from_u32` around the gap.
+
+### 6.3 `uuid::Uuid`
+
+Implemented 2026-09-30, from the Oxide `Name` rule, which had to spell `Uuid::parse_str` by hand ([91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)). Verified against `uuid` 1.26.1.
+
+- **Representation.** A branded `string` that only ever holds the lowercase hyphenated form (8-4-4-4-12), the one serde writes. In that form `===` is Rust's `==`, and JS string order is the order of the 16 bytes, since the hyphens sit at the same places in every value, so `==` and `<` print as themselves.
+- **Parsing.** `parse_str` and `try_parse` accept what the crate's parser does, chosen by UTF-8 length as it chooses: 32 hex digits, hyphenated (36), braced (38), and `urn:uuid:` (45, the prefix in lowercase only), hex in either case; the result is the canonical form. The TS parser measures UTF-16 units, but a non-ASCII character fails the hex check at either length, so the accepted sets are equal. `uuid::Error` is opaque: nothing translated can read or compare it.
+- **Rejected.** Generating (`new_v4`), `to_string`, and byte access. `nil()` is the only constructor besides parsing.
+- **JSON** is serde's: read from any string `parse_str` accepts, written canonical.
+
+Tested on about 3,400 strings (every form the crate prints in three cases, each with one-character edits, cuts, extensions, and wrappings, and non-ASCII characters at the length boundaries) and all pairs of 45 UUIDs for ordering.
+
+### 6.4 `usize`
+
+A `number` checked to 0..2^53−1; the gap above that is in §3.
+
+### 6.5 Other methods
+
+- **`Vec` and slices** (2026-09-30): `len`, and `is_empty` as `.length === 0`, on values, borrows, fields, slices, and `as_bytes()` results.
+- **`Option::is_some` / `is_none`** (2026-09-30) print as `!== null` / `=== null`. This holds because `Option<T>` is `T | null` with nested `Option` rejected, so a falsy payload (`0`, `0n`, `false`, `""`) is still `Some`.
+- **Unicode-table methods** (`to_uppercase`, `is_alphabetic`, …) are not accepted. If added, they carry the version gap of §3, and their differential tests first check that both toolchains' Unicode versions agree; `ß` → `SS` and final sigma were measured to match.
+
+## 7. Rewritten constructs
+
+Some accepted Rust has no one-to-one TS form. It is rewritten into constructs that are already equivalent, and the rewrite keeps Rust's evaluation order.
+
+| Construct | Becomes | Verified by |
+| --- | --- | --- |
+| `Option::unwrap_or`, `ok_or`, `map` | the `match` std writes | `option_methods_equivalence.rs` |
+| match guards | an `if` chain over standalone matches | `guards_equivalence.rs` |
+| `vec![a, b]` | the array literal | `vec_build_equivalence.rs` |
+| `const`, enum discriminants | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
+
+- **`Option::unwrap_or`, `ok_or`, `map`** (2026-09-30). The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`. A closure passed to `map` may not use `?` or `return`, which would leave the enclosing function once inlined.
+- **Match guards** (2026-09-30) are rewritten before checking. For each arm in order, `match $g { p => guard, _ => false }` tests it and `match $g { p => body, _ => unreachable }` takes it, with the scrutinee (each element of a tuple one) bound once to `$g`. A guard therefore runs only when its pattern matched, as in Rust; the tests include a guard that overflows for other variants.
+- **`vec![a, b]`** (2026-09-30) prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
+- **`const`** (2026-09-30) is folded by `check` with rustc's const-evaluation rules (checked arithmetic, wrapped shifts with the amount checked), and the TS holds the value, not the computation. rustc rejects a const that overflows, so there is nothing to throw at run time, and module load order cannot matter. A const in a pattern is refused: Rust compares with its value, where the IR would bind a new name that matches anything.
 - **Discriminants** of a fieldless enum (explicit, or one past the previous; the first `0`) are folded the same way, in the `#[repr]` type or `isize` (64 bits). `e as T` is accepted only when `T` holds every discriminant, so the cast never truncates or wraps; it prints as a table indexed by `kind` (a constant variant folds to the literal). Every other `as` stays rejected.
-- **Unicode-table methods** (`to_uppercase`, `is_alphabetic`, …) are accepted with a version note (§3). Differential tests first check both Unicode versions agree. `ß` → `SS` and final sigma were measured to match.
 
-## 7. Verification
+## 8. Verification
 
 | Check | Mechanism |
 | --- | --- |
