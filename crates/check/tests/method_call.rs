@@ -76,8 +76,8 @@ fn str_methods_come_from_the_allow_list() {
 #[test]
 fn std_rejections_list_what_the_receiver_allows() {
     assert_rejects(
-        "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or(0u32) }",
-        "allowed: `is_some`, `is_none`",
+        "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
+        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`",
     );
     assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
@@ -88,10 +88,26 @@ fn std_rejections_list_what_the_receiver_allows() {
 /// the statement it sits in.
 #[test]
 fn rejected_calls_point_at_the_call() {
-    let src = "pub fn f(x: Option<u32>) -> u32 {\n    let y = 1u32;\n    y + x.unwrap_or(0u32)\n}\n";
+    let src = "pub fn f(x: Option<u32>) -> u32 {\n    let y = 1u32;\n    y + x.unwrap_or_default()\n}\n";
     let (krate, _) = purecrate_syntax::parse_source_spanned("c", src).expect("parse");
     let found = purecrate_check::check(&krate);
     assert_eq!(found.len(), 1, "{found:#?}");
     let at = found[0].at.expect("a position");
-    assert_eq!((at.line, at.col), (3, 11), "{found:#?}"); // 1-based: the `u` of `unwrap_or`
+    assert_eq!((at.line, at.col), (3, 11), "{found:#?}"); // 1-based: the `u` of `unwrap_or_default`
+}
+
+/// `Option::unwrap_or`, `ok_or`, and `map` (`option_methods_equivalence.rs`
+/// for their values); what `map` refuses.
+#[test]
+fn option_combinators_are_checked() {
+    assert_clean("pub fn f(x: Option<u8>) -> u8 { x.map(|v| v / 2).unwrap_or(0) }");
+    assert_clean("pub fn f(x: Option<u8>) -> Result<u8, u32> { x.ok_or(7u32) }");
+    assert_rejects(
+        "pub fn g(v: u8) -> Result<u8, u8> { Ok(v) }\npub fn f(x: Option<u8>) -> Result<Option<u8>, u8> { Ok(x.map(|v| g(v)?)) }",
+        "a closure passed to `Option::map` may not use `?` or `return`",
+    );
+    assert_rejects(
+        "pub fn g(a: u8, b: u8) -> u8 { a + b }\npub fn f(x: Option<u8>) -> Option<u8> { x.map(g) }",
+        "`map` calls its function with 1 argument, which takes 2",
+    );
 }

@@ -251,9 +251,22 @@ impl<'a> Cx<'_, 'a> {
                 self.callee(callee, args.len());
                 args.iter().for_each(|a| self.expr(a));
             }
-            Expr::MethodCall { receiver, args, .. } => {
+            Expr::MethodCall { receiver, name, args } => {
                 self.expr(receiver);
-                args.iter().for_each(|a| self.expr(a));
+                for a in args {
+                    // `opt.map(f)` names a function; `types` checks the receiver.
+                    let fn_name = match a.unpositioned() {
+                        Expr::Var(n) if name.as_str() == "map" && !self.in_scope(n.as_str()) => {
+                            self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
+                        }
+                        _ => None,
+                    };
+                    match fn_name {
+                        Some(1) => {}
+                        Some(p) => self.error(Reason::ConstructShape, format!("`map` calls its function with 1 argument, which takes {p}")),
+                        None => self.expr(a),
+                    }
+                }
             }
             Expr::Index { base, index } => {
                 self.expr(base);

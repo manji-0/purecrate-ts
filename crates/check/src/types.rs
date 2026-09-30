@@ -127,6 +127,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (e, self.expect(want, Some(Ty::bool())));
             }
         }
+        if let Some(Ty::Option(inner)) = rt.as_ref().map(|t| self.norm(t)) {
+            if let Some(typed) = self.option_method(recv.clone(), &inner, name.as_str(), args, want) {
+                return typed;
+            }
+        }
         if name.as_str() == "as_bytes" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
@@ -275,6 +280,125 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (e, None)
             }
         }
+    }
+
+    fn fresh_name(&mut self, what: &str) -> Name {
+        self.fresh += 1;
+        Name::new(format!("${what}{}", self.fresh))
+    }
+
+    /// `unwrap_or`, `ok_or`, and `map` on an `Option`, as the `match` std
+    /// writes them. The typed receiver is bound to a fresh name first, so it
+    /// is typed once however long the chain. `unwrap_or(d)` and `ok_or(e)`
+    /// evaluate their argument whether or not the option is `Some`, as Rust
+    /// does; `map(f)` calls `f` only on `Some`. `None` when `name` is none of
+    /// these.
+    fn option_method(&mut self, recv: Expr, inner: &Ty, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+        let [arg] = args else { return None };
+        let opt = self.fresh_name("opt");
+        let some = self.fresh_name("some");
+        let v = |n: &Name| Expr::Var(n.clone());
+        let two = |some_pat: Pattern, some_body: Expr, none_body: Expr| Expr::Match {
+            scrutinee: Box::new(Expr::Var(opt.clone())),
+            arms: vec![
+                Arm { pattern: Pattern::OptionSome(Box::new(some_pat)), body: some_body },
+                Arm { pattern: Pattern::OptionNone, body: none_body },
+            ],
+        };
+        let mut eager_let: Option<(Name, Option<Ty>, Expr)> = None;
+        let mut want = want.cloned();
+        let rest = match name {
+            "unwrap_or" | "ok_or" => {
+                let eager = self.fresh_name("arg");
+                let hint = if name == "unwrap_or" {
+                    Some(inner.clone())
+                } else {
+                    match want.as_ref().map(|w| self.norm(w)) {
+                        Some(Ty::Result { err, .. }) => Some(*err),
+                        _ => None,
+                    }
+                };
+                // The argument is typed (and runs) before the match.
+                let (arg_typed, arg_ty) = self.expr(arg, hint.as_ref());
+                let (some_body, none_body) = if name == "unwrap_or" {
+                    (v(&some), v(&eager))
+                } else {
+                    if want.is_none() {
+                        want = arg_ty.clone().map(|e| Ty::result(inner.clone(), e));
+                    }
+                    (
+                        Expr::Call { callee: Callee::ResultOk, args: vec![v(&some)] },
+                        Expr::Call { callee: Callee::ResultErr, args: vec![v(&eager)] },
+                    )
+                };
+                eager_let = Some((eager, arg_ty, arg_typed));
+                two(Pattern::Var(some.clone()), some_body, none_body)
+            }
+            "map" => {
+                let (pattern, body) = match arg.unpositioned() {
+                    Expr::Closure { params, body, .. } if params.len() == 1 => {
+                        if leaves(body) {
+                            self.error(Reason::Closure, "a closure passed to `Option::map` may not use `?` or `return` in v0; write the `match`".into());
+                            return Some((recv, None));
+                        }
+                        (Pattern::Var(params[0].name.clone()), (**body).clone())
+                    }
+                    Expr::Var(f) => (
+                        Pattern::Var(some.clone()),
+                        Expr::Call { callee: Callee::Fn(f.clone()), args: vec![v(&some)] },
+                    ),
+                    _ => {
+                        self.error(Reason::Closure, "`Option::map` takes a closure `|x| ..` or a function name in v0".into());
+                        return Some((recv, None));
+                    }
+                };
+                two(pattern, Expr::Call { callee: Callee::OptionSome, args: vec![body] }, Expr::Call { callee: Callee::OptionNone, args: vec![] })
+            }
+            _ => return None,
+        };
+        let rt = Ty::Option(Box::new(inner.clone()));
+        self.scopes.push((opt.as_str().to_string(), Some(rt.clone())));
+        if let Some((eager, ty, _)) = &eager_let {
+            self.scopes.push((eager.as_str().to_string(), ty.clone()));
+        }
+        let (typed, t) = self.expr(&rest, want.as_ref());
+        if eager_let.is_some() {
+            self.scopes.pop();
+        }
+        self.scopes.pop();
+        // `Result.ok(v)` alone leaves TS to infer the error type, which it
+        // cannot; an annotated binding names it.
+        let typed = match (&t, name) {
+            (Some(ty), "ok_or") => {
+                let res = self.fresh_name("res");
+                Expr::Let {
+                    name: res.clone(),
+                    mutable: false,
+                    ty: Some(ty.clone()),
+                    value: Box::new(typed),
+                    then: Box::new(Expr::Var(res)),
+                }
+            }
+            _ => typed,
+        };
+        let typed = match eager_let {
+            Some((name, ty, value)) => Expr::Let {
+                name,
+                mutable: false,
+                ty,
+                value: Box::new(value),
+                then: Box::new(typed),
+            },
+            None => typed,
+        };
+        let e = Expr::Let {
+            name: opt,
+            mutable: false,
+            ty: Some(rt),
+            value: Box::new(recv),
+            then: Box::new(typed),
+        };
+        Some((e, t))
     }
 
     fn func(mut self, f: &Fn) -> Fn {
@@ -1741,6 +1865,15 @@ fn describe(pattern: &Pattern) -> &'static str {
     }
 }
 
+/// A `?` or `return` that would leave a closure (not one nested in it).
+fn leaves(expr: &Expr) -> bool {
+    match expr {
+        Expr::Try { .. } | Expr::Return(_) => true,
+        Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(leaves),
+    }
+}
+
 /// The allow-listed methods on a std receiver, for a rejection message;
 /// `None` for the crate's own types, whose methods are its `impl` blocks.
 fn std_methods(ty: &Ty) -> Option<String> {
@@ -1755,7 +1888,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
             .collect(),
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`"],
-        Ty::Option(_) => vec!["is_some", "is_none"],
+        Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
         _ => vec![],
     };
     Some(match (ty, names.is_empty()) {
