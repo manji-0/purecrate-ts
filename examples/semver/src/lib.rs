@@ -242,25 +242,27 @@ fn compare_u64(a: u64, b: u64) -> Precedence {
     }
 }
 
+/// `first`, or `next` when `first` is `Equal` (both already computed).
+fn then(first: Precedence, next: Precedence) -> Precedence {
+    match first {
+        Precedence::Equal => next,
+        _ => first,
+    }
+}
+
 /// Lexical comparison in ASCII order, byte by byte; a proper prefix is less.
 fn compare_ascii(a: &str, b: &str) -> Precedence {
-    let x = a.as_bytes();
-    let y = b.as_bytes();
-    let n = x.len().min(y.len());
-    for i in 0..n {
-        if x[i] < y[i] {
-            return Precedence::Less;
-        }
-        if x[i] > y[i] {
-            return Precedence::Greater;
+    let (x, y) = (a.as_bytes(), b.as_bytes());
+    for i in 0..x.len().min(y.len()) {
+        let c = compare_u64(u64::from(x[i]), u64::from(y[i]));
+        if !matches!(c, Precedence::Equal) {
+            return c;
         }
     }
-    if x.len() < y.len() {
-        Precedence::Less
-    } else if x.len() > y.len() {
-        Precedence::Greater
-    } else {
-        Precedence::Equal
+    match (x.len() < y.len(), x.len() > y.len()) {
+        (true, _) => Precedence::Less,
+        (_, true) => Precedence::Greater,
+        _ => Precedence::Equal,
     }
 }
 
@@ -273,40 +275,24 @@ fn compare_pre_id(a: &PreId, b: &PreId) -> Precedence {
     }
 }
 
+/// Identifiers left to right; a longer list with an equal prefix is greater.
 fn compare_pre_ids(a: &PreIds, b: &PreIds) -> Precedence {
     match (a, b) {
         (PreIds::Nil, PreIds::Nil) => Precedence::Equal,
-        (PreIds::Nil, PreIds::Cons(_, _)) => Precedence::Less,
-        (PreIds::Cons(_, _), PreIds::Nil) => Precedence::Greater,
-        (PreIds::Cons(x, xs), PreIds::Cons(y, ys)) => {
-            let head = compare_pre_id(x, y);
-            match head {
-                Precedence::Equal => compare_pre_ids(xs, ys),
-                _ => head,
-            }
-        }
+        (PreIds::Nil, _) => Precedence::Less,
+        (_, PreIds::Nil) => Precedence::Greater,
+        (PreIds::Cons(x, xs), PreIds::Cons(y, ys)) => then(compare_pre_id(x, y), compare_pre_ids(xs, ys)),
     }
 }
 
 /// Precedence per SemVer 2.0.0 §11. Build metadata is ignored.
 pub fn compare(a: &Version, b: &Version) -> Precedence {
-    let major = compare_u64(a.major, b.major);
-    if !matches!(major, Precedence::Equal) {
-        return major;
-    }
-    let minor = compare_u64(a.minor, b.minor);
-    if !matches!(minor, Precedence::Equal) {
-        return minor;
-    }
-    let patch = compare_u64(a.patch, b.patch);
-    if !matches!(patch, Precedence::Equal) {
-        return patch;
-    }
-    match (&a.pre, &b.pre) {
+    let pre = match (&a.pre, &b.pre) {
         (PreIds::Nil, PreIds::Nil) => Precedence::Equal,
         // A version without pre-release has higher precedence.
         (PreIds::Nil, _) => Precedence::Greater,
         (_, PreIds::Nil) => Precedence::Less,
         (x, y) => compare_pre_ids(x, y),
-    }
+    };
+    then(compare_u64(a.major, b.major), then(compare_u64(a.minor, b.minor), then(compare_u64(a.patch, b.patch), pre)))
 }

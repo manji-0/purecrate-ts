@@ -112,8 +112,8 @@ The author's own examples cannot validate the constraints: the author writes aro
 
 | Withdrawal condition | Status |
 | --- | --- |
-| More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, and oidc are from third-party specs; all five could be written |
-| Constrained Rust exceeds 2× | Not met now; see the table below |
+| More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, oidc, and semver are from third-party specs; all six could be written |
+| Constrained Rust exceeds 2× | Met by semver (2.6×, 2.0× adjusted), as every example's first draft was before its gap's capability landed. Ordering is added next to bring it under ([07 §3](./07-roadmap.md#3-candidates)); the others are under |
 | Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
 | No real use | Open. No real-world replacement yet (§5.2) |
 
@@ -126,6 +126,7 @@ Line counts against idiomatic Rust, logic only, both sides formatted with rustfm
 | payment | 1.6× | 2.1× at first, 1.8× after `_` and `A \| B` arms; one tuple `match` in 0.4.0 |
 | invoice | 1.6× | 2.2× for the first draft, 1.4× restructured (as written) |
 | oidc | 1.3× | 1.65× written from the authoring skill alone; 0.4.0 rewrite |
+| semver | 2.6× (2.0× counting `impl Ord` as logic and leaving out the closed type's accessors) | 2.8× written from the authoring skill alone; ordering is most of the gap ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)) |
 
 ## 5. Validating demand next
 

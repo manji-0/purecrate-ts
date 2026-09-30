@@ -31,6 +31,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 | iban (ISO 13616-1, ISO 7064 MOD 97-10) | third party | nothing; but line count over threshold | integer-range `for` |
 | invoice (NTA インボイスQ&A 問57, 問59: consumption tax per rate, rounded once per invoice) | third party | nothing; rejected on the way: a tuple `let`, match guards (three times), a tuple scrutinee, `Vec::is_empty`, `Group`/`group` file collision; the first draft's transitions were 2.2×, a restructured one (a filtered sum per group, as the idiomatic code does) 1.4× | a `Js` literal for every fixture type, so tests pass whole values (`Invoice`) |
 | oidc (OIDC Core 1.0 OP login, PKCE RFC 7636, TOTP RFC 6238/4226 as the second factor, amr RFC 8176) | third party, from the authoring skill alone | RFC 4226 truncation's `&` and `<<` (written with `%` and `*`); no way to build a `Vec` for `amr` (a recursive enum instead; the documents' "build with `[a, b]`" was wrong); `const`; `==` on `Option` and enums, `is_some`; `u8::is_ascii_digit`; 15 rejections, about 6 not predictable from the skill | documents corrected (§2.4); later `is_some`/`is_none`, bit operators, and `vec![a, b]` (§8.1) |
+| semver (SemVer 2.0.0: parsing, §11 precedence) | third party, from the authoring skill alone | about 12 rejections in 5 rounds, 6 not predictable from the skill: `std::cmp::Ordering` and `.cmp()`, `..` in a tuple variant, a bare binding arm (`other => other`), `?` in a tuple inside an arm, `let mut x = None` without a type, no `u64::from(usize)`; ASCII string order written byte by byte; identifier lists as recursive enums | skill corrected (§2.4); ordering is the leading candidate (§3) |
 | payment (Stripe PaymentIntent lifecycle) | third party | nothing on the first pass; but transition lines at 2.1× (28 of 160 were `=> Err(InvalidTransition)`); the client sends events back, so values must be written as serde JSON; `terms`/`outcome`/`amount` driver functions collided with types (known rule) | `_` and binding-free `A \| B` arms; `toJson` (and rejected unit structs, which serde writes differently from `struct S {}`) |
 
 ### 2.2 Line counts against idiomatic Rust
@@ -47,6 +48,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
 | oidc | 327 | 423 | 1.3× | 1.65× as written from the skill alone |
 | payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
+| semver | 75 | 195 | 2.6× | 209 (2.8×) from the skill alone, with rustfmt |
 
 signup is counted by hand, as its test has no idiomatic module. The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 
@@ -62,6 +64,18 @@ signup is counted by hand, as its test has no idiomatic module. The "earlier" fi
 - **`vec![a, b]`** (oidc): the `AmrList` enum became `Vec<String>`, 8 lines shorter.
 - **Guards, tuple `match`, `ok_or` / `unwrap_or` / `map`, `all` / `any`, `min`, `pow`** (oidc, payment, invoice; the 0.4.0 rewrites): guards wherever a state or a field chose the path, tuple `match` in place of per-state handlers (payment's five, oidc's three), the `Option` methods in place of `match`es. oidc's file went 777 → 629 lines, payment's logic 163 → 111, invoice's 74 → 66 (as written).
 - **Unused by the rewrites:** slicing and `strip_*`, `const` in a function, `position`, `count`, `sum`, `enumerate`, the `checked_*` / `saturating_*` / `wrapping_*` forms, tuple `let` (tried in invoice; with long names rustfmt made it longer). Kept anyway (§8.4).
+
+**semver**, the first example over 2× after rustfmt normalization. The draft from the skill alone was 209 lines; restructuring its ordering within the subset (a `then` helper, a byte loop through `compare_u64`) gave 195. By part:
+
+| Part | Idiomatic | Constrained | What idiomatic code uses |
+| --- | --- | --- | --- |
+| Ordering (`compare` and its helpers) | 10 (+15 in `impl Ord for PreId`) | 57 | `std::cmp::Ordering`, tuple `cmp`, `then_with`, `String` and `Vec` ordering |
+| Identifier parsing | 35 | 52 | `str::parse`, `u8::is_ascii_*`, `match` on the `&str` with guards |
+| `Version::parse` | 30 | 47 | `split_once`, a fixed array indexed by the piece count |
+| Identifier lists | 0 | 20 | `split('.').map(..).collect()` (the constrained side recurses into cons lists) |
+| Accessors | 0 | 19 | `pub` fields (the constrained side is a closed type) |
+
+Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, 176 / 90 is 2.0×. Ordering is most of the gap either way: with `Ordering`, `cmp` on integers and strings, and `then_with`, the ordering part would be about 25 lines, and semver about 1.6× adjusted (2.2× by the script).
 
 **oidc by section.** Written by an agent that read only the authoring skill, to find what the skill leaves out. As written:
 
@@ -97,6 +111,7 @@ Beyond the Rust-vs-TS differential tests:
 | iban | an idiomatic-Rust implementation, on published valid IBANs, one-character mutations, and malformed input |
 | payment | an idiomatic-Rust implementation (tuple `match` with guards and a wildcard), on every four-event run under each capture and confirmation method. The client-side step on the server's JSON also writes the server's bytes for every reachable state and event (`wire_write.rs`). |
 | invoice | the NTA's own worked examples (60,000 × 10/110 ≒ 5,454; 23,894 × 10% ≒ 2,389 where rounding per line would give 2,388; 問59's receipt at 948 both ways), asserted in `invoice_equivalence.rs` next to an idiomatic-Rust cross-check and the Rust/TS differential test (about 11,400 invoices, overflow included) |
+| semver | an idiomatic-Rust implementation (`split_once`, `collect`, `impl Ord`), on the spec's examples, one-character edits of them, and `u64` edges, and every pair's precedence; §11's ordered chain asserted on both Rust sides. Swapping numeric and alphanumeric order in the constrained side fails both |
 | oidc | the idiomatic reference; since `vec![a, b]` the cross-check no longer rewrites one side's `Debug` text |
 
 ### 2.4 What the measurements changed
@@ -107,6 +122,7 @@ Besides the capabilities in §2.1:
 - **serde, from payment** (preparing it for a real server). A crate that derived serde failed `check` (rustc had no serde), and closed types could not keep their invariants on the wire. `check` now compiles against a stand-in serde; `#[serde(try_from = "T")]` with `impl TryFrom<T>` is accepted, and `impl Display` / `Error` are skipped ([04 §5](./04-wire.md#5-closed-types-on-the-wire)). payment reads `Amount` and `PaymentMethodId` through their constructors on both sides.
 - **Match guards, from invoice.** Every rejection on the way had a subset spelling. Guards were the most frequent (three in invoice, and the idiomatic payment uses two), and were added in 0.3.0 (§8.3).
 - **The authoring skill, from oidc.** The skill had one wrong line (building a `Vec` from `[a, b]`, also in 02 §3.1) and lacked the method allow-list, bit operators, `const`, the enum/`Option` equality rewrites, the phase order of diagnostics, and the by-shape reading of closed types under serde. All were added.
+- **The authoring skill, from semver.** Six of its rejections were not predictable from the skill; each now has a line: `..` in a tuple variant, a bare binding arm, `?` in a tuple inside an arm, `let mut x = None` needing its type, `Ordering` / `cmp` and what to write instead, and no `u64::from(usize)`.
 - **Diagnostics, from oidc:**
 
   | Problem | Fix |
@@ -126,6 +142,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
+| Ordering: `std::cmp::Ordering`, `cmp` on integers, `char`, and strings, `then` / `then_with` | semver's ordering is 57 lines against 25 and keeps it at 2.0× (adjusted) to 2.6× (§2.2) | `String` order is specified as code-point order ([01 §6.1](./01-equivalence.md#61-strings)); whether `impl Ord` / `derive(PartialOrd, Ord)` come too is open |
 | Nested patterns (a literal or a variant inside a variant's fields, `PasswordChecked { verified: false, .. }`) | oidc's idiomatic `step` relies on them (0.4.0 rewrites) | — |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
