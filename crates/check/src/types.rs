@@ -21,11 +21,13 @@ use crate::defs::Defs;
 mod calls;
 mod methods;
 mod ops;
+mod ordering;
 mod patterns;
 
 use calls::*;
 use methods::*;
 use ops::*;
+use ordering::*;
 use crate::Diagnostic;
 
 pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {

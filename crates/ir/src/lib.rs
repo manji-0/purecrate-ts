@@ -11,7 +11,7 @@ mod reason;
 mod ty;
 
 pub use expr::{Arm, BinOp, Callee, CharMethod, ClosureParam, Expr, Fields, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, StrMethod, TryOn, UnOp, VariantBind};
-pub use item::{Alias, Const, CONSTS_STEM, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD, tuple_field};
+pub use item::{Alias, Const, CONSTS_STEM, Enum, Field, Fn, Item, Param, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD, ORDERING, tuple_field};
 pub use krate::Crate;
 pub use name::{to_kebab, Name};
 pub use reason::Reason;
@@ -50,6 +50,7 @@ pub fn counter_example() -> Crate {
             },
         ],
         repr: None,
+        std: false,
     });
 
     let state = Item::Struct(StructItem {

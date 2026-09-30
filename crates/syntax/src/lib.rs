@@ -4,6 +4,7 @@
 mod expr;
 mod item;
 mod modules;
+mod std_ordering;
 mod survey;
 mod ty;
 
@@ -33,7 +34,7 @@ pub fn parse_source_spanned(
     crate_name: &str,
     source: &str,
 ) -> Result<(Crate, Vec<LineCol>), ParseError> {
-    let file = parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
+    let mut file = parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
     if file.items.iter().any(|i| matches!(i, syn::Item::Mod(_)) && !item::is_test_only(i)) {
         // One file with modules: the module-aware path, which reads the
         // inline ones and reports an out-of-line one as missing.
@@ -41,7 +42,13 @@ pub fn parse_source_spanned(
             .map(|(krate, spans)| (krate, spans.into_iter().map(|(_, at)| at).collect()))
             .map_err(|(_, e)| e);
     }
+    let mut ordering = std_ordering::StdOrdering::default();
+    ordering.rewrite(0, &mut file.items, &Default::default())?;
+    let injected = ordering.injected().map_err(|(_, e)| e)?;
     let mut cx = item::Cx::scan(&file);
+    if injected.is_some() {
+        cx.add_std_ordering();
+    }
     let mut items: Vec<Item> = Vec::new();
     let mut spans: Vec<LineCol> = Vec::new();
     for syn_item in file.items.into_iter().filter(|i| !item::is_test_only(i)) {
@@ -49,6 +56,10 @@ pub fn parse_source_spanned(
             items.push(item);
             spans.push(at);
         }
+    }
+    if let Some((vis, (_, at))) = injected {
+        items.push(Item::Enum(purecrate_ir::Enum::std_ordering(vis)));
+        spans.push(at);
     }
     Ok((Crate::new(crate_name, items), spans))
 }

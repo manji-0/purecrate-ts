@@ -358,6 +358,7 @@ export const step = (state: State, event: Event): State => {
                 },
             ],
             repr: None,
+            std: false,
         });
         let run = Item::Fn(Fn {
             vis: Vis::Pub,

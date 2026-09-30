@@ -277,6 +277,24 @@ export const Str = {
   /** `str::strip_suffix` with a `&str`. */
   stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
   // #endregion
+  // #region str.cmp
+  /**
+   * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
+   * JS `<` compares UTF-16 units, which puts U+E000..=U+FFFF above the
+   * surrogates of the supplementary planes; at the first unit that differs,
+   * those are moved back below them. A shorter prefix orders first.
+   */
+  cmp: (a: string, b: string): -1 | 0 | 1 => {
+    const key = (u: number): number => (u < 0xd800 ? u : u < 0xe000 ? u + 0x2000 : u - 0x800);
+    const n = a.length < b.length ? a.length : b.length;
+    for (let i = 0; i < n; i++) {
+      const x = a.charCodeAt(i);
+      const y = b.charCodeAt(i);
+      if (x !== y) return key(x) < key(y) ? -1 : 1;
+    }
+    return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
+  },
+  // #endregion
 } as const;
 
 // #region str.slice

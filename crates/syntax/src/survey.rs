@@ -1,12 +1,15 @@
 //! Lowering for measurement: every item of a module tree is lowered on its
 //! own, so one unsupported item does not hide the rest.
 
-use purecrate_ir::{Item, Reason};
+use std::collections::HashSet;
+
+use purecrate_ir::{Enum, Item, Reason, ORDERING};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::Item as SynItem;
 
 use crate::item::{self, is_test_only, Cx, LineCol, ParseError};
+use crate::std_ordering::StdOrdering;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnitKind {
@@ -82,17 +85,41 @@ fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<S
 /// reported per unit. With `all_causes`, an item is lowered past the
 /// expressions it cannot take, and each of them is a cause (`Unit::causes`).
 pub fn survey_files(sources: &[&str], all_causes: bool) -> Result<Vec<Unit>, (usize, ParseError)> {
-    let files = sources
+    let mut files = sources
         .iter()
         .enumerate()
         .map(|(i, s)| parse(s).map_err(|e| (i, e)))
         .collect::<Result<Vec<_>, _>>()?;
+    // std's `Ordering` as the parser adds it. A form it refuses stays as
+    // written, and the units that use it are refused when lowered.
+    let mut modules = HashSet::new();
+    for f in &files {
+        module_names(&f.items, &mut modules);
+    }
+    let mut ordering = StdOrdering::default();
+    for (i, f) in files.iter_mut().enumerate() {
+        let _ = ordering.rewrite(i, &mut f.items, &modules);
+    }
+    let injected = ordering.injected().ok().flatten();
     let mut all = Vec::new();
     for f in &files {
         flatten(&f.items, &mut all);
     }
     let mut cx = Cx::scan_items(all.iter().copied());
     let mut units = Vec::new();
+    if let Some((vis, (file, at))) = injected {
+        cx.add_std_ordering();
+        units.push(Unit {
+            file,
+            at,
+            kind: UnitKind::Enum,
+            name: ORDERING.to_string(),
+            // Not the crate's own, so not counted among its public types.
+            public: false,
+            lowered: Ok(Item::Enum(Enum::std_ordering(vis))),
+            causes: Vec::new(),
+        });
+    }
     for (i, f) in files.iter().enumerate() {
         let mut items = Vec::new();
         flatten(&f.items, &mut items);
@@ -101,6 +128,17 @@ pub fn survey_files(sources: &[&str], all_causes: bool) -> Result<Vec<Unit>, (us
         }
     }
     Ok(units)
+}
+
+fn module_names(items: &[SynItem], out: &mut HashSet<String>) {
+    for item in items {
+        if let SynItem::Mod(m) = item {
+            out.insert(m.ident.unraw().to_string());
+            if let Some((_, inner)) = &m.content {
+                module_names(inner, out);
+            }
+        }
+    }
 }
 
 fn parse(source: &str) -> Result<syn::File, ParseError> {

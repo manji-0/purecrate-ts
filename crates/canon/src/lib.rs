@@ -94,6 +94,9 @@ pub fn fixture(input: TokenStream) -> TokenStream {
                 out.push_str(&serialize_struct(st));
                 out.push_str(&js_struct(st));
             }
+            // std's `Ordering`: its `Show` and `Js` are the harness's own,
+            // and serde has no `Serialize` for it.
+            Item::Enum(en) if en.std => {}
             Item::Enum(en) => {
                 out.push_str(&show_enum(en));
                 out.push_str(&serialize_enum(en));

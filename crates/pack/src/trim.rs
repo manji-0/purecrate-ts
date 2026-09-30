@@ -117,7 +117,7 @@ mod tests {
             "bits.i8", "bits.i16", "bits.i32", "bits.u8", "bits.u16", "bits.u32", "bits.i64", "bits.u64",
             "methods.i8", "methods.i16", "methods.i32", "methods.u8", "methods.u16", "methods.u32",
             "methods.usize", "methods.i64", "methods.u64", "str.bytes", "str.len", "str.slice",
-            "str.stripPrefix", "str.stripSuffix", "char", "char.is", "uuid", "json", "parseJson",
+            "str.stripPrefix", "str.stripSuffix", "str.cmp", "char", "char.is", "uuid", "json", "parseJson",
         ]);
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));

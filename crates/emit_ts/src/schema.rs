@@ -49,12 +49,22 @@ impl WireSchema {
     }
 }
 
+/// A struct or enum with a serde form: not std's `Ordering`, which has none
+/// (`check::accept` keeps it out of every field).
+fn on_wire(item: &Item) -> bool {
+    match item {
+        Item::Struct(_) => true,
+        Item::Enum(e) => !e.std,
+        _ => false,
+    }
+}
+
 pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     let mut out = String::from(super::HEADER);
     out.push('\n');
     out.push_str(&header(schema));
     for item in krate.exported() {
-        if matches!(item, Item::Struct(_) | Item::Enum(_)) {
+        if on_wire(item) {
             let name = item.name().as_str();
             let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
             if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
@@ -81,7 +91,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             }
         }
     }
-    let wired: Vec<&Item> = krate.exported().filter(|i| matches!(i, Item::Struct(_) | Item::Enum(_))).collect();
+    let wired: Vec<&Item> = krate.exported().filter(|i| on_wire(i)).collect();
     if schema == WireSchema::Arktype {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
@@ -679,7 +689,7 @@ fn to_json(krate: &Crate) -> String {
     let mut out = String::from(
         "\n/** Each type written as serde_json writes the Rust value. */\nexport const toJson = {\n",
     );
-    for item in krate.exported() {
+    for item in krate.exported().filter(|i| on_wire(i)) {
         match item {
             Item::Struct(s) => {
                 let name = s.name.as_str();

@@ -161,19 +161,21 @@ impl<'d, 'a> Typer<'d, 'a> {
                     let ok = match self.norm(t) {
                         _ if self.num(t).is_some() => true,
                         // The canonical form orders as the 16 bytes do.
-                        Ty::Prim(Prim::Char | Prim::Uuid) => true,
-                        Ty::Prim(Prim::Bool | Prim::String | Prim::Str) => !ordered,
+                        Ty::Prim(Prim::Char | Prim::Uuid | Prim::String | Prim::Str) => true,
+                        Ty::Prim(Prim::Bool) => !ordered,
+                        // std's derived `PartialEq`: the same variant.
+                        Ty::Named(_) if self.is_ordering(t) => !ordered,
                         _ => false,
                     };
                     if !ok {
                         let what = if ordered { "ordering" } else { "equality" };
                         let instead = match self.norm(t) {
                             Ty::Option(_) => "use `is_some()`/`is_none()`, `matches!(x, Some(..))`, or a `match`".into(),
+                            Ty::Prim(Prim::Bool) => "use `a.cmp(&b)`, which orders `false` first".into(),
                             Ty::Named(n) => format!(
                                 "use `matches!(x, {}::Variant)`, a `match`, or an `eq` method",
                                 n.as_str()
                             ),
-                            Ty::Prim(Prim::String | Prim::Str) => "compare with an enum or an integer instead".into(),
                             _ => "compare the parts with a `match` or an `eq` method".into(),
                         };
                         self.error(Reason::Comparison, format!(
@@ -182,10 +184,22 @@ impl<'d, 'a> Typer<'d, 'a> {
                         ));
                     }
                 }
-                // JS orders strings by UTF-16 unit; `char` orders by code point.
-                if ordered && t.is_some_and(|t| self.norm(&t) == Ty::Prim(Prim::Char)) {
+                // JS orders strings by UTF-16 unit; `char` and `str` order by
+                // code point.
+                let norm = t.as_ref().map(|t| self.norm(t));
+                if ordered && norm == Some(Ty::Prim(Prim::Char)) {
                     let code = |e| Expr::Call { callee: Callee::CharCode(IntTy::U32), args: vec![e] };
                     return (rebuild(op, code(l), code(r)), self.expect(want, Some(Ty::bool())));
+                }
+                if ordered && matches!(norm, Some(Ty::Prim(Prim::String | Prim::Str))) {
+                    let cmp = Expr::Call { callee: Callee::StrCmp, args: vec![l, r] };
+                    let zero = Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::I32) });
+                    return (rebuild(op, cmp, zero), self.expect(want, Some(Ty::bool())));
+                }
+                // An `Ordering` is an object: its variant is what compares.
+                if t.as_ref().is_some_and(|t| self.is_ordering(t)) {
+                    let kind = |e| Expr::Field { base: Box::new(e), name: Name::new("kind") };
+                    return (rebuild(op, kind(l), kind(r)), self.expect(want, Some(Ty::bool())));
                 }
                 (rebuild(op, l, r), self.expect(want, Some(Ty::bool())))
             }

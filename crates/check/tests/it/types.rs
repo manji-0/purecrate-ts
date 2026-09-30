@@ -94,10 +94,10 @@ fn comparisons_js_gets_wrong_are_rejected() {
         "pub struct P { pub x: i32 }\npub fn f(a: P, b: P) -> bool { a == b }",
         "equality on `P` is not in v0",
     );
-    assert_rejects(
-        "pub fn f(a: String, b: String) -> bool { a < b }",
-        "ordering on `String` is not in v0",
-    );
+    assert_rejects("pub fn f(a: bool, b: bool) -> bool { a < b }", "ordering on `bool` is not in v0");
+    assert_rejects("pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a < b }", "ordering on `(i32, i32)` is not in v0");
+    // By code point, through the runtime (`ordering`).
+    assert_clean("pub fn f(a: String, b: String) -> bool { a < b }");
     assert_clean("pub fn f(a: String, b: String) -> bool { a == b }");
     assert_rejects(
         "pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }",

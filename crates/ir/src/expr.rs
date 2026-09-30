@@ -458,6 +458,12 @@ pub enum Callee {
     /// well-formed string at the same places in UTF-8 and UTF-16, and JS
     /// `split` keeps the empty pieces Rust keeps. Prints as `s.split(c)`.
     StrSplit,
+    /// `Ord` on two strings, by code point as Rust's UTF-8 bytes compare:
+    /// -1, 0, or 1, as an `i32`. `check::accept` writes it for `<`, `<=`,
+    /// `>`, `>=` on `String`/`&str`, compared with 0: JS orders strings by
+    /// UTF-16 unit, which puts U+E000..=U+FFFF above the supplementary
+    /// planes. Prints as `Str.cmp(a, b)`.
+    StrCmp,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte

@@ -301,6 +301,7 @@ impl Refs {
                         self.nums.insert("Usize".into());
                     }
                     Callee::StrBytes
+                    | Callee::StrCmp
                     | Callee::Str(purecrate_ir::StrMethod::StripPrefix | purecrate_ir::StrMethod::StripSuffix) => {
                         self.str = true
                     }

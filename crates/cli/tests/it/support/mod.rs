@@ -89,6 +89,13 @@ impl Js for uuid::Uuid {
     }
 }
 
+/// A fieldless variant, as the generated code holds std's `Ordering`.
+impl Js for std::cmp::Ordering {
+    fn js(&self) -> String {
+        format!("({{ kind: \"{self:?}\" }})")
+    }
+}
+
 impl<T: Js> Js for [T] {
     fn js(&self) -> String {
         format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
@@ -211,6 +218,14 @@ impl Show for uuid::Uuid {
 impl Show for uuid::Error {
     fn show(&self) -> String {
         "UuidError".into()
+    }
+}
+
+/// As `purecrate_canon` shows a crate enum: the TS side prints the
+/// `Ordering` the parser adds as one.
+impl Show for std::cmp::Ordering {
+    fn show(&self) -> String {
+        format!("Ordering::{self:?}")
     }
 }
 

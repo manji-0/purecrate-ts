@@ -33,6 +33,7 @@ mod oidc_equivalence;
 mod option_methods_equivalence;
 mod order_equivalence;
 mod order_of_eval_equivalence;
+mod ordering_equivalence;
 mod package;
 mod payment_equivalence;
 mod rest_equivalence;

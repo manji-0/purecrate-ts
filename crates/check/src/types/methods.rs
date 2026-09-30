@@ -42,6 +42,18 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return typed;
             }
         }
+        if let Some(rt) = &rt {
+            if name.as_str() == "cmp" {
+                if let Some(typed) = self.cmp_method(recv.clone(), rt, args, want) {
+                    return typed;
+                }
+            }
+            if self.is_ordering(rt) {
+                if let Some(typed) = self.ordering_method(recv.clone(), name.as_str(), args, want) {
+                    return typed;
+                }
+            }
+        }
         if name.as_str() == "as_bytes" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
@@ -113,7 +125,16 @@ impl<'d, 'a> Typer<'d, 'a> {
             (Some(_), None) => unreachable!("an owner is found only from a known receiver type"),
             (None, Some(rt)) => {
                 let rt = self.norm(&rt);
-                let message = match std_methods(&rt) {
+                let listed = if self.is_ordering(&rt) { Some(ordering_methods()) } else { std_methods(&rt) };
+                let message = match listed {
+                    None if name.as_str() == "cmp" => format!(
+                        "`.cmp()` on `{}` is not in v0: `Ord` on the crate's own types is not modeled; compare the fields with `cmp` and chain them with `then` or `then_with`",
+                        show(&rt)
+                    ),
+                    _ if name.as_str() == "partial_cmp" => format!(
+                        "`.partial_cmp()` on `{}` is not in v0: use `cmp` on integers, `char`, `bool`, `String`/`&str`, or `Uuid` (floats are not `Ord`)",
+                        show(&rt)
+                    ),
                     None => format!(
                         "`{}` has no method `{}` in the crate's own `impl` blocks",
                         show(&rt),
@@ -630,28 +651,40 @@ pub(super) fn leaves(expr: &Expr) -> bool {
 pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "slicing `s[a..b]`"]).collect(),
+        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "slicing `s[a..b]`"]).collect(),
         Ty::Prim(Prim::Str) => StrMethod::ALL
             .iter()
             .filter(|m| **m != StrMethod::AsStr)
             .map(|m| m.name())
-            .chain(["as_bytes", "slicing `s[a..b]`"])
+            .chain(["as_bytes", "cmp", "slicing `s[a..b]`"])
             .collect(),
-        Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).collect(),
+        Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp"]).collect(),
+        Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp"],
         Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`", "slicing `xs[a..b]`"],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
-        Ty::Prim(p) if p.int().is_some() && *p != Prim::U8 => IntMethod::ALL
+        Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()
             .filter(|m| **m != IntMethod::Abs || p.int().is_some_and(IntTy::is_signed))
             .map(|m| m.name())
+            .chain(["cmp"])
             .collect(),
         _ => vec![],
     };
     Some(match (ty, names.is_empty()) {
-        (Ty::Prim(Prim::U8), _) => "none; for `u8::is_ascii_*` use `matches!(b, b'0'..=b'9')` or `char::from(b)`".into(),
         (_, true) => "none; use operators, `match`, or `T::from`".into(),
-        (_, false) => names.iter().map(|n| if n.contains(' ') { n.to_string() } else { format!("`{n}`") }).collect::<Vec<_>>().join(", "),
+        (_, false) => {
+            let list = names.iter().map(|n| if n.contains(' ') { n.to_string() } else { format!("`{n}`") }).collect::<Vec<_>>().join(", ");
+            match ty {
+                Ty::Prim(Prim::U8) => format!("{list}; for `u8::is_ascii_*` use `matches!(b, b'0'..=b'9')` or `char::from(b)`"),
+                _ => list,
+            }
+        }
     })
+}
+
+/// `Ordering`'s allow-list, for a rejection message.
+pub(super) fn ordering_methods() -> String {
+    ORDERING_METHODS.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
 }
 
 /// The parameters after the receiver, and the result, of a `char` method.

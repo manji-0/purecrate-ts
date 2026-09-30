@@ -16,6 +16,7 @@ mod method_call;
 mod names;
 mod newtype;
 mod option_result;
+mod ordering;
 mod reach;
 mod resolve;
 mod serde_attrs;

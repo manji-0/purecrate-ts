@@ -75,6 +75,33 @@ pub struct Enum {
     /// `#[repr(u8)]` and the like: the type of the discriminants, `isize`
     /// without one (range checked as `i64`).
     pub repr: Option<crate::ty::IntTy>,
+    /// std's own enum, not the crate's: `std::cmp::Ordering`, which the
+    /// parser adds when the crate names it (`Enum::std_ordering`). It prints
+    /// as a crate enum, but has no wire form (serde implements neither
+    /// `Serialize` nor `Deserialize` for it) and rustc sees std's type.
+    pub std: bool,
+}
+
+/// The name `std::cmp::Ordering` is reached by in the IR.
+pub const ORDERING: &str = "Ordering";
+
+impl Enum {
+    /// `std::cmp::Ordering`: `Less`, `Equal`, `Greater`, which std declares
+    /// `#[repr(i8)]` as -1, 0, and 1, so `o as i32` reads those.
+    pub fn std_ordering(vis: Vis) -> Self {
+        let variant = |name: &str, d: i128| Variant {
+            name: Name::new(name),
+            fields: VariantFields::Unit,
+            discriminant: Some(Expr::Lit(crate::expr::Lit::Int { value: d, ty: None })),
+        };
+        Enum {
+            vis,
+            name: Name::new(ORDERING),
+            variants: vec![variant("Less", -1), variant("Equal", 0), variant("Greater", 1)],
+            repr: Some(crate::ty::IntTy::I8),
+            std: true,
+        }
+    }
 }
 
 /// The one file that holds every `const` of a crate.

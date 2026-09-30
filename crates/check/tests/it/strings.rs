@@ -31,7 +31,7 @@ fn string_and_str_compare_in_either_order() {
     assert_clean("pub fn f(s: String) -> bool { \"\" != s }");
     assert_clean("pub fn f(a: &str, b: String) -> bool { a == b }");
     assert_clean("pub fn f(a: String, b: String) -> bool { a == b }");
-    assert_rejects("pub fn f(s: String) -> bool { s < \"b\" }", "ordering on `String`");
+    assert_clean("pub fn f(s: &str) -> bool { s < \"b\" && \"a\" >= s }");
 }
 
 #[test]

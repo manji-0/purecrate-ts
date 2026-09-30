@@ -250,6 +250,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))
             }
+            // Written only by `binary`, on strings already typed.
+            Callee::StrCmp => (
+                typed_args(self, vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]),
+                Some(Ty::Prim(Prim::I32)),
+            ),
             Callee::StrBytes => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))),

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use purecrate_check::accept;
-use purecrate_ir::{Callee, Crate, Expr, Item, Pattern, Reason, Ty, VariantFields};
+use purecrate_ir::{Callee, Crate, Expr, Item, Pattern, Reason, Ty, VariantFields, ORDERING};
 use purecrate_syntax::{module_decls, survey_files, LineCol, ParseError, Unit, UnitKind};
 
 pub struct Report {
@@ -339,7 +339,21 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             Callee::Variant { ty, .. } | Callee::StructNew(ty) => out.push(Ref::Type(ty.as_str().to_string())),
             _ => {}
         },
-        Expr::MethodCall { name, .. } => out.push(Ref::ReceiverCall(name.as_str().to_string())),
+        Expr::MethodCall { name, args, .. } => {
+            out.push(Ref::ReceiverCall(name.as_str().to_string()));
+            // `cmp` gives std's `Ordering`, which the parser adds as an item.
+            if name.as_str() == "cmp" {
+                out.push(Ref::Type(ORDERING.to_string()));
+            }
+            // `opt.map(f)` and the like name a function (`check::resolve`).
+            if matches!(name.as_str(), "map" | "all" | "any" | "position" | "then_with") {
+                for a in args {
+                    if let Expr::Var(f) = a.unpositioned() {
+                        out.push(Ref::Fn(f.as_str().to_string()));
+                    }
+                }
+            }
+        }
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
         Expr::Match { arms, .. } => {
             for arm in arms {

@@ -257,9 +257,10 @@ impl<'a> Cx<'_, 'a> {
             Expr::MethodCall { receiver, name, args } => {
                 self.expr(receiver);
                 for a in args {
-                    // `opt.map(f)` and `it.all(f)` name a function; `types`
-                    // checks the receiver.
-                    let takes_fn = matches!(name.as_str(), "map" | "all" | "any" | "position");
+                    // `opt.map(f)`, `it.all(f)`, and `ord.then_with(f)` name a
+                    // function; `types` checks the receiver.
+                    let calls_with = if name.as_str() == "then_with" { 0 } else { 1 };
+                    let takes_fn = matches!(name.as_str(), "map" | "all" | "any" | "position" | "then_with");
                     let fn_name = match a.unpositioned() {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
@@ -267,8 +268,12 @@ impl<'a> Cx<'_, 'a> {
                         _ => None,
                     };
                     match fn_name {
-                        Some(1) => {}
-                        Some(p) => self.error(Reason::ConstructShape, format!("`{}` calls its function with 1 argument, which takes {p}", name.as_str())),
+                        Some(p) if p == calls_with => {}
+                        Some(p) => self.error(Reason::ConstructShape, format!(
+                            "`{}` calls its function with {calls_with} argument{}, which takes {p}",
+                            name.as_str(),
+                            if calls_with == 1 { "" } else { "s" }
+                        )),
                         None => self.expr(a),
                     }
                 }
@@ -405,6 +410,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
+            Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Slice { start, end, .. } => self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc),

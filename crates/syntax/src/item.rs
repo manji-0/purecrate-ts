@@ -136,6 +136,16 @@ impl Cx {
         }
     }
 
+    /// Makes `Ordering` name std's enum (`std_ordering`). Its variants are
+    /// found only through `Ordering::`: a bare `Less` stays the crate's.
+    pub fn add_std_ordering(&mut self) {
+        let e = purecrate_ir::Enum::std_ordering(Vis::Pub);
+        for v in &e.variants {
+            self.variants.insert((e.name.as_str().to_string(), v.name.as_str().to_string()));
+        }
+        self.enums.insert(e.name.as_str().to_string());
+    }
+
     pub fn is_variant(&self, ty: &str, variant: &str) -> bool {
         self.variants.contains(&(ty.to_string(), variant.to_string()))
     }
@@ -405,6 +415,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         name: Name::new(e.ident.to_string()),
         variants,
         repr: enum_repr(&e.attrs)?,
+        std: false,
     })
 }
 

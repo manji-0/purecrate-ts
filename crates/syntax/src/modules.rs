@@ -19,6 +19,7 @@ use syn::visit_mut::{self, VisitMut};
 use syn::Item as SynItem;
 
 use crate::item::{self, is_test_only, Cx, LineCol, ParseError};
+use crate::std_ordering;
 
 /// One source file of the crate. `public` is whether every `mod` on the way
 /// from the root to it is `pub` (the root's is `true`).
@@ -36,7 +37,7 @@ pub fn parse_files_spanned(
     crate_name: &str,
     sources: &[Source<'_>],
 ) -> Result<(Crate, ItemSpans), (usize, ParseError)> {
-    let files = sources
+    let mut files = sources
         .iter()
         .map(|s| s.text)
         .enumerate()
@@ -52,6 +53,13 @@ pub fn parse_files_spanned(
         scan(&f.items, &mut modules, &mut reexports).map_err(|e| (i, e))?;
     }
 
+    // Before `flatten`, which drops the `use` items.
+    let mut ordering = std_ordering::StdOrdering::default();
+    for (i, f) in files.iter_mut().enumerate() {
+        ordering.rewrite(i, &mut f.items, &modules).map_err(|e| (i, e))?;
+    }
+    let injected = ordering.injected()?;
+
     let mut flat: Vec<(usize, SynItem)> = Vec::new();
     for (i, f) in files.into_iter().enumerate() {
         flatten(f.items, sources[i].public, None, &reexports, &mut |item| flat.push((i, item)));
@@ -62,6 +70,9 @@ pub fn parse_files_spanned(
     }
 
     let mut cx = Cx::scan_items(flat.iter().map(|(_, i)| i));
+    if injected.is_some() {
+        cx.add_std_ordering();
+    }
     let mut items = Vec::new();
     let mut spans = Vec::new();
     for (file, syn_item) in flat {
@@ -69,6 +80,10 @@ pub fn parse_files_spanned(
             items.push(item);
             spans.push((file, at));
         }
+    }
+    if let Some((vis, (file, at))) = injected {
+        items.push(purecrate_ir::Item::Enum(purecrate_ir::Enum::std_ordering(vis)));
+        spans.push((file, at));
     }
     Ok((Crate::new(crate_name, items), spans))
 }
