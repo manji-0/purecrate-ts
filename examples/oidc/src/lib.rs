@@ -226,32 +226,12 @@ const SHA1_LEN: usize = 20;
 // Lexical helpers
 // ---------------------------------------------------------------------------
 
-/// Whether bytes `start..end` of `b` equal `word`.
-fn span_equals(b: &[u8], start: usize, end: usize, word: &str) -> bool {
-    let w = word.as_bytes();
-    if end - start != w.len() {
-        return false;
-    }
-    for k in 0..w.len() {
-        if b[start + k] != w[k] {
-            return false;
-        }
-    }
-    true
-}
-
 /// Whether the space-delimited list `list` contains `word` as a whole token
 /// (scope: RFC 6749 §3.3; prompt and acr_values: OIDC Core §3.1.2.1).
 pub fn has_token(list: &String, word: &str) -> bool {
-    let b = list.as_bytes();
-    let n = b.len();
-    let mut start: usize = 0;
-    for i in 0..n + 1 {
-        if i == n || b[i] == b' ' {
-            if span_equals(b, start, i, word) {
-                return true;
-            }
-            start = i + 1;
+    for token in list.split(' ') {
+        if token == word {
+            return true;
         }
     }
     false
@@ -304,27 +284,18 @@ fn parse_seconds(s: &String) -> Option<i64> {
 /// Parses `prompt`. Unknown values and `none` combined with anything else
 /// are invalid_request (OIDC Core §3.1.2.1).
 fn parse_prompt(s: &String) -> Option<Prompt> {
-    let b = s.as_bytes();
-    let n = b.len();
-    let mut start: usize = 0;
     let mut no_interaction = false;
     let mut login = false;
     let mut consent = false;
     let mut select_account = false;
-    for i in 0..n + 1 {
-        if i == n || b[i] == b' ' {
-            if span_equals(b, start, i, "none") {
-                no_interaction = true;
-            } else if span_equals(b, start, i, "login") {
-                login = true;
-            } else if span_equals(b, start, i, "consent") {
-                consent = true;
-            } else if span_equals(b, start, i, "select_account") {
-                select_account = true;
-            } else if i > start {
-                return None;
-            }
-            start = i + 1;
+    for token in s.split(' ') {
+        match token {
+            "none" => no_interaction = true,
+            "login" => login = true,
+            "consent" => consent = true,
+            "select_account" => select_account = true,
+            "" => {}
+            _ => return None,
         }
     }
     if no_interaction && (login || consent || select_account) {
