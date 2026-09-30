@@ -77,3 +77,11 @@ unstable = []
 name = "serde_core"
 path = "src/lib.rs"
 
+[dev-dependencies.serde]
+version = "1"
+
+[dev-dependencies.serde_derive]
+version = "1"
+
+[target."cfg(any())".dependencies.serde_derive]
+version = "=1.0.228"

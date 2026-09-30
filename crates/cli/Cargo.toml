@@ -15,6 +15,6 @@ purecrate-emit-ts = { path = "../emit_ts" }
 [dev-dependencies]
 purecrate-canon = { path = "../canon" }
 # Test-only oracle for the wire format: what a Rust server writes (design/04).
-serde_core = { path = "../../vendor/serde_core-1.0.228", features = ["rc"] }
-serde_json = { path = "../../vendor/serde_json-1.0.145" }
-uuid = { path = "../../vendor/uuid-1.26.1", default-features = false, features = ["std", "serde"] }
+serde_core = { version = "=1.0.228", features = ["rc"] }
+serde_json = { version = "=1.0.145" }
+uuid = { version = "=1.26.1", default-features = false, features = ["std", "serde"] }

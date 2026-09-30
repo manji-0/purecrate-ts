@@ -50,3 +50,14 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "itoa"
 path = "src/lib.rs"
 
+[[test]]
+name = "test"
+path = "tests/test.rs"
+
+[[bench]]
+name = "bench"
+path = "benches/bench.rs"
+
+[dependencies.no-panic]
+version = "0.1"
+optional = true

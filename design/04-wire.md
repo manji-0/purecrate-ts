@@ -88,7 +88,7 @@ Implemented 2026-09-29, when examples/payment needed it: in an optimistic update
 
 Unit structs are rejected ([02 §3.7](./02-authoring.md#37-types)): serde writes `struct S;` as `null` and `struct S {}` as `{}`, and the IR keeps only the fields.
 
-Verification (`crates/cli/tests/it/wire_write.rs`) against the vendored serde_json, over `Serialize` impls that `purecrate_canon::fixture!` generates with the data-model calls `#[derive(Serialize)]` makes (the derive itself needs a newer `syn` than the vendored one):
+Verification (`crates/cli/tests/it/wire_write.rs`) against the vendored serde_json, over `Serialize` impls that `purecrate_canon::fixture!` generates with the data-model calls `#[derive(Serialize)]` makes:
 
 - floats: 80,000 pseudo-random bit patterns and boundary values (2,000,000 once, by hand), text equal;
 - shapes: every type form in `wire_shapes.rs`, written by serde_json, read by the schema, and written back, text equal;

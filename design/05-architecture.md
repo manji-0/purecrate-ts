@@ -31,7 +31,7 @@ crate source (root and module files)
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §7](./01-equivalence.md#7-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
-The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are vendored (`vendor/`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu) and built with `--offline`. The vendored manifests point at each other by `path`, with tests, benches, and unused optional dependencies removed.
+The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are ordinary crates.io requirements, read from `vendor/` through source replacement (`.cargo/config.toml`) and built with `--offline`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu, uuid. `scripts/vendor.sh` regenerates `vendor/` from `Cargo.lock`, cutting the packages no release target builds down to their manifests (uuid's wasm32 dependencies, the `serde_derive` that serde_core names only to pin its version) and the rest to their sources.
 
 ### 2.1 Inside the crates
 

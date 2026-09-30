@@ -66,6 +66,10 @@ alloc = ["serde_core/alloc"]
 arbitrary_precision = []
 default = ["std"]
 float_roundtrip = []
+preserve_order = [
+    "indexmap",
+    "std",
+]
 raw_value = []
 std = [
     "memchr/std",
@@ -77,17 +81,81 @@ unbounded_depth = []
 name = "serde_json"
 path = "src/lib.rs"
 
+[[test]]
+name = "compiletest"
+path = "tests/compiletest.rs"
+
+[[test]]
+name = "debug"
+path = "tests/debug.rs"
+
+[[test]]
+name = "lexical"
+path = "tests/lexical.rs"
+
+[[test]]
+name = "map"
+path = "tests/map.rs"
+
+[[test]]
+name = "regression"
+path = "tests/regression.rs"
+
+[[test]]
+name = "stream"
+path = "tests/stream.rs"
+
+[[test]]
+name = "test"
+path = "tests/test.rs"
+
+[dependencies.indexmap]
+version = "2.2.3"
+optional = true
+
 [dependencies.itoa]
-path = "../itoa-1.0.15"
+version = "1.0"
 
 [dependencies.memchr]
-path = "../memchr-2.7.6"
+version = "2"
 default-features = false
 
 [dependencies.ryu]
-path = "../ryu-1.0.20"
+version = "1.0"
 
 [dependencies.serde_core]
-path = "../serde_core-1.0.228"
+version = "1.0.220"
 default-features = false
 
+[dev-dependencies.automod]
+version = "1.0.11"
+
+[dev-dependencies.indoc]
+version = "2.0.2"
+
+[dev-dependencies.ref-cast]
+version = "1.0.18"
+
+[dev-dependencies.rustversion]
+version = "1.0.13"
+
+[dev-dependencies.serde]
+version = "1.0.194"
+features = ["derive"]
+
+[dev-dependencies.serde_bytes]
+version = "0.11.10"
+
+[dev-dependencies.serde_derive]
+version = "1.0.166"
+
+[dev-dependencies.serde_stacker]
+version = "0.1.8"
+
+[dev-dependencies.trybuild]
+version = "1.0.108"
+features = ["diff"]
+
+[target."cfg(any())".dependencies.serde]
+version = "1.0.220"
+default-features = false
