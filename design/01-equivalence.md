@@ -33,7 +33,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 
 | Gap | Detail |
 | --- | --- |
-| `usize` ≥ 2^53 | Rust is fine up to 2^64; TS throws above 2^53−1. Lengths and indices do not reach this range. `bigint` was rejected because it does not mix with arrays and loops |
+| `usize` ≥ 2^53 | Rust is fine up to 2^64; TS throws above 2^53−1. Lengths and indices do not reach this range. `bigint` was rejected because it does not mix with arrays and loops. The integer methods work in Rust's 64 bits on `usize` (`checked_add` is `None` only past 2^64, `wrapping_sub(0, 1)` is 2^64−1) and throw where that result is above 2^53−1 |
 | Recursion depth | Measured 2026-09-28 (list length, Node 24.21, macOS): TS passes 10,000 levels and throws `RangeError` at 12,000. Rust debug passes 50,000 on the main thread and **aborts** at 100,000 (not a catchable panic; test threads have 2 MB). Even "both fail" does not hold |
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
 | Release wrapping | Not matched |
@@ -126,6 +126,7 @@ Decided 2026-09-27 and implemented one method at a time as examples asked ([07 �
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs` |
 | `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0`, `slice` behind Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
+| integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
 
 `wire.rs` and `wire_write.rs` cover the JSON forms of `char` and `Uuid` against serde_json through each schema library.
 
@@ -192,6 +193,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | the loop std runs | `consumers_equivalence.rs` |
 | `const`, enum discriminants | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
 | `const` in a block | a `let` at the top of the block | `local_consts_equivalence.rs` |
+| integer methods | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
 
 - **`Option::unwrap_or`, `ok_or`, `map`** (2026-09-30). The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`. A closure passed to `map` may not use `?` or `return`, which would leave the enclosing function once inlined.
 - **Match guards** (2026-09-30) are rewritten before checking. For each arm in order, `match $g { p => guard, _ => false }` tests it and `match $g { p => body, _ => unreachable }` takes it, with the scrutinee (each element of a tuple one) bound once to `$g`. A guard therefore runs only when its pattern matched, as in Rust; the tests include a guard that overflows for other variants.
@@ -200,6 +202,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 - **`vec![a, b]`** (2026-09-30) prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
 - **`const`** (2026-09-30) is folded by `check` with rustc's const-evaluation rules (checked arithmetic, wrapped shifts with the amount checked), and the TS holds the value, not the computation. rustc rejects a const that overflows, so there is nothing to throw at run time, and module load order cannot matter. A const in a pattern is refused: Rust compares with its value, where the IR would bind a new name that matches anything.
 - **`const` in a block** (2026-09-30) is not folded: it becomes an immutable, typed `let` at the top of its block, in declaration order, so it is visible from the whole block as an item is. The value is computed at run time rather than folded, which is the same value: rustc, which runs on the input, rejects a const whose evaluation overflows, so the computation cannot panic where Rust would have folded one. A local const in a pattern is refused like a crate one, and so is a `let` of its name (rustc reads that `let` as a pattern too). Tested with a use before the declaration, a crate const and a discriminant in the value, an unused and a float const, one named like a crate item, one inside a `match` arm, and overflow computed from one.
+- **Integer methods** (2026-09-30). `x.min(y)`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, and `wrapping_*` forms are computed from the exact result in `bigint`: `checked_*` gives it or `None` outside the type's range (and on a zero divisor, and on `MIN / -1`), `saturating_*` clamps it, `wrapping_*` keeps its low bits, and `abs` and `pow` panic outside the range as a debug build does ("attempt to negate with overflow", "attempt to exponentiate with overflow", measured on 1.98.1). An exponent is a `u32`; a power is not formed when its magnitude is certainly past the range (a base of magnitude two or more to an exponent of the type's width or more), and `wrapping_pow` works modulo 2^bits. `saturating_pow` of a negative base to an odd exponent saturates to `MIN`, as std does. Tested at every type's edges, `(-2).pow(31)` and `i8` powers near 127 included.
 - **Discriminants** of a fieldless enum (explicit, or one past the previous; the first `0`) are folded the same way, in the `#[repr]` type or `isize` (64 bits). `e as T` is accepted only when `T` holds every discriminant, so the cast never truncates or wraps; it prints as a table indexed by `kind` (a constant variant folds to the literal). Every other `as` stays rejected.
 
 ## 8. Verification

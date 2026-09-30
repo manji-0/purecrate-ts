@@ -33,7 +33,9 @@ fn vec_len_and_index_are_accepted() {
 
 #[test]
 fn receiver_calls_elsewhere_are_rejected_with_the_method_name() {
-    assert_rejects("pub fn f(x: i32) -> i32 { x.abs() }", "`.abs()` on `i32` is not on the std allow-list; allowed: none");
+    assert_rejects("pub fn f(x: i32) -> i32 { x.signum() }", "`.signum()` on `i32` is not on the std allow-list; allowed: `min`, `max`, `abs`, `pow`, `checked_add`");
+    assert_rejects("pub fn f(x: u32) -> u32 { x.abs() }", "`u32` has no `abs`; it is never negative");
+    assert_rejects("pub fn f(x: u32) -> u32 { x.pow(2u8) }", "expected `u32`, found `u8`");
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"), "`Card` has no method `missing` in the crate's own `impl` blocks");
     assert_rejects(&format!("{HAND} pub fn f(a: Card) -> bool {{ a.beats() }}"), "takes 1 argument(s) after the receiver, got 0");
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> i32 {{ c.is_face() }}"), "expected `i32`, found `bool`");

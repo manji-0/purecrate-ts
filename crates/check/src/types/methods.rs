@@ -53,6 +53,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
+        if let Some(m) = IntMethod::from_name(name.as_str()) {
+            if let Some(it) = rt.as_ref().and_then(|t| match self.norm(t) {
+                Ty::Prim(p) => p.int(),
+                _ => None,
+            }) {
+                return self.int_method(it, m, recv, args, want);
+            }
+        }
         if let Some(m) = CharMethod::from_name(name.as_str()) {
             if rt.as_ref().is_some_and(|t| self.norm(t) == Ty::Prim(Prim::Char)) {
                 return self.char_method(m, recv, args, want);
@@ -453,6 +461,53 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `c.m(args)` for an allow-listed `char` method.
+    /// `x.min(y)`, `x.checked_add(y)`, `x.pow(e)`, ...: a `Callee::Int` on
+    /// the receiver's type, the receiver first.
+    pub(super) fn int_method(&mut self, it: IntTy, m: IntMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
+        if m == IntMethod::Abs && !it.is_signed() {
+            self.error(Reason::MethodCall, format!("`{}` has no `abs`; it is never negative", it.as_str()));
+        }
+        if args.len() + 1 != m.arity() {
+            self.error(Reason::ConstructShape, format!(
+                "`{}::{}` takes {} argument(s) after the receiver, got {}",
+                it.as_str(),
+                m.name(),
+                m.arity() - 1,
+                args.len()
+            ));
+        }
+        let e = Expr::Call {
+            callee: Callee::Int { ty: it, op: IntOp::Method(m) },
+            args: std::iter::once(recv).chain(args.iter().cloned()).collect(),
+        };
+        let (e, t) = self.int_call(it, IntOp::Method(m), e);
+        (e, self.expect(want, t))
+    }
+
+    /// Types the arguments after the receiver of an integer call already
+    /// built, and gives its result type.
+    pub(super) fn int_call(&mut self, it: IntTy, op: IntOp, call: Expr) -> (Expr, Option<Ty>) {
+        let Expr::Call { callee, args } = call else { unreachable!("an integer call") };
+        let t = Ty::Prim(it.into());
+        let mut typed = args.into_iter();
+        let mut out = Vec::new();
+        if let Some(recv) = typed.next() {
+            out.push(recv);
+        }
+        for a in typed {
+            let want = match op {
+                IntOp::Method(m) if m.takes_exponent() => Ty::Prim(Prim::U32),
+                _ => t.clone(),
+            };
+            out.push(self.expr(&a, Some(&want)).0);
+        }
+        let ret = match op {
+            IntOp::Method(m) if m.is_checked() => Ty::option(t),
+            _ => t,
+        };
+        (Expr::Call { callee, args: out }, Some(ret))
+    }
+
     pub(super) fn char_method(&mut self, m: CharMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
         if args.len() != m.args() {
             self.error(Reason::ConstructShape, format!(
@@ -583,6 +638,11 @@ pub(super) fn std_methods(ty: &Ty) -> Option<String> {
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`", "slicing `xs[a..b]`"],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
+        Ty::Prim(p) if p.int().is_some() && *p != Prim::U8 => IntMethod::ALL
+            .iter()
+            .filter(|m| **m != IntMethod::Abs || p.int().is_some_and(IntTy::is_signed))
+            .map(|m| m.name())
+            .collect(),
         _ => vec![],
     };
     Some(match (ty, names.is_empty()) {

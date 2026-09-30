@@ -79,12 +79,153 @@ pub enum IntOp {
     /// The amount is the second argument, of any integer type.
     Shl,
     Shr,
+    /// The integer methods (`x.min(y)`, `x.checked_add(y)`, ...), each the
+    /// exact result checked, wrapped, clamped, or tested against the range
+    /// as std does (design/01 §7). `Pow` and its forms take a `u32`
+    /// exponent; `Checked*` return `Option`.
+    Method(IntMethod),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntMethod {
+    Min,
+    Max,
+    /// Signed only; panics on `MIN` as negation does.
+    Abs,
+    Pow,
+    CheckedAdd,
+    CheckedSub,
+    CheckedMul,
+    CheckedDiv,
+    CheckedRem,
+    CheckedNeg,
+    CheckedPow,
+    SaturatingAdd,
+    SaturatingSub,
+    SaturatingMul,
+    SaturatingPow,
+    WrappingAdd,
+    WrappingSub,
+    WrappingMul,
+    WrappingDiv,
+    WrappingRem,
+    WrappingNeg,
+    WrappingPow,
+}
+
+impl IntMethod {
+    pub const ALL: [IntMethod; 22] = [
+        IntMethod::Min,
+        IntMethod::Max,
+        IntMethod::Abs,
+        IntMethod::Pow,
+        IntMethod::CheckedAdd,
+        IntMethod::CheckedSub,
+        IntMethod::CheckedMul,
+        IntMethod::CheckedDiv,
+        IntMethod::CheckedRem,
+        IntMethod::CheckedNeg,
+        IntMethod::CheckedPow,
+        IntMethod::SaturatingAdd,
+        IntMethod::SaturatingSub,
+        IntMethod::SaturatingMul,
+        IntMethod::SaturatingPow,
+        IntMethod::WrappingAdd,
+        IntMethod::WrappingSub,
+        IntMethod::WrappingMul,
+        IntMethod::WrappingDiv,
+        IntMethod::WrappingRem,
+        IntMethod::WrappingNeg,
+        IntMethod::WrappingPow,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == name)
+    }
+
+    /// The Rust method.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Abs => "abs",
+            Self::Pow => "pow",
+            Self::CheckedAdd => "checked_add",
+            Self::CheckedSub => "checked_sub",
+            Self::CheckedMul => "checked_mul",
+            Self::CheckedDiv => "checked_div",
+            Self::CheckedRem => "checked_rem",
+            Self::CheckedNeg => "checked_neg",
+            Self::CheckedPow => "checked_pow",
+            Self::SaturatingAdd => "saturating_add",
+            Self::SaturatingSub => "saturating_sub",
+            Self::SaturatingMul => "saturating_mul",
+            Self::SaturatingPow => "saturating_pow",
+            Self::WrappingAdd => "wrapping_add",
+            Self::WrappingSub => "wrapping_sub",
+            Self::WrappingMul => "wrapping_mul",
+            Self::WrappingDiv => "wrapping_div",
+            Self::WrappingRem => "wrapping_rem",
+            Self::WrappingNeg => "wrapping_neg",
+            Self::WrappingPow => "wrapping_pow",
+        }
+    }
+
+    /// The runtime's name: `Int.<ty>.<ts_name>`.
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Abs => "abs",
+            Self::Pow => "pow",
+            Self::CheckedAdd => "checkedAdd",
+            Self::CheckedSub => "checkedSub",
+            Self::CheckedMul => "checkedMul",
+            Self::CheckedDiv => "checkedDiv",
+            Self::CheckedRem => "checkedRem",
+            Self::CheckedNeg => "checkedNeg",
+            Self::CheckedPow => "checkedPow",
+            Self::SaturatingAdd => "saturatingAdd",
+            Self::SaturatingSub => "saturatingSub",
+            Self::SaturatingMul => "saturatingMul",
+            Self::SaturatingPow => "saturatingPow",
+            Self::WrappingAdd => "wrappingAdd",
+            Self::WrappingSub => "wrappingSub",
+            Self::WrappingMul => "wrappingMul",
+            Self::WrappingDiv => "wrappingDiv",
+            Self::WrappingRem => "wrappingRem",
+            Self::WrappingNeg => "wrappingNeg",
+            Self::WrappingPow => "wrappingPow",
+        }
+    }
+
+    /// Arguments, the receiver included.
+    pub fn arity(self) -> usize {
+        match self {
+            Self::Abs | Self::CheckedNeg | Self::WrappingNeg => 1,
+            _ => 2,
+        }
+    }
+
+    /// The second argument is a `u32` exponent.
+    pub fn takes_exponent(self) -> bool {
+        matches!(self, Self::Pow | Self::CheckedPow | Self::SaturatingPow | Self::WrappingPow)
+    }
+
+    /// The result is `Option` of the receiver's type.
+    pub fn is_checked(self) -> bool {
+        matches!(
+            self,
+            Self::CheckedAdd | Self::CheckedSub | Self::CheckedMul | Self::CheckedDiv | Self::CheckedRem | Self::CheckedNeg | Self::CheckedPow
+        )
+    }
 }
 
 impl IntOp {
     pub fn arity(self) -> usize {
         match self {
             IntOp::Neg | IntOp::Not => 1,
+            IntOp::Method(m) => m.arity(),
             _ => 2,
         }
     }
@@ -107,6 +248,7 @@ impl IntOp {
             IntOp::Not => "not",
             IntOp::Shl => "shl",
             IntOp::Shr => "shr",
+            IntOp::Method(m) => m.ts_name(),
         }
     }
 }

@@ -57,7 +57,7 @@ fn each_public_item_gets_a_verdict() {
         assert!(item(&json, accepted).contains("\"status\":\"accepted\""), "{}", item(&json, accepted));
     }
     let rejected = [
-        ("abs_of", "\"code\":\"expr/method-call\",\"detail\":\"abs\""),
+        ("sign_of", "\"code\":\"expr/method-call\",\"detail\":\"signum\""),
         ("describe", "\"code\":\"item/ref-receiver\""),
         ("area_of", "\"code\":\"type/qualified-path\",\"detail\":\"shapes::Shape\""),
         ("Id", "\"code\":\"item/tuple-struct\""),
@@ -105,7 +105,7 @@ fn all_causes_lists_every_cause_of_a_function() {
         assert!(every.contains(&format!("\"code\":\"{code}\"")), "{code} missing in {every}");
     }
     // Items with one cause, or none, read the same either way.
-    for name in ["abs_of", "twice", "lookup"] {
+    for name in ["sign_of", "twice", "lookup"] {
         assert_eq!(item(&first, name), item(&all, name), "{name}");
     }
 }

@@ -39,8 +39,8 @@ impl TryFrom<u8> for Percent {
     }
 }
 
-pub fn abs_of(n: i32) -> i32 {
-    n.abs()
+pub fn sign_of(n: i32) -> i32 {
+    n.signum()
 }
 
 /// Four causes: two the parser meets (`format!`, `loop`) and two the type

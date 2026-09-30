@@ -22,6 +22,7 @@ mod for_each_equivalence;
 mod golden;
 mod guards_equivalence;
 mod iban_equivalence;
+mod int_methods_equivalence;
 mod int_patterns_equivalence;
 mod invoice_equivalence;
 mod local_consts_equivalence;

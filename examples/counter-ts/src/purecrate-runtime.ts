@@ -68,6 +68,72 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
 };
 
 /**
+ * The integer methods, from the exact result: `x.checked_add(y)` is it or
+ * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
+ * low `bits`, and the others panic outside the range as a debug build does.
+ * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
+ * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
+ */
+const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number, signed: boolean, to: (n: bigint) => T) => {
+  const v = (x: T): bigint => BigInt(x);
+  const inRange = (n: bigint): boolean => n >= lo && n <= hi;
+  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? to(n) : panic(`${what} with overflow`));
+  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? to(n) : null);
+  const clamp = (n: bigint): T => to(n < lo ? lo : n > hi ? hi : n);
+  const wrap = (n: bigint): T => to(signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n));
+  // `a ** e`, or `null` where it is certainly outside the range: a base of
+  // magnitude 2 or more to an exponent of `bits` or more.
+  const power = (a: bigint, e: number): bigint | null =>
+    e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= bits ? null : a ** BigInt(e);
+  const modPower = (a: bigint, e: number): bigint => {
+    const m = 1n << BigInt(bits);
+    let base = BigInt.asUintN(bits, a);
+    let acc = 1n;
+    for (let k = e; k > 0; k = Math.floor(k / 2)) {
+      if (k % 2 === 1) acc = (acc * base) % m;
+      base = (base * base) % m;
+    }
+    return acc;
+  };
+  const quotient = (a: bigint, b: bigint): bigint | null => (b === 0n ? null : a / b);
+  const zero = (b: T, what: string): void => {
+    if (v(b) === 0n) panic(what);
+  };
+  return {
+    min: (a: T, b: T): T => (a <= b ? a : b),
+    max: (a: T, b: T): T => (a >= b ? a : b),
+    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"),
+    pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
+    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
+    checkedSub: (a: T, b: T): T | null => checked(v(a) - v(b)),
+    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
+    checkedDiv: (a: T, b: T): T | null => checked(quotient(v(a), v(b))),
+    // `MIN % -1` is `None`: the quotient it comes from overflows.
+    checkedRem: (a: T, b: T): T | null =>
+      checked(quotient(v(a), v(b))) === null ? null : to(v(a) % v(b)),
+    checkedNeg: (a: T): T | null => checked(-v(a)),
+    checkedPow: (a: T, e: U32): T | null => checked(power(v(a), e)),
+    saturatingAdd: (a: T, b: T): T => clamp(v(a) + v(b)),
+    saturatingSub: (a: T, b: T): T => clamp(v(a) - v(b)),
+    saturatingMul: (a: T, b: T): T => clamp(v(a) * v(b)),
+    saturatingPow: (a: T, e: U32): T => {
+      const n = power(v(a), e);
+      return n !== null ? clamp(n) : to(v(a) < 0n && e % 2 === 1 ? lo : hi);
+    },
+    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)),
+    wrappingSub: (a: T, b: T): T => wrap(v(a) - v(b)),
+    wrappingMul: (a: T, b: T): T => wrap(v(a) * v(b)),
+    wrappingDiv: (a: T, b: T): T => (zero(b, "divide by zero"), wrap(v(a) / v(b))),
+    wrappingRem: (a: T, b: T): T => (zero(b, "calculate the remainder with a divisor of zero"), wrap(v(a) % v(b))),
+    wrappingNeg: (a: T): T => wrap(-v(a)),
+    wrappingPow: (a: T, e: U32): T => wrap(modPower(v(a), e)),
+  } as const;
+};
+
+const small64 = (n: bigint): Usize =>
+  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+
+/**
  * The amount of a shift, of any integer type. A debug build panics unless it
  * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
  * bits shifted out of the result are dropped without a panic.
@@ -326,16 +392,29 @@ export const Uuid = {
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  i8: { ...small<I8>(-128, 127), ...bits32<I8>(8, true) },
-  i16: { ...small<I16>(-32768, 32767), ...bits32<I16>(16, true) },
-  i32: { ...small<I32>(-2147483648, 2147483647), ...bits32<I32>(32, true) },
-  u8: { ...small<U8>(0, 255), ...bits32<U8>(8, false) },
-  u16: { ...small<U16>(0, 65535), ...bits32<U16>(16, false) },
-  u32: { ...small<U32>(0, 4294967295), ...bits32<U32>(32, false) },
-  // No bitwise operators: Rust's `usize` has 64 bits, this one 53.
-  usize: small<Usize>(0, 9007199254740991),
-  i64: { ...big<I64>(-9223372036854775808n, 9223372036854775807n), ...bits64<I64>(true) },
-  u64: { ...big<U64>(0n, 18446744073709551615n), ...bits64<U64>(false) },
+  i8: { ...small<I8>(-128, 127), ...bits32<I8>(8, true), ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8) },
+  i16: { ...small<I16>(-32768, 32767), ...bits32<I16>(16, true), ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16) },
+  i32: {
+    ...small<I32>(-2147483648, 2147483647),
+    ...bits32<I32>(32, true),
+    ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32),
+  },
+  u8: { ...small<U8>(0, 255), ...bits32<U8>(8, false), ...methods(0n, 255n, 8, false, (n) => Number(n) as U8) },
+  u16: { ...small<U16>(0, 65535), ...bits32<U16>(16, false), ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16) },
+  u32: { ...small<U32>(0, 4294967295), ...bits32<U32>(32, false), ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32) },
+  // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
+  // methods work in Rust's 64 bits and throw on a result above 2^53−1.
+  usize: { ...small<Usize>(0, 9007199254740991), ...methods(0n, 18446744073709551615n, 64, false, small64) },
+  i64: {
+    ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    ...bits64<I64>(true),
+    ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64),
+  },
+  u64: {
+    ...big<U64>(0n, 18446744073709551615n),
+    ...bits64<U64>(false),
+    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64),
+  },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
   },

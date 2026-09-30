@@ -221,6 +221,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (typed_args(self, Vec::new()), t)
             }
+            Callee::Int { ty, op: op @ IntOp::Method(_) } => {
+                let mut args = args.to_vec();
+                if let Some(recv) = args.first_mut() {
+                    *recv = self.expr(recv, Some(&Ty::Prim((*ty).into()))).0;
+                }
+                let (e, t) = self.int_call(*ty, *op, Expr::Call { callee: callee.clone(), args });
+                return (e, self.expect(want, t));
+            }
             Callee::Int { ty, op } => {
                 let t = Ty::Prim((*ty).into());
                 // A shift amount keeps its own type.
