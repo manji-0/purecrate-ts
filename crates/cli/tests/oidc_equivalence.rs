@@ -20,8 +20,8 @@ purecrate_canon::fixture!(mod oidc = "../../../examples/oidc/src/lib.rs", "fixtu
 const SOURCE: &str = oidc::SOURCE;
 
 /// The same flow as one would write it without the subset's constraints:
-/// iterators, bit operators, `from_be_bytes`, a tuple `match` with guards,
-/// constants. Not converted; the reference only.
+/// iterators, `from_be_bytes`, a tuple `match` with guards. Not
+/// converted; the reference only.
 mod idiomatic {
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum ErrorCode { InvalidRequest, UnsupportedResponseType, InvalidScope, AccessDenied, LoginRequired, ConsentRequired }

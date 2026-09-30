@@ -203,14 +203,24 @@ impl AuthorizationRequest {
 }
 
 /// The acr value this OP asserts for two-factor logins.
-pub fn acr_mfa() -> String {
-    String::from("urn:example:acr:mfa")
-}
+pub const ACR_MFA: &str = "urn:example:acr:mfa";
 
 /// The acr value this OP asserts for password-only logins.
-pub fn acr_password() -> String {
-    String::from("urn:example:acr:pwd")
-}
+pub const ACR_PASSWORD: &str = "urn:example:acr:pwd";
+
+/// The OP bounds `state` so it cannot be used to bloat redirects.
+const MAX_STATE_LEN: usize = 512;
+
+/// RFC 7636 §4.1: a code verifier (and a plain challenge) is 43..=128
+/// characters.
+const PKCE_MIN_LEN: usize = 43;
+const PKCE_MAX_LEN: usize = 128;
+
+/// Decimal digits that always fit in i64.
+const MAX_SECONDS_DIGITS: usize = 18;
+
+/// An HMAC-SHA-1 output, the shortest MAC RFC 4226 truncates.
+const SHA1_LEN: usize = 20;
 
 // ---------------------------------------------------------------------------
 // Lexical helpers
@@ -247,11 +257,11 @@ pub fn has_token(list: &String, word: &str) -> bool {
     false
 }
 
-/// RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E.
-/// The OP also bounds the length so it cannot be used to bloat redirects.
+/// RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
+/// `MAX_STATE_LEN` bytes.
 fn state_is_valid(state: &String) -> bool {
     let b = state.as_bytes();
-    if b.len() == 0 || b.len() > 512 {
+    if b.len() == 0 || b.len() > MAX_STATE_LEN {
         return false;
     }
     for i in 0..b.len() {
@@ -266,7 +276,7 @@ fn state_is_valid(state: &String) -> bool {
 /// unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
 pub fn pkce_string_is_valid(s: &String) -> bool {
     let b = s.as_bytes();
-    if b.len() < 43 || b.len() > 128 {
+    if b.len() < PKCE_MIN_LEN || b.len() > PKCE_MAX_LEN {
         return false;
     }
     for i in 0..b.len() {
@@ -279,10 +289,10 @@ pub fn pkce_string_is_valid(s: &String) -> bool {
 }
 
 /// A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
-/// At most 18 digits so the value fits in i64.
+/// At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
 fn parse_seconds(s: &String) -> Option<i64> {
     let b = s.as_bytes();
-    if b.len() == 0 || b.len() > 18 {
+    if b.len() == 0 || b.len() > MAX_SECONDS_DIGITS {
         return None;
     }
     let mut value: i64 = 0;
@@ -512,20 +522,18 @@ pub fn validate_request(
 // TOTP (RFC 6238) over HOTP truncation (RFC 4226)
 // ---------------------------------------------------------------------------
 
-/// Number of decimal digits in an OTP (RFC 4226 §5.3 requires at least 6).
+/// Number of decimal digits in an OTP (RFC 4226 §5.3 requires at least 6);
+/// the discriminant is the count.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtpDigits {
-    Six,
-    Seven,
-    Eight,
+    Six = 6,
+    Seven = 7,
+    Eight = 8,
 }
 
 fn digit_count(d: OtpDigits) -> usize {
-    match d {
-        OtpDigits::Six => 6,
-        OtpDigits::Seven => 7,
-        OtpDigits::Eight => 8,
-    }
+    usize::from(d as u8)
 }
 
 fn digit_modulus(d: OtpDigits) -> u32 {
@@ -570,17 +578,15 @@ pub struct StepMac {
 /// then mod 10^digits. None for a MAC shorter than SHA-1's 20 bytes.
 pub fn truncate_mac(mac: &Vec<u8>, digits: OtpDigits) -> Option<u32> {
     let n = mac.len();
-    if n < 20 {
+    if n < SHA1_LEN {
         return None;
     }
-    // No bit operators in the subset: `& 0x0f` is `% 16`, `& 0x7f` is
-    // `% 128`, and `<< 24 | << 16 | << 8 |` is a base-256 sum. The top bit
-    // is masked off first, so the sum stays below 2^31 and fits in u32.
-    let offset = usize::from(mac[n - 1] % 16);
-    let bin = u32::from(mac[offset] % 128) * 16_777_216
-        + u32::from(mac[offset + 1]) * 65_536
-        + u32::from(mac[offset + 2]) * 256
-        + u32::from(mac[offset + 3]);
+    // As RFC 4226 §5.4 writes it; the top bit is masked off.
+    let offset = usize::from(mac[n - 1] & 0x0f);
+    let bin = (u32::from(mac[offset] & 0x7f) << 24)
+        | (u32::from(mac[offset + 1]) << 16)
+        | (u32::from(mac[offset + 2]) << 8)
+        | u32::from(mac[offset + 3]);
     Some(bin % digit_modulus(digits))
 }
 
@@ -755,8 +761,8 @@ pub fn amr_values(strength: AuthStrength) -> Vec<String> {
 
 pub fn acr_value(strength: AuthStrength) -> String {
     match strength {
-        AuthStrength::PasswordOnly => acr_password(),
-        AuthStrength::PasswordAndTotp => acr_mfa(),
+        AuthStrength::PasswordOnly => String::from(ACR_PASSWORD),
+        AuthStrength::PasswordAndTotp => String::from(ACR_MFA),
     }
 }
 
