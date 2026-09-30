@@ -54,9 +54,17 @@ Why `&self` can be a value: the output never mutates arguments, and interior mut
 
 <!-- constrained-by ./07-roadmap.md#6-not-doing -->
 
-A transition takes the state and returns the next one. No `&mut`, no field assignment, no `mut` parameters. Past events are not accumulated in state; the caller keeps them.
+1. A transition takes the state and returns the next one. No `&mut`, no field assignment, no `mut` parameters.
+2. Past events are not accumulated in state. The caller keeps them.
+3. Sequences that grow or shrink are recursive enums, returned as new values.
+4. A `Vec` is read, never grown.
+5. `Rc`, `Cell`, and `RefCell` are rejected.
 
-A history or log is kept this way: the transition returns what happened next to the next state, the caller appends it to its own list (an ordinary growing array or table, outside the crate), and the state keeps only the summary the rules read (a count, a last timestamp, a version).
+#### History and logs
+
+The transition returns what happened next to the next state. The caller appends it to its own list (an ordinary growing array or table, outside the crate). The state keeps only the summary the rules read (a count, a last timestamp, a version).
+
+Why: the state still determines the result alone. Avoid a field that points at a log someone else updates (a history ID whose contents the rules read): it is an input the signature does not show.
 
 ```rust
 pub struct Order { pub status: Status, pub version: u32, pub failed_attempts: u8 }
@@ -64,76 +72,229 @@ pub struct Order { pub status: Status, pub version: u32, pub failed_attempts: u8
 pub fn step(order: Order, cmd: Command) -> Result<(Order, OrderEvent), OrderError>
 ```
 
-In TS this is `Result<readonly [Order, OrderEvent], OrderError>`. The state still determines the result alone. What to avoid is a field that points at a log someone else updates (a history ID whose contents the rules read): it is an input the signature does not show. A rule that needs the whole history takes it as a parameter, `history: &[OrderEvent]`, read by index like any `Vec` the caller supplies. The exception is a history that is itself the domain state, such as an undo stack; that is a sequence in state, and a recursive enum.
+In TS this is `Result<readonly [Order, OrderEvent], OrderError>`.
 
-Sequences that grow or shrink are recursive enums returned as new values, the counterpart of kamae's `[...lines, line]`:
+- A rule that needs the whole history takes it as a parameter, `history: &[OrderEvent]`, read by index like any `Vec` the caller supplies.
+- Exception: a history that is itself the domain state, such as an undo stack. That is a sequence in state, and a recursive enum.
+
+#### Sequences that grow or shrink
+
+Write them as recursive enums returned as new values. This is the counterpart of kamae's `[...lines, line]`.
 
 ```rust
 pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 ```
 
-`Vec<T>` is read with `xs[i]` and `xs.len()` (both `usize`; out of bounds throws Rust's message). The crate builds one only as a list of its elements, `vec![a, b]` (or `vec![]` where the type is known), whose length is fixed in the source: a list the caller expects as an array, such as a JSON claim. It never grows: `vec![x; n]`, `Vec::new`/`from`, `push`, `to_vec`, and `map`/`filter`/`collect` are rejected, and `[a, b]` is an array, which rustc does not accept as a `Vec` (and `[T; N]` types are rejected). A sequence that grows or shrinks with the state is a recursive enum. `&[u8]` parameters are accepted and read the same way.
+#### Reading a `Vec` or slice
 
-`Rc`, `Cell`, and `RefCell` stay rejected: even single-threaded, collapsing shared writes into values changes results. `Box` and `Arc` can be read with `*x`; `Mutex` has no `lock`, so it can only be built and held.
+- `Vec<T>` is read with `xs[i]` and `xs.len()`. Both are `usize`. Out of bounds throws Rust's message.
+- It is also read with `for x in &xs` ([§2](#2-what-can-be-written)).
+- `&[u8]` parameters are accepted and read the same way.
+
+#### Building a `Vec`
+
+- The crate builds a `Vec` only as a list of its elements: `vec![a, b]`, or `vec![]` where the type is known. Its length is fixed in the source. Use it for a list the caller expects as an array, such as a JSON claim.
+- It never grows. Rejected: `vec![x; n]`, `Vec::new` / `from`, `push`, `to_vec`, and `map` / `filter` / `collect`.
+- `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
+- A sequence that grows or shrinks with the state is a recursive enum (above).
+
+#### Shared and interior mutability
+
+`Rc`, `Cell`, and `RefCell` stay rejected. Why: even single-threaded, collapsing shared writes into values changes results.
+
+`Box` and `Arc` can be read with `*x`. `Mutex` has no `lock`, so it can only be built and held.
 
 ### 3.2 Numbers are sized integers and floats
 
-No decimal type (neither a TS `Decimal` over `number` nor `rust_decimal`). Money is an integer newtype in the smallest unit, and rounding is integer arithmetic on that type:
+1. There is no decimal type (neither a TS `Decimal` over `number` nor `rust_decimal`). Money is an integer newtype in the smallest unit, and rounding is integer arithmetic on that type:
 
-```rust
-pub struct Yen(i64);   // closed: construct via a checked `Yen::new`
-```
+   ```rust
+   pub struct Yen(i64);   // closed: construct via a checked `Yen::new`
+   ```
 
-`i32` and `f64` are both `number` at runtime but `I32` and `F64` in types. Undetermined literals need a suffix or `let x: T`. Widening via `T::from(x)` is limited to what std provides: `u8`/`u16`/`u32` to wider unsigned or signed, `i8`/`i16`/`i32` to wider signed, and only `u8`/`u16` to `usize`. Narrowing, `as`, `.into()`, and `try_from` are rejected.
+2. `i32` and `f64` are both `number` at runtime, but `I32` and `F64` in types.
+3. Undetermined literals need a suffix or `let x: T`.
+4. Widening via `T::from(x)` is limited to what std provides: `u8`/`u16`/`u32` to wider unsigned or signed, `i8`/`i16`/`i32` to wider signed, and only `u8`/`u16` to `usize`.
+5. Narrowing, `as`, `.into()`, and `try_from` are rejected.
 
 ### 3.3 Names are unique across the crate
 
-Modules are flattened; module paths never appear in TS names. A crate may be split into inline modules and module files (`mod x;` as `x.rs` or `x/mod.rs`; `#[path]` is not followed), since 2026-09-29; before that `check` required one file although this section already described flattening.
+Modules are flattened. Module paths never appear in TS names.
 
+- A crate may be split into inline modules and module files (`mod x;` as `x.rs` or `x/mod.rs`). `#[path]` is not followed.
 - A path through the crate's modules names the item alone: `crate::money::Yen`, `super::Yen`, and `money::Yen` are `Yen`.
-- An item is exported as in Rust's public surface: `pub` with every enclosing module `pub`, or named by a `pub use` (a `pub use m::*` exports module `m`'s items). Other items are generated without `export` if reachable.
+- Which items are exported is in [§3.4](#34-public-surface).
+
+Rules:
 
 1. The defined name is the public name. `pub use a::B as C` is rejected: it would export a name the item does not have.
 2. Two types or two free functions with the same name are rejected, listing both paths. This includes non-public items reached from the public surface. Nothing is auto-prefixed.
 3. Names that are Rust keywords or TS reserved words are rejected, not renamed.
 4. Methods live in companions (`State.apply`) and do not collide with a free `apply`.
-5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected.
+5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)).
 
-Reserved by the output: `Result`, `Int`, `Str`, `Char`, the numeric brands, `assertNever`, `Readonly`, `ReadonlyArray`, `globalThis`; the file stems `index`, `result`, `assert-never`, `int`, `str`; the field `kind` and the companion member `of`. `__proto__` as a field, variant, or method name is rejected. A domain `Error` type is fine (generated code uses `globalThis.Error`).
+#### Reserved by the output
+
+| Kind | Reserved |
+| --- | --- |
+| Names | `Result`, `Int`, `Str`, `Char`, the numeric brands, `assertNever`, `Readonly`, `ReadonlyArray`, `globalThis`, `Uuid` ([§3.7](#37-types)) |
+| File stems | `index`, `result`, `assert-never`, `int`, `str`, `purecrate-runtime`, `purecrate-wire`, `purecrate-zod` / `-valibot` / `-arktype`; `consts` when the crate has a `const` |
+| Field | `kind` |
+| Companion member | `of` |
+
+- `__proto__` as a field, variant, or method name is rejected.
+- A domain `Error` type is fine. Generated code uses `globalThis.Error`.
+
+Note: multi-file crates are accepted since 2026-09-29. Before that, `check` required one file, although this section already described flattening.
 
 ### 3.4 Public surface
 
-`pub` items become exports with no attribute: `pub struct` / `enum` / `type` / `fn`, and `pub fn` in inherent `impl`s (receiver becomes the first parameter). Non-public items reachable from these are generated without `export`. `pub(crate)` / `pub(super)` count as private. `pub const` is exported from `consts.ts`, which holds every const of the crate, so `MAX_LEN` and `fn max_len` do not collide. Not translated: `static`, associated consts in `impl` blocks (use a crate-level `const`), trait definitions and trait impls, except: `impl TryFrom<T> for X` becomes the method `X.try_from` (it must have `type Error` and `fn try_from` only), and `impl Display` / `impl std::error::Error` are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
+#### Exported
+
+Exports need no attribute. An item is exported as in Rust's public surface: `pub` with every enclosing module `pub`, or named by a `pub use` (a `pub use m::*` exports module `m`'s items).
+
+- `pub struct` / `enum` / `type` / `fn`.
+- `pub fn` in inherent `impl`s. The receiver becomes the first parameter.
+- `pub const`, exported from `consts.ts`. That file holds every const of the crate, so `MAX_LEN` and `fn max_len` do not collide.
+
+#### Generated without `export`
+
+- Non-public items reachable from the exported ones.
+- `pub(crate)` / `pub(super)` count as private.
+
+#### Not translated
+
+| Item | Instead |
+| --- | --- |
+| `static` | a crate-level `const` |
+| associated consts in `impl` blocks | a crate-level `const` |
+| trait definitions and trait impls | none, except the two rows below |
+| `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
+| `impl Display` / `impl std::error::Error` | skipped |
+
+Why `Display` and `Error` impls are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
 
 ### 3.5 `match` arms name variants
 
 <!-- derived-from ./07-roadmap.md#2-evidence-from-examples -->
 
-An arm is one of:
+Each arm names what it takes. The accepted patterns depend on what is matched. Arms are tried in order, as in Rust.
 
-- one variant, `Some`/`None`, or `Ok`/`Err`, binding its fields to names or `_`;
-- several variants of the same enum joined by `|`, binding nothing (`Event::Pay(_) | Event::Ship { .. } =>`);
-- `_`, as the last arm, taking every case no other arm names. A `_` after arms covering everything is accepted and dropped (rustc warns); a `match` whose only arm is `_` is rejected;
-- on an integer: a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `|`. The last arm must be `_`, even where the ranges cover every value. Arms are tried in order, as in Rust.
-- on a `char`: a literal (`'@'`), a range with a literal at both ends (`'a'..='z'`), or several joined by `|`. The last arm must be `_`.
-- on a tuple (`match (state, event)`, 2026-09-30): a tuple whose elements are each `_`, a binding, or any of the above (`(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`); several tuples joined by `|` when they bind nothing; or a last `_`. No `_` is required where the arms cover every case, and the first arm that matches wins, as in Rust. The tuple is not built: elements that are places (`state`, `self.phase`) are matched as they are, anything else is evaluated first, left to right. The output matches one element at a time, and every enum, `Option`, or `Result` element with a `switch` (or `if`) that names every case and ends in `assertNever`, so TS checks exhaustiveness of each on its own, not only rustc. An arm that several cases reach is printed once per case (`(_, Event::Reset)` appears under every state); cases that reach the same code and bind nothing share one `case` list.
-- on a `&str`: a string literal, or several joined by `|` (`"card" | "credit_card" =>`). The last arm must be `_`. A `String` is matched through `s.as_str()`, as rustc requires.
+#### Arm patterns
 
-`matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules; `matches!(x, p if c)` is `match x { p => c, _ => false }`.
+| Matched value | An arm is | Last `_` |
+| --- | --- | --- |
+| enum, `Option`, `Result` | one variant (`Some` / `None`, `Ok` / `Err` included), binding its fields to names or `_`; or several variants of the same enum joined by `\|`, binding nothing (`Event::Pay(_) \| Event::Ship { .. } =>`) | allowed |
+| integer | a literal (`b'@'`, `-1`), a range with a literal at both ends (`b'a'..=b'z'`, `0..10`), or several joined by `\|` | required, even where the ranges cover every value |
+| `char` | a literal (`'@'`), a range with a literal at both ends (`'a'..='z'`), or several joined by `\|` | required |
+| `&str` | a string literal, or several joined by `\|` (`"card" \| "credit_card" =>`). A `String` is matched through `s.as_str()`, as rustc requires | required |
+| tuple | see [Tuple matches](#tuple-matches) | not required where the arms cover every case |
 
-Guards (`p if c =>`) are accepted on any of these arms, and on a binding arm (`n if n > 3 =>`, not in a tuple match). Arms are tried in order and a guard runs only when its pattern matched, as in Rust; the arms without guards must be exhaustive by themselves, which rustc checks. A `?` inside a guard is refused. A `match` with guards prints as an `if` chain, one small `switch` per arm to test it and one to take it, rather than as one `switch`: longer, but each `switch` stands where TS narrows nothing it would contradict.
+#### The `_` arm
 
-The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too. As in Rust, a variant added later falls into `_` silently; write every arm where that matters.
+- `_` is the last arm. It takes every case no other arm names.
+- A `_` after arms covering everything is accepted and dropped (rustc warns).
+- A `match` whose only arm is `_` is rejected.
+- The TS `switch` still lists every case by name (`_` becomes `case "A": case "B":`), so TS checks exhaustiveness too.
+- As in Rust, a variant added later falls into `_` silently. Write every arm where that matters.
 
-Not accepted: tuples inside tuple patterns, `|` arms that bind names, binding-only arms without a guard, nested patterns, `bool` and float literal patterns, half-open (`5..`) ranges and ranges bounded by a path (`i32::MIN..=0`), `let else`.
+#### Tuple matches
+
+`match (state, event)`. An arm is one of:
+
+- a tuple whose elements are each `_`, a binding, or any pattern from [Arm patterns](#arm-patterns): `(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`;
+- several tuples joined by `|`, when they bind nothing;
+- a last `_`.
+
+No `_` is required where the arms cover every case. The first arm that matches wins, as in Rust.
+
+Evaluation: the tuple is not built. Elements that are places (`state`, `self.phase`) are matched as they are. Anything else is evaluated first, left to right.
+
+Output:
+
+- The output matches one element at a time.
+- Every enum, `Option`, or `Result` element gets a `switch` (or `if`) that names every case and ends in `assertNever`. So TS checks exhaustiveness of each element on its own, not only rustc.
+- An arm that several cases reach is printed once per case: `(_, Event::Reset)` appears under every state.
+- Cases that reach the same code and bind nothing share one `case` list.
+
+Note: tuple matches are accepted since 2026-09-30.
+
+#### Guards
+
+`p if c =>` is accepted on any arm above, and on a binding arm (`n if n > 3 =>`, not in a tuple match).
+
+- Arms are tried in order. A guard runs only when its pattern matched, as in Rust.
+- The arms without guards must be exhaustive by themselves. rustc checks this.
+- A `?` inside a guard is refused. Bind the `?` result with `let` first ([§4](#4-rewrites)).
+
+Output: a `match` with guards prints as an `if` chain, not as one `switch`. Each arm gets one small `switch` to test it and one to take it. Why: it is longer, but each `switch` stands where TS narrows nothing it would contradict.
+
+#### `matches!`
+
+- `matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules.
+- `matches!(x, p if c)` is `match x { p => c, _ => false }`.
+
+#### Not accepted
+
+- tuples inside tuple patterns
+- `|` arms that bind names
+- binding-only arms without a guard
+- nested patterns
+- `bool` and float literal patterns
+- half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
+- `let else`
 
 ### 3.6 Strings
 
-A string literal is `&str` and cannot stand where `String` is expected; write `String::from("a")`. `.to_string()`, `.to_owned()`, and `.into()` are rejected to keep one spelling; there is no `clone`, so build it again (`String::from(&s)` copies a `String`; an `Option<String>` is copied with a `match`). `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str` are allowed; the needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). Read contents through `as_bytes()`: index, `len`, `is_empty`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`. Byte string literals (`b"pm_"`) are not available; use `starts_with`.
+#### Building a `String`
+
+- A string literal is `&str` and cannot stand where `String` is expected. Write `String::from("a")`.
+- `.to_string()`, `.to_owned()`, and `.into()` are rejected, to keep one spelling.
+- There is no `clone`, so build it again. `String::from(&s)` copies a `String`. An `Option<String>` is copied with a `match`.
+
+#### Methods
+
+- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str`.
+- The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure.
+- As a `for` iterable only: `s.chars()`, `s.bytes()`, and `s.split(c)` ([§2](#2-what-can-be-written)).
+- Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).
+
+#### Reading contents
+
+Read contents through `as_bytes()`: index, `len`, `is_empty`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`.
+
+Byte string literals (`b"pm_"`) are not available. Use `starts_with`.
 
 ### 3.7 Types
 
-Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type constructors. No user type parameters, traits, `HashMap`/`BTreeMap` (key equality differs between Rust and JS). `Option<Option<T>>` is rejected (both `None`s become `null`), as are newtypes over `Option`, `()`, or `!` (`null & brand` is `never`); write an enum such as `Patch { Unset, Clear, Set(i32) }` instead. Enums with no variants are rejected, and so are unit structs (`struct S;`; serde writes it as `null`, `struct S {}` as `{}`, and only the latter is kept). `#[derive(Serialize, Deserialize)]` and `use serde::…` pass: the types are the server's wire format too ([04 §3](./04-wire.md#3-current-design)). Of `#[serde(...)]`, only `#[serde(try_from = "T")]` on a struct is accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)); the rest, `#[cfg]`, and `#[cfg_attr]` are rejected. `#[cfg(test)]` items are skipped; `derive`, `doc`, and lint attributes pass. No external crate but `serde` and `uuid` (its `Uuid` and `Error` only, [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)) is allowed; the name `Uuid` is reserved.
+#### Type constructors
+
+Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex` are type constructors, besides tuples `(A, B)` (read with `match`, not `.0` or a tuple `let`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
+
+#### Rejected types
+
+| Type | Why | Instead |
+| --- | --- | --- |
+| `HashMap` / `BTreeMap` | key equality differs between Rust and JS | |
+| `Option<Option<T>>` | both `None`s become `null` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
+| newtypes over `Option`, `()`, or `!` | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
+| enums with no variants | | |
+| unit structs (`struct S;`) | serde writes `struct S;` as `null` and `struct S {}` as `{}`; only the latter is kept | `struct S {}` |
+
+#### Attributes
+
+| Attribute | Status |
+| --- | --- |
+| `#[derive(Serialize, Deserialize)]`, `use serde::…` | pass: the types are the server's wire format too ([04 §3.2](./04-wire.md#32-serde-in-the-input)) |
+| `#[serde(try_from = "T")]` on a struct | accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)) |
+| any other `#[serde(...)]` | rejected |
+| `#[cfg]`, `#[cfg_attr]` | rejected |
+| `#[cfg(test)]` items | skipped |
+| `derive`, `doc`, lint attributes | pass |
+
+#### External crates
+
+No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and `Error` ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)). The name `Uuid` is reserved.
 
 ## 4. Rewrites
 

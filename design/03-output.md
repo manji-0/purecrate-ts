@@ -42,7 +42,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 
 ## 3. Shapes
 
-### Enums
+### 3.1 Enums
 
 ```rust
 enum Cmd { Quit, Move(i32, i32), Paint { color: String } }
@@ -63,7 +63,7 @@ export const Cmd = {
 
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
 
-### Structs, methods, newtypes
+### 3.2 Structs, methods, newtypes
 
 ```rust
 pub struct Meters(i32);
@@ -82,29 +82,92 @@ export const Meters = {
 } as const;
 ```
 
-A newtype's runtime value is its content, which is also serde's JSON for it. `.0` is the value itself. The brand key is a `unique symbol` so newtypes of newtypes do not collide. `Meters` above is closed (its field is not `pub`), so there is no `of`; with `pub struct Meters(pub i32)` the companion would have `of`.
+**Newtypes.**
 
-Methods become companion properties with the receiver first. `Self` is replaced by the type name. `Type::m(x)` becomes `Type.m(x)`; `x.m(y)` is resolved from `x`'s inferred type to `T.m(x, y)`. Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): `Vec::len` as `.length`, `Vec::is_empty` as `.length === 0`, `Option::is_some` / `is_none` as `!== null` / `=== null`, indexing, and the `str` and `char` methods.
+- A newtype's runtime value is its content. This is also serde's JSON for it.
+- `.0` is the value itself.
+- The brand key is a `unique symbol`, so newtypes of newtypes do not collide.
+- `Meters` above is closed (its field is not `pub`), so there is no `of`. With `pub struct Meters(pub i32)` the companion would have `of`.
 
-### Control flow
+**Methods.** Methods become companion properties with the receiver first. `Self` is replaced by the type name.
 
-- `match` → `switch (e.kind)` with `default: return assertNever(e)`. `if let` → `kind` test with narrowing. `Option` branches on `=== null`. A `match` on a tuple is split into nested `match`es, one element at a time, choosing the first element the first remaining arm tests (`check::tuple`): `switch (event.kind) { case "Reset": … case "Tick": switch (state.kind) { … default: return assertNever(state); } … default: return assertNever(event); }`. Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness; integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time. Elements that are not places go into `const`s first, in order (`$e1`, `$e2`); field and payload bindings are read into `$f`/`$v` names, then into the arm's own names. A body several cases reach is copied into each; cases with the same code and no bindings share a `case` list. A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`, since an annotation would keep the narrowing of an enclosing `switch`.
-- Guarded arms → an `if` chain: per arm in order, one match tests pattern and guard and another takes the body, with the scrutinee bound once. `unwrap_or`, `ok_or`, and `map` → the `match` std writes, with the receiver and an eager argument bound first.
-- `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` → `for..of`; `while` → `while`. A loop that a `break` or `continue` leaves gets a label, since a bare `break` inside the `switch` a `match` prints as would leave the `switch`.
-- `?` → `if (r.kind === "Err") return r;` (for `Option`, `if (r === null) return null;`). A `?` inside an expression is hoisted into a preceding `const` to preserve evaluation order.
-- A `match` / `if` used as a value becomes `let x: T;` plus an assignment per arm.
-- `S { a: 1, ..s }` → `({ ...s, a: 1 })`; a `?` in an explicit field exits before `s` is evaluated.
-- Bindings are renamed to be unique per function (shadowing gives `x$1`). A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
+| Rust | TS |
+| --- | --- |
+| `Type::m(x)` | `Type.m(x)` |
+| `x.m(y)` | `T.m(x, y)`, with `T` resolved from `x`'s inferred type |
+| `Vec::len` | `.length` |
+| `Vec::is_empty` | `.length === 0` |
+| `Option::is_some` / `is_none` | `!== null` / `=== null` |
 
-### Closures
+Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
+
+### 3.3 Control flow
+
+| Rust | TS |
+| --- | --- |
+| `match` | `switch (e.kind)` with `default: return assertNever(e)` |
+| `if let` | `kind` test with narrowing |
+| `match` / `if let` on `Option` | branch on `=== null` |
+| `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
+| guarded arms | an `if` chain ([3.3.2](#332-guards-and-option-methods)) |
+| `unwrap_or`, `ok_or`, `map` | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
+| `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
+| `while` | `while` |
+| a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
+| `?` on `Result` | `if (r.kind === "Err") return r;` |
+| `?` on `Option` | `if (r === null) return null;` |
+| `match` / `if` used as a value | `let x: T;` plus an assignment per arm |
+| `S { a: 1, ..s }` | `({ ...s, a: 1 })` |
+
+#### 3.3.1 Tuple match
+
+A `match` on a tuple is split into nested `match`es, one element at a time (`check::tuple`). At each level it chooses the first element that the first remaining arm tests.
+
+```ts
+switch (event.kind) {
+  case "Reset": …
+  case "Tick":
+    switch (state.kind) { … default: return assertNever(state); }
+  …
+  default: return assertNever(event);
+}
+```
+
+- Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness.
+- Integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time.
+- Elements that are not places go into `const`s first, in order (`$e1`, `$e2`).
+- Field and payload bindings are read into `$f`/`$v` names, then into the arm's own names.
+- A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list.
+- A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`. An annotation would keep the narrowing of an enclosing `switch`.
+
+#### 3.3.2 Guards and Option methods
+
+- Guarded arms become an `if` chain. Per arm, in order, one match tests the pattern and the guard, and another takes the body. The scrutinee is bound once.
+- `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first.
+
+#### 3.3.3 Loop labels
+
+A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `switch`, and a bare `break` inside that `switch` would leave the `switch`, not the loop.
+
+#### 3.3.4 Evaluation order
+
+- A `?` inside an expression is hoisted into a preceding `const`. This preserves evaluation order.
+- In `S { a: 1, ..s }`, a `?` in an explicit field exits before `s` is evaluated.
+
+#### 3.3.5 Renaming
+
+- Bindings are renamed to be unique per function. Shadowing gives `x$1`.
+- A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
+
+### 3.4 Closures
 
 ```ts
 const scale: ((_0: I32) => I32) = ((v: I32): I32 => Int.i32.mul(v, k));
 ```
 
-`?` and `return` exit the closure, so they need a return annotation in Rust; hoisting stays inside the closure body.
+`?` and `return` exit the closure, so they need a return annotation in Rust. Hoisting stays inside the closure body.
 
-### Counter, in full
+### 3.5 Counter, in full
 
 ```ts
 export const step = (state: State, event: Event): State => {
@@ -121,33 +184,86 @@ The committed golden is [examples/counter-ts](../examples/counter-ts/src).
 
 ## 4. Package
 
+### 4.1 Layout
+
 ```
 <out>/
-  package.json  tsconfig.json
+  package.json  tsconfig.json  tsconfig.build.json (for npm run build)
   src/
     index.ts          re-exports only
     result.ts  assert-never.ts
-    int.ts  str.ts    re-export Int / Str and brands from `purecrate`
+    purecrate-runtime.ts  the runtime, copied in (§4.4)
+    int.ts  str.ts    re-export Int / Str and brands from purecrate-runtime.ts
     <concept>.ts      one per public concept, kebab-case
     consts.ts         every `const` of the crate, folded to its value
     purecrate-wire.ts only with --schema
 ```
 
-Each file starts with `/* generated by purecrate-ts. do not edit. */`. The output is byte-deterministic.
+- Each file starts with `/* generated by purecrate-ts. do not edit. */`.
+- The output is byte-deterministic.
 
-`tsconfig.json` is `strict` with `noUnusedLocals`, `noUnusedParameters`, and `allowUnreachableCode: false`, so the sources also pass in a consumer project that turns those on. A binding the Rust leaves unused is not printed: an unused `let` or write keeps its value as a statement (it may panic, as in Rust), an unused pattern binding becomes `_`, and an unused parameter or `for` variable gets the leading `_` TS exempts. Imports are those the printed code mentions.
+### 4.2 Compiler strictness
 
-`package.json` has `type: "module"`; `exports` points to `dist` (and `<package>/wire` with `--schema`). `npm run build` (also run by `prepack`) compiles with TypeScript 6 or 7, rewriting `.ts` imports to `.js`, so consumers need no TS loader and can resolve under `nodenext` or `bundler`. `version` comes from `Cargo.toml`. `private` is `true` unless `--publishable` is given: generated packages belong to private code, so `npm publish` should refuse by default, while `npm pack` and installing the tarball still work. The runtime (`packages/boundary`) is copied in as `src/purecrate-runtime.ts` and, with `--schema`, the adapter as `src/purecrate-<lib>.ts`, at the generator's revision; the schema library is the only `peerDependencies` entry. Decided 2026-09-30, after vendoring into Oxide's console showed the earlier peer-installed runtime had no place in a project that commits generated code ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)); it also removes the version skew between generator and runtime, and nothing has to be installed that is not on npm. The runtime's brands are keyed by string (`{ readonly "purecrate.I32": true }`), so packages that each carry a copy exchange values; a crate's own closed types keep `unique symbol` brands. `crates/cli/tests/it/package.rs` packs two generated packages, installs them into a separate project with only `zod`, passes one's `I32` to the other, runs on node, and type-checks under both resolutions with both TS versions. Inside this repository the adapters read the runtime's sources via the `purecrate-source` condition.
+`tsconfig.json` is `strict` with `noUnusedLocals`, `noUnusedParameters`, and `allowUnreachableCode: false`. So the sources also pass in a consumer project that turns those on.
+
+A binding the Rust leaves unused is not printed:
+
+| Unused in Rust | Printed as |
+| --- | --- |
+| `let` or write | its value as a statement (it may panic, as in Rust) |
+| pattern binding | `_` |
+| parameter or `for` variable | the name with the leading `_` that TS exempts |
+
+Imports are those the printed code mentions.
+
+### 4.3 `package.json` and build
+
+| Field or script | Value |
+| --- | --- |
+| `type` | `"module"` |
+| `exports` | `dist` (and `<package>/wire` with `--schema`); under the `purecrate-source` condition, the `.ts` sources |
+| `version` | from `Cargo.toml` |
+| `private` | `true` unless `--publishable` is given |
+| `peerDependencies` | only the schema library |
+| `files` | `dist` and `src` |
+| `npm run build` | `tsc -p tsconfig.build.json`, TypeScript 6 or 7; also run by `prepack` |
+
+The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can resolve under `nodenext` or `bundler`.
+
+`private` defaults to `true` because generated packages belong to private code. `npm publish` should refuse by default. `npm pack` and installing the tarball still work.
+
+### 4.4 Runtime, copied in
+
+**What.** The runtime (`packages/boundary`) is copied in as `src/purecrate-runtime.ts`. With `--schema`, the adapter is copied in as `src/purecrate-<lib>.ts`. Both are copied at the generator's revision. The schema library is the only `peerDependencies` entry.
+
+**Brands.** The runtime's brands are keyed by string (`{ readonly "purecrate.I32": true }`), so packages that each carry a copy exchange values. A crate's own closed types keep `unique symbol` brands.
+
+**Why.** It removes the version skew between generator and runtime. Nothing has to be installed that is not on npm.
+
+**Verified by.** `crates/cli/tests/it/package.rs` packs two generated packages and installs them into a separate project with only `zod`. It passes one's `I32` to the other, runs on node, and type-checks under both resolutions with both TS versions.
+
+**Inside this repository.** The adapters read the runtime's sources via the `purecrate-source` condition.
+
+**History.** Decided 2026-09-30, after vendoring into Oxide's console showed that the earlier peer-installed runtime had no place in a project that commits generated code ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 
 ## 5. Caller contract
 
 What callers of a successfully generated package must observe.
 
-**Calling.** `State.bump(state)`, not `state.bump()`. Import flat names from the package root. Variants can be built with `Cmd.Move(a, b)` or as literals. A public function's parameter may be renamed (`inc$1`); calls are positional, so nothing changes.
+### 5.1 Calling
 
-**Failure.** Expected failure is a value: `Result` or `null`. `undefined` means `()`, not absence. Only overflow, division by zero, out-of-bounds indexing, and `assertNever` throw.
+- `State.bump(state)`, not `state.bump()`.
+- Import flat names from the package root.
+- Variants can be built with `Cmd.Move(a, b)` or as literals.
+- A public function's parameter may be renamed (`inc$1`). Calls are positional, so nothing changes.
 
-**Numbers.**
+### 5.2 Failure
+
+- Expected failure is a value: `Result` or `null`.
+- `undefined` means `()`, not absence.
+- Only overflow, division by zero, out-of-bounds indexing, and `assertNever` throw.
+
+### 5.3 Numbers
 
 | Rust | TS | Caller's job |
 | --- | --- | --- |
@@ -155,12 +271,24 @@ What callers of a successfully generated package must observe.
 | `f32`, `f64` | `F32`, `F64` | `Int.f32.of` / `Int.f64.of` |
 | `i64`, `u64` | branded `bigint` | Do not mix with `number`. Read serde_json text with `parseJson`, not `JSON.parse` |
 
-**Strings.** `===` matches Rust equality. JS `.length` and `[i]` are UTF-16 units, not Rust byte lengths; the output never emits them.
+### 5.4 Strings
 
-**Closed types.** No `of`; obtain values from public functions (`Email.parse`). Object literals and raw primitives do not type-check as the closed type (verified with `@ts-expect-error` consumers under TS 6 and 7). A value produced with `as Email` is outside the equivalence guarantee.
+`===` matches Rust equality. JS `.length` and `[i]` are UTF-16 units, not Rust byte lengths; the output never emits them.
 
-**Aliasing.** Arguments are not mutated, so the pre-call state remains usable. Nothing is frozen; mutating after stripping `Readonly` is outside the guarantee.
+### 5.5 Closed types
 
-**JSON.** In-memory enums use `kind`; serde's default JSON does not. Go through the `--schema` wire schema, not `JSON.parse` output directly ([04](./04-wire.md)).
+- There is no `of`. Obtain values from public functions (`Email.parse`).
+- Object literals and raw primitives do not type-check as the closed type. Verified with `@ts-expect-error` consumers under TS 6 and 7.
+- A value produced with `as Email` is outside the equivalence guarantee.
 
-**Editing.** Never edit the package. Change the Rust and regenerate.
+### 5.6 Aliasing
+
+Arguments are not mutated, so the pre-call state remains usable. Nothing is frozen. Mutating after stripping `Readonly` is outside the guarantee.
+
+### 5.7 JSON
+
+In-memory enums use `kind`; serde's default JSON does not. Go through the `--schema` wire schema, not `JSON.parse` output directly ([04](./04-wire.md)).
+
+### 5.8 Editing
+
+Never edit the package. Change the Rust and regenerate.

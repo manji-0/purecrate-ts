@@ -44,35 +44,70 @@ The domain is **the image of Rust values under the TS representation**, not ever
 
 <!-- derived-from #2-domain -->
 
-In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over (decided and implemented 2026-09-29, `crates/cli/tests/it/closed_equivalence.rs`).
+In Rust, a struct with any non-`pub` field cannot be built by a literal outside its crate; values come only from public functions. That rule is carried over. Decided and implemented 2026-09-29; verified by `crates/cli/tests/it/closed_equivalence.rs`.
 
-- A struct with a non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes, is **closed**. It gets a `unique symbol` brand, and its companion has no `of`. The generator builds values through an internal `Email$of`, exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
-- Methods that are not `pub` are not on the companion either: they are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Until 2026-09-30 every method sat on the exported companion, so a private `fn unchecked(raw) -> Email` let TS callers build what Rust callers cannot (found measuring Windmill's MCP scope, [91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
-- A struct whose fields are all `pub` is **open** and gets `of`, as in Rust anyone can build it.
-- Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
+| Rust struct | Kind | TS companion | Values come from |
+| --- | --- | --- | --- |
+| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a `unique symbol` brand | no `of` | public functions, or the wire (§4.2) |
+| All fields `pub` | **open** | `of` | anyone, as in Rust |
 
-So the domain for closed types is: values returned by public functions, or read from the wire, by shape as serde's derive does or, with `#[serde(try_from = "T")]`, through the checked constructor ([04 §5](./04-wire.md#5-closed-types-on-the-wire)). Rust has the same set, so correspondence is kept.
+Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
 
-Not closed at runtime: `as` still works, fields are readable, objects are not frozen. Classes with `#private` fields would close it, but break idiomatic values, JSON, and structured cloning.
+### 4.1 Internal names
 
-Validation has three layers. **Shape** (is this JSON an `Order`?) is the wire schema's job. **Meaning** (is this an `Email`?) is shared via closed types and checked constructors. **Screen** (wording, i18n, which field) is the caller's. Error messages are therefore not shared; the `Err` variant and payload are. A common error type with field paths will be introduced only when the same field-assignment table is duplicated across examples.
+- **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
+- **Non-`pub` methods** are not on the companion either. They are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. History: until 2026-09-30 every method sat on the exported companion, so a private `fn unchecked(raw) -> Email` let TS callers build what Rust callers cannot (found measuring Windmill's MCP scope, [91 §4](./91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)).
+
+### 4.2 The domain of a closed type
+
+Values returned by public functions, or read from the wire. The wire reads by shape as serde's derive does, or, with `#[serde(try_from = "T")]`, through the checked constructor ([04 §5](./04-wire.md#5-closed-types-on-the-wire)). Rust has the same set, so correspondence is kept.
+
+### 4.3 Not closed at runtime
+
+`as` still works, fields are readable, and objects are not frozen. Classes with `#private` fields would close it, but break idiomatic values, JSON, and structured cloning.
+
+### 4.4 Validation layers
+
+| Layer | Question | Owner |
+| --- | --- | --- |
+| **Shape** | Is this JSON an `Order`? | the wire schema |
+| **Meaning** | Is this an `Email`? | shared, via closed types and checked constructors |
+| **Screen** | Wording, i18n, which field | the caller |
+
+Error messages are therefore not shared; the `Err` variant and payload are. A common error type with field paths will be introduced only when the same field-assignment table is duplicated across examples.
 
 ## 5. Numbers
 
 `check::accept` infers a type for every expression and rewrites arithmetic before printing.
 
-| Rust | Generated TS |
-| --- | --- |
-| integer `+ - * / %`, unary `-` | `Int.<ty>.add(a, b)` etc. `/` truncates; overflow and division by zero throw Rust's panic message; `-0` is normalized to `0` |
-| integer `& \| ^`, `!`, `<< >>` (2026-09-30) | `Int.<ty>.and(a, b)`, `or`, `xor`, `not`, `shl`, `shr`. Results wrap to the width (JS int32 operators, then sign- or zero-extension; `BigInt.asIntN`/`asUintN` for 64 bits) and never panic; a shift amount of any integer type outside `0..bits`, compared as its whole value (`-1`, `2^32 + 1`), throws `attempt to shift left with overflow` as a debug build panics. An unsuffixed amount is `i32`, as in rustc. `usize` is refused: Rust gives it 64 bits, the TS `number` 53. `& \| ^` on `bool` are refused in favor of `&& \|\| !=` (`bits_equivalence.rs`: every width, operator, and amount type, boundary values, compound assignment, RFC 4226 truncation) |
-| `f32` arithmetic | `Math.fround(a op b)`. `f32` literals are rounded once from decimal by the converter (not via `f64`) |
-| `f64` arithmetic | JS operators |
-| `i64` / `u64` literals | `5n` |
-| widening `i64::from(x)` | value unchanged; `BigInt(x)` when crossing to `bigint` |
+| Rust | Generated TS | Details |
+| --- | --- | --- |
+| integer `+ - * / %`, unary `-` | `Int.<ty>.add(a, b)` etc. | §5.2 |
+| integer `& \| ^`, `!`, `<< >>` | `Int.<ty>.and(a, b)`, `or`, `xor`, `not`, `shl`, `shr` | §5.3 |
+| `f32` arithmetic | `Math.fround(a op b)`. `f32` literals are rounded once from decimal by the converter (not via `f64`) | |
+| `f64` arithmetic | JS operators | |
+| `i64` / `u64` literals | `5n` | |
+| widening `i64::from(x)` | value unchanged; `BigInt(x)` when crossing to `bigint` | |
+
+Verified by per-operator differential tests: 59 cases, floats included (`arith_equivalence.rs`); bitwise operators and shifts in §5.3.
+
+### 5.1 Type inference
 
 Inference is bidirectional and closed within the expression tree. It does not use rustc's later-use inference or the `i32`/`f64` defaults, so an untyped literal is rejected with a request for a suffix or annotation. Comparisons whose result differs between JS and Rust (struct/enum `==`, `String` ordering) are rejected.
 
-Before this was built, the output computed `i32` `7 / 2` as `3.5`, `i32::MAX + 1` as `2147483648`, and `1 / 0` as `Infinity` (measured 2026-09-27). The cause was that the IR had no types. Per-operator differential tests now cover 57 cases (`arith_equivalence.rs`).
+### 5.2 Integer arithmetic
+
+- **Rule.** `/` truncates. Overflow and division by zero throw Rust's panic message. `-0` is normalized to `0`.
+- **History.** Before this was built, the output computed `i32` `7 / 2` as `3.5`, `i32::MAX + 1` as `2147483648`, and `1 / 0` as `Infinity` (measured 2026-09-27). The cause was that the IR had no types.
+
+### 5.3 Bitwise operators and shifts
+
+Added 2026-09-30.
+
+- **Results wrap to the width** and never panic: JS int32 operators, then sign- or zero-extension; `BigInt.asIntN`/`asUintN` for 64 bits.
+- **Shift amounts.** An amount of any integer type outside `0..bits`, compared as its whole value (`-1`, `2^32 + 1`), throws `attempt to shift left with overflow`, as a debug build panics. An unsuffixed amount is `i32`, as in rustc.
+- **Refused.** `usize`: Rust gives it 64 bits, the TS `number` 53. `& | ^` on `bool`, in favor of `&& || !=`.
+- **Verified by** `bits_equivalence.rs`: every width, operator, and amount type, boundary values, compound assignment, RFC 4226 truncation.
 
 ## 6. Strings, `char`, `usize`, std methods
 
@@ -167,8 +202,27 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | Compilability | rustc must accept the input ([05 §3](./05-architecture.md#3-rustc-as-the-final-gate)) |
 | Rejection quality | Every rejection has `path:line:col` and a reason code, and nothing is written |
 
-**Canonical form** (since 2026-09-29): both sides render values from the same IR types. On the Rust side the test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/it/support`. On the TS side the harness generates a printer per type. The form resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`); floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`. Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed; it is now caught.
+### 8.1 Canonical form
 
-Arguments are whole values too (since 2026-09-29): `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust. Remaining projections: cases routed through a driver returning a scalar compare only what the driver reads (examples/order adds `trace4` to compare the whole final state), and the counter acceptance test compares only `State.n`.
+Since 2026-09-29, both sides render values from the same IR types.
 
-All of this is measured on examples, so equivalence is as strong as the examples' coverage. Where exhaustive enumeration is small, it is used (all 1296 sequences for control and vending; all 4-step sequences for order and, under each capture and confirmation method, for payment).
+- **Rust side.** The test-only proc-macro `purecrate_canon::fixture!` derives `Show` for every fixture type; containers and scalars live in `crates/cli/tests/it/support`.
+- **TS side.** The harness generates a printer per type.
+- **Form.** It resembles `Debug` (`Order::Placed { lines: Lines::Cons(…), total: Yen(450) }`). Floats are written as their `f64` bit pattern, non-printable-ASCII as `\u{…}`.
+- **Why.** Previously tests compared hand-picked projections, and a deliberately injected swap of `expected` and `got` in `OrderError::AmountMismatch` went unnoticed. It is now caught.
+
+### 8.2 Whole-value arguments
+
+Since 2026-09-29, arguments are whole values too: `fixture!` also derives `Js`, the TS literal of each fixture type, so a case can pass an `Invoice` built in Rust.
+
+Remaining projections:
+
+- Cases routed through a driver returning a scalar compare only what the driver reads (examples/order adds `trace4` to compare the whole final state).
+- The counter acceptance test compares only `State.n`.
+
+### 8.3 Coverage
+
+All of this is measured on examples, so equivalence is as strong as the examples' coverage. Where exhaustive enumeration is small, it is used:
+
+- all 1296 sequences for control and vending;
+- all 4-step sequences for order and, under each capture and confirmation method, for payment.

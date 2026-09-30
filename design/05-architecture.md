@@ -31,7 +31,16 @@ crate source (root and module files)
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
 
-The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)). File I/O is confined to `cli` and `pack`; everything else is pure. Dependencies are ordinary crates.io requirements, read from `vendor/` through source replacement (`.cargo/config.toml`) and built with `--offline`: syn, quote, proc-macro2, unicode-ident; for tests only, serde_core, serde_json, itoa, memchr, ryu, uuid. `scripts/vendor.sh` regenerates `vendor/` from `Cargo.lock`, cutting the packages no release target builds down to their manifests (uuid's wasm32 dependencies, the `serde_derive` that serde_core names only to pin its version) and the rest to their sources.
+- **Runtime packages.** The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package ([03](./03-output.md)).
+- **Purity.** File I/O is confined to `cli` and `pack`; everything else is pure.
+- **Dependencies.** Dependencies are ordinary crates.io requirements, read from `vendor/` through source replacement (`.cargo/config.toml`) and built with `--offline`.
+
+  | Used by | Crates |
+  | --- | --- |
+  | build | syn, quote, proc-macro2, unicode-ident |
+  | tests only | serde_core, serde_json, itoa, memchr, ryu, uuid |
+
+- **Vendoring.** `scripts/vendor.sh` regenerates `vendor/` from `Cargo.lock`. It cuts the packages no release target builds down to their manifests (uuid's wasm32 dependencies, the `serde_derive` that serde_core names only to pin its version) and the rest to their sources.
 
 ### 2.1 Inside the crates
 
@@ -49,9 +58,17 @@ Passes that only collect (reachability, emit's imports, `survey`'s references) h
 
 ## 3. rustc as the final gate
 
-The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position). Since 2026-09-28, `check` and `build` run the input through rustc after the subset check and reject its errors as `[rustc/E0382]` etc. A passing `check` means the input compiles as a library. rustc is therefore required at run time (`RUSTC` overrides the binary). The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3](./04-wire.md#3-current-design)). The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
+**What.** `check` and `build` run the input through rustc after the subset check and reject its errors as `[rustc/E0382]` etc. A passing `check` means the input compiles as a library. rustc is therefore required at run time (`RUSTC` overrides the binary).
 
-rustc's type information is **not** read. The typing that decides output is the in-house inference; whether to switch is open ([07 §7](./07-roadmap.md#7-open-questions)). rust-analyzer or `rustc_public` would be more precise but heavy to depend on and maintain.
+**Why.** The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position).
+
+**serde.** The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3.2](./04-wire.md#32-serde-in-the-input)).
+
+**Edition.** The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
+
+**Type information is not read.** The typing that decides output is the in-house inference; whether to switch is open ([07 §7](./07-roadmap.md#7-open-questions)). rust-analyzer or `rustc_public` would be more precise but heavy to depend on and maintain.
+
+**History.** In place since 2026-09-28.
 
 ## 4. IR
 

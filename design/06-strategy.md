@@ -1,6 +1,6 @@
 # Strategy: means, demand, and criteria
 
-Status: analysis, revised 2026-09-29
+Status: analysis, revised 2026-09-30
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
@@ -19,20 +19,34 @@ Teams with a Rust backend and a TS frontend want the same decisions (a transitio
 | E. LLM translation | none | good | none | low, poor upkeep | arbitrary |
 | **F. This: translate a pure subset** | **by the translator, checked by differential tests** | **best (plain values)** | **none** | **low to medium** | **subset** |
 
-F is stronger when:
+### 2.1 Where F is stronger
 
-- **Calls are small and frequent.** WASM pays encoding and copying at each crossing; many small calls can be slower than JS (wasm-bindgen #2355). F has no boundary. Measured on examples/payment ([bench/payment](../bench/payment/README.md), Node 24): 12 ns per `step` for F against 345 ns with the state kept in WASM and 1.1–1.4 µs with plain objects crossing; 0.5 ms to the first result against 1.7–2.2 ms; 1.8 KB gzipped against 36 KB for the smallest WASM module with its glue.
+- **Calls are small and frequent.** WASM pays encoding and copying at each crossing; many small calls can be slower than JS (wasm-bindgen #2355). F has no boundary. Measured on examples/payment ([bench/payment](../bench/payment/README.md), Node 24):
+
+  | Measure | F | WASM |
+  | --- | --- | --- |
+  | Per `step` | 12 ns | 345 ns with the state kept in WASM; 1.1–1.4 µs with plain objects crossing |
+  | To the first result | 0.5 ms | 1.7–2.2 ms |
+  | Size, gzipped | 1.8 KB | 36 KB for the smallest WASM module with its glue |
+
 - **Values should be plain TS.** Crux's web shell serializes with bincode; F's values go straight into React state.
 - **The output should be readable.** Generated TS can be reviewed and stepped through.
 - *WASM is unavailable* — no longer a main argument: React Native 0.84's Hermes V1 (2026-02) supports WASM, though wasm-bindgen output is unconfirmed there.
 
-F is weaker in:
+### 2.2 Where F is weaker
 
 - **Expressiveness.** Only the subset. The author pays in notation ([02](./02-authoring.md)).
 - **Burden of correctness.** Under B, rustc guarantees semantics. Under F, every semantic hole is ours. This is why equivalence is defined narrowly and tested per operator ([01](./01-equivalence.md)); the early `7 / 2 = 3.5` bug showed what happens otherwise.
 - **Maintaining a small compiler.** Type inference, strings, and iteration each raise the maintenance load.
 
-Design decisions judged sound after v0: a target-independent IR; rejection over partial generation (mandatory when equivalence is the product); `kind` unions and companions; `i64` as `bigint`; goldens, differential tests, and drift detection from day one; building type inference and numeric semantics before widening syntax.
+### 2.3 Design decisions judged sound after v0
+
+- a target-independent IR;
+- rejection over partial generation (mandatory when equivalence is the product);
+- `kind` unions and companions;
+- `i64` as `bigint`;
+- goldens, differential tests, and drift detection from day one;
+- building type inference and numeric semantics before widening syntax.
 
 ## 3. Demand
 
@@ -69,6 +83,8 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 
 <!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
 
+### 4.1 Internal criteria
+
 | Metric | Criterion |
 | --- | --- |
 | Equivalence | Differential tests (boundary values, exhaustive sequences where feasible) agree on whole values for every example |
@@ -78,7 +94,9 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 | Capability | transitions keep ADTs, exhaustiveness, `Result`, debug integer semantics |
 | Idiomaticity | no serialization, initialization, or async loading for TS users |
 
-The author's own examples cannot validate the constraints: the author writes around them. External criteria (set 2026-09-28; numbers to be revisited):
+### 4.2 External criteria
+
+The author's own examples cannot validate the constraints: the author writes around them. External criteria were set 2026-09-28; the numbers are to be revisited.
 
 1. **Write from third-party specifications**, reading only [02](./02-authoring.md) and [07](./07-roadmap.md). Record rewrites forced by rejection, and rejections the documents could not explain.
 2. **Compare with idiomatic code**: the same spec in unconstrained Rust and in kamae-style TS. Compare line counts, forced style changes, and readability.
@@ -88,13 +106,44 @@ The author's own examples cannot validate the constraints: the author writes aro
    - silent wrong values on accepted input keep appearing (guide: one or more per new example);
    - no real use replacing a dual implementation is ever obtained.
 
-Status: signup, iban, payment, invoice, and oidc are from third-party specs; all five could be written (oidc at 1.65× for its logic, from the authoring skill alone). signup and iban first exceeded 2× (2.8×, 2.4×) and returned under it (1.9×) after range `for`; payment's transitions first measured 2.1× and returned to 1.8× after `_` and `A | B` arms ([07 §2](./07-roadmap.md#2-evidence-from-examples)). invoice's first draft measured 2.2× and a restructured one 1.4× with no new capability. No silent wrong value appeared in any of them. No real-world replacement yet.
+### 4.3 Status
+
+| Withdrawal condition | Status |
+| --- | --- |
+| More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, and oidc are from third-party specs; all five could be written |
+| Constrained Rust exceeds 2× | Not met now; see the table below |
+| Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
+| No real use | Open. No real-world replacement yet (§5.2) |
+
+Line counts against idiomatic Rust ([07 §2](./07-roadmap.md#2-evidence-from-examples)):
+
+| Example | Ratio | History |
+| --- | --- | --- |
+| signup | 1.9× | 2.8× at first; under 2× after range `for` |
+| iban | 1.9× | 2.4× at first; under 2× after range `for` |
+| payment (transitions) | 1.8× | 2.1× at first; under 2× after `_` and `A \| B` arms |
+| invoice | 1.4× | 2.2× for the first draft; 1.4× restructured, with no new capability |
+| oidc | 1.65× (its logic) | written from the authoring skill alone |
 
 ## 5. Validating demand next
 
-1. More third-party specs. Done for one outside validation (Stripe's PaymentIntent lifecycle, 2026-09-29).
-2. **One real use**: replace a dual implementation; record lines removed and what the tests guarantee. Still open, and the only withdrawal criterion not yet answered. Generated packages carry their runtime, so nothing but the schema library is installed beside them ([03](./03-output.md)). Target chosen 2026-09-30 ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator. Done the same day on local branches ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): the console runs omicron's rule, generated, and agrees with it on 106,000 names where the hand-written copy disagreed on 39,852. Not yet proposed upstream, so the criterion stays open until it is used there. Decided 2026-09-30 with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)); the local branches stay as evidence, and the criterion is answered only by an adoption that happens without being asked for. Dual implementations with drift turned out common in public Rust + TS projects, and mostly validation rules.
-3. **Numbers for §2**: done on Node for payment ([bench/payment](../bench/payment/README.md)). Browsers and Hermes are not measured.
+### 5.1 More third-party specs
+
+Done: Stripe's PaymentIntent lifecycle (payment, 2026-09-29), then invoice (NTA) and oidc (OIDC Core, PKCE, TOTP); results in [07 §2](./07-roadmap.md#2-evidence-from-examples).
+
+### 5.2 One real use
+
+- **Goal.** Replace a dual implementation; record lines removed and what the tests guarantee.
+- **Status.** Still open, and the only withdrawal criterion not yet answered.
+- **Target.** Chosen 2026-09-30 ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator.
+- **Done locally.** The same day, on local branches ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): the console runs omicron's rule, generated, and agrees with it on 106,000 names where the hand-written copy disagreed on 39,852. Not yet proposed upstream, so the criterion stays open until it is used there.
+- **No outreach.** Decided 2026-09-30 with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)). The local branches stay as evidence, and the criterion is answered only by an adoption that happens without being asked for.
+- **Packaging.** Generated packages carry their runtime, so nothing but the schema library is installed beside them ([03](./03-output.md)).
+- **Finding.** Dual implementations with drift turned out common in public Rust + TS projects, and mostly validation rules.
+
+### 5.3 Numbers for §2
+
+Done on Node for payment ([bench/payment](../bench/payment/README.md)); see §2.1. Browsers and Hermes are not measured.
 
 ## References
 

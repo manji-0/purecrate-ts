@@ -2,7 +2,6 @@
 
 Status: current (2026-09-30, release 0.3.0). Replaces the old `00-foundations.md` as the entry point.
 
-
 ## 1. Claim
 
 > Pure domain logic written in Rust (ADTs and transitions) can be shared with TypeScript **as behavior, not just as types**: translated into plain TS values and functions, without WASM or a serialization boundary, and **mechanically verified to return the same results as a Rust debug build** for every accepted input.
@@ -33,7 +32,13 @@ The use cases in focus, and how well they fit today ([06-strategy §3](./06-stra
 | Input validation (checked constructors) | Medium. examples/signup, examples/iban |
 | Turn-based game rules | Medium (recursion depth) |
 
-Non-goals: compiling arbitrary Rust; I/O, async, threads, `unsafe`, trait objects; binding to JS ecosystem types; emitting type declarations alone as a ts-rs competitor; a WASM backend (the IR leaves room for one, but it is not planned).
+Non-goals:
+
+- compiling arbitrary Rust;
+- I/O, async, threads, `unsafe`, trait objects;
+- binding to JS ecosystem types;
+- emitting type declarations alone as a ts-rs competitor;
+- a WASM backend (the IR leaves room for one, but it is not planned).
 
 ## 3. How it holds together
 
@@ -52,21 +57,37 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
-- structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!`
-- local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
-- `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`; `while` with `break` and `continue`
-- `Option` read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map`
-- integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`
-- crate-level `const` items folded at check time; enum discriminants read with `as`
-- growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
-- `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()`
-- `char` as a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods
-- `uuid::Uuid` as a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form
-- closed types: structs with private fields keep their invariants (no public `of`)
-- serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike
-- `--schema zod|valibot|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does
+| Area | What works |
+| --- | --- |
+| Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; growing sequences as recursive enums (`Box` erased) |
+| Closed types | structs with private fields keep their invariants (no public `of`) |
+| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, range and string literal patterns, `matches!` |
+| Bindings | local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }` |
+| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`; `while` with `break` and `continue` |
+| Numbers | integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)` |
+| Constants | crate-level `const` items folded at check time; enum discriminants read with `as` |
+| `Option` | read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map` |
+| `Vec` | read by index and `len`, built as a fixed list `vec![a, b]` |
+| Strings | `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()` |
+| `char` | a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods |
+| `uuid::Uuid` | a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form |
+| serde | serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |
+| Wire schemas | `--schema zod\|valibot\|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does |
 
-Six examples are written within the constraints and differentially tested: [order](../examples/order/src/lib.rs) (author's own), [signup](../examples/signup/src/lib.rs), [iban](../examples/iban/src/lib.rs), [payment](../examples/payment/src/lib.rs), [invoice](../examples/invoice/src/lib.rs), and [oidc](../examples/oidc/src/lib.rs) (from third-party specifications). Against wasm-bindgen on the same source, the payment transition is 28–113× cheaper per call and about 20× smaller gzipped ([bench/payment](../bench/payment/README.md)).
+### 4.1 Examples
+
+Six examples are written within the constraints and differentially tested:
+
+| Example | Source |
+| --- | --- |
+| [order](../examples/order/src/lib.rs) | author's own |
+| [signup](../examples/signup/src/lib.rs) | third-party specification |
+| [iban](../examples/iban/src/lib.rs) | third-party specification |
+| [payment](../examples/payment/src/lib.rs) | third-party specification |
+| [invoice](../examples/invoice/src/lib.rs) | third-party specification |
+| [oidc](../examples/oidc/src/lib.rs) | third-party specification |
+
+Against wasm-bindgen on the same source, the payment transition is 28–113× cheaper per call and about 20× smaller gzipped ([bench/payment](../bench/payment/README.md)).
 
 ## 5. Documents
 
