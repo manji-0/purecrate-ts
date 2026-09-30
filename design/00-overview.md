@@ -55,7 +55,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 - structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` and a last `_`); byte literals, integer, `char`, range and string literal patterns, `matches!`
 - local `let mut`, local closures over immutable bindings, struct update `S { a, ..base }`, integer-range `for i in a..b`
 - integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; lossless widening via `i64::from(x)`
-- growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`
+- growing sequences as recursive enums (`Box` erased); `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
 - `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains`, string contents via `s.as_bytes()`
 - `char` as a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods
 - `uuid::Uuid` as a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form

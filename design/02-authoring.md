@@ -54,7 +54,7 @@ Sequences that grow or shrink are recursive enums returned as new values, the co
 pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 ```
 
-`Vec<T>` is only for sequences the caller supplies, as a parameter or a field of one: read with `xs[i]` and `xs.len()` (both `usize`; out of bounds throws Rust's message). The crate cannot build one: `vec!`, `Vec::new`/`from`, `push`, `to_vec`, and `map`/`filter`/`collect` are rejected, and `[a, b]` is an array, which rustc does not accept as a `Vec` (and `[T; N]` types are rejected). A sequence the crate returns is a recursive enum. `&[u8]` parameters are accepted and read the same way.
+`Vec<T>` is read with `xs[i]` and `xs.len()` (both `usize`; out of bounds throws Rust's message). The crate builds one only as a list of its elements, `vec![a, b]` (or `vec![]` where the type is known), whose length is fixed in the source: a list the caller expects as an array, such as a JSON claim. It never grows: `vec![x; n]`, `Vec::new`/`from`, `push`, `to_vec`, and `map`/`filter`/`collect` are rejected, and `[a, b]` is an array, which rustc does not accept as a `Vec` (and `[T; N]` types are rejected). A sequence that grows or shrinks with the state is a recursive enum. `&[u8]` parameters are accepted and read the same way.
 
 `Rc`, `Cell`, and `RefCell` stay rejected: even single-threaded, collapsing shared writes into values changes results. `Box` and `Arc` can be read with `*x`; `Mutex` has no `lock`, so it can only be built and held.
 

@@ -124,6 +124,7 @@ mod tests {
         let body = |b: &str| format!("pub fn f(x: i32) -> i32 {{ {b} }}");
         assert_eq!(reason(&body("x.parse::<i32>()")), (Reason::MethodCall, Some("parse".into())));
         assert_eq!(reason(&body("format!(\"{x}\"); x")), (Reason::Macro, Some("format".into())));
+        assert_eq!(reason(&body("let v = vec![x; 2]; x")), (Reason::Macro, Some("vec".into())));
         assert_eq!(reason(&body("std::cmp::max(x, 1)")), (Reason::ExternalPath, Some("std::cmp::max".into())));
         assert_eq!(reason(&body("x as i32")).0, Reason::Cast);
         assert_eq!(reason(&body("while x > 0 {} x")).0, Reason::Loop);

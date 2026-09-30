@@ -122,6 +122,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         }
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
         SynExpr::Macro(m) if m.mac.path.is_ident("matches") => lower_matches(cx, &m.mac),
+        SynExpr::Macro(m) if m.mac.path.is_ident("vec") => lower_vec(cx, &m.mac),
         SynExpr::Macro(m) => Err(ParseError::new(
             Reason::Macro,
             format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
@@ -613,6 +614,35 @@ fn lower_matches(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError> {
             },
         ],
     })
+}
+
+/// `vec![a, b]`: a `Vec` of exactly the listed elements, printed as the
+/// same array literal as `[a, b]` (which rustc types as an array, not a
+/// `Vec`). The repeat form `vec![x; n]` is rejected: its length is a value.
+fn lower_vec(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError> {
+    let elems = mac
+        .parse_body_with(|input: syn::parse::ParseStream| {
+            let first: Option<SynExpr> = if input.is_empty() { None } else { Some(input.parse()?) };
+            if first.is_some() && input.peek(syn::Token![;]) {
+                input.parse::<syn::Token![;]>()?;
+                input.parse::<SynExpr>()?;
+                return Ok(None);
+            }
+            let mut elems: Vec<SynExpr> = first.into_iter().collect();
+            while !input.is_empty() {
+                input.parse::<syn::Token![,]>()?;
+                if input.is_empty() {
+                    break;
+                }
+                elems.push(input.parse()?);
+            }
+            Ok(Some(elems))
+        })
+        .map_err(|e| ParseError::new(Reason::Macro, format!("`vec!` expects `vec![a, b, ..]`: {e}")).detail("vec"))?
+        .ok_or_else(|| {
+            ParseError::new(Reason::Macro, "`vec![x; n]` is not in v0: list the elements, `vec![x, x]`").detail("vec")
+        })?;
+    Ok(Expr::Array(elems.iter().map(|e| lower_expr(cx, e)).collect::<Result<_, _>>()?))
 }
 
 fn lower_pat(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> {

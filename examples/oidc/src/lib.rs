@@ -687,7 +687,7 @@ pub struct CodeGrant {
     pub pkce: Option<Pkce>,
     pub subject: String,
     pub auth_time: i64,
-    pub amr: AmrList,
+    pub amr: Vec<String>,
     pub acr: String,
 }
 
@@ -745,24 +745,11 @@ pub enum FlowError {
     InvalidTransition,
 }
 
-/// A list of `amr` values. The subset cannot build a `Vec` inside the
-/// crate (no `vec!`, `push`, `collect`, arrays), so growing sequences are
-/// recursive enums.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AmrList {
-    End,
-    Value(String, Box<AmrList>),
-}
-
-fn amr_cons(value: &str, rest: AmrList) -> AmrList {
-    AmrList::Value(String::from(value), Box::new(rest))
-}
-
 /// RFC 8176 §2: pwd, otp, and mfa when more than one factor was used.
-pub fn amr_values(strength: AuthStrength) -> AmrList {
+pub fn amr_values(strength: AuthStrength) -> Vec<String> {
     match strength {
-        AuthStrength::PasswordOnly => amr_cons("pwd", AmrList::End),
-        AuthStrength::PasswordAndTotp => amr_cons("pwd", amr_cons("otp", amr_cons("mfa", AmrList::End))),
+        AuthStrength::PasswordOnly => vec![String::from("pwd")],
+        AuthStrength::PasswordAndTotp => vec![String::from("pwd"), String::from("otp"), String::from("mfa")],
     }
 }
 

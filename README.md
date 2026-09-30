@@ -36,7 +36,7 @@ purecrate-ts survey <crate-path>... [--json]
 - byte literals `b'@'`, integer literal and range patterns in `match` (ending in `_`) and `matches!(b, b'0'..=b'9')`
 - local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`
 - integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; widening with `i64::from(x)`
-- growing sequences as recursive enums; `Vec` read by index and `len`
+- growing sequences as recursive enums; `Vec` read by index and `len`, built as a fixed list `vec![a, b]`
 - `char` as a branded one-code-point string: literals, ranges in `match` / `matches!`, ordering by code point, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, the ASCII methods
 - `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a string needle, string contents through `s.as_bytes()`
 - structs with private fields stay closed: TS gets values only from your public constructors

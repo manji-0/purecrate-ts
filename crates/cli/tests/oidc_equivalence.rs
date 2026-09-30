@@ -21,7 +21,7 @@ const SOURCE: &str = oidc::SOURCE;
 
 /// The same flow as one would write it without the subset's constraints:
 /// iterators, bit operators, `from_be_bytes`, a tuple `match` with guards,
-/// `Vec<String>` for `amr`, constants. Not converted; the reference only.
+/// constants. Not converted; the reference only.
 mod idiomatic {
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum ErrorCode { InvalidRequest, UnsupportedResponseType, InvalidScope, AccessDenied, LoginRequired, ConsentRequired }
@@ -789,7 +789,7 @@ fn logins_run_as_the_rfcs_say() {
     let g = grant(&strict(), base(), Start::Fresh);
     assert_eq!((g.subject.as_str(), g.auth_time, g.acr.as_str(), g.state.as_str()), ("alice", OTP_AT, "urn:example:acr:mfa", "xyz"));
     assert_eq!(g.amr, oidc::amr_values(AuthStrength::PasswordAndTotp));
-    assert_eq!(format!("{:?}", g.amr), r#"Value("pwd", Value("otp", Value("mfa", End)))"#);
+    assert_eq!(g.amr, ["pwd", "otp", "mfa"]);
     assert_eq!((g.nonce.as_deref(), g.pkce.as_ref().map(|p| p.challenge.as_str())), (Some("n-0S6_WzA2Mj"), Some(CHALLENGE)));
     // The step accepted is what the caller records.
     let accepted = |codes: &[u8]| match trace(&fresh, codes) {
@@ -972,13 +972,9 @@ fn idiomatic_trace(s: &Setup, codes: &[u8]) -> Result<idiomatic::Flow, RunError>
     Ok(flow)
 }
 
-/// Both sides as `Debug` text; `amr` is a list enum on one and a `Vec` on
-/// the other.
+/// Both sides as `Debug` text.
 fn same(constrained: &impl std::fmt::Debug, reference: &impl std::fmt::Debug) -> bool {
-    let c = format!("{constrained:?}")
-        .replace(r#"Value("pwd", Value("otp", Value("mfa", End)))"#, r#"["pwd", "otp", "mfa"]"#)
-        .replace(r#"Value("pwd", End)"#, r#"["pwd"]"#);
-    c == format!("{reference:?}")
+    format!("{constrained:?}") == format!("{reference:?}")
 }
 
 /// Every request under each client (strict, lax, unknown), session and
@@ -1038,7 +1034,7 @@ fn constrained_rust_is_the_idiomatic_rules() {
         });
         let ig = idiomatic::CodeGrant {
             client_id: g.client_id.clone(), redirect_uri: g.redirect_uri.clone(), scope: g.scope.clone(), state: g.state.clone(),
-            nonce: g.nonce.clone(), pkce, subject: g.subject.clone(), auth_time: g.auth_time, amr: vec![], acr: g.acr.clone(),
+            nonce: g.nonce.clone(), pkce, subject: g.subject.clone(), auth_time: g.auth_time, amr: g.amr.clone(), acr: g.acr.clone(),
         };
         let r = idiomatic::check_redemption(&ig, &id, &uri, v.as_deref(), h.as_deref());
         if !same(&constrained, &r) {
@@ -1147,8 +1143,8 @@ fn generated_oidc_matches_rust() {
         "Ok(Flow::AwaitingConsent {",
         "totp_step: Some(0)",
         "totp_step: Some(2)",
-        r#"amr: AmrList::Value("pwd", AmrList::Value("otp", AmrList::Value("mfa", AmrList::End)))"#,
-        r#"amr: AmrList::Value("pwd", AmrList::End)"#,
+        r#"amr: ["pwd", "otp", "mfa"]"#,
+        r#"amr: ["pwd"]"#,
         "Ok(Flow::Rejected(",
         "Ok(Flow::Locked)",
         "Err(RunError::Step { index: 4, error: FlowError::InvalidTransition })",

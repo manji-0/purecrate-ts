@@ -25,7 +25,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 
 - **State and events are ADTs.** Structs, enums (become `kind` unions), newtypes. A transition takes the state and returns the next one: `fn step(state: State, event: Event) -> Result<State, Error>`. No `&mut`, no field assignment, no `mut` parameters. `&self` and `&T` are fine (read as values). Write `fn apply(self, e) -> Self`, not `apply(&mut self, e)`.
 - **Transitions as `match (state, event)`**, one arm per allowed pair and a last `(s, _) => Err(..InvalidTransition)` or `_ =>`. Elements are `_`, a binding, or a pattern an arm may have (a variant binding its fields, `A | B`, `Some(x)`, a literal or range); tuples do not nest. `order` and `payment` predate this and use one function per state, which also works.
-- **Growing sequences are recursive enums** (`enum Lines { Nil, Cons(Line, Box<Lines>) }`), returned as new values. `Vec<T>` only comes from the caller (a parameter or a field of one): read it with `xs[i]` and `xs.len()`. The crate cannot build one: no `vec!`, `Vec::from`, `push`, `to_vec`, `map`/`filter`/`collect`, and `[a, b]` is an array that rustc will not accept as a `Vec`. `&[u8]` parameters are fine.
+- **Growing sequences are recursive enums** (`enum Lines { Nil, Cons(Line, Box<Lines>) }`), returned as new values. Read a `Vec<T>` with `xs[i]` and `xs.len()`. The crate builds one only by listing its elements, `vec![a, b]` (or `vec![]` where the type is known): fine for a fixed list such as a JSON claim, not for one that grows. No `vec![x; n]`, `Vec::from`, `push`, `to_vec`, `map`/`filter`/`collect`, and `[a, b]` is an array that rustc will not accept as a `Vec`. `&[u8]` parameters are fine.
 - **Invariants live in closed types**: non-`pub` fields plus a checked public constructor (`Yen::new(v) -> Result<Yen, E>`). TS then gets values only from your constructor. This is what makes validation shared, so prefer it to public fields.
 - **Money is an integer newtype in the smallest unit** (`struct Yen(i64)`), rounding is integer arithmetic. There is no decimal, no floats-for-money.
 - **Expected failures are `Result`/`Option`** with `?` and early `return`; nothing throws except integer overflow, division by zero, and out-of-range indexing, which panic exactly as a Rust debug build does.
@@ -54,7 +54,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `b.is_ascii_digit()` on a `u8` | `matches!(b, b'0'..=b'9')` |
 | `s < t` on `String` | an enum or integer |
 | `format!`, `.to_string()`, `.to_owned()`, `.into()`, `clone` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)`, an `Option<String>` with a `match` |
-| `vec![..]`, `Vec::from`, returning `[a, b]` | a recursive enum (`enum Amr { Nil, Cons(String, Box<Amr>) }`) |
+| `Vec::from`, `vec![x; n]`, returning `[a, b]` | `vec![a, b]` for a fixed list; a recursive enum (`enum Lines { Nil, Cons(Line, Box<Lines>) }`) for one that grows |
 | generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell` | concrete types, functions, recursive enums |
 | `const N: u32 = 3;`, `static` | `fn n() -> u32 { 3 }` |
 | `Option<Option<T>>`, newtype over `Option`/`()`, unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |

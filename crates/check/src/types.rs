@@ -1545,6 +1545,7 @@ fn needs_context(expr: &Expr) -> bool {
         Expr::Unary { op: UnOp::Not, expr } => needs_context(expr),
         Expr::If { then, else_, .. } => needs_context(then) && needs_context(else_),
         Expr::Let { then, .. } | Expr::Seq { then, .. } => needs_context(then),
+        Expr::Array(xs) => xs.iter().all(needs_context),
         _ => false,
     }
 }
