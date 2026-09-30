@@ -221,144 +221,87 @@ pub fn create(terms: Terms) -> PaymentIntent {
 
 pub fn step(intent: PaymentIntent, event: Event) -> Result<PaymentIntent, PaymentError> {
     let terms = intent.terms;
-    let status = match intent.status {
-        Status::RequiresPaymentMethod { .. } => requires_payment_method(&terms, event)?,
-        Status::RequiresConfirmation { method } => requires_confirmation(&terms, method, event)?,
-        Status::RequiresAction { method } => requires_action(&terms, method, event)?,
-        Status::Processing { method } => processing(&terms, method, event)?,
-        Status::RequiresCapture { capturable, .. } => requires_capture(capturable, event)?,
-        Status::Succeeded { .. } | Status::Canceled { .. } => return Err(final_state(event)),
+    let status = match (intent.status, event) {
+        (
+            Status::RequiresPaymentMethod { .. } | Status::RequiresConfirmation { .. },
+            Event::AttachMethod(method),
+        ) => Status::RequiresConfirmation { method },
+        (Status::RequiresPaymentMethod { .. }, Event::Confirm { method, outcome }) => {
+            let method = method.ok_or(PaymentError::MissingPaymentMethod)?;
+            attempt(&terms, method, outcome)
+        }
+        (Status::RequiresConfirmation { method: current }, Event::Confirm { method, outcome }) => {
+            attempt(&terms, method.unwrap_or(current), outcome)
+        }
+        // With manual confirmation the server confirms again; a decline
+        // still returns the intent to `requires_payment_method`.
+        (Status::RequiresAction { method }, Event::ActionHandled(outcome))
+            if matches!(terms.confirmation, ConfirmationMethod::Manual)
+                && !matches!(outcome, Outcome::Declined(_)) =>
+        {
+            Status::RequiresConfirmation { method }
+        }
+        (Status::RequiresAction { method }, Event::ActionHandled(outcome)) => {
+            attempt(&terms, method, outcome)
+        }
+        (Status::Processing { method }, Event::ProcessingSucceeded) => {
+            attempt(&terms, method, Outcome::Authorized)
+        }
+        (Status::Processing { .. }, Event::ProcessingFailed(code)) => {
+            Status::RequiresPaymentMethod {
+                last_error: Some(code),
+            }
+        }
+        (
+            Status::RequiresCapture { capturable, .. },
+            Event::Capture {
+                amount_to_capture,
+                application_fee,
+            },
+        ) => {
+            if matches!(amount_to_capture, Some(amount) if amount < 1 || amount > capturable) {
+                return Err(PaymentError::InvalidCaptureAmount { capturable });
+            }
+            if matches!(application_fee, Some(fee) if fee < 0) {
+                return Err(PaymentError::NegativeApplicationFee);
+            }
+            let received = amount_to_capture.unwrap_or(capturable);
+            Status::Succeeded {
+                received,
+                application_fee: application_fee.map(|fee| fee.min(received)),
+            }
+        }
+        (Status::Processing { method }, Event::Cancel(reason))
+            if matches!(method.kind, MethodKind::BankDebit) =>
+        {
+            Status::Canceled { reason }
+        }
+        (
+            Status::Processing { .. } | Status::Succeeded { .. } | Status::Canceled { .. },
+            Event::Cancel(_),
+        ) => return Err(PaymentError::NotCancelable),
+        (_, Event::Cancel(reason)) => Status::Canceled { reason },
+        _ => return Err(PaymentError::InvalidTransition),
     };
     Ok(PaymentIntent { terms, status })
 }
 
-fn authorized(terms: &Terms, method: PaymentMethod) -> Status {
-    match terms.capture {
-        CaptureMethod::Automatic => Status::Succeeded {
+fn attempt(terms: &Terms, method: PaymentMethod, outcome: Outcome) -> Status {
+    match outcome {
+        Outcome::Authorized if matches!(terms.capture, CaptureMethod::Manual) => {
+            Status::RequiresCapture {
+                method,
+                capturable: terms.amount.0,
+            }
+        }
+        Outcome::Authorized => Status::Succeeded {
             received: terms.amount.0,
             application_fee: None,
         },
-        CaptureMethod::Manual => Status::RequiresCapture {
-            method,
-            capturable: terms.amount.0,
-        },
-    }
-}
-
-fn attempt(terms: &Terms, method: PaymentMethod, outcome: Outcome) -> Status {
-    match outcome {
-        Outcome::Authorized => authorized(terms, method),
         Outcome::ActionRequired => Status::RequiresAction { method },
         Outcome::Pending => Status::Processing { method },
         Outcome::Declined(code) => Status::RequiresPaymentMethod {
             last_error: Some(code),
         },
-    }
-}
-
-fn requires_payment_method(terms: &Terms, event: Event) -> Result<Status, PaymentError> {
-    match event {
-        Event::AttachMethod(method) => Ok(Status::RequiresConfirmation { method }),
-        Event::Confirm { method, outcome } => match method {
-            Some(method) => Ok(attempt(terms, method, outcome)),
-            None => Err(PaymentError::MissingPaymentMethod),
-        },
-        Event::Cancel(reason) => Ok(Status::Canceled { reason }),
-        _ => Err(PaymentError::InvalidTransition),
-    }
-}
-
-fn requires_confirmation(
-    terms: &Terms,
-    current: PaymentMethod,
-    event: Event,
-) -> Result<Status, PaymentError> {
-    match event {
-        Event::AttachMethod(method) => Ok(Status::RequiresConfirmation { method }),
-        Event::Confirm { method, outcome } => match method {
-            Some(method) => Ok(attempt(terms, method, outcome)),
-            None => Ok(attempt(terms, current, outcome)),
-        },
-        Event::Cancel(reason) => Ok(Status::Canceled { reason }),
-        _ => Err(PaymentError::InvalidTransition),
-    }
-}
-
-fn requires_action(
-    terms: &Terms,
-    method: PaymentMethod,
-    event: Event,
-) -> Result<Status, PaymentError> {
-    match event {
-        Event::ActionHandled(outcome) => match terms.confirmation {
-            ConfirmationMethod::Automatic => Ok(attempt(terms, method, outcome)),
-            ConfirmationMethod::Manual => match outcome {
-                Outcome::Declined(code) => Ok(Status::RequiresPaymentMethod {
-                    last_error: Some(code),
-                }),
-                _ => Ok(Status::RequiresConfirmation { method }),
-            },
-        },
-        Event::Cancel(reason) => Ok(Status::Canceled { reason }),
-        _ => Err(PaymentError::InvalidTransition),
-    }
-}
-
-fn processing(terms: &Terms, method: PaymentMethod, event: Event) -> Result<Status, PaymentError> {
-    match event {
-        Event::ProcessingSucceeded => Ok(authorized(terms, method)),
-        Event::ProcessingFailed(code) => Ok(Status::RequiresPaymentMethod {
-            last_error: Some(code),
-        }),
-        Event::Cancel(reason) => match method.kind {
-            MethodKind::BankDebit => Ok(Status::Canceled { reason }),
-            MethodKind::Card => Err(PaymentError::NotCancelable),
-        },
-        _ => Err(PaymentError::InvalidTransition),
-    }
-}
-
-fn requires_capture(capturable: i64, event: Event) -> Result<Status, PaymentError> {
-    match event {
-        Event::Capture {
-            amount_to_capture,
-            application_fee,
-        } => {
-            let received = match amount_to_capture {
-                Some(amount) => {
-                    if amount < 1 || amount > capturable {
-                        return Err(PaymentError::InvalidCaptureAmount { capturable });
-                    }
-                    amount
-                }
-                None => capturable,
-            };
-            let application_fee = match application_fee {
-                Some(fee) => {
-                    if fee < 0 {
-                        return Err(PaymentError::NegativeApplicationFee);
-                    }
-                    if fee > received {
-                        Some(received)
-                    } else {
-                        Some(fee)
-                    }
-                }
-                None => None,
-            };
-            Ok(Status::Succeeded {
-                received,
-                application_fee,
-            })
-        }
-        Event::Cancel(reason) => Ok(Status::Canceled { reason }),
-        _ => Err(PaymentError::InvalidTransition),
-    }
-}
-
-fn final_state(event: Event) -> PaymentError {
-    match event {
-        Event::Cancel(_) => PaymentError::NotCancelable,
-        _ => PaymentError::InvalidTransition,
     }
 }

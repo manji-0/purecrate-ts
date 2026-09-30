@@ -240,42 +240,26 @@ pub fn has_token(list: &String, word: &str) -> bool {
 /// RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
 /// `MAX_STATE_LEN` bytes.
 fn state_is_valid(state: &String) -> bool {
-    if state.is_empty() || state.len() > MAX_STATE_LEN {
-        return false;
-    }
-    for b in state.bytes() {
-        if !matches!(b, 0x20..=0x7e) {
-            return false;
-        }
-    }
-    true
+    !state.is_empty() && state.len() <= MAX_STATE_LEN && state.bytes().all(|b| matches!(b, 0x20..=0x7e))
 }
 
 /// RFC 7636 §4.1 / §4.2: 43..=128 characters of
 /// unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
 pub fn pkce_string_is_valid(s: &String) -> bool {
-    if s.len() < PKCE_MIN_LEN || s.len() > PKCE_MAX_LEN {
-        return false;
-    }
-    for b in s.bytes() {
-        if !matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~') {
-            return false;
-        }
-    }
-    true
+    s.len() >= PKCE_MIN_LEN
+        && s.len() <= PKCE_MAX_LEN
+        && s.bytes()
+            .all(|b| matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~'))
 }
 
 /// A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
 /// At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
 fn parse_seconds(s: &String) -> Option<i64> {
-    if s.is_empty() || s.len() > MAX_SECONDS_DIGITS {
+    if s.is_empty() || s.len() > MAX_SECONDS_DIGITS || !s.bytes().all(|b| matches!(b, b'0'..=b'9')) {
         return None;
     }
     let mut value: i64 = 0;
     for b in s.bytes() {
-        if !matches!(b, b'0'..=b'9') {
-            return None;
-        }
         value = value * 10 + i64::from(b - b'0');
     }
     Some(value)
@@ -332,12 +316,7 @@ fn copy_optional(s: &Option<String>) -> Option<String> {
 
 fn redirect_uri_registered(client: &Client, uri: &String) -> bool {
     // OIDC Core §3.1.2.1: exact match using simple string comparison.
-    for registered in &client.redirect_uris {
-        if registered == uri {
-            return true;
-        }
-    }
-    false
+    client.redirect_uris.iter().any(|registered| registered == uri)
 }
 
 /// Validates an authorization request against the client registration.
@@ -353,12 +332,8 @@ pub fn validate_request(
         None => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
     };
     match &params.client_id {
-        Some(id) => {
-            if *id != client.client_id {
-                return Err(AuthorizationError::Display(DisplayError::UnknownClient));
-            }
-        }
-        None => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
+        Some(id) if *id == client.client_id => {}
+        _ => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
     }
     // redirect_uri is REQUIRED in OIDC (§3.1.2.1), unlike RFC 6749 §4.1.1.
     let redirect_uri = match &params.redirect_uri {
@@ -371,89 +346,57 @@ pub fn validate_request(
     // From here on the redirect target is trusted. Echo state only if it
     // is well formed; a malformed state is not reflected.
     let echoed = match &params.state {
-        Some(s) => {
-            if state_is_valid(s) {
-                Some(String::from(s))
-            } else {
-                None
-            }
-        }
-        None => None,
+        Some(s) if state_is_valid(s) => Some(String::from(s)),
+        _ => None,
     };
+    let fail = |error: ErrorCode| redirect_error(redirect_uri, error, &echoed);
     match &params.response_type {
-        Some(rt) => {
-            if rt != "code" {
-                return Err(redirect_error(
-                    redirect_uri,
-                    ErrorCode::UnsupportedResponseType,
-                    &echoed,
-                ));
-            }
-        }
-        None => return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed)),
+        Some(rt) if rt == "code" => {}
+        Some(_) => return Err(fail(ErrorCode::UnsupportedResponseType)),
+        None => return Err(fail(ErrorCode::InvalidRequest)),
     }
-    let scope = match &params.scope {
-        Some(s) => s,
-        None => return Err(redirect_error(redirect_uri, ErrorCode::InvalidScope, &echoed)),
-    };
     // §3.1.2.1: scope MUST contain openid; without it this is not an OIDC
     // request, and this OP serves only OIDC.
-    if !has_token(scope, "openid") {
-        return Err(redirect_error(redirect_uri, ErrorCode::InvalidScope, &echoed));
-    }
+    let scope = match &params.scope {
+        Some(s) if has_token(s, "openid") => s,
+        _ => return Err(fail(ErrorCode::InvalidScope)),
+    };
     // RFC 6749 §10.12: this OP requires state from every client.
     let state = match &echoed {
         Some(s) => String::from(s),
-        None => return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed)),
+        None => return Err(fail(ErrorCode::InvalidRequest)),
     };
     let nonce = match &params.nonce {
-        Some(n) => {
-            if !state_is_valid(n) {
-                return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed));
-            }
-            Some(String::from(n))
-        }
+        Some(n) if !state_is_valid(n) => return Err(fail(ErrorCode::InvalidRequest)),
+        Some(n) => Some(String::from(n)),
         None => None,
     };
-    let pkce = match &params.code_challenge {
-        Some(challenge) => {
-            if !pkce_string_is_valid(challenge) {
-                return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed));
-            }
+    let pkce = match (&params.code_challenge, &params.code_challenge_method) {
+        (Some(challenge), _) if !pkce_string_is_valid(challenge) => return Err(fail(ErrorCode::InvalidRequest)),
+        (Some(challenge), method) => {
             // RFC 7636 §4.3: absent method means plain.
-            let method = match &params.code_challenge_method {
-                Some(m) => {
-                    if m == "S256" {
-                        PkceMethod::S256
-                    } else if m == "plain" {
-                        PkceMethod::Plain
-                    } else {
-                        return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed));
-                    }
-                }
+            let method = match method {
+                Some(m) if m == "S256" => PkceMethod::S256,
+                Some(m) if m == "plain" => PkceMethod::Plain,
                 None => PkceMethod::Plain,
+                Some(_) => return Err(fail(ErrorCode::InvalidRequest)),
             };
             if matches!(method, PkceMethod::Plain) && !client.allow_plain_pkce {
-                return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed));
+                return Err(fail(ErrorCode::InvalidRequest));
             }
             Some(Pkce {
                 challenge: String::from(challenge),
                 method,
             })
         }
-        None => {
-            // RFC 7636 §4.4.1: a required challenge that is missing.
-            if client.require_pkce || !matches!(params.code_challenge_method, None) {
-                return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed));
-            }
-            None
-        }
+        // RFC 7636 §4.4.1: a required challenge that is missing, or a method
+        // without a challenge.
+        (None, Some(_)) => return Err(fail(ErrorCode::InvalidRequest)),
+        (None, None) if client.require_pkce => return Err(fail(ErrorCode::InvalidRequest)),
+        (None, None) => None,
     };
     let prompt = match &params.prompt {
-        Some(p) => match parse_prompt(p) {
-            Some(parsed) => parsed,
-            None => return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed)),
-        },
+        Some(p) => parse_prompt(p).ok_or(fail(ErrorCode::InvalidRequest))?,
         None => Prompt {
             no_interaction: false,
             login: false,
@@ -462,14 +405,11 @@ pub fn validate_request(
         },
     };
     let max_age = match &params.max_age {
-        Some(m) => match parse_seconds(m) {
-            Some(v) => Some(v),
-            None => return Err(redirect_error(redirect_uri, ErrorCode::InvalidRequest, &echoed)),
-        },
+        Some(m) => Some(parse_seconds(m).ok_or(fail(ErrorCode::InvalidRequest))?),
         None => None,
     };
     let wants_mfa = match &params.acr_values {
-        Some(a) => has_token(a, "urn:example:acr:mfa"),
+        Some(a) => has_token(a, ACR_MFA),
         None => false,
     };
     Ok(AuthorizationRequest {
@@ -504,11 +444,7 @@ fn digit_count(d: OtpDigits) -> usize {
 }
 
 fn digit_modulus(d: OtpDigits) -> u32 {
-    match d {
-        OtpDigits::Six => 1_000_000,
-        OtpDigits::Seven => 10_000_000,
-        OtpDigits::Eight => 100_000_000,
-    }
+    10u32.pow(u32::from(d as u8))
 }
 
 /// A user's TOTP enrollment, loaded by the caller.
@@ -560,14 +496,11 @@ pub fn truncate_mac(mac: &Vec<u8>, digits: OtpDigits) -> Option<u32> {
 /// Parses a submitted OTP: exactly `digits` ASCII digits, leading zeros
 /// included.
 fn parse_otp(code: &String, digits: OtpDigits) -> Option<u32> {
-    if code.len() != digit_count(digits) {
+    if code.len() != digit_count(digits) || !code.bytes().all(|b| matches!(b, b'0'..=b'9')) {
         return None;
     }
     let mut value: u32 = 0;
     for b in code.bytes() {
-        if !matches!(b, b'0'..=b'9') {
-            return None;
-        }
         value = value * 10 + u32::from(b - b'0');
     }
     Some(value)
@@ -598,15 +531,8 @@ pub fn check_totp(code: &String, now: i64, enrollment: &TotpEnrollment, candidat
     let mut replayed = false;
     for c in candidates {
         if c.step >= current - 1 && c.step <= current + 1 {
-            let matched = match truncate_mac(&c.mac, enrollment.digits) {
-                Some(value) => value == submitted,
-                None => false,
-            };
-            if matched {
-                let fresh = match enrollment.last_used_step {
-                    Some(last) => c.step > last,
-                    None => true,
-                };
+            if matches!(truncate_mac(&c.mac, enrollment.digits), Some(value) if value == submitted) {
+                let fresh = enrollment.last_used_step.map(|last| c.step > last).unwrap_or(true);
                 if fresh {
                     return OtpCheck::Accepted(c.step);
                 }
@@ -753,10 +679,10 @@ pub fn session_is_usable(request: &AuthorizationRequest, session: &Session, now:
     if request.prompt.login || request.prompt.select_account {
         return false;
     }
-    let fresh = match request.max_age {
-        Some(max_age) => now - session.auth_time <= max_age,
-        None => true,
-    };
+    let fresh = request
+        .max_age
+        .map(|max_age| now - session.auth_time <= max_age)
+        .unwrap_or(true);
     let strong_enough = !request.wants_mfa || matches!(session.strength, AuthStrength::PasswordAndTotp);
     fresh && strong_enough
 }
@@ -772,47 +698,23 @@ pub fn begin(
 ) -> Result<Flow, AuthorizationError> {
     let request = validate_request(params, client)?;
     let reusable = match session {
-        Some(s) => {
-            if session_is_usable(&request, s, now) {
-                Some(Authentication {
-                    subject: String::from(&s.subject),
-                    auth_time: s.auth_time,
-                    strength: s.strength,
-                    totp_step: None,
-                })
-            } else {
-                None
-            }
-        }
-        None => None,
+        Some(s) if session_is_usable(&request, s, now) => Some(Authentication {
+            subject: String::from(&s.subject),
+            auth_time: s.auth_time,
+            strength: s.strength,
+            totp_step: None,
+        }),
+        _ => None,
     };
     let needs_consent = request.prompt.consent || !consent_on_file;
-    if request.prompt.no_interaction {
-        // OIDC Core §3.1.2.1 prompt=none and §3.1.2.6 error codes.
-        let state = Some(String::from(&request.state));
-        return match reusable {
-            Some(auth) => {
-                if needs_consent {
-                    Err(redirect_error(
-                        &request.redirect_uri,
-                        ErrorCode::ConsentRequired,
-                        &state,
-                    ))
-                } else {
-                    Ok(issue(request, auth))
-                }
-            }
-            None => Err(redirect_error(&request.redirect_uri, ErrorCode::LoginRequired, &state)),
-        };
-    }
+    // OIDC Core §3.1.2.1 prompt=none and §3.1.2.6 error codes.
+    let state = Some(String::from(&request.state));
+    let refuse = |error: ErrorCode| redirect_error(&request.redirect_uri, error, &state);
     match reusable {
-        Some(auth) => {
-            if needs_consent {
-                Ok(Flow::AwaitingConsent { request, auth })
-            } else {
-                Ok(issue(request, auth))
-            }
-        }
+        None if request.prompt.no_interaction => Err(refuse(ErrorCode::LoginRequired)),
+        Some(_) if request.prompt.no_interaction && needs_consent => Err(refuse(ErrorCode::ConsentRequired)),
+        Some(auth) if !needs_consent => Ok(issue(request, auth)),
+        Some(auth) => Ok(Flow::AwaitingConsent { request, auth }),
         None => Ok(Flow::AwaitingPassword {
             request,
             failures: 0,
@@ -821,65 +723,58 @@ pub fn begin(
     }
 }
 
-fn on_awaiting_password(
-    request: AuthorizationRequest,
-    failures: u32,
-    event: Event,
-    policy: &Policy,
-) -> Result<Flow, FlowError> {
-    match event {
-        Event::PasswordChecked {
-            subject,
-            verified,
-            second_factor,
-            now,
-        } => {
-            if !verified {
-                let failures = failures + 1;
-                if failures >= policy.max_password_failures {
-                    return Ok(Flow::Locked);
-                }
-                return Ok(Flow::AwaitingPassword {
-                    request,
-                    failures,
-                    notice: Notice::WrongPassword,
-                });
+/// One transition of the login flow.
+pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError> {
+    match (flow, event) {
+        (Flow::AwaitingPassword { request, failures, .. }, Event::PasswordChecked { verified, .. }) if !verified => {
+            let failures = failures + 1;
+            if failures >= policy.max_password_failures {
+                return Ok(Flow::Locked);
             }
-            match second_factor {
-                SecondFactor::Totp(enrollment) => Ok(Flow::AwaitingOtp {
-                    request,
-                    subject,
-                    enrollment,
-                    failures: 0,
-                    notice: Notice::Clear,
-                }),
-                SecondFactor::NotEnrolled => {
-                    // acr_values is a voluntary claim (§3.1.2.1): proceed and
-                    // report the weaker acr rather than fail.
-                    let auth = Authentication {
-                        subject,
-                        auth_time: now,
-                        strength: AuthStrength::PasswordOnly,
-                        totp_step: None,
-                    };
-                    Ok(Flow::AwaitingConsent { request, auth })
-                }
-            }
+            Ok(Flow::AwaitingPassword {
+                request,
+                failures,
+                notice: Notice::WrongPassword,
+            })
         }
-        _ => Err(FlowError::InvalidTransition),
-    }
-}
-
-fn on_awaiting_otp(
-    request: AuthorizationRequest,
-    subject: String,
-    enrollment: TotpEnrollment,
-    failures: u32,
-    event: Event,
-    policy: &Policy,
-) -> Result<Flow, FlowError> {
-    match event {
-        Event::OtpSubmitted { code, now, candidates } => {
+        (
+            Flow::AwaitingPassword { request, .. },
+            Event::PasswordChecked {
+                subject,
+                second_factor,
+                now,
+                ..
+            },
+        ) => match second_factor {
+            SecondFactor::Totp(enrollment) => Ok(Flow::AwaitingOtp {
+                request,
+                subject,
+                enrollment,
+                failures: 0,
+                notice: Notice::Clear,
+            }),
+            SecondFactor::NotEnrolled => {
+                // acr_values is a voluntary claim (§3.1.2.1): proceed and
+                // report the weaker acr rather than fail.
+                let auth = Authentication {
+                    subject,
+                    auth_time: now,
+                    strength: AuthStrength::PasswordOnly,
+                    totp_step: None,
+                };
+                Ok(Flow::AwaitingConsent { request, auth })
+            }
+        },
+        (
+            Flow::AwaitingOtp {
+                request,
+                subject,
+                enrollment,
+                failures,
+                ..
+            },
+            Event::OtpSubmitted { code, now, candidates },
+        ) => {
             let notice = match check_totp(&code, now, &enrollment, &candidates) {
                 OtpCheck::Accepted(step) => {
                     let auth = Authentication {
@@ -891,9 +786,8 @@ fn on_awaiting_otp(
                     return Ok(Flow::AwaitingConsent { request, auth });
                 }
                 OtpCheck::Replayed => Notice::OtpReplayed,
-                OtpCheck::Mismatch => Notice::WrongOtp,
                 OtpCheck::Malformed => Notice::MalformedOtp,
-                OtpCheck::ClockBeforeEpoch => Notice::WrongOtp,
+                OtpCheck::Mismatch | OtpCheck::ClockBeforeEpoch => Notice::WrongOtp,
             };
             // RFC 4226 §7.3: every rejected value counts toward the limit.
             let failures = failures + 1;
@@ -908,38 +802,12 @@ fn on_awaiting_otp(
                 notice,
             })
         }
-        _ => Err(FlowError::InvalidTransition),
-    }
-}
-
-fn on_awaiting_consent(request: AuthorizationRequest, auth: Authentication, event: Event) -> Result<Flow, FlowError> {
-    match event {
-        Event::ConsentGranted => Ok(issue(request, auth)),
-        Event::ConsentDenied => Ok(Flow::Rejected(ErrorRedirect {
+        (Flow::AwaitingConsent { request, auth }, Event::ConsentGranted) => Ok(issue(request, auth)),
+        (Flow::AwaitingConsent { request, .. }, Event::ConsentDenied) => Ok(Flow::Rejected(ErrorRedirect {
             redirect_uri: request.redirect_uri,
             error: ErrorCode::AccessDenied,
             state: Some(request.state),
         })),
-        _ => Err(FlowError::InvalidTransition),
-    }
-}
-
-/// One transition of the login flow.
-pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError> {
-    match flow {
-        Flow::AwaitingPassword {
-            request,
-            failures,
-            notice: _,
-        } => on_awaiting_password(request, failures, event, policy),
-        Flow::AwaitingOtp {
-            request,
-            subject,
-            enrollment,
-            failures,
-            notice: _,
-        } => on_awaiting_otp(request, subject, enrollment, failures, event, policy),
-        Flow::AwaitingConsent { request, auth } => on_awaiting_consent(request, auth, event),
         _ => Err(FlowError::InvalidTransition),
     }
 }
@@ -966,33 +834,20 @@ pub fn check_redemption(
     if grant.client_id != *client_id || grant.redirect_uri != *redirect_uri {
         return Err(TokenError::InvalidGrant);
     }
-    match &grant.pkce {
-        Some(pkce) => {
-            let verifier = match code_verifier {
-                Some(v) => v,
-                None => return Err(TokenError::InvalidRequest),
-            };
-            if !pkce_string_is_valid(verifier) {
-                return Err(TokenError::InvalidRequest);
-            }
+    match (&grant.pkce, code_verifier) {
+        (None, None) => Ok(()),
+        (None, Some(_)) | (Some(_), None) => Err(TokenError::InvalidRequest),
+        (Some(_), Some(verifier)) if !pkce_string_is_valid(verifier) => Err(TokenError::InvalidRequest),
+        (Some(pkce), Some(verifier)) => {
             let matches = match pkce.method {
                 PkceMethod::Plain => *verifier == pkce.challenge,
-                PkceMethod::S256 => match verifier_s256 {
-                    Some(h) => *h == pkce.challenge,
-                    None => false,
-                },
+                PkceMethod::S256 => matches!(verifier_s256, Some(h) if *h == pkce.challenge),
             };
             if matches {
                 Ok(())
             } else {
                 Err(TokenError::InvalidGrant)
             }
-        }
-        None => {
-            if !matches!(code_verifier, None) {
-                return Err(TokenError::InvalidRequest);
-            }
-            Ok(())
         }
     }
 }

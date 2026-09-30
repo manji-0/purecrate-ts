@@ -140,30 +140,22 @@ fn divide(n: i64, d: i64, rounding: &Rounding) -> i64 {
 /// What `line` adds to the total of `rate`'s group; `apart` is the group of
 /// inclusive lines under method 2.
 fn share(line: &Line, rate: &Rate, apart: bool, method: &Method) -> i64 {
-    if percent(&line.rate) != percent(rate) {
-        return 0;
-    }
-    let included = match line.pricing {
-        Pricing::Exclusive => !apart,
-        Pricing::Inclusive => apart == matches!(method, Method::Separate),
-    };
-    if !included {
-        return 0;
-    }
-    match line.pricing {
-        Pricing::Exclusive => line.amount.0,
-        Pricing::Inclusive => match method {
-            Method::Separate => line.amount.0,
-            Method::ToExclusive { conversion } => divide(line.amount.0 * 100, 100 + percent(rate), conversion),
-        },
+    match (&line.pricing, method) {
+        _ if percent(&line.rate) != percent(rate) => 0,
+        (Pricing::Exclusive, _) if !apart => line.amount.0,
+        (Pricing::Inclusive, Method::Separate) if apart => line.amount.0,
+        (Pricing::Inclusive, Method::ToExclusive { conversion }) if !apart => {
+            divide(line.amount.0 * 100, 100 + percent(rate), conversion)
+        }
+        _ => 0,
     }
 }
 
 /// One group's total and its tax, rounded once (消令70の10).
 fn taxed(invoice: &Invoice, rate: Rate, apart: bool) -> Group {
     let mut base = 0i64;
-    for i in 0..invoice.lines.len() {
-        base += share(&invoice.lines[i], &rate, apart, &invoice.method);
+    for line in &invoice.lines {
+        base += share(line, &rate, apart, &invoice.method);
     }
     let p = percent(&rate);
     let d = if apart { 100 + p } else { 100 };
@@ -171,7 +163,7 @@ fn taxed(invoice: &Invoice, rate: Rate, apart: bool) -> Group {
 }
 
 pub fn summarize(invoice: &Invoice) -> Result<Summary, InvoiceError> {
-    if invoice.lines.len() == 0 {
+    if invoice.lines.is_empty() {
         return Err(InvoiceError::NoLines);
     }
     let standard = taxed(invoice, Rate::Standard, false);

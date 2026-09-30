@@ -89,6 +89,24 @@ oidc was rewritten as capabilities were added (all 2026-09-30):
 - **`for t in s.split(c)`.** `has_token` and `parse_prompt` read their lists with it and `span_equals` is gone.
 - **`vec![a, b]`** (§3.1). oidc's `AmrList` enum is now `Vec<String>`, 8 lines shorter.
 
+**0.4.0 rewrites** (2026-09-30). oidc, payment, and invoice rewritten with guards, tuple `match`, the `Option` methods, and the 0.4.0 items, public API and behavior unchanged (their differential and idiomatic cross-check tests pass). Counted per section for oidc as above, and for payment and invoice as types (structs, enums, trait impls) against logic (functions and inherent impls); the idiomatic references in the tests are counted the same way.
+
+| Part | Idiomatic | Before | After |
+| --- | --- | --- | --- |
+| oidc lexical helpers | 31 | 68 (2.2×) | 52 (1.7×) |
+| oidc request validation | 83 | 153 (1.8×) | 108 (1.3×) |
+| oidc TOTP | 47 | 102 (2.2×) | 88 (1.9×) |
+| oidc state machine and token endpoint | 183 | 328 (1.8×) | 260 (1.4×) |
+| oidc file | — | 777 | 634 |
+| payment logic | 36 | 163 | 111 |
+| invoice logic | 34 | 74 | 66 |
+
+payment's and invoice's idiomatic references are written one arm or field per line, so their ratios read high against rustfmt output; the before and after columns are comparable with each other.
+
+- **Used:** guards everywhere a state or a field chose the path (oidc's request validation and `begin`, payment's manual capture and confirmation, invoice's `share`); tuple `match` (oidc's `step` in place of three handlers, PKCE and code redemption; payment's `step` in place of five per-state functions; invoice's `share`); `ok_or`, `unwrap_or`, `map` (payment's four `Option` matches, oidc's `prompt`, `max_age`, and freshness); `all` and `any` (oidc's byte checks and redirect-URI lookup); `min` (payment's fee cap) and `pow` (oidc's digit modulus).
+- **Not used by these three:** slicing and `strip_*`, `const` in a function, `position`, `count`, `sum`, `enumerate`, the `checked_*` / `saturating_*` / `wrapping_*` forms, tuple `let` (tried in invoice; with long names rustfmt made it longer).
+- **Refused, from oidc:** `list.split(' ').any(|t| t == word)` (a consumer after `split`); `bool` literals in a tuple `match` (`(true, None, _)`); a literal or a variant inside a variant's fields (`PasswordChecked { verified: false, .. }`, `SecondFactor::Totp(e)` inside an `Event` pattern), which the idiomatic `step` relies on; a local closure's parameter type is not inferred from its later calls (`|error: ErrorCode|` needed).
+
 ### 2.3 Semantic cross-checks
 
 Beyond the Rust-vs-TS differential tests:
@@ -246,7 +264,7 @@ Why: oidc's lexical helpers are still 2.2× idiomatic Rust (§2.2), and in the c
 - **Tuple destructuring.** `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in ..`, with the element rules of tuple `match`. Done 2026-09-30 (`destructure_equivalence.rs`).
 - **`const` inside functions and associated consts** (`impl T { const N: u32 = 3; }`), folded like crate-level consts. Done 2026-09-30 for consts in a block, as a typed `let` at the top of the block instead of folded ([01 §7](./01-equivalence.md#7-rewritten-constructs); the value is the same, since rustc rejects one that overflows). Associated consts, as members of the type's companion (`Order.MAX_ITEMS`), wait for the example rewrites to show a use.
 - **Integer helpers.** `min`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, `wrapping_*` forms of the operators, each against Rust's debug-build result (payment's idiomatic code calls `min`). Done 2026-09-30 (`int_methods_equivalence.rs`), on every integer type, `usize` in Rust's 64 bits.
-- **Measurement.** oidc's lexical helpers, payment, and invoice rewritten with guards, the `Option` methods, and the above, and measured again against their idiomatic references (§2.2).
+- **Measurement.** oidc's lexical helpers, payment, and invoice rewritten with guards, the `Option` methods, and the above, and measured again against their idiomatic references (§2.2). Done 2026-09-30: guards, tuple `match`, the `Option` methods, `all` / `any`, `min`, and `pow` carried the reduction; slicing, `strip_*`, local `const`, `position` / `count` / `sum` / `enumerate`, and the checked, saturating, and wrapping forms went unused by these three (§2.2).
 
 ### Later, on evidence
 
