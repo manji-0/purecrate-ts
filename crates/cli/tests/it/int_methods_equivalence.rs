@@ -69,3 +69,34 @@ fn generated_int_methods_match_rust() {
     });
     support::assert_equivalent("int_methods", SOURCE, &cases);
 }
+
+/// Random operands, half at the edges of each width: 400 draws per function.
+#[test]
+fn random_int_methods_match_rust() {
+    let mut rng = support::Rng::new(0x01a7_0001);
+    let cases = support::quietly(|| {
+        let mut cases = Vec::new();
+        for _ in 0..400 {
+            let i8s = [rng.edgy(8, true) as i8, rng.edgy(8, true) as i8];
+            let u8s = [rng.edgy(8, false) as u8, rng.edgy(8, false) as u8, rng.edgy(8, false) as u8];
+            let i32s = [rng.edgy(32, true) as i32, rng.edgy(32, true) as i32];
+            let i64s = [rng.edgy(64, true) as i64, rng.edgy(64, true) as i64];
+            let u64s = [rng.edgy(64, false) as u64, rng.edgy(64, false) as u64];
+            let e = rng.pick(&[0u32, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 65]);
+            cases.push(case!(int_methods::saturating(i8s[0], i8s[1])));
+            cases.push(case!(int_methods::wrapping(i8s[0], i8s[1])));
+            cases.push(case!(int_methods::power_i8(i8s[0], e)));
+            cases.push(case!(int_methods::power_u8(u8s[0], e)));
+            cases.push(case!(int_methods::clamp_add(u8s[0], u8s[1], u8s[2])));
+            cases.push(case!(int_methods::checked(i32s[0], i32s[1])));
+            cases.push(case!(int_methods::checked_div(i32s[0], i32s[1])));
+            cases.push(case!(int_methods::wrapping_div(i32s[0], i32s[1])));
+            cases.push(case!(int_methods::spread(i32s[0], i32s[1])));
+            cases.push(case!(int_methods::power(i32s[0], e)));
+            cases.push(case!(int_methods::wide(i64s[0], i64s[1])));
+            cases.push(case!(int_methods::unsigned_wide(u64s[0], u64s[1])));
+        }
+        cases
+    });
+    support::assert_equivalent("int_methods_random", SOURCE, &cases);
+}

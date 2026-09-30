@@ -76,3 +76,35 @@ fn generated_guards_match_rust() {
     });
     support::assert_equivalent("guards", SOURCE, &cases);
 }
+
+/// Random states, events, and values through the guarded decision trees.
+#[test]
+fn random_guards_match_rust() {
+    use guards::{Event, Rate, State};
+    let mut rng = support::Rng::new(0x0006_a2d5);
+    let cases = support::quietly(|| {
+        let mut cases = Vec::new();
+        for _ in 0..500 {
+            let state = rng.pick(&[State::Open, State::Paid, State::Closed]);
+            let rate = rng.pick(&[Rate::Standard, Rate::Reduced, Rate::Exempt]);
+            let amount = rng.edgy(64, true) as i64;
+            let event = match rng.below(3) {
+                0 => Event::Pay { amount },
+                1 => Event::Refund { amount },
+                _ => Event::Cancel,
+            };
+            let n = rng.edgy(8, false) as u8;
+            let (a, b) = (rng.below(2) == 0, rng.below(2) == 0);
+            let (k, m) = (rng.below(6) as u32, rng.edgy(32, true) as i32);
+            cases.push(case!(guards::step(state, event)));
+            cases.push(case!(guards::tax(rate, amount)));
+            cases.push(case!(guards::wild_after(rate, amount)));
+            cases.push(case!(guards::overlap(n % 16, a)));
+            cases.push(case!(guards::guarded_overflow(state, n)));
+            cases.push(case!(guards::flags(a, b, k)));
+            cases.push(case!(guards::bucket(m)));
+        }
+        cases
+    });
+    support::assert_equivalent("guards_random", SOURCE, &cases);
+}

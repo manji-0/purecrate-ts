@@ -58,3 +58,27 @@ fn generated_slicing_matches_rust() {
     });
     support::assert_equivalent("slicing", SOURCE, &cases);
 }
+
+/// Random strings over every UTF-8 width and the escaped categories, sliced
+/// at random positions up to two past the end.
+#[test]
+fn random_slicing_matches_rust() {
+    const ALPHABET: [char; 12] = ['a', 'Z', '0', ' ', 'é', '\u{7ff}', '日', '\u{ffff}', '😀', '\u{10ffff}', '\u{301}', '\u{200b}'];
+    let mut rng = support::Rng::new(0x0005_11ce);
+    let cases = support::quietly(|| {
+        let mut cases = Vec::new();
+        for _ in 0..600 {
+            let len = rng.below(7);
+            let s: String = (0..len).map(|_| rng.pick(&ALPHABET)).collect();
+            let n = s.len() as u64 + 3;
+            let (a, b) = (rng.below(n) as usize, rng.below(n) as usize);
+            cases.push(case!(slicing::mid(&s, a, b)));
+            cases.push(case!(slicing::from(s.clone(), a)));
+            cases.push(case!(slicing::inner(&s, a, b)));
+            let p: String = s.chars().take(rng.below(3) as usize).collect();
+            cases.push(case!(slicing::strip_both(&s, &p, "")));
+        }
+        cases
+    });
+    support::assert_equivalent("slicing_random", SOURCE, &cases);
+}

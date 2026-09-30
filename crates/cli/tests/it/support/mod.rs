@@ -339,6 +339,49 @@ thread_local! {
 /// installed once for the whole binary and asks a thread-local flag: tests
 /// run in parallel threads of one process, and swapping the process-wide
 /// hook per call would let one test restore another's silent hook.
+/// Inputs for randomized cases: SplitMix64 from a fixed seed, so every run
+/// draws the same cases and a failure names an input that reproduces.
+pub struct Rng(u64);
+
+impl Rng {
+    pub fn new(seed: u64) -> Self {
+        Rng(seed)
+    }
+
+    pub fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    /// Uniform in `0..n`.
+    pub fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    pub fn pick<T: Clone>(&mut self, xs: &[T]) -> T {
+        xs[self.below(xs.len() as u64) as usize].clone()
+    }
+
+    /// An integer of `bits` bits, half the time near an edge of the width
+    /// (0, the maximum, the minimum, ±1 from them), where overflow lives.
+    pub fn edgy(&mut self, bits: u32, signed: bool) -> i128 {
+        let (lo, hi) = if signed {
+            (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)
+        } else {
+            (0, (1i128 << bits) - 1)
+        };
+        if self.below(2) == 0 {
+            let edge = self.pick(&[lo, lo + 1, -1, 0, 1, hi - 1, hi]);
+            edge.clamp(lo, hi)
+        } else {
+            lo + (self.next() as i128).rem_euclid(hi - lo + 1)
+        }
+    }
+}
+
 pub fn quietly<T>(f: impl FnOnce() -> T) -> T {
     static HOOK: std::sync::Once = std::sync::Once::new();
     HOOK.call_once(|| {

@@ -211,7 +211,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 
 | Check | Mechanism |
 | --- | --- |
-| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings |
+| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings. Inputs are chosen by hand at the edges; where the logic has many paths (integer methods, slicing, guards), a fixed-seed generator adds random ones, half at the edges of each width (`support::Rng`, 2026-10-01) |
 | Types | `tsc --strict` on TypeScript 6 and 7 for every fixture, the runtime packages, and the wire schemas |
 | Wire | Readers against serde's default JSON; `toJson` against the vendored serde_json byte for byte (`wire_write.rs`) |
 | Determinism | `check --out` compares bytes with the existing output |
