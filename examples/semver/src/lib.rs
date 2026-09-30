@@ -1,6 +1,8 @@
 // Semantic Versioning 2.0.0 (https://semver.org/spec/v2.0.0.html):
 // parsing `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]` and precedence (§11).
 
+use std::cmp::Ordering;
+
 /// Which of the three core numbers a diagnostic refers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorePart {
@@ -224,75 +226,32 @@ fn parse_build_ids(s: &str) -> Result<BuildIds, SemverError> {
     }
 }
 
-/// The result of comparing two versions by precedence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Precedence {
-    Less,
-    Equal,
-    Greater,
-}
-
-fn compare_u64(a: u64, b: u64) -> Precedence {
-    if a < b {
-        Precedence::Less
-    } else if a > b {
-        Precedence::Greater
-    } else {
-        Precedence::Equal
-    }
-}
-
-/// `first`, or `next` when `first` is `Equal` (both already computed).
-fn then(first: Precedence, next: Precedence) -> Precedence {
-    match first {
-        Precedence::Equal => next,
-        _ => first,
-    }
-}
-
-/// Lexical comparison in ASCII order, byte by byte; a proper prefix is less.
-fn compare_ascii(a: &str, b: &str) -> Precedence {
-    let (x, y) = (a.as_bytes(), b.as_bytes());
-    for i in 0..x.len().min(y.len()) {
-        let c = compare_u64(u64::from(x[i]), u64::from(y[i]));
-        if !matches!(c, Precedence::Equal) {
-            return c;
-        }
-    }
-    match (x.len() < y.len(), x.len() > y.len()) {
-        (true, _) => Precedence::Less,
-        (_, true) => Precedence::Greater,
-        _ => Precedence::Equal,
-    }
-}
-
-fn compare_pre_id(a: &PreId, b: &PreId) -> Precedence {
+fn compare_pre_id(a: &PreId, b: &PreId) -> Ordering {
     match (a, b) {
-        (PreId::Numeric(x), PreId::Numeric(y)) => compare_u64(*x, *y),
-        (PreId::Numeric(_), PreId::Alpha(_)) => Precedence::Less,
-        (PreId::Alpha(_), PreId::Numeric(_)) => Precedence::Greater,
-        (PreId::Alpha(x), PreId::Alpha(y)) => compare_ascii(x, y),
+        (PreId::Numeric(x), PreId::Numeric(y)) => x.cmp(y),
+        (PreId::Numeric(_), PreId::Alpha(_)) => Ordering::Less,
+        (PreId::Alpha(_), PreId::Numeric(_)) => Ordering::Greater,
+        (PreId::Alpha(x), PreId::Alpha(y)) => x.cmp(y),
     }
 }
 
 /// Identifiers left to right; a longer list with an equal prefix is greater.
-fn compare_pre_ids(a: &PreIds, b: &PreIds) -> Precedence {
+fn compare_pre_ids(a: &PreIds, b: &PreIds) -> Ordering {
     match (a, b) {
-        (PreIds::Nil, PreIds::Nil) => Precedence::Equal,
-        (PreIds::Nil, _) => Precedence::Less,
-        (_, PreIds::Nil) => Precedence::Greater,
-        (PreIds::Cons(x, xs), PreIds::Cons(y, ys)) => then(compare_pre_id(x, y), compare_pre_ids(xs, ys)),
+        (PreIds::Nil, PreIds::Nil) => Ordering::Equal,
+        (PreIds::Nil, _) => Ordering::Less,
+        (_, PreIds::Nil) => Ordering::Greater,
+        (PreIds::Cons(x, xs), PreIds::Cons(y, ys)) => compare_pre_id(x, y).then_with(|| compare_pre_ids(xs, ys)),
     }
 }
 
 /// Precedence per SemVer 2.0.0 §11. Build metadata is ignored.
-pub fn compare(a: &Version, b: &Version) -> Precedence {
-    let pre = match (&a.pre, &b.pre) {
-        (PreIds::Nil, PreIds::Nil) => Precedence::Equal,
+pub fn compare(a: &Version, b: &Version) -> Ordering {
+    a.major.cmp(&b.major).then(a.minor.cmp(&b.minor)).then(a.patch.cmp(&b.patch)).then_with(|| match (&a.pre, &b.pre) {
+        (PreIds::Nil, PreIds::Nil) => Ordering::Equal,
         // A version without pre-release has higher precedence.
-        (PreIds::Nil, _) => Precedence::Greater,
-        (_, PreIds::Nil) => Precedence::Less,
+        (PreIds::Nil, _) => Ordering::Greater,
+        (_, PreIds::Nil) => Ordering::Less,
         (x, y) => compare_pre_ids(x, y),
-    };
-    then(compare_u64(a.major, b.major), then(compare_u64(a.minor, b.minor), then(compare_u64(a.patch, b.patch), pre)))
+    })
 }

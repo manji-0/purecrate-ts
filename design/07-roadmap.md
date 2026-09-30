@@ -31,7 +31,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 | iban (ISO 13616-1, ISO 7064 MOD 97-10) | third party | nothing; but line count over threshold | integer-range `for` |
 | invoice (NTA インボイスQ&A 問57, 問59: consumption tax per rate, rounded once per invoice) | third party | nothing; rejected on the way: a tuple `let`, match guards (three times), a tuple scrutinee, `Vec::is_empty`, `Group`/`group` file collision; the first draft's transitions were 2.2×, a restructured one (a filtered sum per group, as the idiomatic code does) 1.4× | a `Js` literal for every fixture type, so tests pass whole values (`Invoice`) |
 | oidc (OIDC Core 1.0 OP login, PKCE RFC 7636, TOTP RFC 6238/4226 as the second factor, amr RFC 8176) | third party, from the authoring skill alone | RFC 4226 truncation's `&` and `<<` (written with `%` and `*`); no way to build a `Vec` for `amr` (a recursive enum instead; the documents' "build with `[a, b]`" was wrong); `const`; `==` on `Option` and enums, `is_some`; `u8::is_ascii_digit`; 15 rejections, about 6 not predictable from the skill | documents corrected (§2.4); later `is_some`/`is_none`, bit operators, and `vec![a, b]` (§8.1) |
-| semver (SemVer 2.0.0: parsing, §11 precedence) | third party, from the authoring skill alone | about 12 rejections in 5 rounds, 6 not predictable from the skill: `std::cmp::Ordering` and `.cmp()`, `..` in a tuple variant, a bare binding arm (`other => other`), `?` in a tuple inside an arm, `let mut x = None` without a type, no `u64::from(usize)`; ASCII string order written byte by byte; identifier lists as recursive enums | skill corrected (§2.4); ordering is the leading candidate (§3) |
+| semver (SemVer 2.0.0: parsing, §11 precedence) | third party, from the authoring skill alone | about 12 rejections in 5 rounds, 6 not predictable from the skill: `std::cmp::Ordering` and `.cmp()`, `..` in a tuple variant, a bare binding arm (`other => other`), `?` in a tuple inside an arm, `let mut x = None` without a type, no `u64::from(usize)`; ASCII string order written byte by byte; identifier lists as recursive enums | skill corrected (§2.4); `Ordering`, `cmp`, and string ordering (§8.6) |
 | payment (Stripe PaymentIntent lifecycle) | third party | nothing on the first pass; but transition lines at 2.1× (28 of 160 were `=> Err(InvalidTransition)`); the client sends events back, so values must be written as serde JSON; `terms`/`outcome`/`amount` driver functions collided with types (known rule) | `_` and binding-free `A \| B` arms; `toJson` (and rejected unit structs, which serde writes differently from `struct S {}`) |
 
 ### 2.2 Line counts against idiomatic Rust
@@ -48,7 +48,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
 | oidc | 327 | 423 | 1.3× | 1.65× as written from the skill alone |
 | payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 75 | 195 | 2.6× | 209 (2.8×) from the skill alone, with rustfmt |
+| semver | 75 | 166 | 2.2× | 209 (2.8×) from the skill alone; 195 (2.6×) restructured; both with rustfmt |
 
 signup is counted by hand, as its test has no idiomatic module. The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 
@@ -65,17 +65,17 @@ signup is counted by hand, as its test has no idiomatic module. The "earlier" fi
 - **Guards, tuple `match`, `ok_or` / `unwrap_or` / `map`, `all` / `any`, `min`, `pow`** (oidc, payment, invoice; the 0.4.0 rewrites): guards wherever a state or a field chose the path, tuple `match` in place of per-state handlers (payment's five, oidc's three), the `Option` methods in place of `match`es. oidc's file went 777 → 629 lines, payment's logic 163 → 111, invoice's 74 → 66 (as written).
 - **Unused by the rewrites:** slicing and `strip_*`, `const` in a function, `position`, `count`, `sum`, `enumerate`, the `checked_*` / `saturating_*` / `wrapping_*` forms, tuple `let` (tried in invoice; with long names rustfmt made it longer). Kept anyway (§8.4).
 
-**semver**, the first example over 2× after rustfmt normalization. The draft from the skill alone was 209 lines; restructuring its ordering within the subset (a `then` helper, a byte loop through `compare_u64`) gave 195. By part:
+**semver**, the first example over 2× after rustfmt normalization. The draft from the skill alone was 209 lines; restructuring its ordering within the subset (a `then` helper, a byte loop through `compare_u64`) gave 195; with `Ordering` (0.5.0, §8.6), 166. By part:
 
-| Part | Idiomatic | Constrained | What idiomatic code uses |
-| --- | --- | --- | --- |
-| Ordering (`compare` and its helpers) | 10 (+15 in `impl Ord for PreId`) | 57 | `std::cmp::Ordering`, tuple `cmp`, `then_with`, `String` and `Vec` ordering |
-| Identifier parsing | 35 | 52 | `str::parse`, `u8::is_ascii_*`, `match` on the `&str` with guards |
-| `Version::parse` | 30 | 47 | `split_once`, a fixed array indexed by the piece count |
-| Identifier lists | 0 | 20 | `split('.').map(..).collect()` (the constrained side recurses into cons lists) |
-| Accessors | 0 | 19 | `pub` fields (the constrained side is a closed type) |
+| Part | Idiomatic | Restructured | With `Ordering` | What idiomatic code uses |
+| --- | --- | --- | --- | --- |
+| Ordering (`compare` and its helpers) | 10 (+15 in `impl Ord for PreId`) | 57 | 28 | `std::cmp::Ordering`, tuple `cmp`, `then_with`, `String` and `Vec` ordering |
+| Identifier parsing | 35 | 52 | 52 | `str::parse`, `u8::is_ascii_*`, `match` on the `&str` with guards |
+| `Version::parse` | 30 | 47 | 47 | `split_once`, a fixed array indexed by the piece count |
+| Identifier lists | 0 | 20 | 20 | `split('.').map(..).collect()` (the constrained side recurses into cons lists) |
+| Accessors | 0 | 19 | 19 | `pub` fields (the constrained side is a closed type) |
 
-Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, 176 / 90 is 2.0×. Ordering is most of the gap either way: with `Ordering`, `cmp` on integers and strings, and `then_with`, the ordering part would be about 25 lines, and semver about 1.6× adjusted (2.2× by the script).
+Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, the restructured draft was 176 / 90 (2.0×) and the rewrite with `Ordering` is 147 / 90 (1.6×), as estimated before it was built. What remains is parsing: `str::parse`, `split_once`, and lists built with `collect`, the last of which stays out (§6).
 
 **oidc by section.** Written by an agent that read only the authoring skill, to find what the skill leaves out. As written:
 
@@ -142,7 +142,6 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Ordering: `std::cmp::Ordering`, `cmp` on integers, `char`, and strings, `then` / `then_with` | semver's ordering is 57 lines against 25 and keeps it at 2.0× (adjusted) to 2.6× (§2.2) | `String` order is specified as code-point order ([01 §6.1](./01-equivalence.md#61-strings)); whether `impl Ord` / `derive(PartialOrd, Ord)` come too is open |
 | Nested patterns (a literal or a variant inside a variant's fields, `PasswordChecked { verified: false, .. }`) | oidc's idiomatic `step` relies on them (0.4.0 rewrites) | — |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -157,7 +156,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `String` ordering; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
 
 ## 5. v1: when type expressiveness runs out
 
@@ -304,3 +303,18 @@ From evaluating 0.4.0 ([bench/payment](../bench/payment/README.md)). No change t
 - Guards compile into the tuple decision tree: payment's generated code 47.9 → 23.5 KB, oidc's 64.4 → 48.8 KB, back to their sizes before the 0.4.0 rewrites.
 - Each package's runtime keeps only what its code uses: payment's bundle 3.1 → 2.3 KB gzipped; first call 1.18 → 0.52 ms with the regular expression built lazily.
 - Fixed-seed random cases join the differential tests ([01 §8](./01-equivalence.md#8-verification)).
+
+### 8.6 0.5.0: ordering (unreleased)
+
+Why: semver, written from the authoring skill alone, was the first example over 2× after rustfmt normalization, and its ordering was most of the gap (§2.2): 57 lines against 25, with `std::cmp::Ordering`, `cmp`, and `String` order all refused.
+
+| Item | Verified by |
+| --- | --- |
+| `std::cmp::Ordering` as a fieldless enum, named through `use std::cmp::Ordering;` or the full path | `ordering_equivalence.rs`, `ordering.rs` in `check` |
+| `cmp` on integers, `char`, `bool`, `String` / `&str`, `Uuid` | `ordering_equivalence.rs` |
+| `<` `<=` `>` `>=` on strings, by code point | `ordering_equivalence.rs` |
+| `is_eq` … `is_ge`, `reverse`, `then`, `then_with`; `==` on `Ordering` | `ordering_equivalence.rs` |
+
+- **Representation and rewrites** are in [01 §6.6](./01-equivalence.md#66-stdcmpordering) and [§7.10](./01-equivalence.md#710-cmp-and-orderings-methods). The one new runtime part is `Str.cmp`, which a package carries only when it compares strings.
+- **Refused:** `impl Ord` / `PartialOrd`, `cmp` on floats, tuples, `Vec`, `Option`, and the crate's types, and `Ordering` as a field (serde has no form for it).
+- **Measurement.** semver rewritten with it: 195 → 166 lines, 2.6× → 2.2× by the script, 1.6× adjusted (§2.2). The skill-only draft's 2.8× was the first draft over the threshold since normalization; like the first drafts before it, it came under once its gap's capability was in, on the adjusted count; by the script it is still over (2.2×), and the rest is parsing.

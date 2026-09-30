@@ -93,7 +93,7 @@ Verified by per-operator differential tests: 59 cases, floats included (`arith_e
 
 ### 5.1 Type inference
 
-Inference is bidirectional and closed within the expression tree. It does not use rustc's later-use inference or the `i32`/`f64` defaults, so an untyped literal is rejected with a request for a suffix or annotation. Comparisons whose result differs between JS and Rust (struct/enum `==`, `String` ordering) are rejected.
+Inference is bidirectional and closed within the expression tree. It does not use rustc's later-use inference or the `i32`/`f64` defaults, so an untyped literal is rejected with a request for a suffix or annotation. Comparisons whose result differs between JS and Rust (struct/enum `==`, ordering on `bool` or the crate's types) are rejected; `String` ordering goes through the runtime (§6.1).
 
 ### 5.2 Integer arithmetic
 
@@ -118,10 +118,12 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 
 | Receiver | Accepted | TS | Verified by |
 | --- | --- | --- | --- |
-| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` (a `&str` needle), `as_bytes`, `as_str`, slicing `&s[a..b]`, `==`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes` / `Str.stripPrefix` / `Str.stripSuffix`, `Str.bytes`, `Str.slice`, the string, `===` | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs`, `slicing_equivalence.rs` |
+| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` (a `&str` needle), `as_bytes`, `as_str`, slicing `&s[a..b]`, `==`, `<` `<=` `>` `>=`, `cmp`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes` / `Str.stripPrefix` / `Str.stripSuffix`, `Str.bytes`, `Str.slice`, the string, `===`, `Str.cmp(a, b) < 0` etc. | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs`, `slicing_equivalence.rs`, `ordering_equivalence.rs` |
 | a string in a `for` head | `chars()`, `bytes()`, `split(c)` with a `char` | `for..of` over `s`, `Str.bytes(s)`, `s.split(c)` | `for_chars_equivalence.rs`, `for_each_equivalence.rs` |
-| `char` | literals, `==`, `<`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs` |
-| `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs` |
+| `char` | literals, `==`, `<`, `cmp`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs`, `ordering_equivalence.rs` |
+| `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
+| integers, `bool` | `cmp` (§6.6) | the comparison std runs | `ordering_equivalence.rs` |
+| `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
 | `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0`, `slice` behind Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
@@ -144,7 +146,7 @@ What goes through the runtime, and what it keeps:
 - **Slicing** `&s[a..b]`, `&s[a..]`, `&s[..b]` goes through `Str.slice`, which takes UTF-8 byte positions. It panics as Rust does and in Rust's order: a start past the end, an end past the end, a reversed range, then a start or end inside a character. That last message shows the character as `Debug` does, escaping a grapheme extender or a code point of category Zs (but space), Zl, Zp, Cc, Cf, Cs, Co, or Cn as `\u{..}`; the runtime tests these with the engine's Unicode properties, which agree with Rust's tables where both use one Unicode version (§3). `&xs[a..b]` on a `Vec` or slice checks the same order with Rust's slice messages (tested: seven strings covering every UTF-8 width and each escaped category, every start and end up to one past the length, nested slices, `as_bytes()`, and `Vec`s).
 - **`strip_prefix` / `strip_suffix`** with a `&str` return `Option<&str>`. A prefix or suffix of a well-formed string on char boundaries has the same extent in UTF-8 and UTF-16, so the rest is the same string.
 
-Specified, not yet implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)): `String` ordering, which would compare code points, since JS `<` orders U+E000–U+FFFF above the supplementary planes and Rust does not.
+- **Ordering** `<`, `<=`, `>`, `>=`, and `cmp` compare code points, which is Rust's order of UTF-8 bytes. JS `<` compares UTF-16 units and so orders U+E000–U+FFFF above the supplementary planes, which Rust orders last; the runtime's `Str.cmp` moves those units back below the surrogates at the first unit that differs, and a shorter prefix orders first (tested: all pairs of 33 strings across every UTF-8 width, U+FFFF and U+E000 against U+10000, shared prefixes, NFC vs NFD, `String` against `&str`; replacing the key with plain UTF-16 order fails the test).
 
 ### 6.2 `char`
 
@@ -176,6 +178,13 @@ A `number` checked to 0..2^53−1; the gap above that is in §3.
 - **`Option::is_some` / `is_none`** print as `!== null` / `=== null`. This holds because `Option<T>` is `T | null` with nested `Option` rejected, so a falsy payload (`0`, `0n`, `false`, `""`) is still `Some`.
 - **Unicode-table methods** (`to_uppercase`, `is_alphabetic`, …) are not accepted. If added, they carry the version gap of §3, and their differential tests first check that both toolchains' Unicode versions agree; `ß` → `SS` and final sigma were measured to match.
 
+### 6.6 `std::cmp::Ordering`
+
+- **Naming.** `Ordering` after `use std::cmp::Ordering;` (or `core::`, alone or in a group), or the full path `std::cmp::Ordering` in types, expressions, and patterns. `cmp::Ordering` through `use std::cmp;`, a renaming `use`, a glob, and importing the variants bare are refused, as is a crate item named `Ordering` beside std's. A crate that defines its own `Ordering` and does not name std's is unaffected.
+- **Representation.** A fieldless enum `Ordering { Less, Equal, Greater }` with discriminants −1, 0, 1, added to the crate when it names std's (exported) or only calls `cmp` (internal). It prints like any crate enum, so `match`, tuple `match`, guards, `matches!`, and exhaustiveness need nothing new; rustc still checks the source against std's type.
+- **`cmp`** on integers, `char`, `bool` (`false` first), `String` / `&str`, and `Uuid`, and the methods of `Ordering`, are rewritten (§7.10). `==` and `!=` on two `Ordering`s compare the variant: std derives `PartialEq`, so equality is structural, unlike a crate enum's (§5.1).
+- **Refused.** `cmp` on floats (`partial_cmp` too), tuples, `Vec`, `Option`, and the crate's types; `impl Ord` / `PartialOrd` (trait impls); `<` on `Ordering` or `bool`; `Ordering` in a struct or enum field, since serde has no `Serialize` for it and every type gets a wire schema.
+
 ## 7. Rewritten constructs
 
 Some accepted Rust has no one-to-one TS form. It is rewritten into constructs that are already equivalent, and the rewrite keeps Rust's evaluation order.
@@ -191,6 +200,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`const`, enum discriminants](#77-const-and-discriminants) | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
 | [`const` in a block](#78-const-in-a-block) | a `let` at the top of the block | `local_consts_equivalence.rs` |
 | [integer methods](#79-integer-methods) | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
+| [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | an `if` chain on the operators; a `match` on the `Ordering` | `ordering_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -253,6 +263,15 @@ Not folded: it becomes an immutable, typed `let` at the top of its block, in dec
 | `abs`, `pow` | panic outside the range as a debug build does ("attempt to negate with overflow", "attempt to exponentiate with overflow", measured on 1.98.1) |
 
 An exponent is a `u32`; a power is not formed when its magnitude is certainly past the range (a base of magnitude two or more to an exponent of the type's width or more). Tested at every type's edges, `(-2).pow(31)` and `i8` powers near 127 included.
+
+### 7.10 `cmp` and `Ordering`'s methods
+
+- **`a.cmp(&b)`** binds the receiver, then the argument, each once (a variable or literal is read in place), and becomes `if a < b { Less } else if a == b { Equal } else { Greater }` through the operators already equivalent for that type: `Char.code` for `char`, `Str.cmp` for strings, `<` for `Uuid`'s canonical form. On `bool` it is `if a == b { Equal } else if a { Greater } else { Less }`.
+- **`is_eq` … `is_ge` and `reverse`** are a three-arm `match` on the receiver.
+- **`then(o)`** binds the receiver, then evaluates `o`, then picks `o` on `Equal`: `o` runs, and can overflow, whatever the receiver is, as Rust evaluates a call's arguments.
+- **`then_with(f)`** puts `f`'s body (a closure without parameters, `?`, or `return`) or the call `f()` (a function name) in the `Equal` arm, so it runs only there.
+
+Tested with an overflowing `then` argument after a non-`Equal` receiver, an overflowing `then_with` body that must not run, a function name, a SemVer-style chain, `Ordering` in a tuple `match` with guards, `matches!` with the qualified path, and every predicate.
 
 ## 8. Verification
 

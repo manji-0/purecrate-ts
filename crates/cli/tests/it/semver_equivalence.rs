@@ -247,14 +247,6 @@ fn verdict_idiomatic(s: &str) -> Verdict {
     idiomatic::Version::parse(s).map(|_| ()).map_err(|e| format!("{e:?}"))
 }
 
-fn ordering(p: semver::Precedence) -> std::cmp::Ordering {
-    match p {
-        semver::Precedence::Less => std::cmp::Ordering::Less,
-        semver::Precedence::Equal => std::cmp::Ordering::Equal,
-        semver::Precedence::Greater => std::cmp::Ordering::Greater,
-    }
-}
-
 /// Every accepted input, so `compare` sees pre-release lists of each shape.
 fn accepted() -> Vec<String> {
     inputs().into_iter().filter(|s| idiomatic::Version::parse(s).is_ok()).collect()
@@ -264,7 +256,7 @@ fn accepted() -> Vec<String> {
 fn the_spec_chain_is_increasing() {
     for w in CHAIN.windows(2) {
         let (a, b) = (semver::Version::parse(w[0]).unwrap(), semver::Version::parse(w[1]).unwrap());
-        assert!(matches!(semver::compare(&a, &b), semver::Precedence::Less), "{} < {}", w[0], w[1]);
+        assert!(semver::compare(&a, &b).is_lt(), "{} < {}", w[0], w[1]);
         let (a, b) = (idiomatic::Version::parse(w[0]).unwrap(), idiomatic::Version::parse(w[1]).unwrap());
         assert!(idiomatic::compare(&a, &b).is_lt(), "{} < {}", w[0], w[1]);
     }
@@ -276,7 +268,7 @@ fn the_spec_chain_is_increasing() {
     }
     let plain = semver::Version::parse("1.0.0-alpha").unwrap();
     let built = semver::Version::parse("1.0.0-alpha+001").unwrap();
-    assert!(matches!(semver::compare(&plain, &built), semver::Precedence::Equal), "build metadata is ignored");
+    assert!(semver::compare(&plain, &built).is_eq(), "build metadata is ignored");
 }
 
 #[test]
@@ -292,7 +284,7 @@ fn constrained_rust_is_the_idiomatic_rules() {
     let mut differ = Vec::new();
     for a in &versions {
         for b in &versions {
-            let c = ordering(semver::compare(&semver::Version::parse(a).unwrap(), &semver::Version::parse(b).unwrap()));
+            let c = semver::compare(&semver::Version::parse(a).unwrap(), &semver::Version::parse(b).unwrap());
             let i = idiomatic::compare(&idiomatic::Version::parse(a).unwrap(), &idiomatic::Version::parse(b).unwrap());
             if c != i {
                 differ.push(format!("{a} vs {b}: constrained {c:?}, idiomatic {i:?}"));
