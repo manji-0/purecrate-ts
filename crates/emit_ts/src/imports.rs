@@ -163,6 +163,330 @@ fn skip_template_text(chars: &[char], mut i: usize, templates: &mut Vec<usize>, 
     i
 }
 
+use super::*;
+
+/// A `char` range, which prints through `Char.code`.
+pub(crate) fn has_char_range(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Range { lo: Lit::Char(_), .. } => true,
+        Pattern::Or(alts) => alts.iter().any(has_char_range),
+        _ => false,
+    }
+}
+
+/// The integer types of the literals in an integer arm.
+pub(crate) fn int_case_lits(pattern: &Pattern, f: &mut impl FnMut(purecrate_ir::IntTy)) {
+    match pattern {
+        Pattern::Lit(Lit::Int { ty: Some(t), .. }) => f(*t),
+        Pattern::Range { lo, hi, .. } => {
+            for l in [lo, hi] {
+                if let Lit::Int { ty: Some(t), .. } = l {
+                    f(*t);
+                }
+            }
+        }
+        Pattern::Or(alts) => alts.iter().for_each(|a| int_case_lits(a, f)),
+        _ => {}
+    }
+}
+
+/// Names one file refers to. A value import also brings the same-named type.
+#[derive(Default)]
+pub(crate) struct Refs {
+    never: bool,
+    int: bool,
+    result: bool,
+    /// `Str` from `./str.ts`.
+    str: bool,
+    /// The `Char` runtime, and the `Char` type, from `./str.ts`.
+    char_value: bool,
+    char_type: bool,
+    /// The `Uuid` runtime, and the `Uuid` / `UuidError` types, from `./str.ts`.
+    uuid_value: bool,
+    uuid_type: bool,
+    uuid_error: bool,
+    /// Brand type names (`I32`, `F64`) this file mentions.
+    nums: BTreeSet<String>,
+    types: BTreeSet<String>,
+    values: BTreeSet<String>,
+    /// Closed structs this file builds through their `$of`.
+    ctors: BTreeSet<String>,
+    /// Methods that are not `pub` this file calls, as `Ty$name`.
+    privates: BTreeSet<(String, String)>,
+}
+
+impl Refs {
+    fn ty(&mut self, ty: &Ty) {
+        match ty {
+            Ty::Named(n) => {
+                self.types.insert(n.as_str().to_string());
+            }
+            Ty::Result { ok, err } => {
+                self.result = true;
+                self.ty(ok);
+                self.ty(err);
+            }
+            Ty::Option(inner) | Ty::Vec(inner) | Ty::Ignored { inner, .. } => self.ty(inner),
+            Ty::Tuple(elems) => elems.iter().for_each(|t| self.ty(t)),
+            Ty::Fn { params, ret } => {
+                params.iter().for_each(|t| self.ty(t));
+                self.ty(ret);
+            }
+            Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
+            Ty::Prim(purecrate_ir::Prim::Uuid) => self.uuid_type = true,
+            Ty::Prim(purecrate_ir::Prim::UuidError) => self.uuid_error = true,
+            Ty::Prim(p) => {
+                if let Some(name) = p.int().map(|t| t.ts_name()).or_else(|| p.float().map(|t| t.ts_name())) {
+                    self.nums.insert(name.to_string());
+                }
+            }
+            Ty::Never => {}
+        }
+    }
+
+    /// The integer brands and `Char` that literal and range patterns print.
+    fn arm_literals<'p>(&mut self, patterns: impl Iterator<Item = &'p Pattern>) {
+        for p in patterns {
+            int_case_lits(p, &mut |t| {
+                self.nums.insert(t.ts_name().to_string());
+            });
+            self.char_value |= has_char_range(p);
+            self.char_type |= p.is_char_case();
+        }
+    }
+
+    /// What the printed code of `expr` will import; everything else is
+    /// walked through.
+    fn expr(&mut self, krate: &Crate, expr: &Expr) {
+        match expr {
+            Expr::Match { scrutinee, arms } => {
+                self.never |= arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_lit_case()));
+                self.arm_literals(arms.iter().map(|a| &a.pattern));
+                if !is_place(scrutinee) {
+                    if let Some(ty) = scrutinee_ty(arms) {
+                        self.types.insert(ty.as_str().to_string());
+                    }
+                }
+            }
+            Expr::Unreachable => self.never = true,
+            Expr::Call { callee, .. } => {
+                match callee {
+                    Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {
+                        self.values.insert(n.as_str().to_string());
+                    }
+                    Callee::StructNew(ty) if closed_in(krate, ty.as_str()) => {
+                        self.ctors.insert(ty.as_str().to_string());
+                    }
+                    Callee::Method { ty, name } if private_in(krate, ty.as_str(), name.as_str()) => {
+                        self.privates.insert((ty.as_str().to_string(), name.as_str().to_string()));
+                    }
+                    Callee::Method { ty, .. } | Callee::Variant { ty, .. } | Callee::StructNew(ty) => {
+                        self.values.insert(ty.as_str().to_string());
+                    }
+                    Callee::ResultOk | Callee::ResultErr => self.result = true,
+                    Callee::Int { ty, .. } => {
+                        self.int = true;
+                        self.nums.insert(ty.ts_name().to_string());
+                    }
+                    Callee::Fround => {
+                        self.nums.insert("F32".into());
+                        self.nums.insert("F64".into());
+                    }
+                    Callee::AsFloat(ft) => {
+                        self.nums.insert(ft.ts_name().to_string());
+                    }
+                    Callee::VecLen => {
+                        self.nums.insert("Usize".into());
+                    }
+                    Callee::StrBytes => self.str = true,
+                    Callee::Str(purecrate_ir::StrMethod::Len) => {
+                        self.str = true;
+                        self.nums.insert("Usize".into());
+                    }
+                    Callee::IntFrom { to, .. } => {
+                        self.nums.insert(to.ts_name().to_string());
+                    }
+                    Callee::CharCode(to) => {
+                        self.char_value = true;
+                        if to.is_big() {
+                            self.nums.insert(to.ts_name().to_string());
+                        }
+                    }
+                    Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
+                    Callee::UuidParse | Callee::UuidNil => self.uuid_value = true,
+                    Callee::Discriminant { to, .. } => {
+                        self.nums.insert(to.ts_name().to_string());
+                    }
+                    _ => {}
+                }
+            }
+            Expr::Construct { ty, variant, .. } => {
+                if variant.is_none() && closed_in(krate, ty.as_str()) {
+                    self.ctors.insert(ty.as_str().to_string());
+                }
+            }
+            Expr::ForEach { over, .. } => match over {
+                purecrate_ir::Over::Chars => self.char_type = true,
+                purecrate_ir::Over::Bytes => self.str = true,
+                purecrate_ir::Over::Items => {}
+            },
+            Expr::Lit(lit) => match lit {
+                purecrate_ir::Lit::Int { ty: Some(t), .. } => {
+                    self.nums.insert(t.ts_name().to_string());
+                }
+                purecrate_ir::Lit::Float { ty: Some(t), .. } => {
+                    self.nums.insert(t.ts_name().to_string());
+                }
+                purecrate_ir::Lit::Char(_) => self.char_type = true,
+                _ => {}
+            },
+            Expr::Var(n) if is_const(krate, n.as_str()) => {
+                self.values.insert(n.as_str().to_string());
+            }
+            Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
+            _ => {}
+        }
+        expr.own_types().into_iter().for_each(|t| self.ty(t));
+        expr.children().into_iter().for_each(|c| self.expr(krate, c));
+    }
+
+    fn fn_sig_and_body(&mut self, krate: &Crate, f: &Fn) {
+        f.params.iter().for_each(|p| self.ty(&p.ty));
+        self.ty(&f.ret);
+        self.expr(krate, &f.body);
+    }
+}
+
+pub(crate) fn closed_in(krate: &Crate, name: &str) -> bool {
+    krate
+        .items
+        .iter()
+        .any(|item| matches!(item, Item::Struct(st) if st.closed && st.name.as_str() == name))
+}
+
+pub(crate) fn private_in(krate: &Crate, ty: &str, name: &str) -> bool {
+    krate.items.iter().any(|item| {
+        matches!(item, Item::Fn(f) if f.vis == Vis::Internal
+            && f.name.as_str() == name
+            && f.owner.as_ref().is_some_and(|o| o.as_str() == ty))
+    })
+}
+
+pub(crate) fn is_const(krate: &Crate, name: &str) -> bool {
+    krate.items.iter().any(|item| matches!(item, Item::Const(c) if c.name.as_str() == name))
+}
+
+pub(crate) fn is_free_fn(krate: &Crate, name: &str) -> bool {
+    krate
+        .items
+        .iter()
+        .any(|item| matches!(item, Item::Fn(f) if f.owner.is_none() && f.name.as_str() == name))
+}
+
+pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
+    let mut refs = Refs::default();
+    for item in items {
+        match item {
+            Item::Struct(st) => {
+                st.fields.iter().for_each(|f| refs.ty(&f.ty));
+                methods_on(krate, st.name.as_str())
+                    .into_iter()
+                    .for_each(|m| refs.fn_sig_and_body(krate, m));
+            }
+            Item::Enum(en) => {
+                for v in &en.variants {
+                    match &v.fields {
+                        VariantFields::Unit => {}
+                        VariantFields::Tuple(tys) => tys.iter().for_each(|t| refs.ty(t)),
+                        VariantFields::Struct(fs) => fs.iter().for_each(|f| refs.ty(&f.ty)),
+                    }
+                }
+                methods_on(krate, en.name.as_str())
+                    .into_iter()
+                    .for_each(|m| refs.fn_sig_and_body(krate, m));
+            }
+            Item::Alias(al) => refs.ty(&al.ty),
+            Item::Const(c) => {
+                refs.ty(&c.ty);
+                refs.expr(krate, &c.value);
+            }
+            Item::Fn(f) if f.owner.is_none() => refs.fn_sig_and_body(krate, f),
+            Item::Fn(_) => {}
+        }
+    }
+
+    // A const lives in `consts.ts`, not in a file named after it.
+    let file_of = |name: &String| {
+        if is_const(krate, name) {
+            purecrate_ir::CONSTS_STEM.to_string()
+        } else {
+            Name::new(name.clone()).file_stem()
+        }
+    };
+    let elsewhere = |name: &String| file_of(name) != stem;
+    let mut out = String::new();
+    if refs.never {
+        out.push_str("import { assertNever } from \"./assert-never.ts\";\n");
+    }
+    if refs.int || !refs.nums.is_empty() {
+        let types = refs.nums.iter().map(|n| format!("type {n}")).collect::<Vec<_>>().join(", ");
+        if refs.int && types.is_empty() {
+            out.push_str("import { Int } from \"./int.ts\";\n");
+        } else if refs.int {
+            out.push_str(&format!("import {{ Int, {types} }} from \"./int.ts\";\n"));
+        } else {
+            out.push_str(&format!("import {{ {types} }} from \"./int.ts\";\n"));
+        }
+    }
+    if refs.result {
+        out.push_str("import { Result } from \"./result.ts\";\n");
+    }
+    let str_names = [
+        refs.char_value.then_some("Char"),
+        (refs.char_type && !refs.char_value).then_some("type Char"),
+        refs.uuid_value.then_some("Uuid"),
+        (refs.uuid_type && !refs.uuid_value).then_some("type Uuid"),
+        refs.uuid_error.then_some("type UuidError"),
+        refs.str.then_some("Str"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !str_names.is_empty() {
+        out.push_str(&format!("import {{ {} }} from \"./str.ts\";\n", str_names.join(", ")));
+    }
+    for v in refs.values.iter().filter(|v| elsewhere(v)) {
+        out.push_str(&format!("import {{ {v} }} from \"./{s}.ts\";\n", s = file_of(v)));
+    }
+    for (ty, name) in refs.privates.iter().filter(|(ty, _)| elsewhere(ty)) {
+        out.push_str(&format!(
+            "import {{ {m} }} from \"./{s}.ts\";\n",
+            m = private_method(ty, name),
+            s = Name::new(ty.clone()).file_stem()
+        ));
+    }
+    for c in refs.ctors.iter().filter(|c| elsewhere(c)) {
+        out.push_str(&format!(
+            "import {{ {ctor} }} from \"./{s}.ts\";\n",
+            ctor = closed_ctor(c),
+            s = Name::new(c.clone()).file_stem()
+        ));
+    }
+    for t in refs
+        .types
+        .iter()
+        .filter(|t| elsewhere(t) && !refs.values.contains(*t))
+    {
+        out.push_str(&format!(
+            "import type {{ {t} }} from \"./{s}.ts\";\n",
+            s = Name::new(t.clone()).file_stem()
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
