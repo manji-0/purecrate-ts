@@ -500,6 +500,13 @@ impl Destructure {
         }))
     }
 
+    pub(super) fn len(&self) -> usize {
+        match &self.pattern {
+            Pattern::Tuple(elems) => elems.len(),
+            _ => 0,
+        }
+    }
+
     /// `match scrutinee { (..) => body }`.
     pub(super) fn bind(self, scrutinee: Expr, body: Expr) -> Expr {
         let body = self.rebind.into_iter().rev().fold(body, |then, (name, temp)| Expr::Let {

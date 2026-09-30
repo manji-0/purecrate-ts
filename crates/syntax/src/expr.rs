@@ -135,6 +135,29 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
         )
         .detail(path_text(&m.mac.path))),
+        // `xs.iter().sum::<T>()`: the type argument annotates the result.
+        SynExpr::MethodCall(m) if m.method == "sum" && m.args.is_empty() && m.turbofish.as_ref().is_some_and(|t| t.args.len() == 1) => {
+            let Some(syn::GenericArgument::Type(ty)) = m.turbofish.as_ref().and_then(|t| t.args.first()) else {
+                return Err(ParseError::new(Reason::MethodCall, "`sum::<T>()` takes a type".to_string()));
+            };
+            let ty = lower_type(ty)?;
+            let name = cx.fresh("sum");
+            let call = at(
+                m.method.span(),
+                Expr::MethodCall {
+                    receiver: Box::new(lower_expr(cx, &m.receiver)?),
+                    name: Name::new("sum"),
+                    args: Vec::new(),
+                },
+            );
+            Ok(Expr::Let {
+                name: name.clone(),
+                mutable: false,
+                ty: Some(ty),
+                value: Box::new(call),
+                then: Box::new(Expr::Var(name)),
+            })
+        }
         SynExpr::MethodCall(m) if m.turbofish.is_some() => Err(ParseError::new(
             Reason::MethodCall,
             format!("method call `.{}::<..>()` is not in v0", m.method),
@@ -244,9 +267,24 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     if f.label.is_some() {
         return reject("loop labels are not in v0");
     }
+    // `for (i, x) in <items>.enumerate()`: a `usize` counter beside the loop,
+    // read into `i` and then advanced at the top of each pass, so
+    // `continue` keeps it right.
+    let (iterable, counter) = match &*f.expr {
+        SynExpr::MethodCall(m) if m.method == "enumerate" && m.args.is_empty() && m.turbofish.is_none() => {
+            if matches!(&*m.receiver, SynExpr::Range(_)) {
+                return reject("`for` over a range's `.enumerate()` is not in v0; the range's own value is the index");
+            }
+            (&*m.receiver, Some(cx.fresh("i")))
+        }
+        other => (other, None),
+    };
     // `for (a, b) in xs` takes a fresh variable and destructures it in the
     // body; only an item loop yields tuples.
     let tuple = Destructure::of(cx, &f.pat, Reason::Loop)?;
+    if counter.is_some() && tuple.as_ref().is_none_or(|t| t.len() != 2) {
+        return reject("`for` over `.enumerate()` takes a pair `(i, x)`");
+    }
     let var = match &*f.pat {
         _ if tuple.is_some() => cx.fresh("p"),
         Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => Name::new(p.ident.to_string()),
@@ -256,21 +294,43 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     let tuple = std::cell::Cell::new(tuple);
     let body = || -> Result<Expr, ParseError> {
         let body = lower_block(cx, &f.body)?;
-        Ok(match tuple.take() {
-            Some(tuple) => tuple.bind(Expr::Var(var.clone()), body),
-            None => body,
+        Ok(match (tuple.take(), &counter) {
+            (Some(tuple), Some(i)) => {
+                let advance = Expr::Assign {
+                    name: i.clone(),
+                    value: Box::new(Expr::Binary {
+                        op: BinOp::Add,
+                        left: Box::new(Expr::Var(i.clone())),
+                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::Usize) })),
+                    }),
+                };
+                let body = Expr::Seq { first: Box::new(advance), then: Box::new(body) };
+                tuple.bind(Expr::Tuple(vec![Expr::Var(i.clone()), Expr::Var(var.clone())]), body)
+            }
+            (Some(tuple), None) => tuple.bind(Expr::Var(var.clone()), body),
+            (None, _) => body,
         })
+    };
+    let counted = |each: Expr| match &counter {
+        Some(i) => Expr::Let {
+            name: i.clone(),
+            mutable: true,
+            ty: Some(Ty::Prim(purecrate_ir::Prim::Usize)),
+            value: Box::new(Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::Usize) })),
+            then: Box::new(each),
+        },
+        None => each,
     };
     let each = |over: Over, source: &SynExpr| -> Result<Expr, ParseError> {
         let source = lower_expr(cx, source)?;
-        Ok(Expr::ForEach {
+        Ok(counted(Expr::ForEach {
             var: var.clone(),
             over,
             source: Box::new(source),
             body: Box::new(body()?),
-        })
+        }))
     };
-    let (start, end) = match &*f.expr {
+    let (start, end) = match iterable {
         SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => match (&r.start, &r.end) {
             (Some(a), Some(b)) => (a, b),
             _ => return reject("`for` takes a range with both ends, `a..b`"),
@@ -292,16 +352,16 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
                 callee: Callee::StrSplit,
                 args: vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?],
             };
-            return Ok(Expr::ForEach {
+            return Ok(counted(Expr::ForEach {
                 var: var.clone(),
                 over: Over::Items,
                 source: Box::new(source),
                 body: Box::new(body()?),
-            });
+            }));
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(
-                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, or `s.bytes()`, and keep an index or a counter by hand",
+                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, or `s.bytes()`, with `.enumerate()` for an index",
                 m.method
             ))
         }
@@ -557,6 +617,20 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
                     name: Name::new("_"),
                     ty,
                 }),
+                // `|&x|`: a reference reads as its value.
+                Pat::Reference(r) if r.mutability.is_none() => match &*r.pat {
+                    Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
+                        Ok(ClosureParam {
+                            name: Name::new(id.ident.to_string()),
+                            ty,
+                        })
+                    }
+                    other => Err(ParseError::new(
+                        Reason::ParamPattern,
+                        format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(other)),
+                    )
+                    .or_at(other.span())),
+                },
                 other => Err(ParseError::new(
                     Reason::ParamPattern,
                     format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(other)),

@@ -12,6 +12,7 @@ mod build;
 mod chars_equivalence;
 mod closed_equivalence;
 mod closures_equivalence;
+mod consumers_equivalence;
 mod control_equivalence;
 mod counter_equivalence;
 mod destructure_equivalence;

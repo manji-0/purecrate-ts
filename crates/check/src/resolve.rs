@@ -254,16 +254,18 @@ impl<'a> Cx<'_, 'a> {
             Expr::MethodCall { receiver, name, args } => {
                 self.expr(receiver);
                 for a in args {
-                    // `opt.map(f)` names a function; `types` checks the receiver.
+                    // `opt.map(f)` and `it.all(f)` name a function; `types`
+                    // checks the receiver.
+                    let takes_fn = matches!(name.as_str(), "map" | "all" | "any" | "position");
                     let fn_name = match a.unpositioned() {
-                        Expr::Var(n) if name.as_str() == "map" && !self.in_scope(n.as_str()) => {
+                        Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
                         }
                         _ => None,
                     };
                     match fn_name {
                         Some(1) => {}
-                        Some(p) => self.error(Reason::ConstructShape, format!("`map` calls its function with 1 argument, which takes {p}")),
+                        Some(p) => self.error(Reason::ConstructShape, format!("`{}` calls its function with 1 argument, which takes {p}", name.as_str())),
                         None => self.expr(a),
                     }
                 }

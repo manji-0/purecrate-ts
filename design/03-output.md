@@ -116,6 +116,8 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | guarded arms | an `if` chain ([3.3.2](#332-guards-and-option-methods)) |
 | `unwrap_or`, `ok_or`, `map` | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
+| `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
+| `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | the source bound once, then a `for..of` that sets a result and `break`s where std stops, the closure's body inlined |
 | `while` | `while` |
 | a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
 | `?` on `Result` | `if (r.kind === "Err") return r;` |

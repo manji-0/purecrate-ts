@@ -9,6 +9,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// call's first argument: typing it again would double the work at every
     /// link of a chain.
     pub(super) fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
+        if let Some(typed) = self.consume(receiver, name.as_str(), args, want) {
+            return typed;
+        }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
         if name.as_str() == "len" && args.is_empty() {
@@ -187,6 +190,147 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (e, None)
             }
         }
+    }
+
+    /// `all`, `any`, `position`, `count`, and `sum` on `s.chars()`,
+    /// `s.bytes()`, or `xs.iter()` / `xs.into_iter()`: the loop std's
+    /// default methods run, with the source bound once and the predicate
+    /// inlined into the body (so it may not use `?` or `return`, which would
+    /// leave the enclosing function). Each stops where std's does: `all` at
+    /// the first `false`, `any` and `position` at the first `true`. `sum`
+    /// adds from zero in order, panicking on overflow as a debug build does;
+    /// on integers only, since float `Sum` starts from `-0.0`.
+    fn consume(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+        let takes = match name {
+            "all" | "any" | "position" => 1,
+            "count" | "sum" => 0,
+            _ => return None,
+        };
+        let Expr::MethodCall { receiver: source, name: adaptor, args: none } = receiver.unpositioned() else {
+            return None;
+        };
+        let over = match adaptor.as_str() {
+            "chars" => Over::Chars,
+            "bytes" => Over::Bytes,
+            "iter" | "into_iter" => Over::Items,
+            _ => return None,
+        };
+        if !none.is_empty() {
+            return None;
+        }
+        let failed = (Expr::Lit(Lit::Unit), None);
+        if args.len() != takes {
+            self.error(Reason::ConstructShape, format!("`{name}` takes {takes} argument(s), got {}", args.len()));
+            return Some(failed);
+        }
+        let before = self.out.len();
+        let (source, st) = self.expr(source, None);
+        let item = match (over, st.as_ref().map(|t| self.norm(t))) {
+            (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
+            (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),
+            (Over::Items, Some(Ty::Vec(t))) => *t,
+            (_, found) => {
+                if self.out.len() == before {
+                    let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
+                    self.error(Reason::TypeMismatch, format!(
+                        "`.{}().{name}()` takes a {}, found `{found}`",
+                        adaptor.as_str(),
+                        if over == Over::Items { "`Vec` or slice" } else { "`String` or `&str`" }
+                    ));
+                }
+                return Some(failed);
+            }
+        };
+        let var = self.fresh_name("x");
+        let v = |n: &Name| Expr::Var(n.clone());
+        // The predicate's body, reading the item from `var`, and the closure's
+        // parameter, bound to the item at the top of the loop body.
+        let mut param: Option<(Name, Option<Ty>)> = None;
+        let pred = match args.first().map(Expr::unpositioned) {
+            None => None,
+            Some(Expr::Closure { params, body, .. }) if params.len() == 1 => {
+                if leaves(body) {
+                    self.error(Reason::Closure, format!("a closure passed to `{name}` may not use `?` or `return` in v0; write the loop"));
+                    return Some(failed);
+                }
+                let p = &params[0];
+                if p.name.as_str() != "_" {
+                    param = Some((p.name.clone(), p.ty.clone()));
+                }
+                Some((**body).clone())
+            }
+            Some(Expr::Var(f)) => Some(Expr::Call { callee: Callee::Fn(f.clone()), args: vec![v(&var)] }),
+            Some(_) => {
+                self.error(Reason::Closure, format!("`{name}` takes a closure `|x| ..` or a function name in v0"));
+                return Some(failed);
+            }
+        };
+        let acc = self.fresh_name("acc");
+        let set = |value: Expr| Expr::Assign { name: acc.clone(), value: Box::new(value) };
+        let stop = |value: Expr| Expr::Seq { first: Box::new(set(value)), then: Box::new(Expr::Break) };
+        let when = |cond: Expr, then: Expr| Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(Expr::Lit(Lit::Unit)) };
+        let bool_ = |b: bool| Expr::Lit(Lit::Bool(b));
+        let usize_ = || Ty::Prim(Prim::Usize);
+        let zero = |ty: IntTy| Expr::Lit(Lit::Int { value: 0, ty: Some(ty) });
+        let bump = |n: &Name| Expr::Assign {
+            name: n.clone(),
+            value: Box::new(Expr::Binary {
+                op: BinOp::Add,
+                left: Box::new(v(n)),
+                right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::Usize) })),
+            }),
+        };
+        let index = self.fresh_name("i");
+        let (start, ty, body, extra) = match name {
+            "all" => (bool_(true), Ty::bool(), when(Expr::Unary { op: UnOp::Not, expr: Box::new(pred?) }, stop(bool_(false))), None),
+            "any" => (bool_(false), Ty::bool(), when(pred?, stop(bool_(true))), None),
+            "position" => (
+                Expr::Call { callee: Callee::OptionNone, args: vec![] },
+                Ty::option(usize_()),
+                Expr::Seq {
+                    first: Box::new(when(pred?, stop(Expr::Call { callee: Callee::OptionSome, args: vec![v(&index)] }))),
+                    then: Box::new(bump(&index)),
+                },
+                Some(index.clone()),
+            ),
+            "count" => (zero(IntTy::Usize), usize_(), bump(&acc), None),
+            _ => {
+                let Some(int) = (match self.norm(&item) {
+                    Ty::Prim(p) => p.int(),
+                    _ => None,
+                }) else {
+                    self.error(Reason::TypeMismatch, format!(
+                        "`sum` adds integers in v0, found `{}` (a float sum starts from `-0.0`)",
+                        show(&item)
+                    ));
+                    return Some(failed);
+                };
+                let add = Expr::Assign {
+                    name: acc.clone(),
+                    value: Box::new(Expr::Binary { op: BinOp::Add, left: Box::new(v(&acc)), right: Box::new(v(&var)) }),
+                };
+                (zero(int), item.clone(), add, None)
+            }
+        };
+        let body = match param {
+            Some((name, ty)) => Expr::Let { name, mutable: false, ty, value: Box::new(v(&var)), then: Box::new(body) },
+            None => body,
+        };
+        let src = self.fresh_name("src");
+        let looped = Expr::Seq {
+            first: Box::new(Expr::ForEach { var: var.clone(), over, source: Box::new(v(&src)), body: Box::new(body) }),
+            then: Box::new(v(&acc)),
+        };
+        let looped = Expr::Let { name: acc.clone(), mutable: true, ty: Some(ty), value: Box::new(start), then: Box::new(looped) };
+        let looped = match extra {
+            Some(i) => Expr::Let { name: i, mutable: true, ty: Some(usize_()), value: Box::new(zero(IntTy::Usize)), then: Box::new(looped) },
+            None => looped,
+        };
+        self.scopes.push((src.as_str().to_string(), st.clone()));
+        let (typed, t) = self.expr(&looped, want);
+        self.scopes.pop();
+        let e = Expr::Let { name: src, mutable: false, ty: st, value: Box::new(source), then: Box::new(typed) };
+        Some((e, t))
     }
 
     pub(super) fn fresh_name(&mut self, what: &str) -> Name {

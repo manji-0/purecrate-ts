@@ -40,7 +40,8 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
-| Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. Adaptors (`enumerate`, `rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))` |
+| Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
+| Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, and `sum` (integers only) on `s.chars()`, `s.bytes()`, `xs.iter()`, `xs.into_iter()`; `sum::<T>()` or an annotated result | the loop std runs, stopping where std stops; `sum` panics on overflow |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
 | Loops with a condition | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `break` and `continue` without a label or value, as statements; not `loop` or `while let` | `while`, with a label on each loop a jump leaves (a bare `break` would leave the `switch` of a `match`) |
@@ -313,8 +314,8 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `loop`, `while let`, labelled `break`, `break` with a value | `while cond` with `break`, or a `for` with early `return` |
-| `.enumerate()`, `.rev()`, `.zip(..)` | a `let mut` counter in `for x in &xs`, or a range `for` over indices |
-| `s.chars().filter(..).count()`, `.rev()`, `.nth(n)` | `for c in s.chars()` with a `let mut` counter and early `return`; bytes by position through `s.as_bytes()` read by index |
+| `.rev()`, `.zip(..)`, `.skip(n)` | a range `for` over indices, or `.enumerate()` and a test on the index |
+| `s.chars().filter(p).count()`, `.nth(n)` | `for c in s.chars()` with a `let mut` counter and early `return`; `s.chars().position(p)` for the first match |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
 Closures cannot capture `let mut` (a JS closure would see later reassignments; rebind with `let` first), and cannot be parameters, return values, or fields.
