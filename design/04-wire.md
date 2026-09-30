@@ -47,7 +47,7 @@ Reading rules (serde's default behavior):
 3. A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"e\u0301"`, and a lone surrogate are rejected, as serde_json rejects them. A `Uuid` is read from any string `Uuid::parse_str` accepts and becomes the canonical form; anything else, and a JSON array of bytes (which serde_json never passes to `Uuid`), is rejected. `toJson` writes the canonical form, as serde does. `uuid::Error` has no JSON form in Rust; its schema rejects every value.
 4. The object wrapping a variant has exactly one key; extra keys are rejected (`{"Circle":1.5,"Rect":[1,2]}` used to read as `Circle`; fixed 2026-09-28). Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`.
 
-Library notes: zod and valibot build structs field by field, because inference makes `undefined`-valued (`()`) fields optional. arktype rejects a union of objects containing morphs, so enums try variants in turn; each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve (an earlier `type.module` design hit a `ReferenceError` at import).
+Library notes: zod and valibot build structs field by field, because inference makes `undefined`-valued (`()`) fields optional. Their schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`; the adapters' `unitVariant` and zod's `optionalField` spell rules 4 and 2 once (2026-09-30, before which every schema was `lazy` and printed on one line). arktype rejects a union of objects containing morphs, so enums try variants in turn; each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve (an earlier `type.module` design hit a `ReferenceError` at import).
 
 Verification: `fixtures/wire_shapes.rs` covers every type form; for all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node against serde-default JSON and malformed inputs (`crates/cli/tests/wire.rs`).
 
@@ -63,6 +63,8 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 
 1. **By shape.** Without an attribute, closed types are read by shape and branded through `Email$of`. Same set as Rust; invariants are not upheld on the wire, as in Rust.
 2. **Through the constructor** (2026-09-29, examples/payment: `Amount` and `PaymentMethodId`). `#[serde(try_from = "T")]` on a struct, with `impl TryFrom<T> for X` (translated as `X.try_from`; `check` requires it, since rustc sees only the stand-in serde). The schema reads `T` as serde would, then calls `X.try_from`; `Err` fails the read, as serde fails deserialization. Serializing is unchanged (by shape), so `toJson` writes what serde writes. `impl Display` for the error, which serde requires, is skipped by the translator.
+
+A refused value fails with an issue naming the type and, when the error type is an enum, the variant `try_from` returned (`Amount: AmountOutOfRange`); zod's issue also carries the error value in `params.error`.
 
 Verified in `wire_write.rs` for all three libraries: every schema reads a `PaymentMethodId`, an `Amount`, or an event carrying one exactly when `X::try_from` accepts the value, and gives the same value. The real serde on the same source (the `cargo test` in `bench/payment/wasm`) rejects the same inputs, with the `Display` text in its error.
 

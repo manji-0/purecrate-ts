@@ -448,3 +448,34 @@ fn uuids_read_what_serde_reads() {
         assert_ok(run_node_with(schema, "uuids", shapes::SOURCE, &script));
     }
 }
+
+/// A value `try_from` refuses fails with an issue that names the type and,
+/// the error being an enum, the variant it returned; zod also carries the
+/// error value itself.
+#[test]
+fn a_refused_try_from_names_its_error() {
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let (import, message) = match schema {
+            WireSchema::Zod => (
+                "",
+                "(() => { const r = w.Amount.safeParse(49); return r.success ? \"accepted\" : r.error.issues[0].message + \" \" + r.error.issues[0].params.error.kind; })()",
+            ),
+            WireSchema::Valibot => (
+                "import * as v from \"valibot\";\n",
+                "(() => { const r = v.safeParse(w.Amount, 49); return r.success ? \"accepted\" : r.issues[0].message; })()",
+            ),
+            WireSchema::Arktype => (
+                "import { type } from \"arktype\";\n",
+                "(() => { const r = w.Amount(49); return r instanceof type.errors ? r.summary : \"accepted\"; })()",
+            ),
+        };
+        let script = format!("{import}import * as w from \"./src/purecrate-wire.ts\";\nconsole.log({message});\n");
+        // `None` when node is skipped (PURECRATE_SKIP_NODE).
+        let Some(out) = run_node_with(schema, "try-from-message", payment::SOURCE, &script) else { return };
+        let want = match schema {
+            WireSchema::Zod => "Amount: AmountOutOfRange AmountOutOfRange",
+            _ => "Amount: AmountOutOfRange",
+        };
+        assert!(out.contains(want), "{schema:?}: {out}");
+    }
+}

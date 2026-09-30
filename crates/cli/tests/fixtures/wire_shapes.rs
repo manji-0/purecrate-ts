@@ -76,3 +76,23 @@ pub struct Ids {
     pub maybe: Option<Uuid>,
     pub many: Vec<Uuid>,
 }
+
+/// Two types that refer to each other: each schema waits for the other.
+pub enum Node {
+    Leaf(i32),
+    Group(Group),
+}
+
+pub struct Group {
+    pub label: String,
+    pub children: Vec<Node>,
+}
+
+/// Declared before the type it reads: the schemas are ordered by use.
+pub struct Early {
+    pub late: Late,
+}
+
+pub struct Late {
+    pub n: i32,
+}

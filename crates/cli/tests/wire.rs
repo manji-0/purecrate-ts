@@ -101,6 +101,9 @@ const accepts = [
   ["Shape", { Dot: null }, { kind: "Dot" }],
   ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
   ["Sealed", { code: -1 }, { code: -1, hint: null }],
+  ["Node", { Group: { label: "g", children: [{ Leaf: 1 }, { Group: { label: "h", children: [] } }] } },
+    { kind: "Group", content: [{ label: "g", children: [{ kind: "Leaf", content: [1] }, { kind: "Group", content: [{ label: "h", children: [] }] }] }] }],
+  ["Early", { late: { n: 2 } }, { late: { n: 2 } }],
   ["Letters", { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }, { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }],
   ["Letters", { one: "\n", many: [] }, { one: "\n", maybe: null, many: [] }],
   // serde reads a `Uuid` from any form `Uuid::parse_str` takes; the value is canonical.
@@ -127,6 +130,8 @@ const rejects = [
   ["Shape", "Circle"],
   ["Tree", { Node: ["Leaf", 1] }],
   ["Chain", { value: 1.5 }],
+  ["Node", { Group: { label: "g", children: [{ Leaf: 1.5 }] } }],
+  ["Early", { late: {} }],
   ["Sealed", { code: 2147483648, hint: "h" }],
   ["Holder", { ...holder, tree: undefined }],
   // serde reads a `char` from a string of exactly one scalar value.

@@ -48,3 +48,6 @@ export const uuidError = v.pipe(v.never(), v.transform((x): UuidError => x));
 export const bool = v.boolean();
 export const unit = v.pipe(v.null(), v.transform(() => undefined));
 export const nullable = <T extends v.GenericSchema>(inner: T) => v.union([inner, v.null()]);
+
+/** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
+export const unitVariant = (name: string) => v.union([v.literal(name), v.strictObject({ [name]: v.null() })]);

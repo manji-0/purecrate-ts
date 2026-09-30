@@ -56,3 +56,12 @@ export const unit = z.null().transform(() => undefined);
 
 /** serde writes `None` as `null`. A missing field is not `None` unless the Rust type says so. */
 export const nullable = <T extends z.ZodTypeAny>(inner: T) => z.union([inner, z.null()]);
+
+/** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
+export const unitVariant = (name: string) => z.union([z.literal(name), z.object({ [name]: z.null() }).strict()]);
+
+/** A struct field of type `Option<T>`: missing or `null` is `None`, as serde reads it. */
+export const optionalField = <T extends z.ZodTypeAny>(inner: T) =>
+  nullable(inner)
+    .optional()
+    .transform((v) => v ?? null);
