@@ -3,6 +3,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "allowUnreachableCode": false,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "target": "ES2022",

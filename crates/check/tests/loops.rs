@@ -24,3 +24,17 @@ fn for_refuses_adaptors_and_non_collections() {
         "`for x in xs` takes a range `a..b`, a `Vec` or slice",
     );
 }
+
+#[test]
+fn while_break_and_continue_stand_as_statements() {
+    assert_clean("pub fn f(n: u32) -> u32 { let mut i = 0u32; while i < n { i += 1; if i == 7 { break; } } i }");
+    assert_clean("pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in &xs { match x { 0 => continue, _ => n += 1 } } n }");
+    // A jump inside a value the TS prints as an expression cannot leave the loop.
+    assert_rejects(
+        "pub fn f(n: u32) -> u32 { let mut i = 0u32; while i < n { i = i + if i > 3 { break } else { 1 }; } i }",
+        "`break` or `continue` inside a larger expression is not in v0",
+    );
+    let parse = |src: &str| purecrate_syntax::parse_source("c", src).expect_err(src).message;
+    assert!(parse("pub fn f() -> u32 { loop { break; } 0 }").contains("`loop` is not in v0"));
+    assert!(parse("pub fn f() -> u32 { 'a: while true { break 'a; } 0 }").contains("loop labels are not in v0"));
+}

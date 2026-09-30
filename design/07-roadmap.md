@@ -141,7 +141,7 @@ Waits for an example that cannot be written without it.
 The largest gap measured so far: oidc's lexical helpers at 3.2× idiomatic Rust (§2), and Windmill's scope and pipeline parsers ([91 §2](./91-real-use-candidates.md#2-fit-measured)), all index bookkeeping over bytes and tokens that idiomatic code writes as iteration.
 
 - `for x in &xs` and `for x in xs.iter()` over a `Vec` or slice, `for b in s.bytes()`: printed as `for..of`, one binding, the body rules of range `for`. Done 2026-09-30 (`for_each_equivalence.rs`); also `for x in xs` on an owned `Vec` and `s.as_bytes()`, and the named adaptors are refused with a message.
-- `while`, `break`, `continue`: no labels, no `loop` with a value.
+- `while`, `break`, `continue`: no labels, no `loop` with a value. Done 2026-09-30 (`while_break_equivalence.rs`): every loop a jump leaves gets a label, since a bare JS `break` in the `switch` a `match` prints as leaves the `switch` (a run without labels fails the test); a `?` in the condition turns the loop into `while (true)` that computes the condition first. The generated tsconfig also sets `allowUnreachableCode: false`, and no `break;` follows a jump in a `case`.
 - oidc's scanners rewritten with them and measured again against the idiomatic reference.
 
 ### 0.3.0: guards and `Option`

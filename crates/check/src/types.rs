@@ -377,6 +377,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (expr.clone(), self.expect(want, t))
             }
             Expr::Cast { expr: inner, to } => self.cast(inner, to, want),
+            Expr::While { cond, body } => {
+                let (c, _) = self.expr(cond, Some(&Ty::bool()));
+                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+                let e = Expr::While { cond: Box::new(c), body: Box::new(b) };
+                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            }
+            Expr::Break | Expr::Continue => (expr.clone(), Some(Ty::Never)),
             Expr::Let {
                 name,
                 mutable,

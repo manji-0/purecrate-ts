@@ -2,7 +2,7 @@
 //! the printer only meets `let x = e?` and can emit an early `return`.
 //! `position` has already rejected `?` in places this pass cannot reach.
 
-use purecrate_ir::{Arm, BinOp, Callee, Crate, Expr, Fields, Fn, Item, Name, TryOn};
+use purecrate_ir::{Arm, BinOp, Callee, Crate, Expr, Fields, Fn, Item, Lit, Name, TryOn, UnOp};
 
 pub fn lift(krate: Crate) -> Crate {
     let items = krate
@@ -136,6 +136,25 @@ impl Lifter {
                 first: Box::new(self.stmt(*first)),
                 then: Box::new(self.stmt(*then)),
             },
+            // The condition runs before every pass, so a `?` in it cannot be
+            // hoisted in front of the loop: the loop becomes `while true`
+            // whose body computes the condition first and leaves when false.
+            Expr::While { cond, body } => {
+                let (cond, hoisted) = self.extract(*cond);
+                let body = self.stmt(*body);
+                if hoisted.is_empty() {
+                    return Expr::While { cond: Box::new(cond), body: Box::new(body) };
+                }
+                let exit = Expr::If {
+                    cond: Box::new(Expr::Unary { op: UnOp::Not, expr: Box::new(cond) }),
+                    then: Box::new(Expr::Break),
+                    else_: Box::new(Expr::Lit(Lit::Unit)),
+                };
+                Expr::While {
+                    cond: Box::new(Expr::Lit(Lit::Bool(true))),
+                    body: Box::new(wrap(hoisted, Expr::Seq { first: Box::new(exit), then: Box::new(body) })),
+                }
+            }
             // The bounds run once before the loop; a `?` in the body leaves
             // from inside it.
             Expr::For { var, ty, start, end, body } => {

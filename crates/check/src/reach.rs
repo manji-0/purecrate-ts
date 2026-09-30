@@ -272,7 +272,11 @@ impl Refs {
             }
             // A const; `rename` keeps local names off every item name.
             Expr::Var(n) => self.name(n),
-            Expr::Lit(_) | Expr::Unreachable => {}
+            Expr::While { cond, body } => {
+                self.expr(cond);
+                self.expr(body);
+            }
+            Expr::Lit(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {}
         }
     }
 }

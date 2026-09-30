@@ -145,9 +145,27 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         )),
         SynExpr::Closure(c) => lower_closure(cx, c),
         SynExpr::ForLoop(f) => lower_for(cx, f),
-        SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
-            Err(ParseError::new(Reason::Loop, format!("loops are not in v0: {}", snippet(expr))))
+        SynExpr::While(w) if w.label.is_some() => {
+            Err(ParseError::new(Reason::Loop, format!("loop labels are not in v0: {}", snippet(expr))))
         }
+        SynExpr::While(w) if matches!(&*w.cond, SynExpr::Let(_)) => Err(ParseError::new(
+            Reason::Loop,
+            format!("`while let` is not in v0; use `while` with a `match` inside, or `for`: {}", snippet(expr)),
+        )),
+        SynExpr::While(w) => Ok(Expr::While {
+            cond: Box::new(lower_expr(cx, &w.cond)?),
+            body: Box::new(lower_block(cx, &w.body)?),
+        }),
+        SynExpr::Break(b) if b.label.is_none() && b.expr.is_none() => Ok(Expr::Break),
+        SynExpr::Continue(c) if c.label.is_none() => Ok(Expr::Continue),
+        SynExpr::Break(_) | SynExpr::Continue(_) => Err(ParseError::new(
+            Reason::Loop,
+            format!("`break` and `continue` take no label or value in v0: {}", snippet(expr)),
+        )),
+        SynExpr::Loop(_) => Err(ParseError::new(
+            Reason::Loop,
+            format!("`loop` is not in v0; write `while` with its condition: {}", snippet(expr)),
+        )),
         SynExpr::Reference(r) if r.mutability.is_some() => Err(ParseError::new(
             Reason::Borrow,
             format!("`&mut` borrows are not in v0: {}", snippet(expr)),

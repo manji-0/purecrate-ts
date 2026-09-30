@@ -32,6 +32,50 @@ thread_local! {
     static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
     static PRIVATE: RefCell<BTreeSet<(String, String)>> = const { RefCell::new(BTreeSet::new()) };
+    /// The loops being printed, innermost last, each with its label when a
+    /// `break` or `continue` in it leaves it.
+    static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Whether a `break` or `continue` of this loop (not of a loop inside it)
+/// is in `expr`.
+fn jumps_out(expr: &Expr) -> bool {
+    match expr {
+        Expr::Break | Expr::Continue => true,
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(jumps_out),
+    }
+}
+
+/// Prints a loop's head (after its `label: `, if it needs one) and body.
+/// Every jump names its loop: a bare JS `break` inside the `switch` a
+/// `match` prints as would leave the `switch`, not the loop.
+fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let label = jumps_out(body).then(|| format!("$l{indent}"));
+    let prefix = label.as_ref().map(|l| format!("{l}: ")).unwrap_or_default();
+    out.push_str(&format!("{pad}{prefix}{head} {{\n"));
+    LOOPS.with(|l| l.borrow_mut().push(label));
+    emit_stmts(body, indent + 1, Sink::Effect, out);
+    LOOPS.with(|l| l.borrow_mut().pop());
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+/// Printed statements that never fall through: a `break;` after them would
+/// be unreachable, which a consumer's `allowUnreachableCode: false` rejects.
+fn ends_in_jump(expr: &Expr) -> bool {
+    match expr {
+        Expr::Return(_) | Expr::Break | Expr::Continue => true,
+        Expr::Seq { then, .. } | Expr::Let { then, .. } => ends_in_jump(then),
+        Expr::If { then, else_, .. } => expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_),
+        _ => false,
+    }
+}
+
+fn innermost_loop() -> String {
+    LOOPS
+        .with(|l| l.borrow().last().cloned().flatten())
+        .expect("`check::accept` puts `break` and `continue` only inside a loop that is labelled for them")
 }
 
 fn is_closed(name: &str) -> bool {
@@ -554,17 +598,15 @@ impl Sink<'_> {
 /// overflow below `end`. A brand does not survive `+`, so the step casts
 /// back to the bounds' type, which `check::accept` records.
 fn emit_for(var: &str, ty: IntTy, start: &Expr, end: &Expr, body: &Expr, indent: usize, out: &mut String) {
-    let pad = "  ".repeat(indent);
     let one = if ty.is_big() { "1n" } else { "1" };
     let bound = format!("{FOR_END}{indent}");
-    out.push_str(&format!(
-        "{pad}for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {}) {{\n",
+    let head = format!(
+        "for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {})",
         emit_expr(start, indent),
         emit_expr(end, indent),
         ty.ts_name()
-    ));
-    emit_stmts(body, indent + 1, Sink::Effect, out);
-    out.push_str(&format!("{pad}}}\n"));
+    );
+    emit_loop(&head, body, indent, out);
 }
 
 /// Lower an expression into statements that hand its value to `sink`.
@@ -622,11 +664,15 @@ fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut String) {
                 purecrate_ir::Over::Bytes => format!("Str.bytes({source})"),
                 purecrate_ir::Over::Items => source,
             };
-            out.push_str(&format!("{pad}for (const {} of {iterable}) {{\n", var.as_str()));
-            emit_stmts(body, indent + 1, Sink::Effect, out);
-            out.push_str(&format!("{pad}}}\n"));
+            emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
+        Expr::While { cond, body } => {
+            emit_loop(&format!("while ({})", emit_expr(cond, indent)), body, indent, out);
+            sink.finish("undefined", &pad, out);
+        }
+        Expr::Break => out.push_str(&format!("{pad}break {};\n", innermost_loop())),
+        Expr::Continue => out.push_str(&format!("{pad}continue {};\n", innermost_loop())),
         Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
         // `x?;`: only the early return; there is no value to bind.
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
@@ -824,7 +870,7 @@ fn emit_switch_in(
             out.push_str(if braced { " {\n" } else { "\n" });
             out.push_str(&prelude);
             emit_stmts(&arm.body, indent + 2, sink, out);
-            if !matches!(sink, Sink::Return) && !matches!(arm.body, Expr::Return(_)) {
+            if !matches!(sink, Sink::Return) && !ends_in_jump(&arm.body) {
                 out.push_str(&format!("{pad1}  break;\n"));
             }
             if braced {
@@ -1027,9 +1073,13 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         },
         Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
         Expr::If { .. } if expr.needs_statements() => emit_iife(expr, indent),
-        Expr::Try { .. } | Expr::Seq { .. } | Expr::Assign { .. } | Expr::For { .. } | Expr::ForEach { .. } => {
-            emit_iife(expr, indent)
-        }
+        Expr::Try { .. }
+        | Expr::Seq { .. }
+        | Expr::Assign { .. }
+        | Expr::For { .. }
+        | Expr::ForEach { .. }
+        | Expr::While { .. } => emit_iife(expr, indent),
+        Expr::Break | Expr::Continue => unreachable!("`check::accept` keeps `break` and `continue` in statement position"),
         Expr::If { cond, then, else_ } => format!(
             "({} ? {} : {})",
             emit_expr(cond, indent),
@@ -1556,7 +1606,11 @@ impl Refs {
             Expr::Var(n) if is_const(krate, n.as_str()) => {
                 self.values.insert(n.as_str().to_string());
             }
-            Expr::Var(_) => {}
+            Expr::Var(_) | Expr::Break | Expr::Continue => {}
+            Expr::While { cond, body } => {
+                self.expr(krate, cond);
+                self.expr(krate, body);
+            }
             Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
         }
     }

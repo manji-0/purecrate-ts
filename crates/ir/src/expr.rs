@@ -578,6 +578,15 @@ pub enum Expr {
         source: Box<Expr>,
         body: Box<Expr>,
     },
+    /// `while cond { body }`, of type `()`. `cond` runs before every pass.
+    While {
+        cond: Box<Expr>,
+        body: Box<Expr>,
+    },
+    /// `break` and `continue` of the innermost loop, without a label or a
+    /// value; of type `!`, and only where a statement may stand.
+    Break,
+    Continue,
     /// `first; then`: `first` runs for its effect, its value is dropped.
     Seq {
         first: Box<Expr>,
@@ -622,7 +631,7 @@ impl Expr {
     /// Direct subexpressions in evaluation order.
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => Vec::new(),
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => Vec::new(),
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&**scrutinee)
@@ -652,6 +661,7 @@ impl Expr {
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
             Expr::ForEach { source: string, body, .. } => vec![string, body],
+            Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -660,7 +670,7 @@ impl Expr {
     /// `children`, mutably and in the same order.
     pub fn children_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => Vec::new(),
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => Vec::new(),
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&mut **scrutinee)
@@ -690,6 +700,7 @@ impl Expr {
             Expr::Seq { first, then } => vec![first, then],
             Expr::For { start, end, body, .. } => vec![start, end, body],
             Expr::ForEach { source: string, body, .. } => vec![string, body],
+            Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
         }
@@ -715,6 +726,8 @@ impl Expr {
             // The body runs zero or more times; the bounds always run.
             Expr::For { start, end, .. } => vec![start, end],
             Expr::ForEach { source: string, .. } => vec![string],
+            // The condition runs at least once; the body maybe not.
+            Expr::While { cond, .. } => vec![cond],
             _ => self.children(),
         }
     }
@@ -734,6 +747,9 @@ impl Expr {
             | Expr::Assign { .. }
             | Expr::For { .. }
             | Expr::ForEach { .. }
+            | Expr::While { .. }
+            | Expr::Break
+            | Expr::Continue
             | Expr::Seq { .. } => true,
             Expr::If { then, else_, .. } => [then, else_]
                 .into_iter()

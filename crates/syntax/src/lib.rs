@@ -129,7 +129,8 @@ mod tests {
         assert_eq!(reason(&body("x as *const i32")).0, Reason::Cast);
         assert_eq!(reason("#[repr(C)]\npub enum E { A }").1, Some("repr".into()));
         assert_eq!(reason("pub enum E { A(i32) = 1, B }").1, Some("discriminant".into()));
-        assert_eq!(reason(&body("while x > 0 {} x")).0, Reason::Loop);
+        assert_eq!(reason(&body("loop {}")).0, Reason::Loop);
+        assert_eq!(reason(&body("while let Some(y) = None::<i32> { let _ = y; } x")).0, Reason::Loop);
         assert_eq!(
             reason("pub enum E { A { n: i32 } } pub fn f(e: E) -> E { E::A { n: 1, ..e } }").0,
             Reason::StructUpdate

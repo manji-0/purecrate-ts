@@ -263,6 +263,13 @@ impl<'a> Cx<'_, 'a> {
                 self.ty(to);
                 self.expr(expr);
             }
+            Expr::While { cond, body } => {
+                self.expr(cond);
+                self.scopes.push(Vec::new());
+                self.expr(body);
+                self.scopes.pop();
+            }
+            Expr::Break | Expr::Continue => {}
             Expr::Construct { ty, variant, fields, base } => {
                 self.construct(ty, variant.as_ref(), fields, base.is_some());
                 match fields {
