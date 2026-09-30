@@ -1,6 +1,6 @@
 # Acceptance survey of existing crates (archive)
 
-Status: archive (measured 2026-09-27, progress to 2026-09-28). Not a metric: the target is new code written within the constraints ([00 §2](./00-overview.md#2-focus)).
+Status: archive (measured 2026-09-27, progress to 2026-09-28; re-measured 2026-09-30 with 0.3.0, §7). Not a metric: the target is new code written within the constraints ([00 §2](./00-overview.md#2-focus)).
 
 <!-- derived-from ./05-architecture.md#5-cli -->
 
@@ -213,3 +213,67 @@ Closures bound with `let` become typed arrow functions (mapping in [03 §3](./03
 | 46 | `expr/macro` | `format!`×39, `vec!`×4 |
 
 The breakdown for the 196 functions excluding idsmith is almost unchanged (`async` 29, `for` 18, `const` inside functions 17, etc.). The next TODOs 32-34 (methods of `Option`/`Result`, `Vec`/iterators, `String`/`char`, plus `format!` and `vec!`) target the `expr/method-call`, `check/needs-annotation`, `literal/other`, and `expr/macro` above together.
+
+## 7. Re-measured with 0.3.0 (2026-09-30)
+
+<!-- derived-from #1-method -->
+
+For reference only: the target stays new code written within the constraints (§0, item 4), and nothing here sets priorities. Same corpus, same commits (`corpus/manifest.tsv`), `purecrate-ts` 0.3.0; `corpus/results.jsonl` is updated. `survey --all-causes` now lifts the one-reason limit of §1.3, and §7.3 uses it.
+
+### 7.1 Acceptance
+
+| Entry | Functions, §6 → 0.3.0 | Types, §6 → 0.3.0 |
+| --- | --- | --- |
+| rust-ddd-example | 0 → 0 / 19 | 5 → 5 / 11 |
+| rust-ddd-example.domain | 0 → 0 / 2 | 1 → 1 / 1 |
+| zero-to-production | 1 → 1 / 51 | 10 → 11 / 28 |
+| zero-to-production.domain | 0 → 0 / 2 | 3 → 3 / 3 |
+| idsmith | 0 → 0 / 830 | 22 → 15 / 36 |
+| eventually.bank-accounting.domain | 0 → 0 / 7 | 5 → 4 / 9 |
+| eventually.light-switch.domain | 0 → 0 / 4 | 8 → 8 / 9 |
+| little-raft | 0 → 0 / 5 | 2 → 3 / 8 |
+| poker | 2 → 2 / 72 | 8 → 8 / 16 |
+| cozy-chess.types | 1 → 3 / 34 | 3 → 3 / 5 |
+| **Domain scope** | **3 → 5 / 956** | **52 → 45 / 87** |
+| **All entries** | **4 → 6 / 1026** | **67 → 61 / 126** |
+
+"§6" is the last recorded state (§6.4; `corpus/results.jsonl` before this update).
+
+- **Functions gained**: `BitBoard::is_subset` and `is_superset` in cozy-chess, from bitwise operators.
+- **Types gained**: `UserId` (zero-to-production), `ReplicaID` (little-raft), `EvalError` and `ParseCardError` (poker).
+- **Types lost**: unit structs (`struct S;`), rejected since 2026-09-29 because serde writes them as `null` ([02 §3.7](./02-authoring.md#37-types)): ten in all, seven of them idsmith's `Registry` types, the others `BankAccountRoot` and poker's `FiveCard` and `ThreeCard`.
+
+### 7.2 First rejection reason (functions)
+
+| Count, all entries | Reason code | Main contents |
+| --- | --- | --- |
+| 305 | `type/reference` | `&mut` (idsmith's RNG), unchanged |
+| 207 | `expr/method-call` | `chars`×347 as a value (`s.chars().map(..)`), `to_string`×13, `parse`×6, `is_multiple_of`×5 |
+| 125 | `expr/range` | slicing ranges such as `..7` (idsmith), hidden before behind `s[i]` |
+| 53 | `type/qualified-path` | `super::GenOptions`×41 |
+| 51 | `expr/macro` | `format!`×48 |
+| 37 | `expr/external-path` | associated consts (`Square::index_const`), paths into other modules |
+| 29 | `item/fn-qualifier` | `async` (the two whole applications) |
+
+Against §6.4, `len` (190), `char` literals (`literal/other`, 110), indexing (`expr/index`, 54), and `vec!` are gone as first reasons: each is accepted now. The 196 functions outside idsmith are led by `async` (29), paths into other modules and associated consts (24), `const` inside functions (20), generics (16), and `&mut self` (12); std methods are down to 8.
+
+### 7.3 Every cause (`--all-causes`, domain scope)
+
+Of the 951 rejected functions, 540 have one cause and 411 several; 52 have ten or more.
+
+| Functions with the cause | Reason code | Main contents |
+| --- | --- | --- |
+| 305 | `type/reference` | `&mut`; for all 305, no other kind of cause |
+| 301 | `expr/method-call` | `chars`, `bytes`, `iter` as values, then `strip_prefix`, `to_string`, `to_uppercase`; no other kind of cause for 190 |
+| 162 | `expr/range` | slicing ranges |
+| 74 | `expr/macro` | `format!` |
+| 65 | `check/needs-annotation` | integer literals and receivers whose type depends on a rejected call |
+| 56 | `item/param-pattern` | closure parameters that destructure (`\|(&d, &w)\|`) |
+| 52 | `type/qualified-path` | `super::GenOptions` |
+| 48 | `expr/cast` | `as` between integers |
+
+Outside idsmith (126 functions), the causes are spread thin: generics (30), `const` inside functions (24), paths into other modules (21), types those paths would define (19), and `&mut self` (11).
+
+### 7.4 Reading
+
+The conclusions of §0 hold. Types moved as the subset tightened for the wire, not because existing code fits better. Functions moved only where a body used exactly what was added (bit operations). What existing code needs next is still what §4 named: iterators over strings as values, string methods, `format!`, and `&mut`. Allow-lists aimed at passing existing crates are not planned ([07 §6](./07-roadmap.md#6-not-doing)); each of these is added only when an example written within the constraints needs it.
