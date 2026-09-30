@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-09-30, after 0.2.0)
+Status: current (2026-09-30, after 0.3.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -145,7 +145,7 @@ The largest gap measured so far: oidc's lexical helpers at 3.2× idiomatic Rust 
 - oidc's scanners rewritten with them and measured again against the idiomatic reference. Done 2026-09-30: the byte checks (`state`, PKCE strings, `max_age`, the OTP), the redirect-URI lookup, and the TOTP candidate loop now use `for b in s.bytes()` and `for x in &xs`. The lexical helpers went from 99 to 95 lines (3.1× the idiomatic 31), TOTP from 104 to 102, the file from 810 to 804. Smaller than expected: most of the gap is splitting a space-delimited list into tokens (`span_equals`, `has_token`, `parse_prompt`), which idiomatic code writes as `split(' ')` and which needs the token boundaries that a plain `for` does not give. `for t in s.split(' ')` over an ASCII separator is the evidence-backed candidate after this (splitting at an ASCII byte cuts at the same places in UTF-8 and UTF-16, and JS `split` keeps the empty tokens Rust keeps).
 - `for t in s.split(c)` with a `char` separator, added to 0.2.0 on that evidence (any code point splits alike in UTF-8 and UTF-16; a `&str` separator is refused, since an empty one does not). Done 2026-09-30: oidc's `has_token` and `parse_prompt` read their lists with it and `span_equals` is gone; the lexical helpers went from 95 to 68 lines (2.2× the idiomatic 31), the file to 777.
 
-### 0.3.0: guards and `Option`
+### 0.3.0: guards and `Option` (released 2026-09-30)
 
 - Match guards: invoice reached for them three times and the idiomatic payment uses two. A guarded arm is tried in order and does not count toward exhaustiveness, in the TS check as in rustc's. Done 2026-09-30 (`guards_equivalence.rs`), also on binding arms and in `matches!`. A first version put the arms after a guard inside the `_` of a `switch` on the same value, which TS narrowed so that the later `switch` could not name the other variants; each test and take is now a standalone `match` in an `if` chain.
 - `Option::unwrap_or`, `ok_or`, and `map` with a closure: most of payment's remaining gap (§2). `unwrap_or(e)` evaluates `e` first, as Rust does. Done 2026-09-30 (`option_methods_equivalence.rs`); `map` also takes a function name.
