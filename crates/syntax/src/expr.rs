@@ -224,16 +224,30 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     if f.label.is_some() {
         return reject("loop labels are not in v0");
     }
+    // `for (a, b) in xs` takes a fresh variable and destructures it in the
+    // body; only an item loop yields tuples.
+    let tuple = Destructure::of(cx, &f.pat, Reason::Loop)?;
     let var = match &*f.pat {
+        _ if tuple.is_some() => cx.fresh("p"),
         Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => Name::new(p.ident.to_string()),
-        _ => return reject("`for` takes a plain name for its variable, not `mut`, `_` or a pattern"),
+        _ => return reject("`for` takes a plain name or a tuple of names for its variable, not `mut`, `_` or another pattern"),
+    };
+    // Lowered after the source, so fresh names and diagnostics keep source order.
+    let tuple = std::cell::Cell::new(tuple);
+    let body = || -> Result<Expr, ParseError> {
+        let body = lower_block(cx, &f.body)?;
+        Ok(match tuple.take() {
+            Some(tuple) => tuple.bind(Expr::Var(var.clone()), body),
+            None => body,
+        })
     };
     let each = |over: Over, source: &SynExpr| -> Result<Expr, ParseError> {
+        let source = lower_expr(cx, source)?;
         Ok(Expr::ForEach {
             var: var.clone(),
             over,
-            source: Box::new(lower_expr(cx, source)?),
-            body: Box::new(lower_block(cx, &f.body)?),
+            source: Box::new(source),
+            body: Box::new(body()?),
         })
     };
     let (start, end) = match &*f.expr {
@@ -254,14 +268,15 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             return each(Over::Items, &m.receiver);
         }
         SynExpr::MethodCall(m) if m.args.len() == 1 && m.turbofish.is_none() && m.method == "split" => {
+            let source = Expr::Call {
+                callee: Callee::StrSplit,
+                args: vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?],
+            };
             return Ok(Expr::ForEach {
-                var,
+                var: var.clone(),
                 over: Over::Items,
-                source: Box::new(Expr::Call {
-                    callee: Callee::StrSplit,
-                    args: vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?],
-                }),
-                body: Box::new(lower_block(cx, &f.body)?),
+                source: Box::new(source),
+                body: Box::new(body()?),
             });
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
@@ -274,12 +289,13 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         // included: the types say whether it is one.
         other => return each(Over::Items, other),
     };
+    let (start, end) = (lower_expr(cx, start)?, lower_expr(cx, end)?);
     Ok(Expr::For {
-        var,
+        var: var.clone(),
         ty: None,
-        start: Box::new(lower_expr(cx, start)?),
-        end: Box::new(lower_expr(cx, end)?),
-        body: Box::new(lower_block(cx, &f.body)?),
+        start: Box::new(start),
+        end: Box::new(end),
+        body: Box::new(body()?),
     })
 }
 
@@ -295,6 +311,12 @@ enum Stmt {
         name: Name,
         mutable: bool,
         ty: Option<Ty>,
+        value: Expr,
+    },
+    /// `let (a, b) = value;`, typed through `name` when annotated.
+    Destructure {
+        tuple: Destructure,
+        typed: Option<(Name, Ty)>,
         value: Expr,
     },
     Effect(Expr),
@@ -344,6 +366,16 @@ fn lower_block_node(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
                 value: Box::new(value),
                 then: Box::new(then),
             },
+            Stmt::Destructure { tuple, typed, value } => match typed {
+                Some((name, ty)) => Expr::Let {
+                    name: name.clone(),
+                    mutable: false,
+                    ty: Some(ty),
+                    value: Box::new(value),
+                    then: Box::new(tuple.bind(Expr::Var(name), then)),
+                },
+                None => tuple.bind(value, then),
+            },
             Stmt::Effect(first) => Expr::Seq {
                 first: Box::new(first),
                 then: Box::new(then),
@@ -358,11 +390,30 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
         other => (other, None),
     };
+    if let Some(tuple) = Destructure::of(cx, pat, Reason::LetPattern)? {
+        let init = local
+            .init
+            .as_ref()
+            .ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
+        if init.diverge.is_some() {
+            return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
+        }
+        return Ok(Stmt::Destructure {
+            tuple,
+            typed: ty.map(|ty| (cx.fresh("t"), ty)),
+            value: lower_expr(cx, &init.expr)?,
+        });
+    }
     let (name, mutable) = match pat {
         Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
             (Name::new(id.ident.to_string()), id.mutability.is_some())
         }
-        _ => return Err(ParseError::new(Reason::LetPattern, "only simple let bindings in v0")),
+        _ => {
+            return Err(ParseError::new(
+                Reason::LetPattern,
+                "a `let` binds a name, `mut` a name, or a tuple of them in v0",
+            ))
+        }
     };
     let init = local
         .init
@@ -460,6 +511,8 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
     if let Some(what) = modifier {
         return Err(ParseError::new(Reason::Closure, format!("{what} closures are not in v0")).detail(what));
     }
+    // `|(a, b)| body` takes a fresh parameter and destructures it in the body.
+    let mut tuples = Vec::new();
     let params = c
         .inputs
         .iter()
@@ -468,6 +521,11 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
                 Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
                 other => (other, None),
             };
+            if let Some(tuple) = Destructure::of(cx, pat, Reason::ParamPattern)? {
+                let name = cx.fresh("p");
+                tuples.push((name.clone(), tuple));
+                return Ok(ClosureParam { name, ty });
+            }
             match pat {
                 Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
                     Ok(ClosureParam {
@@ -481,7 +539,7 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
                 }),
                 other => Err(ParseError::new(
                     Reason::ParamPattern,
-                    format!("closure parameters are plain names in v0, found {}", snippet(other)),
+                    format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(other)),
                 )
                 .or_at(other.span())),
             }
@@ -491,10 +549,14 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
         syn::ReturnType::Default => None,
         syn::ReturnType::Type(_, t) => Some(lower_type(t)?),
     };
+    let body = tuples
+        .into_iter()
+        .rev()
+        .fold(lower_expr(cx, &c.body)?, |body, (name, tuple)| tuple.bind(Expr::Var(name), body));
     Ok(Expr::Closure {
         params,
         ret,
-        body: Box::new(lower_expr(cx, &c.body)?),
+        body: Box::new(body),
     })
 }
 

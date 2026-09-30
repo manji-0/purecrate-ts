@@ -432,3 +432,93 @@ pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -
         ],
     })
 }
+
+/// A tuple pattern where Rust takes an irrefutable one: a `let`, a closure
+/// parameter, or a `for` variable. It becomes a one-arm `match` on a tuple,
+/// which binds each element once (`check::tuple`). A `mut` element binds a
+/// fresh name in the pattern and is rebound as `let mut` in the body.
+pub(super) struct Destructure {
+    pattern: Pattern,
+    rebind: Vec<(Name, Name)>,
+}
+
+impl Destructure {
+    /// `(a, _, mut b, &c)`: two or more elements, each `_`, a name, `mut` a
+    /// name, or `&` one of these; the tuple itself may be behind `&`
+    /// (`for &(a, b) in xs.iter()`). A reference reads as its value. `None`
+    /// when `pat` is not a tuple.
+    pub(super) fn of(cx: &Cx, pat: &Pat, reason: Reason) -> Result<Option<Self>, ParseError> {
+        let mut pat = pat;
+        while let Pat::Reference(r) = pat {
+            if r.mutability.is_some() || !matches!(strip_refs(&r.pat), Pat::Tuple(_)) {
+                return Ok(None);
+            }
+            pat = &r.pat;
+        }
+        let Pat::Tuple(t) = pat else { return Ok(None) };
+        let refuse = |p: &Pat| {
+            Err(ParseError::new(
+                reason,
+                format!(
+                    "a tuple pattern here takes `_`, a name, or `mut` a name for each element, found {}",
+                    snippet(p)
+                ),
+            )
+            .or_at(p.span()))
+        };
+        if t.elems.len() < 2 {
+            return refuse(pat);
+        }
+        let mut elems = Vec::new();
+        let mut rebind = Vec::new();
+        for elem in &t.elems {
+            let mut p = elem;
+            while let Pat::Reference(r) = p {
+                if r.mutability.is_some() {
+                    return refuse(elem);
+                }
+                p = &r.pat;
+            }
+            elems.push(match p {
+                Pat::Wild(_) => Pattern::Wildcard,
+                Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+                    let name = Name::new(id.ident.to_string());
+                    if id.mutability.is_some() {
+                        let temp = cx.fresh("p");
+                        rebind.push((name, temp.clone()));
+                        Pattern::Var(temp)
+                    } else {
+                        Pattern::Var(name)
+                    }
+                }
+                _ => return refuse(elem),
+            });
+        }
+        Ok(Some(Destructure {
+            pattern: Pattern::Tuple(elems),
+            rebind,
+        }))
+    }
+
+    /// `match scrutinee { (..) => body }`.
+    pub(super) fn bind(self, scrutinee: Expr, body: Expr) -> Expr {
+        let body = self.rebind.into_iter().rev().fold(body, |then, (name, temp)| Expr::Let {
+            name,
+            mutable: true,
+            ty: None,
+            value: Box::new(Expr::Var(temp)),
+            then: Box::new(then),
+        });
+        Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms: vec![Arm { pattern: self.pattern, body }],
+        }
+    }
+}
+
+fn strip_refs(mut pat: &Pat) -> &Pat {
+    while let Pat::Reference(r) = pat {
+        pat = &r.pat;
+    }
+    pat
+}

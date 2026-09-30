@@ -109,6 +109,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `if let` | `kind` test with narrowing |
 | `match` / `if let` on `Option` | branch on `=== null` |
 | `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
+| a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
 | guarded arms | an `if` chain ([3.3.2](#332-guards-and-option-methods)) |
 | `unwrap_or`, `ok_or`, `map` | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |

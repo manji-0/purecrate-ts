@@ -31,6 +31,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Optional values | `o.is_some()`, `is_none()`, `unwrap_or(d)`, `ok_or(e)` (the argument evaluated first, as in Rust), `map(\|x\| ..)` or `map(f)` (a closure without `?` or `return`) | the `match` std writes, the receiver bound once |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals | new values |
+| Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest | one `const` per element; a `mut` element a `let` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
@@ -269,7 +270,7 @@ Byte string literals (`b"pm_"`) are not available. Use `starts_with`.
 
 #### Type constructors
 
-Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex` are type constructors, besides tuples `(A, B)` (read with `match`, not `.0` or a tuple `let`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
+Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex` are type constructors, besides tuples `(A, B)` (read with `match` or a tuple pattern, not `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
 
 #### Rejected types
 

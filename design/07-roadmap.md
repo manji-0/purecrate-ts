@@ -243,7 +243,7 @@ Why: oidc's lexical helpers are still 2.2× idiomatic Rust (§2.2), and in the c
 
 - **Iterator consumers that yield a scalar.** `all`, `any`, `count`, `position` on `s.chars()`, `s.bytes()`, and `xs.iter()`; `sum` with Rust's overflow panic; `for (i, x) in xs.iter().enumerate()`. None builds an array, so the reason iterator `map`/`filter`/`collect` stay out (§3.1) does not apply.
 - **Byte slicing.** `&s[a..b]`, `&s[a..]`, `&s[..b]`, and the same on slices; `strip_prefix` / `strip_suffix` returning `Option<&str>`. Specified in [01 §6.1](./01-equivalence.md#61-strings): positions are UTF-8 bytes, and a position off a char boundary or past the end throws with Rust's message.
-- **Tuple destructuring.** `let (a, b) = t;`, `|(a, b)|`, and `for (i, x) in ..`, with the element rules of tuple `match`.
+- **Tuple destructuring.** `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in ..`, with the element rules of tuple `match`. Done 2026-09-30 (`destructure_equivalence.rs`); `for (i, x) in xs.iter().enumerate()` comes with `enumerate`.
 - **`const` inside functions and associated consts** (`impl T { const N: u32 = 3; }`), folded like crate-level consts.
 - **Integer helpers.** `min`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, `wrapping_*` forms of the operators, each against Rust's debug-build result (payment's idiomatic code calls `min`).
 - **Measurement.** oidc's lexical helpers, payment, and invoice rewritten with guards, the `Option` methods, and the above, and measured again against their idiomatic references (§2.2).
