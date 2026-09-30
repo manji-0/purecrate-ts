@@ -380,6 +380,7 @@ export const step = (state: State, event: Event): State => {
             scrutinee: Box::new(scrutinee),
             arms: vec![
                 Arm {
+                    guard: None,
                     pattern: Pattern::Variant {
                         ty: Name::new("Cmd"),
                         variant: Name::new("Move"),
@@ -392,6 +393,7 @@ export const step = (state: State, event: Event): State => {
                     },
                 },
                 Arm {
+                    guard: None,
                     pattern: Pattern::Variant {
                         ty: Name::new("Cmd"),
                         variant: Name::new("Paint"),

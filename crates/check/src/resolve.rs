@@ -229,6 +229,9 @@ impl<'a> Cx<'_, 'a> {
                     let mut bound = Vec::new();
                     self.pattern(&arm.pattern, &mut bound);
                     self.scopes.push(bound.into_iter().map(|n| (n, false)).collect());
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
                     self.expr(&arm.body);
                     self.scopes.pop();
                 }

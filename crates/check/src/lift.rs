@@ -102,6 +102,7 @@ impl Lifter {
                 let arms = arms
                     .into_iter()
                     .map(|a| Arm {
+                        guard: None,
                         pattern: a.pattern,
                         body: self.stmt(a.body),
                     })

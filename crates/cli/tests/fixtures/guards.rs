@@ -93,3 +93,50 @@ pub fn only_when_matched(rate: Rate, amount: i32) -> i32 {
         _ => 0,
     }
 }
+
+/// A guarded arm covers nothing: `_` after it takes the same variant.
+pub fn wild_after(rate: Rate, amount: i64) -> i64 {
+    match rate {
+        Rate::Standard if amount > 5 => 1,
+        _ => 2,
+    }
+}
+
+/// A range and a literal inside it, each guarded: the literal's arm is
+/// reached when the range's guard fails.
+pub fn overlap(n: u8, strict: bool) -> u8 {
+    match n {
+        0..=9 if strict => 1,
+        5 if !strict => 2,
+        0..=9 => 3,
+        _ => 4,
+    }
+}
+
+/// A guard that overflows, run only where its tuple pattern matched.
+pub fn guarded_overflow(state: State, n: u8) -> u8 {
+    match (state, n) {
+        (State::Paid, m) if m + 200 > 250 => 1,
+        (State::Open, _) => 2,
+        (_, m) => m,
+    }
+}
+
+/// `bool` elements with guards, both values named.
+pub fn flags(a: bool, b: bool, n: u32) -> u32 {
+    match (a, b) {
+        (true, true) if n > 3 => 1,
+        (true, _) => 2,
+        (false, true) if n == 0 => 3,
+        (false, _) => 4,
+    }
+}
+
+/// A bound name used only in the guard, and a guard on `Option`.
+pub fn only_in_guard(x: Option<u32>) -> u32 {
+    match x {
+        Some(v) if v > 7 => 1,
+        Some(_) => 2,
+        None => 3,
+    }
+}

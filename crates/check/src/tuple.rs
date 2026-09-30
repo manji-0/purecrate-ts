@@ -10,6 +10,12 @@
 //! to a `let` first, left to right, as Rust evaluates the tuple. An arm that
 //! several cases reach is copied into each; cases that reach the same code
 //! and bind nothing share one arm (`A | B`).
+//!
+//! A `match` with guards comes here too, a single value as a tuple of one:
+//! where an arm's pattern has matched, its guard is tested, and if it is
+//! false the arms after it that can still match follow in the `else`. Each
+//! element is tested once on a path, so TS never narrows a value that a
+//! later `switch` would name again.
 
 use purecrate_ir::{tuple_field, Arm, Expr, Name, Pattern, Ty, VariantBind, VariantFields};
 
@@ -21,6 +27,7 @@ use crate::defs::Defs;
 struct Row {
     pats: Vec<Pattern>,
     binds: Vec<(Name, Ty, Expr)>,
+    guard: Option<Expr>,
     body: Expr,
 }
 
@@ -48,7 +55,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
             other => unreachable!("exhaustive: tuple arms only, found {other:?}"),
         };
         for pats in alts {
-            rows.push(Row { pats, binds: Vec::new(), body: arm.body.clone() });
+            rows.push(Row { pats, binds: Vec::new(), guard: arm.guard.clone(), body: arm.body.clone() });
         }
     }
     let mut lw = Lowering { defs, fresh };
@@ -121,8 +128,21 @@ impl Lowering<'_, '_, '_> {
             return Expr::Unreachable;
         }
         let Some(col) = rows[0].pats.iter().position(refutable) else {
-            let row = rows.swap_remove(0);
-            return leaf(subjects, row);
+            let mut row = rows.remove(0);
+            return match row.guard.take() {
+                None => leaf(subjects, row),
+                // The bindings are read where the guard reads them, so the
+                // `else` sees none of them.
+                Some(guard) => {
+                    let binds = bindings(subjects, &row);
+                    let cond = substitute(guard, &binds);
+                    Expr::If {
+                        cond: Box::new(cond),
+                        then: Box::new(leaf(subjects, row)),
+                        else_: Box::new(self.compile(subjects, rows)),
+                    }
+                }
+            };
         };
         let (subject, ty) = &subjects[col];
         match ty {
@@ -228,7 +248,7 @@ impl Lowering<'_, '_, '_> {
                         single => Pattern::Or(vec![single, pattern]),
                     };
                 }
-                None => arms.push(Arm { pattern, body }),
+                None => arms.push(Arm { guard: None, pattern, body }),
             }
         }
         Expr::Match { scrutinee: Box::new(subjects[col].0.clone()), arms }
@@ -279,7 +299,7 @@ impl Lowering<'_, '_, '_> {
                     Pattern::ResultErr(_) if !uses => Pattern::ResultErr(Box::new(Pattern::Wildcard)),
                     other => other,
                 };
-                Arm { pattern, body }
+                Arm { guard: None, pattern, body }
             })
             .collect();
         Expr::Match { scrutinee: Box::new(subject.clone()), arms }
@@ -290,21 +310,32 @@ impl Lowering<'_, '_, '_> {
     /// test; any other keeps its own and is tested again further in.
     fn lit_column(&mut self, subjects: &[(Expr, Ty)], col: usize, rows: Vec<Row>) -> Expr {
         let p = rows[0].pats[col].clone();
+        // Where `p` matched: rows with `p` go on without testing it again;
+        // a row that may still match (a range around `p`) tests again. Where
+        // it did not, rows that `p` fully covers drop out. A `bool` is
+        // narrowed by TS after one test, so its rows are settled here.
         let yes: Vec<Row> = rows
             .iter()
-            .map(|row| {
+            .filter_map(|row| {
                 let mut row = row.clone();
-                if row.pats[col] == p {
-                    row.pats[col] = Pattern::Wildcard;
+                match after(&row.pats[col], &p, true) {
+                    Some(q) => row.pats[col] = q,
+                    None => return None,
                 }
-                row
+                Some(row)
             })
             .collect();
-        let no: Vec<Row> = rows.into_iter().filter(|row| row.pats[col] != p).collect();
+        let no: Vec<Row> = rows
+            .into_iter()
+            .filter_map(|mut row| {
+                row.pats[col] = after(&row.pats[col], &p, false)?;
+                Some(row)
+            })
+            .collect();
         let (yes, no) = (self.compile(subjects, yes), self.compile(subjects, no));
         Expr::Match {
             scrutinee: Box::new(subjects[col].0.clone()),
-            arms: vec![Arm { pattern: p, body: yes }, Arm { pattern: Pattern::Wildcard, body: no }],
+            arms: vec![Arm { guard: None, pattern: p, body: yes }, Arm { guard: None, pattern: Pattern::Wildcard, body: no }],
         }
     }
 }
@@ -318,4 +349,105 @@ fn leaf(subjects: &[(Expr, Ty)], row: Row) -> Expr {
         }
     }
     wrap(binds, row.body)
+}
+
+/// What is left of `q` once a literal test `p` has (`hit`) or has not
+/// matched: `_` when it is sure to match, `None` when it cannot, else `q`
+/// to be tested again.
+fn after(q: &Pattern, p: &Pattern, hit: bool) -> Option<Pattern> {
+    if !refutable(q) {
+        return Some(q.clone());
+    }
+    if q == p {
+        return if hit { Some(Pattern::Wildcard) } else { None };
+    }
+    if let (Some(qs), Some(ps)) = (bools(q), bools(p)) {
+        // The values of `q` still possible: `p`'s own if it matched, the
+        // other one if not.
+        let left: Vec<bool> = [true, false].into_iter().filter(|b| ps.contains(b) == hit).collect();
+        return if left.iter().all(|b| qs.contains(b)) {
+            Some(Pattern::Wildcard)
+        } else if left.iter().any(|b| qs.contains(b)) {
+            Some(q.clone())
+        } else {
+            None
+        };
+    }
+    // Two single literals of one type are the same value only if equal.
+    if hit && matches!((q, p), (Pattern::Lit(_), Pattern::Lit(_))) {
+        return None;
+    }
+    Some(q.clone())
+}
+
+fn bools(p: &Pattern) -> Option<Vec<bool>> {
+    match p {
+        Pattern::Lit(purecrate_ir::Lit::Bool(b)) => Some(vec![*b]),
+        Pattern::Or(alts) => alts.iter().map(bools).try_fold(Vec::new(), |mut acc, b| {
+            acc.extend(b?);
+            Some(acc)
+        }),
+        _ => None,
+    }
+}
+
+/// Every name a row binds, with the place it reads.
+fn bindings(subjects: &[(Expr, Ty)], row: &Row) -> Vec<(Name, Ty, Expr)> {
+    let mut binds = row.binds.clone();
+    for (p, (subject, ty)) in row.pats.iter().zip(subjects) {
+        if let Pattern::Var(n) = p {
+            binds.push((n.clone(), ty.clone(), subject.clone()));
+        }
+    }
+    binds
+}
+
+/// `expr` with each bound name read from its place. The places are names
+/// and fields, so reading one twice is the same as binding it once.
+fn substitute(expr: Expr, binds: &[(Name, Ty, Expr)]) -> Expr {
+    fn go(expr: &mut Expr, binds: &[(Name, Ty, Expr)]) {
+        match expr {
+            Expr::Var(n) => {
+                if let Some((_, _, place)) = binds.iter().find(|(b, _, _)| b == n) {
+                    *expr = place.clone();
+                }
+            }
+            // A binder of the same name hides it from here on.
+            Expr::Let { name, value, then, .. } => {
+                go(value, binds);
+                let inner: Vec<_> = binds.iter().filter(|(b, _, _)| b != name).cloned().collect();
+                go(then, &inner);
+            }
+            Expr::Closure { params, body, .. } => {
+                let inner: Vec<_> = binds.iter().filter(|(b, _, _)| !params.iter().any(|p| p.name == *b)).cloned().collect();
+                go(body, &inner);
+            }
+            Expr::Match { scrutinee, arms } => {
+                go(scrutinee, binds);
+                for arm in arms {
+                    let bound = arm.pattern.bindings();
+                    let inner: Vec<_> = binds.iter().filter(|(b, _, _)| !bound.contains(&b)).cloned().collect();
+                    if let Some(g) = &mut arm.guard {
+                        go(g, &inner);
+                    }
+                    go(&mut arm.body, &inner);
+                }
+            }
+            Expr::For { var, start, end, body, .. } => {
+                go(start, binds);
+                go(end, binds);
+                let inner: Vec<_> = binds.iter().filter(|(b, _, _)| b != var).cloned().collect();
+                go(body, &inner);
+            }
+            Expr::ForEach { var, source, body, .. } => {
+                go(source, binds);
+                let inner: Vec<_> = binds.iter().filter(|(b, _, _)| b != var).cloned().collect();
+                go(body, &inner);
+            }
+            other => other.children_mut().into_iter().for_each(|c| go(c, binds)),
+        }
+    }
+    let mut expr = expr;
+    go(&mut expr, binds);
+    expr
 }

@@ -655,7 +655,17 @@ pub enum Over {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Arm {
     pub pattern: Pattern,
+    /// `p if guard =>`: tried only when `pattern` matched, with its
+    /// bindings in scope. `check::accept` lowers every guard into the
+    /// decision tree of `check::tuple`, so none reaches emit.
+    pub guard: Option<Expr>,
     pub body: Expr,
+}
+
+impl Arm {
+    pub fn new(pattern: Pattern, body: Expr) -> Self {
+        Arm { pattern, guard: None, body }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -855,7 +865,7 @@ impl Expr {
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&**scrutinee)
-                .chain(arms.iter().map(|a| &a.body))
+                .chain(arms.iter().flat_map(|a| a.guard.iter().chain(std::iter::once(&a.body))))
                 .collect(),
             Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
             Expr::MethodCall { receiver, args, .. } => std::iter::once(&**receiver).chain(args).collect(),
@@ -894,7 +904,7 @@ impl Expr {
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&mut **scrutinee)
-                .chain(arms.iter_mut().map(|a| &mut a.body))
+                .chain(arms.iter_mut().flat_map(|a| a.guard.iter_mut().chain(std::iter::once(&mut a.body))))
                 .collect(),
             Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter_mut().collect(),
             Expr::MethodCall { receiver, args, .. } => std::iter::once(&mut **receiver).chain(args).collect(),

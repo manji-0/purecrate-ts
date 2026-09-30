@@ -87,6 +87,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let mut arms = Vec::new();
             for arm in &m.arms {
                 arms.push(Arm {
+                    guard: None,
                     pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
                         .map_err(|e| e.or_at(arm.pat.span()))?,
                     body: at(arm.body.span(), lower_expr(cx, &arm.body)?),

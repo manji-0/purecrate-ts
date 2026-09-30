@@ -66,6 +66,16 @@ fn label(ty: &str, case: &str) -> String {
 }
 
 fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Vec<Diagnostic>) {
+    // A guarded `_` or binding (`n if n > 3`) tests only its guard: it
+    // names no case, and like every guarded arm it covers none.
+    let free = |a: &Arm| a.guard.is_some() && matches!(a.pattern, Pattern::Wildcard | Pattern::Var(_));
+    let had_free = arms.iter().any(free);
+    let arms: Vec<Arm> = arms.iter().filter(|a| !free(a)).cloned().collect();
+    let arms = arms.as_slice();
+    // `n if n > 3 => .., _ => ..`: the last `_` takes every other value.
+    if had_free && matches!(arms, [Arm { pattern: Pattern::Wildcard, guard: None, .. }]) {
+        return;
+    }
     if arms.iter().any(|a| a.pattern.is_tuple_case()) {
         return tuple_arms(i, arms, out);
     }
@@ -105,6 +115,10 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
                     return;
                 }
                 Some(_) => {}
+            }
+            // A guarded arm covers nothing: the value may go on to a later arm.
+            if arm.guard.is_some() {
+                continue;
             }
             if seen.contains(&case) {
                 out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("{} is matched more than once", label(t, case))));
@@ -192,7 +206,7 @@ fn lit_arms(i: usize, arms: &[Arm], kind: &str, is_case: fn(&Pattern) -> bool, o
             format!("match mixes {kind} arms with other arms")
         };
         out.push(Diagnostic::at(i, Reason::ArmPattern, found));
-    } else if last.pattern != Pattern::Wildcard {
+    } else if last.pattern != Pattern::Wildcard || last.guard.is_some() {
         out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("a match on {kind}s must end in a `_` arm in v0")));
     }
 }
@@ -210,14 +224,14 @@ fn bool_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
         out.push(Diagnostic::at(i, Reason::ArmPattern, found));
         return;
     }
-    if last.pattern == Pattern::Wildcard {
+    if last.pattern == Pattern::Wildcard && last.guard.is_none() {
         return;
     }
     if !last.pattern.is_bool_case() {
         out.push(Diagnostic::at(i, Reason::ArmPattern, "match mixes `bool` arms with other arms"));
         return;
     }
-    let named_value = |b: bool| arms.iter().any(|a| bools(&a.pattern).contains(&b));
+    let named_value = |b: bool| arms.iter().any(|a| a.guard.is_none() && bools(&a.pattern).contains(&b));
     for b in [true, false] {
         if !named_value(b) {
             out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match on `bool` is missing `{b}`")));

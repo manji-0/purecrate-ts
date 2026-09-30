@@ -64,6 +64,7 @@ pub fn counter_example() -> Crate {
     });
 
     let arm = |variant: &str, body: Expr| Arm {
+        guard: None,
         pattern: Pattern::Variant {
             ty: Name::new("Event"),
             variant: Name::new(variant),

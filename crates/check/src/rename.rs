@@ -167,6 +167,7 @@ impl Renamer {
                         let mut inner = env.clone();
                         let pattern = self.pattern(a.pattern, &mut inner);
                         Arm {
+                            guard: None,
                             pattern,
                             body: self.expr(a.body, &inner),
                         }

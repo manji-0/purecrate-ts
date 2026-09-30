@@ -22,7 +22,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | --- | --- | --- |
 | Closed ADTs | struct, enum, newtype (content not `Option`, `()`, `!`) | `Readonly` objects, `kind` unions, brands |
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
-| Guards | `p if c =>` on any arm, a binding arm (`n if n > 3`) included, and in `matches!`; a guarded arm does not count toward exhaustiveness | an `if` chain over standalone matches, tried in order |
+| Guards | `p if c =>` on any arm, a binding arm (`n if n > 3`) included, and in `matches!`; a guarded arm does not count toward exhaustiveness | a decision tree: each value tested once, the guard at its arm's leaf |
 | Transition tables | `match (state, event)`: tuple arms whose elements are `_`, a binding, or an arm pattern | nested `switch`es, one per element, each listing every case + `assertNever` |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number; an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
@@ -230,9 +230,11 @@ Note: tuple matches are accepted since 2026-09-30.
 
 - Arms are tried in order. A guard runs only when its pattern matched, as in Rust.
 - The arms without guards must be exhaustive by themselves. rustc checks this.
-- A `?` inside a guard is refused. Bind the `?` result with `let` first ([§4](#4-rewrites)).
+- A `?` or `return` inside a guard is refused. Bind the `?` result with `let` first ([§4](#4-rewrites)).
 
-Output: a `match` with guards prints as an `if` chain, not as one `switch`. Each arm gets one small `switch` to test it and one to take it. Why: it is longer, but each `switch` stands where TS narrows nothing it would contradict.
+- A guarded arm covers nothing: `A if g => 1, _ => 2` sends an `A` whose guard fails to `_`.
+
+Output: the same nested `switch`es as a tuple `match` (a single value as a tuple of one), with an `if` on the guard where the arm's pattern has matched and the arms that can still match in its `else`. Each value is switched on once per path, so TS narrows nothing it would contradict.
 
 #### `matches!`
 

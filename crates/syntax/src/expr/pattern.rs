@@ -3,33 +3,12 @@
 
 use super::*;
 
-/// A `match` with guards, as one without: arms are tried in order, and a
-/// guarded arm is `if match $g { p => guard, _ => false } { match $g { p =>
-/// body, _ => unreachable } } else { <the arms after it> }`, where `$g` holds
-/// the scrutinee (each element of a tuple scrutinee) so it is evaluated
-/// once. The guard runs only when its pattern matched, and the arms left
-/// after the guarded ones must be exhaustive by themselves, as rustc
-/// requires. `n if n > 3 =>` binds `n` to the scrutinee.
+/// A `match` with guards: each guard stays on its arm, with the arm's
+/// bindings in scope, and `check::accept` lowers the arms into a decision
+/// tree that tries a guard only where its pattern matched. `n if n > 3 =>`
+/// binds `n` to the scrutinee (not in a tuple `match`).
 pub(super) fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm]) -> Result<Expr, ParseError> {
-    // Bind the scrutinee (or each tuple element) once.
-    let mut binds: Vec<(Name, Expr)> = Vec::new();
-    let subject = match scrutinee {
-        SynExpr::Tuple(t) if !t.elems.is_empty() => {
-            let mut elems = Vec::new();
-            for e in &t.elems {
-                let name = cx.fresh("g");
-                binds.push((name.clone(), lower_expr(cx, e)?));
-                elems.push(Expr::Var(name));
-            }
-            Expr::Tuple(elems)
-        }
-        other => {
-            let name = cx.fresh("g");
-            binds.push((name.clone(), lower_expr(cx, other)?));
-            Expr::Var(name)
-        }
-    };
-    let tuple = matches!(subject, Expr::Tuple(_));
+    let tuple = matches!(scrutinee, SynExpr::Tuple(t) if !t.elems.is_empty());
     let mut lowered = Vec::new();
     for arm in arms {
         let raw = lower_pat(cx, &arm.pat)?;
@@ -41,79 +20,16 @@ pub(super) fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm]) -> 
             (Pattern::Var(_), Some(_)) if !tuple => raw,
             _ => arm_pattern(raw).map_err(|e| e.or_at(arm.pat.span()))?,
         };
-        lowered.push((pattern, guard, at(arm.body.span(), lower_expr(cx, &arm.body)?)));
+        lowered.push(Arm {
+            pattern,
+            guard,
+            body: at(arm.body.span(), lower_expr(cx, &arm.body)?),
+        });
     }
-    let chain = guard_chain(&subject, &lowered);
-    Ok(binds.into_iter().rev().fold(chain, |then, (name, value)| Expr::Let {
-        name,
-        mutable: false,
-        ty: None,
-        value: Box::new(value),
-        then: Box::new(then),
-    }))
-}
-
-/// `if hit_1 { take_1 } else if hit_2 { take_2 } .. else { unreachable }`,
-/// arm by arm in order: `hit` is `match $g { p => guard, _ => false }` and
-/// `take` is `match $g { p => body, _ => unreachable }`. Each `match` stands
-/// alone rather than inside another on the same value, so TS narrows
-/// nothing that a later `switch` would contradict. A pattern that always
-/// matches (`_`, a binding, a tuple of those) needs no `match`.
-pub(super) fn guard_chain(subject: &Expr, arms: &[(Pattern, Option<Expr>, Expr)]) -> Expr {
-    let mut acc = Expr::Unreachable;
-    for (pattern, guard, body) in arms.iter().rev() {
-        let (hit, take) = match always_binds(subject, pattern) {
-            Some(lets) => {
-                let wrap = |e: &Expr| {
-                    lets.iter().rev().fold(e.clone(), |then, (name, value)| Expr::Let {
-                        name: name.clone(),
-                        mutable: false,
-                        ty: None,
-                        value: Box::new(value.clone()),
-                        then: Box::new(then),
-                    })
-                };
-                (guard.as_ref().map(wrap), wrap(body))
-            }
-            None => {
-                let two = |first: Expr, rest: Expr| Expr::Match {
-                    scrutinee: Box::new(subject.clone()),
-                    arms: vec![
-                        Arm { pattern: pattern.clone(), body: first },
-                        Arm { pattern: Pattern::Wildcard, body: rest },
-                    ],
-                };
-                let hit = two(guard.clone().unwrap_or(Expr::Lit(Lit::Bool(true))), Expr::Lit(Lit::Bool(false)));
-                (Some(hit), two(body.clone(), Expr::Unreachable))
-            }
-        };
-        acc = match hit {
-            None => take,
-            Some(hit) => Expr::If {
-                cond: Box::new(hit),
-                then: Box::new(take),
-                else_: Box::new(acc),
-            },
-        };
-    }
-    acc
-}
-
-/// For a pattern that matches every value: the names it binds, each with
-/// what it binds to.
-pub(super) fn always_binds(subject: &Expr, pattern: &Pattern) -> Option<Vec<(Name, Expr)>> {
-    match (pattern, subject) {
-        (Pattern::Wildcard, _) => Some(Vec::new()),
-        (Pattern::Var(n), s) => Some(vec![(n.clone(), s.clone())]),
-        (Pattern::Tuple(ps), Expr::Tuple(xs)) if ps.len() == xs.len() => {
-            let mut out = Vec::new();
-            for (p, x) in ps.iter().zip(xs) {
-                out.extend(always_binds(x, p)?);
-            }
-            Some(out)
-        }
-        _ => None,
-    }
+    Ok(Expr::Match {
+        scrutinee: Box::new(lower_expr(cx, scrutinee)?),
+        arms: lowered,
+    })
 }
 
 /// `matches!(e, p)` is std's `match e { p => true, _ => false }`, and
@@ -150,8 +66,9 @@ pub(super) fn lower_matches(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseErro
     Ok(Expr::Match {
         scrutinee: Box::new(lower_expr(cx, &scrutinee)?),
         arms: vec![
-            Arm { pattern, body: hit },
+            Arm { guard: None, pattern, body: hit },
             Arm {
+                guard: None,
                 pattern: Pattern::Wildcard,
                 body: Expr::Lit(Lit::Bool(false)),
             },
@@ -423,10 +340,12 @@ pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -
         scrutinee: Box::new(lower_expr(cx, &l.expr)?),
         arms: vec![
             Arm {
+                guard: None,
                 pattern,
                 body: then,
             },
             Arm {
+                guard: None,
                 pattern: other,
                 body: else_,
             },
@@ -519,7 +438,7 @@ impl Destructure {
         });
         Expr::Match {
             scrutinee: Box::new(scrutinee),
-            arms: vec![Arm { pattern: self.pattern, body }],
+            arms: vec![Arm { guard: None, pattern: self.pattern, body }],
         }
     }
 }

@@ -31,7 +31,7 @@ fn walk(expr: &mut Expr, enums: &[Enum]) {
             if arms.len() == 1 {
                 let body = arms[0].body.clone();
                 arms[0].pattern = Pattern::Lit(purecrate_ir::Lit::Bool(true));
-                arms.push(purecrate_ir::Arm { pattern: Pattern::Wildcard, body });
+                arms.push(purecrate_ir::Arm { guard: None, pattern: Pattern::Wildcard, body });
             } else if let Some(last) = arms.last_mut() {
                 last.pattern = Pattern::Wildcard;
             }

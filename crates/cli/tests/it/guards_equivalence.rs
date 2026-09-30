@@ -44,6 +44,31 @@ fn generated_guards_match_rust() {
         for x in [None, Some(10), Some(12), Some(13), Some(u32::MAX - 1)] {
             cases.push(case!(guards::big_even(x)));
         }
+        for rate in [Rate::Standard, Rate::Reduced, Rate::Exempt] {
+            for amount in [0, 5, 6] {
+                cases.push(case!(guards::wild_after(rate, amount)));
+            }
+        }
+        for n in [0, 4, 5, 9, 10, 255] {
+            for strict in [true, false] {
+                cases.push(case!(guards::overlap(n, strict)));
+            }
+        }
+        for state in [State::Open, State::Paid, State::Closed] {
+            for n in [0, 50, 55, 56, 255] {
+                cases.push(case!(guards::guarded_overflow(state, n)));
+            }
+        }
+        for a in [true, false] {
+            for b in [true, false] {
+                for n in [0, 3, 4] {
+                    cases.push(case!(guards::flags(a, b, n)));
+                }
+            }
+        }
+        for x in [None, Some(0), Some(7), Some(8)] {
+            cases.push(case!(guards::only_in_guard(x)));
+        }
         for s in ["", "a", "ab", "abc", "abcdefghi", "éé"] {
             cases.push(case!(guards::classify(s)));
         }

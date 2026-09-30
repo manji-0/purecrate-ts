@@ -34,6 +34,9 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
         Expr::Return(_) | Expr::Break | Expr::Continue => true,
         Expr::Seq { then, .. } | Expr::Let { then, .. } => ends_in_jump(then),
         Expr::If { then, else_, .. } => expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_),
+        // Printed as a `switch` whose `default` returns, or an `if` chain
+        // ending in `else`: it jumps when every arm does.
+        Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends_in_jump(&a.body)),
         _ => false,
     }
 }
@@ -297,6 +300,7 @@ pub(crate) fn emit_switch_in(
     sink: Sink,
     out: &mut String,
 ) {
+    assert!(arms.iter().all(|a| a.guard.is_none()), "guards are lowered in check::accept");
     let pad = "  ".repeat(indent);
     let pad1 = "  ".repeat(indent + 1);
     let subject = if is_place(scrutinee) {

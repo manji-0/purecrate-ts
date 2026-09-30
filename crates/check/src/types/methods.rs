@@ -362,8 +362,8 @@ impl<'d, 'a> Typer<'d, 'a> {
         let two = |some_pat: Pattern, some_body: Expr, none_body: Expr| Expr::Match {
             scrutinee: Box::new(Expr::Var(opt.clone())),
             arms: vec![
-                Arm { pattern: Pattern::OptionSome(Box::new(some_pat)), body: some_body },
-                Arm { pattern: Pattern::OptionNone, body: none_body },
+                Arm { guard: None, pattern: Pattern::OptionSome(Box::new(some_pat)), body: some_body },
+                Arm { guard: None, pattern: Pattern::OptionNone, body: none_body },
             ],
         };
         let mut eager_let: Option<(Name, Option<Ty>, Expr)> = None;

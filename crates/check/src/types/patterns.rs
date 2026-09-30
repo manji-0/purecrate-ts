@@ -20,11 +20,13 @@ impl<'d, 'a> Typer<'d, 'a> {
             .map(|arm| {
                 let depth = self.scopes.len();
                 self.bind(&arm.pattern, st.as_ref());
+                let guard = arm.guard.as_ref().map(|g| self.expr(g, Some(&Ty::bool())).0);
                 let hint = want.cloned().or_else(|| result.clone());
                 let (body, t) = self.expr(&arm.body, hint.as_ref());
                 self.scopes.truncate(depth);
                 result = join(result.take(), t);
                 Arm {
+                    guard,
                     pattern: self.lit_pattern(&arm.pattern, st.as_ref()),
                     body,
                 }
@@ -36,6 +38,22 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let tys = ts.iter().map(|t| self.norm(t)).collect();
                 return (crate::tuple::lower(self.defs, scrutinee, tys, arms, &mut self.fresh), result);
             }
+        }
+        // Guards are tested in the same decision tree, a single value as a
+        // tuple of one.
+        if let Some(t) = st.as_ref().filter(|_| arms.iter().any(|a| a.guard.is_some())) {
+            let arms = arms
+                .into_iter()
+                .map(|a| Arm {
+                    pattern: match a.pattern {
+                        Pattern::Wildcard => Pattern::Wildcard,
+                        p => Pattern::Tuple(vec![p]),
+                    },
+                    ..a
+                })
+                .collect();
+            let scrutinee = Expr::Tuple(vec![scrutinee]);
+            return (crate::tuple::lower(self.defs, scrutinee, vec![t.clone()], arms, &mut self.fresh), result);
         }
         (
             Expr::Match {

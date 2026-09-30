@@ -89,3 +89,14 @@ fn a_match_on_bool_names_both_or_ends_in_a_wildcard() {
     assert_rejects("pub fn f(b: bool) -> u32 { match b { true => 1 } }", "match on `bool` is missing `false`");
     assert_rejects("pub fn f(x: u32) -> u32 { match x { true => 1, _ => 0 } }", "`bool` patterns do not match a value of type `u32`");
 }
+
+#[test]
+fn a_guarded_arm_covers_nothing() {
+    assert_rejects("pub fn f(o: Option<u32>) -> u32 { match o { Some(v) if v > 3 => 1, None => 0 } }", "match on `Option` is missing `Some`");
+    assert_clean("pub fn f(o: Option<u32>) -> u32 { match o { Some(v) if v > 3 => 1, Some(_) => 2, None => 0 } }");
+    assert_clean("pub fn f(n: u32) -> u32 { match n { m if m > 3 => 1, _ => 0 } }");
+    assert_rejects(
+        "fn g(x: u32) -> Option<u32> { Some(x) }\npub fn f(o: Option<u32>) -> Option<u32> { match o { Some(v) if g(v)? > 3 => Some(1), _ => Some(2) } }",
+        "`?` or `return` inside a match guard is not in v0",
+    );
+}
