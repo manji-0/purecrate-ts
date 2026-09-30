@@ -230,6 +230,12 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             }
             Item::Fn(f) if f.owner.is_none() => out.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
+            Item::Const(c) => out.push_str(&format!(
+                "export const {name}: {ty} = {value};\n",
+                name = c.name.as_str(),
+                ty = emit_ty(&c.ty),
+                value = emit_expr(&c.value, 0)
+            )),
         }
     }
     imports::prune_unused(&out)
@@ -1026,6 +1032,22 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
             emit_expr(then, indent),
             emit_expr(else_, indent)
         ),
+        // Variant names are identifiers other than `__proto__` (checked), so
+        // an object literal is a plain table.
+        Expr::Call {
+            callee: purecrate_ir::Callee::Discriminant { to, table },
+            args,
+        } => {
+            let entries = table
+                .iter()
+                .map(|(v, d)| format!("{}: {}", v.as_str(), emit_lit(&Lit::Int { value: *d, ty: Some(*to) })))
+                .collect::<Vec<_>>()
+                .join(", ");
+            // `kind` may be typed `string` (a variant literal widens), and a
+            // consumer may set `noUncheckedIndexedAccess`: hence both casts.
+            let t = to.ts_name();
+            format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
+        }
         Expr::Call { callee, args } => {
             let c = match callee {
                 purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
@@ -1047,6 +1069,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Int { ty, op } => {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
+                purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::VecLen
@@ -1138,6 +1161,7 @@ fn emit_expr(expr: &Expr, indent: usize) -> String {
         }
         Expr::Return(e) => format!("(() => {{ return {}; }})()", emit_expr(e, indent)),
         Expr::Unreachable => "assertNever(undefined as never)".into(),
+        Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
     }
 }
 
@@ -1444,6 +1468,9 @@ impl Refs {
                     }
                     Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
                     Callee::UuidParse | Callee::UuidNil => self.uuid_value = true,
+                    Callee::Discriminant { to, .. } => {
+                        self.nums.insert(to.ts_name().to_string());
+                    }
                     _ => {}
                 }
                 args.iter().for_each(|a| self.expr(krate, a));
@@ -1518,7 +1545,11 @@ impl Refs {
                 purecrate_ir::Lit::Char(_) => self.char_type = true,
                 _ => {}
             },
+            Expr::Var(n) if is_const(krate, n.as_str()) => {
+                self.values.insert(n.as_str().to_string());
+            }
             Expr::Var(_) => {}
+            Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
         }
     }
 
@@ -1542,6 +1573,10 @@ fn private_in(krate: &Crate, ty: &str, name: &str) -> bool {
             && f.name.as_str() == name
             && f.owner.as_ref().is_some_and(|o| o.as_str() == ty))
     })
+}
+
+fn is_const(krate: &Crate, name: &str) -> bool {
+    krate.items.iter().any(|item| matches!(item, Item::Const(c) if c.name.as_str() == name))
 }
 
 fn is_free_fn(krate: &Crate, name: &str) -> bool {
@@ -1574,12 +1609,24 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
                     .for_each(|m| refs.fn_sig_and_body(krate, m));
             }
             Item::Alias(al) => refs.ty(&al.ty),
+            Item::Const(c) => {
+                refs.ty(&c.ty);
+                refs.expr(krate, &c.value);
+            }
             Item::Fn(f) if f.owner.is_none() => refs.fn_sig_and_body(krate, f),
             Item::Fn(_) => {}
         }
     }
 
-    let elsewhere = |name: &String| Name::new(name.clone()).file_stem() != stem;
+    // A const lives in `consts.ts`, not in a file named after it.
+    let file_of = |name: &String| {
+        if is_const(krate, name) {
+            purecrate_ir::CONSTS_STEM.to_string()
+        } else {
+            Name::new(name.clone()).file_stem()
+        }
+    };
+    let elsewhere = |name: &String| file_of(name) != stem;
     let mut out = String::new();
     if refs.never {
         out.push_str("import { assertNever } from \"./assert-never.ts\";\n");
@@ -1612,10 +1659,7 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
         out.push_str(&format!("import {{ {} }} from \"./str.ts\";\n", str_names.join(", ")));
     }
     for v in refs.values.iter().filter(|v| elsewhere(v)) {
-        out.push_str(&format!(
-            "import {{ {v} }} from \"./{s}.ts\";\n",
-            s = Name::new(v.clone()).file_stem()
-        ));
+        out.push_str(&format!("import {{ {v} }} from \"./{s}.ts\";\n", s = file_of(v)));
     }
     for (ty, name) in refs.privates.iter().filter(|(ty, _)| elsewhere(ty)) {
         out.push_str(&format!(
@@ -1739,6 +1783,7 @@ export const step = (state: State, event: Event): State => {
                 Variant {
                     name: Name::new("Move"),
                     fields: VariantFields::Tuple(vec![Ty::i32(), Ty::i32()]),
+                    discriminant: None,
                 },
                 Variant {
                     name: Name::new("Paint"),
@@ -1746,8 +1791,10 @@ export const step = (state: State, event: Event): State => {
                         name: Name::new("color"),
                         ty: Ty::i32(),
                     }]),
+                    discriminant: None,
                 },
             ],
+            repr: None,
         });
         let run = Item::Fn(Fn {
             vis: Vis::Pub,

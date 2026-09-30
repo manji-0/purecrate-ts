@@ -273,6 +273,9 @@ impl CharMethod {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
+    /// `e as T` on a fieldless enum: each variant's discriminant as `to`,
+    /// looked up by `kind`.
+    Discriminant { to: IntTy, table: Vec<(Name, i128)> },
     /// A local binding holding a closure. `check::accept` rewrites
     /// `Callee::Fn` to this when a binding shadows the item.
     Local(Name),
@@ -509,6 +512,13 @@ pub enum Expr {
         base: Box<Expr>,
         index: Box<Expr>,
     },
+    /// `expr as to`. Only a fieldless enum to an integer that holds every
+    /// discriminant is accepted; `check::accept` rewrites it into a
+    /// `Callee::Discriminant` call, so none reaches emit.
+    Cast {
+        expr: Box<Expr>,
+        to: Ty,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
     /// `|params| body`. Captured bindings are never `let mut`, so capturing
@@ -624,6 +634,7 @@ impl Expr {
             | Expr::Return(base)
             | Expr::Try { expr: base, .. } => vec![base],
             Expr::Index { base, index } => vec![base, index],
+            Expr::Cast { expr, .. } => vec![expr],
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
@@ -661,6 +672,7 @@ impl Expr {
             | Expr::Return(base)
             | Expr::Try { expr: base, .. } => vec![base],
             Expr::Index { base, index } => vec![base, index],
+            Expr::Cast { expr, .. } => vec![expr],
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],

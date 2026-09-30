@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use purecrate_ir::{Alias, Crate, Enum, Fn, Item, Struct};
+use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Struct};
 
 /// Crate-level definitions by name.
 pub struct Defs<'a> {
@@ -9,6 +9,7 @@ pub struct Defs<'a> {
     pub aliases: HashMap<&'a str, &'a Alias>,
     pub free_fns: HashMap<&'a str, &'a Fn>,
     pub methods: HashMap<(&'a str, &'a str), &'a Fn>,
+    pub consts: HashMap<&'a str, &'a Const>,
 }
 
 impl<'a> Defs<'a> {
@@ -19,6 +20,7 @@ impl<'a> Defs<'a> {
             aliases: HashMap::new(),
             free_fns: HashMap::new(),
             methods: HashMap::new(),
+            consts: HashMap::new(),
         };
         for item in &krate.items {
             match item {
@@ -30,6 +32,9 @@ impl<'a> Defs<'a> {
                 }
                 Item::Alias(a) => {
                     d.aliases.insert(a.name.as_str(), a);
+                }
+                Item::Const(c) => {
+                    d.consts.insert(c.name.as_str(), c);
                 }
                 Item::Fn(f) => match &f.owner {
                     Some(o) => {

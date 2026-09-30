@@ -87,7 +87,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             (Item::Enum(e), WireSchema::Arktype) => out.push_str(&ark_enum(e)),
             (Item::Struct(s), _) => out.push_str(&struct_schema(schema, s)),
             (Item::Enum(e), _) => out.push_str(&enum_schema(schema, e.name.as_str(), &e.variants)),
-            (Item::Alias(_) | Item::Fn(_), _) => {}
+            (Item::Alias(_) | Item::Fn(_) | Item::Const(_), _) => {}
         }
     }
     out.push_str(&to_json(krate));
@@ -502,7 +502,7 @@ fn to_json(krate: &Crate) -> String {
                 }
                 out.push_str("    }\n  },\n");
             }
-            Item::Alias(_) | Item::Fn(_) => {}
+            Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
         }
     }
     out.push_str("} as const;\n");

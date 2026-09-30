@@ -70,6 +70,8 @@ pub enum Reason {
     NumericOp,
     /// `==` or `<` on a type JS would compare differently (by reference).
     Comparison,
+    /// A `const` or discriminant that is not a v0 const expression.
+    ConstExpr,
     NonExhaustive,
     NestedOption,
     Position,
@@ -138,6 +140,7 @@ impl Reason {
             Reason::NeedsAnnotation => "check/needs-annotation",
             Reason::NumericOp => "check/numeric-op",
             Reason::Comparison => "check/comparison",
+            Reason::ConstExpr => "check/const-expr",
             Reason::NonExhaustive => "check/non-exhaustive",
             Reason::NestedOption => "check/nested-option",
             Reason::Position => "check/position",

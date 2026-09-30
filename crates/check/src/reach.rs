@@ -127,6 +127,7 @@ impl Refs {
                 self.ty(&f.ret);
                 self.expr(&f.body);
             }
+            Item::Const(c) => self.expr(&c.value),
         }
     }
 
@@ -189,7 +190,8 @@ impl Refs {
                     | Callee::CharFromU32
                     | Callee::Char(_)
                     | Callee::UuidParse
-                    | Callee::UuidNil => {}
+                    | Callee::UuidNil
+                    | Callee::Discriminant { .. } => {}
                 }
                 args.iter().for_each(|a| self.expr(a));
             }
@@ -264,7 +266,13 @@ impl Refs {
                 self.expr(right);
             }
             Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().for_each(|x| self.expr(x)),
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
+            Expr::Cast { expr, to } => {
+                self.ty(to);
+                self.expr(expr);
+            }
+            // A const; `rename` keeps local names off every item name.
+            Expr::Var(n) => self.name(n),
+            Expr::Lit(_) | Expr::Unreachable => {}
         }
     }
 }

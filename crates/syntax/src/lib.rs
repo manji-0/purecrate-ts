@@ -126,7 +126,9 @@ mod tests {
         assert_eq!(reason(&body("format!(\"{x}\"); x")), (Reason::Macro, Some("format".into())));
         assert_eq!(reason(&body("let v = vec![x; 2]; x")), (Reason::Macro, Some("vec".into())));
         assert_eq!(reason(&body("std::cmp::max(x, 1)")), (Reason::ExternalPath, Some("std::cmp::max".into())));
-        assert_eq!(reason(&body("x as i32")).0, Reason::Cast);
+        assert_eq!(reason(&body("x as *const i32")).0, Reason::Cast);
+        assert_eq!(reason("#[repr(C)]\npub enum E { A }").1, Some("repr".into()));
+        assert_eq!(reason("pub enum E { A(i32) = 1, B }").1, Some("discriminant".into()));
         assert_eq!(reason(&body("while x > 0 {} x")).0, Reason::Loop);
         assert_eq!(
             reason("pub enum E { A { n: i32 } } pub fn f(e: E) -> E { E::A { n: 1, ..e } }").0,

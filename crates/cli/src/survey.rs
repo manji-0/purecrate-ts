@@ -293,6 +293,10 @@ fn references(item: &Item) -> Vec<Ref> {
             ty_refs(&f.ret, &mut out);
             expr_refs(&f.body, &mut out);
         }
+        Item::Const(c) => {
+            ty_refs(&c.ty, &mut out);
+            expr_refs(&c.value, &mut out);
+        }
     }
     out
 }

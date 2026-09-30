@@ -443,7 +443,7 @@ fn ts_printers(krate: &Crate) -> String {
                     "const show${name} = (v) => {{\n  switch (v.kind) {{\n{arms}    default: return `not a {name}: ${{String(v.kind)}}`;\n  }}\n}};\n"
                 ));
             }
-            Item::Alias(_) | Item::Fn(_) => {}
+            Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
         }
     }
     out

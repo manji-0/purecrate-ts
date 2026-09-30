@@ -230,6 +230,7 @@ impl Renamer {
             },
             Expr::Tuple(xs) => Expr::Tuple(self.all(xs, env)),
             Expr::Array(xs) => Expr::Array(self.all(xs, env)),
+            Expr::Cast { expr, to } => Expr::Cast { expr: self.boxed(expr, env), to },
             Expr::Binary { op, left, right } => Expr::Binary {
                 op,
                 left: self.boxed(left, env),

@@ -38,9 +38,16 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
                         VariantFields::Tuple(tys) => tys.iter().for_each(|t| cx.ty(t)),
                         VariantFields::Struct(fs) => fs.iter().for_each(|f| cx.ty(&f.ty)),
                     }
+                    if let Some(d) = &v.discriminant {
+                        cx.expr(d);
+                    }
                 }
             }
             Item::Alias(a) => cx.ty(&a.ty),
+            Item::Const(c) => {
+                cx.ty(&c.ty);
+                cx.expr(&c.value);
+            }
             Item::Fn(f) => {
                 if let Some(owner) = &f.owner {
                     if !defs.structs.contains_key(owner.as_str()) && !defs.enums.contains_key(owner.as_str()) {
@@ -184,6 +191,7 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(expr);
                 crate::locate(&mut self.out[before..], *at);
             }
+            Expr::Var(n) if !self.in_scope(n.as_str()) && self.defs.consts.contains_key(n.as_str()) => {}
             Expr::Var(n) if !self.in_scope(n.as_str()) => {
                 self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", n.as_str()))
             }
@@ -250,6 +258,10 @@ impl<'a> Cx<'_, 'a> {
             Expr::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            Expr::Cast { expr, to } => {
+                self.ty(to);
+                self.expr(expr);
             }
             Expr::Construct { ty, variant, fields, base } => {
                 self.construct(ty, variant.as_ref(), fields, base.is_some());
@@ -376,6 +388,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::Char(m) => self.arity(&format!("`char::{}`", m.name()), 1 + m.args(), argc),
             Callee::UuidParse => self.arity("`Uuid::parse_str`", 1, argc),
             Callee::UuidNil => self.arity("`Uuid::nil`", 0, argc),
+            Callee::Discriminant { .. } => self.arity("`as`", 1, argc),
         }
     }
 
@@ -453,6 +466,15 @@ impl<'a> Cx<'_, 'a> {
 
     fn pattern(&mut self, pattern: &Pattern, bound: &mut Vec<String>) {
         match pattern {
+            // Rust matches a const's value here; the IR would bind a name.
+            Pattern::Var(n) if self.defs.consts.contains_key(n.as_str()) => self.error_about(
+                Reason::UnsupportedPattern,
+                n.as_str(),
+                format!(
+                    "`{}` is a const: matching against a const is not in v0; compare with `==` or write its value",
+                    n.as_str()
+                ),
+            ),
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),

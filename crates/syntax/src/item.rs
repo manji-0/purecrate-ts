@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Enum, Field, Fn, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
+    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{Fields as SynFields, Item as SynItem, Visibility};
 
-use crate::expr::lower_block;
+use crate::expr::{lower_block, lower_expr};
 use crate::ty::lower_type;
 
 /// 1-based line and column in the source text.
@@ -178,6 +178,7 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
         SynItem::Impl(i) => &i.attrs,
         SynItem::Use(u) => &u.attrs,
         SynItem::Mod(m) => &m.attrs,
+        SynItem::Const(c) => &c.attrs,
         _ => &[],
     }
 }
@@ -224,6 +225,7 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
         SynItem::Struct(s) => vec![LineCol::of(s.ident.span())],
         SynItem::Fn(f) => vec![LineCol::of(f.sig.ident.span())],
         SynItem::Type(t) => vec![LineCol::of(t.ident.span())],
+        SynItem::Const(c) => vec![LineCol::of(c.ident.span())],
         // One per lowered method; `type Error` of a `TryFrom` impl is not one.
         SynItem::Impl(imp) => imp
             .items
@@ -247,7 +249,7 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
 
 fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
     match item {
-        SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(&e)?)]),
+        SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(cx, &e)?)]),
         SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
         SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block)?)]),
         SynItem::Type(t) => {
@@ -262,6 +264,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
             }
         }
         SynItem::Impl(imp) => lower_impl(cx, imp),
+        SynItem::Const(c) => Ok(vec![Item::Const(lower_const(cx, &c)?)]),
         SynItem::Use(_) => Ok(vec![]),
         SynItem::Mod(_) => Err(ParseError::new(
             Reason::Module,
@@ -272,7 +275,44 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
     }
 }
 
-fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
+/// `const NAME: T = expr;`, folded by `check::accept`. `const _` and
+/// generic consts are not in v0.
+fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
+    if has_type_generics(&c.generics) || !c.generics.params.is_empty() {
+        return Err(ParseError::new(Reason::Generics, "generic consts are not in v0"));
+    }
+    if c.ident == "_" {
+        return Err(ParseError::new(Reason::UnsupportedItem, "`const _` is not in v0").detail("const"));
+    }
+    Ok(Const {
+        vis: lower_vis(&c.vis),
+        name: Name::new(c.ident.to_string()),
+        ty: lower_type(&c.ty)?,
+        value: lower_expr(cx, &c.expr)?,
+    })
+}
+
+/// `#[repr(u8)]` and the other integer reprs; any other `repr` changes
+/// nothing TS can follow and is refused.
+fn enum_repr(attrs: &[syn::Attribute]) -> Result<Option<IntTy>, ParseError> {
+    let mut repr = None;
+    for attr in attrs.iter().filter(|a| a.path().is_ident("repr")) {
+        let id: syn::Ident = attr.parse_args().map_err(|_| {
+            ParseError::new(Reason::UnsupportedItem, "only `#[repr(<integer>)]` is in v0 on an enum")
+                .detail("repr")
+                .or_at(attr.span())
+        })?;
+        let ty = IntTy::ALL.into_iter().find(|t| id == t.as_str()).ok_or_else(|| {
+            ParseError::new(Reason::UnsupportedItem, format!("`#[repr({id})]` is not in v0; use an integer type"))
+                .detail("repr")
+                .or_at(attr.span())
+        })?;
+        repr = Some(ty);
+    }
+    Ok(repr)
+}
+
+fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
     if has_type_generics(&e.generics) {
         return Err(ParseError::new(Reason::Generics, "generic enums are not in v0"));
     }
@@ -283,19 +323,34 @@ fn lower_enum(e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         )
         .detail("empty-enum"));
     }
+    let fieldless = e.variants.iter().all(|v| matches!(v.fields, SynFields::Unit));
     let mut variants = Vec::new();
     for v in &e.variants {
         reject_attrs(&v.attrs)?;
         reject_field_attrs(&v.fields)?;
+        let discriminant = match &v.discriminant {
+            Some((_, expr)) if fieldless => Some(lower_expr(cx, expr)?),
+            Some((_, expr)) => {
+                return Err(ParseError::new(
+                    Reason::UnsupportedItem,
+                    "discriminants are in v0 only on an enum whose variants have no fields",
+                )
+                .detail("discriminant")
+                .or_at(expr.span()))
+            }
+            None => None,
+        };
         variants.push(Variant {
             name: Name::new(v.ident.to_string()),
             fields: lower_fields(&v.fields)?,
+            discriminant,
         });
     }
     Ok(Enum {
         vis: lower_vis(&e.vis),
         name: Name::new(e.ident.to_string()),
         variants,
+        repr: enum_repr(&e.attrs)?,
     })
 }
 

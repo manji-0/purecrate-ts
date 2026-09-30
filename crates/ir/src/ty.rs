@@ -105,6 +105,16 @@ impl IntTy {
         matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64)
     }
 
+    /// Width in Rust; `usize` is 64 bits, though `bounds` stops at 2^53−1.
+    pub fn bits(self) -> u32 {
+        match self {
+            IntTy::I8 | IntTy::U8 => 8,
+            IntTy::I16 | IntTy::U16 => 16,
+            IntTy::I32 | IntTy::U32 => 32,
+            IntTy::I64 | IntTy::U64 | IntTy::Usize => 64,
+        }
+    }
+
     /// Printed as TS `bigint` rather than `number`.
     pub fn is_big(self) -> bool {
         matches!(self, IntTy::I64 | IntTy::U64)

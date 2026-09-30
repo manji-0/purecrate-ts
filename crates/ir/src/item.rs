@@ -27,6 +27,9 @@ pub enum VariantFields {
 pub struct Variant {
     pub name: Name,
     pub fields: VariantFields,
+    /// `A = 1 << 3` on a fieldless enum: a const expression, folded to an
+    /// integer `Lit` by `check::accept`.
+    pub discriminant: Option<Expr>,
 }
 
 /// Field name of a newtype's single element (`struct Id(u32)` → `id.0`).
@@ -69,6 +72,23 @@ pub struct Enum {
     pub vis: Vis,
     pub name: Name,
     pub variants: Vec<Variant>,
+    /// `#[repr(u8)]` and the like: the type of the discriminants, `isize`
+    /// without one (range checked as `i64`).
+    pub repr: Option<crate::ty::IntTy>,
+}
+
+/// The one file that holds every `const` of a crate.
+pub const CONSTS_STEM: &str = "consts";
+
+/// `const NAME: T = expr;` at crate level. `check::accept` folds `value` to
+/// a `Lit` of `ty`: rustc evaluates it at compile time, so the TS holds the
+/// result, not the computation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Const {
+    pub vis: Vis,
+    pub name: Name,
+    pub ty: Ty,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,6 +121,7 @@ pub enum Item {
     Enum(Enum),
     Alias(Alias),
     Fn(Fn),
+    Const(Const),
 }
 
 impl Item {
@@ -110,6 +131,7 @@ impl Item {
             Item::Enum(e) => &e.name,
             Item::Alias(a) => &a.name,
             Item::Fn(f) => &f.name,
+            Item::Const(c) => &c.name,
         }
     }
 
@@ -119,13 +141,16 @@ impl Item {
             Item::Enum(e) => e.vis,
             Item::Alias(a) => a.vis,
             Item::Fn(f) => f.vis,
+            Item::Const(c) => c.vis,
         }
     }
 
     /// File that owns this concept after flatten.
-    /// Methods live in the owner's file.
+    /// Methods live in the owner's file; every const lives in `consts.ts`,
+    /// so `MAX_LEN` and `fn max_len` do not meet.
     pub fn file_stem(&self) -> String {
         match self {
+            Item::Const(_) => CONSTS_STEM.to_string(),
             Item::Fn(f) => match &f.owner {
                 Some(owner) => owner.file_stem(),
                 None => f.name.file_stem(),

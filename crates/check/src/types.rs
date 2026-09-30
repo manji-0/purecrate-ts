@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Crate, Expr, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, StrMethod, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
@@ -28,6 +28,31 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
         .enumerate()
         .map(|(i, item)| match item {
             Item::Fn(f) => Item::Fn(Typer::new(&defs, i, &mut out).func(f)),
+            Item::Const(c) => match crate::consts::fold(&defs, &c.ty, &c.value) {
+                Ok(lit) => Item::Const(Const { value: Expr::Lit(lit), ..c.clone() }),
+                Err(m) => {
+                    out.push(Diagnostic::at(i, Reason::ConstExpr, format!("const `{}`: {m}", c.name.as_str())));
+                    item.clone()
+                }
+            },
+            Item::Enum(e) if e.variants.iter().any(|v| v.discriminant.is_some()) || e.repr.is_some() => {
+                match crate::consts::discriminants(&defs, e) {
+                    Ok(table) => {
+                        let it = e.repr.unwrap_or(IntTy::I64);
+                        let mut folded = e.clone();
+                        for (v, (_, d)) in folded.variants.iter_mut().zip(table) {
+                            if v.discriminant.is_some() {
+                                v.discriminant = Some(Expr::Lit(Lit::Int { value: d, ty: Some(it) }));
+                            }
+                        }
+                        Item::Enum(folded)
+                    }
+                    Err(m) => {
+                        out.push(Diagnostic::at(i, Reason::ConstExpr, m));
+                        item.clone()
+                    }
+                }
+            }
             other => other.clone(),
         })
         .collect();
@@ -196,6 +221,62 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
+    /// `e as T`: only a fieldless enum to an integer type that holds every
+    /// discriminant, looked up in a table. Everything else keeps its old
+    /// rejection.
+    fn cast(&mut self, inner: &Expr, to: &Ty, want: Option<&Ty>) -> Typed {
+        let (e, t) = self.expr(inner, None);
+        let target = match to {
+            Ty::Prim(p) => p.int(),
+            _ => None,
+        };
+        let enum_def = t.as_ref().and_then(|t| match self.norm(t) {
+            Ty::Named(n) => self.defs.enums.get(n.as_str()).copied(),
+            _ => None,
+        });
+        match (enum_def, target) {
+            (Some(en), Some(it)) if crate::consts::is_fieldless(en) => {
+                match crate::consts::discriminants(self.defs, en) {
+                    Ok(table) => {
+                        let (lo, hi) = it.bounds();
+                        if let Some((v, d)) = table.iter().find(|(_, d)| !(lo..=hi).contains(d)) {
+                            self.error(Reason::Cast, format!(
+                                "`{} as {}` would not hold `{}::{}` = {d}; cast to a type that holds every discriminant",
+                                en.name.as_str(),
+                                it.as_str(),
+                                en.name.as_str(),
+                                v.as_str()
+                            ));
+                        }
+                        // `E::A as T` is a constant.
+                        let known = match inner.unpositioned() {
+                            Expr::Construct { variant: Some(v), .. } => table.iter().find(|(n, _)| n == v).map(|(_, d)| *d),
+                            _ => None,
+                        };
+                        let folded = match known {
+                            Some(value) => Expr::Lit(Lit::Int { value, ty: Some(it) }),
+                            None => Expr::Call {
+                                callee: Callee::Discriminant { to: it, table },
+                                args: vec![e],
+                            },
+                        };
+                        (folded, self.expect(want, Some(to.clone())))
+                    }
+                    // Reported once, on the enum.
+                    Err(_) => (e, None),
+                }
+            }
+            _ => {
+                let what = t.as_ref().map(show).unwrap_or_else(|| "?".into());
+                self.error(Reason::Cast, format!(
+                    "`{what} as {}` is not in v0: `as` reads only a fieldless enum's discriminant; widen integers with `T::from(x)`",
+                    show(to)
+                ));
+                (e, None)
+            }
+        }
+    }
+
     fn func(mut self, f: &Fn) -> Fn {
         self.ret = f.ret.clone();
         self.scopes = f
@@ -289,9 +370,13 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Lit(lit) => self.lit(lit, false, want),
             Expr::Var(n) => {
-                let t = self.lookup(n.as_str());
+                let t = self.lookup(n.as_str()).or_else(|| {
+                    let bound = self.scopes.iter().any(|(s, _)| s == n.as_str());
+                    (!bound).then(|| self.defs.consts.get(n.as_str()).map(|c| c.ty.clone())).flatten()
+                });
                 (expr.clone(), self.expect(want, t))
             }
+            Expr::Cast { expr: inner, to } => self.cast(inner, to, want),
             Expr::Let {
                 name,
                 mutable,
@@ -1368,6 +1453,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Some(Ty::result(Ty::Prim(Prim::Uuid), Ty::Prim(Prim::UuidError))),
             ),
             Callee::UuidNil => (Vec::new(), Some(Ty::Prim(Prim::Uuid))),
+            Callee::Discriminant { to, .. } => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::from(*to)))),
         };
         let e = Expr::Call {
             callee: callee.clone(),

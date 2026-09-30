@@ -3,6 +3,7 @@
 //! indices to source locations.
 
 mod complete;
+mod consts;
 mod defs;
 mod exhaustive;
 mod lift;

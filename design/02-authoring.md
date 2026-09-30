@@ -37,6 +37,8 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
+| Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
+| Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
 | Owned trees | `Box<T>` (also `Arc<T>`, `Mutex<T>`) erased to `T` | self-referential type alias, with a comment |
 | Invariants | non-`pub` fields + a checked public constructor | closed type, no `of` ([01 §4](./01-equivalence.md#4-closed-types)) |
 
@@ -97,7 +99,7 @@ Reserved by the output: `Result`, `Int`, `Str`, `Char`, the numeric brands, `ass
 
 ### 3.4 Public surface
 
-`pub` items become exports with no attribute: `pub struct` / `enum` / `type` / `fn`, and `pub fn` in inherent `impl`s (receiver becomes the first parameter). Non-public items reachable from these are generated without `export`. `pub(crate)` / `pub(super)` count as private. Not translated: `const`, `static` (use functions), trait definitions and trait impls, except: `impl TryFrom<T> for X` becomes the method `X.try_from` (it must have `type Error` and `fn try_from` only), and `impl Display` / `impl std::error::Error` are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
+`pub` items become exports with no attribute: `pub struct` / `enum` / `type` / `fn`, and `pub fn` in inherent `impl`s (receiver becomes the first parameter). Non-public items reachable from these are generated without `export`. `pub(crate)` / `pub(super)` count as private. `pub const` is exported from `consts.ts`, which holds every const of the crate, so `MAX_LEN` and `fn max_len` do not collide. Not translated: `static`, associated consts in `impl` blocks (use a crate-level `const`), trait definitions and trait impls, except: `impl TryFrom<T> for X` becomes the method `X.try_from` (it must have `type Error` and `fn try_from` only), and `impl Display` / `impl std::error::Error` are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
 
 ### 3.5 `match` arms name variants
 
@@ -137,7 +139,8 @@ Only `Option`, `Result`, `Vec`, and the erased `Box`/`Arc`/`Mutex` are type cons
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
-| `const N: u32 = 3;` | `fn n() -> u32 { 3 }` |
+| `static N: u32 = 3;`, `impl T { const N: u32 = 3; }` | a crate-level `const N: u32 = 3;` |
+| `x as u32` on an integer | `u32::from(x)` where std widens; `as` reads only a fieldless enum's discriminant |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `s < t` on `String` | an enum or integer until code-point comparison exists |
 | `for x in xs`, `while`, `loop`, `break` | range `for` with early `return`, or recursion |

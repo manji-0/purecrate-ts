@@ -34,7 +34,8 @@ The constraints match a functional style, so lean into it rather than fighting i
 
 ## Accepted, at a glance
 
-- Integers `i8`–`i32`, `u8`–`u32` (`Int.*`, checked), `i64`/`u64` as `bigint`, `f32`/`f64`, `usize` (safe-integer range). Operators `+ - * / %`, comparisons, bitwise `& | ^ !` and shifts `<< >>` (with `op=`); a shift amount outside `0..bits` panics as in Rust. Not bitwise on `usize` (53 bits in TS) or on `bool` (write `&&`, `||`, `!=`). Widening only via `i64::from(x)` where std has `From`. No `as`, `.into()`, `try_from` (except the serde form above).
+- Integers `i8`–`i32`, `u8`–`u32` (`Int.*`, checked), `i64`/`u64` as `bigint`, `f32`/`f64`, `usize` (safe-integer range). Operators `+ - * / %`, comparisons, bitwise `& | ^ !` and shifts `<< >>` (with `op=`); a shift amount outside `0..bits` panics as in Rust. Not bitwise on `usize` (53 bits in TS) or on `bool` (write `&&`, `||`, `!=`). Widening only via `i64::from(x)` where std has `From`. `as` only reads a fieldless enum's discriminant (`p as u64`, the target type must hold every discriminant); no `.into()`, `try_from` (except the serde form above).
+- `const NAME: T = expr;` at crate level (`T` an integer, float, `bool`, `char`, `&str`): literals, other consts, `E::A as T`, and integer operators, folded at check time into one `consts.ts`, so `MAX_LEN` and `fn max_len` can coexist. Flags are an enum with discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, Send = 1 << 2 }`) plus consts for sets (`const DEFAULT: u64 = Perm::View as u64 | Perm::Send as u64;`). A const cannot be used as a pattern (`Some(MAX) =>`); compare with `==`.
 - **std methods are an allow-list**, and this is all of it: on strings `len`, `is_empty`, `starts_with`/`ends_with`/`contains`, `as_bytes`, `as_str`; on `Vec` and `as_bytes()` results, indexing, `len`, and `is_empty`; on `Option`, `is_some` and `is_none`; on `char`, the ASCII methods (`is_ascii_*`, `to_ascii_*case`, `eq_ignore_ascii_case`), `is_digit`/`to_digit`, `len_utf8`. Everything else (`unwrap_or`, `is_ok`, `max`, `pow`, `checked_*`, `div_euclid`, `from_be_bytes`, `u8::is_ascii_digit`, …) is `[expr/method-call]`, and the message lists what that receiver allows.
 - `derive(Debug, Clone, Copy, PartialEq, Eq)` pass, but deriving `PartialEq` does not make `==` available on your types.
 - Strings: `String::from("…")`, `==`/`!=`, `len` (UTF-8 bytes), `is_empty`, `starts_with`/`ends_with`/`contains` with a `&str`, contents via `s.as_bytes()` indexed as `&[u8]`. A bare literal is `&str` and cannot stand where `String` is expected.
@@ -57,7 +58,8 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `format!`, `.to_string()`, `.to_owned()`, `.into()`, `clone` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)`, an `Option<String>` with a `match` |
 | `Vec::from`, `vec![x; n]`, returning `[a, b]` | `vec![a, b]` for a fixed list; a recursive enum (`enum Lines { Nil, Cons(Line, Box<Lines>) }`) for one that grows |
 | generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell` | concrete types, functions, recursive enums |
-| `const N: u32 = 3;`, `static` | `fn n() -> u32 { 3 }` |
+| `static`, `const` inside `impl` | a crate-level `const` |
+| `x as u32` on an integer | `u32::from(x)` where std widens |
 | `Option<Option<T>>`, newtype over `Option`/`()`, unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |
 | `&mut` anything | take `self`, return the new value |
 

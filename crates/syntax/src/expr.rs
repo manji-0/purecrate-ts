@@ -158,7 +158,12 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             index: Box::new(lower_expr(cx, &i.index)?),
         }),
         SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
-        SynExpr::Cast(_) => Err(ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))),
+        SynExpr::Cast(c) => Ok(Expr::Cast {
+            expr: Box::new(lower_expr(cx, &c.expr)?),
+            to: lower_type(&c.ty).map_err(|_| {
+                ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))
+            })?,
+        }),
         other => Err(ParseError::new(
             Reason::UnsupportedExpr,
             format!("unsupported expression {}", snippet(other)),

@@ -127,6 +127,7 @@ The committed golden is [examples/counter-ts](../examples/counter-ts/src).
     result.ts  assert-never.ts
     int.ts  str.ts    re-export Int / Str and brands from `purecrate`
     <concept>.ts      one per public concept, kebab-case
+    consts.ts         every `const` of the crate, folded to its value
     purecrate-wire.ts only with --schema
 ```
 

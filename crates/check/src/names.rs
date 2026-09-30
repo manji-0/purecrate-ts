@@ -68,6 +68,17 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
             continue;
         }
         match seen.get(&stem) {
+            // Consts share `consts.ts`; rustc keeps their names distinct.
+            Some(&first) if matches!(item, Item::Const(_)) && matches!(krate.items[first], Item::Const(_)) => {}
+            Some(&first) if matches!(item, Item::Const(_)) || matches!(krate.items[first], Item::Const(_)) => {
+                let other = krate.items[first].name().as_str();
+                out.push(
+                    Diagnostic::at(i, Reason::NameCollision, format!(
+                        "`{other}` and `{name}` would both be emitted as `{stem}.ts`, which holds the crate's consts"
+                    ))
+                    .also(first),
+                );
+            }
             Some(&first) => {
                 let other = krate.items[first].name().as_str();
                 let message = if other == name {
@@ -163,6 +174,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
             }
         }
         Item::Alias(a) => ident("type", &a.name),
+        Item::Const(c) => ident("const", &c.name),
         Item::Fn(f) => {
             if f.owner.is_none() {
                 ident("function", &f.name);
@@ -176,7 +188,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
         Item::Struct(s) => Some(&s.name),
         Item::Enum(e) => Some(&e.name),
         Item::Alias(a) => Some(&a.name),
-        Item::Fn(_) => None,
+        Item::Fn(_) | Item::Const(_) => None,
     };
     if let Some(n) = type_name.filter(|n| TS_TYPE_KEYWORDS.contains(&n.as_str())) {
         out.push(Diagnostic::at(
