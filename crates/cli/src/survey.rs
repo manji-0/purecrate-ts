@@ -522,7 +522,10 @@ fn count(map: &mut ByReason, causes: &[Cause]) {
     }
 }
 
-fn sorted(map: &ByReason) -> Vec<(&'static str, &(usize, BTreeMap<String, usize>))> {
+/// A reason code with its count and the count per detail.
+type ReasonRow<'a> = (&'static str, &'a (usize, BTreeMap<String, usize>));
+
+fn sorted(map: &ByReason) -> Vec<ReasonRow<'_>> {
     let mut v: Vec<_> = map.iter().map(|(k, v)| (*k, v)).collect();
     v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
     v

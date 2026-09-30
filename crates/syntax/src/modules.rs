@@ -29,10 +29,13 @@ pub struct Source<'a> {
 
 /// The root and its module files, in any order. Each item's name location
 /// comes with the index of its file.
+/// Each item's file index and name location, in item order.
+pub type ItemSpans = Vec<(usize, LineCol)>;
+
 pub fn parse_files_spanned(
     crate_name: &str,
     sources: &[Source<'_>],
-) -> Result<(Crate, Vec<(usize, LineCol)>), (usize, ParseError)> {
+) -> Result<(Crate, ItemSpans), (usize, ParseError)> {
     let files = sources
         .iter()
         .map(|s| s.text)

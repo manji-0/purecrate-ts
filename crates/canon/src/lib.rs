@@ -67,7 +67,9 @@ pub fn fixture(input: TokenStream) -> TokenStream {
         .unwrap_or_else(|e| panic!("fixture!: {module} does not parse: {e}"));
 
     let at = |p: &str| format!("concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/\", {p:?})");
-    let mut out = format!("#[allow(dead_code)]\nmod {module} {{\n");
+    // The fixture is written to the subset, which has none of the std
+    // methods clippy would suggest (`is_multiple_of`, `contains`, ..).
+    let mut out = format!("#[allow(dead_code, clippy::all)]\nmod {module} {{\n");
     for p in &paths {
         let text = std::fs::read_to_string(root.join(p)).expect("read again");
         if text.contains("serde") {

@@ -783,7 +783,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             // `i32`, whatever the left side is.
             BinOp::Shl | BinOp::Shr => {
                 let (l, lt) = self.expr(left, want);
-                let amount_hint = is_bare_int(right).then(|| Ty::Prim(Prim::I32));
+                let amount_hint = is_bare_int(right).then_some(Ty::Prim(Prim::I32));
                 let (r, rt) = self.expr(right, amount_hint.as_ref());
                 if let Some(rt) = rt.as_ref().filter(|t| **t != Ty::Never) {
                     if !matches!(self.num(rt), Some(Num::Int(_))) {

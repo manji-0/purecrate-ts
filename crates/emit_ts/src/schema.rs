@@ -3,7 +3,7 @@
 //! domain brand (`I32`, not a bare `number`). `toJson` writes the same shape
 //! back, as serde_json writes the Rust value, with no schema library.
 
-use purecrate_ir::{Crate, Item, Struct, Ty, VariantFields, NEWTYPE_FIELD};
+use purecrate_ir::{Crate, Item, Struct, Ty, VariantFields};
 
 use crate::closed_ctor;
 

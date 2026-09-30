@@ -1,3 +1,6 @@
+// Each test file uses its own share of these helpers.
+#![allow(dead_code)]
+
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

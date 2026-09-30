@@ -25,8 +25,11 @@ mod idiomatic {
     #[derive(Clone, Copy, PartialEq)]
     pub enum Confirmation { Automatic, Manual }
     pub struct Terms { pub amount: i64, pub capture: Capture, pub confirmation: Confirmation }
+    // Stripe's full lists; the runs reach only some of them.
+    #[allow(dead_code)]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Decline { CardDeclined, InsufficientFunds, AuthenticationFailed, DebitFailed }
+    #[allow(dead_code)]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Reason { Duplicate, Fraudulent, RequestedByCustomer, Abandoned }
 
@@ -120,7 +123,7 @@ fn idiomatic_trace(t: u8, codes: [u8; 4]) -> Result<idiomatic::Status, idiomatic
     use idiomatic::*;
     let terms = Terms {
         amount: 2000,
-        capture: if t % 2 == 0 { Capture::Automatic } else { Capture::Manual },
+        capture: if t.is_multiple_of(2) { Capture::Automatic } else { Capture::Manual },
         confirmation: if t / 2 == 0 { Confirmation::Automatic } else { Confirmation::Manual },
     };
     codes.iter().try_fold(Status::RequiresPaymentMethod { last_error: None }, |s, &c| step(&terms, s, idiomatic_event(c)))

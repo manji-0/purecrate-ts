@@ -1644,6 +1644,10 @@ fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out
 }
 
+fn is_ident(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2040,8 +2044,4 @@ export const step = (state: State, event: Event): State => {
         assert_eq!(from(IntTy::U8, IntTy::I32), "(x as number as I32)");
         assert_eq!(from(IntTy::I64, IntTy::I64), "x");
     }
-}
-
-fn is_ident(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }

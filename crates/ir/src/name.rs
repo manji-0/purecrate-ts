@@ -36,10 +36,8 @@ pub fn to_kebab(s: &str) -> String {
                     .copied()
                     .map(|x| x.is_lowercase())
                     .unwrap_or(false);
-                if prev.is_lowercase() || prev == '_' || (prev.is_uppercase() && next_lower) {
-                    if !out.ends_with('-') {
-                        out.push('-');
-                    }
+                if (prev.is_lowercase() || prev == '_' || (prev.is_uppercase() && next_lower)) && !out.ends_with('-') {
+                    out.push('-');
                 }
             }
             for x in c.to_lowercase() {

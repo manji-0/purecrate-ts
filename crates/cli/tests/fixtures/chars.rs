@@ -108,7 +108,9 @@ pub fn at_most(a: char, b: char) -> bool {
     a <= b && b >= a
 }
 
-/// A range over the planes, and `matches!`.
+/// A range over the planes, and `matches!`. The exclusive `..'\u{10ffff}'`
+/// is on purpose: U+10FFFF falls through to `_`.
+#[allow(non_contiguous_range_endpoints)]
 pub fn plane(c: char) -> u8 {
     let p: u8 = match c {
         '\u{0}'..='\u{7f}' => 0u8,

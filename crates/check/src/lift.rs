@@ -174,8 +174,10 @@ impl Lifter {
         }
     }
 
-    fn boxed(&mut self, e: Box<Expr>, out: &mut Hoisted) -> Box<Expr> {
-        Box::new(self.extract_into(*e, out))
+    /// Rewrites in place, reusing the allocation.
+    fn boxed(&mut self, mut e: Box<Expr>, out: &mut Hoisted) -> Box<Expr> {
+        *e = self.extract_into(std::mem::replace(&mut *e, Expr::Unreachable), out);
+        e
     }
 
     /// Replaces each `?` in a strict position with a fresh variable.

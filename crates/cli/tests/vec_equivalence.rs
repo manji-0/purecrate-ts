@@ -33,6 +33,9 @@ fn generated_vec_reads_match_rust() {
 
 #[test]
 fn out_of_range_index_uses_rusts_panic_message() {
+    // A `Vec`, not an array: rustc rejects a constant out-of-range index
+    // into an array at compile time.
+    #[allow(clippy::useless_vec)]
     let payload = std::panic::catch_unwind(|| {
         let xs = vec![1, 2, 3];
         let _ = xs[5];

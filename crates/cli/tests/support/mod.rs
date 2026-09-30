@@ -517,6 +517,7 @@ pub fn typecheck(dir: &std::path::Path) {
 }
 
 /// Accepts `source`, generates its package, and checks every case agrees.
+#[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
     assert!(
         cfg!(debug_assertions),

@@ -98,8 +98,10 @@ impl Renamer {
         }
     }
 
-    fn boxed(&mut self, e: Box<Expr>, env: &Env) -> Box<Expr> {
-        Box::new(self.expr(*e, env))
+    /// Rewrites in place, reusing the allocation.
+    fn boxed(&mut self, mut e: Box<Expr>, env: &Env) -> Box<Expr> {
+        *e = self.expr(std::mem::replace(&mut *e, Expr::Unreachable), env);
+        e
     }
 
     fn all(&mut self, xs: Vec<Expr>, env: &Env) -> Vec<Expr> {

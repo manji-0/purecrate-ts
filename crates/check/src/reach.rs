@@ -11,7 +11,8 @@ pub fn prune_unreachable(krate: &Crate) -> Crate {
         .items
         .iter()
         .zip(keep)
-        .filter_map(|(item, kept)| kept.then(|| item.clone()))
+        .filter(|(_, kept)| *kept)
+        .map(|(item, _)| item.clone())
         .collect();
     Crate {
         name: krate.name.clone(),

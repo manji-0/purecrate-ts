@@ -838,7 +838,10 @@ fn logins_run_as_the_rfcs_say() {
 
 /// Token endpoint cases (RFC 6749 §4.1.3, RFC 7636 §4.5-§4.6): each grant
 /// with the client, redirect_uri, verifier and hash the caller passes.
-fn redemptions() -> Vec<(oidc::CodeGrant, String, String, Option<String>, Option<String>)> {
+/// A grant, then client_id, redirect_uri, code_verifier, and the hash.
+type Redemption = (oidc::CodeGrant, String, String, Option<String>, Option<String>);
+
+fn redemptions() -> Vec<Redemption> {
     let mut plain = base();
     plain.code_challenge = some(VERIFIER);
     plain.code_challenge_method = None;

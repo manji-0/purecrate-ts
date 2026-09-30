@@ -87,15 +87,15 @@ fn inputs() -> Vec<String> {
 fn same_verdict(a: &Result<iban::Iban, iban::IbanError>, b: &Result<(), idiomatic::IbanError>) -> bool {
     use iban::IbanError as E;
     use idiomatic::IbanError as I;
-    match (a, b) {
-        (Ok(_), Ok(())) => true,
-        (Err(E::Length), Err(I::Length))
-        | (Err(E::Country), Err(I::Country))
-        | (Err(E::CheckDigits), Err(I::CheckDigits))
-        | (Err(E::Bban), Err(I::Bban))
-        | (Err(E::Checksum), Err(I::Checksum)) => true,
-        _ => false,
-    }
+    matches!(
+        (a, b),
+        (Ok(_), Ok(()))
+            | (Err(E::Length), Err(I::Length))
+            | (Err(E::Country), Err(I::Country))
+            | (Err(E::CheckDigits), Err(I::CheckDigits))
+            | (Err(E::Bban), Err(I::Bban))
+            | (Err(E::Checksum), Err(I::Checksum))
+    )
 }
 
 #[test]

@@ -95,7 +95,7 @@ fn method_of(code: u8) -> Method {
 
 /// Kind 0..4: rate by the low bit, pricing by the high bit.
 fn kind_line(amount: i64, kind: u8) -> Line {
-    let rate = if kind % 2 == 0 { Rate::Standard } else { Rate::Reduced };
+    let rate = if kind.is_multiple_of(2) { Rate::Standard } else { Rate::Reduced };
     let pricing = if kind / 2 == 0 { Pricing::Exclusive } else { Pricing::Inclusive };
     line(amount, rate, pricing)
 }
