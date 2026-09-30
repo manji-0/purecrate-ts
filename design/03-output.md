@@ -98,6 +98,9 @@ export const Meters = {
 | `Vec::len` | `.length` |
 | `Vec::is_empty` | `.length === 0` |
 | `Option::is_some` / `is_none` | `!== null` / `=== null` |
+| `&s[a..b]` on a string | `Str.slice(s, a, b)`, at UTF-8 byte positions |
+| `&xs[a..b]` on a `Vec` or slice | `xs.slice(a, b)` behind Rust's range checks |
+| `s.strip_prefix(p)` / `strip_suffix` | `Str.stripPrefix(s, p)` / `Str.stripSuffix` |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
 

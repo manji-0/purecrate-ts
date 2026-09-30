@@ -264,11 +264,33 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::String)),
             ),
+            Callee::Slice { start, end, .. } => {
+                let (base, bt) = self.expr(&args[0], None);
+                let (of, ret) = match bt.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Prim(Prim::String | Prim::Str)) => (Some(SliceOf::Str), Some(Ty::Prim(Prim::Str))),
+                    Some(t @ Ty::Vec(_)) => (Some(SliceOf::Items), Some(t)),
+                    Some(Ty::Never) | None => (None, None),
+                    Some(other) => {
+                        self.error(Reason::Index, format!("cannot slice `{}`", show(&other)));
+                        (None, None)
+                    }
+                };
+                let mut typed = vec![base];
+                for bound in &args[1..] {
+                    typed.push(self.expr(bound, Some(&Ty::Prim(Prim::Usize))).0);
+                }
+                let e = Expr::Call {
+                    callee: Callee::Slice { of, start: *start, end: *end },
+                    args: typed,
+                };
+                return (e, self.expect(want, ret));
+            }
             Callee::Str(m) => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(match m {
                     StrMethod::Len => Ty::Prim(Prim::Usize),
                     StrMethod::AsStr => Ty::Prim(Prim::Str),
+                    StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
                     _ => Ty::bool(),
                 }),
             ),

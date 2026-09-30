@@ -215,6 +215,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StrSplit
                 | purecrate_ir::Callee::StringFrom
+                | purecrate_ir::Callee::Slice { .. }
                 | purecrate_ir::Callee::Str(_)
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::CharCode(_) => String::new(),
@@ -240,6 +241,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
                 return format!("Str.bytes({})", emit_expr(&args[0], indent));
             }
+            if let purecrate_ir::Callee::Slice { of, start, end } = callee {
+                return emit_slice(of.expect("check::accept sets what is sliced"), *start, *end, args, indent);
+            }
             if matches!(callee, purecrate_ir::Callee::StrSplit) {
                 return format!("{}.split({})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
             }
@@ -253,6 +257,8 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
                     purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
                     purecrate_ir::StrMethod::AsStr => s,
+                    purecrate_ir::StrMethod::StripPrefix => format!("Str.stripPrefix({s}, {})", needle()),
+                    purecrate_ir::StrMethod::StripSuffix => format!("Str.stripSuffix({s}, {})", needle()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
@@ -455,4 +461,36 @@ pub(crate) fn bin_op(op: BinOp) -> &'static str {
 
 pub(crate) fn is_ident(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+}
+
+/// `&x[a..b]` and its open forms. A string goes through `Str.slice`, which
+/// counts UTF-8 bytes; a `Vec` or slice is checked in Rust's order (start,
+/// end, then a reversed range) with Rust's messages.
+fn emit_slice(of: purecrate_ir::SliceOf, start: bool, end: bool, args: &[Expr], indent: usize) -> String {
+    let base = emit_expr(&args[0], indent);
+    let a = if start { emit_expr(&args[1], indent) } else { "(0 as Usize)".into() };
+    let b = end.then(|| emit_expr(&args[args.len() - 1], indent));
+    match of {
+        purecrate_ir::SliceOf::Str => match b {
+            Some(b) => format!("Str.slice({base}, {a}, {b})"),
+            None => format!("Str.slice({base}, {a})"),
+        },
+        purecrate_ir::SliceOf::Items => {
+            let bound = |which: &str, v: &str| {
+                format!("if ({v} > $xs.length) throw new globalThis.Error(`range {which} index ${{{v}}} out of range for slice of length ${{$xs.length}}`); ")
+            };
+            let (params, head, b_arg) = match b {
+                Some(b) => ("$xs, $a, $b", String::new(), format!(", {b}")),
+                None => ("$xs, $a", "const $b = $xs.length; ".to_string(), String::new()),
+            };
+            // With one end open the range cannot be reversed.
+            let checks = format!(
+                "{}{}{}",
+                if start { bound("start", "$a") } else { String::new() },
+                if end { bound("end", "$b") } else { String::new() },
+                if start && end { "if ($a > $b) throw new globalThis.Error(`slice index starts at ${$a} but ends at ${$b}`); " } else { "" },
+            );
+            format!("((({params}) => {{ {head}{checks}return $xs.slice($a, $b); }})({base}, {a}{b_arg}))")
+        }
+    }
 }

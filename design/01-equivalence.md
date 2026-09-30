@@ -120,11 +120,11 @@ Decided 2026-09-27 and implemented one method at a time as examples asked ([07 �
 
 | Receiver | Accepted | TS | Verified by |
 | --- | --- | --- | --- |
-| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` (a `&str` needle), `as_bytes`, `as_str`, `==`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes`, `Str.bytes`, the string, `===` | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs` |
+| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` (a `&str` needle), `as_bytes`, `as_str`, slicing `&s[a..b]`, `==`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes` / `Str.stripPrefix` / `Str.stripSuffix`, `Str.bytes`, `Str.slice`, the string, `===` | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs`, `slicing_equivalence.rs` |
 | a string in a `for` head | `chars()`, `bytes()`, `split(c)` with a `char` | `for..of` over `s`, `Str.bytes(s)`, `s.split(c)` | `for_chars_equivalence.rs`, `for_each_equivalence.rs` |
 | `char` | literals, `==`, `<`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs` |
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs` |
-| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0` | `std_methods_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0`, `slice` behind Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
 
 `wire.rs` and `wire_write.rs` cover the JSON forms of `char` and `Uuid` against serde_json through each schema library.
@@ -140,7 +140,12 @@ What prints as the plain JS operation, and why that is the same:
 - **`for c in s.chars()`** (2026-09-30). A JS string iterates by code point, which for well-formed strings is Rust's sequence of scalar values, so it prints as `for (const c of s)` (tested: 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
 - **`for t in s.split(c)`** with a `char` separator (2026-09-30) prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list.
 
-Specified, not yet implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)): byte slicing `&s[a..b]`, which would throw like Rust off a char boundary, and `String` ordering, which would compare code points, since JS `<` orders U+E000–U+FFFF above the supplementary planes and Rust does not.
+What goes through the runtime, and what it keeps:
+
+- **Slicing** `&s[a..b]`, `&s[a..]`, `&s[..b]` (2026-09-30) goes through `Str.slice`, which takes UTF-8 byte positions. It panics as Rust does and in Rust's order: a start past the end, an end past the end, a reversed range, then a start or end inside a character. That last message shows the character as `Debug` does, escaping a grapheme extender or a code point of category Zs (but space), Zl, Zp, Cc, Cf, Cs, Co, or Cn as `\u{..}`; the runtime tests these with the engine's Unicode properties, which agree with Rust's tables where both use one Unicode version (§3). `&xs[a..b]` on a `Vec` or slice checks the same order with Rust's slice messages (tested: seven strings covering every UTF-8 width and each escaped category, every start and end up to one past the length, nested slices, `as_bytes()`, and `Vec`s).
+- **`strip_prefix` / `strip_suffix`** with a `&str` return `Option<&str>`. A prefix or suffix of a well-formed string on char boundaries has the same extent in UTF-8 and UTF-16, so the rest is the same string.
+
+Specified, not yet implemented ([07 §4](./07-roadmap.md#4-specified-but-not-yet-implemented)): `String` ordering, which would compare code points, since JS `<` orders U+E000–U+FFFF above the supplementary planes and Rust does not.
 
 ### 6.2 `char`
 

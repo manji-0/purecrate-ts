@@ -35,7 +35,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
-| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` with a `&str`; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; an `if` chain of `===`; `Str.bytes(s)` |
+| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; slicing `&s[a..b]`, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
@@ -88,7 +88,7 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 
 #### Reading a `Vec` or slice
 
-- `Vec<T>` is read with `xs[i]` and `xs.len()`. Both are `usize`. Out of bounds throws Rust's message.
+- `Vec<T>` is read with `xs[i]`, `xs.len()`, and `&xs[a..b]` (also `a..` and `..b`). Positions are `usize`. Out of bounds throws Rust's message.
 - It is also read with `for x in &xs` ([§2](#2-what-can-be-written)).
 - `&[u8]` parameters are accepted and read the same way.
 
@@ -255,7 +255,7 @@ Output: a `match` with guards prints as an `if` chain, not as one `switch`. Each
 
 #### Methods
 
-- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, and `String::as_str`.
+- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
 - The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure.
 - As a `for` iterable only: `s.chars()`, `s.bytes()`, and `s.split(c)` ([§2](#2-what-can-be-written)).
 - Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).

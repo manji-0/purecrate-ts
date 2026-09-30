@@ -126,16 +126,23 @@ pub enum StrMethod {
     Contains,
     /// The same `string`; lets a `String` be matched against literals.
     AsStr,
+    /// Take a `&str`; `Option<&str>`. A prefix or suffix on char boundaries
+    /// has the same extent in UTF-8 bytes and UTF-16 units, so the rest is
+    /// the same string. Print as `Str.stripPrefix` / `Str.stripSuffix`.
+    StripPrefix,
+    StripSuffix,
 }
 
 impl StrMethod {
-    pub const ALL: [StrMethod; 6] = [
+    pub const ALL: [StrMethod; 8] = [
         StrMethod::Len,
         StrMethod::IsEmpty,
         StrMethod::StartsWith,
         StrMethod::EndsWith,
         StrMethod::Contains,
         StrMethod::AsStr,
+        StrMethod::StripPrefix,
+        StrMethod::StripSuffix,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -150,6 +157,8 @@ impl StrMethod {
             Self::EndsWith => "ends_with",
             Self::Contains => "contains",
             Self::AsStr => "as_str",
+            Self::StripPrefix => "strip_prefix",
+            Self::StripSuffix => "strip_suffix",
         }
     }
 
@@ -157,7 +166,7 @@ impl StrMethod {
     pub fn needles(self) -> usize {
         match self {
             Self::Len | Self::IsEmpty | Self::AsStr => 0,
-            Self::StartsWith | Self::EndsWith | Self::Contains => 1,
+            Self::StartsWith | Self::EndsWith | Self::Contains | Self::StripPrefix | Self::StripSuffix => 1,
         }
     }
 }
@@ -309,6 +318,16 @@ pub enum Callee {
     StrSplit,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
+    /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
+    /// positions) or a `Vec` or slice. The arguments are `x`, then `a` if
+    /// `start`, then `b` if `end`. Out-of-range positions, a reversed range,
+    /// and (on a string) a position inside a character panic with Rust's
+    /// messages, checked in Rust's order. `of` is set by `check::accept`.
+    Slice {
+        of: Option<SliceOf>,
+        start: bool,
+        end: bool,
+    },
     /// A `str` method from the allow-list (design/01 §6). The first argument
     /// is the receiver, a `String` or `&str`.
     Str(StrMethod),
@@ -459,6 +478,15 @@ pub enum VariantBind {
 pub struct ClosureParam {
     pub name: Name,
     pub ty: Option<Ty>,
+}
+
+/// What `Callee::Slice` cuts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SliceOf {
+    /// A `String` or `&str`, at UTF-8 byte positions. Prints as `Str.slice`.
+    Str,
+    /// A `Vec` or slice.
+    Items,
 }
 
 /// What a `for` walks.

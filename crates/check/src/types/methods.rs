@@ -357,6 +357,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let ret = match m {
             StrMethod::Len => Ty::Prim(Prim::Usize),
             StrMethod::AsStr => Ty::Prim(Prim::Str),
+            StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
             StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
         };
         let e = Expr::Call {
@@ -428,15 +429,15 @@ pub(super) fn leaves(expr: &Expr) -> bool {
 pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes"]).collect(),
+        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "slicing `s[a..b]`"]).collect(),
         Ty::Prim(Prim::Str) => StrMethod::ALL
             .iter()
             .filter(|m| **m != StrMethod::AsStr)
             .map(|m| m.name())
-            .chain(["as_bytes"])
+            .chain(["as_bytes", "slicing `s[a..b]`"])
             .collect(),
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).collect(),
-        Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`"],
+        Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`", "slicing `xs[a..b]`"],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
         _ => vec![],
     };

@@ -300,7 +300,17 @@ impl Refs {
                     Callee::VecLen => {
                         self.nums.insert("Usize".into());
                     }
-                    Callee::StrBytes => self.str = true,
+                    Callee::StrBytes
+                    | Callee::Str(purecrate_ir::StrMethod::StripPrefix | purecrate_ir::StrMethod::StripSuffix) => {
+                        self.str = true
+                    }
+                    Callee::Slice { of, start, .. } => {
+                        self.str |= *of == Some(purecrate_ir::SliceOf::Str);
+                        // An open start prints as `(0 as Usize)`.
+                        if !start {
+                            self.nums.insert("Usize".into());
+                        }
+                    }
                     Callee::Str(purecrate_ir::StrMethod::Len) => {
                         self.str = true;
                         self.nums.insert("Usize".into());

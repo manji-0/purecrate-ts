@@ -177,7 +177,7 @@ From the Oxide `Name` vendoring ([91 §5](./91-real-use-candidates.md#5-oxide-na
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; byte slicing, `String` ordering; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static` and associated consts.
+`chars()` other than as `for c in s.chars()`; the Unicode-table `char` methods; `String` ordering; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static` and associated consts.
 
 ## 5. v1: when type expressiveness runs out
 
@@ -242,7 +242,7 @@ All items done 2026-09-30.
 Why: oidc's lexical helpers are still 2.2× idiomatic Rust (§2.2), and in the corpus re-measured with 0.3.0 ([90 §7](./90-acceptance-survey.md#7-re-measured-with-030-2026-09-30)) the leading causes are `chars()` used as a value and slicing ranges. The corpus shows where idiomatic code goes, not what to accept (§6); each item below is kept only if rewriting oidc, payment, or invoice uses it.
 
 - **Iterator consumers that yield a scalar.** `all`, `any`, `count`, `position` on `s.chars()`, `s.bytes()`, and `xs.iter()`; `sum` with Rust's overflow panic; `for (i, x) in xs.iter().enumerate()`. None builds an array, so the reason iterator `map`/`filter`/`collect` stay out (§3.1) does not apply.
-- **Byte slicing.** `&s[a..b]`, `&s[a..]`, `&s[..b]`, and the same on slices; `strip_prefix` / `strip_suffix` returning `Option<&str>`. Specified in [01 §6.1](./01-equivalence.md#61-strings): positions are UTF-8 bytes, and a position off a char boundary or past the end throws with Rust's message.
+- **Byte slicing.** `&s[a..b]`, `&s[a..]`, `&s[..b]`, and the same on slices; `strip_prefix` / `strip_suffix` returning `Option<&str>`. Specified in [01 §6.1](./01-equivalence.md#61-strings): positions are UTF-8 bytes, and a position off a char boundary or past the end throws with Rust's message. Done 2026-09-30 (`slicing_equivalence.rs`), with the character in the boundary message escaped as `Debug` escapes it.
 - **Tuple destructuring.** `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in ..`, with the element rules of tuple `match`. Done 2026-09-30 (`destructure_equivalence.rs`); `for (i, x) in xs.iter().enumerate()` comes with `enumerate`.
 - **`const` inside functions and associated consts** (`impl T { const N: u32 = 3; }`), folded like crate-level consts.
 - **Integer helpers.** `min`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, `wrapping_*` forms of the operators, each against Rust's debug-build result (payment's idiomatic code calls `min`).

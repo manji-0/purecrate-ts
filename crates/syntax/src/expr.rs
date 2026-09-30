@@ -176,10 +176,30 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("`&mut` borrows are not in v0: {}", snippet(expr)),
         )),
         SynExpr::Reference(r) => lower_expr(cx, &r.expr),
-        SynExpr::Index(i) => Ok(Expr::Index {
-            base: Box::new(lower_expr(cx, &i.expr)?),
-            index: Box::new(lower_expr(cx, &i.index)?),
-        }),
+        SynExpr::Index(i) => match &*i.index {
+            SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => {
+                let mut args = vec![lower_expr(cx, &i.expr)?];
+                for bound in [&r.start, &r.end].into_iter().flatten() {
+                    args.push(lower_expr(cx, bound)?);
+                }
+                Ok(Expr::Call {
+                    callee: Callee::Slice {
+                        of: None,
+                        start: r.start.is_some(),
+                        end: r.end.is_some(),
+                    },
+                    args,
+                })
+            }
+            SynExpr::Range(_) => Err(ParseError::new(
+                Reason::Range,
+                format!("slicing takes a half-open range `a..b`, `a..`, or `..b` in v0, not `a..=b`: {}", snippet(expr)),
+            )),
+            index => Ok(Expr::Index {
+                base: Box::new(lower_expr(cx, &i.expr)?),
+                index: Box::new(lower_expr(cx, index)?),
+            }),
+        },
         SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
         SynExpr::Cast(c) => Ok(Expr::Cast {
             expr: Box::new(lower_expr(cx, &c.expr)?),

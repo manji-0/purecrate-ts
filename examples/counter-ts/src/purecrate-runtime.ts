@@ -150,15 +150,68 @@ export const Str = {
     return out as unknown as ReadonlyArray<U8>;
   },
   /** `str::len`: the number of UTF-8 bytes. */
-  len: (s: string): Usize => {
-    let n = 0;
+  len: (s: string): Usize => utf8Len(s),
+  /**
+   * `&s[start..end]` at UTF-8 byte positions (`end` absent for `&s[start..]`).
+   * Panics as Rust does, in its order: a position past the end, a reversed
+   * range, then a position inside a character, shown as `Debug` shows it.
+   */
+  slice: (s: string, start: Usize, end?: Usize): string => {
+    const len = utf8Len(s);
+    const stop = end ?? len;
+    if (start > len) panicWith(`start byte index ${start} is out of bounds for string of length ${len}`);
+    if (stop > len) panicWith(`end byte index ${stop} is out of bounds for string of length ${len}`);
+    if (start > stop) panicWith(`byte range starts at ${start} but ends at ${stop}`);
+    let byte = 0;
+    let unit = 0;
+    let from = -1;
+    let to = -1;
+    let inside: string | null = null;
     for (const c of s) {
-      const p = c.codePointAt(0) as number;
-      n += p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+      const w = utf8Width(c);
+      if (byte === start) from = unit;
+      if (byte === stop) to = unit;
+      for (const [which, at] of [["start", start], ["end", stop]] as const) {
+        if (inside === null && at > byte && at < byte + w) {
+          inside = `${which} byte index ${at} is not a char boundary; it is inside '${debugChar(c)}' (bytes ${byte}..${byte + w} of string)`;
+        }
+      }
+      byte += w;
+      unit += c.length;
     }
-    return n as Usize;
+    if (byte === start) from = unit;
+    if (byte === stop) to = unit;
+    if (from < 0 || to < 0) panicWith(inside as string);
+    return s.slice(from, to);
   },
+  /** `str::strip_prefix` with a `&str`. */
+  stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
+  /** `str::strip_suffix` with a `&str`. */
+  stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
 } as const;
+
+/**
+ * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
+ * for a grapheme extender or a code point that is not printable (the
+ * categories core's `printable.py` escapes), itself otherwise. The tables are
+ * the JS engine's; they agree with Rust's where both use one Unicode version
+ * (design/01 §3).
+ */
+const debugChar = (c: string): string =>
+  /[\p{Grapheme_Extend}\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/u.test(c) && c !== " "
+    ? `\\u{${(c.codePointAt(0) as number).toString(16)}}`
+    : c;
+
+const utf8Len = (s: string): Usize => {
+  let n = 0;
+  for (const c of s) n += utf8Width(c);
+  return n as Usize;
+};
+
+const utf8Width = (c: string): number => {
+  const p = c.codePointAt(0) as number;
+  return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+};
 
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
