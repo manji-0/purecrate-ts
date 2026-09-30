@@ -129,16 +129,17 @@ pub enum StrMethod {
 }
 
 impl StrMethod {
+    pub const ALL: [StrMethod; 6] = [
+        StrMethod::Len,
+        StrMethod::IsEmpty,
+        StrMethod::StartsWith,
+        StrMethod::EndsWith,
+        StrMethod::Contains,
+        StrMethod::AsStr,
+    ];
+
     pub fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "len" => Self::Len,
-            "is_empty" => Self::IsEmpty,
-            "starts_with" => Self::StartsWith,
-            "ends_with" => Self::EndsWith,
-            "contains" => Self::Contains,
-            "as_str" => Self::AsStr,
-            _ => return None,
-        })
+        Self::ALL.into_iter().find(|m| m.name() == name)
     }
 
     pub fn name(self) -> &'static str {

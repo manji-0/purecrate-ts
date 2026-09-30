@@ -26,8 +26,8 @@ pub struct Diagnostic {
     pub item: usize,
     /// Other items involved, e.g. the earlier definition in a collision.
     pub also: Vec<usize>,
-    /// The statement, block tail or `match` arm the problem is in, when the
-    /// input carries positions (`parse_source_spanned`). Otherwise the item.
+    /// The call, statement, block tail or `match` arm the problem is in,
+    /// when the input carries positions (`parse_source_spanned`). Otherwise the item.
     pub at: Option<Pos>,
     pub reason: Reason,
     /// What the reason is about when that varies, e.g. the undefined name.

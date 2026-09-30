@@ -164,14 +164,21 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             (Some(_), None) => unreachable!("an owner is found only from a known receiver type"),
             (None, Some(rt)) => {
-                self.out.push(
-                    Diagnostic::at(self.item, Reason::MethodCall, format!(
-                        "`.{}()` on `{}` is not in v0: only methods of the crate's own inherent impls",
+                let rt = self.norm(&rt);
+                let message = match std_methods(&rt) {
+                    None => format!(
+                        "`{}` has no method `{}` in the crate's own `impl` blocks",
+                        show(&rt),
+                        name.as_str()
+                    ),
+                    Some(list) => format!(
+                        "`.{}()` on `{}` is not on the std allow-list; allowed: {}",
                         name.as_str(),
-                        show(&rt)
-                    ))
-                    .about(name.as_str()),
-                );
+                        show(&rt),
+                        list
+                    ),
+                };
+                self.out.push(Diagnostic::at(self.item, Reason::MethodCall, message).about(name.as_str()));
                 (receiver.clone(), None)
             }
             (None, None) => {
@@ -735,8 +742,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                     };
                     if !ok {
                         let what = if ordered { "ordering" } else { "equality" };
-                        self.error(Reason::NumericOp, format!(
-                            "{what} on `{}` is not in v0; JS compares it differently",
+                        let instead = match self.norm(t) {
+                            Ty::Option(_) => "use `is_some()`/`is_none()`, `matches!(x, Some(..))`, or a `match`".into(),
+                            Ty::Named(n) => format!(
+                                "use `matches!(x, {}::Variant)`, a `match`, or an `eq` method",
+                                n.as_str()
+                            ),
+                            Ty::Prim(Prim::String | Prim::Str) => "compare with an enum or an integer instead".into(),
+                            _ => "compare the parts with a `match` or an `eq` method".into(),
+                        };
+                        self.error(Reason::Comparison, format!(
+                            "{what} on `{}` is not in v0; JS compares it differently: {instead}",
                             show(t)
                         ));
                     }
@@ -1608,6 +1624,30 @@ fn describe(pattern: &Pattern) -> &'static str {
         Pattern::ResultErr(_) => "Err(..)",
         _ => "..",
     }
+}
+
+/// The allow-listed methods on a std receiver, for a rejection message;
+/// `None` for the crate's own types, whose methods are its `impl` blocks.
+fn std_methods(ty: &Ty) -> Option<String> {
+    let names: Vec<&str> = match ty {
+        Ty::Named(_) => return None,
+        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes"]).collect(),
+        Ty::Prim(Prim::Str) => StrMethod::ALL
+            .iter()
+            .filter(|m| **m != StrMethod::AsStr)
+            .map(|m| m.name())
+            .chain(["as_bytes"])
+            .collect(),
+        Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).collect(),
+        Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`"],
+        Ty::Option(_) => vec!["is_some", "is_none"],
+        _ => vec![],
+    };
+    Some(match (ty, names.is_empty()) {
+        (Ty::Prim(Prim::U8), _) => "none; for `u8::is_ascii_*` use `matches!(b, b'0'..=b'9')` or `char::from(b)`".into(),
+        (_, true) => "none; use operators, `match`, or `T::from`".into(),
+        (_, false) => names.iter().map(|n| if n.contains(' ') { n.to_string() } else { format!("`{n}`") }).collect::<Vec<_>>().join(", "),
+    })
 }
 
 pub(crate) fn show(ty: &Ty) -> String {

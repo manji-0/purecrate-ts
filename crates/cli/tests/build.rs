@@ -279,8 +279,8 @@ fn raw_module_names_find_their_files() {
     fs::remove_dir_all(&dir).ok();
 }
 
-/// A check diagnostic points at the statement, block tail or `match` arm it
-/// is about, not at the function's name.
+/// A check diagnostic points at the call, statement, block tail or `match`
+/// arm it is about, not at the function's name.
 #[test]
 fn check_diagnostics_point_inside_the_function() {
     let src = fixture("rejected_inside.rs");
@@ -293,7 +293,7 @@ fn check_diagnostics_point_inside_the_function() {
         "{stderr}"
     );
     assert!(
-        stderr.contains(&format!("{path}:13:5: [check/undefined-fn] function `unknown_fn` is not defined")),
+        stderr.contains(&format!("{path}:13:9: [check/undefined-fn] function `unknown_fn` is not defined")),
         "{stderr}"
     );
 

@@ -1,6 +1,6 @@
 mod common;
 
-use common::{assert_clean, assert_rejects};
+use common::{assert_clean, assert_rejects, diagnostics};
 use purecrate_check::accept;
 use purecrate_ir::{Callee, Expr, FloatTy, IntOp, IntTy, Item, Lit};
 use purecrate_syntax::parse_source;
@@ -100,6 +100,13 @@ fn comparisons_js_gets_wrong_are_rejected() {
         "ordering on `String` is not in v0",
     );
     assert_clean("pub fn f(a: String, b: String) -> bool { a == b }");
+    assert_rejects(
+        "pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }",
+        "use `matches!(x, M::Variant)`",
+    );
+    assert_rejects("pub fn f(a: Option<i32>) -> bool { a == None }", "use `is_some()`/`is_none()`");
+    let found = diagnostics("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a != b }");
+    assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["check/comparison"]);
 }
 
 #[test]

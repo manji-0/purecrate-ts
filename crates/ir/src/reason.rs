@@ -68,6 +68,8 @@ pub enum Reason {
     TypeMismatch,
     NeedsAnnotation,
     NumericOp,
+    /// `==` or `<` on a type JS would compare differently (by reference).
+    Comparison,
     NonExhaustive,
     NestedOption,
     Position,
@@ -135,6 +137,7 @@ impl Reason {
             Reason::TypeMismatch => "check/type-mismatch",
             Reason::NeedsAnnotation => "check/needs-annotation",
             Reason::NumericOp => "check/numeric-op",
+            Reason::Comparison => "check/comparison",
             Reason::NonExhaustive => "check/non-exhaustive",
             Reason::NestedOption => "check/nested-option",
             Reason::Position => "check/position",

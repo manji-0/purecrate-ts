@@ -34,8 +34,8 @@ fn vec_len_and_index_are_accepted() {
 
 #[test]
 fn receiver_calls_elsewhere_are_rejected_with_the_method_name() {
-    assert_rejects("pub fn f(x: i32) -> i32 { x.abs() }", "`.abs()` on `i32` is not in v0");
-    assert_rejects(&format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"), "`.missing()` on `Card`");
+    assert_rejects("pub fn f(x: i32) -> i32 { x.abs() }", "`.abs()` on `i32` is not on the std allow-list; allowed: none");
+    assert_rejects(&format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"), "`Card` has no method `missing` in the crate's own `impl` blocks");
     assert_rejects(&format!("{HAND} pub fn f(a: Card) -> bool {{ a.beats() }}"), "takes 1 argument(s) after the receiver, got 0");
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> i32 {{ c.is_face() }}"), "expected `i32`, found `bool`");
 }
@@ -65,5 +65,33 @@ fn str_methods_come_from_the_allow_list() {
     assert_rejects("pub fn f(s: &str) -> bool { s.starts_with() }", "`str::starts_with` takes 1 argument(s) after the receiver, got 0");
     assert_rejects("pub fn f(s: &str) -> bool { s.is_empty(s) }", "`str::is_empty` takes 0 argument(s) after the receiver, got 1");
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
-    assert_rejects("pub fn f(s: &str) -> bool { s.trim() == \"\" }", "`.trim()` on `&str` is not in v0");
+    assert_rejects(
+        "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
+        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `as_bytes`",
+    );
+}
+
+/// A std method outside the allow-list names what the receiver does allow,
+/// not the crate's `impl` blocks.
+#[test]
+fn std_rejections_list_what_the_receiver_allows() {
+    assert_rejects(
+        "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or(0u32) }",
+        "allowed: `is_some`, `is_none`",
+    );
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, indexing `xs[i]`");
+    assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
+    assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
+}
+
+/// With positions, a rejected call is located at the method name, not at
+/// the statement it sits in.
+#[test]
+fn rejected_calls_point_at_the_call() {
+    let src = "pub fn f(x: Option<u32>) -> u32 {\n    let y = 1u32;\n    y + x.unwrap_or(0u32)\n}\n";
+    let (krate, _) = purecrate_syntax::parse_source_spanned("c", src).expect("parse");
+    let found = purecrate_check::check(&krate);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    let at = found[0].at.expect("a position");
+    assert_eq!((at.line, at.col), (3, 11), "{found:#?}"); // 1-based: the `u` of `unwrap_or`
 }

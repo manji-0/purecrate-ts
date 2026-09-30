@@ -93,7 +93,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             })
         }
         SynExpr::Struct(s) => lower_struct_expr(cx, s),
-        SynExpr::Call(c) => lower_call(cx, &c.func, c.args.iter().collect()),
+        // Calls carry their own position, so a diagnostic about one points
+        // at it rather than at the statement around it.
+        SynExpr::Call(c) => Ok(at(c.span(), lower_call(cx, &c.func, c.args.iter().collect())?)),
         // `()` is the unit value, not an empty tuple: its type is `()` and
         // it prints as `undefined`.
         SynExpr::Tuple(t) if t.elems.is_empty() => Ok(Expr::Lit(Lit::Unit)),
@@ -133,11 +135,14 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("method call `.{}::<..>()` is not in v0", m.method),
         )
         .detail(m.method.to_string())),
-        SynExpr::MethodCall(m) => Ok(Expr::MethodCall {
-            receiver: Box::new(lower_expr(cx, &m.receiver)?),
-            name: Name::new(m.method.to_string()),
-            args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
-        }),
+        SynExpr::MethodCall(m) => Ok(at(
+            m.method.span(),
+            Expr::MethodCall {
+                receiver: Box::new(lower_expr(cx, &m.receiver)?),
+                name: Name::new(m.method.to_string()),
+                args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
+            },
+        )),
         SynExpr::Closure(c) => lower_closure(cx, c),
         SynExpr::ForLoop(f) => lower_for(cx, f),
         SynExpr::Loop(_) | SynExpr::While(_) | SynExpr::Break(_) | SynExpr::Continue(_) => {
@@ -992,7 +997,10 @@ fn lower_bin(op: SynBinOp) -> Result<BinOp, ParseError> {
         SynBinOp::BitXor(_) => BinOp::BitXor,
         SynBinOp::Shl(_) => BinOp::Shl,
         SynBinOp::Shr(_) => BinOp::Shr,
-        _ => return Err(ParseError::new(Reason::UnsupportedOperator, "unsupported binary operator")),
+        _ => {
+            let text = snippet(&op);
+            return Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0")).detail(text.trim_matches('`')));
+        }
     })
 }
 
@@ -1000,7 +1008,10 @@ fn lower_un(op: SynUnOp) -> Result<UnOp, ParseError> {
     match op {
         SynUnOp::Not(_) => Ok(UnOp::Not),
         SynUnOp::Neg(_) => Ok(UnOp::Neg),
-        _ => Err(ParseError::new(Reason::UnsupportedOperator, "unsupported unary operator")),
+        _ => {
+            let text = snippet(&op);
+            Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0")).detail(text.trim_matches('`')))
+        }
     }
 }
 
