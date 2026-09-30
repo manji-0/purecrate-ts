@@ -193,6 +193,7 @@ Waits for an example that cannot be written without it.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.
 - `Rc` / `Cell` / `RefCell`.
+- `async`, randomness, and other effects (idsmith's `&mut` RNG parameters, 305 of the corpus's functions).
 
 ## 7. Open questions
 
@@ -234,8 +235,24 @@ All items done 2026-09-30.
 - **zod 4.6.** The zod adapter and the generated zod code moved to zod 4.6 the same day (peer `^4.6.0`; `z.ZodType<T, In>` without `ZodTypeDef`, issues with `code: "custom"`). A breaking change for users on zod 3, who stay on purecrate-ts 0.2.
 - **arktype errors.** arktype's schemas keep nested errors at their path instead of replacing them with one at the type. Verified by `errors_keep_their_location` in `wire_write.rs`.
 
+### 0.4.0: iteration, part two (planned)
+
+<!-- derived-from ./90-acceptance-survey.md#7-re-measured-with-030-2026-09-30 -->
+
+Why: oidc's lexical helpers are still 2.2× idiomatic Rust (§2.2), and in the corpus re-measured with 0.3.0 ([90 §7](./90-acceptance-survey.md#7-re-measured-with-030-2026-09-30)) the leading causes are `chars()` used as a value and slicing ranges. The corpus shows where idiomatic code goes, not what to accept (§6); each item below is kept only if rewriting oidc, payment, or invoice uses it.
+
+- **Iterator consumers that yield a scalar.** `all`, `any`, `count`, `position` on `s.chars()`, `s.bytes()`, and `xs.iter()`; `sum` with Rust's overflow panic; `for (i, x) in xs.iter().enumerate()`. None builds an array, so the reason iterator `map`/`filter`/`collect` stay out (§3.1) does not apply.
+- **Byte slicing.** `&s[a..b]`, `&s[a..]`, `&s[..b]`, and the same on slices; `strip_prefix` / `strip_suffix` returning `Option<&str>`. Specified in [01 §6.1](./01-equivalence.md#61-strings): positions are UTF-8 bytes, and a position off a char boundary or past the end throws with Rust's message.
+- **Tuple destructuring.** `let (a, b) = t;`, `|(a, b)|`, and `for (i, x) in ..`, with the element rules of tuple `match`.
+- **`const` inside functions and associated consts** (`impl T { const N: u32 = 3; }`), folded like crate-level consts.
+- **Integer helpers.** `min`, `max`, `abs`, `pow`, and the `checked_*`, `saturating_*`, `wrapping_*` forms of the operators, each against Rust's debug-build result (payment's idiomatic code calls `min`).
+- **Measurement.** oidc's lexical helpers, payment, and invoice rewritten with guards, the `Option` methods, and the above, and measured again against their idiomatic references (§2.2).
+
 ### Later, on evidence
 
-- Generics and string-keyed maps (§5). `format!`, asked for by Windmill only so far; `Display` of floats is a large surface to match.
+- Generics and string-keyed maps (§5). `format!`, asked for by Windmill only so far; `Display` of floats is a large surface to match, so a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on.
+- `&mut self` as a function returning the new value (`fn apply(&mut self, e)`, the aggregate shape in 5 corpus entries). Sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first.
+- Paths through modules (`crate::m::f`, `super::T`): names are already unique after flattening, so this is resolution only.
+- Narrowing `as` between integers, which wraps in Rust and can wrap the same in TS; it would give up the single spelling `T::from(x)` for widening.
 - crates.io and Windows binaries, when a user asks. Since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement.
 - 1.0: a compatibility policy for the output bytes and the reason codes, and every withdrawal criterion of [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria) answered. The real-use criterion stays open until the tool is adopted unprompted; Oxide `Name` remains local evidence ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
