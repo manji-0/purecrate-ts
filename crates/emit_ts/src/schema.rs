@@ -42,7 +42,7 @@ impl WireSchema {
 
     pub fn version(self) -> &'static str {
         match self {
-            Self::Zod => "3.25.76",
+            Self::Zod => "4.6.5",
             Self::Valibot => "1.1.0",
             Self::Arktype => "2.1.22",
         }
@@ -261,7 +261,7 @@ fn variant_value(variant: &str, rest: &str) -> String {
 /// a recursive type.
 fn declare(schema: WireSchema, name: &str, expr: &str, recursive: bool) -> String {
     let (ty, lazy) = match schema {
-        WireSchema::Zod => (format!("z.ZodType<{name}$, z.ZodTypeDef, unknown>"), "z.lazy"),
+        WireSchema::Zod => (format!("z.ZodType<{name}$, unknown>"), "z.lazy"),
         WireSchema::Valibot => (format!("v.GenericSchema<unknown, {name}$>"), "v.lazy"),
         WireSchema::Arktype => unreachable!("arktype declarations are printed by `ark_*`"),
     };
@@ -374,7 +374,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, e
                 "{from}.transform((v, ctx): {name}$ => {{\n\
                  \x20 const r = {name}$value.try_from(v);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
-                 \x20   ctx.addIssue({{ code: z.ZodIssueCode.custom, message: {message}, params: {{ error: r.error }} }});\n\
+                 \x20   ctx.addIssue({{ code: \"custom\", message: {message}, input: v, params: {{ error: r.error }} }});\n\
                  \x20   return z.NEVER;\n\
                  \x20 }}\n\
                  \x20 return r.value;\n\

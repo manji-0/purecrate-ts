@@ -28,11 +28,11 @@
   },
   "peerDependencies": {
     "purecrate": "^0.1.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.0"
   },
   "devDependencies": {
     "purecrate": "file:../boundary",
-    "zod": "3.25.76",
+    "zod": "4.6.5",
     "typescript": "^6.0.0 || ^7.0.0"
   }
 }

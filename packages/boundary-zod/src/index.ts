@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Char, Int, Uuid, type F32, type F64, type UuidError } from "purecrate";
 
-type Out<T, In> = z.ZodType<T, z.ZodTypeDef, In>;
+type Out<T, In> = z.ZodType<T, In>;
 
 const small = <T>(min: number, max: number, of: (n: number) => T): Out<T, number> =>
   z.number().int().gte(min).lte(max).transform(of) as unknown as Out<T, number>;
@@ -44,7 +44,7 @@ export const char: Out<Char, string> = z.string().refine(Char.is, "a single char
 export const uuid: Out<Uuid, string> = z.string().transform((s, ctx) => {
   const r = Uuid.parseStr(s);
   if (r.kind === "Ok") return r.value;
-  ctx.addIssue({ code: z.ZodIssueCode.custom, message: "a UUID" });
+  ctx.addIssue({ code: "custom", message: "a UUID", input: s });
   return z.NEVER;
 }) as unknown as Out<Uuid, string>;
 /** `uuid::Error` has no serde form. */
@@ -55,13 +55,13 @@ export const bool = z.boolean();
 export const unit = z.null().transform(() => undefined);
 
 /** serde writes `None` as `null`. A missing field is not `None` unless the Rust type says so. */
-export const nullable = <T extends z.ZodTypeAny>(inner: T) => z.union([inner, z.null()]);
+export const nullable = <T extends z.ZodType>(inner: T) => z.union([inner, z.null()]);
 
 /** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
 export const unitVariant = (name: string) => z.union([z.literal(name), z.object({ [name]: z.null() }).strict()]);
 
 /** A struct field of type `Option<T>`: missing or `null` is `None`, as serde reads it. */
-export const optionalField = <T extends z.ZodTypeAny>(inner: T) =>
+export const optionalField = <T extends z.ZodType>(inner: T) =>
   nullable(inner)
     .optional()
     .transform((v) => v ?? null);

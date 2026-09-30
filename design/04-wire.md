@@ -35,7 +35,7 @@ Decided 2026-09-27. Of the options considered:
 ## 3. Current design
 
 - The core runtime `purecrate` (`packages/boundary`) holds the numeric brands, `Int.*.of`, `Str`, and `parseJson`. It depends on no schema library.
-- Thin adapters live in separate packages (`purecrate-zod`, `-valibot`, `-arktype`). Only the one passed with `--schema` is used.
+- Thin adapters live in separate packages (`purecrate-zod`, `-valibot`, `-arktype`). Only the one passed with `--schema` is used. They target zod 4.6 (since 2026-09-30; zod 3 before), valibot 1.1, and arktype 2.1, each a peer dependency of the generated package.
 - `--schema <lib>` emits `src/purecrate-wire.ts`: a schema for every public struct and enum, reading serde's default JSON (no attributes) into the branded domain type, and `toJson`, writing it back (§6).
 - The input's types may derive `Serialize`/`Deserialize` (and `use serde::…`), so the server reads and writes the same types. `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`): the translated code is unaffected, and the real derive is checked by the server's build. Before this (until 2026-09-29) a crate that derived serde failed `check` with `cannot find crate serde`.
 - `#[serde(...)]` is rejected everywhere with its location, so a renamed wire format is never silently accepted. The one exception is `#[serde(try_from = "T")]` (§5).
