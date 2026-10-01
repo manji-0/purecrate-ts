@@ -121,13 +121,38 @@ pub fn assemble_with_license(
 }
 
 /// A copy of a hand-written file from `packages/`, marked as generated so
-/// `build` may replace it, and with its license.
+/// `build` may replace it, and with the MIT copyright and permission notice
+/// the license requires in every copy.
 fn copied(package: &str, dir: &str, source: &str) -> String {
     format!(
-        "{HEADER}// `{package}` from purecrate-ts ({dir}; MIT, https://github.com/manji-0/purecrate-ts),\n\
-         // copied in at the generator's revision.\n\n{source}"
+        "{HEADER}// `{package}` from purecrate-ts ({dir}), copied in at the generator's revision.\n\
+         //\n\
+         {MIT_NOTICE}\n\
+         {source}"
     )
 }
+
+const MIT_NOTICE: &str = "\
+// Copyright (c) 2026 Wataru Manji
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the \"Software\"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+";
 
 pub fn disk_path(stem: &str) -> String {
     if stem.ends_with(".json") {
@@ -221,7 +246,10 @@ mod tests {
         let pkg = assemble_with(&krate, Some(WireSchema::Zod));
         let file = |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
         assert!(file(RUNTIME_STEM).starts_with(HEADER) && file(RUNTIME_STEM).contains("export const Int = {"));
+        assert!(file(RUNTIME_STEM).contains("Copyright (c) 2026 Wataru Manji"));
+        assert!(file(RUNTIME_STEM).contains("Permission is hereby granted"));
         assert!(file("purecrate-zod").contains("from \"./purecrate-runtime.ts\";"));
+        assert!(file("purecrate-zod").contains("Copyright (c) 2026 Wataru Manji"));
         assert!(file("purecrate-wire").contains("from \"./purecrate-zod.ts\";"));
         for f in &pkg.files {
             assert!(!f.source.contains("from \"purecrate"), "{} imports a purecrate package", f.stem);

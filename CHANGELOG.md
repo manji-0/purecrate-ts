@@ -19,6 +19,7 @@
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 
 - Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
+- Copied runtime and adapter files include the MIT copyright and permission notice, not only a link.
 
 ## 0.7.0 — 2026-10-02
 
