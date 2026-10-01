@@ -13,6 +13,7 @@
 - rustc's scratch directory is a unique 0700 path, created exclusively and removed on drop, instead of `purecrate-rustc-<pid>` in the shared temp dir.
 - Copied runtime and adapter files include the MIT copyright and permission notice, not only a link.
 - `scripts/verify.sh` and `scripts/examples.sh` ask the binary (`--schema`) whether a crate has a wire form, instead of grepping `src/*.rs`.
+- The rustc stand-in cache takes a lock around the first build, so parallel `check` processes do not clobber the serde proc-macro objects.
 
 ### Changed
 

@@ -13,10 +13,11 @@
 
 use std::env;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 
 /// One rustc error, located in the input.
 #[derive(Debug, PartialEq, Eq)]
@@ -233,19 +234,79 @@ fn stubs_ready(dir: &Path) -> bool {
         && derive_artifact(dir).is_some()
 }
 
+fn cached_stubs(dir: &Path) -> Option<Stubs> {
+    stubs_ready(dir).then(|| Stubs {
+        dir: dir.to_path_buf(),
+        serde: dir.join("libserde.rlib"),
+        uuid: dir.join("libuuid.rlib"),
+    })
+}
+
+/// Exclusive create of `dir/building`. Parallel `check` processes (and the
+/// test binary's parallel tests) would otherwise rustc the proc-macro into
+/// the same `--out-dir` and lose each other's `.rcgu.o` files.
+struct BuildLock {
+    path: PathBuf,
+}
+
+impl Drop for BuildLock {
+    fn drop(&mut self) {
+        if !self.path.as_os_str().is_empty() {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn exclusive_build_lock(dir: &Path) -> Result<BuildLock, Failure> {
+    let path = dir.join("building");
+    for i in 0.. {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Ok(BuildLock { path }),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if lock_is_stale(&path) {
+                    let _ = fs::remove_file(&path);
+                    continue;
+                }
+                if cached_stubs(dir).is_some() {
+                    return Ok(BuildLock { path: PathBuf::new() });
+                }
+                std::thread::sleep(Duration::from_millis(20 + 10 * i.min(20) as u64));
+                if i >= 500 {
+                    return Err(Failure::Other(format!(
+                        "timed out waiting to build rustc stand-ins in {}",
+                        dir.display()
+                    )));
+                }
+            }
+            Err(e) => return Err(Failure::Other(format!("lock {}: {e}", path.display()))),
+        }
+    }
+    Err(Failure::Other("could not lock the rustc stand-in cache".into()))
+}
+
+fn lock_is_stale(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return true;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    SystemTime::now().duration_since(modified).is_ok_and(|d| d > Duration::from_secs(30))
+}
+
 fn load_or_build_stubs(rustc: &OsStr, dir: &Path) -> Result<Stubs, Failure> {
-    if stubs_ready(dir) {
-        return Ok(Stubs {
-            dir: dir.to_path_buf(),
-            serde: dir.join("libserde.rlib"),
-            uuid: dir.join("libuuid.rlib"),
-        });
+    if let Some(s) = cached_stubs(dir) {
+        return Ok(s);
     }
     fs::create_dir_all(dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", dir.display())))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+    }
+    let _lock = exclusive_build_lock(dir)?;
+    if let Some(s) = cached_stubs(dir) {
+        return Ok(s);
     }
     uuid_stub(rustc, dir)?;
     serde_stub(rustc, dir)?;
@@ -404,6 +465,23 @@ error: aborting due to 2 previous errors
         load_or_build_stubs(&rustc, &dir).unwrap_or_else(|_| panic!("build stubs"));
         assert!(stubs_ready(&dir));
         load_or_build_stubs(OsStr::new("/nonexistent/rustc"), &dir).unwrap_or_else(|_| panic!("reuse stubs"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn concurrent_stub_builds_share_one_cache() {
+        let n = SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = env::temp_dir().join(format!("purecrate-stub-race-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    load_or_build_stubs(&rustc, &dir).unwrap_or_else(|_| panic!("concurrent stubs"));
+                });
+            }
+        });
+        assert!(stubs_ready(&dir));
         fs::remove_dir_all(&dir).ok();
     }
 }
