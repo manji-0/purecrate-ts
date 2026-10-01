@@ -193,7 +193,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | --- | --- | --- |
 | [`Option::unwrap_or`, `ok_or`, `map`](#71-option-methods) | the `match` std writes | `option_methods_equivalence.rs` |
 | [match guards](#72-match-guards) | an `if` at the leaf of the decision tree | `guards_equivalence.rs` |
-| [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | the loop std runs | `consumers_equivalence.rs` |
+| [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | `Iter.<method>`, the loop std runs | `consumers_equivalence.rs` |
 | [`bool` patterns](#74-bool-patterns) | an `if` chain, the last named arm the `else` | `bool_patterns_equivalence.rs` |
 | [tuple patterns](#75-tuple-patterns) in `let`, closure parameters, `for` | a one-arm tuple `match` | `destructure_equivalence.rs` |
 | [`vec![a, b]`](#76-veca-b) | the array literal | `vec_build_equivalence.rs` |
@@ -221,7 +221,7 @@ Tested with a guard that overflows only where its pattern matched, `_` after a g
 
 ### 7.3 Scalar consumers
 
-`all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` become the loop std's default methods run: the source is bound once, the closure's body is inlined with its parameter bound to each item, and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it.
+`all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` call the runtime's `Iter.all`, `Iter.any`, `Iter.position`, `Iter.count`, and `Iter.sum`, which run the loop std's default methods run: the source is evaluated once, the closure is passed as an arrow function (a function name as `(x) => f(x)`; neither may use `?` or `return`, which would have to leave the enclosing function), and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it.
 
 - `position` counts items (chars, not bytes, on `chars()`).
 - `sum` adds from zero left to right with the checked operator, so it panics on overflow where a debug build does; it is refused on floats, whose `Sum` starts from `-0.0`.

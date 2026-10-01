@@ -242,6 +242,27 @@ export const Ord = {
   then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
 } as const;
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  all: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (!f(x)) return false;
+    return true;
+  },
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
 } as const;

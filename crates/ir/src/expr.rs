@@ -472,6 +472,10 @@ pub enum Callee {
     /// `o.then(p)`: `p` when `o` is `Equal`, else `o`; both evaluated, `o`
     /// first, as Rust evaluates a call's arguments. Prints as `Ord.then`.
     OrdThen,
+    /// `all`, `any`, `position`, `count`, or `sum` on what `over` walks:
+    /// the source, then (but for `count` and `sum`) the predicate, a
+    /// closure of one parameter. Prints as `Iter.<method>`.
+    Consume { method: Consume, over: Over },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
@@ -652,6 +656,29 @@ pub enum SliceOf {
     Str,
     /// A `Vec` or slice.
     Items,
+}
+
+/// A consuming iterator method (`Callee::Consume`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Consume {
+    All,
+    Any,
+    Position,
+    Count,
+    /// Adds the items of this integer type from zero, panicking on overflow.
+    Sum(IntTy),
+}
+
+impl Consume {
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Consume::All => "all",
+            Consume::Any => "any",
+            Consume::Position => "position",
+            Consume::Count => "count",
+            Consume::Sum(_) => "sum",
+        }
+    }
 }
 
 /// What a `for` walks.

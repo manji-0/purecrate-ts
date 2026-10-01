@@ -49,3 +49,22 @@ fn generated_consumers_match_rust() {
     });
     support::assert_equivalent("consumers", SOURCE, &cases);
 }
+
+/// The consumers print as calls to the runtime's `Iter`, the closure as an
+/// arrow, with no labelled loop or inline function around them.
+#[test]
+fn consumers_are_runtime_calls() {
+    let source = "pub fn digits(s: &str) -> bool { !s.is_empty() && s.bytes().all(|b| b >= b'0' && b <= b'9') }\n\
+                  pub fn total(xs: Vec<u8>) -> u8 { xs.iter().sum::<u8>() }\n\
+                  pub fn at(s: &str) -> Option<usize> { s.chars().position(|c| c == '@') }\n";
+    let krate = purecrate_syntax::parse_source("consume", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    assert!(file("digits").contains("Iter.all(Str.bytes(s), ((b: U8): boolean => "), "{}", file("digits"));
+    assert!(file("total").contains("Iter.sum(xs, Int.u8.add, (0 as U8))"), "{}", file("total"));
+    assert!(file("at").contains("Iter.position((s as Iterable<Char>), ((c: Char): boolean => "), "{}", file("at"));
+    for stem in ["digits", "total", "at"] {
+        assert!(!file(stem).contains("(() =>") && !file(stem).contains("$acc"), "{}", file(stem));
+    }
+}

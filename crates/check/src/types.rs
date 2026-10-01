@@ -12,7 +12,7 @@
 
 use purecrate_ir::{
     Reason,
-    Arm, BinOp, Callee, CharMethod, ClosureParam, IntMethod, Const, Crate, Expr, Over, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, SliceOf, StrMethod, TryOn,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, IntMethod, Const, Crate, Expr, Over, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, SliceOf, StrMethod, TryOn,
     Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 

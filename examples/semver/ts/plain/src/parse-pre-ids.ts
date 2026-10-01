@@ -2,27 +2,14 @@
 
 import { Int, type U8, type Usize } from "./int.ts";
 import { Result } from "./result.ts";
-import { Str } from "./str.ts";
+import { Str, Iter } from "./str.ts";
 import { parse_pre_id } from "./parse-pre-id.ts";
 import type { PreId } from "./pre-id.ts";
 import type { PreIds } from "./pre-ids.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parse_pre_ids = (s: string): Result<PreIds, SemverError> => {
-  const $m_1 = (() => {
-    const $src4: string = s;
-    let $i3: Usize = (0 as Usize);
-    let $acc2: Usize | null = null;
-    $l2: for (const $x1 of Str.bytes($src4)) {
-      const b: U8 = $x1;
-      if (b === (46 as U8)) {
-        $acc2 = $i3;
-        break $l2;
-      }
-      $i3 = Int.usize.add($i3, (1 as Usize));
-    }
-    return $acc2;
-  })();
+  const $m_1 = Iter.position(Str.bytes(s), ((b: U8): boolean => b === (46 as U8)));
   if ($m_1 !== null) {
     const i = $m_1;
     const $v_head = parse_pre_id(Str.slice(s, (0 as Usize), i));

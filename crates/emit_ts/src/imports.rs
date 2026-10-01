@@ -202,6 +202,8 @@ pub(crate) struct Refs {
     slice: bool,
     /// `Ord` from `./str.ts`, for `cmp` and `Ordering::then`.
     ord: bool,
+    /// `Iter` from `./str.ts`, for `all`, `any`, `position`, `count`, `sum`.
+    iter: bool,
     /// The `Char` runtime, and the `Char` type, from `./str.ts`.
     char_value: bool,
     char_type: bool,
@@ -292,6 +294,21 @@ impl Refs {
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result = true,
                     Callee::OrdCmp { .. } | Callee::OrdThen => self.ord = true,
+                    Callee::Consume { method, over } => {
+                        self.iter = true;
+                        match over {
+                            purecrate_ir::Over::Chars => self.char_type = true,
+                            purecrate_ir::Over::Bytes => self.str = true,
+                            purecrate_ir::Over::Items => {}
+                        }
+                        if let purecrate_ir::Consume::Sum(int) = method {
+                            self.int = true;
+                            self.nums.insert(int.ts_name().to_string());
+                        }
+                        if matches!(method, purecrate_ir::Consume::Position | purecrate_ir::Consume::Count) {
+                            self.nums.insert("Usize".into());
+                        }
+                    }
                     Callee::Int { ty, .. } => {
                         self.int = true;
                         self.nums.insert(ty.ts_name().to_string());
@@ -471,6 +488,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.str.then_some("Str"),
         refs.slice.then_some("Slice"),
         refs.ord.then_some("Ord"),
+        refs.iter.then_some("Iter"),
     ]
     .into_iter()
     .flatten()

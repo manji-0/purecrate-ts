@@ -11,6 +11,7 @@
 - A `?` inside an expression binds its value once and tests it in place, `const $q1 = f(x); if ($q1.kind === "Err") return $q1;`, read as `$q1.value` (an `Option`'s as `$q1`), instead of a second binding for the payload.
 - A lowered `match` (a tuple `match`, guards, `Option` and `Result` cases) binds a variant's fields and a payload to the arm's own names, `const conversion = method.conversion;`, instead of a fresh `$f1` / `$v1` copied into each arm's name with an `as` cast; guards read the same name. semver's `compare_pre_ids` loses 9 lines.
 - `a.cmp(&b)` and `o.then(p)` call the runtime's `Ord.cmp` (integers, `bool`), `Ord.cmpStr` (`char`, strings, `Uuid`, by code point), and `Ord.then`, with each argument evaluated once in Rust's order, instead of an `if` chain over fresh bindings and a `match` per `then`. semver's `compare` goes from 80 lines to 44. `Ord` is now a reserved name.
+- `all`, `any`, `position`, `count`, and `sum` call the runtime's `Iter`, the closure passed as an arrow, instead of a block with fresh bindings, a labelled loop, and an inline function wherever the result was an operand. They stop where std's methods stop, as before. `Iter` is now a reserved name.
 
 ### Added
 

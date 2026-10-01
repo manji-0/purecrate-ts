@@ -181,6 +181,18 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
         }
         Expr::Call { callee, args } => {
+            if let purecrate_ir::Callee::Consume { method, over } = callee {
+                let source = iterable(*over, emit_expr(&args[0], indent));
+                return match method {
+                    purecrate_ir::Consume::Count => format!("Iter.count({source})"),
+                    purecrate_ir::Consume::Sum(int) => format!(
+                        "Iter.sum({source}, Int.{}.add, {})",
+                        int.as_str(),
+                        emit_lit(&Lit::Int { value: 0, ty: Some(*int) })
+                    ),
+                    m => format!("Iter.{}({source}, {})", m.ts_name(), emit_expr(&args[1], indent)),
+                };
+            }
             let c = match callee {
                 purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
                 purecrate_ir::Callee::Method { ty, name } if is_private_method(ty.as_str(), name.as_str()) => {
@@ -224,6 +236,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
                 purecrate_ir::Callee::OrdThen => "Ord.then".into(),
+                purecrate_ir::Callee::Consume { .. } => unreachable!("printed above"),
             };
             if let purecrate_ir::Callee::CharCode(to) = callee {
                 let code = format!("Char.code({})", emit_expr(&args[0], indent));

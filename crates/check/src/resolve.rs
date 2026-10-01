@@ -413,6 +413,10 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
             Callee::OrdCmp { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
+            Callee::Consume { method, .. } => {
+                let takes = if matches!(method, purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_)) { 1 } else { 2 };
+                self.arity(&format!("`{}`", method.ts_name()), takes, argc)
+            }
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Slice { start, end, .. } => self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc),

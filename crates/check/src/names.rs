@@ -24,7 +24,7 @@ const TS_TYPE_KEYWORDS: &[&str] = &[
 
 /// Top-level names the emitted package defines; see also `TS_GLOBALS`.
 const PACKAGE_NAMES: &[&str] = &[
-    "Result", "assertNever", "Int", "Str", "Slice", "Ord", "Char", "Uuid", "UuidError", "parseJson", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
+    "Result", "assertNever", "Int", "Str", "Slice", "Ord", "Iter", "Char", "Uuid", "UuidError", "parseJson", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
 ];
 
 fn is_generated(name: &str) -> bool {

@@ -119,7 +119,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `unwrap_or`, `ok_or`, `map` | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
-| `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | the source bound once, then a `for..of` that sets a result and `break`s where std stops, the closure's body inlined |
+| `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)` |
 | `while` | `while` |
 | a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
 | `?` on `Result` | `if (r.kind === "Err") return r;` |

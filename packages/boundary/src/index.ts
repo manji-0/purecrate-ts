@@ -322,6 +322,54 @@ export const Ord = {
   // #endregion
 } as const;
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  // #region iter.all
+  all: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (!f(x)) return false;
+    return true;
+  },
+  // #endregion
+  // #region iter.any
+  any: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (f(x)) return true;
+    return false;
+  },
+  // #endregion
+  // #region iter.position
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
+  // #endregion
+  // #region iter.count
+  count: (xs: Iterable<unknown>): Usize => {
+    let n = 0;
+    for (const x of xs) {
+      void x;
+      n++;
+    }
+    return n as Usize;
+  },
+  // #endregion
+  // #region iter.sum
+  sum: <T>(xs: Iterable<T>, add: (a: T, b: T) => T, zero: T): T => {
+    let total = zero;
+    for (const x of xs) total = add(total, x);
+    return total;
+  },
+  // #endregion
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
   // #region slice.at

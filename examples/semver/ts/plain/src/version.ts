@@ -3,7 +3,7 @@
 import { assertNever } from "./assert-never.ts";
 import { Int, type U32, type U64, type U8, type Usize } from "./int.ts";
 import { Result } from "./result.ts";
-import { type Char, Str } from "./str.ts";
+import { type Char, Str, Iter } from "./str.ts";
 import { parse_build_ids } from "./parse-build-ids.ts";
 import { parse_core_number } from "./parse-core-number.ts";
 import { parse_pre_ids } from "./parse-pre-ids.ts";
@@ -28,21 +28,7 @@ export const Version$of = (fields: Readonly<{ major: U64; minor: U64; patch: U64
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
     if ((s.length === 0)) return Result.err({ kind: "Empty" });
-    let plus: Usize | null;
-    {
-      const $src4: string = s;
-      let $i3: Usize = (0 as Usize);
-      let $acc2: Usize | null = null;
-      $l3: for (const $x1 of Str.bytes($src4)) {
-        const b: U8 = $x1;
-        if (b === (43 as U8)) {
-          $acc2 = $i3;
-          break $l3;
-        }
-        $i3 = Int.usize.add($i3, (1 as Usize));
-      }
-      plus = $acc2;
-    }
+    const plus: Usize | null = Iter.position(Str.bytes(s), ((b: U8): boolean => b === (43 as U8)));
     let rest: string;
     if (plus !== null) {
       const i = plus;
@@ -50,21 +36,7 @@ export const Version = {
     } else {
       rest = s;
     }
-    let dash: Usize | null;
-    {
-      const $src8: string = rest;
-      let $i7: Usize = (0 as Usize);
-      let $acc6: Usize | null = null;
-      $l3: for (const $x5 of Str.bytes($src8)) {
-        const b$1: U8 = $x5;
-        if (b$1 === (45 as U8)) {
-          $acc6 = $i7;
-          break $l3;
-        }
-        $i7 = Int.usize.add($i7, (1 as Usize));
-      }
-      dash = $acc6;
-    }
+    const dash: Usize | null = Iter.position(Str.bytes(rest), ((b$1: U8): boolean => b$1 === (45 as U8)));
     let core: string;
     if (dash !== null) {
       const i$1 = dash;
@@ -94,18 +66,18 @@ export const Version = {
       }
       n = Int.u32.add(n, (1 as U32));
     }
-    const $opt9 = major as U64 | null;
-    const $arg11 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
+    const $opt1 = major as U64 | null;
+    const $arg3 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
+    if (($opt1 === null)) return Result.err($arg3);
+    const major$1: U64 = $opt1;
+    const $opt5 = minor as U64 | null;
+    const $arg7 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
+    if (($opt5 === null)) return Result.err($arg7);
+    const minor$1: U64 = $opt5;
+    const $opt9 = patch as U64 | null;
+    const $arg11 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
     if (($opt9 === null)) return Result.err($arg11);
-    const major$1: U64 = $opt9;
-    const $opt13 = minor as U64 | null;
-    const $arg15 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
-    if (($opt13 === null)) return Result.err($arg15);
-    const minor$1: U64 = $opt13;
-    const $opt17 = patch as U64 | null;
-    const $arg19 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
-    if (($opt17 === null)) return Result.err($arg19);
-    const patch$1: U64 = $opt17;
+    const patch$1: U64 = $opt9;
     let pre: PreIds;
     if (dash !== null) {
       const i$2 = dash;

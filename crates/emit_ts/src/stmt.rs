@@ -157,16 +157,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish("undefined", &pad, out);
         }
         Expr::ForEach { var, over, source: string, body } => {
-            let source = emit_expr(string, indent);
-            let iterable = match over {
-                // A JS string iterates by code point, as `chars` does by
-                // scalar value; the two agree on well-formed strings
-                // (design/01 §6).
-                purecrate_ir::Over::Chars => format!("({source} as Iterable<Char>)"),
-                // The UTF-8 bytes, as `as_bytes` reads them.
-                purecrate_ir::Over::Bytes => format!("Str.bytes({source})"),
-                purecrate_ir::Over::Items => source,
-            };
+            let iterable = iterable(*over, emit_expr(string, indent));
             emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
@@ -191,6 +182,18 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish(&tmp, &pad, out);
         }
         other => sink.finish_expr(other, indent, out),
+    }
+}
+
+/// What `for` and the consuming methods walk, from the source's text.
+pub(crate) fn iterable(over: purecrate_ir::Over, source: String) -> String {
+    match over {
+        // A JS string iterates by code point, as `chars` does by scalar
+        // value; the two agree on well-formed strings (design/01 §6).
+        purecrate_ir::Over::Chars => format!("({source} as Iterable<Char>)"),
+        // The UTF-8 bytes, as `as_bytes` reads them.
+        purecrate_ir::Over::Bytes => format!("Str.bytes({source})"),
+        purecrate_ir::Over::Items => source,
     }
 }
 

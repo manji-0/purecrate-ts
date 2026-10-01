@@ -255,6 +255,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::I32)),
             ),
+            // Written only by `consume`, typed.
+            Callee::Consume { method, .. } => (
+                args.iter().map(|a| self.expr(a, None).0).collect(),
+                Some(match method {
+                    purecrate_ir::Consume::All | purecrate_ir::Consume::Any => Ty::bool(),
+                    purecrate_ir::Consume::Position => Ty::option(Ty::Prim(Prim::Usize)),
+                    purecrate_ir::Consume::Count => Ty::Prim(Prim::Usize),
+                    purecrate_ir::Consume::Sum(int) => Ty::Prim(Prim::from(*int)),
+                }),
+            ),
             // Written only by `cmp_method` and `ordering_method`, typed.
             Callee::OrdCmp { .. } | Callee::OrdThen => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
