@@ -42,6 +42,7 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with the package's `parseJson` (exported with `--schema`), not `JSON.parse`, so that `i64`/`u64` above 2^53 stay exact.
 - `survey` reports, for each public function and type, whether it is accepted with everything it refers to, and the first cause when it is not. `--all-causes` lowers each item past what it cannot take and lists every cause, the type check's included, to estimate a rewrite.
 - Never edit generated packages. Change the Rust and regenerate.
+- A brand exists only in types, so `5 as I32` or `s as Email` in your own code goes unchecked. Build values with `Int.i32.of`, the wire schemas, or the crate's functions, and keep `as` out with a lint such as `@typescript-eslint/consistent-type-assertions` (`assertionStyle: "never"`), the generated directory left out. The generated code casts only where the value is already what the type says ([design/03 §1.1](design/03-output.md#11-casts)).
 
 ## What you can write
 

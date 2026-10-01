@@ -20,7 +20,26 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Time and IDs are arguments | the domain never generates them |
 | Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
 | Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; fields, types, variants, and UPPER_SNAKE consts keep the Rust name ([02 §3.3](./02-authoring.md)) |
-| `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `to_string` |
+| `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
+
+### 1.1 Casts
+
+A brand exists only in types, so TS lets any `as` make a number an `I32` or a string a `Yen`. The generated code casts only where the value is already what the type says, for a reason outside TS; `crates/cli/tests/it/casts.rs` reads the output of every example and test fixture and fails on any `as` of no kind below, and on a cast to one of the crate's brands outside its constructor.
+
+| Kind | Example | Why the value is what the type says |
+| --- | --- | --- |
+| Literal | `(1 as I32)`, `(10n as I64)`, `(1.0 as F64)` | rustc refuses an integer literal its type cannot hold |
+| `char` literal | `"." as Char` | a Rust `char` literal is one scalar value |
+| Length | `(xs.length) as Usize` | a JS length is an integer below 2^32 |
+| Widening | `(x as number as U32)`, `(globalThis.BigInt(x) as I64)` | `check` takes `T::from(x)` only where std has `From`, which is lossless |
+| `for` counter | `i = (i + 1) as Usize` | `i` is below the exclusive end, so `i + 1` is at most the end |
+| Discriminant | `({ A: (1 as U8) } as Record<string, U8>)[e.kind] as U8` | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)) |
+| Float | `(a * b as F64)`, `(Math.fround(x) as F32)` | every `number` is an `f64`; `fround` gives an `f32` |
+| Constructor | `Yen$of = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
+| Declared type | `state as State`, `{ kind: "A" } as Event`, `o as I64 \| null` | the value has that type already; TS had narrowed it, and the cast widens it back |
+| Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
+
+A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as `@typescript-eslint/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
 
 ## 2. Type mapping
 

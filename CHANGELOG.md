@@ -26,6 +26,10 @@
 - `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.toString` (`to_string` in Rust), so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
 - `///` (and `/** */`) comments carry over as JSDoc: on structs and enums, struct fields, each variant's constructor, functions, methods, consts, and aliases. Before, every doc comment was dropped.
 
+### Tests
+
+- `casts.rs` reads the output of every example and test fixture and fails on an `as` that is not one of the kinds design/03 §1.1 lists (a range-checked literal, a length, a lossless widening, a `for` counter, a folded discriminant, a float, the crate's constructor, a union given back its declared type), and on a cast to one of the crate's brands outside its constructor.
+
 ### Fixed
 
 - A `match` on an enum of one variant no longer fails `tsc`: TS does not narrow a type that is not a union, so the `switch` left `assertNever` reachable. The one arm prints without a `switch`.
