@@ -4,10 +4,4 @@ import { type U8 } from "./int.ts";
 import { is_alnum } from "./is-alnum.ts";
 
 /** The local part's bytes besides letters and digits: .!#$%&'*+/=?^_`{|}~- */
-export const is_local = (b: U8): boolean => is_alnum(b) || (() => {
-  if (b === (46 as U8) || b === (33 as U8) || (b >= (35 as U8) && b <= (39 as U8)) || b === (42 as U8) || b === (43 as U8) || b === (45 as U8) || b === (47 as U8) || b === (61 as U8) || b === (63 as U8) || (b >= (94 as U8) && b <= (96 as U8)) || (b >= (123 as U8) && b <= (126 as U8))) {
-    return true;
-  } else {
-    return false;
-  }
-})();
+export const is_local = (b: U8): boolean => is_alnum(b) || (b === (46 as U8) || b === (33 as U8) || (b >= (35 as U8) && b <= (39 as U8)) || b === (42 as U8) || b === (43 as U8) || b === (45 as U8) || b === (47 as U8) || b === (61 as U8) || b === (63 as U8) || (b >= (94 as U8) && b <= (96 as U8)) || (b >= (123 as U8) && b <= (126 as U8)));

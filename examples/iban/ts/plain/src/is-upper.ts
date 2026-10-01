@@ -3,9 +3,5 @@
 import { type U8 } from "./int.ts";
 
 export const is_upper = (b: U8): boolean => {
-  if (b >= (65 as U8) && b <= (90 as U8)) {
-    return true;
-  } else {
-    return false;
-  }
+  return (b >= (65 as U8) && b <= (90 as U8));
 };

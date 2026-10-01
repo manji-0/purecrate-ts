@@ -134,3 +134,25 @@ fn a_lowered_match_binds_the_arms_names() {
     let area = &pkg.files.iter().find(|f| f.stem == "area").expect("area").source;
     assert!(area.contains("const r = s.content[0];") && area.contains("const w = s.w;"), "{area}");
 }
+
+/// A `match` or `matches!` on a place, in an expression, prints as `?:` or
+/// `||` / `&&`, not as an inline function; `||` / `&&` parenthesize what
+/// they join, since a `?:` or `||` operand binds looser.
+#[test]
+fn a_match_in_an_expression_is_an_expression() {
+    let source = "pub enum Kind { A, B, C }\n\
+                  pub fn is_a(k: Kind) -> bool { matches!(k, Kind::A) }\n\
+                  pub fn not_c(k: Kind, x: bool) -> bool { x && !matches!(k, Kind::C) }\n\
+                  pub fn small(o: Option<i32>, hi: i32) -> bool { matches!(o, Some(n) if n < 0 || n > hi) }\n\
+                  pub fn or_zero(o: Option<i32>) -> i32 { 1 + o.unwrap_or(0) }\n";
+    let krate = purecrate_syntax::parse_source("exprs", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    for stem in ["is-a", "not-c", "small", "or-zero"] {
+        assert!(!file(stem).contains("(() =>"), "{}", file(stem));
+    }
+    assert!(file("is-a").contains("(k.kind === \"A\")"), "{}", file("is-a"));
+    assert!(file("not-c").contains("x && !(k.kind === \"C\")"), "{}", file("not-c"));
+    assert!(file("or-zero").contains("((o !== null) ? o : (0 as I32))"), "{}", file("or-zero"));
+}

@@ -150,6 +150,18 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 emit_stmts(then, indent, sink, out);
             }
         }
+        // A predicate (`matches!`, or every arm `true` or `false`) on a
+        // place reads better as the test than as a `switch`.
+        Expr::Match { scrutinee, arms }
+            if !matches!(sink, Sink::Effect)
+                && is_place(scrutinee)
+                && arms.iter().all(|a| matches!(a.body, Expr::Lit(Lit::Bool(_)))) =>
+        {
+            match as_expr(expr, indent) {
+                Some(value) => sink.finish(&value, &pad, out),
+                None => emit_switch(scrutinee, arms, indent, sink, out),
+            }
+        }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, out),
         Expr::For { var, ty, start, end, body } => {
             let ty = ty.expect("check::accept types the range");

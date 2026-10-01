@@ -149,8 +149,8 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             (None, Some(base)) => emit_struct_update(fields, base),
             (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
         },
-        Expr::Match { .. } | Expr::Let { .. } => emit_iife(expr, indent),
-        Expr::If { .. } if expr.needs_statements() => emit_iife(expr, indent),
+        Expr::Match { .. } | Expr::Let { .. } => as_expr(expr, indent).unwrap_or_else(|| emit_iife(expr, indent)),
+        Expr::If { .. } if expr.needs_statements() => as_expr(expr, indent).unwrap_or_else(|| emit_iife(expr, indent)),
         Expr::Try { .. }
         | Expr::Seq { .. }
         | Expr::Assign { .. }
@@ -389,6 +389,147 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
             format!("{{ kind: \"{variant}\", {inner} }}")
         }
     }
+}
+
+/// `expr` as one TS expression, without an inline function, when it can be:
+/// a `match` on a place whose arms are expressions, as a chain of `?:` (or
+/// `||` / `&&` where the arms are `true` and `false`); an `if` whose
+/// branches can be; a `let` of a place or a literal, read where it is
+/// used. A place and a literal read the same anywhere in an expression, as
+/// nothing in one assigns. `None` otherwise: the inline function stays,
+/// which evaluates a scrutinee that is not a place once.
+pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
+    match expr {
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) || matches!(**value, Expr::Lit(_)) => {
+            as_expr(&subst(then, name, value), indent)
+        }
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_expr(scrutinee, arms, indent),
+        Expr::If { cond, then, else_ } => {
+            let (t, e) = (as_expr(then, indent)?, as_expr(else_, indent)?);
+            Some(fold(emit_expr(cond, indent), (t, bool_lit(then)), (e, bool_lit(else_))))
+        }
+        e if !e.needs_statements() => Some(emit_expr(e, indent)),
+        _ => None,
+    }
+}
+
+fn bool_lit(e: &Expr) -> Option<bool> {
+    match e {
+        Expr::Lit(Lit::Bool(b)) => Some(*b),
+        _ => None,
+    }
+}
+
+/// `test ? then : else_`, as `||` / `&&` when either side is a `bool`
+/// literal. Each operand of `||` / `&&` is parenthesized.
+fn fold(test: String, (then, then_lit): (String, Option<bool>), (else_, else_lit): (String, Option<bool>)) -> String {
+    match (then_lit, else_lit) {
+        (Some(true), Some(false)) => format!("({test})"),
+        (Some(false), Some(true)) => format!("!({test})"),
+        // The other side may be a `?:` or an `||`, which bind looser.
+        (Some(true), _) => format!("(({test}) || ({else_}))"),
+        (Some(false), _) => format!("(!({test}) && ({else_}))"),
+        (_, Some(false)) => format!("(({test}) && ({then}))"),
+        (_, Some(true)) => format!("(!({test}) || ({then}))"),
+        _ => format!("(({test}) ? {then} : {else_})"),
+    }
+}
+
+/// The arms in order, each a test on `scrutinee` and its body with the
+/// pattern's bindings read from `scrutinee`; the last is the `else`, as
+/// `check::accept` has made the `match` exhaustive.
+fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Option<String> {
+    if arms.iter().any(|a| a.guard.is_some()) {
+        return None;
+    }
+    let subject = emit_expr(scrutinee, indent);
+    let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
+    let mut parts: Vec<(Option<String>, String, Option<bool>)> = Vec::new();
+    for (i, arm) in arms.iter().enumerate() {
+        let last = i + 1 == arms.len();
+        let mut body = arm.body.clone();
+        let bind = |p: &Pattern, read: Expr, body: &mut Expr| -> Option<()> {
+            match p {
+                Pattern::Var(n) => {
+                    *body = subst(body, n, &read);
+                    Some(())
+                }
+                Pattern::Wildcard => Some(()),
+                _ => None,
+            }
+        };
+        let test = match &arm.pattern {
+            Pattern::Wildcard => None,
+            Pattern::Var(n) => {
+                body = subst(&body, n, scrutinee);
+                None
+            }
+            Pattern::OptionSome(p) => {
+                bind(p, scrutinee.clone(), &mut body)?;
+                two_way_test(&arm.pattern, &subject)
+            }
+            Pattern::ResultOk(p) => {
+                bind(p, field(scrutinee, "value"), &mut body)?;
+                two_way_test(&arm.pattern, &subject)
+            }
+            Pattern::ResultErr(p) => {
+                bind(p, field(scrutinee, "error"), &mut body)?;
+                two_way_test(&arm.pattern, &subject)
+            }
+            Pattern::OptionNone => two_way_test(&arm.pattern, &subject),
+            Pattern::Variant { variant, bind: vb, .. } => {
+                match vb {
+                    VariantBind::Unit => {}
+                    VariantBind::Tuple(ps) => {
+                        for (k, p) in ps.iter().enumerate() {
+                            bind(p, field(&field(scrutinee, "content"), &format!("[{k}]")), &mut body)?;
+                        }
+                    }
+                    VariantBind::Struct(ps) => {
+                        for (f, p) in ps {
+                            bind(p, field(scrutinee, f.as_str()), &mut body)?;
+                        }
+                    }
+                }
+                Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
+            }
+            Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { bind: VariantBind::Unit, .. })) => Some(
+                alts.iter()
+                    .filter_map(|a| match a {
+                        Pattern::Variant { variant, .. } => Some(format!("{subject}.kind === \"{}\"", variant.as_str())),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" || "),
+            ),
+            p if p.is_lit_case() => Some(lit_test(p, &subject)?),
+            _ => return None,
+        };
+        let lit = bool_lit(&body);
+        let text = as_expr(&body, indent)?;
+        parts.push((if last { None } else { test }, text, lit));
+    }
+    let (_, mut acc, mut acc_lit) = parts.pop()?;
+    while let Some((test, text, lit)) = parts.pop() {
+        let test = test?;
+        acc = fold(test, (text, lit), (acc, acc_lit));
+        acc_lit = None;
+    }
+    Some(acc)
+}
+
+/// `expr` with each read of `name` replaced by `with`. Names are unique in
+/// a function (`check::rename`), so none is shadowed.
+fn subst(expr: &Expr, name: &Name, with: &Expr) -> Expr {
+    let mut out = expr.clone();
+    fn go(e: &mut Expr, name: &Name, with: &Expr) {
+        match e {
+            Expr::Var(n) if n == name => *e = with.clone(),
+            _ => e.children_mut().into_iter().for_each(|c| go(c, name, with)),
+        }
+    }
+    go(&mut out, name, with);
+    out
 }
 
 pub(crate) fn emit_iife(expr: &Expr, indent: usize) -> String {

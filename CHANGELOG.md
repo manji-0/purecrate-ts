@@ -12,6 +12,7 @@
 - A lowered `match` (a tuple `match`, guards, `Option` and `Result` cases) binds a variant's fields and a payload to the arm's own names, `const conversion = method.conversion;`, instead of a fresh `$f1` / `$v1` copied into each arm's name with an `as` cast; guards read the same name. semver's `compare_pre_ids` loses 9 lines.
 - `a.cmp(&b)` and `o.then(p)` call the runtime's `Ord.cmp` (integers, `bool`), `Ord.cmpStr` (`char`, strings, `Uuid`, by code point), and `Ord.then`, with each argument evaluated once in Rust's order, instead of an `if` chain over fresh bindings and a `match` per `then`. semver's `compare` goes from 80 lines to 44. `Ord` is now a reserved name.
 - `all`, `any`, `position`, `count`, and `sum` call the runtime's `Iter`, the closure passed as an arrow, instead of a block with fresh bindings, a labelled loop, and an inline function wherever the result was an operand. They stop where std's methods stop, as before. `Iter` is now a reserved name.
+- A `match` or `matches!` on a place inside an expression, its arms expressions, prints as `?:` or as `||` / `&&` on the arms' tests (`(k.kind === "A")`, `(o !== null ? o : 0)`) instead of an inline function with a `switch`; a `match` whose arms are all `true` or `false` prints as its test also as a statement. The inline function remains for a value that is not a place, which it evaluates once. payment's generated code goes from 22.3 to 20.6 KB.
 
 ### Added
 

@@ -10,11 +10,7 @@ import { MAX_SECONDS_DIGITS } from "./consts.ts";
  */
 export const parse_seconds = (s: string): I64 | null => {
   if (((s.length === 0) || (Str.len(s) > MAX_SECONDS_DIGITS)) || !Iter.all(Str.bytes(s), ((b: U8): boolean => {
-    if (b >= (48 as U8) && b <= (57 as U8)) {
-      return true;
-    } else {
-      return false;
-    }
+    return (b >= (48 as U8) && b <= (57 as U8));
   }))) {
     return null;
   }

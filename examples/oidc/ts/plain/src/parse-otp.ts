@@ -11,11 +11,7 @@ import type { OtpDigits } from "./otp-digits.ts";
  */
 export const parse_otp = (code: string, digits: OtpDigits): U32 | null => {
   if ((Str.len(code) !== digit_count(digits)) || !Iter.all(Str.bytes(code), ((b: U8): boolean => {
-    if (b >= (48 as U8) && b <= (57 as U8)) {
-      return true;
-    } else {
-      return false;
-    }
+    return (b >= (48 as U8) && b <= (57 as U8));
   }))) {
     return null;
   }

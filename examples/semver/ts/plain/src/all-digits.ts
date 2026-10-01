@@ -4,9 +4,5 @@ import { type U8 } from "./int.ts";
 import { Str, Iter } from "./str.ts";
 
 export const all_digits = (s: string): boolean => Iter.all(Str.bytes(s), ((b: U8): boolean => {
-  if (b >= (48 as U8) && b <= (57 as U8)) {
-    return true;
-  } else {
-    return false;
-  }
+  return (b >= (48 as U8) && b <= (57 as U8));
 }));

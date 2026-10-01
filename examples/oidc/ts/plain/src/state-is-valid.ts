@@ -9,9 +9,5 @@ import { MAX_STATE_LEN } from "./consts.ts";
  * `MAX_STATE_LEN` bytes.
  */
 export const state_is_valid = (state: string): boolean => (!(state.length === 0) && (Str.len(state) <= MAX_STATE_LEN)) && Iter.all(Str.bytes(state), ((b: U8): boolean => {
-  if (b >= (32 as U8) && b <= (126 as U8)) {
-    return true;
-  } else {
-    return false;
-  }
+  return (b >= (32 as U8) && b <= (126 as U8));
 }));

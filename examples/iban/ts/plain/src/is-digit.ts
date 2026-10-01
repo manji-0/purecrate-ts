@@ -3,9 +3,5 @@
 import { type U8 } from "./int.ts";
 
 export const is_digit = (b: U8): boolean => {
-  if (b >= (48 as U8) && b <= (57 as U8)) {
-    return true;
-  } else {
-    return false;
-  }
+  return (b >= (48 as U8) && b <= (57 as U8));
 };

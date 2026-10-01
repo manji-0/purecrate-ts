@@ -9,16 +9,7 @@ import type { Terms } from "./terms.ts";
 export const attempt = (terms: Terms, method: PaymentMethod, outcome: Outcome): Status => {
   switch (outcome.kind) {
     case "Authorized":
-      return ((() => {
-        switch (terms.capture.kind) {
-          case "Manual":
-            return true;
-          case "Automatic":
-            return false;
-          default:
-            return assertNever(terms.capture);
-        }
-      })() ? { kind: "RequiresCapture", method: method, capturable: terms.amount } : { kind: "Succeeded", received: terms.amount, application_fee: null });
+      return ((terms.capture.kind === "Manual") ? { kind: "RequiresCapture", method: method, capturable: terms.amount } : { kind: "Succeeded", received: terms.amount, application_fee: null });
     case "ActionRequired":
       return { kind: "RequiresAction", method: method };
     case "Pending":

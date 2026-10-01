@@ -58,16 +58,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "Confirm": {
           const method$4 = event.method;
           const outcome$1 = event.outcome;
-          status = attempt(terms, (() => {
-            const $opt5 = method$4 as PaymentMethod | null;
-            const $arg7 = current as PaymentMethod;
-            if ($opt5 !== null) {
-              const $some6 = $opt5;
-              return $some6;
-            } else {
-              return $arg7;
-            }
-          })(), outcome$1);
+          status = attempt(terms, ((method$4 !== null) ? method$4 : current), outcome$1);
           break;
         }
         case "ActionHandled":
@@ -96,27 +87,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           return Result.err({ kind: "InvalidTransition" });
         case "ActionHandled": {
           const outcome$2 = event.content[0];
-          if ((() => {
-            switch (terms.confirmation.kind) {
-              case "Manual":
-                return true;
-              case "Automatic":
-                return false;
-              default:
-                return assertNever(terms.confirmation);
-            }
-          })() && !(() => {
-            switch (outcome$2.kind) {
-              case "Declined":
-                return true;
-              case "Authorized":
-              case "ActionRequired":
-              case "Pending":
-                return false;
-              default:
-                return assertNever(outcome$2);
-            }
-          })()) {
+          if ((terms.confirmation.kind === "Manual") && !(outcome$2.kind === "Declined")) {
             status = { kind: "RequiresConfirmation", method: method$5 };
           } else {
             const method$6 = method$5 as PaymentMethod;
@@ -153,16 +124,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         }
         case "Cancel": {
           const reason$3 = event.content[0];
-          if ((() => {
-            switch (method$7.kind.kind) {
-              case "BankDebit":
-                return true;
-              case "Card":
-                return false;
-              default:
-                return assertNever(method$7.kind);
-            }
-          })()) {
+          if ((method$7.kind.kind === "BankDebit")) {
             status = { kind: "Canceled", reason: reason$3 };
           } else {
             return Result.err({ kind: "NotCancelable" });
@@ -186,26 +148,8 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "Capture": {
           const amount_to_capture = event.amount_to_capture;
           const application_fee = event.application_fee;
-          if ((() => {
-            if (amount_to_capture !== null) {
-              const amount = amount_to_capture;
-              return (amount < (1n as I64)) || (amount > capturable);
-            } else {
-              return false;
-            }
-          })()) {
-            return Result.err({ kind: "InvalidCaptureAmount", capturable: capturable });
-          }
-          if ((() => {
-            if (application_fee !== null) {
-              const fee = application_fee;
-              return fee < (0n as I64);
-            } else {
-              return false;
-            }
-          })()) {
-            return Result.err({ kind: "NegativeApplicationFee" });
-          }
+          if (((amount_to_capture !== null) && ((amount_to_capture < (1n as I64)) || (amount_to_capture > capturable)))) return Result.err({ kind: "InvalidCaptureAmount", capturable: capturable });
+          if (((application_fee !== null) && (application_fee < (0n as I64)))) return Result.err({ kind: "NegativeApplicationFee" });
           let received: I64;
           {
             const $opt8 = amount_to_capture as I64 | null;
@@ -217,15 +161,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
               received = $arg10;
             }
           }
-          status = { kind: "Succeeded", received: received, application_fee: (() => {
-  const $opt11 = application_fee as I64 | null;
-  if ($opt11 !== null) {
-    const fee$1 = $opt11;
-    return Int.i64.min(fee$1, received);
-  } else {
-    return null;
-  }
-})() };
+          status = { kind: "Succeeded", received: received, application_fee: ((application_fee !== null) ? Int.i64.min(application_fee, received) : null) };
           break;
         }
         case "Cancel": {
