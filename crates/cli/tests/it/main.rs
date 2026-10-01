@@ -40,6 +40,7 @@ mod ordering_equivalence;
 mod package;
 mod payment_equivalence;
 mod rest_equivalence;
+mod scoped_names;
 mod semver_equivalence;
 mod signup_equivalence;
 mod slicing_equivalence;

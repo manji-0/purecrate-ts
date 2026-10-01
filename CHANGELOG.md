@@ -11,9 +11,9 @@
 ### Fixed
 
 - Lets of a union annotate the binding (`const x: T = …`) instead of `x as T` when the value is already that type. `casts.rs` fails on identity casts of a place.
+- Shadowed locals are numbered (`method$1`) only when the name is live in the same JS scope. Match arms reuse the Rust name; sequential `let`s in one function still number.
 - The wire module imports each domain file once: value and `type` aliases (and `{E as E$text}` for a `try_from` refusal) sit in a single `import { … } from "./….ts"`.
 - A trimmed runtime drops a namespace whose members are all gone (`export const Iter = {}`). The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type.
-- Lets of a union annotate the binding (`const x: T = …`) instead of `x as T` when the value is already that type. `casts.rs` fails on identity casts of a place.
 - README's `cargo install --tag` pin is `v0.7.0`. `scripts/verify.sh` fails when any `--tag vX.Y.Z` in `README.md` or `skills/purecrate-authoring/SKILL.md` disagrees with the workspace version.
 - `build --out` keeps `node_modules/` across a rebuild, so an `npm install` in the generated package is not deleted. `dist/` is still dropped (it is stale).
 - rustc's scratch directory is a unique 0700 path, created exclusively and removed on drop, instead of `purecrate-rustc-<pid>` in the shared temp dir.
@@ -39,6 +39,7 @@
 - design/03 next to the `Option` mapping, and design/02: nested `Option` stays refused because `T | null` (and serde's default JSON) cannot tell the two `None`s apart.
 - design/07: growing a `Vec` with `push` / `iter().map(f).collect()` is a candidate, still refused until an example cannot be written without it.
 - README and design/07 §9: generated API stability within a minor series (export names, type shapes, wire format, runtime API vs. formatting, internal helpers, local names).
+- design/03 §3.3.5: locals are numbered only in the same JS scope; match arms reuse the Rust name.
 - design/03 §5.2: panics are `Panic`, not a plain `Error`.
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 - design/02 merges the duplicate "Text lists" / "A list from text" rows.

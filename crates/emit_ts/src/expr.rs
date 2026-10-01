@@ -641,13 +641,49 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
     Some(acc)
 }
 
-/// `expr` with each read of `name` replaced by `with`. Names are unique in
-/// a function (`check::rename`), so none is shadowed.
+/// `expr` with each read of `name` replaced by `with`. Nested binders of
+/// `name` hide it, so a reused name in another arm is not rewritten.
 fn subst(expr: &Expr, name: &Name, with: &Expr) -> Expr {
     let mut out = expr.clone();
     fn go(e: &mut Expr, name: &Name, with: &Expr) {
         match e {
             Expr::Var(n) if n == name => *e = with.clone(),
+            Expr::Let { name: n, value, then, .. } => {
+                go(value, name, with);
+                if n != name {
+                    go(then, name, with);
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                go(scrutinee, name, with);
+                for arm in arms {
+                    let bound = arm.pattern.bindings().iter().any(|b| *b == name);
+                    if !bound {
+                        if let Some(g) = &mut arm.guard {
+                            go(g, name, with);
+                        }
+                        go(&mut arm.body, name, with);
+                    }
+                }
+            }
+            Expr::For { var, start, end, body, .. } => {
+                go(start, name, with);
+                go(end, name, with);
+                if var != name {
+                    go(body, name, with);
+                }
+            }
+            Expr::ForEach { var, source, body, .. } => {
+                go(source, name, with);
+                if var != name {
+                    go(body, name, with);
+                }
+            }
+            Expr::Closure { params, body, .. } => {
+                if !params.iter().any(|p| p.name == *name) {
+                    go(body, name, with);
+                }
+            }
             _ => e.children_mut().into_iter().for_each(|c| go(c, name, with)),
         }
     }

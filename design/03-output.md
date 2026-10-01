@@ -198,7 +198,7 @@ A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `
 
 #### 3.3.5 Renaming
 
-- Bindings are renamed to be unique per function. Shadowing gives `x$1`.
+- Bindings are numbered (`x$1`) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
 - A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
 
 ### 3.4 Closures

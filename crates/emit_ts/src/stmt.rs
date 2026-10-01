@@ -264,6 +264,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     let keyword = if mutable { "let" } else { "const" };
     let annotation = ty.map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
     match value {
+        Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
             let tmp = format!("{TRY_LET_TEMP}{name}");
             emit_try_exit(&tmp, expr, *on, indent, out);
