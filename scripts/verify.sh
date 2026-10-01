@@ -34,11 +34,20 @@ for dir in examples/*/; do
   [ -f "$dir/src/lib.rs" ] || continue
   cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/plain"
   examples+=("$dir/ts/plain")
-  # Only an example that derives serde has a wire form (scripts/examples.sh).
-  grep -qE 'derive\([^)]*(Serialize|Deserialize)' "$dir"/src/*.rs || continue
+  # Nested module files and multi-line derives are visible to check, not to
+  # a `src/*.rs` grep. `--schema` refuses when there is no wire form.
+  wired=
   for lib in zod valibot arktype; do
-    cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/$lib" --schema "$lib"
-    examples+=("$dir/ts/$lib")
+    if err=$(cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/$lib" --schema "$lib" 2>&1); then
+      wired=1
+      examples+=("$dir/ts/$lib")
+      continue
+    fi
+    if [ -z "$wired" ] && printf '%s\n' "$err" | grep -q 'no public struct or enum derives'; then
+      break
+    fi
+    printf '%s\n' "$err" >&2
+    exit 1
   done
 done
 # The adapters import the runtime package, which exports `dist`; here its
