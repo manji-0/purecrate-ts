@@ -265,6 +265,12 @@ impl<'a> Cx<'_, 'a> {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
                         }
+                        // `E::V` as a function of its one field.
+                        Expr::Construct { ty, variant: Some(v), fields: Fields::Unit, base: None }
+                            if takes_fn && one_field_variant(self.defs, ty, v) =>
+                        {
+                            Some(1)
+                        }
                         _ => None,
                     };
                     match fn_name {
@@ -547,4 +553,11 @@ impl<'a> Cx<'_, 'a> {
             }
         }
     }
+}
+
+/// `ty::variant` is a tuple variant of one field: in Rust, a function.
+pub(crate) fn one_field_variant(defs: &Defs, ty: &Name, variant: &Name) -> bool {
+    defs.enums.get(ty.as_str()).is_some_and(|e| {
+        e.variants.iter().any(|v| v.name == *variant && matches!(&v.fields, VariantFields::Tuple(ts) if ts.len() == 1))
+    })
 }

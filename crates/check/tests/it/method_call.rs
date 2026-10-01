@@ -111,4 +111,8 @@ fn option_combinators_are_checked() {
         "pub fn g(a: u8, b: u8) -> u8 { a + b }\npub fn f(x: Option<u8>) -> Option<u8> { x.map(g) }",
         "`map` calls its function with 1 argument, which takes 2",
     );
+    // A one-field tuple variant is a function (`.map(PreId::Numeric)`).
+    assert_clean("pub enum E { A(u8), B } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }");
+    assert_rejects("pub enum E { A(u8), B } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::B) }", "`Option::map` takes a closure");
+    assert_rejects("pub enum E { A(u8, u8) } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }", "constructed with the wrong shape");
 }

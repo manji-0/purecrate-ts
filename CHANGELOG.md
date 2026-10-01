@@ -5,6 +5,7 @@
 ### Added
 
 - A side of `|` may test inside its case (`Started | Paid(Method::Card, Some(0)) =>`), and a tuple inside a case or a tuple may hold any pattern (`Some((1, b))`, `(a, (true, n))`). Both were `[pattern/nested]`. The sides of `|` still bind nothing.
+- `Option::map` takes a one-field tuple variant as its function (`.map(PreId::Numeric)`), as Rust does. semver uses it.
 
 ## 0.7.0 — 2026-10-02
 

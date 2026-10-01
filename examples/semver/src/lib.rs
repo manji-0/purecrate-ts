@@ -168,9 +168,7 @@ fn parse_pre_id(s: &str) -> Result<PreId, SemverError> {
         _ if !s.bytes().all(is_ident_char) => Err(SemverError::InvalidPreReleaseChar),
         _ if !all_digits(s) => Ok(PreId::Alpha(String::from(s))),
         _ if has_leading_zero(s) => Err(SemverError::PreReleaseLeadingZero),
-        _ => digits_to_u64(s)
-            .map(|n| PreId::Numeric(n))
-            .ok_or(SemverError::PreReleaseTooLarge),
+        _ => digits_to_u64(s).map(PreId::Numeric).ok_or(SemverError::PreReleaseTooLarge),
     }
 }
 

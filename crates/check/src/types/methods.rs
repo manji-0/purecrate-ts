@@ -333,6 +333,23 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// written type, and the body; `None` once reported. The closure is
     /// inlined into a loop, so it may not use `?` or `return`, which would
     /// leave the enclosing function.
+    /// `E::V` written where a function goes, `V` a one-field tuple variant:
+    /// what builds `E::V(x)` from `x`.
+    fn variant_fn(&self, e: &Expr) -> Option<impl std::ops::Fn(Expr) -> Expr> {
+        let Expr::Construct { ty, variant: Some(variant), fields: Fields::Unit, base: None } = e.unpositioned() else {
+            return None;
+        };
+        crate::resolve::one_field_variant(self.defs, ty, variant).then(|| {
+            let (ty, variant) = (ty.clone(), variant.clone());
+            move |x: Expr| Expr::Construct {
+                ty: ty.clone(),
+                variant: Some(variant.clone()),
+                fields: Fields::Positional(vec![x]),
+                base: None,
+            }
+        })
+    }
+
     fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
         match arg.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
@@ -508,8 +525,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                         Pattern::Var(some.clone()),
                         Expr::Call { callee: Callee::Fn(f.clone()), args: vec![v(&some)] },
                     ),
+                    e if self.variant_fn(e).is_some() => {
+                        let build = self.variant_fn(e)?;
+                        (Pattern::Var(some.clone()), build(v(&some)))
+                    }
                     _ => {
-                        self.error(Reason::Closure, "`Option::map` takes a closure `|x| ..` or a function name in v0".into());
+                        self.error(Reason::Closure, "`Option::map` takes a closure `|x| ..`, a function name, or a one-field tuple variant in v0".into());
                         return Some((recv, None));
                     }
                 };

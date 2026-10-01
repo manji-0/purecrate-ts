@@ -61,11 +61,12 @@ fn split_once_refuses_a_needle_that_is_not_text() {
 
 #[test]
 fn map_of_collect_refuses_a_variant_constructor() {
-    // A tuple variant is a function in Rust (`PreId::Numeric`). Here it is
-    // built with no fields, so it never reaches `map`.
+    // A tuple variant is a function in Rust (`PreId::Numeric`); `Option::map`
+    // takes one, but the pieces of `split` are `&str`, which no variant of a
+    // crate type without lifetimes holds.
     assert_rejects(
         "pub enum E { A(u8) } pub fn f(s: &str) -> Vec<E> { s.split(',').map(E::A).collect() }",
-        "`E::A` is constructed with the wrong shape",
+        "`map` takes a closure",
     );
     assert_rejects(
         "pub enum E { A } pub fn f(s: &str) -> Vec<E> { s.split(',').map(E::A).collect() }",
