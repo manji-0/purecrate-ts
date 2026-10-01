@@ -2,50 +2,55 @@
 
 ## Unreleased
 
-### Changed
+Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below).
 
-- Functions, methods, consts, parameters, and locals print in camelCase, as TS code is written: `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`, `to_string` → `toString`. Fields, types, and variants keep the Rust name, since a field is the JSON key; UPPER_SNAKE consts are unchanged. A caller of a generated package must use the new names. A name that would print as a TS reserved word or a name the package defines (`parse_json` → `parseJson`), or two methods of one type that print alike, are rejected.
-- `--schema` gives a wire form only to what serde does: a schema for each public struct and enum that derives `Deserialize`, and a `toJson` entry for each that derives `Serialize`. Before, every public type had both, so a closed type with no derive (signup's `Email`) could be built from JSON by shape, bypassing its constructor, though Rust cannot read it at all. A crate where no public type derives either is refused with `--schema`. Output generated with `--schema` must be regenerated.
-- A type that derives `Serialize` or `Deserialize` must hold only types that derive it too, as the real derive requires (`check` sees a stand-in serde); the new reason `item/serde-derive` reports the rest. `std::cmp::Ordering` is refused only in such a type: a type without a serde derive may hold one.
-- Indexing `xs[i]` and slicing `&xs[a..b]` on a `Vec` or slice call the runtime's `Slice.at` and `Slice.range` instead of an inline function at every use, with the same checks and panic messages; iban's generated code goes from 6.0 to 4.9 KB. `Slice` is now a reserved name.
-- `let x = o.ok_or(e)?` prints as a guard, `if ($o === null) return Result.err($oOr);`, instead of an inline function that built a `Result` for `?` to take apart (15 lines to 4); `e` still runs first. A statement `if c { return v; }` prints on one line when it fits.
-- A `?` inside an expression binds its value once and tests it in place, `const $f = f(x); if ($f.kind === "Err") return $f;`, read as `$f.value` (an `Option`'s as `$f`), instead of a second binding for the payload.
-- A lowered `match` (a tuple `match`, guards, `Option` and `Result` cases) binds a variant's fields and a payload to the arm's own names, `const conversion = method.conversion;`, instead of a fresh `$f1` / `$v1` copied into each arm's name with an `as` cast; guards read the same name. semver's `compare_pre_ids` loses 9 lines.
-- `a.cmp(&b)` and `o.then(p)` call the runtime's `Ord.cmp` (integers, `bool`), `Ord.cmpStr` (`char`, strings, `Uuid`, by code point), and `Ord.then`, with each argument evaluated once in Rust's order, instead of an `if` chain over fresh bindings and a `match` per `then`. semver's `compare` goes from 80 lines to 44. `Ord` is now a reserved name.
-- `all`, `any`, `position`, `count`, and `sum` call the runtime's `Iter`, the closure passed as an arrow, instead of a block with fresh bindings, a labelled loop, and an inline function wherever the result was an operand. They stop where std's methods stop, as before. `Iter` is now a reserved name.
-- A `match` or `matches!` on a place inside an expression, its arms expressions, prints as `?:` or as `||` / `&&` on the arms' tests (`(k.kind === "A")`, `(o !== null ? o : 0)`) instead of an inline function with a `switch`; a `match` whose arms are all `true` or `false` prints as its test also as a statement. The inline function remains for a value that is not a place, which it evaluates once. payment's generated code goes from 22.3 to 20.6 KB.
-- A crate's newtypes and closed structs are branded by string, `{ readonly "invoice.Yen": true }`, as the runtime's types are, instead of a `declare const YenBrand: unique symbol`: the key reads in a hover or a type error, and two copies of one crate's package exchange values.
-- The index exports `Char` only when the public surface holds a `char`, `Uuid` and `UuidError` only when it holds a `Uuid`, and `parseJson` only with `--schema`; before, every package exported all three. The runtime copy keeps only those it exports, so counter's goes from 11.9 to 6.5 KB and payment's from 15.8 to 10.3 KB. A caller that imported one of them from a package that no longer exports it must stop.
-- `Result` and `assertNever` live in the package's copy of the runtime, and each file imports what it uses from it in one line; `result.ts`, `assert-never.ts`, and the re-exporting `int.ts` and `str.ts` are gone (counter's package goes from 8 files to 5). What the index exports is unchanged. `result`, `assert-never`, `int`, and `str` are no longer reserved file stems.
-- An enum whose variants all are unit is read by the adapter's `unitEnum(["A", "B"])` in one expression, instead of an arm per variant (six lines each with arktype); it accepts and reports what the arms did. payment's arktype wire module goes from 454 to 356 lines, invoice's from 187 to 116.
-- The wire module is broken at 100 characters as the rest of the package is, each schema carries its type's `///` comment as JSDoc, and `toJson` builds a struct or variant with the runtime's `Json.object([["a", ..], ..])` and `Json.tuple([..])`, one field per line when long, instead of a template literal on one line; the text written is the same.
-- A schema's transform reads its parsed value as `x`, not `v`, which valibot's namespace is named.
-- `return match ..` prints as the `match` returning from each arm, and `!matches!(x, A)` on an enum whose other variants have fields as `x.kind !== "A"`, both without an inline function; one remains only for a `match` on a value that is not a place, inside an expression, where hoisting it would change when it runs.
-- A name the generator makes says what it holds: `$parseCoreNumber` for a hoisted call's value and `$major` / `$majorOr` for `major.ok_or(..)`'s receiver and argument, instead of `$q1`, `$opt9`, and `$arg11`.
-- A struct's zod or valibot schema is the object schema alone, without a `.transform` copying every field, except for a closed struct, a `()` field, or (valibot) an `Option` field, where the copy is needed.
-- Tidier output: no parentheses around a whole condition, `return` value, or initializer; `{ reason }` for a field set from a variable of its name; `!(a === b)` as `a !== b`; and a function or method whose body is one `return` is an expression-bodied arrow.
-- A line past 100 characters is broken inside its outermost bracket with commas, one item per line with a trailing comma, as prettier breaks it: long signatures, calls, and object literals. A condition joined only by `&&` / `||` stays on one line.
-- `Box<T>`, `Arc<T>`, and `Mutex<T>` print as `/* Box */ T` in a type, and `Box::new(x)` as `x`, instead of a sentence on what the wrapper is in every type and expression; design/03 §2 says it once.
+### Breaking
+
+- **camelCase.** Functions, methods, consts, parameters, and locals print in camelCase: `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`. Fields, types, and variants keep the Rust name (a field is the JSON key), and UPPER_SNAKE consts are unchanged. Callers use the new names. A name that would print as a TS reserved word or as a name the package defines (`parse_json` → `parseJson`), and two methods of one type that print alike, are rejected.
+- **Only serde's derives make a wire form.** `--schema` writes a schema for each public type that derives `Deserialize` and a `toJson` entry for each that derives `Serialize`; before, every public type had both, so a closed type with no derive (signup's `Email`) could be built from JSON by shape, which Rust cannot do at all. A crate where no public type derives either is refused with `--schema`.
+- **What a derive holds.** A type that derives `Serialize` or `Deserialize` must hold only types that derive it too, as the real derive requires; `check` reports the rest as `item/serde-derive`. `std::cmp::Ordering` is now refused only in such a type.
+- **Fewer index exports.** The index exports `Char` only when the public surface holds a `char`, `Uuid` and `UuidError` only when it holds a `Uuid`, and `parseJson` only with `--schema`. Stop importing one from a package that no longer exports it.
+- **Reserved names.** `Slice`, `Ord`, and `Iter` name runtime objects the generated code calls. `result`, `assert-never`, `int`, and `str` are free as file stems.
 
 ### Added
 
-- `fromJson.T(text)` in the wire module, the inverse of `toJson.T`: serde_json's text read through `parseJson` and the schema, so a 64-bit integer past 2^53 stays exact; malformed text or a refused value throws, as `JSON.parse` and the library's `parse` do.
-- A refused `#[serde(try_from)]` read says what serde says: the error's `Display` text when it is translated (`Amount: amount must be 50 to 99999999`), instead of the variant's name (`Amount: AmountOutOfRange`), which stays when there is no text.
-- `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.toString` (`to_string` in Rust), so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
-- `///` (and `/** */`) comments carry over as JSDoc: on structs and enums, struct fields, each variant's constructor, functions, methods, consts, and aliases. Before, every doc comment was dropped.
+- `fromJson.T(text)`, the inverse of `toJson.T`: serde_json's text read through `parseJson` and the schema, so a 64-bit integer past 2^53 stays exact; malformed text or a refused value throws, as `JSON.parse` and the library's `parse` do.
+- `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those, or `let t = <such a match>; f.write_str(t)`) becomes `X.toString`, and `x.to_string()` in the crate calls it; any other `Display` is skipped as before. invoice's and payment's errors have it.
+- A refused `#[serde(try_from)]` read says what serde says, the error's `Display` text (`Amount: amount must be 50 to 99999999`), where there is one; the variant's name otherwise.
+- `///` and `/** */` comments carry over as JSDoc on types, fields, variant constructors, functions, methods, consts, aliases, and wire schemas.
 
-### Tests
+### Changed
 
-- `casts.rs` reads the output of every example and test fixture and fails on an `as` that is not one of the kinds design/03 §1.1 lists (a range-checked literal, a length, a lossless widening, a `for` counter, a folded discriminant, a float, the crate's constructor, a union given back its declared type), and on a cast to one of the crate's brands outside its constructor.
+Generated code, with the same behavior, checked by the differential tests:
+
+- Runtime helpers instead of inline code: `Slice.at` / `Slice.range` for indexing and slicing (iban 6.0 → 4.9 KB), `Ord.cmp` / `Ord.cmpStr` / `Ord.then` for `cmp` and `then` (semver's `compare` 80 → 44 lines), and `Iter.all` / `any` / `position` / `count` / `sum` with the closure as an arrow. Each evaluates its arguments once in Rust's order and stops where std stops.
+- `?` and `ok_or`: `let x = o.ok_or(e)?` is a guard, `if ($o === null) return Result.err($oOr);` (15 lines → 4, `e` still first); a `?` inside an expression binds once, `const $f = f(x); if ($f.kind === "Err") return $f;`, read as `$f.value`.
+- `match`: a lowered `match` binds the arm's own names, not a `$f1` copied with a cast; a `match` or `matches!` on a place inside an expression is `?:` or `||` / `&&` on the arms' tests; a `match` of `true` / `false` arms prints as its test; `return match ..` returns from each arm. An inline function remains only for a `match` on a value that is not a place, inside an expression, where hoisting would change when it runs (payment 22.3 → 20.6 KB).
+- Names the generator makes say what they hold: `$parseCoreNumber`, `$major` / `$majorOr`, not `$q1`, `$opt9`, `$arg11`.
+- Brands are keyed by string, `{ readonly "invoice.Yen": true }`, as the runtime's are: the key reads in a hover, and two copies of one crate's package exchange values.
+- `Result` and `assertNever` live in the runtime copy, each file imports what it uses in one line, and `result.ts`, `assert-never.ts`, `int.ts`, and `str.ts` are gone (counter 8 files → 5). The runtime copy keeps only what the package uses and exports (counter 11.9 → 6.5 KB, payment 15.8 → 10.3 KB).
+- Layout: lines past 100 characters break inside their outermost bracket, one item per line, as prettier does; no parentheses around a whole condition, `return` value, or initializer; field shorthand; `!(a === b)` as `a !== b`; `if (c) return v;` on one line; a body of one `return` is an expression-bodied arrow; `Box<T>` and friends are `/* Box */ T` in a type and nothing in an expression.
+
+Wire module:
+
+- An enum whose variants all are unit is the adapter's `unitEnum([..])` (payment's arktype module 454 → 356 lines).
+- A struct is the object schema alone, without a `.transform` copying every field, except for a closed struct, a `()` field, or valibot's `Option` field.
+- `toJson` writes through `Json.object` and `Json.tuple`, broken one field per line, instead of a one-line template literal; the bytes are the same.
+- The module is wrapped and documented as the rest of the package is, and a transform reads its value as `x`, not valibot's `v`.
 
 ### Fixed
 
-- A `match` on an enum of one variant no longer fails `tsc`: TS does not narrow a type that is not a union, so the `switch` left `assertNever` reachable. The one arm prints without a `switch`.
-- A package's copy of the runtime no longer has runs of blank lines where unused parts were left out.
+- A `match` on an enum of one variant failed `tsc`: TS does not narrow a type that is not a union, so `assertNever` stayed reachable. The one arm prints without a `switch`.
+- The runtime copy no longer has runs of blank lines where unused parts were left out.
+
+### Tests
+
+- `casts.rs` fails on an `as` in any example's or fixture's output that is not of a kind design/03 §1.1 lists, and on a cast to one of the crate's brands outside its constructor.
+- `display_equivalence.rs` checks `toString` against Rust's `to_string()`; wire tests cover `fromJson`, `unitEnum`, and the derive rules.
 
 ### Examples
 
-- Each example keeps its generated package beside its source: `examples/<name>/ts/plain`, and, for invoice and payment, which derive serde, `examples/<name>/ts/<lib>` with each schema library. `scripts/examples.sh` regenerates them; `scripts/verify.sh` checks them for drift and runs `tsc` over them.
+- Each example keeps its generated package beside its source: `examples/<name>/ts/plain`, and for invoice and payment, which derive serde, `examples/<name>/ts/<lib>` per schema library. `scripts/examples.sh` regenerates them; `scripts/verify.sh` checks them for drift and runs `tsc` over them.
 
 ## 0.5.0 — 2026-10-01
 
