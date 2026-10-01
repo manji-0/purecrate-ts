@@ -71,11 +71,6 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
-
-
-
-
-
 const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
 
 /**
@@ -105,8 +100,6 @@ export const parseJson = (text: string): unknown =>
  */
 export const Str = {
 } as const;
-
-
 
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;

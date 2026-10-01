@@ -69,11 +69,16 @@ pub fn trim(source: &str, uses: &BTreeSet<String>) -> String {
         if kept.contains(&false) {
             continue;
         }
-        match line.split_once(" // #needs ") {
-            Some((code, list)) if wanted(list) => out.push_str(code),
+        let code = match line.split_once(" // #needs ") {
+            Some((code, list)) if wanted(list) => code,
             Some(_) => continue,
-            None => out.push_str(line),
+            None => line,
+        };
+        // A part left out leaves the blank lines around it; keep one.
+        if code.is_empty() && (out.is_empty() || out.ends_with("\n\n")) {
+            continue;
         }
+        out.push_str(code);
         out.push('\n');
     }
     assert!(kept.is_empty(), "every `// #region` is closed");
@@ -121,12 +126,23 @@ mod tests {
         ]);
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
-        let bare: String = RUNTIME
+        let mut bare: String = RUNTIME
             .lines()
             .filter(|l| !l.trim_start().starts_with("// #region") && l.trim_start() != "// #endregion")
             .map(|l| l.split_once(" // #needs ").map_or(l, |(code, _)| code).to_string() + "\n")
             .collect();
+        while bare.contains("\n\n\n") {
+            bare = bare.replace("\n\n\n", "\n\n");
+        }
         assert_eq!(full, bare);
+    }
+
+    #[test]
+    fn a_part_left_out_leaves_no_run_of_blank_lines() {
+        for uses in [BTreeSet::new(), set(&["uuid"]), set(&["json", "char"])] {
+            let out = trim(RUNTIME, &uses);
+            assert!(!out.contains("\n\n\n") && !out.starts_with('\n'), "{uses:?}");
+        }
     }
 
     #[test]
