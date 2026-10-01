@@ -114,11 +114,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),
         Expr::Field { base, name } if name.as_str().starts_with('[') => format!("{}{}", emit_expr(base, indent), name.as_str()),
         Expr::Field { base, name } => format!("{}.{n}", emit_expr(base, indent), n = name.as_str()),
-        Expr::Index { base, index } => format!(
-            "((($xs, $i) => {{ if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${{$xs.length}} but the index is ${{$i}}`); return $xs[$i]; }})({}, {}))",
-            emit_expr(base, indent),
-            emit_expr(index, indent)
-        ),
+        Expr::Index { base, index } => format!("Slice.at({}, {})", emit_expr(base, indent), emit_expr(index, indent)),
         Expr::Binary { op, left, right } => format!(
             "{} {} {}",
             operand(left, indent),
@@ -469,29 +465,18 @@ pub(crate) fn is_ident(s: &str) -> bool {
 /// end, then a reversed range) with Rust's messages.
 fn emit_slice(of: purecrate_ir::SliceOf, start: bool, end: bool, args: &[Expr], indent: usize) -> String {
     let base = emit_expr(&args[0], indent);
-    let a = if start { emit_expr(&args[1], indent) } else { "(0 as Usize)".into() };
     let b = end.then(|| emit_expr(&args[args.len() - 1], indent));
     match of {
-        purecrate_ir::SliceOf::Str => match b {
-            Some(b) => format!("Str.slice({base}, {a}, {b})"),
-            None => format!("Str.slice({base}, {a})"),
-        },
+        purecrate_ir::SliceOf::Str => {
+            let a = if start { emit_expr(&args[1], indent) } else { "(0 as Usize)".into() };
+            match b {
+                Some(b) => format!("Str.slice({base}, {a}, {b})"),
+                None => format!("Str.slice({base}, {a})"),
+            }
+        }
         purecrate_ir::SliceOf::Items => {
-            let bound = |which: &str, v: &str| {
-                format!("if ({v} > $xs.length) throw new globalThis.Error(`range {which} index ${{{v}}} out of range for slice of length ${{$xs.length}}`); ")
-            };
-            let (params, head, b_arg) = match b {
-                Some(b) => ("$xs, $a, $b", String::new(), format!(", {b}")),
-                None => ("$xs, $a", "const $b = $xs.length; ".to_string(), String::new()),
-            };
-            // With one end open the range cannot be reversed.
-            let checks = format!(
-                "{}{}{}",
-                if start { bound("start", "$a") } else { String::new() },
-                if end { bound("end", "$b") } else { String::new() },
-                if start && end { "if ($a > $b) throw new globalThis.Error(`slice index starts at ${$a} but ends at ${$b}`); " } else { "" },
-            );
-            format!("((({params}) => {{ {head}{checks}return $xs.slice($a, $b); }})({base}, {a}{b_arg}))")
+            let a = if start { emit_expr(&args[1], indent) } else { "null".into() };
+            format!("Slice.range({base}, {a}, {})", b.unwrap_or_else(|| "null".into()))
         }
     }
 }

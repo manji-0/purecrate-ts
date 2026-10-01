@@ -206,6 +206,17 @@ export const Str = {
   len: (s: string): Usize => utf8Len(s),
 } as const;
 
+/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
+export const Slice = {
+  /** `xs[i]`. */
+  at: <T>(xs: ReadonlyArray<T>, i: number): T => {
+    if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
+      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    }
+    return xs[i] as T;
+  },
+} as const;
+
 const utf8Len = (s: string): Usize => {
   let n = 0;
   for (const c of s) n += utf8Width(c);

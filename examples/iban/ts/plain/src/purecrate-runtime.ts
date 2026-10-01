@@ -113,6 +113,17 @@ export const Str = {
   },
 } as const;
 
+/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
+export const Slice = {
+  /** `xs[i]`. */
+  at: <T>(xs: ReadonlyArray<T>, i: number): T => {
+    if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
+      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    }
+    return xs[i] as T;
+  },
+} as const;
+
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
 const upper = (c: Char): boolean => within(c, 0x41, 0x5a);

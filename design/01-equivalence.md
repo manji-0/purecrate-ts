@@ -124,7 +124,7 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
 | integers, `bool` | `cmp` (§6.6) | the comparison std runs | `ordering_equivalence.rs` |
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
-| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `xs[i]` behind a bounds check with Rust's panic message, `length`, `length === 0`, `slice` behind Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
 

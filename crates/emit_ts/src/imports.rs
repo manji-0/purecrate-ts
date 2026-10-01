@@ -198,6 +198,8 @@ pub(crate) struct Refs {
     result: bool,
     /// `Str` from `./str.ts`.
     str: bool,
+    /// `Slice` from `./str.ts`, for indexing and slicing a `Vec`.
+    slice: bool,
     /// The `Char` runtime, and the `Char` type, from `./str.ts`.
     char_value: bool,
     char_type: bool,
@@ -271,6 +273,7 @@ impl Refs {
                 }
             }
             Expr::Unreachable => self.never = true,
+            Expr::Index { .. } => self.slice = true,
             Expr::Call { callee, .. } => {
                 match callee {
                     Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {
@@ -306,9 +309,11 @@ impl Refs {
                         self.str = true
                     }
                     Callee::Slice { of, start, .. } => {
-                        self.str |= *of == Some(purecrate_ir::SliceOf::Str);
-                        // An open start prints as `(0 as Usize)`.
-                        if !start {
+                        let of_str = *of == Some(purecrate_ir::SliceOf::Str);
+                        self.str |= of_str;
+                        self.slice |= !of_str;
+                        // An open start of a string prints as `(0 as Usize)`.
+                        if !start && of_str {
                             self.nums.insert("Usize".into());
                         }
                     }
@@ -461,6 +466,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         (refs.uuid_type && !refs.uuid_value).then_some("type Uuid"),
         refs.uuid_error.then_some("type UuidError"),
         refs.str.then_some("Str"),
+        refs.slice.then_some("Slice"),
     ]
     .into_iter()
     .flatten()

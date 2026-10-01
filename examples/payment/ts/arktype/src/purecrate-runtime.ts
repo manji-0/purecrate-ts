@@ -166,6 +166,10 @@ export const Str = {
   len: (s: string): Usize => utf8Len(s),
 } as const;
 
+/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
+export const Slice = {
+} as const;
+
 const utf8Len = (s: string): Usize => {
   let n = 0;
   for (const c of s) n += utf8Width(c);

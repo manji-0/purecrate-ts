@@ -2,7 +2,7 @@
 
 import { Int, type U8, type Usize } from "./int.ts";
 import { Result } from "./result.ts";
-import { Str } from "./str.ts";
+import { Str, Slice } from "./str.ts";
 import { is_alnum } from "./is-alnum.ts";
 import { is_local } from "./is-local.ts";
 import type { EmailError } from "./email-error.ts";
@@ -19,7 +19,7 @@ export const Email = {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     let at: Usize = ((b.length) as Usize);
     for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
-      if ((((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i)) === (64 as U8)) && (at === ((b.length) as Usize))) {
+      if ((Slice.at(b, i) === (64 as U8)) && (at === ((b.length) as Usize))) {
         at = i;
       }
     }
@@ -30,20 +30,20 @@ export const Email = {
       return Result.err({ kind: "BadLocal" });
     }
     for (let i$1 = (0 as Usize), $e_2 = at; i$1 < $e_2; i$1 = (i$1 + 1) as Usize) {
-      if (!is_local(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$1)))) {
+      if (!is_local(Slice.at(b, i$1))) {
         return Result.err({ kind: "BadLocal" });
       }
     }
     let start: Usize = Int.usize.add(at, (1 as Usize));
     for (let i$2 = Int.usize.add(at, (1 as Usize)), $e_2 = Int.usize.add(((b.length) as Usize), (1 as Usize)); i$2 < $e_2; i$2 = (i$2 + 1) as Usize) {
-      if ((i$2 === ((b.length) as Usize)) || (((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2)) === (46 as U8))) {
+      if ((i$2 === ((b.length) as Usize)) || (Slice.at(b, i$2) === (46 as U8))) {
         const n: Usize = Int.usize.sub(i$2, start);
-        if ((((n === (0 as Usize)) || (n > (63 as Usize))) || (((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, start)) === (45 as U8))) || (((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, Int.usize.sub(i$2, (1 as Usize)))) === (45 as U8))) {
+        if ((((n === (0 as Usize)) || (n > (63 as Usize))) || (Slice.at(b, start) === (45 as U8))) || (Slice.at(b, Int.usize.sub(i$2, (1 as Usize))) === (45 as U8))) {
           return Result.err({ kind: "BadDomain" });
         }
         start = Int.usize.add(i$2, (1 as Usize));
       } else {
-        if (!is_alnum(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2))) && (((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2)) !== (45 as U8))) {
+        if (!is_alnum(Slice.at(b, i$2)) && (Slice.at(b, i$2) !== (45 as U8))) {
           return Result.err({ kind: "BadDomain" });
         }
       }

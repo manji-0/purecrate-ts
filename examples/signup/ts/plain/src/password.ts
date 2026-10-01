@@ -2,7 +2,7 @@
 
 import { Int, type U8, type Usize } from "./int.ts";
 import { Result } from "./result.ts";
-import { Str } from "./str.ts";
+import { Str, Slice } from "./str.ts";
 import { blocked } from "./blocked.ts";
 import type { PasswordError } from "./password-error.ts";
 
@@ -19,7 +19,7 @@ export const Password = {
     let n: Usize = (0 as Usize);
     for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
       if (!(() => {
-        const $m_4 = ((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i));
+        const $m_4 = Slice.at(b, i);
         if ($m_4 >= (128 as U8) && $m_4 <= (191 as U8)) {
           return true;
         } else {

@@ -2,7 +2,7 @@
 
 import { type U32, type U8, type Usize } from "./int.ts";
 import { Result } from "./result.ts";
-import { Str } from "./str.ts";
+import { Str, Slice } from "./str.ts";
 import { is_digit } from "./is-digit.ts";
 import { is_upper } from "./is-upper.ts";
 import { push } from "./push.ts";
@@ -22,24 +22,24 @@ export const Iban = {
       return Result.err({ kind: "Length" });
     }
     for (let i = (0 as Usize), $e_2 = (2 as Usize); i < $e_2; i = (i + 1) as Usize) {
-      if (!is_upper(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i)))) {
+      if (!is_upper(Slice.at(b, i))) {
         return Result.err({ kind: "Country" });
       }
     }
     for (let i$1 = (2 as Usize), $e_2 = (4 as Usize); i$1 < $e_2; i$1 = (i$1 + 1) as Usize) {
-      if (!is_digit(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$1)))) {
+      if (!is_digit(Slice.at(b, i$1))) {
         return Result.err({ kind: "CheckDigits" });
       }
     }
     let acc: U32 = (0 as U32);
     for (let i$2 = (4 as Usize), $e_2 = ((b.length) as Usize); i$2 < $e_2; i$2 = (i$2 + 1) as Usize) {
-      if (!is_upper(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2))) && !is_digit(((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2)))) {
+      if (!is_upper(Slice.at(b, i$2)) && !is_digit(Slice.at(b, i$2))) {
         return Result.err({ kind: "Bban" });
       }
-      acc = push(acc, ((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$2)));
+      acc = push(acc, Slice.at(b, i$2));
     }
     for (let i$3 = (0 as Usize), $e_2 = (4 as Usize); i$3 < $e_2; i$3 = (i$3 + 1) as Usize) {
-      acc = push(acc, ((($xs, $i) => { if (!globalThis.Number.isInteger($i) || $i < 0 || $i >= $xs.length) throw new globalThis.Error(`index out of bounds: the len is ${$xs.length} but the index is ${$i}`); return $xs[$i]; })(b, i$3)));
+      acc = push(acc, Slice.at(b, i$3));
     }
     if (acc !== (1 as U32)) {
       return Result.err({ kind: "Checksum" });

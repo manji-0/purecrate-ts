@@ -297,6 +297,31 @@ export const Str = {
   // #endregion
 } as const;
 
+/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
+export const Slice = {
+  // #region slice.at
+  /** `xs[i]`. */
+  at: <T>(xs: ReadonlyArray<T>, i: number): T => {
+    if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
+      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    }
+    return xs[i] as T;
+  },
+  // #endregion
+  // #region slice.range
+  /**
+   * `&xs[a..b]`, with `null` for an open end (`&xs[a..]`, `&xs[..b]`).
+   * Checks the start, then the end, then their order, as Rust reports them.
+   */
+  range: <T>(xs: ReadonlyArray<T>, a: number | null, b: number | null): ReadonlyArray<T> => {
+    if (a !== null && a > xs.length) throw new Error(`range start index ${a} out of range for slice of length ${xs.length}`);
+    if (b !== null && b > xs.length) throw new Error(`range end index ${b} out of range for slice of length ${xs.length}`);
+    if (a !== null && b !== null && a > b) throw new Error(`slice index starts at ${a} but ends at ${b}`);
+    return xs.slice(a ?? 0, b ?? xs.length);
+  },
+  // #endregion
+} as const;
+
 // #region str.slice
 /**
  * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`

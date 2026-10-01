@@ -227,6 +227,10 @@ export const Str = {
   },
 } as const;
 
+/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
+export const Slice = {
+} as const;
+
 /**
  * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
  * for a grapheme extender or a code point that is not printable (the
