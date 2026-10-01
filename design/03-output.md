@@ -181,9 +181,9 @@ switch (event.kind) {
 #### 3.3.2 Guards and Option methods
 
 - A `match` with guards prints as a tuple `match` does (§3.3.1), a single value as a tuple of one. Where an arm's pattern has matched, `if (guard) { body } else { .. }`, the `else` holding the arms after it that can still match. The guard reads the arm's bindings from their places.
-- `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first.
-- `let x = o.ok_or(e)?` is a guard instead: the receiver and `e` bound, then `if ($o === null) return Result.err($oOr);` and `const x = $o`. The `match` would build a `Result` only for `?` to take it apart.
-- A `?` inside an expression is hoisted in front of its statement: `const $f = f(x);`, `if ($f.kind === "Err") return $f;` (`=== null` for an `Option`), and the expression reads `$f.value` (`$f`). `let x = e?` binds the payload to `x` instead.
+- `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first when they may panic or have an effect; a name, a literal, or a field is read in the arm (`x ?? d`, `if (x === null) return Result.err(e)`).
+- `let x = o.ok_or(e)?` is a guard instead: `if (o === null) return Result.err(e);` and `const x = o` when `o` and `e` cannot panic. Otherwise the receiver and `e` are bound first, then the same test. The `match` would build a `Result` only for `?` to take it apart.
+- A `?` inside an expression is hoisted in front of its statement: `const $f = f(x);`, `if ($f.kind === "Err") return $f;` (`=== null` for an `Option`), and the expression reads `$f.value` (`$f`). `let x = e?` binds the payload to `x` instead. A `?` on a name is the test on that name.
 - A name the generator makes starts with `$`, which no Rust name can, and says what it holds where it can: `$f` for the value of a call to `f`, `$o` and `$oOr` for the receiver and argument of `o.unwrap_or(..)` / `o.ok_or(..)`; a second one of a name gets a number (`$f2`, `$o$1`).
 - `if c { return v; }` as a statement prints on one line, `if (c) return v;`, when `c` and `v` each fit on one.
 
