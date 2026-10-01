@@ -70,10 +70,16 @@ pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: 
             source: copied(schema.package(), &format!("packages/boundary-{}", schema.runtime_dep()), adapter_source(schema)),
         });
     }
-    // Every package's index exports `Char`, `Uuid`, and `parseJson` for its
-    // callers, so those stay whole; a caller's bundler drops them unused.
+    // With a schema the index also exports `parseJson`, which reads the
+    // 64-bit integers the schemas take.
+    if schema.is_some() {
+        let index = pkg.files.iter_mut().find(|f| f.stem == "index").expect("emit writes an index");
+        index.source.push_str("export { parseJson } from \"purecrate\";\n");
+    }
+    // What the index exports to callers stays whole, `Char` and `Uuid` with
+    // all their methods; a caller's bundler drops what it does not use.
     let mut uses = trim::uses(pkg.files.iter().map(|f| f.source.as_str()));
-    uses.extend(trim::EXPORTED.iter().map(|u| u.to_string()));
+    uses.extend(trim::exported(&pkg.files.iter().find(|f| f.stem == "index").expect("index").source));
     pkg.files.push(TsFile {
         stem: RUNTIME_STEM.to_string(),
         source: copied("purecrate", "packages/boundary", &trim::trim(RUNTIME_SOURCE, &uses)),

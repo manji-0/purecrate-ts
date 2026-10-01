@@ -179,27 +179,6 @@ const bits32 = <T extends number>(bits: number, signed: boolean) => {
   } as const;
 };
 
-const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
-
-/**
- * JSON text read as `JSON.parse` reads it, except that an integer literal
- * outside ±(2^53−1) becomes a `bigint` with its exact value. serde_json writes
- * `i64` and `u64` as JSON numbers; `JSON.parse` would round them.
- *
- * Needs a runtime that passes the literal's source text to the reviver
- * (Node 21+). Elsewhere the number stays rounded, and the `i64`/`u64`
- * schemas reject it instead of reading a wrong value.
- */
-export const parseJson = (text: string): unknown =>
-  JSON.parse(text, (_key: string, value: unknown, context?: { source?: string }) =>
-    typeof value === "number" &&
-    !Number.isSafeInteger(value) &&
-    context?.source !== undefined &&
-    INTEGER_LITERAL.test(context.source)
-      ? BigInt(context.source)
-      : value,
-  );
-
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
@@ -266,23 +245,6 @@ const utf8Width = (c: string): number => {
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
 };
 
-const code = (c: Char): number => c.codePointAt(0) as number;
-const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
-const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
-const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
-const digit = (c: Char): boolean => within(c, 0x30, 0x39);
-const radix = (r: U32): number =>
-  r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
-const panicWith = (message: string): never => {
-  throw new Error(message);
-};
-const digitValue = (c: Char, r: U32): number | null => {
-  const base = radix(r);
-  const p = code(c);
-  const d = p >= 0x30 && p <= 0x39 ? p - 0x30 : (p | 0x20) >= 0x61 && (p | 0x20) <= 0x7a ? (p | 0x20) - 0x61 + 10 : 99;
-  return d < base ? d : null;
-};
-
 /**
  * `char` operations (design/01 §6). Ordering and ranges go through `code`:
  * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
@@ -290,39 +252,6 @@ const digitValue = (c: Char, r: U32): number | null => {
  * Unicode-table ones (`is_alphabetic`, ...) are not.
  */
 export const Char = {
-  /** Checks `s` is one Unicode scalar value, as serde reads a `char`. */
-  is: (s: string): s is Char => {
-    const p = s.codePointAt(0);
-    return p !== undefined && s.length === (p > 0xffff ? 2 : 1) && (p < 0xd800 || p > 0xdfff);
-  },
-  /** `u32::from(c)`: the code point. */
-  code: (c: Char): U32 => code(c) as U32,
-  /** `char::from(b)`: U+0000..=U+00FF. */
-  fromU8: (b: U8): Char => String.fromCharCode(b) as Char,
-  /** `char::from_u32(n)`: `None` for a surrogate or past U+10FFFF. */
-  fromU32: (n: U32): Char | null =>
-    (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff ? null : (String.fromCodePoint(n) as Char),
-  isAscii: (c: Char): boolean => code(c) < 0x80,
-  isAsciiAlphabetic: (c: Char): boolean => upper(c) || lower(c),
-  isAsciiAlphanumeric: (c: Char): boolean => upper(c) || lower(c) || digit(c),
-  isAsciiControl: (c: Char): boolean => code(c) < 0x20 || code(c) === 0x7f,
-  isAsciiDigit: digit,
-  isAsciiGraphic: (c: Char): boolean => within(c, 0x21, 0x7e),
-  isAsciiHexdigit: (c: Char): boolean => digit(c) || within(c, 0x41, 0x46) || within(c, 0x61, 0x66),
-  isAsciiLowercase: lower,
-  isAsciiPunctuation: (c: Char): boolean =>
-    within(c, 0x21, 0x2f) || within(c, 0x3a, 0x40) || within(c, 0x5b, 0x60) || within(c, 0x7b, 0x7e),
-  isAsciiUppercase: upper,
-  /** Space, tab, LF, FF, CR. Not VT (U+000B), unlike JS `\s`. */
-  isAsciiWhitespace: (c: Char): boolean => [0x20, 0x09, 0x0a, 0x0c, 0x0d].includes(code(c)),
-  toAsciiLowercase: (c: Char): Char => (upper(c) ? (String.fromCharCode(code(c) + 32) as Char) : c),
-  toAsciiUppercase: (c: Char): Char => (lower(c) ? (String.fromCharCode(code(c) - 32) as Char) : c),
-  eqIgnoreAsciiCase: (a: Char, b: Char): boolean => Char.toAsciiLowercase(a) === Char.toAsciiLowercase(b),
-  /** `char::len_utf8`: 1 to 4. */
-  lenUtf8: (c: Char): Usize => (code(c) < 0x80 ? 1 : code(c) < 0x800 ? 2 : code(c) < 0x10000 ? 3 : 4) as Usize,
-  /** ASCII digits and letters only, as Rust; panics on a radix outside 2..=36. */
-  isDigit: (c: Char, r: U32): boolean => digitValue(c, r) !== null,
-  toDigit: (c: Char, r: U32): U32 | null => digitValue(c, r) as U32 | null,
 } as const;
 
 /**
@@ -333,49 +262,6 @@ export const Char = {
 export type Uuid = string & { readonly "purecrate.Uuid": true };
 /** A `uuid::Error`. Nothing translated reads one, so it carries nothing. */
 export type UuidError = { readonly "purecrate.UuidError": true };
-
-const UUID_ERROR = Object.freeze({}) as UuidError;
-const HEX32 = /^[0-9a-fA-F]{32}$/;
-const HYPHENATED = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
-/**
- * The 32 hex digits of what `uuid`'s parser accepts, chosen by length as it
- * does: simple (32), hyphenated (36), braced (38), `urn:uuid:` (45; the
- * prefix in lowercase only). Rust measures in UTF-8 bytes and JS in UTF-16
- * units, but any non-ASCII character fails the hex check either way.
- */
-const uuidDigits = (s: string): string | null => {
-  if (s.length === 32) return HEX32.test(s) ? s : null;
-  const body =
-    s.length === 36
-      ? s
-      : s.length === 38 && s.startsWith("{") && s.endsWith("}")
-        ? s.slice(1, 37)
-        : s.length === 45 && s.startsWith("urn:uuid:")
-          ? s.slice(9)
-          : null;
-  return body !== null && HYPHENATED.test(body) ? body.replaceAll("-", "") : null;
-};
-
-/** `uuid::Uuid` operations (design/01 §6). */
-export const Uuid = {
-  /**
-   * `Uuid::parse_str` (and `try_parse`): the canonical form of any string
-   * the `uuid` crate reads, in any case; `Err` otherwise. Shaped as the
-   * generated `Result`.
-   */
-  parseStr: (s: string): Readonly<{ kind: "Ok"; value: Uuid }> | Readonly<{ kind: "Err"; error: UuidError }> => {
-    const d = uuidDigits(s)?.toLowerCase();
-    return d === undefined
-      ? { kind: "Err", error: UUID_ERROR }
-      : {
-          kind: "Ok",
-          value: `${d.slice(0, 8)}-${d.slice(8, 12)}-${d.slice(12, 16)}-${d.slice(16, 20)}-${d.slice(20)}` as Uuid,
-        };
-  },
-  /** `Uuid::nil()`. */
-  nil: (): Uuid => "00000000-0000-0000-0000-000000000000" as Uuid,
-} as const;
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {

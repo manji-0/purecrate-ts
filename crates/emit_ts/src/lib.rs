@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use schema::{emit_wire, has_wire, WireSchema};
 
 use purecrate_ir::{
-    BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
+    BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
     Struct, Ty, VariantBind, VariantFields, Vis, NEWTYPE_FIELD,
 };
 
@@ -140,15 +140,50 @@ fn emit_package(krate: &Crate) -> Package {
     Package { files }
 }
 
+/// Some public type, field, or signature holds `prim`.
+fn surface_holds(krate: &Crate, prim: Prim) -> bool {
+    fn holds(ty: &Ty, prim: Prim) -> bool {
+        match ty {
+            Ty::Prim(p) => *p == prim,
+            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => holds(t, prim),
+            Ty::Result { ok, err } => holds(ok, prim) || holds(err, prim),
+            Ty::Tuple(ts) => ts.iter().any(|t| holds(t, prim)),
+            Ty::Fn { params, ret } => params.iter().any(|t| holds(t, prim)) || holds(ret, prim),
+            Ty::Named(_) | Ty::Never => false,
+        }
+    }
+    krate.items.iter().filter(|i| i.vis() == Vis::Pub).any(|item| match item {
+        Item::Struct(s) => s.fields.iter().any(|f| holds(&f.ty, prim)),
+        Item::Enum(e) => e.variants.iter().any(|v| match &v.fields {
+            VariantFields::Unit => false,
+            VariantFields::Tuple(ts) => ts.iter().any(|t| holds(t, prim)),
+            VariantFields::Struct(fs) => fs.iter().any(|f| holds(&f.ty, prim)),
+        }),
+        Item::Alias(a) => holds(&a.ty, prim),
+        Item::Const(c) => holds(&c.ty, prim),
+        Item::Fn(f) => f.params.iter().any(|p| holds(&p.ty, prim)) || holds(&f.ret, prim),
+    })
+}
+
 fn emit_index(krate: &Crate) -> String {
     let mut out = String::from(HEADER);
     out.push('\n');
     // A single value export carries both the companion and its same-named
     // type. `pack` points `"purecrate"` at the package's copy of the runtime.
-    out.push_str(
-        "export { Result, assertNever, Int, Char, Uuid, type UuidError, parseJson } from \"purecrate\";\n\
-         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"purecrate\";\n",
-    );
+    // `Char` and `Uuid` go out when the public surface holds one, for a
+    // caller to build or check it; `pack` adds `parseJson` with a schema.
+    let mut runtime = vec!["Result", "assertNever", "Int"];
+    if surface_holds(krate, Prim::Char) {
+        runtime.push("Char");
+    }
+    if surface_holds(krate, Prim::Uuid) || surface_holds(krate, Prim::UuidError) {
+        runtime.extend(["Uuid", "type UuidError"]);
+    }
+    out.push_str(&format!(
+        "export {{ {} }} from \"purecrate\";\n\
+         export type {{ I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 }} from \"purecrate\";\n",
+        runtime.join(", ")
+    ));
     for item in krate.exported() {
         match item {
             Item::Fn(f) if f.owner.is_some() => {}

@@ -251,3 +251,27 @@ fn the_derives_decide_what_is_on_the_wire() {
     }
     assert!(!wire.contains("Email$of"), "{wire}");
 }
+
+/// The index exports `Char` and `Uuid` when the public surface holds one,
+/// and `parseJson` with a schema; the runtime keeps them whole then.
+#[test]
+fn the_index_exports_the_runtime_the_surface_needs() {
+    let index = |source: &str, schema: Option<WireSchema>| {
+        let krate = parse_source("surface", source).expect("parse");
+        let typed = accept(&krate).expect("accept");
+        let pkg = assemble_with(&typed, schema);
+        let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+        (file("index"), file("purecrate-runtime"))
+    };
+    let (plain, runtime) = index("pub fn twice(n: i32) -> i32 { n * 2 }", None);
+    assert!(plain.contains("export { Result, assertNever, Int } from"), "{plain}");
+    assert!(!plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"), "{plain}");
+    assert!(!runtime.contains("fromU32") && !runtime.contains("export const parseJson"), "{runtime}");
+    let (chars, runtime) = index("pub fn first(c: char) -> bool { c.is_ascii_digit() }", None);
+    assert!(chars.contains("export { Result, assertNever, Int, Char } from"), "{chars}");
+    assert!(runtime.contains("fromU32"), "the whole of `Char` is kept:\n{runtime}");
+    let source = "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
+    let (wired, runtime) = index(source, Some(WireSchema::Zod));
+    assert!(wired.contains("export { parseJson } from"), "{wired}");
+    assert!(runtime.contains("export const parseJson"), "{runtime}");
+}

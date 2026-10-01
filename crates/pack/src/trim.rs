@@ -9,8 +9,27 @@ use std::collections::BTreeSet;
 
 use purecrate_ir::IntMethod;
 
-/// Parts every package keeps: its index exports them to callers.
-pub const EXPORTED: [&str; 4] = ["char", "char.is", "uuid", "parseJson"];
+/// The parts an index exports to callers, kept whole: `Char` with all its
+/// methods, `Uuid`, `parseJson`.
+pub fn exported(index: &str) -> BTreeSet<String> {
+    let names: BTreeSet<&str> = index
+        .lines()
+        .filter(|l| l.starts_with("export {") && l.ends_with("from \"purecrate\";"))
+        .flat_map(|l| l["export {".len()..l.find('}').unwrap_or(l.len())].split(','))
+        .map(|n| n.trim().trim_start_matches("type ").trim())
+        .collect();
+    let mut out = BTreeSet::new();
+    if names.contains("Char") {
+        out.extend(["char".to_string(), "char.is".to_string()]);
+    }
+    if names.contains("Uuid") {
+        out.insert("uuid".to_string());
+    }
+    if names.contains("parseJson") {
+        out.insert("parseJson".to_string());
+    }
+    out
+}
 
 /// The runtime parts `sources` read: what they name after `Int.<ty>.`,
 /// `Str.`, `Char.`, `Uuid.`, `Json.`, and `parseJson`.
@@ -143,6 +162,16 @@ mod tests {
             let out = trim(RUNTIME, &uses);
             assert!(!out.contains("\n\n\n") && !out.starts_with('\n'), "{uses:?}");
         }
+    }
+
+    #[test]
+    fn what_the_index_exports_is_kept() {
+        let index = "export { Result, assertNever, Int, Char, Uuid, type UuidError } from \"purecrate\";\n\
+                     export type { I8, I16 } from \"purecrate\";\n\
+                     export { parseJson } from \"purecrate\";\n\
+                     export { Event } from \"./event.ts\";\n";
+        assert_eq!(exported(index), set(&["char", "char.is", "parseJson", "uuid"]));
+        assert!(exported("export { Result, assertNever, Int } from \"purecrate\";\n").is_empty());
     }
 
     #[test]
