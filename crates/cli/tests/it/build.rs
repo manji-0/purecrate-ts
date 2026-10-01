@@ -449,6 +449,29 @@ fn build_example(example: &str, flags: &[&str], out: &Path) -> Output {
 }
 
 #[test]
+fn check_warns_when_release_overflow_checks_are_off() {
+    let dir = scratch("overflow-profile");
+    let krate = dir.join("k");
+    fs::create_dir_all(krate.join("src")).expect("mkdir");
+    fs::write(krate.join("src/lib.rs"), "pub fn f() -> i32 { 0 }\n").expect("write");
+    fs::write(krate.join("Cargo.toml"), "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").expect("write");
+    let off = check(&[krate.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&off.stderr);
+    assert!(off.status.success(), "{stderr}");
+    assert!(stderr.contains("overflow-checks = true"), "{stderr}");
+    fs::write(
+        krate.join("Cargo.toml"),
+        "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[profile.release]\noverflow-checks = true\n",
+    )
+    .expect("write");
+    let on = check(&[krate.as_os_str()]);
+    let stderr = String::from_utf8_lossy(&on.stderr);
+    assert!(on.status.success(), "{stderr}");
+    assert!(!stderr.contains("overflow-checks"), "{stderr}");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn generated_package_is_private_unless_publishable() {
     let dir = scratch("access");
     let private = dir.join("private");

@@ -4,6 +4,7 @@
 
 ### Added
 
+- `check` and `build` warn when the crate's (or workspace's) `[profile.release]` does not set `overflow-checks = true`: generated TypeScript panics on overflow as a debug build does, so a `--release` server that wraps will disagree.
 - Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
 
 ### Fixed
@@ -24,6 +25,7 @@
 
 ### Docs
 
+- README and design/01: equivalence with a `--release` server holds only with `[profile.release] overflow-checks = true`.
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 - design/02 merges the duplicate "Text lists" / "A list from text" rows.
 - design/03 documents `Str.splitOnce` and `Iter.tryCollect`; design/03, 04, and 05 are marked current at 0.7.0 (04 reviewed, unchanged).

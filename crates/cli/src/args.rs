@@ -27,6 +27,9 @@ check and build run the subset checks, then compile the crate with rustc
 the edition from Cargo.toml ([package] edition, or [workspace.package] when
 inherited; 2015 when a manifest names none, as cargo does), 2021 for a file
 with no manifest, or --edition. check
+and build warn when the crate's (or workspace's) [profile.release] does not
+set overflow-checks = true: generated TypeScript panics on overflow as a
+debug build does, so a --release server that wraps will disagree. check
 with --out also fails when <dir> differs from what build would write.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
@@ -184,6 +187,44 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
         }
     };
     Ok(Input { src, name, edition, version, license })
+}
+
+/// Warns when a crate's release profile will wrap on overflow while the
+/// generated TypeScript panics, as a debug build does.
+pub fn overflow_warning(src: &Path) -> Option<String> {
+    let crate_dir = src
+        .parent()
+        .filter(|p| p.file_name().is_some_and(|n| n == "src"))
+        .and_then(Path::parent)?;
+    let manifest = crate_dir.join("Cargo.toml");
+    if !manifest.is_file() {
+        return None;
+    }
+    if release_overflow_checks(crate_dir) {
+        return None;
+    }
+    Some(format!(
+        "warning: {}: [profile.release] does not set overflow-checks = true\n  \
+         generated TypeScript panics on overflow as a Rust debug build does; a --release server that wraps will disagree. \
+         Set overflow-checks = true (and debug-assertions if anything depends on them) so the two sides match.",
+        manifest.display()
+    ))
+}
+
+/// `[profile.release] overflow-checks` on the crate, else on an enclosing
+/// workspace. Cargo's release default is off.
+fn release_overflow_checks(crate_dir: &Path) -> bool {
+    for dir in crate_dir.ancestors() {
+        let Ok(text) = fs::read_to_string(dir.join("Cargo.toml")) else { continue };
+        if let Some(Value::Text(v)) = manifest_value(&text, "profile.release", "overflow-checks") {
+            return v == "true";
+        }
+        // A workspace root that does not set the key uses cargo's default.
+        if text.lines().map(str::trim).any(|l| l == "[workspace]" || l.starts_with("[workspace.")) {
+            return false;
+        }
+    }
+    false
 }
 
 /// `[package] key` in `dir/Cargo.toml`. `key.workspace = true` reads
@@ -390,6 +431,41 @@ mod tests {
             unreachable!()
         };
         assert_eq!((input.version.as_str(), input.edition.as_str(), input.license.as_str()), ("2.3.4", "2015", "MIT"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn overflow_warning_follows_the_release_profile() {
+        let dir = std::env::temp_dir().join(format!("purecrate-args-overflow-{}", std::process::id()));
+        let krate = dir.join("members/k");
+        fs::create_dir_all(krate.join("src")).unwrap();
+        fs::write(krate.join("src/lib.rs"), "pub fn f() -> i32 { 0 }\n").unwrap();
+        let src = krate.join("src/lib.rs");
+        let warn = |manifest: &str, workspace: Option<&str>| {
+            fs::write(krate.join("Cargo.toml"), manifest).unwrap();
+            match workspace {
+                Some(w) => fs::write(dir.join("Cargo.toml"), w).unwrap(),
+                None => {
+                    let _ = fs::remove_file(dir.join("Cargo.toml"));
+                }
+            }
+            overflow_warning(&src)
+        };
+        assert!(warn("[package]\nname = \"k\"\n", None).unwrap().contains("overflow-checks = true"));
+        assert!(warn("[package]\nname = \"k\"\n[profile.release]\nlto = true\n", None).is_some());
+        assert!(warn("[package]\nname = \"k\"\n[profile.release]\noverflow-checks = false\n", None).is_some());
+        assert!(warn("[package]\nname = \"k\"\n[profile.release]\noverflow-checks = true\n", None).is_none());
+        assert!(warn(
+            "[package]\nname = \"k\"\n",
+            Some("[workspace]\nmembers = [\"members/k\"]\n[profile.release]\noverflow-checks = true\n"),
+        )
+        .is_none());
+        assert!(warn(
+            "[package]\nname = \"k\"\n[profile.release]\noverflow-checks = false\n",
+            Some("[workspace]\n[profile.release]\noverflow-checks = true\n"),
+        )
+        .is_some());
+        assert!(overflow_warning(Path::new("/tmp/loose.rs")).is_none());
         fs::remove_dir_all(&dir).ok();
     }
 

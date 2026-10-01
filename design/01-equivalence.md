@@ -17,6 +17,8 @@ For an accepted public function `f` and its generated counterpart `f'`, and for 
 
 **The reference is the Rust debug build.** Overflow and division by zero panic there, so they throw in TS. Release-mode wrapping is not matched. This was chosen over rejecting every operation that may panic (too narrow) and over accepting only `checked_*` APIs (too awkward), and it agrees with kamae's "the unexpected is an exception".
 
+The main use of the output is a server that shares the same types and functions. That server is built with `--release`, where `overflow-checks` is off by default, so on overflow Rust wraps while TS throws: the two sides disagree on exactly the inputs where it matters. Equivalence with the server holds only when the crate (or workspace) sets `[profile.release] overflow-checks = true` (and `debug-assertions` if anything depends on them). `check` and `build` warn when the release profile does not.
+
 ## 2. Domain
 
 The domain is **the image of Rust values under the TS representation**, not every value TS can construct. For `x'` outside the image nothing is promised.
@@ -36,7 +38,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | `usize` ≥ 2^53 | Rust is fine up to 2^64; TS throws above 2^53−1. Lengths and indices do not reach this range. `bigint` was rejected because it does not mix with arrays and loops. The integer methods work in Rust's 64 bits on `usize` (`checked_add` is `None` only past 2^64, `wrapping_sub(0, 1)` is 2^64−1) and throw where that result is above 2^53−1 |
 | Recursion depth | Measured 2026-09-28 (list length, Node 24.21, macOS): TS passes 10,000 levels and throws `RangeError` at 12,000. Rust debug passes 50,000 on the main thread and **aborts** at 100,000 (not a catchable panic; test threads have 2 MB). Even "both fail" does not hold |
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
-| Release wrapping | Not matched |
+| Release wrapping | Not matched, unless `[profile.release] overflow-checks = true` (the server's usual `--release` build wraps; generated TS always panics). `check` warns when the crate's release profile leaves the default |
 | Non-finite `f64` over JSON | serde_json and `toJson` both write `NaN` and infinities as `null`, and neither reads `null` back as a float. Same bytes, same asymmetry ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
 | Unicode-table methods | If added, equivalence holds only for code points assigned in both toolchains' Unicode versions (both 17.0 as of 2026-09-27) |
 
