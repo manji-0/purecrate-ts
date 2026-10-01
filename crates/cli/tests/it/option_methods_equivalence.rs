@@ -54,3 +54,24 @@ fn ok_or_then_try_is_a_guard() {
     let guard = src.find("=== null)) return Result.err($arg").expect("one-line guard");
     assert!(arg < guard, "{src}");
 }
+
+/// A `?` inside an expression is hoisted to one binding, tested in place,
+/// and read as its payload: `$q1.value` for a `Result`, `$q1` for an
+/// `Option`; no second binding for the payload.
+#[test]
+fn a_hoisted_try_binds_once() {
+    let source = "pub enum E { Bad }\n\
+                  pub fn half(n: i32) -> Result<i32, E> { if n % 2 == 0 { Ok(n / 2) } else { Err(E::Bad) } }\n\
+                  pub fn quarter(n: i32) -> Result<i32, E> { Ok(half(half(n)?)? + 0) }\n\
+                  pub fn add(a: Option<u8>, b: u8) -> Option<u8> { Some(a?.checked_add(b)? + 0) }\n";
+    let krate = purecrate_syntax::parse_source("hoist", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let quarter = file("quarter");
+    assert!(quarter.contains("const $q1 = half(n);\n  if ($q1.kind === \"Err\") return $q1;\n  const $q2 = half($q1.value);"), "{quarter}");
+    assert!(!quarter.contains("$v_"), "{quarter}");
+    let add = file("add");
+    assert!(add.contains("if ($q1 === null) return null;"), "{add}");
+    assert!(!add.contains("$v_") && !add.contains(".value"), "{add}");
+}

@@ -21,10 +21,9 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
     }
     case "RemoveSku": {
       const sku = cmd.content[0];
-      const $v_$q1 = remove_sku(lines, sku);
-      if ($v_$q1.kind === "Err") return $v_$q1;
-      const $q1 = $v_$q1.value;
-      return Result.ok({ kind: "Draft", lines: $q1 });
+      const $q1 = remove_sku(lines, sku);
+      if ($q1.kind === "Err") return $q1;
+      return Result.ok({ kind: "Draft", lines: $q1.value });
     }
     case "Place":
       switch (lines.kind) {

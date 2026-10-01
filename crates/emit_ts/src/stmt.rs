@@ -178,6 +178,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::Continue => out.push_str(&format!("{pad}continue {};\n", innermost_loop())),
         Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
         // `x?;`: only the early return; there is no value to bind.
+        // `x?;` on a binding: the test alone.
+        Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) => {
+            emit_try_test(&emit_expr(inner, indent), *on, indent, out);
+        }
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
             emit_try_exit(&format!("{TRY_LET_TEMP}{TRY_TEMP}{indent}"), inner, *on, indent, out);
         }
@@ -235,6 +239,12 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
 pub(crate) fn emit_try_exit(tmp: &str, expr: &Expr, on: Option<TryOn>, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
     out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
+    emit_try_test(tmp, on, indent, out);
+}
+
+/// The early return of `tmp?` when `tmp` holds `None` or an `Err`.
+fn emit_try_test(tmp: &str, on: Option<TryOn>, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
     match on {
         Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
         Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),

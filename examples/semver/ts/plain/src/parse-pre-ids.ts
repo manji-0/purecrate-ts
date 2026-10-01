@@ -33,9 +33,8 @@ export const parse_pre_ids = (s: string): Result<PreIds, SemverError> => {
     const tail: PreIds = $v_tail.value;
     return Result.ok({ kind: "Cons", content: [head, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ tail] });
   } else {
-    const $v_$q1 = parse_pre_id(s);
-    if ($v_$q1.kind === "Err") return $v_$q1;
-    const $q1 = $v_$q1.value;
-    return Result.ok({ kind: "Cons", content: [$q1, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ { kind: "Nil" }] });
+    const $q1 = parse_pre_id(s);
+    if ($q1.kind === "Err") return $q1;
+    return Result.ok({ kind: "Cons", content: [$q1.value, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ { kind: "Nil" }] });
   }
 };

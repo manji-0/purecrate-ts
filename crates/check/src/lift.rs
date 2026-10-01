@@ -278,8 +278,18 @@ impl Lifter {
             Expr::Try { expr, on } => {
                 let inner = self.boxed(expr, out);
                 let name = self.fresh();
-                out.push((name.clone(), *inner, Some(on)));
-                Expr::Var(name)
+                // The hoisted value is the `Result` itself, tested in place
+                // (see `wrap`), and read here as its payload. A `None` is
+                // `null`, so an `Option` is its own payload; so is the guard
+                // `ok_or` becomes, which binds the payload.
+                let guarded = ok_or_try(&Expr::Try { expr: inner.clone(), on }).is_some();
+                let read = if on == Some(TryOn::Option) || guarded {
+                    Expr::Var(name.clone())
+                } else {
+                    Expr::Field { base: Box::new(Expr::Var(name.clone())), name: Name::new("value") }
+                };
+                out.push((name, *inner, Some(on)));
+                read
             }
             Expr::Call { callee, args } => Expr::Call {
                 callee,
@@ -447,18 +457,24 @@ fn pure(expr: &Expr) -> bool {
     }
 }
 
+/// `let name = inner; name?; body` for a hoisted `?`: the test is on the
+/// binding itself, and the use reads its payload (`extract_into`). The
+/// guard `ok_or` becomes keeps `let name = inner?`, which binds the payload.
 fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
-    hoisted.into_iter().rev().fold(body, |then, (name, inner, on)| Expr::Let {
-        name,
-        mutable: false,
-        ty: None,
-        value: Box::new(match on {
-            Some(on) => Expr::Try {
-                expr: Box::new(inner),
-                on,
-            },
-            None => inner,
-        }),
-        then: Box::new(then),
+    hoisted.into_iter().rev().fold(body, |then, (name, inner, on)| {
+        let (value, then) = match on {
+            Some(on) if ok_or_try(&Expr::Try { expr: Box::new(inner.clone()), on }).is_some() => {
+                (Expr::Try { expr: Box::new(inner), on }, then)
+            }
+            Some(on) => (
+                inner,
+                Expr::Seq {
+                    first: Box::new(Expr::Try { expr: Box::new(Expr::Var(name.clone())), on }),
+                    then: Box::new(then),
+                },
+            ),
+            None => (inner, then),
+        };
+        Expr::Let { name, mutable: false, ty: None, value: Box::new(value), then: Box::new(then) }
     })
 }

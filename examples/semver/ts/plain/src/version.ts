@@ -78,20 +78,17 @@ export const Version = {
     let n: U32 = (0 as U32);
     for (const piece of core.split(("." as Char))) {
       if (n === (0 as U32)) {
-        const $v_$q1 = parse_core_number(piece, { kind: "Major" });
-        if ($v_$q1.kind === "Err") return $v_$q1;
-        const $q1 = $v_$q1.value;
-        major = $q1;
+        const $q1 = parse_core_number(piece, { kind: "Major" });
+        if ($q1.kind === "Err") return $q1;
+        major = $q1.value;
       } else if (n === (1 as U32)) {
-        const $v_$q2 = parse_core_number(piece, { kind: "Minor" });
-        if ($v_$q2.kind === "Err") return $v_$q2;
-        const $q2 = $v_$q2.value;
-        minor = $q2;
+        const $q2 = parse_core_number(piece, { kind: "Minor" });
+        if ($q2.kind === "Err") return $q2;
+        minor = $q2.value;
       } else if (n === (2 as U32)) {
-        const $v_$q3 = parse_core_number(piece, { kind: "Patch" });
-        if ($v_$q3.kind === "Err") return $v_$q3;
-        const $q3 = $v_$q3.value;
-        patch = $q3;
+        const $q3 = parse_core_number(piece, { kind: "Patch" });
+        if ($q3.kind === "Err") return $q3;
+        patch = $q3.value;
       } else {
         return Result.err({ kind: "ExtraCorePart" });
       }
@@ -112,20 +109,18 @@ export const Version = {
     let pre: PreIds;
     if (dash !== null) {
       const i$2 = dash;
-      const $v_$q4 = parse_pre_ids(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
-      if ($v_$q4.kind === "Err") return $v_$q4;
-      const $q4 = $v_$q4.value;
-      pre = $q4;
+      const $q4 = parse_pre_ids(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
+      if ($q4.kind === "Err") return $q4;
+      pre = $q4.value;
     } else {
       pre = { kind: "Nil" };
     }
     let build: BuildIds;
     if (plus !== null) {
       const i$3 = plus;
-      const $v_$q5 = parse_build_ids(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
-      if ($v_$q5.kind === "Err") return $v_$q5;
-      const $q5 = $v_$q5.value;
-      build = $q5;
+      const $q5 = parse_build_ids(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
+      if ($q5.kind === "Err") return $q5;
+      build = $q5.value;
     } else {
       build = { kind: "Nil" };
     }

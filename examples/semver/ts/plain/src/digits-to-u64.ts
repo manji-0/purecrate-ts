@@ -7,12 +7,10 @@ import { Str } from "./str.ts";
 export const digits_to_u64 = (s: string): U64 | null => {
   let acc: U64 = (0n as U64);
   for (const b of Str.bytes(s)) {
-    const $v_$q1 = Int.u64.checkedMul(acc, (10n as U64));
-    if ($v_$q1 === null) return null;
-    const $q1 = $v_$q1;
-    const $v_$q2 = Int.u64.checkedAdd($q1, (globalThis.BigInt(Int.u8.sub(b, (48 as U8))) as U64));
-    if ($v_$q2 === null) return null;
-    const $q2 = $v_$q2;
+    const $q1 = Int.u64.checkedMul(acc, (10n as U64));
+    if ($q1 === null) return null;
+    const $q2 = Int.u64.checkedAdd($q1, (globalThis.BigInt(Int.u8.sub(b, (48 as U8))) as U64));
+    if ($q2 === null) return null;
     acc = $q2;
   }
   return acc;

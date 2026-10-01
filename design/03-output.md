@@ -153,6 +153,7 @@ switch (event.kind) {
 - A `match` with guards prints as a tuple `match` does (§3.3.1), a single value as a tuple of one. Where an arm's pattern has matched, `if (guard) { body } else { .. }`, the `else` holding the arms after it that can still match. The guard reads the arm's bindings from their places.
 - `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first.
 - `let x = o.ok_or(e)?` is a guard instead: the receiver and `e` bound, then `if ($opt === null) return Result.err($arg);` and `const x = $opt`. The `match` would build a `Result` only for `?` to take it apart.
+- A `?` inside an expression is hoisted in front of its statement: `const $q1 = f(x);`, `if ($q1.kind === "Err") return $q1;` (`=== null` for an `Option`), and the expression reads `$q1.value` (`$q1`). `let x = e?` binds the payload to `x` instead.
 - `if c { return v; }` as a statement prints on one line, `if (c) return v;`, when `c` and `v` each fit on one.
 
 #### 3.3.3 Loop labels

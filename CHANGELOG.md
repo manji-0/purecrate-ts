@@ -8,6 +8,7 @@
 - A type that derives `Serialize` or `Deserialize` must hold only types that derive it too, as the real derive requires (`check` sees a stand-in serde); the new reason `item/serde-derive` reports the rest. `std::cmp::Ordering` is refused only in such a type: a type without a serde derive may hold one.
 - Indexing `xs[i]` and slicing `&xs[a..b]` on a `Vec` or slice call the runtime's `Slice.at` and `Slice.range` instead of an inline function at every use, with the same checks and panic messages; iban's generated code goes from 6.0 to 4.9 KB. `Slice` is now a reserved name.
 - `let x = o.ok_or(e)?` prints as a guard, `if ($opt === null) return Result.err($arg);`, instead of an inline function that built a `Result` for `?` to take apart (15 lines to 4); `e` still runs first. A statement `if c { return v; }` prints on one line when it fits.
+- A `?` inside an expression binds its value once and tests it in place, `const $q1 = f(x); if ($q1.kind === "Err") return $q1;`, read as `$q1.value` (an `Option`'s as `$q1`), instead of a second binding for the payload.
 
 ### Added
 
