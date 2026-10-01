@@ -19,7 +19,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
 | Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
-| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; fields, types, variants, and UPPER_SNAKE consts keep the Rust name ([02 §3.3](./02-authoring.md)) |
+| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
 
 ### 1.1 Casts
@@ -85,7 +85,11 @@ export const Cmd = {
 } as const;
 ```
 
+A one-field tuple variant is `{ kind: "Add"; content: readonly [I32] }`, read as `event.content[0]`. Representing it as `{ kind, value: T }` (JSON unchanged: the wire module still writes serde's `{"Add": 1}`) is a candidate and a breaking change to the type shape ([07 §9](./07-roadmap.md#9-generated-api-stability)). Two or more fields stay `content`.
+
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
+
+Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); the object keys they write stay the Rust field names (`last_error`), which are the JSON keys. Honouring `#[serde(rename_all = "camelCase")]` so the field and the key both become camelCase is a candidate, still refused ([07 §9](./07-roadmap.md#9-generated-api-stability)).
 
 ### 3.2 Structs, methods, newtypes
 
