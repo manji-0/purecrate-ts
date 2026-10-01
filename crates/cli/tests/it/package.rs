@@ -20,8 +20,10 @@ use purecrate_pack::{assemble_versioned, disk_path};
 use purecrate_syntax::parse_source;
 
 const SOURCE: &str = "
+#[derive(Serialize, Deserialize)]
 pub struct Yen(i64);
 pub enum Event { Add(i32), Reset }
+#[derive(Serialize, Deserialize)]
 pub struct State { pub n: i32, pub total: Yen }
 pub fn step(s: State, e: Event) -> State {
     match e {

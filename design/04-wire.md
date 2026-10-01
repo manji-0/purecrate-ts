@@ -40,7 +40,7 @@ Of the options considered:
 | --- | --- | --- |
 | Core runtime `purecrate` | `packages/boundary` | The numeric brands, `Int.*.of`, `Str`, `Char`, `Uuid`, `parseJson`, and `Json` (the helpers of `toJson`). It depends on no schema library |
 | Adapters `purecrate-zod`, `-valibot`, `-arktype` | separate packages | Thin adapters, one per schema library. Only the one passed with `--schema` is used |
-| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for every public struct and enum, reading serde's default JSON (no attributes) into the branded domain type, and `toJson`, writing it back (§6) |
+| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's default JSON (no attributes) into the branded domain type, and `toJson` for each that derives `Serialize`, writing it back (§6); see §3.2 |
 
 Each adapter's library is a peer dependency of the generated package:
 
@@ -53,6 +53,8 @@ Each adapter's library is a peer dependency of the generated package:
 ### 3.2 serde in the input
 
 - **Derives pass.** The input's types may derive `Serialize`/`Deserialize` (and `use serde::…`), so the server reads and writes the same types.
+- **Only the derives make a wire form.** A schema reads a type that derives `Deserialize`, and `toJson` writes one that derives `Serialize`; a type with neither has no wire form, as in Rust. Without this, a closed type with no derive (signup's `Email`) got a schema that built it by shape, a value Rust has no way to read from JSON. `--schema` on a crate where no public type derives either is refused.
+- **What the derive needs.** A type that derives one holds only types that derive it too, and no std `Ordering`, which serde gives no form; `check` refuses the rest (`item/serde-derive`), as the real derive does. With `#[serde(try_from = "T")]`, `Deserialize` needs it of `T` instead of the fields.
 - **How `check` handles them.** `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`). The translated code is unaffected, and the real derive is checked by the server's build.
 - **Attributes are rejected.** `#[serde(...)]` is rejected everywhere with its location, so a renamed wire format is never silently accepted. The one exception is `#[serde(try_from = "T")]` (§5).
 - **Why a stand-in.** Without it, a crate that derives serde fails `check` with `cannot find crate serde`.
@@ -92,7 +94,7 @@ Parsing JSON inside transitions; type declarations alone as a ts-rs replacement;
 
 serde's `#[derive(Deserialize)]` builds closed types by shape without calling the smart constructor. If the TS schema called the checked constructor, TS would reject JSON that Rust accepts.
 
-1. **By shape.** Without an attribute, closed types are read by shape and branded through `Email$of`. Same set as Rust; invariants are not upheld on the wire, as in Rust.
+1. **By shape.** A closed type that derives `Deserialize` without an attribute is read by shape and branded through its package-internal constructor (`Id$of` for `fixtures/wire_shapes.rs`'s `Id`). Same set as Rust; invariants are not upheld on the wire, as in Rust.
 2. **Through the constructor.** `#[serde(try_from = "T")]` on a struct, with `impl TryFrom<T> for X` (translated as `X.try_from`; `check` requires it, since rustc sees only the stand-in serde). The schema reads `T` as serde would, then calls `X.try_from`; `Err` fails the read, as serde fails deserialization. Serializing is unchanged (by shape), so `toJson` writes what serde writes. `impl Display` for the error, which serde requires, is skipped by the translator. examples/payment reads `Amount` and `PaymentMethodId` this way.
 
 **Errors.** A refused value fails with an issue naming the type and, when the error type is an enum, the variant `try_from` returned (`Amount: AmountOutOfRange`); zod's issue also carries the error value in `params.error`.

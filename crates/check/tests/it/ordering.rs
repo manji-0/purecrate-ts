@@ -108,16 +108,33 @@ fn a_crates_own_ordering_is_left_alone() {
 #[test]
 fn ordering_has_no_wire_form() {
     assert_rejects(
-        "use std::cmp::Ordering;\npub struct Pair { pub by: Ordering }",
-        "`Pair` holds a `std::cmp::Ordering`, which has no serde form",
+        "use std::cmp::Ordering;\n#[derive(serde::Serialize)]\npub struct Pair { pub by: Ordering }",
+        "`Pair` derives `Serialize` but holds a `std::cmp::Ordering`, which has no serde form",
     );
     assert_rejects(
-        "use std::cmp::Ordering;\npub type Ords = Vec<Ordering>;\npub enum Step { Compared(Option<Ords>) }",
-        "`Step` holds a `std::cmp::Ordering`",
+        "use std::cmp::Ordering;\npub type Ords = Vec<Ordering>;\n#[derive(serde::Deserialize)]\npub enum Step { Compared(Option<Ords>) }",
+        "`Step` derives `Deserialize` but holds a `std::cmp::Ordering`",
     );
     let found = diagnostics("use std::cmp::Ordering;\n#[derive(serde::Serialize)]\npub struct Pair { pub by: Ordering }");
-    assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["item/serde-attr"]);
+    assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["item/serde-derive"]);
+    // Without a serde derive a type has no wire form, so it may hold one.
+    assert_clean("use std::cmp::Ordering;\npub struct Pair { pub by: Ordering }");
     assert_clean("use std::cmp::Ordering;\npub fn f(xs: Vec<u8>) -> Vec<Ordering> { vec![xs[0].cmp(&xs[1])] }");
+}
+
+#[test]
+fn a_serde_derive_needs_it_on_what_the_type_holds() {
+    assert_rejects(
+        "#[derive(serde::Serialize, serde::Deserialize)]\npub struct Order { pub line: Line }\n#[derive(serde::Serialize)]\npub struct Line { pub n: i32 }",
+        "`Order` derives `Deserialize` but holds `Line`, which does not",
+    );
+    assert_rejects(
+        "pub type Lines = Vec<Line>;\n#[derive(serde::Serialize)]\npub enum Order { Open(Lines) }\npub struct Line { pub n: i32 }",
+        "`Order` derives `Serialize` but holds `Line`, which does not",
+    );
+    // Not `assert_clean`: rustc here has no serde.
+    let both = "#[derive(serde::Serialize, serde::Deserialize)]\npub struct Order { pub line: Line }\n#[derive(serde::Serialize, serde::Deserialize)]\npub struct Line { pub n: i32 }";
+    assert!(diagnostics(both).is_empty(), "{:#?}", diagnostics(both));
 }
 
 #[test]

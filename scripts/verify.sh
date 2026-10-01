@@ -18,6 +18,8 @@ for dir in examples/*/; do
   [ -f "$dir/src/lib.rs" ] || continue
   cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/plain"
   examples+=("$dir/ts/plain")
+  # Only an example that derives serde has a wire form (scripts/examples.sh).
+  grep -qE 'derive\([^)]*(Serialize|Deserialize)' "$dir"/src/*.rs || continue
   for lib in zod valibot arktype; do
     cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/$lib" --schema "$lib"
     examples+=("$dir/ts/$lib")

@@ -3,7 +3,7 @@
 //! domain brand (`I32`, not a bare `number`). `toJson` writes the same shape
 //! back, as serde_json writes the Rust value, with no schema library.
 
-use purecrate_ir::{Crate, Item, Struct, Ty, VariantFields};
+use purecrate_ir::{Crate, Item, Serde, Struct, Ty, VariantFields};
 
 use crate::closed_ctor;
 
@@ -49,14 +49,22 @@ impl WireSchema {
     }
 }
 
-/// A struct or enum with a serde form: not std's `Ordering`, which has none
-/// (`check::accept` keeps it out of every field).
-fn on_wire(item: &Item) -> bool {
+/// The serde derives of a struct or enum (design/04 §3.2): a schema reads
+/// one that derives `Deserialize`, `toJson` writes one that derives
+/// `Serialize`. std's `Ordering` derives neither, and `check::accept` keeps
+/// a type without the derive out of one with it.
+fn serde(item: &Item) -> Serde {
     match item {
-        Item::Struct(_) => true,
-        Item::Enum(e) => !e.std,
-        _ => false,
+        Item::Struct(s) => s.serde,
+        Item::Enum(e) => e.serde,
+        _ => Serde::default(),
     }
+}
+
+/// Some exported type derives `Serialize` or `Deserialize`, so `--schema`
+/// has something to write.
+pub fn has_wire(krate: &Crate) -> bool {
+    krate.exported().any(|i| serde(i).any())
 }
 
 pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
@@ -64,7 +72,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     out.push('\n');
     out.push_str(&header(schema));
     for item in krate.exported() {
-        if on_wire(item) {
+        if serde(item).any() {
             let name = item.name().as_str();
             let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
             if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
@@ -91,7 +99,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             }
         }
     }
-    let wired: Vec<&Item> = krate.exported().filter(|i| on_wire(i)).collect();
+    let wired: Vec<&Item> = krate.exported().filter(|i| serde(i).de).collect();
     if schema == WireSchema::Arktype {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
@@ -689,7 +697,7 @@ fn to_json(krate: &Crate) -> String {
     let mut out = String::from(
         "\n/** Each type written as serde_json writes the Rust value. */\nexport const toJson = {\n",
     );
-    for item in krate.exported().filter(|i| on_wire(i)) {
+    for item in krate.exported().filter(|i| serde(i).ser) {
         match item {
             Item::Struct(s) => {
                 let name = s.name.as_str();

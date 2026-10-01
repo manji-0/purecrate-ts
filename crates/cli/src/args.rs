@@ -11,8 +11,9 @@ usage:
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
   purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
---schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts,
-schemas for the public structs and enums.
+--schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts: a
+schema for each public struct and enum that derives Deserialize, and
+toJson for each that derives Serialize. A crate with neither is refused.
 The generated package.json says \"private\": true, so npm publish refuses it
 (npm pack and installing the tarball work). --publishable leaves that out.
 The runtime is copied into src/purecrate-runtime.ts (and the adapter into

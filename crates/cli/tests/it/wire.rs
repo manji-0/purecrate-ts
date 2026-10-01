@@ -227,3 +227,27 @@ fn link(dir: &std::path::Path, name: &str, rel: &str) {
     let _ = fs::remove_file(&modules);
     std::os::unix::fs::symlink(&target, &modules).unwrap_or_else(|e| panic!("link {name}: {e} ({target:?})"));
 }
+
+/// Only serde's derives give a type a wire form (design/04 §3.2): a schema
+/// for `Deserialize`, a `toJson` entry for `Serialize`, nothing without one.
+#[test]
+fn the_derives_decide_what_is_on_the_wire() {
+    let source = "#[derive(Serialize, Deserialize)]\npub struct Both { pub n: i32 }\n\
+                  #[derive(Serialize)]\npub struct Out { pub n: i32 }\n\
+                  #[derive(Deserialize)]\npub struct In { pub n: i32 }\n\
+                  pub struct Email(String);\n\
+                  pub fn parse_email(s: String) -> Email { Email(s) }";
+    let krate = parse_source("derives", source).expect("parse");
+    let typed = accept(&krate).expect("accept");
+    let wire = assemble_with(&typed, Some(WireSchema::Zod))
+        .files
+        .into_iter()
+        .find(|f| f.stem == "purecrate-wire")
+        .expect("wire module")
+        .source;
+    for (name, schema, json) in [("Both", true, true), ("Out", false, true), ("In", true, false), ("Email", false, false)] {
+        assert_eq!(wire.contains(&format!("export const {name}: ")), schema, "schema for {name}:\n{wire}");
+        assert_eq!(wire.contains(&format!("  {name}: (x: ")), json, "toJson for {name}:\n{wire}");
+    }
+    assert!(!wire.contains("Email$of"), "{wire}");
+}

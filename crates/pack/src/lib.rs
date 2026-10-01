@@ -184,7 +184,16 @@ mod tests {
 
     #[test]
     fn the_runtime_and_the_adapter_are_copied_in() {
-        let pkg = assemble_with(&counter_example(), Some(WireSchema::Zod));
+        // The counter's types with serde derives, so the wire module reads them.
+        let mut krate = counter_example();
+        for item in &mut krate.items {
+            match item {
+                purecrate_ir::Item::Struct(s) => s.serde = purecrate_ir::Serde { ser: true, de: true },
+                purecrate_ir::Item::Enum(e) => e.serde = purecrate_ir::Serde { ser: true, de: true },
+                _ => {}
+            }
+        }
+        let pkg = assemble_with(&krate, Some(WireSchema::Zod));
         let file = |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
         assert!(file(RUNTIME_STEM).starts_with(HEADER) && file(RUNTIME_STEM).contains("export const Int = {"));
         assert!(file("purecrate-zod").contains("from \"./purecrate-runtime.ts\";"));

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
+    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -247,6 +247,27 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
     }
 }
 
+/// The serde derives in `#[derive(...)]`, by the last path segment, so
+/// `serde::Serialize` counts as `Serialize`.
+fn serde_derives(attrs: &[syn::Attribute]) -> Serde {
+    let mut out = Serde::default();
+    for attr in attrs.iter().filter(|a| a.path().is_ident("derive")) {
+        let Ok(paths) = attr.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+        ) else {
+            continue;
+        };
+        for path in paths {
+            match path.segments.last().map(|s| s.ident.to_string()).as_deref() {
+                Some("Serialize") => out.ser = true,
+                Some("Deserialize") => out.de = true,
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 /// `#[serde(try_from = "T")]`, the one serde attribute v0 models.
 fn is_try_from_attr(attr: &syn::Attribute) -> bool {
     attr.path().is_ident("serde") && wire_from_attr(attr).is_ok()
@@ -416,6 +437,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         variants,
         repr: enum_repr(&e.attrs)?,
         std: false,
+        serde: serde_derives(&e.attrs),
     })
 }
 
@@ -468,6 +490,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         fields,
         closed,
         wire_from,
+        serde: serde_derives(&s.attrs),
     })
 }
 

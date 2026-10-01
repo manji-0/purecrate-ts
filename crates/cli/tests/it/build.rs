@@ -410,9 +410,13 @@ fn module_trees_are_flattened() {
 }
 
 fn build_with(flags: &[&str], out: &Path) -> Output {
+    build_example("counter", flags, out)
+}
+
+fn build_example(example: &str, flags: &[&str], out: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
         .arg("build")
-        .arg(repo().join("examples/counter"))
+        .arg(repo().join("examples").join(example))
         .args(flags)
         .arg("--out")
         .arg(out)
@@ -449,6 +453,7 @@ fn generated_package_is_private_unless_publishable() {
 
 /// The output stands alone: with the runtime copied in, it type-checks with
 /// no `node_modules`, and with `--schema zod` with only `zod` beside it.
+/// The counter derives no serde, so it has no wire form; invoice has one.
 #[test]
 fn generated_packages_need_only_the_schema_library() {
     let dir = scratch("standalone");
@@ -456,8 +461,13 @@ fn generated_packages_need_only_the_schema_library() {
     let built = build_with(&[], &plain);
     assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
     assert!(plain.join("src/purecrate-runtime.ts").exists());
+    let refused = build_with(&["--schema", "zod"], &dir.join("refused"));
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("--schema zod: no public struct or enum derives `Serialize` or `Deserialize`"), "{stderr}");
+    assert!(!dir.join("refused").exists());
     let wired = dir.join("wired");
-    let built = build_with(&["--schema", "zod"], &wired);
+    let built = build_example("invoice", &["--schema", "zod"], &wired);
     assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
     assert!(wired.join("src/purecrate-zod.ts").exists());
     if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {

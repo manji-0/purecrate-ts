@@ -14,7 +14,7 @@ use stmt::*;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub use schema::{emit_wire, WireSchema};
+pub use schema::{emit_wire, has_wire, WireSchema};
 
 use purecrate_ir::{
     BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, TryOn,
@@ -359,6 +359,7 @@ export const step = (state: State, event: Event): State => {
             ],
             repr: None,
             std: false,
+            serde: purecrate_ir::Serde::default(),
         });
         let run = Item::Fn(Fn {
             vis: Vis::Pub,
@@ -484,6 +485,7 @@ export const step = (state: State, event: Event): State => {
             }],
             closed: false,
             wire_from: None,
+            serde: purecrate_ir::Serde::default(),
         }));
         let pkg = emit(&krate);
 

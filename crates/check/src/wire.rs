@@ -1,15 +1,16 @@
 //! `#[serde(try_from = "T")]` on `S` needs `impl TryFrom<T> for S`, lowered
 //! as the method `S::try_from(T) -> Result<S, E>`. rustc only sees a
 //! stand-in serde (`cli::rustc`), so the pairing is checked here, and so is
-//! a field of std's `Ordering`, which serde gives no form.
+//! what the real derive checks: a type that derives `Serialize` or
+//! `Deserialize` holds only types that derive it too, and no std `Ordering`.
 
-use purecrate_ir::{Crate, Item, Reason, Ty, VariantFields};
+use purecrate_ir::{Crate, Item, Name, Reason, Serde, Ty, VariantFields};
 
 use crate::Diagnostic;
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    ordering_fields(krate, &mut out);
+    derive_fields(krate, &mut out);
     for (i, item) in krate.items.iter().enumerate() {
         let Item::Struct(s) = item else { continue };
         let Some(from) = &s.wire_from else { continue };
@@ -36,53 +37,98 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     out
 }
 
-/// Every struct and enum has a wire schema (design/04), and serde implements
-/// neither `Serialize` nor `Deserialize` for `std::cmp::Ordering`: a field
-/// that holds one, through an alias or a container too, is refused.
-fn ordering_fields(krate: &Crate, out: &mut Vec<Diagnostic>) {
-    let Some(ordering) = krate.items.iter().find_map(|i| match i {
-        Item::Enum(e) if e.std => Some(&e.name),
-        _ => None,
-    }) else {
-        return;
-    };
-    let holds = |ty: &Ty| holds_named(krate, ty, ordering, 0);
+/// A type that derives `Serialize` (or `Deserialize`) has a wire form only
+/// when every type it holds has one too; the real derive refuses the rest,
+/// but rustc sees the stand-in. serde implements neither for std's
+/// `Ordering`, and a crate type has the trait only when it derives it.
+fn derive_fields(krate: &Crate, out: &mut Vec<Diagnostic>) {
     for (i, item) in krate.items.iter().enumerate() {
-        let tys: Vec<&Ty> = match item {
-            Item::Struct(s) => s.fields.iter().map(|f| &f.ty).collect(),
-            Item::Enum(e) => e
-                .variants
-                .iter()
-                .flat_map(|v| match &v.fields {
-                    VariantFields::Unit => Vec::new(),
-                    VariantFields::Tuple(tys) => tys.iter().collect(),
-                    VariantFields::Struct(fs) => fs.iter().map(|f| &f.ty).collect(),
-                })
-                .collect(),
+        // `#[serde(try_from = "T")]` reads `T`, not the fields.
+        let (serde, tys, read): (Serde, Vec<&Ty>, Option<&Ty>) = match item {
+            Item::Struct(s) => (s.serde, s.fields.iter().map(|f| &f.ty).collect(), s.wire_from.as_ref()),
+            Item::Enum(e) => (
+                e.serde,
+                e.variants
+                    .iter()
+                    .flat_map(|v| match &v.fields {
+                        VariantFields::Unit => Vec::new(),
+                        VariantFields::Tuple(tys) => tys.iter().collect(),
+                        VariantFields::Struct(fs) => fs.iter().map(|f| &f.ty).collect(),
+                    })
+                    .collect(),
+                None,
+            ),
             _ => continue,
         };
-        if tys.into_iter().any(holds) {
-            out.push(
-                Diagnostic::at(i, Reason::SerdeAttr, format!(
-                    "`{}` holds a `std::cmp::Ordering`, which has no serde form (serde implements neither `Serialize` nor `Deserialize` for it), and every struct and enum has a wire schema; keep `Ordering` in functions, or hold a crate enum",
-                    item.name().as_str()
-                ))
-                .about(item.name().as_str()),
-            );
+        let written = names(krate, &tys);
+        let read = read.map_or_else(|| written.clone(), |t| names(krate, &[t]));
+        let missing = [(serde.ser, "Serialize", &written), (serde.de, "Deserialize", &read)]
+            .into_iter()
+            .filter(|(on, ..)| *on)
+            .find_map(|(_, derive, named)| {
+                named.iter().find_map(|n| {
+                    krate.items.iter().find_map(|other| match other {
+                        Item::Enum(e) if e.name == **n && e.std => Some(format!(
+                            "`{}` derives `{derive}` but holds a `std::cmp::Ordering`, which has no serde form (serde implements neither `Serialize` nor `Deserialize` for it); keep `Ordering` in functions, or hold a crate enum",
+                            item.name().as_str()
+                        )),
+                        Item::Struct(_) | Item::Enum(_) if other.name() == *n && !derives(other, derive) => Some(format!(
+                            "`{}` derives `{derive}` but holds `{}`, which does not; serde's derive needs it on `{1}` too",
+                            item.name().as_str(),
+                            n.as_str()
+                        )),
+                        _ => None,
+                    })
+                })
+            });
+        if let Some(message) = missing {
+            out.push(Diagnostic::at(i, Reason::SerdeDerive, message).about(item.name().as_str()));
         }
     }
 }
 
-/// `ty` names `name`, looking through aliases (to a fixed depth, as alias
+fn derives(item: &Item, derive: &str) -> bool {
+    let serde = match item {
+        Item::Struct(s) => s.serde,
+        Item::Enum(e) => e.serde,
+        _ => return false,
+    };
+    if derive == "Serialize" {
+        serde.ser
+    } else {
+        serde.de
+    }
+}
+
+fn names<'a>(krate: &'a Crate, tys: &[&'a Ty]) -> Vec<&'a Name> {
+    let mut out = Vec::new();
+    for ty in tys {
+        named_in(krate, ty, 0, &mut out);
+    }
+    out
+}
+
+/// The names `ty` holds, looking through aliases (to a fixed depth, as alias
 /// cycles are reported elsewhere).
-fn holds_named(krate: &Crate, ty: &Ty, name: &purecrate_ir::Name, depth: usize) -> bool {
+fn named_in<'a>(krate: &'a Crate, ty: &'a Ty, depth: usize, out: &mut Vec<&'a Name>) {
     match ty {
-        Ty::Named(n) if n == name => true,
-        Ty::Named(n) => depth < 32 && krate.items.iter().any(|i| matches!(i, Item::Alias(a) if a.name == *n && holds_named(krate, &a.ty, name, depth + 1))),
-        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => holds_named(krate, t, name, depth),
-        Ty::Result { ok, err } => holds_named(krate, ok, name, depth) || holds_named(krate, err, name, depth),
-        Ty::Tuple(ts) => ts.iter().any(|t| holds_named(krate, t, name, depth)),
-        Ty::Fn { params, ret } => params.iter().chain(std::iter::once(&**ret)).any(|t| holds_named(krate, t, name, depth)),
-        Ty::Prim(_) | Ty::Never => false,
+        Ty::Named(n) => match krate.items.iter().find_map(|i| match i {
+            Item::Alias(a) if a.name == *n => Some(&a.ty),
+            _ => None,
+        }) {
+            Some(aliased) if depth < 32 => named_in(krate, aliased, depth + 1, out),
+            Some(_) => {}
+            None => out.push(n),
+        },
+        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => named_in(krate, t, depth, out),
+        Ty::Result { ok, err } => {
+            named_in(krate, ok, depth, out);
+            named_in(krate, err, depth, out);
+        }
+        Ty::Tuple(ts) => ts.iter().for_each(|t| named_in(krate, t, depth, out)),
+        Ty::Fn { params, ret } => {
+            params.iter().chain(std::iter::once(&**ret)).for_each(|t| named_in(krate, t, depth, out))
+        }
+        Ty::Prim(_) | Ty::Never => {}
     }
 }

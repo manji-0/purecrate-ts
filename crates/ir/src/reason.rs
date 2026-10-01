@@ -40,6 +40,9 @@ pub enum Reason {
     UnsupportedItem,
     Module,
     SerdeAttr,
+    /// A type derives `Serialize` or `Deserialize` but holds a type without
+    /// the same derive, which the real serde derive refuses.
+    SerdeDerive,
     Cfg,
     FnQualifier,
     RefReceiver,
@@ -114,6 +117,7 @@ impl Reason {
             Reason::UnsupportedItem => "item/other",
             Reason::Module => "item/module",
             Reason::SerdeAttr => "item/serde-attr",
+            Reason::SerdeDerive => "item/serde-derive",
             Reason::Cfg => "item/cfg",
             Reason::FnQualifier => "item/fn-qualifier",
             Reason::RefReceiver => "item/ref-receiver",

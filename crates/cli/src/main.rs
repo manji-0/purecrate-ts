@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
-use purecrate_emit_ts::WireSchema;
+use purecrate_emit_ts::{has_wire, WireSchema};
 use purecrate_pack::{assemble_with_access, disk_path, Access};
 use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
@@ -120,7 +120,18 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Ac
     let diagnostics = match accept(&krate) {
         Ok(typed) => {
             return match rustc::compile(src, &input.edition) {
-                Ok(()) => Ok(assemble_with_access(&prune_unreachable(&typed), schema, &input.version, access)),
+                Ok(()) => {
+                    let pruned = prune_unreachable(&typed);
+                    match schema {
+                        Some(lib) if !has_wire(&pruned) => Err(format!(
+                            "{}: --schema {}: no public struct or enum derives `Serialize` or `Deserialize`, so there is no wire form to write\n{}",
+                            src.display(),
+                            lib.runtime_dep(),
+                            summary(1, consequence)
+                        )),
+                        _ => Ok(assemble_with_access(&pruned, schema, &input.version, access)),
+                    }
+                }
                 Err(rustc::Failure::Other(e)) => Err(e),
                 Err(rustc::Failure::Rejected(errors)) => {
                     let mut report: Vec<String> = errors.iter().map(|e| e.line()).collect();

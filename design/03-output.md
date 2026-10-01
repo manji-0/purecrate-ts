@@ -186,7 +186,7 @@ export const step = (state: State, event: Event): State => {
 };
 ```
 
-The committed golden is [examples/counter/ts/plain](../examples/counter/ts/plain/src). Every example keeps its output beside its source: `examples/<name>/ts/plain` without a schema and `examples/<name>/ts/<lib>` with each schema library (`scripts/examples.sh` regenerates them all).
+The committed golden is [examples/counter/ts/plain](../examples/counter/ts/plain/src). Every example keeps its output beside its source: `examples/<name>/ts/plain` without a schema and, for an example that derives serde ([04 §3.2](./04-wire.md#32-serde-in-the-input)), `examples/<name>/ts/<lib>` with each schema library (`scripts/examples.sh` regenerates them all).
 
 ## 4. Package
 
