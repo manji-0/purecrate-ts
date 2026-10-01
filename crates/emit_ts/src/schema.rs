@@ -71,36 +71,8 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     let mut out = String::from(super::HEADER);
     out.push('\n');
     out.push_str(&header(schema));
-    for item in krate.exported() {
-        if serde(item).any() {
-            let name = item.name().as_str();
-            let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
-            if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
-                out.push_str(&format!(
-                    "import {{ {name} as {name}$value, type {name} as {name}$ }} from \"./{}.ts\";\n",
-                    item.file_stem()
-                ));
-            } else if matches!(item, Item::Struct(s) if s.closed) {
-                out.push_str(&format!(
-                    "import {{ {ctor}, type {name} as {name}$ }} from \"./{}.ts\";\n",
-                    item.file_stem(),
-                    ctor = closed_ctor(name)
-                ));
-            } else if value {
-                out.push_str(&format!(
-                    "import {{ {name} as {name}$value, type {name} as {name}$ }} from \"./{}.ts\";\n",
-                    item.file_stem()
-                ));
-            } else {
-                out.push_str(&format!(
-                    "import type {{ {name} as {name}$ }} from \"./{}.ts\";\n",
-                    item.file_stem()
-                ));
-            }
-        }
-    }
     let wired: Vec<&Item> = krate.exported().filter(|i| serde(i).de).collect();
-    out.push_str(&refusal_imports(krate, &wired));
+    out.push_str(&wire_imports(krate, &wired));
     if schema == WireSchema::Arktype {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
@@ -370,18 +342,57 @@ fn refusal(krate: &Crate, s: &Struct) -> Refusal {
     }
 }
 
-/// `import { E as E$text }` for each error type whose text names a refusal.
-fn refusal_imports(krate: &Crate, wired: &[&Item]) -> String {
-    let mut seen = std::collections::BTreeSet::new();
+/// One import per module: values then `type` aliases, including `{E as E$text}`
+/// for an error type whose text names a refusal.
+fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
+    #[derive(Default)]
+    struct Specs {
+        values: Vec<String>,
+        types: Vec<String>,
+    }
+    let mut by_file: std::collections::BTreeMap<String, Specs> = std::collections::BTreeMap::new();
+    let mut push = |stem: String, value: Option<String>, ty: Option<String>| {
+        let e = by_file.entry(stem).or_default();
+        if let Some(v) = value {
+            if !e.values.contains(&v) {
+                e.values.push(v);
+            }
+        }
+        if let Some(t) = ty {
+            if !e.types.contains(&t) {
+                e.types.push(t);
+            }
+        }
+    };
+    for item in krate.exported().filter(|i| serde(i).any()) {
+        let name = item.name().as_str();
+        let stem = item.file_stem();
+        let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
+        if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
+            push(stem, Some(format!("{name} as {name}$value")), Some(format!("{name} as {name}$")));
+        } else if matches!(item, Item::Struct(s) if s.closed) {
+            push(stem, Some(closed_ctor(name)), Some(format!("{name} as {name}$")));
+        } else if value {
+            push(stem, Some(format!("{name} as {name}$value")), Some(format!("{name} as {name}$")));
+        } else {
+            push(stem, None, Some(format!("{name} as {name}$")));
+        }
+    }
     for item in wired {
         if let Item::Struct(s) = item {
             if let Refusal::Text(err) = refusal(krate, s) {
-                seen.insert(err);
+                let stem = purecrate_ir::Name::new(err.clone()).file_stem();
+                push(stem, Some(format!("{err} as {err}$text")), None);
             }
         }
     }
-    seen.into_iter()
-        .map(|err| format!("import {{ {err} as {err}$text }} from \"./{}.ts\";\n", purecrate_ir::Name::new(err.clone()).file_stem()))
+    by_file
+        .into_iter()
+        .map(|(stem, specs)| {
+            let mut parts = specs.values;
+            parts.extend(specs.types.into_iter().map(|t| format!("type {t}")));
+            format!("import {{ {} }} from \"./{stem}.ts\";\n", parts.join(", "))
+        })
         .collect()
 }
 

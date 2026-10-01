@@ -252,6 +252,28 @@ fn the_derives_decide_what_is_on_the_wire() {
     assert!(!wire.contains("Email$of"), "{wire}");
 }
 
+/// Type and value imports of one module are a single statement, including
+/// `{E as E$text}` next to `type E as E$` for a `try_from` refusal.
+#[test]
+fn one_module_is_imported_once() {
+    let source = include_str!("../../../../examples/payment/src/lib.rs");
+    let krate = parse_source("payment", source).expect("parse");
+    let typed = accept(&krate).expect("accept");
+    let wire = assemble_with(&typed, Some(WireSchema::Zod))
+        .files
+        .into_iter()
+        .find(|f| f.stem == "purecrate-wire")
+        .expect("wire module")
+        .source;
+    assert_eq!(
+        wire.matches("from \"./payment-error.ts\"").count(),
+        1,
+        "payment-error.ts imported more than once:\n{wire}"
+    );
+    assert!(wire.contains("PaymentError as PaymentError$text"), "{wire}");
+    assert!(wire.contains("type PaymentError as PaymentError$"), "{wire}");
+}
+
 /// The index exports `Char` and `Uuid` when the public surface holds one,
 /// and `parseJson` with a schema; the runtime keeps them whole then.
 #[test]
