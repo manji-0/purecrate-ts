@@ -2,6 +2,10 @@
 
 import { type Char } from "./str.ts";
 
+/**
+ * Whether the space-delimited list `list` contains `word` as a whole token
+ * (scope: RFC 6749 §3.3; prompt and acr_values: OIDC Core §3.1.2.1).
+ */
 export const has_token = (list: string, word: string): boolean => {
   const $src4: ReadonlyArray<string> = list.split((" " as Char));
   let $acc2: boolean = false;

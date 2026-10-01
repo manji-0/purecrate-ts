@@ -18,6 +18,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
 | Expected failure is `Result` | only `assertNever` and arithmetic/index panics throw |
 | Time and IDs are arguments | the domain never generates them |
+| `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block or a `Display` impl has nowhere to go |
 
 ## 2. Type mapping
 

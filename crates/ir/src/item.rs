@@ -14,6 +14,8 @@ pub enum Vis {
 pub struct Field {
     pub name: Name,
     pub ty: Ty,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +32,8 @@ pub struct Variant {
     /// `A = 1 << 3` on a fieldless enum: a const expression, folded to an
     /// integer `Lit` by `check::accept`.
     pub discriminant: Option<Expr>,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 /// Field name of a newtype's single element (`struct Id(u32)` → `id.0`).
@@ -72,6 +76,8 @@ pub struct Struct {
     /// checked by `impl TryFrom<T> for Self` (design/04 §5).
     pub wire_from: Option<Ty>,
     pub serde: Serde,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 impl Struct {
@@ -98,6 +104,8 @@ pub struct Enum {
     /// `Serialize` nor `Deserialize` for it) and rustc sees std's type.
     pub std: bool,
     pub serde: Serde,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 /// The name `std::cmp::Ordering` is reached by in the IR.
@@ -111,6 +119,7 @@ impl Enum {
             name: Name::new(name),
             fields: VariantFields::Unit,
             discriminant: Some(Expr::Lit(crate::expr::Lit::Int { value: d, ty: None })),
+            doc: None,
         };
         Enum {
             vis,
@@ -119,6 +128,7 @@ impl Enum {
             repr: Some(crate::ty::IntTy::I8),
             std: true,
             serde: Serde::default(),
+            doc: None,
         }
     }
 }
@@ -135,6 +145,8 @@ pub struct Const {
     pub name: Name,
     pub ty: Ty,
     pub value: Expr,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +154,8 @@ pub struct Alias {
     pub vis: Vis,
     pub name: Name,
     pub ty: Ty,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,6 +173,8 @@ pub struct Fn {
     pub params: Vec<Param>,
     pub ret: Ty,
     pub body: Expr,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -21,6 +21,12 @@ import type { Pkce } from "./pkce.ts";
 import type { PkceMethod } from "./pkce-method.ts";
 import type { Prompt } from "./prompt.ts";
 
+/**
+ * Validates an authorization request against the client registration.
+ *
+ * Errors about the client or its redirect_uri are shown to the End-User;
+ * everything after that is redirected with `error` and the echoed `state`.
+ */
 export const validate_request = (params: AuthorizationParams, client: Client | null): Result<AuthorizationRequest, AuthorizationError> => {
   let client$1: Client;
   if (client !== null) {

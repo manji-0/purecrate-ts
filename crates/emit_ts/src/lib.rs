@@ -236,6 +236,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Enum(en) => out.push_str(&emit_enum(krate, en)),
             Item::Struct(st) => out.push_str(&emit_struct(krate, st)),
             Item::Alias(al) => {
+                out.push_str(&jsdoc(&al.doc, ""));
                 out.push_str(&format!(
                     "export type {name} = {ty};\n",
                     name = al.name.as_str(),
@@ -244,12 +245,15 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             }
             Item::Fn(f) if f.owner.is_none() => out.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
-            Item::Const(c) => out.push_str(&format!(
-                "export const {name}: {ty} = {value};\n",
-                name = c.name.as_str(),
-                ty = emit_ty(&c.ty),
-                value = emit_expr(&c.value, 0)
-            )),
+            Item::Const(c) => {
+                out.push_str(&jsdoc(&c.doc, ""));
+                out.push_str(&format!(
+                    "export const {name}: {ty} = {value};\n",
+                    name = c.name.as_str(),
+                    ty = emit_ty(&c.ty),
+                    value = emit_expr(&c.value, 0)
+                ));
+            }
         }
     }
     imports::prune_unused(&out)
@@ -284,12 +288,36 @@ mod tests {
                 wrapper: Wrapper::Arc,
                 expr: Box::new(Expr::var("n")),
             },
+            doc: None,
         });
         let pkg = emit(&Crate::new("wraps", vec![share]));
         let src = file(&pkg, "share");
         assert!(src.contains(Wrapper::Box.comment()), "{src}");
         assert!(src.contains(Wrapper::Arc.comment()), "{src}");
         assert!(src.contains(Wrapper::Mutex.comment()), "{src}");
+    }
+
+    #[test]
+    fn doc_comments_become_jsdoc() {
+        let mut krate = counter_example();
+        for item in &mut krate.items {
+            match item {
+                Item::Enum(e) => {
+                    e.doc = Some("What happens.\n\nOne at a time; ends in */ here.".into());
+                    e.variants[0].doc = Some("Up by one.".into());
+                }
+                Item::Struct(s) => s.fields[0].doc = Some("The count.".into()),
+                Item::Fn(f) => f.doc = Some("The transition.".into()),
+                _ => {}
+            }
+        }
+        let pkg = emit(&krate);
+        assert!(file(&pkg, "event").contains(
+            "/**\n * What happens.\n *\n * One at a time; ends in *\\/ here.\n */\nexport type Event =\n"
+        ), "{}", file(&pkg, "event"));
+        assert!(file(&pkg, "event").contains("  /** Up by one. */\n  Inc: "), "{}", file(&pkg, "event"));
+        assert!(file(&pkg, "state").contains("Readonly<{\n  /** The count. */\n  n: I32;\n}>"), "{}", file(&pkg, "state"));
+        assert!(file(&pkg, "step").contains("/** The transition. */\nexport const step = "), "{}", file(&pkg, "step"));
     }
 
     #[test]
@@ -347,19 +375,23 @@ export const step = (state: State, event: Event): State => {
                     name: Name::new("Move"),
                     fields: VariantFields::Tuple(vec![Ty::i32(), Ty::i32()]),
                     discriminant: None,
+                    doc: None,
                 },
                 Variant {
                     name: Name::new("Paint"),
                     fields: VariantFields::Struct(vec![purecrate_ir::Field {
                         name: Name::new("color"),
                         ty: Ty::i32(),
+                        doc: None,
                     }]),
                     discriminant: None,
+                    doc: None,
                 },
             ],
             repr: None,
             std: false,
             serde: purecrate_ir::Serde::default(),
+            doc: None,
         });
         let run = Item::Fn(Fn {
             vis: Vis::Pub,
@@ -371,6 +403,7 @@ export const step = (state: State, event: Event): State => {
             }],
             ret: Ty::i32(),
             body,
+            doc: None,
         });
         Crate::new("cmds", vec![cmd, run])
     }
@@ -449,6 +482,7 @@ export const step = (state: State, event: Event): State => {
                 fields: Fields::Named(vec![(Name::new("n"), Expr::int(0))]),
                 base: None,
             },
+            doc: None,
         }));
         let pkg = emit(&krate);
         assert!(
@@ -475,6 +509,7 @@ export const step = (state: State, event: Event): State => {
             }],
             ret: Ty::named("Cmd"),
             body: Expr::var("cmd"),
+            doc: None,
         }));
         krate.items.push(Item::Struct(Struct {
             vis: Vis::Pub,
@@ -482,10 +517,12 @@ export const step = (state: State, event: Event): State => {
             fields: vec![purecrate_ir::Field {
                 name: Name::new("last"),
                 ty: Ty::option(Ty::Vec(Box::new(Ty::named("Cmd")))),
+                doc: None,
             }],
             closed: false,
             wire_from: None,
             serde: purecrate_ir::Serde::default(),
+            doc: None,
         }));
         let pkg = emit(&krate);
 
@@ -514,6 +551,7 @@ export const step = (state: State, event: Event): State => {
             }],
             ret: Ty::i32(),
             body: cmd_match(Expr::var("self")),
+            doc: None,
         }));
         let pkg = emit(&krate);
         let cmd = file(&pkg, "cmd");
@@ -556,6 +594,7 @@ export const step = (state: State, event: Event): State => {
                 callee: Callee::ResultOk,
                 args: vec![Expr::var("n")],
             },
+            doc: None,
         });
         let pkg = emit(&Crate::new("p", vec![parse]));
         let src = file(&pkg, "parse");
@@ -574,6 +613,7 @@ export const step = (state: State, event: Event): State => {
             }],
             ret: Ty::Prim(Prim::F64),
             body,
+            doc: None,
         });
         file(&emit(&Crate::new("p", vec![f])), "f").to_string()
     }

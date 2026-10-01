@@ -5,6 +5,11 @@ import { SHA1_LEN } from "./consts.ts";
 import { digit_modulus } from "./digit-modulus.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
+/**
+ * Dynamic truncation and reduction (RFC 4226 §5.3):
+ * offset = low 4 bits of the last byte, take 31 bits at offset,
+ * then mod 10^digits. None for a MAC shorter than SHA-1's 20 bytes.
+ */
 export const truncate_mac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
   const n: Usize = ((mac.length) as Usize);
   if (n < SHA1_LEN) {

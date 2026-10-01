@@ -9,6 +9,10 @@ import type { Method } from "./method.ts";
 import type { Rate } from "./rate.ts";
 import type { Rounding } from "./rounding.ts";
 
+/**
+ * What `line` adds to the total of `rate`'s group; `apart` is the group of
+ * inclusive lines under method 2.
+ */
 export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I64 => {
   if (percent(line.rate) !== percent(rate)) {
     return (0n as I64);

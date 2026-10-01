@@ -236,6 +236,36 @@ mod tests {
     }
 
     #[test]
+    fn doc_comments_are_kept_on_items_variants_and_fields() {
+        use purecrate_ir::{Item, VariantFields};
+        let src = "/// One line.\npub struct S {\n    /// The count.\n    ///\n    /// Never negative.\n    pub n: i32,\n    pub m: i32,\n}\n\
+                   /** Block. */\npub enum E {\n    /// First.\n    A,\n    B { /// Inner.\n x: i32 },\n}\n\
+                   impl S {\n    /// Doubles.\n    pub fn twice(self) -> i32 { self.n * 2 }\n}\n\
+                   /// Ten.\npub const TEN: i32 = 10;\n/// An alias.\npub type Count = i32;\npub fn bare() -> i32 { 0 }\n";
+        let krate = parse_source("d", src).expect("parse");
+        let doc = |name: &str| krate.items.iter().find(|i| i.name().as_str() == name).and_then(|i| match i {
+            Item::Struct(s) => s.doc.clone(),
+            Item::Enum(e) => e.doc.clone(),
+            Item::Fn(f) => f.doc.clone(),
+            Item::Const(c) => c.doc.clone(),
+            Item::Alias(a) => a.doc.clone(),
+        });
+        assert_eq!(doc("S").as_deref(), Some("One line."));
+        assert_eq!(doc("E").as_deref(), Some("Block."));
+        assert_eq!(doc("twice").as_deref(), Some("Doubles."));
+        assert_eq!(doc("TEN").as_deref(), Some("Ten."));
+        assert_eq!(doc("Count").as_deref(), Some("An alias."));
+        assert_eq!(doc("bare"), None);
+        let Some(Item::Struct(s)) = krate.items.iter().find(|i| i.name().as_str() == "S") else { panic!("S") };
+        assert_eq!(s.fields[0].doc.as_deref(), Some("The count.\n\nNever negative."));
+        assert_eq!(s.fields[1].doc, None);
+        let Some(Item::Enum(e)) = krate.items.iter().find(|i| i.name().as_str() == "E") else { panic!("E") };
+        assert_eq!(e.variants[0].doc.as_deref(), Some("First."));
+        let VariantFields::Struct(fs) = &e.variants[1].fields else { panic!("B") };
+        assert_eq!(fs[0].doc.as_deref(), Some("Inner."));
+    }
+
+    #[test]
     fn inline_modules_flatten_with_rusts_public_surface() {
         use purecrate_ir::Vis;
         let src = "mod a {\n    pub fn one() -> i32 { 1 }\n    pub fn two() -> i32 { 2 }\n}\n\

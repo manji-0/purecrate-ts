@@ -5,6 +5,10 @@ import { Str } from "./str.ts";
 import { digit_count } from "./digit-count.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
+/**
+ * Parses a submitted OTP: exactly `digits` ASCII digits, leading zeros
+ * included.
+ */
 export const parse_otp = (code: string, digits: OtpDigits): U32 | null => {
   if ((Str.len(code) !== digit_count(digits)) || !(() => {
     const $src4: string = code;

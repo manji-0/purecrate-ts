@@ -4,6 +4,10 @@ import { type I64 } from "./int.ts";
 import type { Pkce } from "./pkce.ts";
 import type { Prompt } from "./prompt.ts";
 
+/**
+ * A request that passed §3.1.2.2 validation. Only `validate_request`
+ * builds one.
+ */
 declare const AuthorizationRequestBrand: unique symbol;
 export type AuthorizationRequest = Readonly<{
   client_id: string;

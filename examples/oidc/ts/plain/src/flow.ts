@@ -21,6 +21,8 @@ export const Flow = {
   AwaitingOtp: (request: AuthorizationRequest, subject: string, enrollment: TotpEnrollment, failures: U32, notice: Notice): Flow => ({ kind: "AwaitingOtp", request, subject, enrollment, failures, notice }),
   AwaitingConsent: (request: AuthorizationRequest, auth: Authentication): Flow => ({ kind: "AwaitingConsent", request, auth }),
   CodeIssued: (_0: CodeGrant): Flow => ({ kind: "CodeIssued", content: [_0] }),
+  /** Terminal: redirect to the client with an error (e.g. consent denied). */
   Rejected: (_0: ErrorRedirect): Flow => ({ kind: "Rejected", content: [_0] }),
+  /** Terminal: too many failures; shown to the End-User, not redirected. */
   Locked: (): Flow => ({ kind: "Locked" }),
 } as const;

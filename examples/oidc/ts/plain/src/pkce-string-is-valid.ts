@@ -5,6 +5,10 @@ import { Str } from "./str.ts";
 import { PKCE_MAX_LEN } from "./consts.ts";
 import { PKCE_MIN_LEN } from "./consts.ts";
 
+/**
+ * RFC 7636 §4.1 / §4.2: 43..=128 characters of
+ * unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
+ */
 export const pkce_string_is_valid = (s: string): boolean => ((Str.len(s) >= PKCE_MIN_LEN) && (Str.len(s) <= PKCE_MAX_LEN)) && (() => {
   const $src4: string = s;
   let $acc2: boolean = true;

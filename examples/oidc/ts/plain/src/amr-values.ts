@@ -3,6 +3,7 @@
 import { assertNever } from "./assert-never.ts";
 import type { AuthStrength } from "./auth-strength.ts";
 
+/** RFC 8176 §2: pwd, otp, and mfa when more than one factor was used. */
 export const amr_values = (strength: AuthStrength): ReadonlyArray<string> => {
   switch (strength.kind) {
     case "PasswordOnly":

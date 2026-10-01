@@ -18,17 +18,30 @@ export type SemverError =
   | Readonly<{ kind: "InvalidBuildChar" }>;
 
 export const SemverError = {
+  /** The input is the empty string. */
   Empty: (): SemverError => ({ kind: "Empty" }),
+  /** The core has fewer than three dot-separated numbers. */
   MissingPart: (_0: CorePart): SemverError => ({ kind: "MissingPart", content: [_0] }),
+  /** The core has more than three dot-separated numbers. */
   ExtraCorePart: (): SemverError => ({ kind: "ExtraCorePart" }),
+  /** A core number is empty (`1..2`). */
   EmptyNumber: (_0: CorePart): SemverError => ({ kind: "EmptyNumber", content: [_0] }),
+  /** A core number contains a non-digit. */
   NotANumber: (_0: CorePart): SemverError => ({ kind: "NotANumber", content: [_0] }),
+  /** A core number has a leading zero (`01`). */
   LeadingZero: (_0: CorePart): SemverError => ({ kind: "LeadingZero", content: [_0] }),
+  /** A core number does not fit in u64. */
   NumberTooLarge: (_0: CorePart): SemverError => ({ kind: "NumberTooLarge", content: [_0] }),
+  /** `-` is followed by nothing, or a pre-release identifier is empty (`1.0.0-a..b`). */
   EmptyPreRelease: (): SemverError => ({ kind: "EmptyPreRelease" }),
+  /** A pre-release identifier contains a character outside `[0-9A-Za-z-]`. */
   InvalidPreReleaseChar: (): SemverError => ({ kind: "InvalidPreReleaseChar" }),
+  /** A numeric pre-release identifier has a leading zero (`1.0.0-01`). */
   PreReleaseLeadingZero: (): SemverError => ({ kind: "PreReleaseLeadingZero" }),
+  /** A numeric pre-release identifier does not fit in u64. */
   PreReleaseTooLarge: (): SemverError => ({ kind: "PreReleaseTooLarge" }),
+  /** `+` is followed by nothing, or a build identifier is empty. */
   EmptyBuild: (): SemverError => ({ kind: "EmptyBuild" }),
+  /** A build identifier contains a character outside `[0-9A-Za-z-]`. */
   InvalidBuildChar: (): SemverError => ({ kind: "InvalidBuildChar" }),
 } as const;

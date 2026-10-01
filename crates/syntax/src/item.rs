@@ -247,6 +247,34 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
     }
 }
 
+/// The text of `///` and `/** */` comments (`#[doc = "..."]`), one line
+/// each, less the one space after `///`; `None` without any.
+fn doc(attrs: &[syn::Attribute]) -> Option<String> {
+    let mut lines = Vec::new();
+    for attr in attrs.iter().filter(|a| a.path().is_ident("doc")) {
+        let syn::Meta::NameValue(nv) = &attr.meta else { continue };
+        let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. }) = &nv.value else { continue };
+        for line in text.value().split('\n') {
+            lines.push(line.strip_prefix(' ').unwrap_or(line).trim_end().to_string());
+        }
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    let first = lines.iter().position(|l| !l.is_empty())?;
+    Some(lines[first..].join("\n"))
+}
+
+trait WithDoc {
+    fn with_doc(self, attrs: &[syn::Attribute]) -> Self;
+}
+
+impl WithDoc for Fn {
+    fn with_doc(self, attrs: &[syn::Attribute]) -> Self {
+        Fn { doc: doc(attrs), ..self }
+    }
+}
+
 /// The serde derives in `#[derive(...)]`, by the last path segment, so
 /// `serde::Serialize` counts as `Serialize`.
 fn serde_derives(attrs: &[syn::Attribute]) -> Serde {
@@ -336,13 +364,14 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
     match item {
         SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(cx, &e)?)]),
         SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
-        SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block)?)]),
+        SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block)?.with_doc(&f.attrs))]),
         SynItem::Type(t) => {
             if !has_type_generics(&t.generics) {
                 Ok(vec![Item::Alias(Alias {
                     vis: lower_vis(&t.vis),
                     name: Name::new(t.ident.to_string()),
                     ty: lower_type(&t.ty)?,
+                    doc: doc(&t.attrs),
                 })])
             } else {
                 Err(ParseError::new(Reason::Generics, "generic type aliases are not in v0"))
@@ -374,6 +403,7 @@ fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
         name: Name::new(c.ident.to_string()),
         ty: lower_type(&c.ty)?,
         value: lower_expr(cx, &c.expr)?,
+        doc: doc(&c.attrs),
     })
 }
 
@@ -429,6 +459,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
             name: Name::new(v.ident.to_string()),
             fields: lower_fields(&v.fields)?,
             discriminant,
+            doc: doc(&v.attrs),
         });
     }
     Ok(Enum {
@@ -438,6 +469,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         repr: enum_repr(&e.attrs)?,
         std: false,
         serde: serde_derives(&e.attrs),
+        doc: doc(&e.attrs),
     })
 }
 
@@ -455,6 +487,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
                 Ok(Field {
                     name: Name::new(f.ident.as_ref().unwrap().to_string()),
                     ty: lower_type(&f.ty)?,
+                    doc: doc(&f.attrs),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?,
@@ -469,6 +502,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         SynFields::Unnamed(u) if u.unnamed.len() == 1 => vec![Field {
             name: Name::new(NEWTYPE_FIELD),
             ty: lower_type(&u.unnamed[0].ty)?,
+            doc: None,
         }],
         SynFields::Unnamed(_) => {
             return Err(ParseError::new(
@@ -491,6 +525,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         closed,
         wire_from,
         serde: serde_derives(&s.attrs),
+        doc: doc(&s.attrs),
     })
 }
 
@@ -513,6 +548,7 @@ fn lower_fields(fields: &SynFields) -> Result<VariantFields, ParseError> {
                     Ok(Field {
                         name: Name::new(f.ident.as_ref().unwrap().to_string()),
                         ty: lower_type(&f.ty)?,
+                        doc: doc(&f.attrs),
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -561,6 +597,7 @@ fn lower_fn(
         params,
         ret,
         body: lower_block(cx, block)?,
+        doc: None,
     })
 }
 
@@ -640,7 +677,7 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
                 SelfError(&error).visit_impl_item_fn_mut(&mut f);
                 SelfIsOwner(owner_ident).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
-                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block)
+                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block).map(|l| l.with_doc(&f.attrs))
                     .map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
             }
@@ -700,7 +737,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             syn::ImplItem::Fn(f) => reject_attrs(&f.attrs).and_then(|()| {
                 let mut f = f.clone();
                 SelfIsOwner(&owner_ident).visit_impl_item_fn_mut(&mut f);
-                lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block)
+                lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block).map(|l| l.with_doc(&f.attrs))
             }),
             _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
         };

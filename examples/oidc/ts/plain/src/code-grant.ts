@@ -3,6 +3,10 @@
 import { type I64 } from "./int.ts";
 import type { Pkce } from "./pkce.ts";
 
+/**
+ * What the token endpoint needs to redeem the code (RFC 6749 §4.1.3) and
+ * to build the ID token (OIDC Core §2, §3.1.3.3).
+ */
 export type CodeGrant = Readonly<{
   client_id: string;
   redirect_uri: string;

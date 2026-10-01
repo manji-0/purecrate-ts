@@ -37,21 +37,25 @@ pub fn counter_example() -> Crate {
                 name: Name::new("Inc"),
                 fields: VariantFields::Unit,
                 discriminant: None,
+                doc: None,
             },
             Variant {
                 name: Name::new("Dec"),
                 fields: VariantFields::Unit,
                 discriminant: None,
+                doc: None,
             },
             Variant {
                 name: Name::new("Reset"),
                 fields: VariantFields::Unit,
                 discriminant: None,
+                doc: None,
             },
         ],
         repr: None,
         std: false,
         serde: item::Serde::default(),
+        doc: None,
     });
 
     let state = Item::Struct(StructItem {
@@ -60,10 +64,12 @@ pub fn counter_example() -> Crate {
         fields: vec![FieldItem {
             name: Name::new("n"),
             ty: Ty::i32(),
+            doc: None,
         }],
         closed: false,
         wire_from: None,
         serde: item::Serde::default(),
+        doc: None,
     });
 
     let arm = |variant: &str, body: Expr| Arm {
@@ -125,6 +131,7 @@ pub fn counter_example() -> Crate {
                 arm("Reset", construct_state(Expr::int(0))),
             ],
         },
+        doc: None,
     });
 
     Crate::new("counter", vec![event, state, step])

@@ -2,6 +2,7 @@
 
 import type { DeclineCode } from "./decline-code.ts";
 
+/** What Stripe reports for a confirmation attempt or a completed action. */
 export type Outcome =
   | Readonly<{ kind: "Authorized" }>
   | Readonly<{ kind: "ActionRequired" }>

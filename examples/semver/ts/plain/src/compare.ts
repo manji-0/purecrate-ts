@@ -7,6 +7,7 @@ import type { Ordering } from "./ordering.ts";
 import type { PreIds } from "./pre-ids.ts";
 import type { Version } from "./version.ts";
 
+/** Precedence per SemVer 2.0.0 §11. Build metadata is ignored. */
 export const compare = (a: Version, b: Version): Ordering => {
   let $ord11: Ordering;
   {

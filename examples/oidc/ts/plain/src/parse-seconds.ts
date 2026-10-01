@@ -4,6 +4,10 @@ import { Int, type I64, type U8 } from "./int.ts";
 import { Str } from "./str.ts";
 import { MAX_SECONDS_DIGITS } from "./consts.ts";
 
+/**
+ * A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
+ * At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
+ */
 export const parse_seconds = (s: string): I64 | null => {
   if (((s.length === 0) || (Str.len(s) > MAX_SECONDS_DIGITS)) || !(() => {
     const $src4: string = s;

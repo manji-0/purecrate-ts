@@ -3,6 +3,10 @@
 import { type Char } from "./str.ts";
 import type { Prompt } from "./prompt.ts";
 
+/**
+ * Parses `prompt`. Unknown values and `none` combined with anything else
+ * are invalid_request (OIDC Core §3.1.2.1).
+ */
 export const parse_prompt = (s: string): Prompt | null => {
   let no_interaction: boolean = false;
   let login: boolean = false;

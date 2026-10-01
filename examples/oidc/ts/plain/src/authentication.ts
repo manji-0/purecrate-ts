@@ -3,10 +3,15 @@
 import { type I64 } from "./int.ts";
 import type { AuthStrength } from "./auth-strength.ts";
 
+/** A completed authentication. */
 export type Authentication = Readonly<{
   subject: string;
   auth_time: I64;
   strength: AuthStrength;
+  /**
+   * The TOTP step accepted in this flow; the caller stores it as the new
+   * `last_used_step`.
+   */
   totp_step: I64 | null;
 }>;
 

@@ -4,6 +4,7 @@ import { assertNever } from "./assert-never.ts";
 import { Int, type I64 } from "./int.ts";
 import type { Rounding } from "./rounding.ts";
 
+/** `n / d` rounded to an integer, for `n >= 0` and `d > 0`. */
 export const divide = (n: I64, d: I64, rounding: Rounding): I64 => {
   switch (rounding.kind) {
     case "Down":

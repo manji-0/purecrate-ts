@@ -8,6 +8,11 @@ import type { OtpCheck } from "./otp-check.ts";
 import type { StepMac } from "./step-mac.ts";
 import type { TotpEnrollment } from "./totp-enrollment.ts";
 
+/**
+ * RFC 6238 §5.2: accept steps T-1, T, T+1, but never a step at or before
+ * the last accepted one. Candidates outside that window are ignored, so
+ * the caller cannot widen it by passing more MACs.
+ */
 export const check_totp = (code: string, now: I64, enrollment: TotpEnrollment, candidates: ReadonlyArray<StepMac>): OtpCheck => {
   let current: I64;
   {

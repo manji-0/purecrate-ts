@@ -3,6 +3,26 @@
 
 use super::*;
 
+/// `doc` as a JSDoc comment at `indent`, ending in a newline: one line when
+/// the text is one line, else one ` * ` line per line. Empty without one.
+pub(crate) fn jsdoc(doc: &Option<String>, indent: &str) -> String {
+    let Some(text) = doc else { return String::new() };
+    // `*/` would end the comment early.
+    let text = text.replace("*/", "*\\/");
+    if !text.contains('\n') {
+        return format!("{indent}/** {text} */\n");
+    }
+    let mut out = format!("{indent}/**\n");
+    for line in text.lines() {
+        match line {
+            "" => out.push_str(&format!("{indent} *\n")),
+            l => out.push_str(&format!("{indent} * {l}\n")),
+        }
+    }
+    out.push_str(&format!("{indent} */\n"));
+    out
+}
+
 /// The `pub` methods, closing the companion object, then the others as
 /// `Ty$name` (see `private_method`).
 pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
@@ -10,6 +30,7 @@ pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     let (public, private): (Vec<&Fn>, Vec<&Fn>) =
         methods_on(krate, ty).into_iter().partition(|m| m.vis == Vis::Pub);
     for m in public {
+        out.push_str(&jsdoc(&m.doc, "  "));
         out.push_str(&format!(
             "  {n}: {impl},\n",
             n = m.name.as_str(),
@@ -18,8 +39,10 @@ pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     }
     out.push_str("} as const;\n");
     for m in private {
+        out.push('\n');
+        out.push_str(&jsdoc(&m.doc, ""));
         out.push_str(&format!(
-            "\nexport const {n} = {impl};\n",
+            "export const {n} = {impl};\n",
             n = private_method(ty, m.name.as_str()),
             impl = fn_arrow(m, 0)
         ));
@@ -40,7 +63,8 @@ pub(crate) fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {
 
 pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
     let name = en.name.as_str();
-    let mut out = format!("export type {name} =\n");
+    let mut out = jsdoc(&en.doc, "");
+    out.push_str(&format!("export type {name} =\n"));
     for (i, v) in en.variants.iter().enumerate() {
         let sep = if i + 1 == en.variants.len() {
             ";\n"
@@ -54,6 +78,7 @@ pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
     out.push('\n');
     out.push_str(&format!("export const {name} = {{\n"));
     for v in &en.variants {
+        out.push_str(&jsdoc(&v.doc, "  "));
         out.push_str(&format!("  {}: ", v.name.as_str()));
         out.push_str(&variant_ctor(name, v));
         out.push_str(",\n");
@@ -121,19 +146,21 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
 
 pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     let name = st.name.as_str();
+    let doc = jsdoc(&st.doc, "");
     if let Some(inner) = st.newtype_inner() {
-        return emit_newtype(krate, name, inner, st.closed);
+        return doc + &emit_newtype(krate, name, inner, st.closed);
     }
     let fields = st
         .fields
         .iter()
-        .map(|f| format!("  {}: {};", f.name.as_str(), emit_ty(&f.ty)))
+        .map(|f| format!("{}  {}: {};", jsdoc(&f.doc, "  "), f.name.as_str(), emit_ty(&f.ty)))
         .collect::<Vec<_>>()
         .join("\n");
     if st.closed {
-        return emit_closed_struct(krate, st, &fields);
+        return doc + &emit_closed_struct(krate, st, &fields);
     }
-    let mut out = format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n");
+    let mut out = doc;
+    out.push_str(&format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n"));
     let params = st
         .fields
         .iter()
@@ -204,7 +231,7 @@ pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
 }
 
 pub(crate) fn emit_free_fn(f: &Fn) -> String {
-    format!(
+    jsdoc(&f.doc, "") + &format!(
         "export const {name} = {impl};\n",
         name = f.name.as_str(),
         impl = fn_arrow(f, 0)

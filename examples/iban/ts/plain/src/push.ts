@@ -2,6 +2,10 @@
 
 import { Int, type U32, type U8 } from "./int.ts";
 
+/**
+ * One character into the running remainder: a digit is one decimal digit,
+ * a letter two (A = 10 … Z = 35).
+ */
 export const push = (acc: U32, c: U8): U32 => {
   if (c >= (48 as U8) && c <= (57 as U8)) {
     return Int.u32.rem(Int.u32.add(Int.u32.mul(acc, (10 as U32)), (Int.u8.sub(c, (48 as U8)) as number as U32)), (97 as U32));

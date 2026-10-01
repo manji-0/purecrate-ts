@@ -2,6 +2,7 @@
 
 import { type U32 } from "./int.ts";
 
+/** Limits the OP applies (RFC 4226 §7.3 throttling). */
 export type Policy = Readonly<{
   max_password_failures: U32;
   max_otp_failures: U32;

@@ -4,6 +4,10 @@ import { type U8 } from "./int.ts";
 import { Str } from "./str.ts";
 import { MAX_STATE_LEN } from "./consts.ts";
 
+/**
+ * RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
+ * `MAX_STATE_LEN` bytes.
+ */
 export const state_is_valid = (state: string): boolean => (!(state.length === 0) && (Str.len(state) <= MAX_STATE_LEN)) && (() => {
   const $src4: string = state;
   let $acc2: boolean = true;

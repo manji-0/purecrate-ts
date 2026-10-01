@@ -2,6 +2,10 @@
 
 import { type I64, type U8 } from "./int.ts";
 
+/**
+ * HMAC output for one candidate time step, computed by the caller as
+ * HMAC-SHA-1(K, T as 8-byte big-endian).
+ */
 export type StepMac = Readonly<{
   step: I64;
   mac: ReadonlyArray<U8>;

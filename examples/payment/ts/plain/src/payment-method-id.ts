@@ -5,6 +5,7 @@ import { Result } from "./result.ts";
 import { Str } from "./str.ts";
 import type { PaymentError } from "./payment-error.ts";
 
+/** A payment method ID: `pm_` followed by at least one character. */
 declare const PaymentMethodIdBrand: unique symbol;
 export type PaymentMethodId = string & { readonly [PaymentMethodIdBrand]: true };
 

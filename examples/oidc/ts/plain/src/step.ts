@@ -17,6 +17,7 @@ import type { SecondFactor } from "./second-factor.ts";
 import type { StepMac } from "./step-mac.ts";
 import type { TotpEnrollment } from "./totp-enrollment.ts";
 
+/** One transition of the login flow. */
 export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, FlowError> => {
   switch (flow.kind) {
     case "AwaitingPassword": {

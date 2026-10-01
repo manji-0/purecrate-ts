@@ -3,6 +3,7 @@
 import { type I64 } from "./int.ts";
 import type { AuthStrength } from "./auth-strength.ts";
 
+/** An existing OP session for this browser. */
 export type Session = Readonly<{
   subject: string;
   auth_time: I64;

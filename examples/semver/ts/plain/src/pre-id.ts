@@ -2,6 +2,7 @@
 
 import { type U64 } from "./int.ts";
 
+/** One pre-release identifier. */
 export type PreId =
   | Readonly<{ kind: "Numeric"; content: readonly [U64] }>
   | Readonly<{ kind: "Alpha"; content: readonly [string] }>;

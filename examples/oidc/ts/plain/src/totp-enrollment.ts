@@ -3,10 +3,14 @@
 import { type I64 } from "./int.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
+/** A user's TOTP enrollment, loaded by the caller. */
 export type TotpEnrollment = Readonly<{
+  /** T0, Unix time to start counting steps (RFC 6238 §4.1). */
   t0: I64;
+  /** X, the time step in seconds (RFC 6238 §4.1). */
   period: I64;
   digits: OtpDigits;
+  /** The step of the last accepted OTP (RFC 6238 §5.2 replay rule). */
   last_used_step: I64 | null;
 }>;
 

@@ -5,6 +5,11 @@ import { Int, type I64 } from "./int.ts";
 import type { AuthorizationRequest } from "./authorization-request.ts";
 import type { Session } from "./session.ts";
 
+/**
+ * Whether an existing session satisfies the request without asking the
+ * End-User to log in again (OIDC Core §3.1.2.1 prompt, max_age,
+ * acr_values; §3.1.2.3).
+ */
 export const session_is_usable = (request: AuthorizationRequest, session: Session, now: I64): boolean => {
   if (request.prompt.login || request.prompt.select_account) {
     return false;

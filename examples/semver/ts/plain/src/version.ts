@@ -11,6 +11,7 @@ import type { BuildIds } from "./build-ids.ts";
 import type { PreIds } from "./pre-ids.ts";
 import type { SemverError } from "./semver-error.ts";
 
+/** A valid semantic version. Only [`Version::parse`] makes one. */
 declare const VersionBrand: unique symbol;
 export type Version = Readonly<{
   major: U64;

@@ -2,6 +2,10 @@
 
 import type { ErrorCode } from "./error-code.ts";
 
+/**
+ * An error response sent to the client's redirect_uri. `state` is echoed
+ * exactly when the request carried one (RFC 6749 §4.1.2.1).
+ */
 export type ErrorRedirect = Readonly<{
   redirect_uri: string;
   error: ErrorCode;

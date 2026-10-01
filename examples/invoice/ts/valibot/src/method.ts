@@ -2,11 +2,14 @@
 
 import type { Rounding } from "./rounding.ts";
 
+/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
 export type Method =
   | Readonly<{ kind: "Separate" }>
   | Readonly<{ kind: "ToExclusive"; conversion: Rounding }>;
 
 export const Method = {
+  /** Method 2: total and tax the inclusive lines apart. */
   Separate: (): Method => ({ kind: "Separate" }),
+  /** Method 1: convert each inclusive line to an exclusive amount first. */
   ToExclusive: (conversion: Rounding): Method => ({ kind: "ToExclusive", conversion }),
 } as const;

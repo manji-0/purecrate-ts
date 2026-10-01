@@ -9,6 +9,7 @@ import type { Group } from "./group.ts";
 import type { Invoice } from "./invoice.ts";
 import type { Rate } from "./rate.ts";
 
+/** One group's total and its tax, rounded once (消令70の10). */
 export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
   let base: I64 = (0n as I64);
   for (const line of invoice.lines) {

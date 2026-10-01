@@ -6,6 +6,7 @@ import type { Ordering } from "./ordering.ts";
 import type { PreId } from "./pre-id.ts";
 import type { PreIds } from "./pre-ids.ts";
 
+/** Identifiers left to right; a longer list with an equal prefix is greater. */
 export const compare_pre_ids = (a: PreIds, b: PreIds): Ordering => {
   switch (a.kind) {
     case "Nil":

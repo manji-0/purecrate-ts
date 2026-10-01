@@ -2,6 +2,7 @@
 
 import { type I64 } from "./int.ts";
 
+/** Result of checking a submitted OTP against the candidate MACs. */
 export type OtpCheck =
   | Readonly<{ kind: "Accepted"; content: readonly [I64] }>
   | Readonly<{ kind: "Replayed" }>

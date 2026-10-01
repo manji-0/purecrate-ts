@@ -2,6 +2,10 @@
 
 import { Int, type I64 } from "./int.ts";
 
+/**
+ * T = floor((now - T0) / X) (RFC 6238 §4.2). None before T0 or with a
+ * non-positive period.
+ */
 export const totp_step = (now: I64, t0: I64, period: I64): I64 | null => {
   if ((period <= (0n as I64)) || (now < t0)) {
     return null;
