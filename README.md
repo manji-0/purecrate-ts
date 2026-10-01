@@ -108,6 +108,10 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 
 `scripts/line-counts.py` counts each example's logic against its idiomatic reference, both formatted by rustfmt ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
+## Stability
+
+Commit the generated output and check it in CI with `purecrate-ts check <crate> --out <dir>`, pinning the same version that wrote it. Within a minor series, **export names, type shapes, the wire format, and the runtime API** stay the same; **formatting, internal helpers (`$of`, temps), local names, and which runtime members a copy keeps** may change. A change to the stable surface is a minor bump (a major after 1.0). The table is in [design/07 §9](design/07-roadmap.md#9-generated-api-stability).
+
 ## Design documents
 
 | Document | Contents |
@@ -119,7 +123,7 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 | [04-wire](design/04-wire.md) | Reading serde JSON into domain values |
 | [05-architecture](design/05-architecture.md) | Pipeline, crates, IR |
 | [06-strategy](design/06-strategy.md) | Alternatives, demand, success and withdrawal criteria |
-| [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps |
+| [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps, generated API stability |
 | [90-acceptance-survey](design/90-acceptance-survey.md) | Archive: measurements of existing crates |
 | [91-real-use-candidates](design/91-real-use-candidates.md) | Record: dual Rust/TS implementations found in public projects, their fit to the subset, and the first real-use target |
 

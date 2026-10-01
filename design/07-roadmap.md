@@ -155,7 +155,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 | Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion | specified with local `const` in 0.4.0 | waits for a use |
 | crates.io and Windows binaries | — | when a user asks; since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement |
 
-**1.0** needs a compatibility policy for the output bytes and the reason codes, and every withdrawal criterion of [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria) answered. The real-use criterion stays open until the tool is adopted unprompted; Oxide `Name` remains local evidence ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
+**1.0** needs every withdrawal criterion of [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria) answered. The generated API's compatibility within a minor series is [§9](#9-generated-api-stability). The real-use criterion stays open until the tool is adopted unprompted; Oxide `Name` remains local evidence ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 
 ## 4. Specified but not yet implemented
 
@@ -355,3 +355,27 @@ Why: after `Ordering`, semver was still the example over 2×, and what remained 
 - **What is refused.** Collecting a `Vec`, `chars()`, or anything but `split(c)` with a `char`; `collect` with no target type; `split` on a `&str` (an empty separator differs in JS); a variant constructor passed as `.map(PreId::Numeric)` (built with no fields, or, for a unit variant, not a closure or a function name). A variant, a literal, or a tuple inside that tuple of names is still `[pattern/nested]`, as is a tuple nested in a tuple pattern.
 - **`str::parse` stays out.** Rust's `u64` parse accepts a leading `+`. Matching that, and the cases it rejects, is not what brings semver under the threshold.
 - **Measurement.** semver rewritten with them: 166 → 138 lines, 2.2× → 1.8× (§2.2). Pre-release and build identifiers are `Vec`s. The generated `parse` prints `split` as the array, `Iter.tryCollect` for a `Result`, and `Str.splitOnce`; the turbofish is not a second binding. `Some((x, y))` reads the two strings as `[0]` and `[1]`.
+
+## 9. Generated API stability
+
+Users commit the generated output and check it with `check --out` in CI, so a change to the bytes is a repo-wide diff plus caller updates. Within a **minor** series (`0.N.x` today; `N.x` after 1.0) the following are stable, and a change to them is a **minor** bump (a **major** after 1.0):
+
+| Stable | Examples |
+| --- | --- |
+| Public export names | functions, types, companions, `toJson` / `fromJson` keys |
+| Type shapes | `kind` unions, field names, brand keys, `Option` as `T \| null`, `Result` as `{ kind, value \| error }` |
+| Wire format | serde's default JSON, and the adapter that reads it |
+| Runtime API | `Int`, `Result`, `Str`, `Slice`, `Ord`, `Iter`, `parseJson` — names, signatures, panic messages |
+
+The following may change in a **patch** (formatting of generated files included). Callers must not depend on them:
+
+| Unstable | Examples |
+| --- | --- |
+| Formatting | line wrapping, parentheses that precedence does not need, import grouping, JSDoc layout |
+| Internal helpers | `$of`, `$unchecked`, temps (`$method`, `$majorOr`), names of locals |
+| Local names | a binding that is not an export; numbering when a name is shadowed |
+| Trimmed runtime shape | empty namespaces dropped, which `Int` methods a copy keeps |
+
+`check --out` still fails on any byte change, including unstable ones: pin the `purecrate-ts` version that generated the committed output. Reason codes (`[type/mutex]`, `[check/nested-option]`) are stable within a minor series; messages may change.
+
+Cleanup of generated code (identity casts, scoped names, wrapping) is therefore a patch when behavior and the stable surface stay the same. A change such as single-field tuple variants becoming `{ kind, value }` instead of `{ kind, content: [T] }`, or honouring `#[serde(rename_all = "camelCase")]` on field names, is a minor (a major after 1.0).
