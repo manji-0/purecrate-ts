@@ -18,8 +18,8 @@ export const parsePreIds = (s: string): Result<PreIds, SemverError> => {
     const tail: PreIds = $v_tail.value;
     return Result.ok({ kind: "Cons", content: [head, tail] });
   } else {
-    const $q1 = parsePreId(s);
-    if ($q1.kind === "Err") return $q1;
-    return Result.ok({ kind: "Cons", content: [$q1.value, { kind: "Nil" }] });
+    const $parsePreId = parsePreId(s);
+    if ($parsePreId.kind === "Err") return $parsePreId;
+    return Result.ok({ kind: "Cons", content: [$parsePreId.value, { kind: "Nil" }] });
   }
 };

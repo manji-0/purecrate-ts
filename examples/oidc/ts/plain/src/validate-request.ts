@@ -143,21 +143,21 @@ export const validateRequest = (
   let prompt: Prompt;
   if (params.prompt !== null) {
     const p = params.prompt;
-    const $opt9: Prompt | null = parsePrompt(p);
-    const $arg11: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if ($opt9 === null) return Result.err($arg11);
-    const $q1 = $opt9;
-    prompt = $q1;
+    const $opt: Prompt | null = parsePrompt(p);
+    const $optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if ($opt === null) return Result.err($optOr);
+    const $q = $opt;
+    prompt = $q;
   } else {
     prompt = { no_interaction: false, login: false, consent: false, select_account: false };
   }
   let maxAge: I64 | null;
   if (params.max_age !== null) {
     const m$2 = params.max_age;
-    const $opt13: I64 | null = parseSeconds(m$2);
-    const $arg15: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if ($opt13 === null) return Result.err($arg15);
-    const $q2 = $opt13;
+    const $opt$1: I64 | null = parseSeconds(m$2);
+    const $optOr$1: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if ($opt$1 === null) return Result.err($optOr$1);
+    const $q2 = $opt$1;
     maxAge = $q2;
   } else {
     maxAge = null;

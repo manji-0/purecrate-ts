@@ -26,8 +26,8 @@ export const comparePreIds = (a: PreIds, b: PreIds): Ordering => {
         case "Cons": {
           const y = b.content[0];
           const ys = b.content[1];
-          const $ord1: Ordering = comparePreId(x, y);
-          switch ($ord1.kind) {
+          const $ord: Ordering = comparePreId(x, y);
+          switch ($ord.kind) {
             case "Less":
               return { kind: "Less" };
             case "Equal":
@@ -35,7 +35,7 @@ export const comparePreIds = (a: PreIds, b: PreIds): Ordering => {
             case "Greater":
               return { kind: "Greater" };
             default:
-              return assertNever($ord1);
+              return assertNever($ord);
           }
         }
         default:

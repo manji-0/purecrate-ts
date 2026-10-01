@@ -17,8 +17,8 @@ export const parseBuildIds = (s: string): Result<BuildIds, SemverError> => {
     const tail: BuildIds = $v_tail.value;
     return Result.ok({ kind: "Cons", content: [head, tail] });
   } else {
-    const $q1 = parseBuildId(s);
-    if ($q1.kind === "Err") return $q1;
-    return Result.ok({ kind: "Cons", content: [$q1.value, { kind: "Nil" }] });
+    const $parseBuildId = parseBuildId(s);
+    if ($parseBuildId.kind === "Err") return $parseBuildId;
+    return Result.ok({ kind: "Cons", content: [$parseBuildId.value, { kind: "Nil" }] });
   }
 };

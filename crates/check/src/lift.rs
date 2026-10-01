@@ -23,7 +23,7 @@ pub fn lift(krate: Crate) -> Crate {
 /// the closure, so each is lifted on its own, innermost first.
 fn lift_body(mut body: Expr) -> Expr {
     lift_closures(&mut body);
-    let mut body = Lifter::default().stmt(body);
+    let mut body = Lifter::for_body(&body).stmt(body);
     guard_ok_or(&mut body);
     body
 }
@@ -106,13 +106,41 @@ type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>)>;
 
 #[derive(Default)]
 struct Lifter {
-    next: usize,
+    /// Every name the body binds, and those this pass has made.
+    taken: std::collections::HashSet<String>,
 }
 
 impl Lifter {
-    fn fresh(&mut self) -> Name {
-        self.next += 1;
-        Name::new(format!("$q{}", self.next))
+    fn for_body(body: &Expr) -> Self {
+        let mut taken = std::collections::HashSet::new();
+        fn walk(e: &Expr, out: &mut std::collections::HashSet<String>) {
+            match e {
+                Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => {
+                    out.insert(name.as_str().to_string());
+                }
+                Expr::Match { arms, .. } => {
+                    for a in arms {
+                        out.extend(a.pattern.bindings().into_iter().map(|n| n.as_str().to_string()));
+                    }
+                }
+                Expr::Closure { params, .. } => out.extend(params.iter().map(|p| p.name.as_str().to_string())),
+                _ => {}
+            }
+            e.children().into_iter().for_each(|c| walk(c, out));
+        }
+        walk(body, &mut taken);
+        Lifter { taken }
+    }
+
+    /// `$<f>` for `f(..)?`, `$q` otherwise, kept apart from every name taken.
+    fn fresh(&mut self, inner: &Expr) -> Name {
+        let base = match inner {
+            Expr::Call { callee: Callee::Fn(f) | Callee::Method { name: f, .. }, .. } => format!("${}", f.as_str()),
+            _ => "$q".to_string(),
+        };
+        let name = (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}{i}") }).find(|n| !self.taken.contains(n)).expect("a free name");
+        self.taken.insert(name.clone());
+        Name::new(name)
     }
 
     fn stmt(&mut self, expr: Expr) -> Expr {
@@ -277,7 +305,7 @@ impl Lifter {
         match expr {
             Expr::Try { expr, on } => {
                 let inner = self.boxed(expr, out);
-                let name = self.fresh();
+                let name = self.fresh(&inner);
                 // The hoisted value is the `Result` itself, tested in place
                 // (see `wrap`), and read here as its payload. A `None` is
                 // `null`, so an `Option` is its own payload; so is the guard
@@ -430,7 +458,7 @@ impl Lifter {
                 expr: Box::new(self.spill(*expr, out)),
             },
             other => {
-                let name = self.fresh();
+                let name = self.fresh(&other);
                 out.push((name.clone(), other, None));
                 Expr::Var(name)
             }

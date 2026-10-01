@@ -353,7 +353,15 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// these.
     pub(super) fn option_method(&mut self, recv: Expr, inner: &Ty, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let [arg] = args else { return None };
-        let opt = self.fresh_name("opt");
+        // Named after the receiver when it is a variable or a field
+        // (`$major`, `$majorOr`), so the printed code says what it holds.
+        let base = match recv.unpositioned() {
+            Expr::Var(n) | Expr::Field { name: n, .. } if !n.as_str().starts_with(['$', '[']) && n.as_str() != "0" => {
+                n.as_str().to_string()
+            }
+            _ => "opt".to_string(),
+        };
+        let opt = self.fresh_name(&base);
         let some = self.fresh_name("some");
         let v = |n: &Name| Expr::Var(n.clone());
         let two = |some_pat: Pattern, some_body: Expr, none_body: Expr| Expr::Match {
@@ -367,7 +375,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let mut want = want.cloned();
         let rest = match name {
             "unwrap_or" | "ok_or" => {
-                let eager = self.fresh_name("arg");
+                let eager = self.fresh_name(&format!("{base}_or"));
                 let hint = if name == "unwrap_or" {
                     Some(inner.clone())
                 } else {
@@ -428,7 +436,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         // cannot; an annotated binding names it.
         let typed = match (&t, name) {
             (Some(ty), "ok_or") => {
-                let res = self.fresh_name("res");
+                let res = self.fresh_name(&format!("{base}_result"));
                 Expr::Let {
                     name: res.clone(),
                     mutable: false,

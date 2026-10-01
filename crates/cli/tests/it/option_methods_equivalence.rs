@@ -50,14 +50,16 @@ fn ok_or_then_try_is_a_guard() {
     let pkg = purecrate_pack::assemble(&purecrate_check::prune_unreachable(&typed));
     let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
     assert!(!src.contains("(() =>"), "{src}");
-    let arg = src.find("const $arg").expect("the argument is bound");
-    let guard = src.find("=== null) return Result.err($arg").expect("one-line guard");
+    // Named after the receiver `a`: `$a` holds it, `$aOr` the argument.
+    let arg = src.find("const $aOr").expect("the argument is bound");
+    let guard = src.find("$a === null) return Result.err($aOr").expect("one-line guard");
     assert!(arg < guard, "{src}");
 }
 
 /// A `?` inside an expression is hoisted to one binding, tested in place,
-/// and read as its payload: `$q1.value` for a `Result`, `$q1` for an
-/// `Option`; no second binding for the payload.
+/// and read as its payload: `$half.value` for a `Result`, `$a` for an
+/// `Option`; no second binding for the payload. A call's hoisted value is
+/// named after the function, apart from the next one.
 #[test]
 fn a_hoisted_try_binds_once() {
     let source = "pub enum E { Bad }\n\
@@ -69,9 +71,9 @@ fn a_hoisted_try_binds_once() {
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
     let quarter = file("quarter");
-    assert!(quarter.contains("const $q1 = half(n);\n  if ($q1.kind === \"Err\") return $q1;\n  const $q2 = half($q1.value);"), "{quarter}");
+    assert!(quarter.contains("const $half = half(n);\n  if ($half.kind === \"Err\") return $half;\n  const $half2 = half($half.value);"), "{quarter}");
     assert!(!quarter.contains("$v_"), "{quarter}");
     let add = file("add");
-    assert!(add.contains("if ($q1 === null) return null;"), "{add}");
+    assert!(add.contains("if ($q === null) return null;"), "{add}");
     assert!(!add.contains("$v_") && !add.contains(".value"), "{add}");
 }

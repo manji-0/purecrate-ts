@@ -11,7 +11,7 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
   if (s.length === 0) return Result.err({ kind: "EmptyPreRelease" });
   if (!Iter.all(
     Str.bytes(s),
-    (($x1: U8): boolean => isIdentChar($x1)),
+    (($x: U8): boolean => isIdentChar($x)),
   )) return Result.err({ kind: "InvalidPreReleaseChar" });
   if (allDigits(s)) {
     if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) return Result.err({ kind: "PreReleaseLeadingZero" });

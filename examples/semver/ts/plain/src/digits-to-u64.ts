@@ -6,9 +6,9 @@ import { Int, Str, type U64, type U8 } from "./purecrate-runtime.ts";
 export const digitsToU64 = (s: string): U64 | null => {
   let acc: U64 = 0n as U64;
   for (const b of Str.bytes(s)) {
-    const $q1 = Int.u64.checkedMul(acc, (10n as U64));
-    if ($q1 === null) return null;
-    const $q2 = Int.u64.checkedAdd($q1, (globalThis.BigInt(Int.u8.sub(b, (48 as U8))) as U64));
+    const $q = Int.u64.checkedMul(acc, (10n as U64));
+    if ($q === null) return null;
+    const $q2 = Int.u64.checkedAdd($q, (globalThis.BigInt(Int.u8.sub(b, (48 as U8))) as U64));
     if ($q2 === null) return null;
     acc = $q2;
   }

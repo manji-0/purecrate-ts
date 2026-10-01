@@ -81,7 +81,14 @@ impl Renamer {
     }
 
     fn bind(&mut self, name: &Name, env: &mut Env) -> Name {
-        let printed = self.claim(&to_camel(name.as_str()));
+        // A name `check` made (`$major9`) drops the counter that kept it
+        // apart while typing: claiming it here keeps it apart again.
+        let source = name.as_str();
+        let source = match source.strip_prefix('$').map(|rest| rest.trim_end_matches(|c: char| c.is_ascii_digit())) {
+            Some(base) if !base.is_empty() => &source[..1 + base.len()],
+            _ => source,
+        };
+        let printed = self.claim(&to_camel(source));
         env.insert(name.as_str().to_string(), printed.clone());
         printed
     }

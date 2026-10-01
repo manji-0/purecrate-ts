@@ -60,49 +60,49 @@ export const Version = {
     let n: U32 = 0 as U32;
     for (const piece of core.split(("." as Char))) {
       if (n === (0 as U32)) {
-        const $q1 = parseCoreNumber(piece, { kind: "Major" });
-        if ($q1.kind === "Err") return $q1;
-        major = $q1.value;
+        const $parseCoreNumber = parseCoreNumber(piece, { kind: "Major" });
+        if ($parseCoreNumber.kind === "Err") return $parseCoreNumber;
+        major = $parseCoreNumber.value;
       } else if (n === (1 as U32)) {
-        const $q2 = parseCoreNumber(piece, { kind: "Minor" });
-        if ($q2.kind === "Err") return $q2;
-        minor = $q2.value;
+        const $parseCoreNumber2 = parseCoreNumber(piece, { kind: "Minor" });
+        if ($parseCoreNumber2.kind === "Err") return $parseCoreNumber2;
+        minor = $parseCoreNumber2.value;
       } else if (n === (2 as U32)) {
-        const $q3 = parseCoreNumber(piece, { kind: "Patch" });
-        if ($q3.kind === "Err") return $q3;
-        patch = $q3.value;
+        const $parseCoreNumber3 = parseCoreNumber(piece, { kind: "Patch" });
+        if ($parseCoreNumber3.kind === "Err") return $parseCoreNumber3;
+        patch = $parseCoreNumber3.value;
       } else {
         return Result.err({ kind: "ExtraCorePart" });
       }
       n = Int.u32.add(n, (1 as U32));
     }
-    const $opt1 = major as U64 | null;
-    const $arg3 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
-    if ($opt1 === null) return Result.err($arg3);
-    const major$1: U64 = $opt1;
-    const $opt5 = minor as U64 | null;
-    const $arg7 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
-    if ($opt5 === null) return Result.err($arg7);
-    const minor$1: U64 = $opt5;
-    const $opt9 = patch as U64 | null;
-    const $arg11 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
-    if ($opt9 === null) return Result.err($arg11);
-    const patch$1: U64 = $opt9;
+    const $major = major as U64 | null;
+    const $majorOr = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
+    if ($major === null) return Result.err($majorOr);
+    const major$1: U64 = $major;
+    const $minor = minor as U64 | null;
+    const $minorOr = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
+    if ($minor === null) return Result.err($minorOr);
+    const minor$1: U64 = $minor;
+    const $patch = patch as U64 | null;
+    const $patchOr = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
+    if ($patch === null) return Result.err($patchOr);
+    const patch$1: U64 = $patch;
     let pre: PreIds;
     if (dash !== null) {
       const i$2 = dash;
-      const $q4 = parsePreIds(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
-      if ($q4.kind === "Err") return $q4;
-      pre = $q4.value;
+      const $parsePreIds = parsePreIds(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
+      if ($parsePreIds.kind === "Err") return $parsePreIds;
+      pre = $parsePreIds.value;
     } else {
       pre = { kind: "Nil" };
     }
     let build: BuildIds;
     if (plus !== null) {
       const i$3 = plus;
-      const $q5 = parseBuildIds(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
-      if ($q5.kind === "Err") return $q5;
-      build = $q5.value;
+      const $parseBuildIds = parseBuildIds(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
+      if ($parseBuildIds.kind === "Err") return $parseBuildIds;
+      build = $parseBuildIds.value;
     } else {
       build = { kind: "Nil" };
     }

@@ -56,22 +56,22 @@ export const checkTotp = (
       })()) {
         let fresh: boolean;
         {
-          let $opt3: boolean | null;
+          let $opt: boolean | null;
           {
-            const $opt1 = enrollment.last_used_step as I64 | null;
-            if ($opt1 !== null) {
-              const last = $opt1;
-              $opt3 = c.step > last;
+            const $lastUsedStep = enrollment.last_used_step as I64 | null;
+            if ($lastUsedStep !== null) {
+              const last = $lastUsedStep;
+              $opt = c.step > last;
             } else {
-              $opt3 = null;
+              $opt = null;
             }
           }
-          const $arg5: boolean = true;
-          if ($opt3 !== null) {
-            const $some4 = $opt3;
-            fresh = $some4;
+          const $optOr: boolean = true;
+          if ($opt !== null) {
+            const $some = $opt;
+            fresh = $some;
           } else {
-            fresh = $arg5;
+            fresh = $optOr;
           }
         }
         if (fresh) return { kind: "Accepted", content: [c.step] };

@@ -13,14 +13,14 @@ export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverEr
     kind: "LeadingZero",
     content: [part],
   });
-  const $opt1: U64 | null = digitsToU64(s);
-  const $arg3 = { kind: "NumberTooLarge", content: [part] } as SemverError;
-  let $res4: Result<U64, SemverError>;
-  if ($opt1 !== null) {
-    const $some2 = $opt1;
-    $res4 = Result.ok($some2);
+  const $opt: U64 | null = digitsToU64(s);
+  const $optOr = { kind: "NumberTooLarge", content: [part] } as SemverError;
+  let $optResult: Result<U64, SemverError>;
+  if ($opt !== null) {
+    const $some = $opt;
+    $optResult = Result.ok($some);
   } else {
-    $res4 = Result.err($arg3);
+    $optResult = Result.err($optOr);
   }
-  return $res4;
+  return $optResult;
 };

@@ -24,10 +24,10 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "Confirm": {
           const method$1 = event.method;
           const outcome = event.outcome;
-          const $opt1 = method$1 as PaymentMethod | null;
-          const $arg3 = { kind: "MissingPaymentMethod" } as PaymentError;
-          if ($opt1 === null) return Result.err($arg3);
-          const method$2 = $opt1 as PaymentMethod;
+          const $method = method$1 as PaymentMethod | null;
+          const $methodOr = { kind: "MissingPaymentMethod" } as PaymentError;
+          if ($method === null) return Result.err($methodOr);
+          const method$2 = $method as PaymentMethod;
           status = attempt(terms, method$2, outcome);
           break;
         }
@@ -150,13 +150,13 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           if ((applicationFee !== null) && (applicationFee < (0n as I64))) return Result.err({ kind: "NegativeApplicationFee" });
           let received: I64;
           {
-            const $opt8 = amountToCapture as I64 | null;
-            const $arg10: I64 = capturable;
-            if ($opt8 !== null) {
-              const $some9 = $opt8;
-              received = $some9;
+            const $amountToCapture = amountToCapture as I64 | null;
+            const $amountToCaptureOr: I64 = capturable;
+            if ($amountToCapture !== null) {
+              const $some$2 = $amountToCapture;
+              received = $some$2;
             } else {
-              received = $arg10;
+              received = $amountToCaptureOr;
             }
           }
           status = {
