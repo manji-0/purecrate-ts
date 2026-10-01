@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31.11.1
-      - name: Install schema adapters' dependencies
+      - name: Install the schema libraries (adapters and examples)
         run: |
-          for p in boundary-zod boundary-valibot boundary-arktype; do
-            nix develop --command npm ci --ignore-scripts --prefix "packages/$p"
+          for p in packages/boundary-zod packages/boundary-valibot packages/boundary-arktype examples; do
+            nix develop --command npm ci --ignore-scripts --prefix "$p"
           done
       - name: Verify
         run: nix develop --command ./scripts/verify.sh

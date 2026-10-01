@@ -1,6 +1,7 @@
 //! `examples/counter-ts` is the committed output for `examples/counter`.
 //! Regenerate with:
-//! `cargo run -p purecrate-ts -- build examples/counter --out examples/counter-ts`
+//! `cargo run -p purecrate-ts -- build examples/counter --out examples/counter-ts`,
+//! or every example's with `scripts/examples.sh`.
 
 use std::collections::BTreeSet;
 use std::fs;

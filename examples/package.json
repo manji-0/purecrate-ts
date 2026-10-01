@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "description": "The schema libraries the examples' committed output (examples/<name>-<lib>-ts) imports, for tsc in scripts/verify.sh.",
+  "devDependencies": {
+    "arktype": "2.1.22",
+    "valibot": "1.1.0",
+    "zod": "4.6.5"
+  }
+}

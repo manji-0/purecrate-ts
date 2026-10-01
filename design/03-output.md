@@ -186,7 +186,7 @@ export const step = (state: State, event: Event): State => {
 };
 ```
 
-The committed golden is [examples/counter-ts](../examples/counter-ts/src).
+The committed golden is [examples/counter-ts](../examples/counter-ts/src); every other example's output sits beside it as `examples/<name>-ts`, and with each schema library as `examples/<name>-<lib>-ts` (`scripts/examples.sh` regenerates them all).
 
 ## 4. Package
 
