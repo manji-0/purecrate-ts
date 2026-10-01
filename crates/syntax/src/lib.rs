@@ -325,7 +325,7 @@ mod tests {
         rejects("Cmd::Stop => 0, other => 1", "found binding `other`");
         rejects("Cmd::Stop => 0, Cmd::Move(a, _) | Cmd::Move(_, a) => a", "`|` arms may not bind names");
         rejects("Cmd::Stop | _ => 0", "each side of `|` must name an enum variant");
-        rejects("Cmd::Stop | Cmd::Move(1, _) => 0", "may not test inside its variant");
+        parse_source("c", &with_arms("Cmd::Stop | Cmd::Move(1, _) => 0, _ => 1")).expect("`|` testing inside");
         parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | \"b\" => 1, _ => 2 } }").expect("str pattern");
         let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | 1 => 1, _ => 2 } }").expect_err("mixed");
         assert!(err.message.contains("found a literal"), "{}", err.message);
@@ -337,7 +337,8 @@ mod tests {
         // Inside a case, a literal or a variant is tested further in.
         parse_source("c", "pub enum Dir { Up } pub enum Cmd { Move(i32, Dir), Stop } pub fn f(c: Cmd) -> i32 { match c { Cmd::Move(1, Dir::Up) => 1, _ => 0 } }")
             .expect("nested");
-        rejects("Cmd::Move(a, (b, 1)) => a, Cmd::Stop => 0", "a tuple inside a pattern may only bind names");
+        parse_source("c", "pub enum Cmd { Move(i32, (i32, i32)), Stop } pub fn f(c: Cmd) -> i32 { match c { Cmd::Move(a, (_, 1)) => a, _ => 0 } }")
+            .expect("tuple with a literal");
     }
 
     #[test]

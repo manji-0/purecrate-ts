@@ -106,7 +106,7 @@ fn is_place(expr: &Expr) -> bool {
 }
 
 fn refutable(p: &Pattern) -> bool {
-    !matches!(p, Pattern::Wildcard | Pattern::Var(_))
+    p.refutable()
 }
 
 /// `let n: t = v; .. body`, in order.
@@ -143,7 +143,8 @@ impl Lowering<'_, '_, '_> {
         Name::new(format!("${what}{}", self.fresh))
     }
 
-    fn compile(&mut self, subjects: &[(Expr, Ty)], mut rows: Vec<Row>) -> Expr {
+    fn compile(&mut self, subjects: &[(Expr, Ty)], rows: Vec<Row>) -> Expr {
+        let mut rows = split_alternatives(rows);
         if rows.is_empty() {
             // Only after an `if` on a literal whose `else` rustc knows no
             // value reaches (ranges covering the type).
@@ -169,6 +170,7 @@ impl Lowering<'_, '_, '_> {
         let (subject, ty) = &subjects[col];
         match ty {
             Ty::Named(n) if self.defs.enums.contains_key(n.as_str()) => self.enum_column(subjects, col, n, rows),
+            Ty::Tuple(elems) => self.tuple_column(subjects, col, elems, rows),
             Ty::Option(inner) => {
                 let some = self.name("v");
                 let arms = vec![
@@ -299,6 +301,33 @@ impl Lowering<'_, '_, '_> {
         Expr::Match { scrutinee: Box::new(subjects[col].0.clone()), arms }
     }
 
+    /// A tuple some row tests inside (`Some((1, b))`): each element becomes
+    /// a column of its own, read where it sits (`v[0]`). A row that names
+    /// the whole tuple binds it and leaves the elements to `_`.
+    fn tuple_column(&mut self, subjects: &[(Expr, Ty)], col: usize, elems: &[Ty], rows: Vec<Row>) -> Expr {
+        let (subject, ty) = subjects[col].clone();
+        let mut inner_subjects = subjects.to_vec();
+        inner_subjects.extend(elems.iter().enumerate().map(|(i, t)| {
+            (Expr::Field { base: Box::new(subject.clone()), name: tuple_field(i) }, self.norm(t))
+        }));
+        let rows = rows
+            .into_iter()
+            .map(|mut row| {
+                match std::mem::replace(&mut row.pats[col], Pattern::Wildcard) {
+                    Pattern::Tuple(ps) => row.pats.extend(ps),
+                    p => {
+                        if let Pattern::Var(n) = p {
+                            row.binds.push((n, ty.clone(), subject.clone()));
+                        }
+                        row.pats.extend(vec![Pattern::Wildcard; elems.len()]);
+                    }
+                }
+                row
+            })
+            .collect();
+        self.compile(&inner_subjects, rows)
+    }
+
     /// `Option` or `Result`: both cases, each binding its payload to a fresh
     /// name that the rows' own bindings then read.
     fn two_way(
@@ -391,6 +420,10 @@ impl Lowering<'_, '_, '_> {
             })
             .collect();
         let (yes, no) = (self.compile(subjects, yes), self.compile(subjects, no));
+        // Both ways run the same code (`(a, 2) | (a, _)`): no test.
+        if yes == no {
+            return yes;
+        }
         Expr::Match {
             scrutinee: Box::new(subjects[col].0.clone()),
             arms: vec![Arm { guard: None, pattern: p, body: yes }, Arm { guard: None, pattern: Pattern::Wildcard, body: no }],
@@ -400,13 +433,39 @@ impl Lowering<'_, '_, '_> {
 
 /// Every element left is `_` or a binding: bind, then run the body.
 fn leaf(subjects: &[(Expr, Ty)], row: Row) -> Expr {
-    let mut binds = row.binds;
-    for (p, (subject, ty)) in row.pats.into_iter().zip(subjects) {
-        if let Pattern::Var(n) = p {
-            binds.push((n, ty.clone(), subject.clone()));
+    let binds = bindings(subjects, &row);
+    wrap(binds, row.body)
+}
+
+/// Each row once per side of a `|` that tests inside a case or holds a
+/// tuple (`A | B(1)`, `Some((1, _) | (_, 2))`), in order, so the first side
+/// that matches decides as in Rust. The sides bind nothing (the parser
+/// checks), so the copies share the body. A `|` of whole variants or of
+/// literals stays one row: `enum_column` and `lit_column` test it at once.
+fn split_alternatives(rows: Vec<Row>) -> Vec<Row> {
+    let splits = |p: &Pattern| match p {
+        Pattern::Or(alts) => !p.is_lit_case() && (p.nests() || alts.iter().any(|a| matches!(a, Pattern::Tuple(_)))),
+        _ => false,
+    };
+    let mut out = Vec::new();
+    for row in rows {
+        match row.pats.iter().position(splits) {
+            None => out.push(row),
+            Some(c) => {
+                let Pattern::Or(alts) = row.pats[c].clone() else { unreachable!() };
+                let copies = alts
+                    .into_iter()
+                    .map(|alt| {
+                        let mut copy = row.clone();
+                        copy.pats[c] = alt;
+                        copy
+                    })
+                    .collect();
+                out.extend(split_alternatives(copies));
+            }
         }
     }
-    wrap(binds, row.body)
+    out
 }
 
 /// What is left of `q` once a literal test `p` has (`hit`) or has not
@@ -464,14 +523,8 @@ fn bind_names(row: &mut Row, pattern: Pattern, ty: &Ty, place: Expr, used: &mut 
                 _ => Vec::new(),
             };
             for (i, p) in ps.into_iter().enumerate() {
-                if let Pattern::Var(n) = p {
-                    *used = true;
-                    row.binds.push((
-                        n,
-                        elems.get(i).cloned().unwrap_or(Ty::Never),
-                        Expr::Field { base: Box::new(place.clone()), name: tuple_field(i) },
-                    ));
-                }
+                let elem = Expr::Field { base: Box::new(place.clone()), name: tuple_field(i) };
+                bind_names(row, p, &elems.get(i).cloned().unwrap_or(Ty::Never), elem, used);
             }
         }
         _ => {}
@@ -479,14 +532,15 @@ fn bind_names(row: &mut Row, pattern: Pattern, ty: &Ty, place: Expr, used: &mut 
 }
 
 /// Every name a row binds, with the place it reads.
+/// A tuple of names left in a column (no row tested inside it) binds each
+/// name to its element.
 fn bindings(subjects: &[(Expr, Ty)], row: &Row) -> Vec<(Name, Ty, Expr)> {
-    let mut binds = row.binds.clone();
-    for (p, (subject, ty)) in row.pats.iter().zip(subjects) {
-        if let Pattern::Var(n) = p {
-            binds.push((n.clone(), ty.clone(), subject.clone()));
-        }
+    let mut row = row.clone();
+    let pats = std::mem::take(&mut row.pats);
+    for (p, (subject, ty)) in pats.into_iter().zip(subjects) {
+        bind_names(&mut row, p, ty, subject.clone(), &mut false);
     }
-    binds
+    row.binds
 }
 
 /// `expr` with each bound name read from its place. The places are names

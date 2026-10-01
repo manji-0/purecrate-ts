@@ -1,7 +1,8 @@
 //! Patterns inside patterns, lowered into the decision tree of
 //! `check::tuple`: literals, ranges, variants, and `Some`/`Ok`/`Err` in a
 //! variant's fields and in payloads, beside bindings, before guards and a
-//! last `_`, in a tuple `match`, and in `matches!`.
+//! last `_`, in a tuple `match`, and in `matches!`; a side of `|` that tests
+//! inside its case; a tuple with a literal inside a payload or a tuple.
 
 use crate::support;
 
@@ -36,6 +37,8 @@ fn generated_nested_patterns_match_rust() {
             cases.push(case!(nested_patterns::guarded(&l)));
             cases.push(case!(nested_patterns::is_verified(&l)));
             cases.push(case!(nested_patterns::is_big_card(&l)));
+            cases.push(case!(nested_patterns::either(l.clone())));
+            cases.push(case!(nested_patterns::either_guarded(&l)));
             for a in [None, Some(Method::Card), Some(Method::Bank)] {
                 cases.push(case!(nested_patterns::pair(a, l.clone())));
             }
@@ -45,6 +48,16 @@ fn generated_nested_patterns_match_rust() {
         }
         for x in [None, Some(0i64), Some(1), Some(2), Some(3), Some(-1), Some(-5), Some(-6), Some(i64::MAX / 2)] {
             cases.push(case!(nested_patterns::small(x)));
+        }
+        for s in [None, Some((0u32, 0u32)), Some((0, 5)), Some((3, 0)), Some((3, 4)), Some((u32::MAX, 0))] {
+            cases.push(case!(nested_patterns::split(s)));
+        }
+        for a in [0u32, 1, 9] {
+            for b in [true, false] {
+                for n in [0u32, 2, 3] {
+                    cases.push(case!(nested_patterns::quad((a, (b, n)))));
+                }
+            }
         }
         for card in [true, false] {
             for amount in [0u32, 1, 100, u32::MAX] {

@@ -126,3 +126,43 @@ pub fn fee(card: bool, amount: u32) -> u32 {
         _ => 50,
     }
 }
+
+/// A side of `|` that tests inside its variant: the sides are tried in
+/// order, each with the same body, and a later arm takes the rest of the
+/// case.
+pub fn either(login: Login) -> u32 {
+    match login {
+        Login::Started | Login::Paid(Method::Card, Some(0)) => 1,
+        Login::PasswordChecked { verified: true, .. } | Login::Paid(_, None) => 2,
+        Login::Paid(Method::Card, Some(n)) => n,
+        _ => 3,
+    }
+}
+
+/// `|` inside a payload, with a guard on the arm.
+pub fn either_guarded(login: &Login) -> u32 {
+    match login {
+        Login::Paid(Method::Card | Method::Bank, Some(1 | 2)) => 1,
+        Login::PasswordChecked { verified: false, attempts: 0 } | Login::Started if true => 2,
+        _ => 3,
+    }
+}
+
+/// A tuple inside a payload with a literal beside a name, and a tuple
+/// inside a tuple.
+pub fn split(s: Option<(u32, u32)>) -> u32 {
+    match s {
+        Some((0, b)) => b,
+        Some((a, 0)) => a * 2,
+        Some((a, b)) => a + b,
+        None => 7,
+    }
+}
+
+pub fn quad(x: (u32, (bool, u32))) -> u32 {
+    match x {
+        (0, (true, n)) => n,
+        (a, (_, 2) | (false, _)) => a + 100,
+        (_, (_, m)) => m + 1000,
+    }
+}

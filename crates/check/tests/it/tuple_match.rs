@@ -25,8 +25,8 @@ fn tuple_arms_are_accepted() {
 }
 
 #[test]
-fn tuples_do_not_nest() {
-    assert_parse_rejects(&run("match ((d, n), o) { ((Dir::Up, _), _) => 1, _ => 0 }"), "tuple patterns may not nest");
+fn tuples_nest() {
+    assert_clean(&run("match ((d, n), o) { ((Dir::Up, _), _) => 1, _ => 0 }"));
 }
 
 #[test]
@@ -41,14 +41,8 @@ fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
         "pub fn f(o: Option<(i32, i32)>, n: i32) -> i32 { match (o, n) { (Some((a, b)), 0) => a + b, _ => n } }",
     );
     assert_clean("pub enum E { P((i32, i32)) } pub fn f(e: E) -> i32 { match e { E::P((a, b)) => a + b } }");
-    assert_parse_rejects(
-        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((Some(a), _)) => a, None => s } }",
-        "a tuple inside a pattern may only bind names",
-    );
-    assert_parse_rejects(
-        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, (b, c))) => a, None => s } }",
-        "found a tuple",
-    );
+    assert_clean("pub fn f(s: &str) -> &str { match s.split_once('+') { Some((\"a\", b)) => b, Some((a, _)) => a, None => s } }");
+    assert_clean("pub fn f(o: Option<(i32, (i32, i32))>) -> i32 { match o { Some((a, (b, 1))) => a + b, _ => 0 } }");
 }
 
 #[test]

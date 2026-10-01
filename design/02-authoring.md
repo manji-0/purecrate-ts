@@ -211,7 +211,7 @@ Each arm names what it takes. The accepted patterns depend on what is matched. A
 
 `match (state, event)`. An arm is one of:
 
-- a tuple whose elements are each `_`, a binding, or any pattern from [Arm patterns](#arm-patterns): `(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`;
+- a tuple whose elements are each `_`, a binding, a tuple, or any pattern from [Arm patterns](#arm-patterns): `(State::Paid { at }, Event::Refund(r)) =>`, `(_, Event::Reset) =>`, `(State::A | State::B, _) =>`, `(0, Some(n)) =>`, `(a, (true, n)) =>`;
 - several tuples joined by `|`, when they bind nothing;
 - a last `_`.
 
@@ -240,9 +240,9 @@ Output: the same nested `switch`es as a tuple `match` (a single value as a tuple
 
 #### Patterns inside a case
 
-A variant's field, or the payload of `Some`, `Ok`, or `Err`, may hold any arm pattern, to any depth: `PasswordChecked { verified: false, .. }`, `Paid(Method::Card, Some(0))`, `Ok(Some(Dir::Up))`, `Some(1..=9)`, with bindings beside them and guards after them. Arms are tried in order, as in Rust; rustc checks they are exhaustive.
+A variant's field, the payload of `Some`, `Ok`, or `Err`, or a tuple's element may hold any arm pattern or a tuple, to any depth: `PasswordChecked { verified: false, .. }`, `Paid(Method::Card, Some(0))`, `Ok(Some(Dir::Up))`, `Some(1..=9)`, `Some((1, b))`, `(a, (true, n))`, with bindings beside them and guards after them. A side of `|` may test inside its case (`Started | Paid(Method::Card, Some(0)) =>`); the sides still bind nothing. Arms are tried in order, as in Rust; rustc checks they are exhaustive.
 
-Output: the same nested `switch`es as a guarded `match`; the field becomes one more value switched on where its case was chosen (`const $verified = event.verified; if (!$verified) …`).
+Output: the same nested `switch`es as a guarded `match`; the field becomes one more value switched on where its case was chosen (`const $verified = event.verified; if (!$verified) …`). A tuple's elements are tested where they sit (`x[1][0]`). A `|` whose sides test inside is tried side by side, each with the arm's code; a test whose two ways run the same code is left out.
 
 #### `matches!`
 
@@ -251,11 +251,8 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 #### Not accepted
 
-- tuples inside tuple patterns
 - `|` arms that bind names
 - binding-only arms without a guard
-- a tuple inside a case holding anything but names and `_` (`Some((a, (b, c)))`, `Some((1, b))`). `Some((a, b))` is accepted, and so is the same shape in `Ok`, `Err`, or a variant's fields
-- a side of `|` that tests inside its variant (`A | B(1)`)
 - float literal patterns
 - half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
 - `let else`
@@ -319,7 +316,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | --- | --- |
 | `xs.iter().map(f).collect()`, `.filter(..)` | `for x in &xs`; return new sequences as recursive enums. A list split from text is `s.split(c).map(f).collect()` |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `?` inside a guard, `\|` arms that bind names, a literal inside a tuple pattern in a case (`Some((1, b))`) | bind the `?` result with `let` first; split the match. `Some((a, b))` is a tuple of names |
+| `?` inside a guard, `\|` arms that bind names | bind the `?` result with `let` first; split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
