@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-01, after 0.5.0)
+Status: current (2026-10-01, after 0.6.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -318,3 +318,19 @@ Why: semver, written from the authoring skill alone, was the first example over 
 - **Representation and rewrites** are in [01 §6.6](./01-equivalence.md#66-stdcmpordering) and [§7.10](./01-equivalence.md#710-cmp-and-orderings-methods). The one new runtime part is `Str.cmp`, which a package carries only when it compares strings.
 - **Refused:** `impl Ord` / `PartialOrd`, `cmp` on floats, tuples, `Vec`, `Option`, and the crate's types, and `Ordering` as a field (serde has no form for it).
 - **Measurement.** semver rewritten with it: 195 → 166 lines, 2.6× → 2.2× by the script, 1.6× adjusted (§2.2). The skill-only draft's 2.8× was the first draft over the threshold since normalization; like the first drafts before it, it came under once its gap's capability was in, on the adjusted count; by the script it is still over (2.2×), and the rest is parsing.
+
+### 8.7 0.6.0: generated TypeScript (2026-10-01)
+
+Why: an exception to taking language capabilities first. Reading the examples' generated packages, now committed beside each example, turned up one hole and much that a reviewer of the TS would trip on: a schema that built a closed type with no serde derive from JSON by shape, inline functions wherever a `match`, `?`, index, or consumer met an expression (28 of them), `$q1`-style temporaries, snake_case names, every doc comment dropped, and lines past 160 characters.
+
+| Item | Verified by |
+| --- | --- |
+| A wire form only from serde's derives; `item/serde-derive` for what a derive holds | `wire.rs`, `ordering.rs` in `check` |
+| `impl Display` with a fixed text as `toString`; `try_from` refusals in its words | `display_equivalence.rs`, `wire_write.rs` |
+| `fromJson.T(text)` | `wire_write.rs` |
+| Runtime `Slice`, `Ord`, `Iter`; guards for `ok_or(..)?`; `match` as expressions | the differential tests, unchanged; shape tests beside them |
+| camelCase, JSDoc, string-keyed brands, fewer files and exports | the differential tests, `names.rs` in `check` |
+| Every `as` of a sound kind | `casts.rs` |
+
+- **Measurement.** Inline functions 28 → 2 (the two left evaluate a call inside `&&` once); semver's generated code 25.2 → 19.3 KB and payment's 23.5 → 20.3 KB, doc comments now included; counter's runtime copy 11.9 → 6.5 KB and its files 8 → 5; lines of code past 100 characters 129 → 36.
+- **Breaking** for callers: the names, the index's exports, and `--schema` on a crate with no serde derive ([CHANGELOG](../CHANGELOG.md)).

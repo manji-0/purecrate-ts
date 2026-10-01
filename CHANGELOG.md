@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-10-01
 
-Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below).
+Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below). Measured by reading the examples' output ([roadmap §8.7](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#87-060-generated-typescript-2026-10-01)).
 
 ### Breaking
 
