@@ -175,7 +175,7 @@ Waits for an example that cannot be written without it.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.
-- `Rc` / `Cell` / `RefCell`.
+- `Rc` / `Cell` / `RefCell` / `Mutex`.
 - `async`, randomness, and other effects (idsmith's `&mut` RNG parameters, 305 of the corpus's functions).
 
 ## 7. Open questions

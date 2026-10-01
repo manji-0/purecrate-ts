@@ -58,7 +58,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `impl Ord`, `derive(PartialOrd, Ord)` then `<` on your type, `cmp` on floats, tuples, `Vec`, `Option`; `cmp::Ordering` via `use std::cmp;`, `use std::cmp::Ordering::*` | a compare function over the parts chained with `then` / `then_with`; `use std::cmp::Ordering;` and write `Ordering::Less` |
 | `format!`, `.to_string()`, `.to_owned()`, `.into()`, `clone` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)`, an `Option<String>` with a `match` |
 | `Vec::from`, `vec![x; n]`, returning `[a, b]` | `vec![a, b]` for a fixed list; a recursive enum (`enum Lines { Nil, Cons(Line, Box<Lines>) }`) for one that grows |
-| generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell` | concrete types, functions, recursive enums |
+| generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell`/`Mutex` | concrete types, functions, recursive enums |
 | `static`, `const` inside `impl` | a crate-level `const` (a `const` inside a function body is fine from 0.4.0) |
 | `x as u32` on an integer | `u32::from(x)` where std widens; std has no `From<usize>` for `u64`, so compare `usize` values as `usize` |
 | `Option<Option<T>>`, newtype over `Option`/`()`, unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |

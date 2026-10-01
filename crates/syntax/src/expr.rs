@@ -755,7 +755,6 @@ fn wrapper_new(segs: &[String]) -> Option<Wrapper> {
         [name, new] if new == "new" => match name.as_str() {
             "Box" => Some(Wrapper::Box),
             "Arc" => Some(Wrapper::Arc),
-            "Mutex" => Some(Wrapper::Mutex),
             _ => None,
         },
         _ => None,
@@ -791,6 +790,13 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     match func {
         SynExpr::Path(p) => {
             let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            if segs == ["Mutex", "new"] {
+                return Err(ParseError::new(
+                    Reason::Mutex,
+                    "`Mutex::new` is shared mutable state; the subset is pure functions (design/02 §3.7)",
+                )
+                .detail("Mutex"));
+            }
             if let Some(wrapper) = wrapper_new(&segs) {
                 if args.len() != 1 {
                     return Err(ParseError::new(

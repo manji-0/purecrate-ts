@@ -49,7 +49,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
 | Loops with a condition | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `break` and `continue` without a label or value, as statements; not `loop` or `while let` | `while`, with a label on each loop a jump leaves (a bare `break` would leave the `switch` of a `match`) |
-| Owned trees | `Box<T>` (also `Arc<T>`, `Mutex<T>`) erased to `T` | self-referential type alias, with a comment |
+| Owned trees | `Box<T>` (also `Arc<T>`) erased to `T` | self-referential type alias, with a comment |
 | Invariants | non-`pub` fields + a checked public constructor | closed type, no `of` ([01 §4](./01-equivalence.md#4-closed-types)) |
 
 Why `&self` can be a value: the output never mutates arguments, and interior mutability (`Cell`, `RefCell`) is rejected, so observation is the same as passing by value. `&mut` is rejected; `fn apply(&mut self, e)` is written `fn apply(self, e) -> Self`.
@@ -64,7 +64,7 @@ Why `&self` can be a value: the output never mutates arguments, and interior mut
 2. Past events are not accumulated in state. The caller keeps them.
 3. Sequences that grow or shrink are recursive enums, returned as new values.
 4. A `Vec` is read, never grown.
-5. `Rc`, `Cell`, and `RefCell` are rejected.
+5. `Rc`, `Cell`, `RefCell`, and `Mutex` are rejected.
 
 #### History and logs
 
@@ -111,7 +111,7 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 
 `Rc`, `Cell`, and `RefCell` stay rejected. Why: even single-threaded, collapsing shared writes into values changes results.
 
-`Box` and `Arc` can be read with `*x`. `Mutex` has no `lock`, so it can only be built and held.
+`Box` and `Arc` can be read with `*x`. `Mutex` is refused (`[type/mutex]`): it signals shared mutable state, which a pure-function subset does not have; `lock` was already out, so a `Mutex` field could only be moved around, and erasing it would hide that.
 
 ### 3.2 Numbers are sized integers and floats
 
@@ -278,13 +278,14 @@ Byte string literals (`b"pm_"`) are not available. Use `starts_with`.
 
 #### Type constructors
 
-Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex` are type constructors, besides tuples `(A, B)` (read with `match` or a tuple pattern, not `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
+Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match` or a tuple pattern, not `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
 
 #### Rejected types
 
 | Type | Why | Instead |
 | --- | --- | --- |
 | `HashMap` / `BTreeMap` | key equality differs between Rust and JS | |
+| `Rc` / `Cell` / `RefCell` / `Mutex` | shared or interior mutability; `Mutex` is shared mutable state, which the subset does not have (`[type/mutex]`) | |
 | `Option<Option<T>>` | both `None`s become `null`; serde's default JSON is `null` for both as well, so the server cannot distinguish them either | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | newtypes over `Option`, `()`, or `!` | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | enums with no variants | | |

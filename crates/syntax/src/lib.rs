@@ -151,6 +151,8 @@ mod tests {
             (Reason::QualifiedPath, Some("chrono::NaiveDate".into()))
         );
         assert_eq!(reason("pub fn f(x: Rc<i32>) -> i32 { 0 }"), (Reason::DisallowedType, Some("Rc".into())));
+        assert_eq!(reason("pub fn f(x: Mutex<i32>) -> i32 { 0 }"), (Reason::Mutex, Some("Mutex".into())));
+        assert_eq!(reason("pub fn f(n: i32) -> i32 { Mutex::new(n); n }").0, Reason::Mutex);
         assert_eq!(reason("pub fn f(n: i32) -> i32 { Box::new(n, n) }").0, Reason::ConstructShape);
         assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
         assert_eq!(reason("pub enum Void {}"), (Reason::UnsupportedItem, Some("empty-enum".into())));

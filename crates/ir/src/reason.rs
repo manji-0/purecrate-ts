@@ -55,6 +55,8 @@ pub enum Reason {
     ArrayType,
     QualifiedPath,
     DisallowedType,
+    /// `Mutex<T>`: shared mutable state, which a pure-function subset does not have.
+    Mutex,
     FnType,
     SelfType,
     UnsupportedType,
@@ -128,6 +130,7 @@ impl Reason {
             Reason::ArrayType => "type/array",
             Reason::QualifiedPath => "type/qualified-path",
             Reason::DisallowedType => "type/disallowed",
+            Reason::Mutex => "type/mutex",
             Reason::FnType => "type/fn",
             Reason::SelfType => "type/self",
             Reason::UnsupportedType => "type/other",

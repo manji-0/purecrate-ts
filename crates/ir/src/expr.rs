@@ -849,7 +849,7 @@ pub enum Expr {
         expr: Box<Expr>,
         on: Option<TryOn>,
     },
-    /// `Box::new` / `Arc::new` / `Mutex::new`. The value is `expr`.
+    /// `Box::new` / `Arc::new`. The value is `expr`.
     /// Emit prints `wrapper`'s comment and then `expr`.
     Ignored {
         wrapper: Wrapper,

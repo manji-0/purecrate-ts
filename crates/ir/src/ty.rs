@@ -227,7 +227,7 @@ pub enum Ty {
     Tuple(Vec<Ty>),
     Named(Name),
     Fn { params: Vec<Ty>, ret: Box<Ty> },
-    /// `Box` / `Arc` / `Mutex`. Equal to `inner` for checking. Emit keeps the comment.
+/// `Box` / `Arc`. Equal to `inner` for checking. Emit keeps the comment.
     Ignored { wrapper: Wrapper, inner: Box<Ty> },
     Never,
 }
@@ -263,7 +263,7 @@ impl Ty {
         }
     }
 
-    /// Drops `Box` / `Arc` / `Mutex` layers. Checking sees the inner type.
+    /// Drops `Box` / `Arc` layers. Checking sees the inner type.
     pub fn peel(&self) -> &Ty {
         match self {
             Ty::Ignored { inner, .. } => inner.peel(),

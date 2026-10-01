@@ -57,7 +57,7 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
 | `(A, B)` | `readonly [A, B]` |
-| `Box<T>`, `Arc<T>`, `Mutex<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads, `Mutex` exclusion between threads: a single-threaded program with values never mutated observes none of them |
+| `Box<T>`, `Arc<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads: a single-threaded program with values never mutated observes neither. `Mutex` is refused (`[type/mutex]`) |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |
 | newtype `S(T)` | `T & { readonly "<crate>.S": true }` |
 | `enum` | `kind` union + companion |

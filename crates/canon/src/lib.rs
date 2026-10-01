@@ -27,7 +27,7 @@
 //! | `Result` | `Ok(x)` / `Err(e)` |
 //! | `Vec` | `[a, b]` |
 //! | tuple | `(a, b)` |
-//! | `Box`, `Arc`, `Mutex` | the inner value |
+//! | `Box`, `Arc` | the inner value |
 //! | struct | `S { a: x, b: y }`; newtype `S(x)`; no fields `S` |
 //! | enum | `E::V`, `E::V(x, y)`, `E::V { a: x }` |
 //!
