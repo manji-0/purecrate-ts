@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   # The release the differential tests' panic messages were measured on
@@ -25,9 +25,16 @@ jobs:
   # must not publish.
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31.11.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
       - name: Install the schema libraries (adapters and examples)
         run: |
           for p in packages/boundary-zod packages/boundary-valibot packages/boundary-arktype examples; do
@@ -40,8 +47,10 @@ jobs:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the tag against the workspace version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
@@ -63,6 +72,8 @@ jobs:
     needs: [verify, draft]
     # Runs when `draft` succeeded, and when it was skipped (workflow_dispatch).
     if: ${{ !failure() && !cancelled() }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +86,7 @@ jobs:
           - { target: x86_64-apple-darwin, os: macos-15, run: true, rosetta: true }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
         run: |
           if ! command -v rustup >/dev/null; then
@@ -113,6 +124,8 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Publish the draft
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
