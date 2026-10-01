@@ -156,3 +156,19 @@ fn a_match_in_an_expression_is_an_expression() {
     assert!(file("not-c").contains("x && (k.kind !== \"C\")"), "{}", file("not-c"));
     assert!(file("or-zero").contains("((o !== null) ? o : (0 as I32))"), "{}", file("or-zero"));
 }
+
+/// `!matches!(x, A)` on an enum whose other variants have fields, and
+/// `return match f(x) { .. }`, print without an inline function.
+#[test]
+fn a_match_returned_or_negated_needs_no_inline_function() {
+    let source = "pub enum Ids { Nil, Cons(u8, Box<Ids>) }\n\
+                  pub fn non_empty(ids: Ids) -> bool { !matches!(ids, Ids::Nil) }\n\
+                  pub fn half(n: u8) -> Option<u8> { if n % 2 == 0 { Some(n / 2) } else { None } }\n\
+                  pub fn quarter(n: u8) -> u8 {\n    if n == 0 {\n        return 0;\n    }\n    return match half(n) {\n        Some(h) => h / 2,\n        None => 1,\n    };\n}\n";
+    let krate = purecrate_syntax::parse_source("ret", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    assert!(file("non-empty").contains("=> ids.kind !== \"Nil\";"), "{}", file("non-empty"));
+    assert!(!file("quarter").contains("(() =>"), "{}", file("quarter"));
+}

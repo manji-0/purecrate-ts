@@ -51,7 +51,10 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
     if leads_with_brace(expr) {
         format!("({s})")
     } else {
-        s
+        // Parentheses around all of it, unless they keep an object literal
+        // from reading as a block.
+        let bare = crate::tidy::strip_outer(&s);
+        if bare.starts_with('{') { s } else { bare.to_string() }
     }
 }
 
@@ -518,7 +521,8 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
                 }
                 Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
             }
-            Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { bind: VariantBind::Unit, .. })) => Some(
+            // Variants that bind nothing (`Cons(_, _)` counts).
+            Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { .. }) && a.bindings().is_empty()) => Some(
                 alts.iter()
                     .filter_map(|a| match a {
                         Pattern::Variant { variant, .. } => Some(format!("{subject}.kind === \"{}\"", variant.as_str())),

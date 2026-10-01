@@ -3,4 +3,4 @@
 import { type U8, type Usize } from "./purecrate-runtime.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
-export const digitCount = (d: OtpDigits): Usize => ((({ Six: (6 as U8), Seven: (7 as U8), Eight: (8 as U8) } as Record<string, U8>)[d.kind] as U8) as number as Usize);
+export const digitCount = (d: OtpDigits): Usize => (({ Six: (6 as U8), Seven: (7 as U8), Eight: (8 as U8) } as Record<string, U8>)[d.kind] as U8) as number as Usize;

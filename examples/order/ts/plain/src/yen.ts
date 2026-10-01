@@ -11,5 +11,5 @@ export type Yen = I64 & { readonly "order.Yen": true };
 export const Yen$of = (value: I64): Yen => value as Yen;
 
 export const Yen = {
-  new: (amount: I64): Result<Yen, OrderError> => (amount < (0n as I64) ? Result.err({ kind: "NegativeAmount" }) : Result.ok(Yen$of(amount))),
+  new: (amount: I64): Result<Yen, OrderError> => amount < (0n as I64) ? Result.err({ kind: "NegativeAmount" }) : Result.ok(Yen$of(amount)),
 } as const;

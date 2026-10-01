@@ -15,15 +15,13 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
   )) return Result.err({ kind: "InvalidPreReleaseChar" });
   if (allDigits(s)) {
     if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) return Result.err({ kind: "PreReleaseLeadingZero" });
-    return (() => {
-      const $m_3 = digitsToU64(s);
-      if ($m_3 !== null) {
-        const n = $m_3;
-        return Result.ok({ kind: "Numeric", content: [n] });
-      } else {
-        return Result.err({ kind: "PreReleaseTooLarge" });
-      }
-    })();
+    const $m_2 = digitsToU64(s);
+    if ($m_2 !== null) {
+      const n = $m_2;
+      return Result.ok({ kind: "Numeric", content: [n] });
+    } else {
+      return Result.err({ kind: "PreReleaseTooLarge" });
+    }
   }
   return Result.ok({ kind: "Alpha", content: [s] });
 };

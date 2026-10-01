@@ -183,7 +183,11 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::Break => out.push_str(&format!("{pad}break {};\n", innermost_loop())),
         Expr::Continue => out.push_str(&format!("{pad}continue {};\n", innermost_loop())),
-        Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", emit_expr(value, indent))),
+        // `return match ..`: the `match` returns from each arm.
+        Expr::Return(value) if value.needs_statements() && as_expr(value, indent).is_none() => {
+            emit_stmts(value, indent, Sink::Return, out)
+        }
+        Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(&emit_expr(value, indent)))),
         // `x?;`: only the early return; there is no value to bind.
         // `x?;` on a binding: the test alone.
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) => {
