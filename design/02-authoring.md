@@ -285,7 +285,7 @@ Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` / `Mutex` are type 
 | Type | Why | Instead |
 | --- | --- | --- |
 | `HashMap` / `BTreeMap` | key equality differs between Rust and JS | |
-| `Option<Option<T>>` | both `None`s become `null` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
+| `Option<Option<T>>` | both `None`s become `null`; serde's default JSON is `null` for both as well, so the server cannot distinguish them either | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | newtypes over `Option`, `()`, or `!` | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | enums with no variants | | |
 | unit structs (`struct S;`) | serde writes `struct S;` as `null` and `struct S {}` as `{}`; only the latter is kept | `struct S {}` |

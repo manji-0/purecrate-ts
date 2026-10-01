@@ -62,6 +62,8 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | newtype `S(T)` | `T & { readonly "<crate>.S": true }` |
 | `enum` | `kind` union + companion |
 
+**`Option`.** Nested `Option` and a newtype over `Option` are refused (`[check/nested-option]`, `[check/newtype-inner]`), because `T | null` cannot tell `None` from `Some(None)` and `null & brand` is `never`. Both show up in PATCH-style domain code (unset vs. clear vs. set); the spelling is a hand-written enum such as `Patch { Unset, Clear, Set(i32) }` ([02 §3.7](./02-authoring.md#37-types)). This is a consequence of the representation, not of Rust semantics. serde's default JSON is `null` for both `None`s of an `Option<Option<T>>`, so a server using the same types cannot distinguish them either unless it uses `serde_with`-style handling; that is why the rejection stays rather than printing only the nested occurrence as `{ kind: "Some", value } | { kind: "None" }`.
+
 ## 3. Shapes
 
 ### 3.1 Enums
