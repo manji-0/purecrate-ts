@@ -13,6 +13,7 @@
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -42,10 +43,9 @@ pub enum Failure {
 /// binary, as for cargo.
 pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let out_dir = scratch();
-    fs::create_dir_all(&out_dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", out_dir.display())))?;
-    let serde = serde_stub(&rustc, &out_dir)?;
-    let uuid = uuid_stub(&rustc, &out_dir)?;
+    let out_dir = Scratch::create()?;
+    let serde = serde_stub(&rustc, &out_dir.path)?;
+    let uuid = uuid_stub(&rustc, &out_dir.path)?;
     let output = Command::new(&rustc)
         .args(["--edition", edition, "--crate-type", "lib", "--emit=metadata"])
         .arg("--extern")
@@ -53,12 +53,11 @@ pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
         .arg("--extern")
         .arg(format!("uuid={}", uuid.display()))
         .arg("-L")
-        .arg(&out_dir)
+        .arg(&out_dir.path)
         .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "--out-dir"])
-        .arg(&out_dir)
+        .arg(&out_dir.path)
         .arg(src)
         .output();
-    fs::remove_dir_all(&out_dir).ok();
     let output = output.map_err(|e| {
         Failure::Other(format!(
             "run {}: {e}; check needs rustc to confirm the input compiles (set RUSTC to its path)",
@@ -177,8 +176,68 @@ fn serde_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
     Ok(dir.join("libserde.rlib"))
 }
 
-fn scratch() -> PathBuf {
-    env::temp_dir().join(format!("purecrate-rustc-{}", std::process::id()))
+/// A unique 0700 directory in the process temp dir. Created exclusively so
+/// another user cannot have pre-created the path (or a symlink to it) for a
+/// guessable name, and removed on drop so early returns cannot leave it.
+struct Scratch {
+    path: PathBuf,
+}
+
+impl Scratch {
+    fn create() -> Result<Self, Failure> {
+        let tmp = env::temp_dir();
+        for _ in 0..16 {
+            let path = tmp.join(format!("purecrate-rustc-{}", random_suffix()));
+            match mkdir_exclusive(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(Failure::Other(format!("mkdir {}: {e}", path.display()))),
+            }
+        }
+        Err(Failure::Other("could not create a unique rustc scratch directory".into()))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn mkdir_exclusive(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(0o700).create(path)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir(path)
+    }
+}
+
+fn random_suffix() -> String {
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = fs::File::open("/dev/urandom") {
+        if f.read_exact(&mut buf).is_ok() {
+            return hex(&buf);
+        }
+    }
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{t:x}-{}", std::process::id())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    const H: &[u8] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        s.push(H[(b >> 4) as usize] as char);
+        s.push(H[(b & 0xf) as usize] as char);
+    }
+    s
 }
 
 /// `--error-format=short` lines: `path:line:col: error[E0308]: message`.
@@ -230,5 +289,25 @@ error: aborting due to 2 previous errors
             ]
         );
         assert_eq!(parse_short(stderr)[0].line(), "src/lib.rs:3:5: [rustc/E0308] mismatched types");
+    }
+
+    #[test]
+    fn scratch_is_exclusive_0700_and_removed_on_drop() {
+        let a = Scratch::create().unwrap_or_else(|_| panic!("first scratch"));
+        let b = Scratch::create().unwrap_or_else(|_| panic!("second scratch"));
+        assert_ne!(a.path, b.path);
+        assert!(a.path.starts_with(env::temp_dir()));
+        let predictable = env::temp_dir().join(format!("purecrate-rustc-{}", std::process::id()));
+        assert_ne!(a.path, predictable);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&a.path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+        let path = a.path.clone();
+        drop(a);
+        assert!(!path.exists());
+        drop(b);
     }
 }

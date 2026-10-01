@@ -62,7 +62,7 @@ Passes that only collect (reachability, emit's imports, `survey`'s references) h
 
 **Why.** The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position).
 
-**serde.** The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3.2](./04-wire.md#32-serde-in-the-input)).
+**serde.** The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3.2](./04-wire.md#32-serde-in-the-input)). rustc's metadata and the stand-ins go in a unique 0700 directory under the process temp dir, created exclusively and removed when `check` returns.
 
 **Edition.** The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
 
