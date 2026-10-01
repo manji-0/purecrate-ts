@@ -621,9 +621,12 @@ pub(crate) fn emit_lit_chain(
     out.push_str(&format!("{pad}}}\n"));
 }
 
-/// The test for an integer, `char`, or string arm; `None` for `_`.
+/// The test for an integer, `char`, `bool`, or string arm; `None` for `_`.
 pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
     match pattern {
+        // A `bool` reads as itself: `x`, `!x`.
+        Pattern::Lit(Lit::Bool(true)) => Some(subject.to_string()),
+        Pattern::Lit(Lit::Bool(false)) => Some(format!("!{subject}")),
         Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
         // By code point: JS orders strings by UTF-16 unit.
         Pattern::Range {

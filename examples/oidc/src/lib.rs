@@ -721,7 +721,7 @@ pub fn begin(
 /// One transition of the login flow.
 pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError> {
     match (flow, event) {
-        (Flow::AwaitingPassword { request, failures, .. }, Event::PasswordChecked { verified, .. }) if !verified => {
+        (Flow::AwaitingPassword { request, failures, .. }, Event::PasswordChecked { verified: false, .. }) => {
             let failures = failures + 1;
             if failures >= policy.max_password_failures {
                 return Ok(Flow::Locked);

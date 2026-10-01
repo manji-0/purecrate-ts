@@ -614,6 +614,33 @@ pub enum Pattern {
 }
 
 impl Pattern {
+    /// Can fail to match: anything but `_`, a name, or a tuple of those.
+    pub fn refutable(&self) -> bool {
+        match self {
+            Pattern::Wildcard | Pattern::Var(_) => false,
+            Pattern::Tuple(ps) => ps.iter().any(Pattern::refutable),
+            _ => true,
+        }
+    }
+
+    /// Tests something below its own case: a variant field, or the payload
+    /// of `Some`, `Ok`, or `Err`, that can fail to match
+    /// (`Some(Event::Pay { .. })`, `Checked { verified: false, .. }`). A
+    /// `match` with such an arm is lowered into a decision tree
+    /// (`check::tuple`), so none reaches emit.
+    pub fn nests(&self) -> bool {
+        match self {
+            Pattern::Variant { bind, .. } => match bind {
+                VariantBind::Unit => false,
+                VariantBind::Tuple(ps) => ps.iter().any(Pattern::refutable),
+                VariantBind::Struct(ps) => ps.iter().any(|(_, p)| p.refutable()),
+            },
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => p.refutable(),
+            Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().any(Pattern::nests),
+            Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::OptionNone | Pattern::Range { .. } => false,
+        }
+    }
+
     /// A tuple pattern, or `|` of them: an arm of a `match` on a tuple.
     pub fn is_tuple_case(&self) -> bool {
         match self {

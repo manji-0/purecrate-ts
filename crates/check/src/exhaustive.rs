@@ -79,6 +79,15 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     if arms.iter().any(|a| a.pattern.is_tuple_case()) {
         return tuple_arms(i, arms, out);
     }
+    // An arm testing inside a case covers only part of it, so the cases
+    // cannot be counted here. rustc has checked the arms are exhaustive; the
+    // decision tree `tuple` builds names every case of each `switch`.
+    if arms.iter().any(|a| a.pattern.nests()) {
+        if arms.iter().rev().skip(1).any(|a| a.pattern == Pattern::Wildcard) {
+            out.push(Diagnostic::at(i, Reason::ArmPattern, "`_` must be the last arm"));
+        }
+        return;
+    }
     if arms.iter().any(|a| a.pattern.is_bool_case()) {
         return bool_arms(i, arms, out);
     }

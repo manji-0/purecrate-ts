@@ -1,12 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-10-02
+
+`split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering; patterns nested in a case; and two rounds of review fixes (panics as `Panic`, `Mutex` refused, generated-code layout, CI and release hardening). Packages generated with 0.6.0 must be regenerated (Breaking, below) ([roadmap §8.8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#88-070-lists-from-text-2026-10-02)).
+
+### Breaking
+
+- **`Mutex` is refused** (`[type/mutex]`): it is shared mutable state, which a pure-function subset does not have. `Box` and `Arc` stay erased.
+- **Fewer index exports.** The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type, and a trimmed runtime drops a namespace whose members are all gone (`export const Iter = {}`).
 
 ### Added
 
+- `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>`. `c` is a `char`. `f` is `|x| ..` without `?` or `return`, or a function name. The target is `collect::<..>()`, a typed `let`, or the return type. Into a `Result`, iteration stops at the first `Err`.
+- `str::split_once` with a `char` or a `&str`, including an empty needle, as `Str.splitOnce`.
+- `Some((a, b))`, and the same tuple of names and `_` in `Ok`, `Err`, or a variant's fields.
+- Patterns nested in a case: a literal, a range, a variant, or `Some` / `Ok` / `Err` in a variant's field or a payload, to any depth (`PasswordChecked { verified: false, .. }`, `Paid(Method::Card, Some(0))`, `Ok(Some(Dir::Up))`), beside bindings, before guards, in tuple `match`es and `matches!`. Lowered into the decision tree tuple `match`es use; rustc checks exhaustiveness. A tuple holding anything but names and `_`, and a side of `|` testing inside its variant (`A | B(1)`), stay `[pattern/nested]`.
 - `check` and `build` warn when the crate's (or workspace's) `[profile.release]` does not set `overflow-checks = true`: generated TypeScript panics on overflow as a debug build does, so a `--release` server that wraps will disagree.
 - Runtime panics are `class Panic extends Error` (`instanceof` works across copies via `Symbol.for("purecrate.Panic")`); `message` is still Rust's panic text.
 - Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
+
+### Changed
+
+- The runtime gains `Iter.tryCollect` and `Str.splitOnce`, each carried only by a package that uses it.
+- Collecting a `Vec`, `chars()`, or anything but `s.split(c)`, a `&str` separator for `split`, and `collect` with no target type stay refused. A variant constructor is not a function name (`.map(PreId::Numeric)`); write `|n| PreId::Numeric(n)`.
+- A `bool` arm of the decision tree prints as `x` / `!x`, not `x === true`; a field an arm tests inside is read into `$<field>`.
+- Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); field names stay the JSON keys (`last_error`).
+- `release.yml` runs `scripts/verify.sh` before drafting or attaching binaries, and smoke-tests the x86_64 macOS binary under Rosetta on the arm64 runner.
+- `check` reuses compiled `serde` and `uuid` stand-ins from a per-user cache keyed by `rustc -vV` and the purecrate-ts version, instead of rebuilding the proc-macro on every run.
+- Workflows default to `contents: read`; `contents: write` is only on the jobs that draft, upload, or publish. Actions are pinned to commit SHAs. `verify.yml` (and the release verify job) cache the Nix store.
+- `packages/boundary*` versions (and the adapters' `purecrate` peer range) follow the workspace version.
 
 ### Fixed
 
@@ -16,22 +38,12 @@
 - A tuple `match`'s `_` prints as `default:` instead of listing every remaining case. Hoisting `(_, Event::Cancel)` out of every state is a candidate.
 - Generated lines wrap at 100 characters, including `if (…) return …;` and long conditions. Parentheses follow operator precedence. `line_width.rs` fails on a generated domain line over the limit.
 - The wire module imports each domain file once: value and `type` aliases (and `{E as E$text}` for a `try_from` refusal) sit in a single `import { … } from "./….ts"`.
-- A trimmed runtime drops a namespace whose members are all gone (`export const Iter = {}`). The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type.
 - README's `cargo install --tag` pin is `v0.7.0`. `scripts/verify.sh` fails when any `--tag vX.Y.Z` in `README.md` or `skills/purecrate-authoring/SKILL.md` disagrees with the workspace version.
 - `build --out` keeps `node_modules/` across a rebuild, so an `npm install` in the generated package is not deleted. `dist/` is still dropped (it is stale).
 - rustc's scratch directory is a unique 0700 path, created exclusively and removed on drop, instead of `purecrate-rustc-<pid>` in the shared temp dir.
 - Copied runtime and adapter files include the MIT copyright and permission notice, not only a link.
 - `scripts/verify.sh` and `scripts/examples.sh` ask the binary (`--schema`) whether a crate has a wire form, instead of grepping `src/*.rs`.
 - The rustc stand-in cache takes a lock around the first build, so parallel `check` processes do not clobber the serde proc-macro objects.
-
-### Changed
-
-- Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); field names stay the JSON keys (`last_error`).
-- `Mutex` is refused (`[type/mutex]`): it is shared mutable state, which a pure-function subset does not have. `Box` and `Arc` stay erased.
-- `release.yml` runs `scripts/verify.sh` before drafting or attaching binaries, and smoke-tests the x86_64 macOS binary under Rosetta on the arm64 runner.
-- `check` reuses compiled `serde` and `uuid` stand-ins from a per-user cache keyed by `rustc -vV` and the purecrate-ts version, instead of rebuilding the proc-macro on every run.
-- Workflows default to `contents: read`; `contents: write` is only on the jobs that draft, upload, or publish. Actions are pinned to commit SHAs. `verify.yml` (and the release verify job) cache the Nix store.
-- `packages/boundary*` versions (and the adapters' `purecrate` peer range) follow the workspace version.
 
 ### Docs
 
@@ -47,25 +59,12 @@
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 - design/02 merges the duplicate "Text lists" / "A list from text" rows.
 - design/03 documents `Str.splitOnce` and `Iter.tryCollect`; design/03, 04, and 05 are marked current at 0.7.0 (04 reviewed, unchanged).
-
-## 0.7.0 — 2026-10-02
-
-`split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering ([roadmap §8.8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#88-070-lists-from-text-2026-10-02)).
-
-### Added
-
-- `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>`. `c` is a `char`. `f` is `|x| ..` without `?` or `return`, or a function name. The target is `collect::<..>()`, a typed `let`, or the return type. Into a `Result`, iteration stops at the first `Err`.
-- `str::split_once` with a `char` or a `&str`, including an empty needle, as `Str.splitOnce`.
-- `Some((a, b))`, and the same tuple of names and `_` in `Ok`, `Err`, or a variant's fields. A variant, a literal, or another tuple inside it stays `[pattern/nested]`.
-
-### Changed
-
-- The runtime gains `Iter.tryCollect` and `Str.splitOnce`, each carried only by a package that uses it.
-- Collecting a `Vec`, `chars()`, or anything but `s.split(c)`, a `&str` separator for `split`, and `collect` with no target type stay refused. A variant constructor is not a function name (`.map(PreId::Numeric)`); write `|n| PreId::Numeric(n)`.
+- design/02, 03, 07 and the authoring skill: patterns nested in a case.
 
 ### Examples
 
 - semver (SemVer 2.0.0 parsing and precedence) builds its identifier lists with `collect` and splits on `+` and `-` with `split_once` as `Some((x, y))`: 166 lines of logic with ordering, 138 with these (1.8× the idiomatic Rust). Pre-release and build metadata are `Vec`s.
+- oidc's lockout arm matches `PasswordChecked { verified: false, .. }`, as its idiomatic code does.
 
 ## 0.6.0 — 2026-10-01
 

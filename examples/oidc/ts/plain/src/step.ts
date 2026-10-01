@@ -20,10 +20,10 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       switch (event.kind) {
         case "PasswordChecked": {
           const subject = event.subject;
-          const verified = event.verified;
+          const $verified = event.verified;
           const secondFactor = event.second_factor;
           const now = event.now;
-          if (!verified) {
+          if (!$verified) {
             const failures$1: U32 = Int.u32.add(failures, (1 as U32));
             if (failures$1 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
             return Result.ok({

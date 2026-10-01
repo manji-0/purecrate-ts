@@ -39,9 +39,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (crate::tuple::lower(self.defs, scrutinee, tys, arms, &mut self.fresh), result);
             }
         }
-        // Guards are tested in the same decision tree, a single value as a
-        // tuple of one.
-        if let Some(t) = st.as_ref().filter(|_| arms.iter().any(|a| a.guard.is_some())) {
+        // Guards, and arms that test inside a case, are tested in the same
+        // decision tree, a single value as a tuple of one.
+        if let Some(t) = st.as_ref().filter(|_| arms.iter().any(|a| a.guard.is_some() || a.pattern.nests())) {
             let arms = arms
                 .into_iter()
                 .map(|a| Arm {
@@ -94,8 +94,49 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 return Pattern::Tuple(ps.iter().zip(&tys).map(|(p, t)| self.lit_pattern(p, t.as_ref())).collect());
             }
-            Pattern::Or(alts) if pattern.is_tuple_case() => {
+            Pattern::Or(alts) if pattern.is_tuple_case() || pattern.nests() => {
                 return Pattern::Or(alts.iter().map(|a| self.lit_pattern(a, scrutinee)).collect());
+            }
+            // A literal inside a case takes the field's or the payload's type.
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
+                let inner = match (pattern, scrutinee) {
+                    (Pattern::OptionSome(_), Some(Ty::Option(t))) => Some(self.norm(t)),
+                    (Pattern::ResultOk(_), Some(Ty::Result { ok, .. })) => Some(self.norm(ok)),
+                    (Pattern::ResultErr(_), Some(Ty::Result { err, .. })) => Some(self.norm(err)),
+                    _ => None,
+                };
+                let p = Box::new(self.lit_pattern(p, inner.as_ref()));
+                return match pattern {
+                    Pattern::OptionSome(_) => Pattern::OptionSome(p),
+                    Pattern::ResultOk(_) => Pattern::ResultOk(p),
+                    _ => Pattern::ResultErr(p),
+                };
+            }
+            Pattern::Variant { ty, variant, bind } => {
+                let fields = self
+                    .defs
+                    .enums
+                    .get(ty.as_str())
+                    .and_then(|e| e.variants.iter().find(|v| v.name == *variant))
+                    .map(|v| v.fields.clone());
+                let bind = match (bind, fields) {
+                    (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => VariantBind::Tuple(
+                        ps.iter().zip(&tys).map(|(p, t)| {
+                            let t = self.norm(t);
+                            self.lit_pattern(p, Some(&t))
+                        }).collect(),
+                    ),
+                    (VariantBind::Struct(ps), Some(VariantFields::Struct(fs))) => VariantBind::Struct(
+                        ps.iter()
+                            .map(|(f, p)| {
+                                let t = fs.iter().find(|d| d.name == *f).map(|d| self.norm(&d.ty));
+                                (f.clone(), self.lit_pattern(p, t.as_ref()))
+                            })
+                            .collect(),
+                    ),
+                    (other, _) => other.clone(),
+                };
+                return Pattern::Variant { ty: ty.clone(), variant: variant.clone(), bind };
             }
             _ => {}
         }

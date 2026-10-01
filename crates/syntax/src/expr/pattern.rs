@@ -190,6 +190,10 @@ pub(super) fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
                     )));
                 }
                 variant_fields(alt)?;
+                if alt.nests() {
+                    return Err(ParseError::new(Reason::NestedPattern,
+                        "a side of `|` may not test inside its variant in v0; write one arm per variant"));
+                }
                 if let Some(name) = alt.bindings().first() {
                     return Err(ParseError::new(Reason::ArmPattern, format!(
                         "`|` arms may not bind names in v0, found binding `{}`; write one arm per variant",
@@ -250,22 +254,22 @@ pub(super) fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
     Ok(())
 }
 
-/// A variant field is `_`, a name, or one tuple of those (`Some((a, b))`).
-/// A variant, a literal, or a tuple inside that tuple is still nested.
+/// A variant field (or the payload of `Some`, `Ok`, `Err`) is `_`, a name,
+/// a tuple of those (`Some((a, b))`), or what an arm may be, nested to any
+/// depth (`Some(Event::Pay { amount })`, `Checked { verified: false, .. }`).
+/// A tuple holding anything but names and `_` is still refused.
 fn field_pattern(pattern: &Pattern) -> Result<(), ParseError> {
     match pattern {
         Pattern::Var(_) | Pattern::Wildcard => Ok(()),
         Pattern::Tuple(elems) => match elems.iter().find(|e| !matches!(e, Pattern::Var(_) | Pattern::Wildcard)) {
             Some(bad) => Err(ParseError::new(Reason::NestedPattern, format!(
-                "variant fields may only bind names or `_` in v0, found {}",
+                "a tuple inside a pattern may only bind names or `_` in v0, found {}",
                 describe_pat(bad)
             ))),
             None => Ok(()),
         },
-        bad => Err(ParseError::new(Reason::NestedPattern, format!(
-            "variant fields may only bind names or `_` in v0, found {}",
-            describe_pat(bad)
-        ))),
+        p if p.is_tuple_case() => Err(ParseError::new(Reason::NestedPattern, "a tuple inside a pattern may only bind names or `_` in v0")),
+        p => arm_pattern(p.clone()).map(|_| ()),
     }
 }
 

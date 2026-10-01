@@ -8,6 +8,7 @@ mod arith_equivalence;
 mod ast_equivalence;
 mod bits_equivalence;
 mod bool_patterns_equivalence;
+mod nested_patterns_equivalence;
 mod borrow_equivalence;
 mod build;
 mod casts;

@@ -43,7 +43,7 @@ fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
     assert_clean("pub enum E { P((i32, i32)) } pub fn f(e: E) -> i32 { match e { E::P((a, b)) => a + b } }");
     assert_parse_rejects(
         "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((Some(a), _)) => a, None => s } }",
-        "variant fields may only bind names",
+        "a tuple inside a pattern may only bind names",
     );
     assert_parse_rejects(
         "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, (b, c))) => a, None => s } }",
@@ -53,7 +53,9 @@ fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
 
 #[test]
 fn elements_follow_the_arm_rules() {
-    assert_parse_rejects(&run("match (o, n) { (Some(Some(_)), _) => 1, _ => 0 }"), "variant fields may only bind names");
+    // An element may nest as an arm may (`nested_patterns_equivalence.rs`).
+    assert_clean(&run("match (o, c) { (Some(0), Cmd::Move(1, y)) => y, (_, Cmd::Paint { color: 3 }) => 1, _ => 0 }"));
+    assert_parse_rejects(&run("match (o, n) { (Some(x) | None, _) => 1, _ => 0 }"), "each side of `|`");
     // Guards on tuple arms are accepted (`guards_equivalence.rs`).
     assert_clean(&run("match (n, d) { (0, Dir::Up) if o.is_some() => 1, (m, _) if m > 3 => 2, _ => 0 }"));
 }
@@ -69,4 +71,15 @@ fn alternatives_of_tuples_bind_nothing() {
 #[test]
 fn tuple_patterns_need_a_tuple() {
     assert_rejects(&run("match n { (0, 1) => 1, _ => 0 }"), "does not match a value of type `i32`");
+}
+
+#[test]
+fn patterns_nest_in_a_case() {
+    assert_clean(&run("match c { Cmd::Move(0, y) => y, Cmd::Move(x, 1..=9) => x, Cmd::Paint { color: 7 } => 7, _ => 0 }"));
+    assert_clean(&run("match o { Some(0) => 1, Some(m) if m > n => m, Some(_) => 2, None => 3 }"));
+    assert_clean(&run("if matches!(c, Cmd::Move(_, 0)) { 1 } else { 0 }"));
+    assert_clean(
+        "pub enum Dir { Up, Down } pub fn f(r: Result<Option<Dir>, u8>) -> i32 { match r { Ok(Some(Dir::Up)) => 1, Ok(_) => 2, Err(0) => 3, Err(_) => 4 } }",
+    );
+    assert_rejects(&run("match o { _ => 0, Some(0) => 1 }"), "`_` must be the last arm");
 }

@@ -140,11 +140,10 @@ Besides the capabilities in §2.1:
 
 <!-- derived-from #2-evidence-from-examples -->
 
-What the evidence currently points at, strongest first. None is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([§8.8](#88-070-lists-from-text-2026-10-02)). A variant or a literal nested in a field stays `[pattern/nested]`.
+What the evidence currently points at, strongest first. None is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([§8.8](#88-070-lists-from-text-2026-10-02)), with patterns nested in a case.
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Nested patterns (a literal or a variant inside a variant's fields, `PasswordChecked { verified: false, .. }`, `Some(Some(x))`) | oidc's idiomatic `step` relies on them (0.4.0 rewrites). `Some((a, b))`, a tuple of names, is in (§8.8) | — |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | Growing a `Vec` in a function body (`let mut v = Vec::new(); v.push(x)`), and `iter().map(f).collect()` over a `Vec` | any domain that accumulates a list (line items, audit trail, retries) writes a cons list today: O(n) access, recursion depth, awkward interop for TS callers who expect arrays, and a large part of the line-count gap | the value semantics of `let mut` already exist; a body that only builds a fresh array is the same as `vec![a, b]` with a runtime length. Not scheduled until §1 is met |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -351,8 +350,10 @@ Why: after `Ordering`, semver was still the example over 2×, and what remained 
 | A `Result` stops at the first `Err`, so a later piece that would panic does not run | `collect_equivalence.rs` |
 | `str::split_once` with a `char` or a `&str`, including an empty needle | `collect_equivalence.rs` |
 | `Some((a, b))`, and the same tuple of names in `Ok` / `Err` or a variant's fields, including under a guard | `tuple_match.rs`, `collect_equivalence.rs` |
+| A pattern nested in a case: a literal, a range, a variant, or `Some` / `Ok` / `Err` in a variant's field or a payload, to any depth (`PasswordChecked { verified: false, .. }`, `Some(Event::Pay { amount })`) | `nested_patterns_equivalence.rs`, `tuple_match.rs` |
 
-- **What is refused.** Collecting a `Vec`, `chars()`, or anything but `split(c)` with a `char`; `collect` with no target type; `split` on a `&str` (an empty separator differs in JS); a variant constructor passed as `.map(PreId::Numeric)` (built with no fields, or, for a unit variant, not a closure or a function name). A variant, a literal, or a tuple inside that tuple of names is still `[pattern/nested]`, as is a tuple nested in a tuple pattern.
+- **What is refused.** Collecting a `Vec`, `chars()`, or anything but `split(c)` with a `char`; `collect` with no target type; `split` on a `&str` (an empty separator differs in JS); a variant constructor passed as `.map(PreId::Numeric)` (built with no fields, or, for a unit variant, not a closure or a function name). A tuple holding anything but names and `_` is still `[pattern/nested]`, as is a tuple nested in a tuple pattern and a side of `|` that tests inside its variant (`A | B(1)`).
+- **Nested patterns** go through the decision tree that tuple `match`es and guards already use ([03 §3.3.1](./03-output.md#331-tuple-match)): where a case is chosen, a field some arm tests becomes one more element, matched further in. rustc checks exhaustiveness, so `check` no longer counts cases for such a `match`; every `switch` the tree prints still names every case. oidc's lockout arm reads `PasswordChecked { verified: false, .. }` as its idiomatic code does, which changes no line count: a guard `if !verified` was one line too, and moving `second_factor: SecondFactor::Totp(..)` into the tuple arm would repeat the arm's head. The evidence for them was readability, not the threshold. A `bool` arm now prints as `x` / `!x`, not `x === true`.
 - **`str::parse` stays out.** Rust's `u64` parse accepts a leading `+`. Matching that, and the cases it rejects, is not what brings semver under the threshold.
 - **Measurement.** semver rewritten with them: 166 → 138 lines, 2.2× → 1.8× (§2.2). Pre-release and build identifiers are `Vec`s. The generated `parse` prints `split` as the array, `Iter.tryCollect` for a `Result`, and `Str.splitOnce`; the turbofish is not a second binding. `Some((x, y))` reads the two strings as `[0]` and `[1]`.
 

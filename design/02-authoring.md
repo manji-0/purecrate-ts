@@ -238,6 +238,12 @@ Output:
 
 Output: the same nested `switch`es as a tuple `match` (a single value as a tuple of one), with an `if` on the guard where the arm's pattern has matched and the arms that can still match in its `else`. Each value is switched on once per path, so TS narrows nothing it would contradict.
 
+#### Patterns inside a case
+
+A variant's field, or the payload of `Some`, `Ok`, or `Err`, may hold any arm pattern, to any depth: `PasswordChecked { verified: false, .. }`, `Paid(Method::Card, Some(0))`, `Ok(Some(Dir::Up))`, `Some(1..=9)`, with bindings beside them and guards after them. Arms are tried in order, as in Rust; rustc checks they are exhaustive.
+
+Output: the same nested `switch`es as a guarded `match`; the field becomes one more value switched on where its case was chosen (`const $verified = event.verified; if (!$verified) …`).
+
 #### `matches!`
 
 - `matches!(x, p)` is `match x { p => true, _ => false }`, with the same arm rules.
@@ -248,7 +254,8 @@ Output: the same nested `switch`es as a tuple `match` (a single value as a tuple
 - tuples inside tuple patterns
 - `|` arms that bind names
 - binding-only arms without a guard
-- a variant, a literal, or a tuple nested further (`Some(Some(x))`, `((a, b), c)`). `Some((a, b))`, a tuple of names and `_`, is accepted, and so is the same shape in `Ok`, `Err`, or a variant's fields
+- a tuple inside a case holding anything but names and `_` (`Some((a, (b, c)))`, `Some((1, b))`). `Some((a, b))` is accepted, and so is the same shape in `Ok`, `Err`, or a variant's fields
+- a side of `|` that tests inside its variant (`A | B(1)`)
 - float literal patterns
 - half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
 - `let else`
@@ -312,7 +319,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | --- | --- |
 | `xs.iter().map(f).collect()`, `.filter(..)` | `for x in &xs`; return new sequences as recursive enums. A list split from text is `s.split(c).map(f).collect()` |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `?` inside a guard, `\|` arms that bind names, a variant or a literal nested in a pattern | bind the `?` result with `let` first; split the match. `Some((a, b))` is a tuple of names |
+| `?` inside a guard, `\|` arms that bind names, a literal inside a tuple pattern in a case (`Some((1, b))`) | bind the `?` result with `let` first; split the match. `Some((a, b))` is a tuple of names |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |

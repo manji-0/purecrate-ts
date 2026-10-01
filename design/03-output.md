@@ -159,7 +159,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 
 #### 3.3.1 Tuple match
 
-A `match` on a tuple is split into nested `match`es, one element at a time (`check::tuple`). At each level it chooses the first element that the first remaining arm tests.
+A `match` on a tuple is split into nested `match`es, one element at a time (`check::tuple`). At each level it chooses the first element that the first remaining arm tests. A `match` with guards, or with a pattern nested in a case, is split the same way, a single value as a tuple of one; a field some arm tests inside (`verified: false`) becomes one more element where its case was chosen, read into `$<field>` (`$f` / `$v` for a positional field or a payload).
 
 ```ts
 switch (event.kind) {
@@ -172,7 +172,7 @@ switch (event.kind) {
 ```
 
 - Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness.
-- Integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time.
+- Integer, `char`, `bool`, and string elements are `if`/`else` on one arm's pattern at a time; a `bool` test prints as `x` or `!x`.
 - Elements that are not places go into `const`s first, in order (`$e1`, `$e2`).
 - A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A fresh `$f`/`$v` name remains only where no arm names the value.
 - A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list. A `_` (or the remaining variants of a tuple element) prints as `default:`; `assertNever` is only the `default` of a `switch` that names every variant. Hoisting an arm that ignores an earlier element (`(_, Event::Cancel)`) is a candidate.

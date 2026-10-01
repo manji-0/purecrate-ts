@@ -117,6 +117,16 @@ impl<T: Js> Js for Option<T> {
     }
 }
 
+/// The generated `Result`: `{ kind, value }` or `{ kind, error }`.
+impl<T: Js, E: Js> Js for Result<T, E> {
+    fn js(&self) -> String {
+        match self {
+            Ok(v) => format!("{{ kind: \"Ok\", value: {} }}", v.js()),
+            Err(e) => format!("{{ kind: \"Err\", error: {} }}", e.js()),
+        }
+    }
+}
+
 /// `Box` and `Arc` are erased in TS.
 impl<T: Js + ?Sized> Js for Box<T> {
     fn js(&self) -> String {

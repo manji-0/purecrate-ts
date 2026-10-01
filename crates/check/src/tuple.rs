@@ -121,6 +121,22 @@ fn wrap(lets: Vec<(Name, Ty, Expr)>, body: Expr) -> Expr {
 }
 
 impl Lowering<'_, '_, '_> {
+    /// A field's type as `compile` reads it: `Box` and friends peeled,
+    /// aliases followed.
+    fn norm(&self, ty: &Ty) -> Ty {
+        let mut t = ty.peel().clone();
+        for _ in 0..32 {
+            match &t {
+                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
+                    Some(a) => t = a.ty.peel().clone(),
+                    None => break,
+                },
+                _ => break,
+            }
+        }
+        t
+    }
+
     /// Not a Rust identifier, so no source name is shadowed or captured.
     fn name(&mut self, what: &str) -> Name {
         *self.fresh += 1;
@@ -186,36 +202,62 @@ impl Lowering<'_, '_, '_> {
                 VariantFields::Tuple(ts) => (ts.clone(), Vec::new()),
                 VariantFields::Struct(fs) => (fs.iter().map(|f| f.ty.clone()).collect(), fs.iter().map(|f| f.name.clone()).collect()),
             };
-            let fresh: Vec<Name> = tys.iter().map(|_| self.name("f")).collect();
-            let mut used = vec![false; tys.len()];
+            let column_tys: Vec<Ty> = tys.iter().map(|t| self.norm(t)).collect();
+            // Named after the field where it has one (`$verified`).
+            let fresh: Vec<Name> = (0..tys.len()).map(|i| match named.get(i) {
+                Some(f) => self.name(f.as_str()),
+                None => self.name("f"),
+            }).collect();
+            let fields_of = |bind: VariantBind| -> Vec<(usize, Pattern)> {
+                match bind {
+                    VariantBind::Unit => Vec::new(),
+                    VariantBind::Tuple(ps) => ps.into_iter().enumerate().collect(),
+                    VariantBind::Struct(ps) => ps
+                        .into_iter()
+                        .filter_map(|(f, p)| named.iter().position(|n| *n == f).map(|i| (i, p)))
+                        .collect(),
+                }
+            };
+            // A field some row tests inside (`verified: false`) becomes a
+            // column of its own, matched further in.
+            let columns: Vec<usize> = (0..tys.len())
+                .filter(|&i| {
+                    rows.iter().any(|row| match &row.pats[col] {
+                        Pattern::Variant { variant, bind, .. } if *variant == v.name => {
+                            fields_of(bind.clone()).iter().any(|(j, p)| *j == i && p.refutable())
+                        }
+                        _ => false,
+                    })
+                })
+                .collect();
+            let mut used: Vec<bool> = (0..tys.len()).map(|i| columns.contains(&i)).collect();
             let kept: Vec<Row> = rows
                 .iter()
                 .filter_map(|row| {
                     let mut row = row.clone();
                     let p = std::mem::replace(&mut row.pats[col], Pattern::Wildcard);
+                    let mut inner = vec![Pattern::Wildcard; columns.len()];
                     match p {
                         Pattern::Wildcard => {}
                         Pattern::Var(n) => row.binds.push((n, subjects[col].1.clone(), subjects[col].0.clone())),
                         Pattern::Variant { variant, bind, .. } if variant == v.name => {
-                            let fields: Vec<(usize, Pattern)> = match bind {
-                                VariantBind::Unit => Vec::new(),
-                                VariantBind::Tuple(ps) => ps.into_iter().enumerate().collect(),
-                                VariantBind::Struct(ps) => ps
-                                    .into_iter()
-                                    .filter_map(|(f, p)| named.iter().position(|n| *n == f).map(|i| (i, p)))
-                                    .collect(),
-                            };
-                            for (i, p) in fields {
-                                bind_names(&mut row, p, &tys[i], Expr::Var(fresh[i].clone()), &mut used[i]);
+                            for (i, p) in fields_of(bind) {
+                                match columns.iter().position(|c| *c == i) {
+                                    Some(k) => inner[k] = p,
+                                    None => bind_names(&mut row, p, &tys[i], Expr::Var(fresh[i].clone()), &mut used[i]),
+                                }
                             }
                         }
                         Pattern::Or(alts) if alts.iter().any(|a| matches!(a, Pattern::Variant { variant, .. } if *variant == v.name)) => {}
                         _ => return None,
                     }
+                    row.pats.extend(inner);
                     Some(row)
                 })
                 .collect();
-            let body = self.compile(subjects, kept);
+            let mut inner_subjects = subjects.to_vec();
+            inner_subjects.extend(columns.iter().map(|&i| (Expr::Var(fresh[i].clone()), column_tys[i].clone())));
+            let body = self.compile(&inner_subjects, kept);
             let bind = match &v.fields {
                 VariantFields::Unit => VariantBind::Unit,
                 VariantFields::Tuple(_) => VariantBind::Tuple(
@@ -270,7 +312,18 @@ impl Lowering<'_, '_, '_> {
         let arms = cases
             .into_iter()
             .map(|(case, payload)| {
-                let mut uses = false;
+                let payload_of = |p: &Pattern| -> Option<Pattern> {
+                    match (p, &case) {
+                        (Pattern::OptionSome(q), Pattern::OptionSome(_))
+                        | (Pattern::ResultOk(q), Pattern::ResultOk(_))
+                        | (Pattern::ResultErr(q), Pattern::ResultErr(_)) => Some((**q).clone()),
+                        _ => None,
+                    }
+                };
+                // A payload some row tests inside (`Some(Event::Pay { .. })`)
+                // becomes a column of its own, matched further in.
+                let column = payload.is_some() && rows.iter().any(|row| payload_of(&row.pats[col]).is_some_and(|q| q.refutable()));
+                let mut uses = column;
                 let kept: Vec<Row> = rows
                     .iter()
                     .filter_map(|row| {
@@ -282,19 +335,22 @@ impl Lowering<'_, '_, '_> {
                                 row.binds.push((n.clone(), subjects[col].1.clone(), subject.clone()));
                                 None
                             }
-                            (Pattern::OptionSome(q), Pattern::OptionSome(_))
-                            | (Pattern::ResultOk(q), Pattern::ResultOk(_))
-                            | (Pattern::ResultErr(q), Pattern::ResultErr(_)) => Some(&**q),
                             (Pattern::OptionNone, Pattern::OptionNone) => None,
-                            _ => return None,
+                            _ => Some(payload_of(&p)?),
                         };
-                        if let (Some(inner), Some((v, t))) = (inner, &payload) {
-                            bind_names(&mut row, inner.clone(), t, Expr::Var(v.clone()), &mut uses);
+                        match (inner, &payload) {
+                            (inner, Some(_)) if column => row.pats.push(inner.unwrap_or(Pattern::Wildcard)),
+                            (Some(inner), Some((v, t))) => bind_names(&mut row, inner, t, Expr::Var(v.clone()), &mut uses),
+                            _ => {}
                         }
                         Some(row)
                     })
                     .collect();
-                let body = self.compile(subjects, kept);
+                let mut inner_subjects = subjects.to_vec();
+                if let (true, Some((v, t))) = (column, &payload) {
+                    inner_subjects.push((Expr::Var(v.clone()), self.norm(t)));
+                }
+                let body = self.compile(&inner_subjects, kept);
                 let pattern = match case {
                     Pattern::OptionSome(_) if !uses => Pattern::OptionSome(Box::new(Pattern::Wildcard)),
                     Pattern::ResultOk(_) if !uses => Pattern::ResultOk(Box::new(Pattern::Wildcard)),
