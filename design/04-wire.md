@@ -1,6 +1,6 @@
 # Wire boundary
 
-Status: current (2026-10-01, 0.5.0)
+Status: current (2026-10-01, after 0.5.0: unreleased changes in CHANGELOG.md)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -38,8 +38,8 @@ Of the options considered:
 
 | Part | Where | What |
 | --- | --- | --- |
-| Core runtime `purecrate` | `packages/boundary` | The numeric brands, `Int.*.of`, `Str`, `Char`, `Uuid`, `parseJson`, and `Json` (the helpers of `toJson`). It depends on no schema library |
-| Adapters `purecrate-zod`, `-valibot`, `-arktype` | separate packages | Thin adapters, one per schema library. Only the one passed with `--schema` is used |
+| Core runtime `purecrate` | `packages/boundary`, copied into each package as `src/purecrate-runtime.ts` (design/03 §4.4) | The numeric brands and `Int`, `Result`, `Str`, `Char`, `Uuid`, `parseJson`, and `Json` (`object`, `tuple`, `array`, and the scalar writers `toJson` calls). It depends on no schema library |
+| Adapters `purecrate-zod`, `-valibot`, `-arktype` | `packages/boundary-<lib>`, the one passed with `--schema` copied in as `src/purecrate-<lib>.ts` | Thin adapters, one per schema library: the scalar schemas, `nullable`, `unitVariant`, `unitEnum`, and zod's `optionalField`; arktype's also `Wire`, `memo`, `keyed`, `fail` |
 | Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's default JSON (no attributes) into the branded domain type, with `fromJson.T(text)` reading the text through `parseJson` and the schema, and `toJson` for each that derives `Serialize`, writing it back (§6); see §3.2 |
 
 Each adapter's library is a peer dependency of the generated package:
@@ -103,11 +103,13 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 
 **Remaining difference.** One difference remains, from [§3.3 rule 1](#33-reading-rules): `i64`/`u64` also read digit strings (`"50"`), which serde_json rejects. With `try_from` the value still passes through the constructor.
 
-## 6. Writing domain values
+## 6. Reading and writing text
 
 <!-- derived-from ./07-roadmap.md#2-evidence-from-examples -->
 
-`toJson.T(x)` returns the JSON text serde_json writes for the Rust value of `x`, **byte for byte**. It needs no schema library; its helpers are the runtime's `Json`.
+`toJson.T(x)` returns the JSON text serde_json writes for the Rust value of `x`, **byte for byte**. It needs no schema library; its helpers are the runtime's `Json`. A struct or a variant's wrapper is `Json.object([["a", ..], ..])`, a tuple `Json.tuple([..])`, so a long one reads one field per line.
+
+`fromJson.T(text)` is its inverse for a type that derives `Deserialize`: the text through `parseJson` (§3.3 rule 1), then the schema. Malformed text and a refused value throw, as `JSON.parse` and the library's `parse` do (zod's `parse`, valibot's `v.parse`, arktype's `assert`). It is the one reading to use; `JSON.parse` and then the schema refuses an `i64` past 2^53.
 
 | Value | Written as |
 | --- | --- |

@@ -29,7 +29,7 @@ crate source (root and module files)
 | `emit_ts` | IR → TS strings; wire schemas and `toJson` (`schema.rs`) |
 | `pack` | package assembly |
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
-| `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-writing-domain-values)) |
+| `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
 
 - **Runtime packages.** The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package, the runtime cut to what the package uses ([03](./03-output.md)).
 - **Purity.** File I/O is confined to `cli` and `pack`; everything else is pure.
