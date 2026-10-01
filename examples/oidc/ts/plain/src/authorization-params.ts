@@ -19,5 +19,29 @@ export type AuthorizationParams = Readonly<{
 }>;
 
 export const AuthorizationParams = {
-  of: (client_id: string | null, response_type: string | null, redirect_uri: string | null, scope: string | null, state: string | null, nonce: string | null, code_challenge: string | null, code_challenge_method: string | null, prompt: string | null, max_age: string | null, acr_values: string | null): AuthorizationParams => ({ client_id, response_type, redirect_uri, scope, state, nonce, code_challenge, code_challenge_method, prompt, max_age, acr_values }),
+  of: (
+    clientId: string | null,
+    responseType: string | null,
+    redirectUri: string | null,
+    scope: string | null,
+    state: string | null,
+    nonce: string | null,
+    codeChallenge: string | null,
+    codeChallengeMethod: string | null,
+    prompt: string | null,
+    maxAge: string | null,
+    acrValues: string | null,
+  ): AuthorizationParams => ({
+    client_id: clientId,
+    response_type: responseType,
+    redirect_uri: redirectUri,
+    scope,
+    state,
+    nonce,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
+    prompt,
+    max_age: maxAge,
+    acr_values: acrValues,
+  }),
 } as const;

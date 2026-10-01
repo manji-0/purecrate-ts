@@ -110,6 +110,9 @@ fn access(publishable: bool) -> Access {
 /// Parse, check, compile with rustc, prune, emit. `consequence` ends the
 /// error summary line.
 fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Access) -> Result<Package, String> {
+    if let Some(warning) = args::overflow_warning(&input.src) {
+        eprintln!("{warning}");
+    }
     let src = &input.src;
     let files = files::crate_files(src)?;
     let sources: Vec<Source<'_>> = files.iter().map(|f| Source { text: &f.text, public: f.public }).collect();

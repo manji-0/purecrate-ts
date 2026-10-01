@@ -129,12 +129,9 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
         VariantFields::Struct(fields) => {
             let params: Vec<String> = fields
                 .iter()
-                .map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty)))
+                .map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty)))
                 .collect();
-            let assigns: Vec<String> = fields
-                .iter()
-                .map(|f| f.name.as_str().to_string())
-                .collect();
+            let assigns: Vec<String> = fields.iter().map(|f| ctor_assign(f.name.as_str())).collect();
             format!(
                 "({params}): {ty} => ({{ kind: \"{kind}\", {assigns} }})",
                 params = params.join(", "),
@@ -164,13 +161,13 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     let params = st
         .fields
         .iter()
-        .map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty)))
+        .map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty)))
         .collect::<Vec<_>>()
         .join(", ");
     let assigns = st
         .fields
         .iter()
-        .map(|f| f.name.as_str().to_string())
+        .map(|f| ctor_assign(f.name.as_str()))
         .collect::<Vec<_>>()
         .join(", ");
     out.push_str(&format!("export const {name} = {{\n"));
@@ -230,6 +227,21 @@ pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
          export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",
         ctor = closed_ctor(name)
     )
+}
+
+/// Constructor parameter for a field: camelCase, not the JSON key.
+fn ctor_param(field: &str) -> String {
+    purecrate_ir::to_camel(field)
+}
+
+/// `last_error: lastError`, or `color` when the two spellings match.
+fn ctor_assign(field: &str) -> String {
+    let param = ctor_param(field);
+    if param == field {
+        field.to_string()
+    } else {
+        format!("{field}: {param}")
+    }
 }
 
 pub(crate) fn emit_free_fn(f: &Fn) -> String {

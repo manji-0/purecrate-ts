@@ -10,9 +10,9 @@ export type Prompt = Readonly<{
 
 export const Prompt = {
   of: (
-    no_interaction: boolean,
+    noInteraction: boolean,
     login: boolean,
     consent: boolean,
-    select_account: boolean,
-  ): Prompt => ({ no_interaction, login, consent, select_account }),
+    selectAccount: boolean,
+  ): Prompt => ({ no_interaction: noInteraction, login, consent, select_account: selectAccount }),
 } as const;

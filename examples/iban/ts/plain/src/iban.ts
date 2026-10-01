@@ -16,23 +16,21 @@ export const Iban$of = (value: string): Iban => value as Iban;
 export const Iban = {
   parse: (raw: string): Result<Iban, IbanError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    if ((((b.length) as Usize) < (15 as Usize)) || (((b.length) as Usize) > (34 as Usize))) return Result.err({ kind: "Length" });
+    if (((b.length) as Usize) < (15 as Usize) || ((b.length) as Usize) > (34 as Usize))
+      return Result.err({ kind: "Length" });
     for (let i = (0 as Usize), $e_2 = (2 as Usize); i < $e_2; i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i))) return Result.err({ kind: "Country" });
     }
-    for (let i$1 = (2 as Usize), $e_2 = (4 as Usize); i$1 < $e_2; i$1 = (i$1 + 1) as Usize) {
-      if (!isDigit(Slice.at(b, i$1))) return Result.err({ kind: "CheckDigits" });
+    for (let i = (2 as Usize), $e_2 = (4 as Usize); i < $e_2; i = (i + 1) as Usize) {
+      if (!isDigit(Slice.at(b, i))) return Result.err({ kind: "CheckDigits" });
     }
     let acc: U32 = 0 as U32;
-    for (let i$2 = (4 as Usize), $e_2 = ((b.length) as Usize); i$2 < $e_2; i$2 = (i$2 + 1) as Usize) {
-      if (!isUpper(Slice.at(
-        b,
-        i$2,
-      )) && !isDigit(Slice.at(b, i$2))) return Result.err({ kind: "Bban" });
-      acc = push(acc, Slice.at(b, i$2));
+    for (let i = (4 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
+      if (!isUpper(Slice.at(b, i)) && !isDigit(Slice.at(b, i))) return Result.err({ kind: "Bban" });
+      acc = push(acc, Slice.at(b, i));
     }
-    for (let i$3 = (0 as Usize), $e_2 = (4 as Usize); i$3 < $e_2; i$3 = (i$3 + 1) as Usize) {
-      acc = push(acc, Slice.at(b, i$3));
+    for (let i = (0 as Usize), $e_2 = (4 as Usize); i < $e_2; i = (i + 1) as Usize) {
+      acc = push(acc, Slice.at(b, i));
     }
     if (acc !== (1 as U32)) return Result.err({ kind: "Checksum" });
     return Result.ok(Iban$of(raw));

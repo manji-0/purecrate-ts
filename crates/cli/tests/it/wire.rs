@@ -252,6 +252,28 @@ fn the_derives_decide_what_is_on_the_wire() {
     assert!(!wire.contains("Email$of"), "{wire}");
 }
 
+/// Type and value imports of one module are a single statement, including
+/// `{E as E$text}` next to `type E as E$` for a `try_from` refusal.
+#[test]
+fn one_module_is_imported_once() {
+    let source = include_str!("../../../../examples/payment/src/lib.rs");
+    let krate = parse_source("payment", source).expect("parse");
+    let typed = accept(&krate).expect("accept");
+    let wire = assemble_with(&typed, Some(WireSchema::Zod))
+        .files
+        .into_iter()
+        .find(|f| f.stem == "purecrate-wire")
+        .expect("wire module")
+        .source;
+    assert_eq!(
+        wire.matches("from \"./payment-error.ts\"").count(),
+        1,
+        "payment-error.ts imported more than once:\n{wire}"
+    );
+    assert!(wire.contains("PaymentError as PaymentError$text"), "{wire}");
+    assert!(wire.contains("type PaymentError as PaymentError$"), "{wire}");
+}
+
 /// The index exports `Char` and `Uuid` when the public surface holds one,
 /// and `parseJson` with a schema; the runtime keeps them whole then.
 #[test]
@@ -264,14 +286,19 @@ fn the_index_exports_the_runtime_the_surface_needs() {
         (file("index"), file("purecrate-runtime"))
     };
     let (plain, runtime) = index("pub fn twice(n: i32) -> i32 { n * 2 }", None);
-    assert!(plain.contains("export { Result, assertNever, Int } from"), "{plain}");
-    assert!(!plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"), "{plain}");
+    assert!(plain.contains("export { Panic, assertNever, Int } from"), "{plain}");
+    assert!(plain.contains("export type { I32 } from"), "{plain}");
+    assert!(!plain.contains("Result") && !plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"), "{plain}");
+    assert!(!plain.contains("I8") && !plain.contains("F64"), "{plain}");
     assert!(!runtime.contains("fromU32") && !runtime.contains("export const parseJson"), "{runtime}");
+    assert!(!runtime.contains("export const Iter") && !runtime.contains("export const Slice"), "{runtime}");
     let (chars, runtime) = index("pub fn first(c: char) -> bool { c.is_ascii_digit() }", None);
-    assert!(chars.contains("export { Result, assertNever, Int, Char } from"), "{chars}");
+    assert!(chars.contains("export { Panic, assertNever, Int, Char } from"), "{chars}");
     assert!(runtime.contains("fromU32"), "the whole of `Char` is kept:\n{runtime}");
     let source = "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
     let (wired, runtime) = index(source, Some(WireSchema::Zod));
     assert!(wired.contains("export { parseJson } from"), "{wired}");
     assert!(runtime.contains("export const parseJson"), "{runtime}");
+    let (with_result, _) = index("pub fn fallible(n: i32) -> Result<i32, i32> { Ok(n) }", None);
+    assert!(with_result.contains("export { Result, Panic, assertNever, Int } from"), "{with_result}");
 }

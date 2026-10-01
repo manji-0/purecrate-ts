@@ -3,7 +3,6 @@
 import { assertNever, Int, Result, type I64 } from "./purecrate-runtime.ts";
 import { attempt } from "./attempt.ts";
 import type { Event } from "./event.ts";
-import type { Outcome } from "./outcome.ts";
 import type { PaymentError } from "./payment-error.ts";
 import type { PaymentIntent } from "./payment-intent.ts";
 import type { PaymentMethod } from "./payment-method.ts";
@@ -11,7 +10,7 @@ import type { Status } from "./status.ts";
 import type { Terms } from "./terms.ts";
 
 export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent, PaymentError> => {
-  const terms = intent.terms as Terms;
+  const terms: Terms = intent.terms as Terms;
   let status: Status;
   switch (intent.status.kind) {
     case "RequiresPaymentMethod":
@@ -22,98 +21,73 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Confirm": {
-          const method$1 = event.method;
+          const method = event.method;
           const outcome = event.outcome;
-          const $method = method$1 as PaymentMethod | null;
-          const $methodOr = { kind: "MissingPaymentMethod" } as PaymentError;
-          if ($method === null) return Result.err($methodOr);
-          const method$2 = $method as PaymentMethod;
-          status = attempt(terms, method$2, outcome);
+          if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
+          const method$1: PaymentMethod = method as PaymentMethod;
+          status = attempt(terms, method$1, outcome);
           break;
         }
-        case "ActionHandled":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "Cancel": {
           const reason = event.content[0];
           status = { kind: "Canceled", reason };
           break;
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
       break;
     case "RequiresConfirmation": {
       const current = intent.status.method;
       switch (event.kind) {
         case "AttachMethod": {
-          const method$3 = event.content[0];
-          status = { kind: "RequiresConfirmation", method: method$3 };
+          const method = event.content[0];
+          status = { kind: "RequiresConfirmation", method };
           break;
         }
         case "Confirm": {
-          const method$4 = event.method;
-          const outcome$1 = event.outcome;
-          status = attempt(terms, ((method$4 !== null) ? method$4 : current), outcome$1);
+          const method = event.method;
+          const outcome = event.outcome;
+          status = attempt(terms, method ?? current, outcome);
           break;
         }
-        case "ActionHandled":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "Cancel": {
-          const reason$1 = event.content[0];
-          status = { kind: "Canceled", reason: reason$1 };
+          const reason = event.content[0];
+          status = { kind: "Canceled", reason };
           break;
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
       break;
     }
     case "RequiresAction": {
-      const method$5 = intent.status.method;
+      const method = intent.status.method;
       switch (event.kind) {
-        case "AttachMethod":
-        case "Confirm":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "ActionHandled": {
-          const outcome$2 = event.content[0];
-          if ((terms.confirmation.kind === "Manual") && (outcome$2.kind !== "Declined")) {
-            status = { kind: "RequiresConfirmation", method: method$5 };
+          const outcome = event.content[0];
+          if ((terms.confirmation.kind === "Manual") && outcome.kind !== "Declined") {
+            status = { kind: "RequiresConfirmation", method };
           } else {
-            const method$6 = method$5 as PaymentMethod;
-            const outcome$3 = outcome$2 as Outcome;
-            status = attempt(terms, method$6, outcome$3);
+            status = attempt(terms, method, outcome);
           }
           break;
         }
         case "Cancel": {
-          const reason$2 = event.content[0];
-          status = { kind: "Canceled", reason: reason$2 };
+          const reason = event.content[0];
+          status = { kind: "Canceled", reason };
           break;
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
       break;
     }
     case "Processing": {
-      const method$7 = intent.status.method;
+      const method = intent.status.method;
       switch (event.kind) {
-        case "AttachMethod":
-        case "Confirm":
-        case "ActionHandled":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "ProcessingSucceeded":
-          status = attempt(terms, method$7, { kind: "Authorized" });
+          status = attempt(terms, method, { kind: "Authorized" });
           break;
         case "ProcessingFailed": {
           const code = event.content[0];
@@ -121,91 +95,64 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Cancel": {
-          const reason$3 = event.content[0];
-          if (method$7.kind.kind === "BankDebit") {
-            status = { kind: "Canceled", reason: reason$3 };
+          const reason = event.content[0];
+          if (method.kind.kind === "BankDebit") {
+            status = { kind: "Canceled", reason };
           } else {
             return Result.err({ kind: "NotCancelable" });
           }
           break;
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
       break;
     }
     case "RequiresCapture": {
       const capturable = intent.status.capturable;
       switch (event.kind) {
-        case "AttachMethod":
-        case "Confirm":
-        case "ActionHandled":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-          return Result.err({ kind: "InvalidTransition" });
         case "Capture": {
           const amountToCapture = event.amount_to_capture;
           const applicationFee = event.application_fee;
-          if ((amountToCapture !== null) && ((amountToCapture < (1n as I64)) || (amountToCapture > capturable))) return Result.err({ kind: "InvalidCaptureAmount", capturable });
-          if ((applicationFee !== null) && (applicationFee < (0n as I64))) return Result.err({ kind: "NegativeApplicationFee" });
-          let received: I64;
-          {
-            const $amountToCapture = amountToCapture as I64 | null;
-            const $amountToCaptureOr: I64 = capturable;
-            if ($amountToCapture !== null) {
-              const $some$2 = $amountToCapture;
-              received = $some$2;
-            } else {
-              received = $amountToCaptureOr;
-            }
-          }
+          if (
+            amountToCapture !== null && (
+              amountToCapture < (1n as I64) || amountToCapture > capturable
+            )
+          )
+            return Result.err({ kind: "InvalidCaptureAmount", capturable });
+          if (applicationFee !== null && applicationFee < (0n as I64))
+            return Result.err({ kind: "NegativeApplicationFee" });
+          const received: I64 = amountToCapture ?? capturable;
           status = {
             kind: "Succeeded",
             received,
-            application_fee: ((applicationFee !== null) ? Int.i64.min(
-              applicationFee,
-              received,
-            ) : null),
+            application_fee: applicationFee !== null ? Int.i64.min(applicationFee, received) : null,
           };
           break;
         }
         case "Cancel": {
-          const reason$4 = event.content[0];
-          status = { kind: "Canceled", reason: reason$4 };
+          const reason = event.content[0];
+          status = { kind: "Canceled", reason };
           break;
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
       break;
     }
     case "Succeeded":
       switch (event.kind) {
-        case "AttachMethod":
-        case "Confirm":
-        case "ActionHandled":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "Cancel":
           return Result.err({ kind: "NotCancelable" });
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
     case "Canceled":
       switch (event.kind) {
-        case "AttachMethod":
-        case "Confirm":
-        case "ActionHandled":
-        case "ProcessingSucceeded":
-        case "ProcessingFailed":
-        case "Capture":
-          return Result.err({ kind: "InvalidTransition" });
         case "Cancel":
           return Result.err({ kind: "NotCancelable" });
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
     default:
       return assertNever(intent.status);

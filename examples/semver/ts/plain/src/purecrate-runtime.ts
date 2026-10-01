@@ -43,6 +43,24 @@ export const Result = {
   isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
 } as const;
 
+/**
+ * A domain panic: overflow, division by zero, a shift out of range, or an
+ * index/slice Rust would panic on. `message` is Rust's panic text. Named
+ * `Panic` so `instanceof` works across copies of this file (`Symbol.for`).
+ */
+const PANIC = Symbol.for("purecrate.Panic");
+
+export class Panic extends Error {
+  readonly [PANIC] = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "Panic";
+  }
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return typeof value === "object" && value !== null && PANIC in (value as object);
+  }
+}
+
 /** The `default` of a `switch` that names every variant: unreachable. */
 export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
@@ -63,7 +81,7 @@ export type F64 = number & { readonly "purecrate.F64": true };
 export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
-  throw new Error(`attempt to ${what}`);
+  throw new Panic(`attempt to ${what}`);
 };
 
 const small = <T extends number>(min: number, max: number) => {
@@ -260,7 +278,7 @@ export const Slice = {
   /** `xs[i]`. */
   at: <T>(xs: ReadonlyArray<T>, i: number): T => {
     if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
-      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+      throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
     }
     return xs[i] as T;
   },
@@ -278,17 +296,8 @@ const utf8Width = (c: string): number => {
 };
 
 const panicWith = (message: string): never => {
-  throw new Error(message);
+  throw new Panic(message);
 };
-
-/**
- * `char` operations (design/01 §6). Ordering and ranges go through `code`:
- * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
- * supplementary planes. Only ASCII and code-point methods are here; the
- * Unicode-table ones (`is_alphabetic`, ...) are not.
- */
-export const Char = {
-} as const;
 
 /**
  * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that

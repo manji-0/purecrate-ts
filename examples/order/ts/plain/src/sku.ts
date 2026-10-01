@@ -11,5 +11,8 @@ export type Sku = string & { readonly "order.Sku": true };
 export const Sku$of = (value: string): Sku => value as Sku;
 
 export const Sku = {
-  new: (code: string): Result<Sku, OrderError> => (code.length === 0) ? Result.err({ kind: "EmptySku" }) : Result.ok(Sku$of(code)),
+  new: (code: string): Result<
+    Sku,
+    OrderError
+  > => (code.length === 0) ? Result.err({ kind: "EmptySku" }) : Result.ok(Sku$of(code)),
 } as const;

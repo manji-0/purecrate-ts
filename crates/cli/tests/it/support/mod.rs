@@ -117,7 +117,7 @@ impl<T: Js> Js for Option<T> {
     }
 }
 
-/// `Box`, `Arc` and `Mutex` are erased in TS.
+/// `Box` and `Arc` are erased in TS.
 impl<T: Js + ?Sized> Js for Box<T> {
     fn js(&self) -> String {
         (**self).js()

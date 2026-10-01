@@ -16,10 +16,10 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Same-named companion | `export type T` + `export const T = { … } as const` |
 | Function properties, `export const f = (…) =>` | no classes, no method syntax, no `this`, no `export function` |
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
-| Expected failure is `Result` | only `assertNever` and arithmetic/index panics throw |
+| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
-| Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
-| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; fields, types, variants, and UPPER_SNAKE consts keep the Rust name ([02 §3.3](./02-authoring.md)) |
+| Lines up to 100 characters | a longer line opens a comma-separated bracket, a `if (cond) return`, a long `&&` / `||` / `?:`, or an arrow body (`emit_ts::tidy::wrap`). Parentheses follow operator precedence. `crates/cli/tests/it/line_width.rs` fails on any generated domain line over the limit |
+| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
 
 ### 1.1 Casts
@@ -36,7 +36,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Discriminant | `({ A: (1 as U8) } as Record<string, U8>)[e.kind] as U8` | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)) |
 | Float | `(a * b as F64)`, `(Math.fround(x) as F32)` | every `number` is an `f64`; `fround` gives an `f32` |
 | Constructor | `Yen$of = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
-| Declared type | `state as State`, `{ kind: "A" } as Event`, `o as I64 \| null` | the value has that type already; TS had narrowed it, and the cast widens it back |
+| Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
 A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as `@typescript-eslint/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
@@ -57,10 +57,12 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
 | `(A, B)` | `readonly [A, B]` |
-| `Box<T>`, `Arc<T>`, `Mutex<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads, `Mutex` exclusion between threads: a single-threaded program with values never mutated observes none of them |
+| `Box<T>`, `Arc<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads: a single-threaded program with values never mutated observes neither. `Mutex` is refused (`[type/mutex]`) |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |
 | newtype `S(T)` | `T & { readonly "<crate>.S": true }` |
 | `enum` | `kind` union + companion |
+
+**`Option`.** Nested `Option` and a newtype over `Option` are refused (`[check/nested-option]`, `[check/newtype-inner]`), because `T | null` cannot tell `None` from `Some(None)` and `null & brand` is `never`. Both show up in PATCH-style domain code (unset vs. clear vs. set); the spelling is a hand-written enum such as `Patch { Unset, Clear, Set(i32) }` ([02 §3.7](./02-authoring.md#37-types)). This is a consequence of the representation, not of Rust semantics. serde's default JSON is `null` for both `None`s of an `Option<Option<T>>`, so a server using the same types cannot distinguish them either unless it uses `serde_with`-style handling; that is why the rejection stays rather than printing only the nested occurrence as `{ kind: "Some", value } | { kind: "None" }`.
 
 ## 3. Shapes
 
@@ -83,7 +85,11 @@ export const Cmd = {
 } as const;
 ```
 
+A one-field tuple variant is `{ kind: "Add"; content: readonly [I32] }`, read as `event.content[0]`. Representing it as `{ kind, value: T }` (JSON unchanged: the wire module still writes serde's `{"Add": 1}`) is a candidate and a breaking change to the type shape ([07 §9](./07-roadmap.md#9-generated-api-stability)). Two or more fields stay `content`.
+
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
+
+Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); the object keys they write stay the Rust field names (`last_error`), which are the JSON keys. Honouring `#[serde(rename_all = "camelCase")]` so the field and the key both become camelCase is a candidate, still refused ([07 §9](./07-roadmap.md#9-generated-api-stability)).
 
 ### 3.2 Structs, methods, newtypes
 
@@ -107,7 +113,7 @@ export const Meters = {
 
 - A newtype's runtime value is its content. This is also serde's JSON for it.
 - `.0` is the value itself.
-- The brand key is a `unique symbol`, so newtypes of newtypes do not collide.
+- The brand key is a string (`{ readonly "geo.Meters": true }`), so newtypes of newtypes do not collide and two copies of the package exchange values. Closedness is not a type-level guarantee: `$of` is a file export, and a vendored import of it builds a value without a cast.
 - `Meters` above is closed (its field is not `pub`), so there is no `of`. With `pub struct Meters(pub i32)` the companion would have `of`.
 
 **Methods.** Methods become companion properties with the receiver first. `Self` is replaced by the type name.
@@ -169,15 +175,15 @@ switch (event.kind) {
 - Integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time.
 - Elements that are not places go into `const`s first, in order (`$e1`, `$e2`).
 - A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A fresh `$f`/`$v` name remains only where no arm names the value.
-- A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list.
+- A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list. A `_` (or the remaining variants of a tuple element) prints as `default:`; `assertNever` is only the `default` of a `switch` that names every variant. Hoisting an arm that ignores an earlier element (`(_, Event::Cancel)`) is a candidate.
 - A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`. An annotation would keep the narrowing of an enclosing `switch`.
 
 #### 3.3.2 Guards and Option methods
 
 - A `match` with guards prints as a tuple `match` does (§3.3.1), a single value as a tuple of one. Where an arm's pattern has matched, `if (guard) { body } else { .. }`, the `else` holding the arms after it that can still match. The guard reads the arm's bindings from their places.
-- `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first.
-- `let x = o.ok_or(e)?` is a guard instead: the receiver and `e` bound, then `if ($o === null) return Result.err($oOr);` and `const x = $o`. The `match` would build a `Result` only for `?` to take it apart.
-- A `?` inside an expression is hoisted in front of its statement: `const $f = f(x);`, `if ($f.kind === "Err") return $f;` (`=== null` for an `Option`), and the expression reads `$f.value` (`$f`). `let x = e?` binds the payload to `x` instead.
+- `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first when they may panic or have an effect; a name, a literal, or a field is read in the arm (`x ?? d`, `if (x === null) return Result.err(e)`).
+- `let x = o.ok_or(e)?` is a guard instead: `if (o === null) return Result.err(e);` and `const x = o` when `o` and `e` cannot panic. Otherwise the receiver and `e` are bound first, then the same test. The `match` would build a `Result` only for `?` to take it apart.
+- A `?` inside an expression is hoisted in front of its statement: `const $f = f(x);`, `if ($f.kind === "Err") return $f;` (`=== null` for an `Option`), and the expression reads `$f.value` (`$f`). `let x = e?` binds the payload to `x` instead. A `?` on a name is the test on that name.
 - A name the generator makes starts with `$`, which no Rust name can, and says what it holds where it can: `$f` for the value of a call to `f`, `$o` and `$oOr` for the receiver and argument of `o.unwrap_or(..)` / `o.ok_or(..)`; a second one of a name gets a number (`$f2`, `$o$1`).
 - `if c { return v; }` as a statement prints on one line, `if (c) return v;`, when `c` and `v` each fit on one.
 
@@ -192,7 +198,7 @@ A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `
 
 #### 3.3.5 Renaming
 
-- Bindings are renamed to be unique per function. Shadowing gives `x$1`.
+- Bindings are numbered (`x$1`) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
 - A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
 
 ### 3.4 Closures
@@ -274,7 +280,7 @@ The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can r
 
 **What.** The runtime (`packages/boundary`) is copied in as `src/purecrate-runtime.ts`. With `--schema`, the adapter is copied in as `src/purecrate-<lib>.ts`. Both are copied at the generator's revision. The schema library is the only `peerDependencies` entry.
 
-**Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files name it (`Int.<ty>.<op>` for each type's bitwise operators and methods, `Str.<member>`, `Json`), and leaves the markers out (`crates/pack/src/trim.rs`). The types, `Result`, `assertNever`, and each integer type's `of` and arithmetic are always kept, and so is all of what the index exports to callers: `Char` when the public surface holds a `char`, `Uuid` when it holds a `Uuid`, and `parseJson` with `--schema` (`trim::exported`). Why: the runtime's `Int` is one object that generated code always names, so a bundler cannot drop what it does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. payment's copy is 10.3 KB of the runtime's 29 KB, counter's 6.5 KB.
+**Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files name it (`Int.<ty>.<op>` for each type's bitwise operators and methods, `Str.<member>`, `Json`), and leaves the markers out (`crates/pack/src/trim.rs`). A namespace whose members are all trimmed is dropped (`export const Iter = {}` is not kept). The types, `Result`, `assertNever`, and each integer type's `of` and arithmetic are always kept in the copy, and so is all of what the index exports to callers. The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type, `Char` when it holds a `char`, `Uuid` when it holds a `Uuid`, and `parseJson` with `--schema` (`trim::exported`). Why: the runtime's `Int` is one object that generated code always names, so a bundler cannot drop what it does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. Two packages re-exported from one barrel then only share the names both surfaces actually use. payment's copy is 10.3 KB of the runtime's 29 KB, counter's 6.5 KB.
 
 **Brands.** Brands are keyed by string: the runtime's by `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), a crate's newtypes and closed structs by the crate's name and the type (`{ readonly "invoice.Yen": true }`). Packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error.
 
@@ -299,7 +305,7 @@ What callers of a successfully generated package must observe.
 
 - Expected failure is a value: `Result` or `null`.
 - `undefined` means `()`, not absence.
-- Only overflow, division by zero, out-of-bounds indexing, and `assertNever` throw.
+- Overflow, division by zero, out-of-range shifts, and out-of-bounds indexing throw `Panic` (a subclass of `Error`). `message` is Rust's panic text, so `e.message` still matches a debug build. `instanceof Panic` works across copies of the runtime (`Symbol.for("purecrate.Panic")`). `assertNever` still throws a plain `Error` (`"unexpected variant"`): that is a generator bug, not a domain panic.
 
 ### 5.3 Numbers
 
@@ -318,6 +324,7 @@ What callers of a successfully generated package must observe.
 - There is no `of`. Obtain values from public functions (`Email.parse`).
 - Object literals and raw primitives do not type-check as the closed type. Verified with `@ts-expect-error` consumers under TS 6 and 7.
 - A value produced with `as Email` is outside the equivalence guarantee.
+- `Email$of` is a file export, not an index export. An installed package cannot import it through `exports`; vendored sources can (`import { Email$of } from "./gen/src/email.ts"`). Closedness is that convention plus an `as` lint, not a unique-symbol seal.
 
 ### 5.6 Aliasing
 

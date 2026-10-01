@@ -18,13 +18,10 @@ export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverEr
         return Result.err({ kind: "LeadingZero", content: [part] });
       } else {
         const $opt: U64 | null = digitsToU64(s);
-        const $optOr = { kind: "NumberTooLarge", content: [part] } as SemverError;
-        if ($opt !== null) {
-          const $some = $opt;
-          return Result.ok($some);
-        } else {
-          return Result.err($optOr);
-        }
+        return $opt !== null ? Result.ok($opt) : Result.err({
+          kind: "NumberTooLarge",
+          content: [part],
+        });
       }
     }
   }

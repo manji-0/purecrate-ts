@@ -9,8 +9,20 @@ import type { Notice } from "./notice.ts";
 import type { TotpEnrollment } from "./totp-enrollment.ts";
 
 export type Flow =
-  | Readonly<{ kind: "AwaitingPassword"; request: AuthorizationRequest; failures: U32; notice: Notice }>
-  | Readonly<{ kind: "AwaitingOtp"; request: AuthorizationRequest; subject: string; enrollment: TotpEnrollment; failures: U32; notice: Notice }>
+  | Readonly<{
+    kind: "AwaitingPassword";
+    request: AuthorizationRequest;
+    failures: U32;
+    notice: Notice;
+  }>
+  | Readonly<{
+    kind: "AwaitingOtp";
+    request: AuthorizationRequest;
+    subject: string;
+    enrollment: TotpEnrollment;
+    failures: U32;
+    notice: Notice;
+  }>
   | Readonly<{ kind: "AwaitingConsent"; request: AuthorizationRequest; auth: Authentication }>
   | Readonly<{ kind: "CodeIssued"; content: readonly [CodeGrant] }>
   | Readonly<{ kind: "Rejected"; content: readonly [ErrorRedirect] }>
@@ -22,7 +34,13 @@ export const Flow = {
     failures: U32,
     notice: Notice,
   ): Flow => ({ kind: "AwaitingPassword", request, failures, notice }),
-  AwaitingOtp: (request: AuthorizationRequest, subject: string, enrollment: TotpEnrollment, failures: U32, notice: Notice): Flow => ({ kind: "AwaitingOtp", request, subject, enrollment, failures, notice }),
+  AwaitingOtp: (
+    request: AuthorizationRequest,
+    subject: string,
+    enrollment: TotpEnrollment,
+    failures: U32,
+    notice: Notice,
+  ): Flow => ({ kind: "AwaitingOtp", request, subject, enrollment, failures, notice }),
   AwaitingConsent: (
     request: AuthorizationRequest,
     auth: Authentication,

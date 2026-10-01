@@ -52,18 +52,13 @@ export const validateRequest = (
   } else {
     return Result.err({ kind: "Display", content: [{ kind: "MissingRedirectUri" }] });
   }
-  if (!redirectUriRegistered(client$1, redirectUri)) return Result.err({
-    kind: "Display",
-    content: [{ kind: "UnregisteredRedirectUri" }],
-  });
-  let echoed: string | null;
-  if (params.state !== null) {
-    const s = params.state;
-    echoed = stateIsValid(s) ? s : null;
-  } else {
-    echoed = null;
-  }
-  const fail: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
+  if (!redirectUriRegistered(client$1, redirectUri))
+    return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
+  const echoed: string | null = params.state !== null
+    ? (stateIsValid(params.state) ? params.state : null)
+    : null;
+  const fail: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError =>
+    redirectError(redirectUri, error, echoed);
   if (params.response_type !== null) {
     const rt = params.response_type;
     if (rt === "code") {
@@ -75,9 +70,9 @@ export const validateRequest = (
   }
   let scope: string;
   if (params.scope !== null) {
-    const s$1 = params.scope;
-    if (hasToken(s$1, "openid")) {
-      scope = s$1;
+    const s = params.scope;
+    if (hasToken(s, "openid")) {
+      scope = s;
     } else {
       return Result.err(fail({ kind: "InvalidScope" }));
     }
@@ -86,8 +81,8 @@ export const validateRequest = (
   }
   let state: string;
   if (echoed !== null) {
-    const s$2 = echoed;
-    state = s$2;
+    const s = echoed;
+    state = s;
   } else {
     return Result.err(fail({ kind: "InvalidRequest" }));
   }
@@ -97,8 +92,7 @@ export const validateRequest = (
     if (!stateIsValid(n)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      const n$1: string = n;
-      nonce = n$1;
+      nonce = n;
     }
   } else {
     nonce = null;
@@ -109,8 +103,7 @@ export const validateRequest = (
     if (!pkceStringIsValid(challenge)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      const challenge$1: string = challenge;
-      const method = params.code_challenge_method as string | null;
+      const method: string | null = params.code_challenge_method;
       let method$1: PkceMethod;
       if (method !== null) {
         const m = method;
@@ -126,8 +119,9 @@ export const validateRequest = (
       } else {
         method$1 = { kind: "Plain" };
       }
-      if ((method$1.kind === "Plain") && !client$1.allow_plain_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
-      pkce = { challenge: challenge$1, method: method$1 };
+      if ((method$1.kind === "Plain") && !client$1.allow_plain_pkce)
+        return Result.err(fail({ kind: "InvalidRequest" }));
+      pkce = { challenge, method: method$1 };
     }
   } else {
     if (params.code_challenge_method !== null) {
@@ -152,22 +146,15 @@ export const validateRequest = (
   }
   let maxAge: I64 | null;
   if (params.max_age !== null) {
-    const m$2 = params.max_age;
-    const $opt$1: I64 | null = parseSeconds(m$2);
-    const $optOr$1: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if ($opt$1 === null) return Result.err($optOr$1);
-    const $q2 = $opt$1;
-    maxAge = $q2;
+    const m = params.max_age;
+    const $opt: I64 | null = parseSeconds(m);
+    const $optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if ($opt === null) return Result.err($optOr);
+    maxAge = $opt;
   } else {
     maxAge = null;
   }
-  let wantsMfa: boolean;
-  if (params.acr_values !== null) {
-    const a = params.acr_values;
-    wantsMfa = hasToken(a, ACR_MFA);
-  } else {
-    wantsMfa = false;
-  }
+  const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
   return Result.ok(AuthorizationRequest$of({
     client_id: client$1.client_id,
     redirect_uri: redirectUri,

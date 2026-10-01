@@ -4,10 +4,19 @@
 
 ### Added
 
+- `check` and `build` warn when the crate's (or workspace's) `[profile.release]` does not set `overflow-checks = true`: generated TypeScript panics on overflow as a debug build does, so a `--release` server that wraps will disagree.
+- Runtime panics are `class Panic extends Error` (`instanceof` works across copies via `Symbol.for("purecrate.Panic")`); `message` is still Rust's panic text.
 - Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
 
 ### Fixed
 
+- Lets of a union annotate the binding (`const x: T = …`) instead of `x as T` when the value is already that type. A let of a named type from a place keeps `as T` so a `switch` arm can widen a narrowed union. `casts.rs` fails on identity casts of a place.
+- Shadowed locals are numbered (`method$1`) only when the name is live in the same JS scope. Match arms reuse the Rust name; sequential `let`s in one function still number.
+- `unwrap_or` / `ok_or` / `?` print `x ?? d` and `if (x === null) return Result.err(e)` when the receiver and default are a name, literal, or field (they cannot panic). A default that may overflow still binds first.
+- A tuple `match`'s `_` prints as `default:` instead of listing every remaining case. Hoisting `(_, Event::Cancel)` out of every state is a candidate.
+- Generated lines wrap at 100 characters, including `if (…) return …;` and long conditions. Parentheses follow operator precedence. `line_width.rs` fails on a generated domain line over the limit.
+- The wire module imports each domain file once: value and `type` aliases (and `{E as E$text}` for a `try_from` refusal) sit in a single `import { … } from "./….ts"`.
+- A trimmed runtime drops a namespace whose members are all gone (`export const Iter = {}`). The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type.
 - README's `cargo install --tag` pin is `v0.7.0`. `scripts/verify.sh` fails when any `--tag vX.Y.Z` in `README.md` or `skills/purecrate-authoring/SKILL.md` disagrees with the workspace version.
 - `build --out` keeps `node_modules/` across a rebuild, so an `npm install` in the generated package is not deleted. `dist/` is still dropped (it is stale).
 - rustc's scratch directory is a unique 0700 path, created exclusively and removed on drop, instead of `purecrate-rustc-<pid>` in the shared temp dir.
@@ -17,6 +26,8 @@
 
 ### Changed
 
+- Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); field names stay the JSON keys (`last_error`).
+- `Mutex` is refused (`[type/mutex]`): it is shared mutable state, which a pure-function subset does not have. `Box` and `Arc` stay erased.
 - `release.yml` runs `scripts/verify.sh` before drafting or attaching binaries, and smoke-tests the x86_64 macOS binary under Rosetta on the arm64 runner.
 - `check` reuses compiled `serde` and `uuid` stand-ins from a per-user cache keyed by `rustc -vV` and the purecrate-ts version, instead of rebuilding the proc-macro on every run.
 - Workflows default to `contents: read`; `contents: write` is only on the jobs that draft, upload, or publish. Actions are pinned to commit SHAs. `verify.yml` (and the release verify job) cache the Nix store.
@@ -24,6 +35,15 @@
 
 ### Docs
 
+- design/03: constructor parameters are camelCase; fields stay JSON keys. `#[serde(rename_all = "camelCase")]` remains a candidate.
+- design/03: a one-field tuple variant stays `{ kind, content: [T] }`; `{ kind, value }` is a candidate (design/07 §9).
+- README and design/01: equivalence with a `--release` server holds only with `[profile.release] overflow-checks = true`.
+- README, design/01, and design/03: closed-type brands are string-keyed, as generated; closedness is a convention (`$of` not re-exported from `index.ts`) plus a consumer `as` lint, not a `unique symbol` seal. Vendoring can import `$of` directly.
+- design/03 next to the `Option` mapping, and design/02: nested `Option` stays refused because `T | null` (and serde's default JSON) cannot tell the two `None`s apart.
+- design/07: growing a `Vec` with `push` / `iter().map(f).collect()` is a candidate, still refused until an example cannot be written without it.
+- README and design/07 §9: generated API stability within a minor series (export names, type shapes, wire format, runtime API vs. formatting, internal helpers, local names).
+- design/03 §3.3.5: locals are numbered only in the same JS scope; match arms reuse the Rust name.
+- design/03 §5.2: panics are `Panic`, not a plain `Error`.
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 - design/02 merges the duplicate "Text lists" / "A list from text" rows.
 - design/03 documents `Str.splitOnce` and `Iter.tryCollect`; design/03, 04, and 05 are marked current at 0.7.0 (04 reviewed, unchanged).

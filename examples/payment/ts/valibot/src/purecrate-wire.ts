@@ -4,25 +4,30 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
 import { i64, nullable, str, unitEnum, unitVariant } from "./purecrate-valibot.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
+import { type CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
+import { type CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
+import { type ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
+import { type DeclineCode as DeclineCode$ } from "./decline-code.ts";
+import { type Event as Event$ } from "./event.ts";
+import { type MethodKind as MethodKind$ } from "./method-kind.ts";
+import { type Outcome as Outcome$ } from "./outcome.ts";
+import {
+  PaymentError as PaymentError$text,
+  type PaymentError as PaymentError$,
+} from "./payment-error.ts";
+import { type PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
+import { type PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
 import {
   PaymentMethodId as PaymentMethodId$value,
   type PaymentMethodId as PaymentMethodId$,
 } from "./payment-method-id.ts";
-import type { MethodKind as MethodKind$ } from "./method-kind.ts";
-import type { PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
-import type { CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
-import type { ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
-import type { Terms as Terms$ } from "./terms.ts";
-import type { DeclineCode as DeclineCode$ } from "./decline-code.ts";
-import type { CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
-import type { Status as Status$ } from "./status.ts";
-import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
-import type { Outcome as Outcome$ } from "./outcome.ts";
-import type { Event as Event$ } from "./event.ts";
-import type { PaymentError as PaymentError$ } from "./payment-error.ts";
-import { PaymentError as PaymentError$text } from "./payment-error.ts";
+import { type Status as Status$ } from "./status.ts";
+import { type Terms as Terms$ } from "./terms.ts";
 
-export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Amount$ => {
+export const Amount: v.GenericSchema<
+  unknown,
+  Amount$
+> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Amount$ => {
   const r = Amount$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
     addIssue({ message: `Amount: ${PaymentError$text.toString(r.error)}` });
@@ -32,7 +37,10 @@ export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransf
 }));
 
 /** A payment method ID: `pm_` followed by at least one character. */
-export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
+export const PaymentMethodId: v.GenericSchema<
+  unknown,
+  PaymentMethodId$
+> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
   const r = PaymentMethodId$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
     addIssue({ message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}` });
@@ -43,20 +51,20 @@ export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pip
 
 export const MethodKind: v.GenericSchema<unknown, MethodKind$> = unitEnum(["Card", "BankDebit"]);
 
-export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.object({
-  id: PaymentMethodId,
-  kind: MethodKind,
-});
+export const PaymentMethod: v.GenericSchema<
+  unknown,
+  PaymentMethod$
+> = v.object({ id: PaymentMethodId, kind: MethodKind });
 
-export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum([
-  "Automatic",
-  "Manual",
-]);
+export const CaptureMethod: v.GenericSchema<
+  unknown,
+  CaptureMethod$
+> = unitEnum(["Automatic", "Manual"]);
 
-export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> = unitEnum([
-  "Automatic",
-  "Manual",
-]);
+export const ConfirmationMethod: v.GenericSchema<
+  unknown,
+  ConfirmationMethod$
+> = unitEnum(["Automatic", "Manual"]);
 
 export const Terms: v.GenericSchema<unknown, Terms$> = v.object({
   amount: Amount,
@@ -80,7 +88,9 @@ export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> =
 
 export const Status: v.GenericSchema<unknown, Status$> = v.union([
   v.pipe(
-    v.strictObject({ RequiresPaymentMethod: v.object({ last_error: v.optional(nullable(DeclineCode)) }) }),
+    v.strictObject(
+      { RequiresPaymentMethod: v.object({ last_error: v.optional(nullable(DeclineCode)) }) },
+    ),
     v.transform((x): Status$ => ({
       kind: "RequiresPaymentMethod",
       last_error: x.RequiresPaymentMethod.last_error ?? null,
@@ -126,10 +136,10 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
   ),
 ]);
 
-export const PaymentIntent: v.GenericSchema<unknown, PaymentIntent$> = v.object({
-  terms: Terms,
-  status: Status,
-});
+export const PaymentIntent: v.GenericSchema<
+  unknown,
+  PaymentIntent$
+> = v.object({ terms: Terms, status: Status });
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([

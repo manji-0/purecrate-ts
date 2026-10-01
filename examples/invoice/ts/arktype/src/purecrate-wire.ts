@@ -3,17 +3,19 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
 import { fail, i64, keyed, memo, unitEnum, type Wire } from "./purecrate-arktype.ts";
+import { type Group as Group$ } from "./group.ts";
+import { type Invoice as Invoice$ } from "./invoice.ts";
+import {
+  InvoiceError as InvoiceError$text,
+  type InvoiceError as InvoiceError$,
+} from "./invoice-error.ts";
+import { type Line as Line$ } from "./line.ts";
+import { type Method as Method$ } from "./method.ts";
+import { type Pricing as Pricing$ } from "./pricing.ts";
+import { type Rate as Rate$ } from "./rate.ts";
+import { type Rounding as Rounding$ } from "./rounding.ts";
+import { type Summary as Summary$ } from "./summary.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
-import type { Rate as Rate$ } from "./rate.ts";
-import type { Pricing as Pricing$ } from "./pricing.ts";
-import type { Rounding as Rounding$ } from "./rounding.ts";
-import type { Method as Method$ } from "./method.ts";
-import type { Line as Line$ } from "./line.ts";
-import type { Invoice as Invoice$ } from "./invoice.ts";
-import type { Group as Group$ } from "./group.ts";
-import type { Summary as Summary$ } from "./summary.ts";
-import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
-import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 const Yen$wire = memo(() => i64);
 export const Yen: Wire<Yen$> = type("unknown").pipe((v, ctx): Yen$ => {
@@ -45,10 +47,8 @@ export const Method: Wire<Method$> = type("unknown").pipe((v, ctx): Method$ => {
   }
   {
     const parsed = Method$arm$ToExclusive()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "ToExclusive",
-      conversion: parsed.ToExclusive.conversion,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "ToExclusive", conversion: parsed.ToExclusive.conversion };
     if (keyed(v, "ToExclusive")) return fail(ctx, parsed);
   }
   return ctx.error("Method") as never;

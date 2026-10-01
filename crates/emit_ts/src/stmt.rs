@@ -8,7 +8,9 @@ use super::*;
 pub(crate) fn jumps_out(expr: &Expr) -> bool {
     match expr {
         Expr::Break | Expr::Continue => true,
-        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => {
+            false
+        }
         other => other.children().into_iter().any(jumps_out),
     }
 }
@@ -33,7 +35,9 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
     match expr {
         Expr::Return(_) | Expr::Break | Expr::Continue => true,
         Expr::Seq { then, .. } | Expr::Let { then, .. } => ends_in_jump(then),
-        Expr::If { then, else_, .. } => expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_),
+        Expr::If { then, else_, .. } => {
+            expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_)
+        }
         // Printed as a `switch` whose `default` returns, or an `if` chain
         // ending in `else`: it jumps when every arm does.
         Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends_in_jump(&a.body)),
@@ -42,9 +46,9 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
 }
 
 pub(crate) fn innermost_loop() -> String {
-    LOOPS
-        .with(|l| l.borrow().last().cloned().flatten())
-        .expect("`check::accept` puts `break` and `continue` only inside a loop that is labelled for them")
+    LOOPS.with(|l| l.borrow().last().cloned().flatten()).expect(
+        "`check::accept` puts `break` and `continue` only inside a loop that is labelled for them",
+    )
 }
 
 /// Where the value of a statement-lowered expression goes.
@@ -60,8 +64,14 @@ pub(crate) enum Sink<'a> {
 impl Sink<'_> {
     pub(crate) fn finish(self, value: &str, pad: &str, out: &mut String) {
         match self {
-            Sink::Return => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(value))),
-            Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {};\n", crate::tidy::strip_outer(value))),
+            Sink::Return => out.push_str(&format!(
+                "{pad}return {};\n",
+                crate::tidy::strip_outer(value)
+            )),
+            Sink::Assign(target) => out.push_str(&format!(
+                "{pad}{target} = {};\n",
+                crate::tidy::strip_outer(value)
+            )),
             // A variable or `()` has no effect; anything else may panic.
             Sink::Effect if value == "undefined" || is_ident(value) => {}
             Sink::Effect => out.push_str(&format!("{pad}{value};\n")),
@@ -91,7 +101,15 @@ impl Sink<'_> {
 /// evaluated once, in order, as Rust evaluates the range. `i + 1` cannot
 /// overflow below `end`. A brand does not survive `+`, so the step casts
 /// back to the bounds' type, which `check::accept` records.
-pub(crate) fn emit_for(var: &str, ty: IntTy, start: &Expr, end: &Expr, body: &Expr, indent: usize, out: &mut String) {
+pub(crate) fn emit_for(
+    var: &str,
+    ty: IntTy,
+    start: &Expr,
+    end: &Expr,
+    body: &Expr,
+    indent: usize,
+    out: &mut String,
+) {
     let one = if ty.is_big() { "1n" } else { "1" };
     let bound = format!("{FOR_END}{indent}");
     let head = format!(
@@ -121,6 +139,11 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 && !peel_identity(value).needs_statements()
             {
                 emit_stmts(peel_identity(value), indent, sink, out);
+            } else if !*mutable && name.as_str().starts_with('$') && value.is_inlinable() {
+                // `$opt = x` / `$optOr = d` around `unwrap_or` / `ok_or`: the
+                // names and variant literals cannot panic, so the uses read
+                // them directly (eager evaluation of a call still binds).
+                emit_stmts(&subst(then, name, value), indent, sink, out);
             } else {
                 emit_let(name.as_str(), *mutable, ty.as_ref(), value, indent, out);
                 emit_stmts(then, indent, sink, out);
@@ -158,7 +181,11 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             if value.needs_statements() {
                 emit_stmts(value, indent, Sink::Assign(name.as_str()), out);
             } else {
-                out.push_str(&format!("{pad}{} = {};\n", name.as_str(), emit_expr(value, indent)));
+                out.push_str(&format!(
+                    "{pad}{} = {};\n",
+                    name.as_str(),
+                    emit_expr(value, indent)
+                ));
             }
             sink.finish("undefined", &pad, out);
         }
@@ -169,12 +196,13 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 emit_stmts(then, indent, sink, out);
             }
         }
-        // A predicate (`matches!`, or every arm `true` or `false`) on a
-        // place reads better as the test than as a `switch`.
+        // A predicate (`matches!`) or `unwrap_or` / `ok_or` on a place is one
+        // expression (`x ?? d`, a `?:`); anything larger is a `switch`.
         Expr::Match { scrutinee, arms }
             if !matches!(sink, Sink::Effect)
                 && is_place(scrutinee)
-                && arms.iter().all(|a| matches!(a.body, Expr::Lit(Lit::Bool(_)))) =>
+                && (arms.iter().all(|a| matches!(a.body, Expr::Lit(Lit::Bool(_))))
+                    || (arms.len() == 2 && two_way_test(&arms[0].pattern, "").is_some())) =>
         {
             match as_expr(expr, indent) {
                 Some(value) => sink.finish(&value, &pad, out),
@@ -210,7 +238,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::While { cond, body } => {
             emit_loop(
-                &format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))),
+                &format!(
+                    "while ({})",
+                    crate::tidy::strip_outer(&emit_expr(cond, indent))
+                ),
                 body,
                 indent,
                 out,
@@ -229,11 +260,19 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         )),
         // `x?;`: only the early return; there is no value to bind.
         // `x?;` on a binding: the test alone.
-        Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) => {
+        Expr::Try { expr: inner, on }
+            if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) =>
+        {
             emit_try_test(&emit_expr(inner, indent), *on, indent, out);
         }
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
-            emit_try_exit(&format!("{TRY_LET_TEMP}{TRY_TEMP}{indent}"), inner, *on, indent, out);
+            emit_try_exit(
+                &format!("{TRY_LET_TEMP}{TRY_TEMP}{indent}"),
+                inner,
+                *on,
+                indent,
+                out,
+            );
         }
         Expr::Try { .. } => {
             let tmp = format!("{TRY_TEMP}{indent}");
@@ -256,7 +295,14 @@ pub(crate) fn iterable(over: purecrate_ir::Over, source: String) -> String {
     }
 }
 
-pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) {
+pub(crate) fn emit_let(
+    name: &str,
+    mutable: bool,
+    ty: Option<&Ty>,
+    value: &Expr,
+    indent: usize,
+    out: &mut String,
+) {
     // `collect::<T>()` and `sum::<T>()` are a typed `let` whose body is the
     // binding. Nested under another `let`, that binding is only a copy.
     let value = peel_identity(value);
@@ -264,6 +310,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     let keyword = if mutable { "let" } else { "const" };
     let annotation = ty.map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
     match value {
+        Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
             let tmp = format!("{TRY_LET_TEMP}{name}");
             emit_try_exit(&tmp, expr, *on, indent, out);
@@ -273,6 +320,19 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
             };
             out.push_str(&format!("{pad}{keyword} {name}{annotation} = {payload};\n"));
         }
+        // A place in a `switch` arm is a narrowed union; the annotation
+        // alone does not widen it for TS, so `as T` gives back the type.
+        v if is_place(v) && matches!(ty, Some(Ty::Named(_))) => {
+            let t = emit_ty(ty.unwrap());
+            out.push_str(&format!(
+                "{pad}{keyword} {name}{annotation} = {} as {t};\n",
+                emit_expr(v, indent)
+            ));
+        }
+        v if let Some(s) = as_expr(v, indent) => out.push_str(&format!(
+            "{pad}{keyword} {name}{annotation} = {};\n",
+            crate::tidy::strip_outer(&s)
+        )),
         v if v.needs_statements() => {
             out.push_str(&format!("{pad}let {name}{annotation};\n"));
             if matches!(v, Expr::Let { .. } | Expr::Seq { .. }) {
@@ -284,15 +344,6 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
                 emit_stmts(v, indent, Sink::Assign(name), out);
             }
         }
-        // An annotation would narrow the union to this variant, or to what
-        // an enclosing `switch` left of the place, and a later `switch` or
-        // `=== null` on the binding could not name the rest.
-        v if ty.is_some_and(is_union) && (matches!(v, Expr::Construct { variant: Some(_), .. }) || is_place(v)) => out
-            .push_str(&format!(
-                "{pad}{keyword} {name} = {} as {};\n",
-                emit_expr(v, indent),
-                emit_ty(ty.expect("checked"))
-            )),
         v => out.push_str(&format!(
             "{pad}{keyword} {name}{annotation} = {};\n",
             crate::tidy::strip_outer(&emit_expr(v, indent))
@@ -302,9 +353,18 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
 
 /// `const tmp = expr;` and the early return of `expr?` when it holds `None`
 /// or an `Err`.
-pub(crate) fn emit_try_exit(tmp: &str, expr: &Expr, on: Option<TryOn>, indent: usize, out: &mut String) {
+pub(crate) fn emit_try_exit(
+    tmp: &str,
+    expr: &Expr,
+    on: Option<TryOn>,
+    indent: usize,
+    out: &mut String,
+) {
     let pad = "  ".repeat(indent);
-    out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
+    out.push_str(&format!(
+        "{pad}const {tmp} = {};\n",
+        emit_expr(expr, indent)
+    ));
     emit_try_test(tmp, on, indent, out);
 }
 
@@ -313,14 +373,10 @@ fn emit_try_test(tmp: &str, on: Option<TryOn>, indent: usize, out: &mut String) 
     let pad = "  ".repeat(indent);
     match on {
         Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
-        Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),
+        Some(TryOn::Result) | None => {
+            out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n"))
+        }
     }
-}
-
-/// A type TS narrows: an enum (or any named type, which may be one),
-/// `Option`, or `Result`.
-pub(crate) fn is_union(ty: &Ty) -> bool {
-    matches!(ty, Ty::Named(_) | Ty::Option(_) | Ty::Result { .. })
 }
 
 /// `x`, `x.a.b`: references TS can narrow through `switch (x.kind)`.
@@ -349,7 +405,9 @@ pub(crate) fn peel_identity(expr: &Expr) -> &Expr {
             value,
             then,
             ..
-        } if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() => peel_identity(value),
+        } if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() => {
+            peel_identity(value)
+        }
         _ => expr,
     }
 }
@@ -374,7 +432,13 @@ pub(crate) fn declares_at_top(expr: &Expr) -> bool {
     }
 }
 
-pub(crate) fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
+pub(crate) fn emit_switch(
+    scrutinee: &Expr,
+    arms: &[purecrate_ir::Arm],
+    indent: usize,
+    sink: Sink,
+    out: &mut String,
+) {
     // Statements after this one may hold another `match` at the same depth;
     // a block keeps the two temporaries apart.
     if !is_place(scrutinee) && !matches!(sink, Sink::Return) {
@@ -416,7 +480,10 @@ pub(crate) fn emit_switch_in(
         tmp
     };
     if let [a, b] = arms {
-        if let (Some(test), Some(_)) = (two_way_test(&a.pattern, &subject), two_way_test(&b.pattern, &subject)) {
+        if let (Some(test), Some(_)) = (
+            two_way_test(&a.pattern, &subject),
+            two_way_test(&b.pattern, &subject),
+        ) {
             let pad2 = "  ".repeat(indent + 1);
             out.push_str(&format!("{pad}if ({test}) {{\n"));
             out.push_str(&two_way_prelude(&a.pattern, &subject, &pad2));
@@ -445,7 +512,11 @@ pub(crate) fn emit_switch_in(
         }
     }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
+    let remainder = remainder_arm(arms);
     for arm in arms {
+        if remainder.is_some_and(|r| std::ptr::eq(r, arm)) {
+            continue;
+        }
         // `A | B` binds nothing: its cases share one body.
         let (variants, bind) = match &arm.pattern {
             Pattern::Variant { variant, bind, .. } => (vec![variant], Some(bind)),
@@ -480,15 +551,63 @@ pub(crate) fn emit_switch_in(
             }
         }
     }
-    out.push_str(&format!(
-        "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
-    ));
+    if let Some(arm) = remainder {
+        let braced = declares_at_top(&arm.body);
+        if braced {
+            out.push_str(&format!("{pad1}default: {{\n"));
+        } else {
+            out.push_str(&format!("{pad1}default:\n"));
+        }
+        emit_stmts(&arm.body, indent + 2, sink, out);
+        if !matches!(sink, Sink::Return) && !ends_in_jump(&arm.body) {
+            out.push_str(&format!("{pad1}  break;\n"));
+        }
+        if braced {
+            out.push_str(&format!("{pad1}}}\n"));
+        }
+        out.push_str(&format!("{pad}}}\n"));
+    } else {
+        out.push_str(&format!(
+            "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
+        ));
+    }
+}
+
+/// The one `A | B | …` (or `_`) that binds nothing, when other arms name
+/// variants: it is the Rust `_`, printed as `default` instead of listing
+/// every remaining case and `assertNever`.
+fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
+    let named = arms
+        .iter()
+        .any(|a| matches!(a.pattern, Pattern::Variant { .. }));
+    if !named {
+        return None;
+    }
+    let mut found = None;
+    for a in arms {
+        let catch_all = a.pattern.bindings().is_empty()
+            && matches!(a.pattern, Pattern::Or(_) | Pattern::Wildcard)
+            && !declares_at_top(&a.body);
+        if catch_all {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(a);
+        }
+    }
+    found
 }
 
 /// A `match` on an integer or a `&str`: arms tried in order, the last (`_`)
 /// as `else`. Well-formed strings are equal in UTF-8 exactly when they are in
 /// UTF-16, so `===` is `str` equality.
-pub(crate) fn emit_lit_chain(subject: &str, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
+pub(crate) fn emit_lit_chain(
+    subject: &str,
+    arms: &[purecrate_ir::Arm],
+    indent: usize,
+    sink: Sink,
+    out: &mut String,
+) {
     let pad = "  ".repeat(indent);
     for (i, arm) in arms.iter().enumerate() {
         let head = match (i, lit_test(&arm.pattern, subject)) {
@@ -526,7 +645,7 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
         Pattern::Or(alts) => Some(
             alts.iter()
                 .filter_map(|a| match a {
-                    Pattern::Range { .. } => lit_test(a, subject).map(|t| format!("({t})")),
+                    Pattern::Range { .. } => lit_test(a, subject),
                     _ => lit_test(a, subject),
                 })
                 .collect::<Vec<_>>()
@@ -585,7 +704,9 @@ pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> Stri
                     "{pad}const {name} = {subject}.content[{i}];\n",
                     name = n.as_str()
                 )),
-                Pattern::Tuple(elems) => Some(tuple_names(elems, &format!("{subject}.content[{i}]"), pad)),
+                Pattern::Tuple(elems) => {
+                    Some(tuple_names(elems, &format!("{subject}.content[{i}]"), pad))
+                }
                 _ => None,
             })
             .collect(),

@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod option_methods = "fixtures/option_methods.rs");
 
 const SOURCE: &str = option_methods::SOURCE;
@@ -41,19 +40,46 @@ fn generated_option_methods_match_rust() {
     support::assert_equivalent("option_methods", SOURCE, &cases);
 }
 
-/// `let x = opt.ok_or(e)?` prints as a guard, with `e` bound before the
-/// test (it is eager), not as an inline function building a `Result`.
+/// `let x = opt.ok_or(e)?` prints as a guard. A variant literal `e` is
+/// written in the `return`; a name is read in the test. A default that may
+/// overflow is still bound before the test (it is eager).
 #[test]
 fn ok_or_then_try_is_a_guard() {
     let krate = purecrate_syntax::parse_source("guard", SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&purecrate_check::prune_unreachable(&typed));
-    let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
+    let src = &pkg
+        .files
+        .iter()
+        .find(|f| f.stem == "total")
+        .expect("total")
+        .source;
     assert!(!src.contains("(() =>"), "{src}");
-    // Named after the receiver `a`: `$a` holds it, `$aOr` the argument.
-    let arg = src.find("const $aOr").expect("the argument is bound");
-    let guard = src.find("$a === null) return Result.err($aOr").expect("one-line guard");
-    assert!(arg < guard, "{src}");
+    assert!(
+        src.contains("if (a === null) return Result.err({ kind: \"Amount\" })"),
+        "{src}"
+    );
+    let or_default = &pkg
+        .files
+        .iter()
+        .find(|f| f.stem == "or-default")
+        .expect("or-default")
+        .source;
+    assert!(
+        or_default.contains("x ?? d") || or_default.contains("x !== null"),
+        "{or_default}"
+    );
+    assert!(!or_default.contains("$x"), "{or_default}");
+    let eager = &pkg
+        .files
+        .iter()
+        .find(|f| f.stem == "eager")
+        .expect("eager")
+        .source;
+    assert!(
+        eager.contains("$xOr") || eager.contains("Int.u8.add"),
+        "{eager}"
+    );
 }
 
 /// A `?` inside an expression is hoisted to one binding, tested in place,
@@ -69,11 +95,19 @@ fn a_hoisted_try_binds_once() {
     let krate = purecrate_syntax::parse_source("hoist", source).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
-    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let file = |stem: &str| {
+        pkg.files
+            .iter()
+            .find(|f| f.stem == stem)
+            .expect(stem)
+            .source
+            .clone()
+    };
     let quarter = file("quarter");
     assert!(quarter.contains("const $half = half(n);\n  if ($half.kind === \"Err\") return $half;\n  const $half2 = half($half.value);"), "{quarter}");
     assert!(!quarter.contains("$v_"), "{quarter}");
     let add = file("add");
-    assert!(add.contains("if ($q === null) return null;"), "{add}");
+    assert!(add.contains("if (a === null) return null;"), "{add}");
+    assert!(add.contains("const $q2 = Int.u8.checkedAdd(a, b);"), "{add}");
     assert!(!add.contains("$v_") && !add.contains(".value"), "{add}");
 }

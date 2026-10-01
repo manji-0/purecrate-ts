@@ -23,7 +23,17 @@ export type AuthorizationRequest = Readonly<{
 // A field is not `pub` in Rust: outside the crate, `AuthorizationRequest` values come
 // only from the crate's functions. The generated files build them here;
 // `index.ts` does not export it.
-export const AuthorizationRequest$of = (fields: Readonly<{ client_id: string; redirect_uri: string; scope: string; state: string; nonce: string | null; pkce: Pkce | null; prompt: Prompt; max_age: I64 | null; wants_mfa: boolean }>): AuthorizationRequest => fields as AuthorizationRequest;
+export const AuthorizationRequest$of = (fields: Readonly<{
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  state: string;
+  nonce: string | null;
+  pkce: Pkce | null;
+  prompt: Prompt;
+  max_age: I64 | null;
+  wants_mfa: boolean;
+}>): AuthorizationRequest => fields as AuthorizationRequest;
 
 export const AuthorizationRequest = {
   clientId: (self: AuthorizationRequest): string => self.client_id,

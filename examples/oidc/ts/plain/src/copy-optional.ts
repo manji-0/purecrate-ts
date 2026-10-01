@@ -4,11 +4,4 @@
  * Rust's `clone` is outside the subset; strings are rebuilt with
  * `String::from`.
  */
-export const copyOptional = (s: string | null): string | null => {
-  if (s !== null) {
-    const v = s;
-    return v;
-  } else {
-    return null;
-  }
-};
+export const copyOptional = (s: string | null): string | null => s ?? null;

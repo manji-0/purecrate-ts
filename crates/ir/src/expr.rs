@@ -209,14 +209,23 @@ impl IntMethod {
 
     /// The second argument is a `u32` exponent.
     pub fn takes_exponent(self) -> bool {
-        matches!(self, Self::Pow | Self::CheckedPow | Self::SaturatingPow | Self::WrappingPow)
+        matches!(
+            self,
+            Self::Pow | Self::CheckedPow | Self::SaturatingPow | Self::WrappingPow
+        )
     }
 
     /// The result is `Option` of the receiver's type.
     pub fn is_checked(self) -> bool {
         matches!(
             self,
-            Self::CheckedAdd | Self::CheckedSub | Self::CheckedMul | Self::CheckedDiv | Self::CheckedRem | Self::CheckedNeg | Self::CheckedPow
+            Self::CheckedAdd
+                | Self::CheckedSub
+                | Self::CheckedMul
+                | Self::CheckedDiv
+                | Self::CheckedRem
+                | Self::CheckedNeg
+                | Self::CheckedPow
         )
     }
 }
@@ -315,7 +324,12 @@ impl StrMethod {
     pub fn needles(self) -> usize {
         match self {
             Self::Len | Self::IsEmpty | Self::AsStr => 0,
-            Self::StartsWith | Self::EndsWith | Self::Contains | Self::StripPrefix | Self::StripSuffix | Self::SplitOnce => 1,
+            Self::StartsWith
+            | Self::EndsWith
+            | Self::Contains
+            | Self::StripPrefix
+            | Self::StripSuffix
+            | Self::SplitOnce => 1,
         }
     }
 }
@@ -433,17 +447,29 @@ pub enum Callee {
     Fn(Name),
     /// `e as T` on a fieldless enum: each variant's discriminant as `to`,
     /// looked up by `kind`.
-    Discriminant { to: IntTy, table: Vec<(Name, i128)> },
+    Discriminant {
+        to: IntTy,
+        table: Vec<(Name, i128)>,
+    },
     /// A local binding holding a closure. `check::accept` rewrites
     /// `Callee::Fn` to this when a binding shadows the item.
     Local(Name),
-    Int { ty: IntTy, op: IntOp },
+    Int {
+        ty: IntTy,
+        op: IntOp,
+    },
     /// Round an f64 result to f32 (`Math.fround`). The emitted call is `F32`.
     Fround,
     /// Cast a JS number that is already the right width (`(x) as F64`).
     AsFloat(FloatTy),
-    Method { ty: Name, name: Name },
-    Variant { ty: Name, variant: Name },
+    Method {
+        ty: Name,
+        name: Name,
+    },
+    Variant {
+        ty: Name,
+        variant: Name,
+    },
     StructNew(Name),
     ResultOk,
     ResultErr,
@@ -475,14 +501,19 @@ pub enum Callee {
     /// once. `text` for `char`, `String`/`&str`, and `Uuid`, ordered by code
     /// point (`Ord.cmpStr`); else an integer or `bool`, ordered by JS `<`
     /// (`Ord.cmp`).
-    OrdCmp { text: bool },
+    OrdCmp {
+        text: bool,
+    },
     /// `o.then(p)`: `p` when `o` is `Equal`, else `o`; both evaluated, `o`
     /// first, as Rust evaluates a call's arguments. Prints as `Ord.then`.
     OrdThen,
     /// `all`, `any`, `position`, `count`, or `sum` on what `over` walks:
     /// the source, then (but for `count` and `sum`) the predicate, a
     /// closure of one parameter. Prints as `Iter.<method>`.
-    Consume { method: Consume, over: Over },
+    Consume {
+        method: Consume,
+        over: Over,
+    },
     /// `s.split(c).collect()` or `s.split(c).map(f).collect()`: a `Vec`
     /// built once from text, its length the input's (design/02 §3). The
     /// arguments are the pieces (a `StrSplit`), then `f` if mapped, a closure
@@ -491,7 +522,9 @@ pub enum Callee {
     /// stops at the first `Err`, which is the result, as std's
     /// `FromIterator` for `Result` does. Prints as the array, its `map`, or
     /// `Iter.tryCollect`.
-    Collect { result: bool },
+    Collect {
+        result: bool,
+    },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
@@ -509,7 +542,10 @@ pub enum Callee {
     Str(StrMethod),
     /// `to::from(x)` where std has a lossless `From` (`IntTy::widens_to`).
     /// `from` is the argument's type, set by `check::accept`.
-    IntFrom { from: Option<IntTy>, to: IntTy },
+    IntFrom {
+        from: Option<IntTy>,
+        to: IntTy,
+    },
     /// `u32::from(c)` / `u64::from(c)`: the code point. `check::accept`
     /// rewrites an `IntFrom` on a `char` to this, and wraps both sides of a
     /// `char` ordering in it: JS orders strings by UTF-16 unit, which puts
@@ -535,6 +571,16 @@ pub enum Fields {
     Named(Vec<(Name, Expr)>),
 }
 
+impl Fields {
+    fn is_inlinable(&self) -> bool {
+        match self {
+            Fields::Unit => true,
+            Fields::Positional(xs) => xs.iter().all(Expr::is_inlinable),
+            Fields::Named(xs) => xs.iter().all(|(_, x)| x.is_inlinable()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
     Wildcard,
@@ -555,7 +601,11 @@ pub enum Pattern {
     Or(Vec<Pattern>),
     /// `lo..=hi` (`inclusive`) or `lo..hi` on an integer. With `Lit`, only in
     /// a `match` on an integer or a `&str`, which must end in `_`.
-    Range { lo: Lit, hi: Lit, inclusive: bool },
+    Range {
+        lo: Lit,
+        hi: Lit,
+        inclusive: bool,
+    },
     /// `(p, q)`: an arm of a `match` on a tuple, such as `match (state,
     /// event)`. Each element is `_`, a binding, or a pattern a `match` arm
     /// may have; tuples do not nest. `check::accept` splits the `match` into
@@ -578,7 +628,9 @@ impl Pattern {
     pub fn columns(&self) -> Vec<&Pattern> {
         match self {
             Pattern::Tuple(ps) => ps.iter().collect(),
-            Pattern::Or(alts) if self.is_tuple_case() => alts.iter().flat_map(Pattern::columns).collect(),
+            Pattern::Or(alts) if self.is_tuple_case() => {
+                alts.iter().flat_map(Pattern::columns).collect()
+            }
             other => vec![other],
         }
     }
@@ -587,7 +639,11 @@ impl Pattern {
     /// an integer.
     pub fn is_int_case(&self) -> bool {
         match self {
-            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { lo: Lit::Int { .. }, .. } => true,
+            Pattern::Lit(Lit::Int { .. })
+            | Pattern::Range {
+                lo: Lit::Int { .. },
+                ..
+            } => true,
             Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
             _ => false,
         }
@@ -597,7 +653,10 @@ impl Pattern {
     /// `char`.
     pub fn is_char_case(&self) -> bool {
         match self {
-            Pattern::Lit(Lit::Char(_)) | Pattern::Range { lo: Lit::Char(_), .. } => true,
+            Pattern::Lit(Lit::Char(_))
+            | Pattern::Range {
+                lo: Lit::Char(_), ..
+            } => true,
             Pattern::Or(alts) => alts.iter().all(Pattern::is_char_case),
             _ => false,
         }
@@ -721,7 +780,11 @@ pub struct Arm {
 
 impl Arm {
     pub fn new(pattern: Pattern, body: Expr) -> Self {
-        Arm { pattern, guard: None, body }
+        Arm {
+            pattern,
+            guard: None,
+            body,
+        }
     }
 }
 
@@ -849,7 +912,7 @@ pub enum Expr {
         expr: Box<Expr>,
         on: Option<TryOn>,
     },
-    /// `Box::new` / `Arc::new` / `Mutex::new`. The value is `expr`.
+    /// `Box::new` / `Arc::new`. The value is `expr`.
     /// Emit prints `wrapper`'s comment and then `expr`.
     Ignored {
         wrapper: Wrapper,
@@ -885,7 +948,11 @@ impl Expr {
     pub fn own_types(&self) -> Vec<&Ty> {
         match self {
             Expr::Let { ty, .. } => ty.iter().collect(),
-            Expr::Closure { params, ret, .. } => params.iter().filter_map(|p| p.ty.as_ref()).chain(ret).collect(),
+            Expr::Closure { params, ret, .. } => params
+                .iter()
+                .filter_map(|p| p.ty.as_ref())
+                .chain(ret)
+                .collect(),
             Expr::Cast { to, .. } => vec![to],
             Expr::Lit(_)
             | Expr::Var(_)
@@ -918,14 +985,23 @@ impl Expr {
     /// Direct subexpressions in evaluation order.
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => Vec::new(),
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {
+                Vec::new()
+            }
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&**scrutinee)
-                .chain(arms.iter().flat_map(|a| a.guard.iter().chain(std::iter::once(&a.body))))
+                .chain(
+                    arms.iter()
+                        .flat_map(|a| a.guard.iter().chain(std::iter::once(&a.body))),
+                )
                 .collect(),
-            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
-            Expr::MethodCall { receiver, args, .. } => std::iter::once(&**receiver).chain(args).collect(),
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
+                args.iter().collect()
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                std::iter::once(&**receiver).chain(args).collect()
+            }
             Expr::Construct { fields, base, .. } => {
                 let mut out = match fields {
                     Fields::Unit => Vec::new(),
@@ -936,7 +1012,7 @@ impl Expr {
                     out.push(b);
                 }
                 out
-            },
+            }
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
@@ -946,8 +1022,14 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
-            Expr::For { start, end, body, .. } => vec![start, end, body],
-            Expr::ForEach { source: string, body, .. } => vec![string, body],
+            Expr::For {
+                start, end, body, ..
+            } => vec![start, end, body],
+            Expr::ForEach {
+                source: string,
+                body,
+                ..
+            } => vec![string, body],
             Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
@@ -957,14 +1039,23 @@ impl Expr {
     /// `children`, mutably and in the same order.
     pub fn children_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => Vec::new(),
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {
+                Vec::new()
+            }
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&mut **scrutinee)
-                .chain(arms.iter_mut().flat_map(|a| a.guard.iter_mut().chain(std::iter::once(&mut a.body))))
+                .chain(
+                    arms.iter_mut()
+                        .flat_map(|a| a.guard.iter_mut().chain(std::iter::once(&mut a.body))),
+                )
                 .collect(),
-            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter_mut().collect(),
-            Expr::MethodCall { receiver, args, .. } => std::iter::once(&mut **receiver).chain(args).collect(),
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
+                args.iter_mut().collect()
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                std::iter::once(&mut **receiver).chain(args).collect()
+            }
             Expr::Construct { fields, base, .. } => {
                 let mut out = match fields {
                     Fields::Unit => Vec::new(),
@@ -975,7 +1066,7 @@ impl Expr {
                     out.push(b);
                 }
                 out
-            },
+            }
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
@@ -985,8 +1076,14 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
-            Expr::For { start, end, body, .. } => vec![start, end, body],
-            Expr::ForEach { source: string, body, .. } => vec![string, body],
+            Expr::For {
+                start, end, body, ..
+            } => vec![start, end, body],
+            Expr::ForEach {
+                source: string,
+                body,
+                ..
+            } => vec![string, body],
             Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
@@ -1046,12 +1143,38 @@ impl Expr {
         }
     }
 
+    /// Evaluating it has no effect and cannot panic: a name, a literal, a
+    /// field of one of those, or a variant / `Some` / `Ok` / `Err` of those.
+    /// `unwrap_or` / `ok_or` may print it in the arm instead of a temporary.
+    pub fn is_inlinable(&self) -> bool {
+        match self.unpositioned() {
+            Expr::Var(_) | Expr::Lit(_) | Expr::Closure { .. } => true,
+            Expr::Field { base, .. } => base.is_inlinable(),
+            Expr::Tuple(xs) | Expr::Array(xs) => xs.iter().all(Self::is_inlinable),
+            Expr::Construct { fields, base, .. } => {
+                base.as_ref().is_none_or(|b| b.is_inlinable()) && fields.is_inlinable()
+            }
+            Expr::Call {
+                callee: Callee::OptionNone,
+                ..
+            } => true,
+            Expr::Call {
+                callee: Callee::OptionSome | Callee::ResultOk | Callee::ResultErr,
+                args,
+            } => args.iter().all(Self::is_inlinable),
+            Expr::Cast { expr, .. } | Expr::Ignored { expr, .. } => expr.is_inlinable(),
+            _ => false,
+        }
+    }
+
     /// Removes every `At`, keeping what it wraps.
     pub fn strip_positions(&mut self) {
         while let Expr::At { expr, .. } = self {
             *self = std::mem::replace(&mut **expr, Expr::Unreachable);
         }
-        self.children_mut().into_iter().for_each(Expr::strip_positions);
+        self.children_mut()
+            .into_iter()
+            .for_each(Expr::strip_positions);
     }
 
     /// `At` wrappers removed from the outside of this expression only.

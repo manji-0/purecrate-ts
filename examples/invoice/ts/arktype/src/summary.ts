@@ -16,8 +16,14 @@ export const Summary = {
   of: (
     standard: Group,
     reduced: Group,
-    standard_inclusive: Group,
-    reduced_inclusive: Group,
+    standardInclusive: Group,
+    reducedInclusive: Group,
     total: Yen,
-  ): Summary => ({ standard, reduced, standard_inclusive, reduced_inclusive, total }),
+  ): Summary => ({
+    standard,
+    reduced,
+    standard_inclusive: standardInclusive,
+    reduced_inclusive: reducedInclusive,
+    total,
+  }),
 } as const;

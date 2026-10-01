@@ -17,23 +17,11 @@ export const sessionIsUsable = (
   if (request.prompt.login || request.prompt.select_account) return false;
   let fresh: boolean;
   {
-    let $opt: boolean | null;
-    {
-      const $maxAge = request.max_age as I64 | null;
-      if ($maxAge !== null) {
-        const maxAge = $maxAge;
-        $opt = Int.i64.sub(now, session.auth_time) <= maxAge;
-      } else {
-        $opt = null;
-      }
-    }
-    const $optOr: boolean = true;
-    if ($opt !== null) {
-      const $some = $opt;
-      fresh = $some;
-    } else {
-      fresh = $optOr;
-    }
+    const $opt: boolean | null = request.max_age !== null ? Int.i64.sub(
+      now,
+      session.auth_time,
+    ) <= request.max_age : null;
+    fresh = !($opt !== null) || $opt;
   }
   const strongEnough: boolean = !request.wants_mfa || (session.strength.kind === "PasswordAndTotp");
   return fresh && strongEnough;

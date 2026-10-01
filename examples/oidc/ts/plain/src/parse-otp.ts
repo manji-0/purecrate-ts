@@ -9,15 +9,18 @@ import type { OtpDigits } from "./otp-digits.ts";
  * included.
  */
 export const parseOtp = (code: string, digits: OtpDigits): U32 | null => {
-  if ((Str.len(code) !== digitCount(digits)) || !Iter.all(
-    Str.bytes(code),
-    ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),
-  )) return null;
+  if (
+    Str.len(code) !== digitCount(digits) || !Iter.all(
+      Str.bytes(code),
+      ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),
+    )
+  )
+    return null;
   let value: U32 = 0 as U32;
-  for (const b$1 of Str.bytes(code)) {
+  for (const b of Str.bytes(code)) {
     value = Int.u32.add(
       Int.u32.mul(value, (10 as U32)),
-      (Int.u8.sub(b$1, (48 as U8)) as number as U32),
+      (Int.u8.sub(b, (48 as U8)) as number as U32),
     );
   }
   return value;

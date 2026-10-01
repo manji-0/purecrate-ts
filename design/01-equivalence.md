@@ -17,6 +17,8 @@ For an accepted public function `f` and its generated counterpart `f'`, and for 
 
 **The reference is the Rust debug build.** Overflow and division by zero panic there, so they throw in TS. Release-mode wrapping is not matched. This was chosen over rejecting every operation that may panic (too narrow) and over accepting only `checked_*` APIs (too awkward), and it agrees with kamae's "the unexpected is an exception".
 
+The main use of the output is a server that shares the same types and functions. That server is built with `--release`, where `overflow-checks` is off by default, so on overflow Rust wraps while TS throws: the two sides disagree on exactly the inputs where it matters. Equivalence with the server holds only when the crate (or workspace) sets `[profile.release] overflow-checks = true` (and `debug-assertions` if anything depends on them). `check` and `build` warn when the release profile does not.
+
 ## 2. Domain
 
 The domain is **the image of Rust values under the TS representation**, not every value TS can construct. For `x'` outside the image nothing is promised.
@@ -36,7 +38,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | `usize` ≥ 2^53 | Rust is fine up to 2^64; TS throws above 2^53−1. Lengths and indices do not reach this range. `bigint` was rejected because it does not mix with arrays and loops. The integer methods work in Rust's 64 bits on `usize` (`checked_add` is `None` only past 2^64, `wrapping_sub(0, 1)` is 2^64−1) and throw where that result is above 2^53−1 |
 | Recursion depth | Measured 2026-09-28 (list length, Node 24.21, macOS): TS passes 10,000 levels and throws `RangeError` at 12,000. Rust debug passes 50,000 on the main thread and **aborts** at 100,000 (not a catchable panic; test threads have 2 MB). Even "both fail" does not hold |
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
-| Release wrapping | Not matched |
+| Release wrapping | Not matched, unless `[profile.release] overflow-checks = true` (the server's usual `--release` build wraps; generated TS always panics). `check` warns when the crate's release profile leaves the default |
 | Non-finite `f64` over JSON | serde_json and `toJson` both write `NaN` and infinities as `null`, and neither reads `null` back as a float. Same bytes, same asymmetry ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
 | Unicode-table methods | If added, equivalence holds only for code points assigned in both toolchains' Unicode versions (both 17.0 as of 2026-09-27) |
 
@@ -48,14 +50,14 @@ In Rust, a struct with any non-`pub` field cannot be built by a literal outside 
 
 | Rust struct | Kind | TS companion | Values come from |
 | --- | --- | --- | --- |
-| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a `unique symbol` brand | no `of` | public functions, or the wire (§4.2) |
+| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a string brand (`{ readonly "geo.Meters": true }`) | no `of` | public functions, or the wire (§4.2) |
 | All fields `pub` | **open** | `of` | anyone, as in Rust |
 
 Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
 
 ### 4.1 Internal names
 
-- **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
+- **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so an installed package cannot deep-import it. When the sources are vendored, `import { Email$of } from "./gen/src/email.ts"` reaches it and builds a value without a cast. Closedness is that convention plus the consumer's `as` lint ([03 §5.5](./03-output.md#55-closed-types)), not a type-level seal. `$` cannot appear in Rust identifiers, so the name cannot collide.
 - **Non-`pub` methods** are not on the companion either. They are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Otherwise a private `fn unchecked(raw) -> Email` would let TS callers build what Rust callers cannot (a hole found by real use, [07 §8.1](./07-roadmap.md#81-010-2026-09-30)).
 
 ### 4.2 The domain of a closed type

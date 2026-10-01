@@ -4,6 +4,8 @@ Share **behavior**, not just types, between Rust and TypeScript.
 
 purecrate-ts translates pure domain functions written in Rust into an ordinary TypeScript package, without WASM. The output is plain `Readonly` values and functions that pass `tsc --strict`. For every accepted input they return the same result as a Rust debug build, and differential tests check this. Anything whose meaning cannot be preserved is rejected with its location, and no output is written.
 
+The usual sharing setup is a server that uses the same types and functions as its wire format and domain logic. Servers are built with `--release`, where `overflow-checks` is off by default, so on overflow Rust wraps while the generated TypeScript throws. Equivalence with that server holds only when the crate (or workspace) sets `[profile.release] overflow-checks = true` (and `debug-assertions` if anything depends on them). `check` and `build` warn when the release profile does not.
+
 It is not a compiler for arbitrary Rust. You write new domain code within [the PureCrate constraints](design/02-authoring.md): states and events as ADTs, and transitions such as `fn step(state, event) -> Result<State, Error>`. Start with [design/00-overview.md](design/00-overview.md).
 
 ## Install
@@ -37,7 +39,7 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
 - `build` replaces `--out` whole, removing files an earlier build left, but keeps `node_modules/` so an `npm install` in the package survives a rebuild (`dist/` is dropped: it is stale). It refuses a directory that is not empty and was not written by `build`.
-- `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
+- `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output. `check` and `build` warn when `[profile.release]` does not set `overflow-checks = true`.
 - The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime and, with `--schema`, the adapter are copied into `src/`; the schema library is the only peer dependency. `version` and `license` come from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `fromJson.T(text)`, the inverse of `toJson.T`, which goes through `parseJson` so that `i64`/`u64` above 2^53 stay exact, and throws on malformed text or a refused value; never `JSON.parse` then the schema.
 - `survey` reports, for each public function and type, whether it is accepted with everything it refers to, and the first cause when it is not. `--all-causes` lowers each item past what it cannot take and lists every cause, the type check's included, to estimate a rewrite.
@@ -52,7 +54,7 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 - `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`, and `.enumerate()` of any of them; `while` with `break` and `continue`
 - `all`, `any`, `position`, `count`, and integer `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()`
 - `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`
-- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`; `min`, `max`, `abs`, `pow`, and `checked_*` / `saturating_*` / `wrapping_*`
+- integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`; `min`, `max`, `abs`, `pow`, and `checked_*` / `saturating_*` / `wrapping_*`. A `--release` server matches this only with `[profile.release] overflow-checks = true`
 - crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
 - growing sequences as recursive enums; `Vec` read by index, `len`, and slices `&xs[a..b]`, built as a fixed list `vec![a, b]`
 - `char` as a branded one-code-point string: literals, ranges in `match` / `matches!`, ordering by code point, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, the ASCII methods
@@ -78,7 +80,7 @@ Use the output either way:
 npm install tarballs/<name>-<version>.tgz
 ```
 
-Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and the runtime's brands (`I32`, `Char`, `Uuid`, ...) are keyed by string, so a value from one package is the same type in another. Closed types of your own crate keep a `unique symbol` brand, so only your crate's functions build them. `crates/cli/tests/it/package.rs` runs this flow with two packages.
+Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and every brand is keyed by string (`I32` as `{ readonly "purecrate.I32": true }`, a crate newtype as `{ readonly "payment.Amount": true }`), so a value from one package is the same type in another. Closed types of your crate have no `of` on the companion and do not export `Amount$of` from `index.ts`; that is a convention, backed by a consumer `as` lint, not a type-level guarantee (a string brand does not stop `import { Amount$of } from "./gen/src/amount.ts"` when the sources are vendored). `crates/cli/tests/it/package.rs` runs the two-package flow.
 
 ## Agent skill
 
@@ -106,6 +108,10 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 
 `scripts/line-counts.py` counts each example's logic against its idiomatic reference, both formatted by rustfmt ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
+## Stability
+
+Commit the generated output and check it in CI with `purecrate-ts check <crate> --out <dir>`, pinning the same version that wrote it. Within a minor series, **export names, type shapes, the wire format, and the runtime API** stay the same; **formatting, internal helpers (`$of`, temps), local names, and which runtime members a copy keeps** may change. A change to the stable surface is a minor bump (a major after 1.0). The table is in [design/07 §9](design/07-roadmap.md#9-generated-api-stability).
+
 ## Design documents
 
 | Document | Contents |
@@ -117,7 +123,7 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 | [04-wire](design/04-wire.md) | Reading serde JSON into domain values |
 | [05-architecture](design/05-architecture.md) | Pipeline, crates, IR |
 | [06-strategy](design/06-strategy.md) | Alternatives, demand, success and withdrawal criteria |
-| [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps |
+| [07-roadmap](design/07-roadmap.md) | How additions are chosen, evidence from examples, next steps, generated API stability |
 | [90-acceptance-survey](design/90-acceptance-survey.md) | Archive: measurements of existing crates |
 | [91-real-use-candidates](design/91-real-use-candidates.md) | Record: dual Rust/TS implementations found in public projects, their fit to the subset, and the first real-use target |
 

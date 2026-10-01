@@ -8,15 +8,18 @@ import { MAX_SECONDS_DIGITS } from "./consts.ts";
  * At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
  */
 export const parseSeconds = (s: string): I64 | null => {
-  if (((s.length === 0) || (Str.len(s) > MAX_SECONDS_DIGITS)) || !Iter.all(
-    Str.bytes(s),
-    ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),
-  )) return null;
+  if (
+    (s.length === 0) || Str.len(s) > MAX_SECONDS_DIGITS || !Iter.all(
+      Str.bytes(s),
+      ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),
+    )
+  )
+    return null;
   let value: I64 = 0n as I64;
-  for (const b$1 of Str.bytes(s)) {
+  for (const b of Str.bytes(s)) {
     value = Int.i64.add(
       Int.i64.mul(value, (10n as I64)),
-      (globalThis.BigInt(Int.u8.sub(b$1, (48 as U8))) as I64),
+      (globalThis.BigInt(Int.u8.sub(b, (48 as U8))) as I64),
     );
   }
   return value;

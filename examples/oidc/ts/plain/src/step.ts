@@ -4,7 +4,6 @@ import { assertNever, Int, Result, type U32 } from "./purecrate-runtime.ts";
 import { checkTotp } from "./check-totp.ts";
 import { issue } from "./issue.ts";
 import type { Authentication } from "./authentication.ts";
-import type { AuthorizationRequest } from "./authorization-request.ts";
 import type { Event } from "./event.ts";
 import type { Flow } from "./flow.ts";
 import type { FlowError } from "./flow-error.ts";
@@ -34,13 +33,12 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
               notice: { kind: "WrongPassword" },
             });
           } else {
-            const request$1 = request as AuthorizationRequest;
             switch (secondFactor.kind) {
               case "Totp": {
                 const enrollment = secondFactor.content[0];
                 return Result.ok({
                   kind: "AwaitingOtp",
-                  request: request$1,
+                  request,
                   subject,
                   enrollment,
                   failures: (0 as U32),
@@ -54,48 +52,40 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
                   strength: { kind: "PasswordOnly" },
                   totp_step: null,
                 };
-                return Result.ok({ kind: "AwaitingConsent", request: request$1, auth });
+                return Result.ok({ kind: "AwaitingConsent", request, auth });
               }
               default:
                 return assertNever(secondFactor);
             }
           }
         }
-        case "OtpSubmitted":
-        case "ConsentGranted":
-        case "ConsentDenied":
-          return Result.err({ kind: "InvalidTransition" });
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
     }
     case "AwaitingOtp": {
-      const request$2 = flow.request;
-      const subject$1 = flow.subject;
-      const enrollment$1 = flow.enrollment;
-      const failures$2 = flow.failures;
+      const request = flow.request;
+      const subject = flow.subject;
+      const enrollment = flow.enrollment;
+      const failures = flow.failures;
       switch (event.kind) {
-        case "PasswordChecked":
-        case "ConsentGranted":
-        case "ConsentDenied":
-          return Result.err({ kind: "InvalidTransition" });
         case "OtpSubmitted": {
           const code = event.code;
-          const now$1 = event.now;
+          const now = event.now;
           const candidates = event.candidates;
           let notice: Notice;
           {
-            const $m_6_notice: OtpCheck = checkTotp(code, now$1, enrollment$1, candidates);
+            const $m_6_notice: OtpCheck = checkTotp(code, now, enrollment, candidates);
             switch ($m_6_notice.kind) {
               case "Accepted": {
                 const step$1 = $m_6_notice.content[0];
-                const auth$1: Authentication = {
-                  subject: subject$1,
-                  auth_time: now$1,
+                const auth: Authentication = {
+                  subject,
+                  auth_time: now,
                   strength: { kind: "PasswordAndTotp" },
                   totp_step: step$1,
                 };
-                return Result.ok({ kind: "AwaitingConsent", request: request$2, auth: auth$1 });
+                return Result.ok({ kind: "AwaitingConsent", request, auth });
               }
               case "Replayed":
                 notice = { kind: "OtpReplayed" };
@@ -103,58 +93,47 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
               case "Malformed":
                 notice = { kind: "MalformedOtp" };
                 break;
-              case "Mismatch":
-              case "ClockBeforeEpoch":
+              default:
                 notice = { kind: "WrongOtp" };
                 break;
-              default:
-                return assertNever($m_6_notice);
             }
           }
-          const failures$3: U32 = Int.u32.add(failures$2, (1 as U32));
-          if (failures$3 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
+          const failures$1: U32 = Int.u32.add(failures, (1 as U32));
+          if (failures$1 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
           return Result.ok({
             kind: "AwaitingOtp",
-            request: request$2,
-            subject: subject$1,
-            enrollment: enrollment$1,
-            failures: failures$3,
+            request,
+            subject,
+            enrollment,
+            failures: failures$1,
             notice,
           });
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
     }
     case "AwaitingConsent": {
-      const request$3 = flow.request;
-      const auth$2 = flow.auth;
+      const request = flow.request;
+      const auth = flow.auth;
       switch (event.kind) {
-        case "PasswordChecked":
-        case "OtpSubmitted":
-          return Result.err({ kind: "InvalidTransition" });
         case "ConsentGranted":
-          return Result.ok(issue(request$3, auth$2));
+          return Result.ok(issue(request, auth));
         case "ConsentDenied": {
-          const request$4 = request$3 as AuthorizationRequest;
           return Result.ok({
             kind: "Rejected",
             content: [{
-              redirect_uri: request$4.redirect_uri,
+              redirect_uri: request.redirect_uri,
               error: { kind: "AccessDenied" },
-              state: request$4.state,
+              state: request.state,
             }],
           });
         }
         default:
-          return assertNever(event);
+          return Result.err({ kind: "InvalidTransition" });
       }
     }
-    case "CodeIssued":
-    case "Rejected":
-    case "Locked":
-      return Result.err({ kind: "InvalidTransition" });
     default:
-      return assertNever(flow);
+      return Result.err({ kind: "InvalidTransition" });
   }
 };

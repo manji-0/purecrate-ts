@@ -41,10 +41,9 @@ export const checkTotp = (
   }
   let replayed: boolean = false;
   for (const c of candidates) {
-    if ((c.step >= Int.i64.sub(
-      current,
-      (1n as I64),
-    )) && (c.step <= Int.i64.add(current, (1n as I64)))) {
+    if (
+      c.step >= Int.i64.sub(current, (1n as I64)) && c.step <= Int.i64.add(current, (1n as I64))
+    ) {
       if ((() => {
         const $m_4 = truncateMac(c.mac, enrollment.digits);
         if ($m_4 !== null) {
@@ -56,23 +55,10 @@ export const checkTotp = (
       })()) {
         let fresh: boolean;
         {
-          let $opt: boolean | null;
-          {
-            const $lastUsedStep = enrollment.last_used_step as I64 | null;
-            if ($lastUsedStep !== null) {
-              const last = $lastUsedStep;
-              $opt = c.step > last;
-            } else {
-              $opt = null;
-            }
-          }
-          const $optOr: boolean = true;
-          if ($opt !== null) {
-            const $some = $opt;
-            fresh = $some;
-          } else {
-            fresh = $optOr;
-          }
+          const $opt: boolean | null = enrollment.last_used_step !== null
+            ? c.step > enrollment.last_used_step
+            : null;
+          fresh = !($opt !== null) || $opt;
         }
         if (fresh) return { kind: "Accepted", content: [c.step] };
         replayed = true;

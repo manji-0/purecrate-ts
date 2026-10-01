@@ -84,7 +84,14 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
         return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
     }
-    // `Box` / `Arc` / `Mutex` are erased to the inner type. Emit keeps a comment
+    if name == "Mutex" {
+        return Err(ParseError::new(
+            Reason::Mutex,
+            "`Mutex` is shared mutable state; the subset is pure functions, so `lock` is refused and erasing a `Mutex` field would only hide that",
+        )
+        .detail("Mutex"));
+    }
+    // `Box` / `Arc` are erased to the inner type. Emit keeps a comment
     // that says why Rust has the wrapper and why single-threaded TS drops it.
     if let Some(wrapper) = wrapper(&name) {
         return Ok(Ty::ignored(wrapper, first_generic(&last.arguments)?));
@@ -129,7 +136,6 @@ fn wrapper(name: &str) -> Option<Wrapper> {
     match name {
         "Box" => Some(Wrapper::Box),
         "Arc" => Some(Wrapper::Arc),
-        "Mutex" => Some(Wrapper::Mutex),
         _ => None,
     }
 }

@@ -43,6 +43,24 @@ export const Result = {
   isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
 } as const;
 
+/**
+ * A domain panic: overflow, division by zero, a shift out of range, or an
+ * index/slice Rust would panic on. `message` is Rust's panic text. Named
+ * `Panic` so `instanceof` works across copies of this file (`Symbol.for`).
+ */
+const PANIC = Symbol.for("purecrate.Panic");
+
+export class Panic extends Error {
+  readonly [PANIC] = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "Panic";
+  }
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return typeof value === "object" && value !== null && PANIC in (value as object);
+  }
+}
+
 /** The `default` of a `switch` that names every variant: unreachable. */
 export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
@@ -63,7 +81,7 @@ export type F64 = number & { readonly "purecrate.F64": true };
 export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
-  throw new Error(`attempt to ${what}`);
+  throw new Panic(`attempt to ${what}`);
 };
 
 const small = <T extends number>(min: number, max: number) => {
@@ -200,23 +218,6 @@ export const parseJson = (text: string): unknown =>
 export const Str = {
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
-} as const;
-
-/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
-export const Ord = {
-} as const;
-
-/**
- * The consuming iterator methods, as std's default methods run them: in
- * order, `all` stopping at the first `false`, `any` and `position` at the
- * first `true`. `sum` adds from `zero` with `add`, the type's checked
- * addition, so it panics where a debug build does.
- */
-export const Iter = {
-} as const;
-
-/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
-export const Slice = {
 } as const;
 
 const utf8Len = (s: string): Usize => {

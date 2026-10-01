@@ -75,7 +75,7 @@ The IR knows neither Rust nor TS syntax, which keeps a second backend possible.
 ```
 Ty   = Prim(Bool|Int|Float|Usize|String|Str|Unit) | Option(Ty) | Result { ok, err }
      | Vec(Ty) | Tuple([Ty]) | Named(Name) | Fn { params, ret }   (local closures)
-     | Ignored { wrapper: Box|Arc|Mutex, inner }                   (erased, kept for comments)
+     | Ignored { wrapper: Box|Arc, inner }                         (erased, kept for comments)
      | Never
 Item = Struct | Enum | Alias | Fn
 VariantFields = Unit | Tuple([Ty]) | Struct([Field])

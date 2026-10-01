@@ -18,8 +18,8 @@ export type Authentication = Readonly<{
 export const Authentication = {
   of: (
     subject: string,
-    auth_time: I64,
+    authTime: I64,
     strength: AuthStrength,
-    totp_step: I64 | null,
-  ): Authentication => ({ subject, auth_time, strength, totp_step }),
+    totpStep: I64 | null,
+  ): Authentication => ({ subject, auth_time: authTime, strength, totp_step: totpStep }),
 } as const;

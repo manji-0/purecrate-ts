@@ -3,17 +3,19 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
 import { i64, unitEnum, unitVariant } from "./purecrate-zod.ts";
+import { type Group as Group$ } from "./group.ts";
+import { type Invoice as Invoice$ } from "./invoice.ts";
+import {
+  InvoiceError as InvoiceError$text,
+  type InvoiceError as InvoiceError$,
+} from "./invoice-error.ts";
+import { type Line as Line$ } from "./line.ts";
+import { type Method as Method$ } from "./method.ts";
+import { type Pricing as Pricing$ } from "./pricing.ts";
+import { type Rate as Rate$ } from "./rate.ts";
+import { type Rounding as Rounding$ } from "./rounding.ts";
+import { type Summary as Summary$ } from "./summary.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
-import type { Rate as Rate$ } from "./rate.ts";
-import type { Pricing as Pricing$ } from "./pricing.ts";
-import type { Rounding as Rounding$ } from "./rounding.ts";
-import type { Method as Method$ } from "./method.ts";
-import type { Line as Line$ } from "./line.ts";
-import type { Invoice as Invoice$ } from "./invoice.ts";
-import type { Group as Group$ } from "./group.ts";
-import type { Summary as Summary$ } from "./summary.ts";
-import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
-import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 export const Yen: z.ZodType<Yen$, unknown> = i64.transform((x, ctx): Yen$ => {
   const r = Yen$value.tryFrom(x);
@@ -66,10 +68,10 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
   total: Yen,
 });
 
-export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum([
-  "NegativeAmount",
-  "NoLines",
-]);
+export const InvoiceError: z.ZodType<
+  InvoiceError$,
+  unknown
+> = unitEnum(["NegativeAmount", "NoLines"]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;

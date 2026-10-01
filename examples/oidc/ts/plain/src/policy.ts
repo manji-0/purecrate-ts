@@ -9,8 +9,8 @@ export type Policy = Readonly<{
 }>;
 
 export const Policy = {
-  of: (
-    max_password_failures: U32,
-    max_otp_failures: U32,
-  ): Policy => ({ max_password_failures, max_otp_failures }),
+  of: (maxPasswordFailures: U32, maxOtpFailures: U32): Policy => ({
+    max_password_failures: maxPasswordFailures,
+    max_otp_failures: maxOtpFailures,
+  }),
 } as const;
