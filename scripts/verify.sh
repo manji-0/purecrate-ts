@@ -23,6 +23,21 @@ for f in README.md skills/purecrate-authoring/SKILL.md; do
     exit 1
   fi
 done
+# The runtime packages are private copies, but their version should still
+# follow the workspace so it is not mistaken for a separate 0.1.0 line.
+for p in packages/boundary packages/boundary-zod packages/boundary-valibot packages/boundary-arktype; do
+  pv=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$p/package.json" | head -1)
+  if [ "$pv" != "$version" ]; then
+    echo "verify: $p version is $pv, workspace is $version" >&2
+    exit 1
+  fi
+done
+for p in packages/boundary-zod packages/boundary-valibot packages/boundary-arktype; do
+  if ! grep -q "\"purecrate\": \"^$version\"" "$p/package.json"; then
+    echo "verify: $p peer-depends on purecrate other than ^$version" >&2
+    exit 1
+  fi
+done
 
 TS_MAJORS=(6 7)
 
