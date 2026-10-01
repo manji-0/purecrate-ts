@@ -26,6 +26,11 @@ pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Ex
 }
 
 pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
+    // `String::from(x)` prints as `x`: a `match` under it is the body itself.
+    let body = match body {
+        Expr::Call { callee: Callee::StringFrom, args } if args[0].needs_statements() => &args[0],
+        other => other,
+    };
     if body.needs_statements() {
         let mut out = String::new();
         emit_stmts(body, indent + 1, Sink::Return, &mut out);

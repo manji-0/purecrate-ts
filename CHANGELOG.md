@@ -19,10 +19,12 @@
 
 ### Added
 
+- `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.to_string`, so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
 - `///` (and `/** */`) comments carry over as JSDoc: on structs and enums, struct fields, each variant's constructor, functions, methods, consts, and aliases. Before, every doc comment was dropped.
 
 ### Fixed
 
+- A `match` on an enum of one variant no longer fails `tsc`: TS does not narrow a type that is not a union, so the `switch` left `assertNever` reachable. The one arm prints without a `switch`.
 - A package's copy of the runtime no longer has runs of blank lines where unused parts were left out.
 
 ### Examples

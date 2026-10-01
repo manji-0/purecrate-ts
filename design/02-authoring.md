@@ -171,11 +171,12 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | --- | --- |
 | `static` | a crate-level `const` |
 | associated consts in `impl` blocks | a crate-level `const` |
-| trait definitions and trait impls | none, except the two rows below |
+| trait definitions and trait impls | none, except the three rows below |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
-| `impl Display` / `impl std::error::Error` | skipped |
+| `impl Display` writing a fixed text per value | translated: becomes the method `X.to_string` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
+| any other `impl Display`, `impl std::error::Error` | skipped |
 
-Why `Display` and `Error` impls are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and nothing translated can call them.
+Why the others are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and a `Display` that formats arguments has no translation in v0.
 
 ### 3.5 `match` arms name variants
 

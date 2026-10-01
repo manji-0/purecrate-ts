@@ -375,6 +375,16 @@ pub(crate) fn emit_switch_in(
         emit_lit_chain(&subject, arms, indent, sink, out);
         return;
     }
+    // An enum of one variant: TS does not narrow a type that is not a union,
+    // so a `switch` would leave its `default` reachable to `assertNever`.
+    // The one arm is all there is.
+    if let [arm] = arms {
+        if let Pattern::Variant { bind, .. } = &arm.pattern {
+            out.push_str(&bind_prelude(bind, &subject, &pad));
+            emit_stmts(&arm.body, indent, sink, out);
+            return;
+        }
+    }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
     for arm in arms {
         // `A | B` binds nothing: its cases share one body.

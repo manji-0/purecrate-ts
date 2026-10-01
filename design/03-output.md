@@ -19,7 +19,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Expected failure is `Result` | only `assertNever` and arithmetic/index panics throw |
 | Time and IDs are arguments | the domain never generates them |
 | Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
-| `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block or a `Display` impl has nowhere to go |
+| `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `to_string` |
 
 ## 2. Type mapping
 

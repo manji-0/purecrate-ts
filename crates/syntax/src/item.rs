@@ -628,10 +628,12 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
     }
 }
 
-/// The trait impls v0 takes: `Display` and `Error` are skipped (a server
-/// needs them, for serde's `try_from` among others, and nothing translated
-/// can call them), and `TryFrom<T>` becomes the method `try_from`.
+/// The trait impls v0 takes: `Display` becomes the method `to_string` when
+/// its text is fixed per value (`lower_display`), else it is skipped, as
+/// `Error` is (a server needs them, for serde's `try_from` among others);
+/// `TryFrom<T>` becomes the method `try_from`.
 enum TraitImpl {
+    Display,
     Skipped,
     TryFrom,
 }
@@ -640,7 +642,7 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
     let idents: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
     let idents: Vec<&str> = idents.iter().map(String::as_str).collect();
     match idents.as_slice() {
-        ["Display"] | ["fmt", "Display"] | ["std" | "core", "fmt", "Display"] => Some(TraitImpl::Skipped),
+        ["Display"] | ["fmt", "Display"] | ["std" | "core", "fmt", "Display"] => Some(TraitImpl::Display),
         ["Error"] | ["error", "Error"] | ["std" | "core", "error", "Error"] => Some(TraitImpl::Skipped),
         ["TryFrom"] | ["convert", "TryFrom"] | ["std" | "core", "convert", "TryFrom"] => {
             match &path.segments.last()?.arguments {
@@ -653,6 +655,113 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
         }
         _ => None,
     }
+}
+
+/// `impl Display for X` as the method `X::to_string(&self) -> String`, when
+/// `fmt` writes a text fixed per value: its body `f.write_str(t)`,
+/// `write!(f, "..")` with no `{}`, or a `match self` whose arms are those or
+/// string literals, or `let x = <such a match>; f.write_str(x)`. Any other
+/// `fmt` (formatting arguments, several writes) is skipped as before, so a
+/// crate that compiled keeps compiling.
+fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Option<Item> {
+    let f = imp.items.iter().find_map(|i| match i {
+        syn::ImplItem::Fn(f) if f.sig.ident == "fmt" => Some(f),
+        _ => None,
+    })?;
+    let formatter = match f.sig.inputs.iter().nth(1)? {
+        syn::FnArg::Typed(p) => match &*p.pat {
+            syn::Pat::Ident(id) => id.ident.clone(),
+            _ => return None,
+        },
+        syn::FnArg::Receiver(_) => return None,
+    };
+    let text = match f.block.stmts.as_slice() {
+        [syn::Stmt::Expr(tail, None)] => written_text(tail, &formatter)?,
+        [syn::Stmt::Local(local), syn::Stmt::Expr(tail, None)] => {
+            let (syn::Pat::Ident(bound), Some(init)) = (&local.pat, &local.init) else { return None };
+            match written_arg(tail, &formatter)? {
+                syn::Expr::Path(p) if p.path.is_ident(&bound.ident) => fixed_text(&init.expr)?,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let mut text = text;
+    SelfIsOwner(owner_ident).visit_expr_mut(&mut text);
+    let owner = Name::new(owner_ident.to_string());
+    let body = lower_expr(cx, &text).ok()?;
+    Some(Item::Fn(Fn {
+        vis: Vis::Pub,
+        name: Name::new("to_string"),
+        owner: Some(owner.clone()),
+        params: vec![Param { name: Name::new("self"), ty: purecrate_ir::Ty::Named(owner) }],
+        ret: purecrate_ir::Ty::Prim(purecrate_ir::Prim::String),
+        body: purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![body] },
+        doc: doc(&imp.attrs),
+    }))
+}
+
+/// The `&str` that `e` writes to `formatter`, when it is fixed per value.
+fn written_text(e: &syn::Expr, formatter: &syn::Ident) -> Option<syn::Expr> {
+    match e {
+        syn::Expr::Match(m) if is_self(&m.expr) => {
+            let mut m = m.clone();
+            for arm in &mut m.arms {
+                if arm.guard.is_some() {
+                    return None;
+                }
+                *arm.body = written_text(&arm.body, formatter).or_else(|| literal(&arm.body))?;
+            }
+            Some(syn::Expr::Match(m))
+        }
+        other => fixed_text(&written_arg(other, formatter)?),
+    }
+}
+
+/// The argument of `formatter.write_str(x)`, or the literal of
+/// `write!(formatter, "..")` with no formatting arguments or `{}`.
+fn written_arg(e: &syn::Expr, formatter: &syn::Ident) -> Option<syn::Expr> {
+    match e {
+        syn::Expr::MethodCall(c) if c.method == "write_str" && c.args.len() == 1 => match &*c.receiver {
+            syn::Expr::Path(p) if p.path.is_ident(formatter) => Some(c.args[0].clone()),
+            _ => None,
+        },
+        syn::Expr::Macro(m) if m.mac.path.is_ident("write") => {
+            let args = m.mac.parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated).ok()?;
+            let [syn::Expr::Path(target), syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. })] = args.iter().collect::<Vec<_>>()[..] else {
+                return None;
+            };
+            if !target.path.is_ident(formatter) {
+                return None;
+            }
+            let value = text.value();
+            let plain = value.replace("{{", "").replace("}}", "");
+            if plain.contains('{') || plain.contains('}') {
+                return None;
+            }
+            let unescaped = value.replace("{{", "{").replace("}}", "}");
+            Some(syn::Expr::Lit(syn::ExprLit { attrs: Vec::new(), lit: syn::Lit::Str(syn::LitStr::new(&unescaped, text.span())) }))
+        }
+        _ => None,
+    }
+}
+
+/// `e` when it is a string literal or a `match self` whose arms are.
+fn fixed_text(e: &syn::Expr) -> Option<syn::Expr> {
+    match e {
+        syn::Expr::Match(m) if is_self(&m.expr) && m.arms.iter().all(|a| a.guard.is_none() && literal(&a.body).is_some()) => {
+            Some(e.clone())
+        }
+        other => literal(other),
+    }
+}
+
+fn literal(e: &syn::Expr) -> Option<syn::Expr> {
+    matches!(e, syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(_), .. })).then(|| e.clone())
+}
+
+fn is_self(e: &syn::Expr) -> bool {
+    matches!(e, syn::Expr::Path(p) if p.path.is_ident("self"))
 }
 
 /// `impl TryFrom<T> for X { type Error = E; fn try_from(value: T) -> Result<Self, Self::Error> }`
@@ -729,6 +838,9 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     };
     if matches!(kind, Some(TraitImpl::TryFrom)) {
         return lower_try_from(cx, &imp, &owner_ident);
+    }
+    if matches!(kind, Some(TraitImpl::Display)) {
+        return Ok(lower_display(cx, &imp, &owner_ident).into_iter().collect());
     }
     let owner = Name::new(owner_ident.to_string());
     let mut out = Vec::new();

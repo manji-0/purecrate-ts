@@ -20,6 +20,10 @@ pub fn prune_unused(src: &str) -> String {
             None => {}
         }
     }
+    // Every import of a block dropped leaves its blank line after the header.
+    while out.contains("\n\n\n") {
+        out = out.replace("\n\n\n", "\n\n");
+    }
     out
 }
 

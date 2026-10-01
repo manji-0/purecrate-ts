@@ -201,6 +201,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`const` in a block](#78-const-in-a-block) | a `let` at the top of the block | `local_consts_equivalence.rs` |
 | [integer methods](#79-integer-methods) | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
 | [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | `Ord.cmp` / `Ord.cmpStr` / `Ord.then`; a `match` on the `Ordering` | `ordering_equivalence.rs` |
+| [`impl Display` with a fixed text](#711-impl-display-with-a-fixed-text) | the method `to_string`, the text per value | `display_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -272,6 +273,10 @@ An exponent is a `u32`; a power is not formed when its magnitude is certainly pa
 - **`then_with(f)`** puts `f`'s body (a closure without parameters, `?`, or `return`) or the call `f()` (a function name) in the `Equal` arm, so it runs only there.
 
 Tested with an overflowing `then` argument after a non-`Equal` receiver, an overflowing `then_with` body that must not run, a function name, a SemVer-style chain, `Ordering` in a tuple `match` with guards, `matches!` with the qualified path, and every predicate.
+
+### 7.11 `impl Display` with a fixed text
+
+`impl Display for X` whose `fmt` writes a text fixed per value becomes the method `X.to_string(self): string`, and `x.to_string()` in the crate calls it. The shapes taken: `f.write_str(t)` or `write!(f, "..")` (no `{}`; `{{` and `}}` read as braces), a `match self` whose arms are those or string literals, and `let t = <such a match>; f.write_str(t)`. The text is what `to_string()` gives in Rust: `write!` writes its literal with the braces unescaped, `write_str` its argument. Any other `fmt` (formatting arguments, several writes) is skipped as before, so a crate that compiled keeps compiling, and has no `to_string`. Tested with each shape, a non-ASCII text, escaped braces, a struct, and a skipped `fmt` with arguments.
 
 ## 8. Verification
 

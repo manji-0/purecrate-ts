@@ -17,6 +17,7 @@ mod consumers_equivalence;
 mod control_equivalence;
 mod counter_equivalence;
 mod destructure_equivalence;
+mod display_equivalence;
 mod flags_equivalence;
 mod for_chars_equivalence;
 mod for_each_equivalence;

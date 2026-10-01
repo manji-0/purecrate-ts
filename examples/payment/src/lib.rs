@@ -193,8 +193,8 @@ pub enum PaymentError {
     InvalidTransition,
 }
 
-/// For the server's logs and serde's `try_from` errors. Not translated: the
-/// client shows its own wording for each variant.
+/// For the server's logs and serde's `try_from` errors; the client gets the
+/// same text from `PaymentError.to_string`.
 impl fmt::Display for PaymentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match self {
