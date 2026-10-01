@@ -320,6 +320,15 @@ pub(crate) fn emit_let(
             };
             out.push_str(&format!("{pad}{keyword} {name}{annotation} = {payload};\n"));
         }
+        // A place in a `switch` arm is a narrowed union; the annotation
+        // alone does not widen it for TS, so `as T` gives back the type.
+        v if is_place(v) && matches!(ty, Some(Ty::Named(_))) => {
+            let t = emit_ty(ty.unwrap());
+            out.push_str(&format!(
+                "{pad}{keyword} {name}{annotation} = {} as {t};\n",
+                emit_expr(v, indent)
+            ));
+        }
         v if let Some(s) = as_expr(v, indent) => out.push_str(&format!(
             "{pad}{keyword} {name}{annotation} = {};\n",
             crate::tidy::strip_outer(&s)
@@ -503,7 +512,11 @@ pub(crate) fn emit_switch_in(
         }
     }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
+    let remainder = remainder_arm(arms);
     for arm in arms {
+        if remainder.is_some_and(|r| std::ptr::eq(r, arm)) {
+            continue;
+        }
         // `A | B` binds nothing: its cases share one body.
         let (variants, bind) = match &arm.pattern {
             Pattern::Variant { variant, bind, .. } => (vec![variant], Some(bind)),
@@ -538,9 +551,51 @@ pub(crate) fn emit_switch_in(
             }
         }
     }
-    out.push_str(&format!(
-        "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
-    ));
+    if let Some(arm) = remainder {
+        let braced = declares_at_top(&arm.body);
+        if braced {
+            out.push_str(&format!("{pad1}default: {{\n"));
+        } else {
+            out.push_str(&format!("{pad1}default:\n"));
+        }
+        emit_stmts(&arm.body, indent + 2, sink, out);
+        if !matches!(sink, Sink::Return) && !ends_in_jump(&arm.body) {
+            out.push_str(&format!("{pad1}  break;\n"));
+        }
+        if braced {
+            out.push_str(&format!("{pad1}}}\n"));
+        }
+        out.push_str(&format!("{pad}}}\n"));
+    } else {
+        out.push_str(&format!(
+            "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
+        ));
+    }
+}
+
+/// The one `A | B | …` (or `_`) that binds nothing, when other arms name
+/// variants: it is the Rust `_`, printed as `default` instead of listing
+/// every remaining case and `assertNever`.
+fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
+    let named = arms
+        .iter()
+        .any(|a| matches!(a.pattern, Pattern::Variant { .. }));
+    if !named {
+        return None;
+    }
+    let mut found = None;
+    for a in arms {
+        let catch_all = a.pattern.bindings().is_empty()
+            && matches!(a.pattern, Pattern::Or(_) | Pattern::Wildcard)
+            && !declares_at_top(&a.body);
+        if catch_all {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(a);
+        }
+    }
+    found
 }
 
 /// A `match` on an integer or a `&str`: arms tried in order, the last (`_`)

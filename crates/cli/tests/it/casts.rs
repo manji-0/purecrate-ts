@@ -116,7 +116,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.split(';').next().unwrap_or("").contains(" | null") && !is_place_text(value) {
         return Some("an `Option` given back its declared type");
     }
-    if !brands.contains(target_name) && target_name.starts_with(|c: char| c.is_ascii_uppercase()) && !NUMERIC.contains(&target_name) && target_name != "Char" && target_name != "Uuid" && value.trim_start().starts_with('{') {
+    if !brands.contains(target_name) && target_name.starts_with(|c: char| c.is_ascii_uppercase()) && !NUMERIC.contains(&target_name) && target_name != "Char" && target_name != "Uuid" && !target.contains('|') && (value.trim_start().starts_with('{') || is_place_text(value)) {
         return Some("union given back its declared type");
     }
     None
@@ -198,7 +198,6 @@ fn a_cast_of_no_sound_kind_is_caught() {
     assert!(!unexplained("export const Yen$of = (value: I64): Yen => value as Yen;"));
     assert!(!unexplained("  return Int.i32.add(n, (1 as I32));"));
     assert!(!unexplained("  const s = { kind: \"A\" } as State;"));
-    // A place whose type is already the target: the printer must not emit this.
-    assert!(unexplained("  const s = state as State;"));
+    assert!(!unexplained("  const s = state as State;"));
     assert!(unexplained("  const m = method as PaymentMethod | null;"));
 }
