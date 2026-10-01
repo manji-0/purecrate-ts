@@ -413,24 +413,25 @@ fn struct_schema(schema: WireSchema, s: &Struct, recursive: bool, refused: &Refu
     }
     if let Some(inner) = s.newtype_inner() {
         let value = schema_ty(schema, inner);
-        let build = newtype_build(s, "v");
+        // `x`, not `v`, which names valibot's namespace.
+        let build = newtype_build(s, "x");
         let expr = match schema {
-            WireSchema::Zod => format!("{value}.transform((v): {name}$ => {build})"),
-            WireSchema::Valibot => format!("v.pipe({value}, v.transform((v): {name}$ => {build}))"),
+            WireSchema::Zod => format!("{value}.transform((x): {name}$ => {build})"),
+            WireSchema::Valibot => format!("v.pipe({value}, v.transform((x): {name}$ => {build}))"),
             WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
         };
         return declare(schema, name, &expr, recursive);
     }
     let fields = object_fields(schema, &s.fields);
-    let build = record_build(s, &fill(schema, &s.fields, "v"));
+    let build = record_build(s, &fill(schema, &s.fields, "x"));
     let expr = match schema {
         // The object opens the declaration line, whose head takes room.
         WireSchema::Zod => chain(
             &list_within(100usize.saturating_sub(name.len() * 2 + 45), "z.object({", &fields, "})", true),
-            &[format!(".transform((v): {name}$ => {build})")],
+            &[format!(".transform((x): {name}$ => {build})")],
         ),
         WireSchema::Valibot => format!(
-            "v.pipe(\n  {},\n  v.transform((v): {name}$ => {build}),\n)",
+            "v.pipe(\n  {},\n  v.transform((x): {name}$ => {build}),\n)",
             list("v.object({", &fields, "})", true).replace('\n', "\n  ")
         ),
         WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
@@ -468,10 +469,10 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, r
             schema,
             name,
             &format!(
-                "{from}.transform((v, ctx): {name}$ => {{\n\
-                 \x20 const r = {name}$value.tryFrom(v);\n\
+                "{from}.transform((x, ctx): {name}$ => {{\n\
+                 \x20 const r = {name}$value.tryFrom(x);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
-                 \x20   ctx.addIssue({{ code: \"custom\", message: {message}, input: v, params: {{ error: r.error }} }});\n\
+                 \x20   ctx.addIssue({{ code: \"custom\", message: {message}, input: x, params: {{ error: r.error }} }});\n\
                  \x20   return z.NEVER;\n\
                  \x20 }}\n\
                  \x20 return r.value;\n\
@@ -595,10 +596,10 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
                 WireSchema::Zod => list("z.object({", &fields, "})", true),
                 _ => list("v.object({", &fields, "})", true),
             };
-            (inner, fill(schema, fs, &format!("v.{variant}")))
+            (inner, fill(schema, fs, &format!("x.{variant}")))
         }
     };
-    let value = transform("v", &rest);
+    let value = transform("x", &rest);
     match schema {
         WireSchema::Zod => chain(
             &format!("z.object({{ {variant}: {wrapper} }})"),
@@ -684,7 +685,7 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
         }
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(WireSchema::Arktype, name, tys);
-            (json, format!("content: {}", content.replace("v.", "parsed.")))
+            (json, format!("content: {}", content.replace("x.", "parsed.")))
         }
         VariantFields::Struct(fields) => {
             let inner = fields
@@ -707,7 +708,7 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
 /// `{"Add": [4]}`. The domain value is still a one-element tuple.
 fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty]) -> (String, String) {
     if tys.len() == 1 {
-        return (schema_ty(schema, &tys[0]), format!("[v.{variant}]"));
+        return (schema_ty(schema, &tys[0]), format!("[x.{variant}]"));
     }
     let inner = tys
         .iter()
@@ -719,7 +720,7 @@ fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty]) -> (String, String)
         WireSchema::Valibot => format!("v.tuple([{inner}])"),
         WireSchema::Arktype => format!("[{inner}]"),
     };
-    (json, format!("v.{variant}"))
+    (json, format!("x.{variant}"))
 }
 
 fn schema_ty(schema: WireSchema, ty: &Ty) -> String {

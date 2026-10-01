@@ -45,7 +45,7 @@ export const MethodKind: v.GenericSchema<unknown, MethodKind$> = unitEnum(["Card
 
 export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.pipe(
   v.object({ id: PaymentMethodId, kind: MethodKind }),
-  v.transform((v): PaymentMethod$ => ({ id: v.id, kind: v.kind })),
+  v.transform((x): PaymentMethod$ => ({ id: x.id, kind: x.kind })),
 );
 
 export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum([
@@ -60,10 +60,10 @@ export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> =
 
 export const Terms: v.GenericSchema<unknown, Terms$> = v.pipe(
   v.object({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }),
-  v.transform((v): Terms$ => ({
-    amount: v.amount,
-    capture: v.capture,
-    confirmation: v.confirmation,
+  v.transform((x): Terms$ => ({
+    amount: x.amount,
+    capture: x.capture,
+    confirmation: x.confirmation,
   })),
 );
 
@@ -84,32 +84,32 @@ export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> =
 export const Status: v.GenericSchema<unknown, Status$> = v.union([
   v.pipe(
     v.strictObject({ RequiresPaymentMethod: v.object({ last_error: v.optional(nullable(DeclineCode)) }) }),
-    v.transform((v): Status$ => ({
+    v.transform((x): Status$ => ({
       kind: "RequiresPaymentMethod",
-      last_error: v.RequiresPaymentMethod.last_error ?? null,
+      last_error: x.RequiresPaymentMethod.last_error ?? null,
     })),
   ),
   v.pipe(
     v.strictObject({ RequiresConfirmation: v.object({ method: PaymentMethod }) }),
-    v.transform((v): Status$ => ({
+    v.transform((x): Status$ => ({
       kind: "RequiresConfirmation",
-      method: v.RequiresConfirmation.method,
+      method: x.RequiresConfirmation.method,
     })),
   ),
   v.pipe(
     v.strictObject({ RequiresAction: v.object({ method: PaymentMethod }) }),
-    v.transform((v): Status$ => ({ kind: "RequiresAction", method: v.RequiresAction.method })),
+    v.transform((x): Status$ => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
   ),
   v.pipe(
     v.strictObject({ Processing: v.object({ method: PaymentMethod }) }),
-    v.transform((v): Status$ => ({ kind: "Processing", method: v.Processing.method })),
+    v.transform((x): Status$ => ({ kind: "Processing", method: x.Processing.method })),
   ),
   v.pipe(
     v.strictObject({ RequiresCapture: v.object({ method: PaymentMethod, capturable: i64 }) }),
-    v.transform((v): Status$ => ({
+    v.transform((x): Status$ => ({
       kind: "RequiresCapture",
-      method: v.RequiresCapture.method,
-      capturable: v.RequiresCapture.capturable,
+      method: x.RequiresCapture.method,
+      capturable: x.RequiresCapture.capturable,
     })),
   ),
   v.pipe(
@@ -117,21 +117,21 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
       received: i64,
       application_fee: v.optional(nullable(i64)),
     }) }),
-    v.transform((v): Status$ => ({
+    v.transform((x): Status$ => ({
       kind: "Succeeded",
-      received: v.Succeeded.received,
-      application_fee: v.Succeeded.application_fee ?? null,
+      received: x.Succeeded.received,
+      application_fee: x.Succeeded.application_fee ?? null,
     })),
   ),
   v.pipe(
     v.strictObject({ Canceled: v.object({ reason: v.optional(nullable(CancellationReason)) }) }),
-    v.transform((v): Status$ => ({ kind: "Canceled", reason: v.Canceled.reason ?? null })),
+    v.transform((x): Status$ => ({ kind: "Canceled", reason: x.Canceled.reason ?? null })),
   ),
 ]);
 
 export const PaymentIntent: v.GenericSchema<unknown, PaymentIntent$> = v.pipe(
   v.object({ terms: Terms, status: Status }),
-  v.transform((v): PaymentIntent$ => ({ terms: v.terms, status: v.status })),
+  v.transform((x): PaymentIntent$ => ({ terms: x.terms, status: x.status })),
 );
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
@@ -144,29 +144,29 @@ export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([
   v.pipe(unitVariant("Pending"), v.transform((): Outcome$ => ({ kind: "Pending" }))),
   v.pipe(
     v.strictObject({ Declined: DeclineCode }),
-    v.transform((v): Outcome$ => ({ kind: "Declined", content: [v.Declined] })),
+    v.transform((x): Outcome$ => ({ kind: "Declined", content: [x.Declined] })),
   ),
 ]);
 
 export const Event: v.GenericSchema<unknown, Event$> = v.union([
   v.pipe(
     v.strictObject({ AttachMethod: PaymentMethod }),
-    v.transform((v): Event$ => ({ kind: "AttachMethod", content: [v.AttachMethod] })),
+    v.transform((x): Event$ => ({ kind: "AttachMethod", content: [x.AttachMethod] })),
   ),
   v.pipe(
     v.strictObject({ Confirm: v.object({
       method: v.optional(nullable(PaymentMethod)),
       outcome: Outcome,
     }) }),
-    v.transform((v): Event$ => ({
+    v.transform((x): Event$ => ({
       kind: "Confirm",
-      method: v.Confirm.method ?? null,
-      outcome: v.Confirm.outcome,
+      method: x.Confirm.method ?? null,
+      outcome: x.Confirm.outcome,
     })),
   ),
   v.pipe(
     v.strictObject({ ActionHandled: Outcome }),
-    v.transform((v): Event$ => ({ kind: "ActionHandled", content: [v.ActionHandled] })),
+    v.transform((x): Event$ => ({ kind: "ActionHandled", content: [x.ActionHandled] })),
   ),
   v.pipe(
     unitVariant("ProcessingSucceeded"),
@@ -174,22 +174,22 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ ProcessingFailed: DeclineCode }),
-    v.transform((v): Event$ => ({ kind: "ProcessingFailed", content: [v.ProcessingFailed] })),
+    v.transform((x): Event$ => ({ kind: "ProcessingFailed", content: [x.ProcessingFailed] })),
   ),
   v.pipe(
     v.strictObject({ Capture: v.object({
       amount_to_capture: v.optional(nullable(i64)),
       application_fee: v.optional(nullable(i64)),
     }) }),
-    v.transform((v): Event$ => ({
+    v.transform((x): Event$ => ({
       kind: "Capture",
-      amount_to_capture: v.Capture.amount_to_capture ?? null,
-      application_fee: v.Capture.application_fee ?? null,
+      amount_to_capture: x.Capture.amount_to_capture ?? null,
+      application_fee: x.Capture.application_fee ?? null,
     })),
   ),
   v.pipe(
     v.strictObject({ Cancel: nullable(CancellationReason) }),
-    v.transform((v): Event$ => ({ kind: "Cancel", content: [v.Cancel] })),
+    v.transform((x): Event$ => ({ kind: "Cancel", content: [x.Cancel] })),
   ),
 ]);
 
@@ -208,9 +208,9 @@ export const PaymentError: v.GenericSchema<unknown, PaymentError$> = v.union([
   ),
   v.pipe(
     v.strictObject({ InvalidCaptureAmount: v.object({ capturable: i64 }) }),
-    v.transform((v): PaymentError$ => ({
+    v.transform((x): PaymentError$ => ({
       kind: "InvalidCaptureAmount",
-      capturable: v.InvalidCaptureAmount.capturable,
+      capturable: x.InvalidCaptureAmount.capturable,
     })),
   ),
   v.pipe(

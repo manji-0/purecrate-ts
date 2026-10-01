@@ -22,13 +22,13 @@ import type { Event as Event$ } from "./event.ts";
 import type { PaymentError as PaymentError$ } from "./payment-error.ts";
 import { PaymentError as PaymentError$text } from "./payment-error.ts";
 
-export const Amount: z.ZodType<Amount$, unknown> = i64.transform((v, ctx): Amount$ => {
-  const r = Amount$value.tryFrom(v);
+export const Amount: z.ZodType<Amount$, unknown> = i64.transform((x, ctx): Amount$ => {
+  const r = Amount$value.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
       message: `Amount: ${PaymentError$text.toString(r.error)}`,
-      input: v,
+      input: x,
       params: { error: r.error },
     });
     return z.NEVER;
@@ -37,13 +37,13 @@ export const Amount: z.ZodType<Amount$, unknown> = i64.transform((v, ctx): Amoun
 });
 
 /** A payment method ID: `pm_` followed by at least one character. */
-export const PaymentMethodId: z.ZodType<PaymentMethodId$, unknown> = str.transform((v, ctx): PaymentMethodId$ => {
-  const r = PaymentMethodId$value.tryFrom(v);
+export const PaymentMethodId: z.ZodType<PaymentMethodId$, unknown> = str.transform((x, ctx): PaymentMethodId$ => {
+  const r = PaymentMethodId$value.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
       message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}`,
-      input: v,
+      input: x,
       params: { error: r.error },
     });
     return z.NEVER;
@@ -57,7 +57,7 @@ export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
   id: PaymentMethodId,
   kind: MethodKind,
 })
-  .transform((v): PaymentMethod$ => ({ id: v.id, kind: v.kind }));
+  .transform((x): PaymentMethod$ => ({ id: x.id, kind: x.kind }));
 
 export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
 
@@ -71,10 +71,10 @@ export const Terms: z.ZodType<Terms$, unknown> = z.object({
   capture: CaptureMethod,
   confirmation: ConfirmationMethod,
 })
-  .transform((v): Terms$ => ({
-    amount: v.amount,
-    capture: v.capture,
-    confirmation: v.confirmation,
+  .transform((x): Terms$ => ({
+    amount: x.amount,
+    capture: x.capture,
+    confirmation: x.confirmation,
   }));
 
 export const DeclineCode: z.ZodType<DeclineCode$, unknown> = unitEnum([
@@ -94,46 +94,46 @@ export const CancellationReason: z.ZodType<CancellationReason$, unknown> = unitE
 export const Status: z.ZodType<Status$, unknown> = z.union([
   z.object({ RequiresPaymentMethod: z.object({ last_error: optionalField(DeclineCode) }) })
     .strict()
-    .transform((v): Status$ => ({
+    .transform((x): Status$ => ({
       kind: "RequiresPaymentMethod",
-      last_error: v.RequiresPaymentMethod.last_error,
+      last_error: x.RequiresPaymentMethod.last_error,
     })),
   z.object({ RequiresConfirmation: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((v): Status$ => ({
+    .transform((x): Status$ => ({
       kind: "RequiresConfirmation",
-      method: v.RequiresConfirmation.method,
+      method: x.RequiresConfirmation.method,
     })),
   z.object({ RequiresAction: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((v): Status$ => ({ kind: "RequiresAction", method: v.RequiresAction.method })),
+    .transform((x): Status$ => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
   z.object({ Processing: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((v): Status$ => ({ kind: "Processing", method: v.Processing.method })),
+    .transform((x): Status$ => ({ kind: "Processing", method: x.Processing.method })),
   z.object({ RequiresCapture: z.object({ method: PaymentMethod, capturable: i64 }) })
     .strict()
-    .transform((v): Status$ => ({
+    .transform((x): Status$ => ({
       kind: "RequiresCapture",
-      method: v.RequiresCapture.method,
-      capturable: v.RequiresCapture.capturable,
+      method: x.RequiresCapture.method,
+      capturable: x.RequiresCapture.capturable,
     })),
   z.object({ Succeeded: z.object({ received: i64, application_fee: optionalField(i64) }) })
     .strict()
-    .transform((v): Status$ => ({
+    .transform((x): Status$ => ({
       kind: "Succeeded",
-      received: v.Succeeded.received,
-      application_fee: v.Succeeded.application_fee,
+      received: x.Succeeded.received,
+      application_fee: x.Succeeded.application_fee,
     })),
   z.object({ Canceled: z.object({ reason: optionalField(CancellationReason) }) })
     .strict()
-    .transform((v): Status$ => ({ kind: "Canceled", reason: v.Canceled.reason })),
+    .transform((x): Status$ => ({ kind: "Canceled", reason: x.Canceled.reason })),
 ]);
 
 export const PaymentIntent: z.ZodType<PaymentIntent$, unknown> = z.object({
   terms: Terms,
   status: Status,
 })
-  .transform((v): PaymentIntent$ => ({ terms: v.terms, status: v.status }));
+  .transform((x): PaymentIntent$ => ({ terms: x.terms, status: x.status }));
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: z.ZodType<Outcome$, unknown> = z.union([
@@ -142,41 +142,41 @@ export const Outcome: z.ZodType<Outcome$, unknown> = z.union([
   unitVariant("Pending").transform((): Outcome$ => ({ kind: "Pending" })),
   z.object({ Declined: DeclineCode })
     .strict()
-    .transform((v): Outcome$ => ({ kind: "Declined", content: [v.Declined] })),
+    .transform((x): Outcome$ => ({ kind: "Declined", content: [x.Declined] })),
 ]);
 
 export const Event: z.ZodType<Event$, unknown> = z.union([
   z.object({ AttachMethod: PaymentMethod })
     .strict()
-    .transform((v): Event$ => ({ kind: "AttachMethod", content: [v.AttachMethod] })),
+    .transform((x): Event$ => ({ kind: "AttachMethod", content: [x.AttachMethod] })),
   z.object({ Confirm: z.object({ method: optionalField(PaymentMethod), outcome: Outcome }) })
     .strict()
-    .transform((v): Event$ => ({
+    .transform((x): Event$ => ({
       kind: "Confirm",
-      method: v.Confirm.method,
-      outcome: v.Confirm.outcome,
+      method: x.Confirm.method,
+      outcome: x.Confirm.outcome,
     })),
   z.object({ ActionHandled: Outcome })
     .strict()
-    .transform((v): Event$ => ({ kind: "ActionHandled", content: [v.ActionHandled] })),
+    .transform((x): Event$ => ({ kind: "ActionHandled", content: [x.ActionHandled] })),
   unitVariant("ProcessingSucceeded")
     .transform((): Event$ => ({ kind: "ProcessingSucceeded" })),
   z.object({ ProcessingFailed: DeclineCode })
     .strict()
-    .transform((v): Event$ => ({ kind: "ProcessingFailed", content: [v.ProcessingFailed] })),
+    .transform((x): Event$ => ({ kind: "ProcessingFailed", content: [x.ProcessingFailed] })),
   z.object({ Capture: z.object({
     amount_to_capture: optionalField(i64),
     application_fee: optionalField(i64),
   }) })
     .strict()
-    .transform((v): Event$ => ({
+    .transform((x): Event$ => ({
       kind: "Capture",
-      amount_to_capture: v.Capture.amount_to_capture,
-      application_fee: v.Capture.application_fee,
+      amount_to_capture: x.Capture.amount_to_capture,
+      application_fee: x.Capture.application_fee,
     })),
   z.object({ Cancel: nullable(CancellationReason) })
     .strict()
-    .transform((v): Event$ => ({ kind: "Cancel", content: [v.Cancel] })),
+    .transform((x): Event$ => ({ kind: "Cancel", content: [x.Cancel] })),
 ]);
 
 export const PaymentError: z.ZodType<PaymentError$, unknown> = z.union([
@@ -188,9 +188,9 @@ export const PaymentError: z.ZodType<PaymentError$, unknown> = z.union([
     .transform((): PaymentError$ => ({ kind: "MissingPaymentMethod" })),
   z.object({ InvalidCaptureAmount: z.object({ capturable: i64 }) })
     .strict()
-    .transform((v): PaymentError$ => ({
+    .transform((x): PaymentError$ => ({
       kind: "InvalidCaptureAmount",
-      capturable: v.InvalidCaptureAmount.capturable,
+      capturable: x.InvalidCaptureAmount.capturable,
     })),
   unitVariant("NegativeApplicationFee")
     .transform((): PaymentError$ => ({ kind: "NegativeApplicationFee" })),

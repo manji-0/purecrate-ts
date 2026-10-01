@@ -15,13 +15,13 @@ import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
 import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
-export const Yen: z.ZodType<Yen$, unknown> = i64.transform((v, ctx): Yen$ => {
-  const r = Yen$value.tryFrom(v);
+export const Yen: z.ZodType<Yen$, unknown> = i64.transform((x, ctx): Yen$ => {
+  const r = Yen$value.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
       message: `Yen: ${InvoiceError$text.toString(r.error)}`,
-      input: v,
+      input: x,
       params: { error: r.error },
     });
     return z.NEVER;
@@ -40,7 +40,7 @@ export const Method: z.ZodType<Method$, unknown> = z.union([
   unitVariant("Separate").transform((): Method$ => ({ kind: "Separate" })),
   z.object({ ToExclusive: z.object({ conversion: Rounding }) })
     .strict()
-    .transform((v): Method$ => ({ kind: "ToExclusive", conversion: v.ToExclusive.conversion })),
+    .transform((x): Method$ => ({ kind: "ToExclusive", conversion: x.ToExclusive.conversion })),
 ]);
 
 export const Line: z.ZodType<Line$, unknown> = z.object({
@@ -48,17 +48,17 @@ export const Line: z.ZodType<Line$, unknown> = z.object({
   rate: Rate,
   pricing: Pricing,
 })
-  .transform((v): Line$ => ({ amount: v.amount, rate: v.rate, pricing: v.pricing }));
+  .transform((x): Line$ => ({ amount: x.amount, rate: x.rate, pricing: x.pricing }));
 
 export const Invoice: z.ZodType<Invoice$, unknown> = z.object({
   lines: z.array(Line),
   rounding: Rounding,
   method: Method,
 })
-  .transform((v): Invoice$ => ({ lines: v.lines, rounding: v.rounding, method: v.method }));
+  .transform((x): Invoice$ => ({ lines: x.lines, rounding: x.rounding, method: x.method }));
 
 /** One rate and pricing: the total of its amounts and the tax on it. */
-export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen }).transform((v): Group$ => ({ base: v.base, tax: v.tax }));
+export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen }).transform((x): Group$ => ({ base: x.base, tax: x.tax }));
 
 export const Summary: z.ZodType<Summary$, unknown> = z.object({
   standard: Group,
@@ -67,12 +67,12 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
   reduced_inclusive: Group,
   total: Yen,
 })
-  .transform((v): Summary$ => ({
-    standard: v.standard,
-    reduced: v.reduced,
-    standard_inclusive: v.standard_inclusive,
-    reduced_inclusive: v.reduced_inclusive,
-    total: v.total,
+  .transform((x): Summary$ => ({
+    standard: x.standard,
+    reduced: x.reduced,
+    standard_inclusive: x.standard_inclusive,
+    reduced_inclusive: x.reduced_inclusive,
+    total: x.total,
   }));
 
 export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum([
