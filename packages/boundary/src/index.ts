@@ -277,7 +277,7 @@ export const Str = {
   /** `str::strip_suffix` with a `&str`. */
   stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
   // #endregion
-  // #region str.cmp
+  // #region str.cmp ord.cmpStr
   /**
    * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
    * JS `<` compares UTF-16 units, which puts U+E000..=U+FFFF above the
@@ -294,6 +294,31 @@ export const Str = {
     }
     return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
   },
+  // #endregion
+} as const;
+
+// #region ord.cmp ord.cmpStr ord.then
+/** std's `Ordering`, as the crate's `Ordering` declares it. */
+type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
+// #endregion
+
+// #region ord.cmp ord.cmpStr
+const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { kind: "Equal" }, { kind: "Greater" }];
+// #endregion
+
+/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
+export const Ord = {
+  // #region ord.cmp
+  /** `a.cmp(&b)` on an integer or `bool`: JS `<` orders them as Rust does. */
+  cmp: <T extends number | bigint | boolean>(a: T, b: T): Ordering => ORDERINGS[a < b ? 0 : a === b ? 1 : 2],
+  // #endregion
+  // #region ord.cmpStr
+  /** `a.cmp(&b)` on a `char`, a string, or a `Uuid`: by code point. */
+  cmpStr: (a: string, b: string): Ordering => ORDERINGS[Str.cmp(a, b) + 1],
+  // #endregion
+  // #region ord.then
+  /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
+  then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
   // #endregion
 } as const;
 

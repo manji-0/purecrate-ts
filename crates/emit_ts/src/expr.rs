@@ -221,6 +221,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::UuidParse => "Uuid.parseStr".into(),
                 purecrate_ir::Callee::UuidNil => "Uuid.nil".into(),
                 purecrate_ir::Callee::StrCmp => "Str.cmp".into(),
+                purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
+                purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
+                purecrate_ir::Callee::OrdThen => "Ord.then".into(),
             };
             if let purecrate_ir::Callee::CharCode(to) = callee {
                 let code = format!("Char.code({})", emit_expr(&args[0], indent));

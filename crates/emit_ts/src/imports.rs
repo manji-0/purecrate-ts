@@ -200,6 +200,8 @@ pub(crate) struct Refs {
     str: bool,
     /// `Slice` from `./str.ts`, for indexing and slicing a `Vec`.
     slice: bool,
+    /// `Ord` from `./str.ts`, for `cmp` and `Ordering::then`.
+    ord: bool,
     /// The `Char` runtime, and the `Char` type, from `./str.ts`.
     char_value: bool,
     char_type: bool,
@@ -289,6 +291,7 @@ impl Refs {
                         self.values.insert(ty.as_str().to_string());
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result = true,
+                    Callee::OrdCmp { .. } | Callee::OrdThen => self.ord = true,
                     Callee::Int { ty, .. } => {
                         self.int = true;
                         self.nums.insert(ty.ts_name().to_string());
@@ -467,6 +470,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.uuid_error.then_some("type UuidError"),
         refs.str.then_some("Str"),
         refs.slice.then_some("Slice"),
+        refs.ord.then_some("Ord"),
     ]
     .into_iter()
     .flatten()

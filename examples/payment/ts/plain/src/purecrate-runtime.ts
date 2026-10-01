@@ -166,6 +166,10 @@ export const Str = {
   len: (s: string): Usize => utf8Len(s),
 } as const;
 
+/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
+export const Ord = {
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
 } as const;

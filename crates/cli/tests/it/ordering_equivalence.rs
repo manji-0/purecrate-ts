@@ -215,3 +215,17 @@ fn cmp_alone_gives_an_internal_ordering() {
     });
     support::assert_equivalent("cmp_only", cmp_only::SOURCE, &cases);
 }
+
+/// `cmp` and `then` print as calls to the runtime's `Ord`, nested in Rust's
+/// order, not as `if` chains over `$lhs`/`$rhs` and a `match` per `then`.
+#[test]
+fn cmp_and_then_are_runtime_calls() {
+    let source = "use std::cmp::Ordering;\n\
+                  pub fn by(n: u8, m: u8, c: char, d: char) -> Ordering { n.cmp(&m).then(c.cmp(&d)) }\n";
+    let krate = purecrate_syntax::parse_source("ord", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let by = &pkg.files.iter().find(|f| f.stem == "by").expect("by").source;
+    assert!(by.contains("Ord.then(Ord.cmp(n, m), Ord.cmpStr(c, d))"), "{by}");
+    assert!(!by.contains("$lhs") && !by.contains("switch"), "{by}");
+}

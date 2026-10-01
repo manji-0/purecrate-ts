@@ -227,6 +227,21 @@ export const Str = {
   },
 } as const;
 
+/** std's `Ordering`, as the crate's `Ordering` declares it. */
+type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
+
+const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { kind: "Equal" }, { kind: "Greater" }];
+
+/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
+export const Ord = {
+  /** `a.cmp(&b)` on an integer or `bool`: JS `<` orders them as Rust does. */
+  cmp: <T extends number | bigint | boolean>(a: T, b: T): Ordering => ORDERINGS[a < b ? 0 : a === b ? 1 : 2],
+  /** `a.cmp(&b)` on a `char`, a string, or a `Uuid`: by code point. */
+  cmpStr: (a: string, b: string): Ordering => ORDERINGS[Str.cmp(a, b) + 1],
+  /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
+  then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
 } as const;

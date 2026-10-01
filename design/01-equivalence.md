@@ -122,7 +122,7 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | a string in a `for` head | `chars()`, `bytes()`, `split(c)` with a `char` | `for..of` over `s`, `Str.bytes(s)`, `s.split(c)` | `for_chars_equivalence.rs`, `for_each_equivalence.rs` |
 | `char` | literals, `==`, `<`, `cmp`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs`, `ordering_equivalence.rs` |
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
-| integers, `bool` | `cmp` (§6.6) | the comparison std runs | `ordering_equivalence.rs` |
+| integers, `bool` | `cmp` (§6.6) | `Ord.cmp`, by JS `<` | `ordering_equivalence.rs` |
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
 | `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
@@ -183,7 +183,7 @@ A `number` checked to 0..2^53−1; the gap above that is in §3.
 - **Naming.** `Ordering` after `use std::cmp::Ordering;` (or `core::`, alone or in a group), or the full path `std::cmp::Ordering` in types, expressions, and patterns. `cmp::Ordering` through `use std::cmp;`, a renaming `use`, a glob, and importing the variants bare are refused, as is a crate item named `Ordering` beside std's. A crate that defines its own `Ordering` and does not name std's is unaffected.
 - **Representation.** A fieldless enum `Ordering { Less, Equal, Greater }` with discriminants −1, 0, 1, added to the crate when it names std's (exported) or only calls `cmp` (internal). It prints like any crate enum, so `match`, tuple `match`, guards, `matches!`, and exhaustiveness need nothing new; rustc still checks the source against std's type.
 - **`cmp`** on integers, `char`, `bool` (`false` first), `String` / `&str`, and `Uuid`, and the methods of `Ordering`, are rewritten (§7.10). `==` and `!=` on two `Ordering`s compare the variant: std derives `PartialEq`, so equality is structural, unlike a crate enum's (§5.1).
-- **Refused.** `cmp` on floats (`partial_cmp` too), tuples, `Vec`, `Option`, and the crate's types; `impl Ord` / `PartialOrd` (trait impls); `<` on `Ordering` or `bool`; `Ordering` in a struct or enum field, since serde has no `Serialize` for it and every type gets a wire schema.
+- **Refused.** `cmp` on floats (`partial_cmp` too), tuples, `Vec`, `Option`, and the crate's types; `impl Ord` / `PartialOrd` (trait impls); `<` on `Ordering` or `bool`; `Ordering` in a struct or enum that derives `Serialize` or `Deserialize`, since serde gives it neither ([04 §3.2](./04-wire.md#32-serde-in-the-input)).
 
 ## 7. Rewritten constructs
 
@@ -200,7 +200,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`const`, enum discriminants](#77-const-and-discriminants) | the folded value | `flags_equivalence.rs`, `consts.rs` in `check` |
 | [`const` in a block](#78-const-in-a-block) | a `let` at the top of the block | `local_consts_equivalence.rs` |
 | [integer methods](#79-integer-methods) | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
-| [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | an `if` chain on the operators; a `match` on the `Ordering` | `ordering_equivalence.rs` |
+| [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | `Ord.cmp` / `Ord.cmpStr` / `Ord.then`; a `match` on the `Ordering` | `ordering_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -266,9 +266,9 @@ An exponent is a `u32`; a power is not formed when its magnitude is certainly pa
 
 ### 7.10 `cmp` and `Ordering`'s methods
 
-- **`a.cmp(&b)`** binds the receiver, then the argument, each once (a variable or literal is read in place), and becomes `if a < b { Less } else if a == b { Equal } else { Greater }` through the operators already equivalent for that type: `Char.code` for `char`, `Str.cmp` for strings, `<` for `Uuid`'s canonical form. On `bool` it is `if a == b { Equal } else if a { Greater } else { Less }`.
+- **`a.cmp(&b)`** is a call to the runtime, the receiver then the argument as its arguments, so each is evaluated once and in Rust's order. `Ord.cmp(a, b)` on an integer or `bool` is `Less` if `a < b`, `Equal` if `a === b`, else `Greater`: JS `<` orders numbers and `bigint`s as Rust does, and `false` before `true`. `Ord.cmpStr(a, b)` on a `char`, a string, or a `Uuid` goes through `Str.cmp`, by code point; a `char` is a string of one code point, and a `Uuid` its canonical form.
 - **`is_eq` … `is_ge` and `reverse`** are a three-arm `match` on the receiver.
-- **`then(o)`** binds the receiver, then evaluates `o`, then picks `o` on `Equal`: `o` runs, and can overflow, whatever the receiver is, as Rust evaluates a call's arguments.
+- **`then(o)`** is `Ord.then(receiver, o)`: both are evaluated, the receiver first, then `o` is picked on `Equal`. `o` runs, and can overflow, whatever the receiver is, as Rust evaluates a call's arguments.
 - **`then_with(f)`** puts `f`'s body (a closure without parameters, `?`, or `return`) or the call `f()` (a function name) in the `Equal` arm, so it runs only there.
 
 Tested with an overflowing `then` argument after a non-`Equal` receiver, an overflowing `then_with` body that must not run, a function name, a SemVer-style chain, `Ordering` in a tuple `match` with guards, `matches!` with the qualified path, and every predicate.

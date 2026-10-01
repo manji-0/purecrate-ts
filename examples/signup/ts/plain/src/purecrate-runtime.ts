@@ -113,6 +113,10 @@ export const Str = {
   },
 } as const;
 
+/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
+export const Ord = {
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
   /** `xs[i]`. */

@@ -3,7 +3,7 @@
 //! `// #needs <uses>` on one line, each kept when any listed use is found in
 //! the package's other files. A use is `bits.<ty>` or `methods.<ty>` for an
 //! integer type's operators or methods, `str.<member>`, `slice.<member>`,
-//! `char.is` or `char`, `uuid`, `json`, or `parseJson`.
+//! `ord.<member>`, `char.is` or `char`, `uuid`, `json`, or `parseJson`.
 
 use std::collections::BTreeSet;
 
@@ -30,14 +30,14 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 out.insert(format!("methods.{ty}"));
             }
         }
-        for (prefix, name) in [("Str.", "str"), ("Slice.", "slice"), ("Char.", "char"), ("Uuid.", "uuid"), ("Json.", "json")] {
+        for (prefix, name) in [("Str.", "str"), ("Slice.", "slice"), ("Ord.", "ord"), ("Char.", "char"), ("Uuid.", "uuid"), ("Json.", "json")] {
             for (at, _) in source.match_indices(prefix) {
                 if !starts_word(source, at) {
                     continue;
                 }
                 let member = ident(&source[at + prefix.len()..]);
                 out.insert(match name {
-                    "str" | "slice" => format!("{name}.{member}"),
+                    "str" | "slice" | "ord" => format!("{name}.{member}"),
                     "char" if member == "is" => "char.is".to_string(),
                     other => other.to_string(),
                 });
@@ -122,7 +122,7 @@ mod tests {
             "bits.i8", "bits.i16", "bits.i32", "bits.u8", "bits.u16", "bits.u32", "bits.i64", "bits.u64",
             "methods.i8", "methods.i16", "methods.i32", "methods.u8", "methods.u16", "methods.u32",
             "methods.usize", "methods.i64", "methods.u64", "str.bytes", "str.len", "str.slice",
-            "str.stripPrefix", "str.stripSuffix", "str.cmp", "slice.at", "slice.range", "char", "char.is", "uuid", "json", "parseJson",
+            "str.stripPrefix", "str.stripSuffix", "str.cmp", "slice.at", "slice.range", "ord.cmp", "ord.cmpStr", "ord.then", "char", "char.is", "uuid", "json", "parseJson",
         ]);
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));

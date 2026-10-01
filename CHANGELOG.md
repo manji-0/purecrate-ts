@@ -10,6 +10,7 @@
 - `let x = o.ok_or(e)?` prints as a guard, `if ($opt === null) return Result.err($arg);`, instead of an inline function that built a `Result` for `?` to take apart (15 lines to 4); `e` still runs first. A statement `if c { return v; }` prints on one line when it fits.
 - A `?` inside an expression binds its value once and tests it in place, `const $q1 = f(x); if ($q1.kind === "Err") return $q1;`, read as `$q1.value` (an `Option`'s as `$q1`), instead of a second binding for the payload.
 - A lowered `match` (a tuple `match`, guards, `Option` and `Result` cases) binds a variant's fields and a payload to the arm's own names, `const conversion = method.conversion;`, instead of a fresh `$f1` / `$v1` copied into each arm's name with an `as` cast; guards read the same name. semver's `compare_pre_ids` loses 9 lines.
+- `a.cmp(&b)` and `o.then(p)` call the runtime's `Ord.cmp` (integers, `bool`), `Ord.cmpStr` (`char`, strings, `Uuid`, by code point), and `Ord.then`, with each argument evaluated once in Rust's order, instead of an `if` chain over fresh bindings and a `match` per `then`. semver's `compare` goes from 80 lines to 44. `Ord` is now a reserved name.
 
 ### Added
 

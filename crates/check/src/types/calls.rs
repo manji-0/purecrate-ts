@@ -255,6 +255,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::I32)),
             ),
+            // Written only by `cmp_method` and `ordering_method`, typed.
+            Callee::OrdCmp { .. } | Callee::OrdThen => (
+                args.iter().map(|a| self.expr(a, None).0).collect(),
+                Some(Ty::named(purecrate_ir::ORDERING)),
+            ),
             Callee::StrBytes => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))),

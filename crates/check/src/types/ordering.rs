@@ -17,19 +17,17 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `a.cmp(&b)` on an integer, `char`, `bool`, `String`/`&str`, or `Uuid`:
-    /// the receiver, then the argument, each evaluated once, then `Less` if
-    /// `a < b`, `Equal` if `a == b`, else `Greater`. The comparisons are the
-    /// operators' own, so a `char` compares its code point and a string
-    /// calls `Str.cmp`; `bool` orders `false` first. `None` for a crate type,
-    /// whose `cmp` would be its own method.
+    /// `Callee::OrdCmp`, the receiver then the argument, each evaluated once.
+    /// A `char`, string, or `Uuid` compares by code point (`Str.cmp`); JS `<`
+    /// orders the others as Rust does, `bool` with `false` first. `None` for
+    /// a crate type, whose `cmp` would be its own method.
     pub(super) fn cmp_method(&mut self, recv: Expr, rt: &Ty, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let failed = || Some((Expr::Lit(Lit::Unit), None));
         let norm = self.norm(rt);
-        let bool_ = match &norm {
+        match &norm {
             Ty::Named(_) => return None,
-            Ty::Prim(p) if p.int().is_some() => false,
-            Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid) => false,
-            Ty::Prim(Prim::Bool) => true,
+            Ty::Prim(p) if p.int().is_some() => {}
+            Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid | Prim::Bool) => {}
             Ty::Prim(Prim::F32 | Prim::F64) => {
                 self.error(Reason::MethodCall, format!(
                     "`.cmp()` on `{}` is not in v0: floats are not `Ord` (`NaN` has no place in the order), and `partial_cmp` is not in v0",
@@ -57,19 +55,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Ty::Prim(Prim::String) => Ty::Prim(Prim::Str),
             _ => rt.clone(),
         };
-        let (arg, at) = self.expr(arg, Some(&hint));
-        // A binding read after the argument ran could have been assigned by it.
-        let reread = matches!(arg, Expr::Var(_) | Expr::Lit(_));
-        let (lhs_let, lhs) = self.bind_once("lhs", recv, Some(rt.clone()), reread);
-        let (rhs_let, rhs) = self.bind_once("rhs", arg, at.or(Some(hint)), true);
-        let bin = |op, l: &Expr, r: &Expr| rebuild(op, l.clone(), r.clone());
-        let if_ = |cond: Expr, then: Expr, else_: Expr| Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) };
-        let body = if bool_ {
-            if_(bin(BinOp::Eq, &lhs, &rhs), variant("Equal"), if_(lhs.clone(), variant("Greater"), variant("Less")))
-        } else {
-            if_(bin(BinOp::Lt, &lhs, &rhs), variant("Less"), if_(bin(BinOp::Eq, &lhs, &rhs), variant("Equal"), variant("Greater")))
-        };
-        Some(self.within(vec![lhs_let, rhs_let], &body, want))
+        let (arg, _) = self.expr(arg, Some(&hint));
+        let text = matches!(norm, Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid));
+        let call = Expr::Call { callee: Callee::OrdCmp { text }, args: vec![recv, arg] };
+        Some((call, self.expect(want, Some(Ty::named(ORDERING)))))
     }
 
     /// `is_eq`, `is_ne`, `is_lt`, `is_gt`, `is_le`, `is_ge`, `reverse`,
@@ -105,10 +94,13 @@ impl<'d, 'a> Typer<'d, 'a> {
             "is_ge" => [("Less", bool_(false)), ("Equal", bool_(true)), ("Greater", bool_(true))],
             "reverse" => [("Less", variant("Greater")), same("Equal"), ("Greater", variant("Less"))],
             "then" => {
-                let (arg, at) = self.expr(&args[0], Some(&Ty::named(ORDERING)));
-                let (arg_let, arg) = self.bind_once("arg", arg, at, true);
-                lets.push(arg_let);
-                [same("Less"), ("Equal", arg), same("Greater")]
+                let (arg, _) = self.expr(&args[0], Some(&Ty::named(ORDERING)));
+                let recv = match lets.pop().flatten() {
+                    Some((_, _, value)) => value,
+                    None => recv,
+                };
+                let call = Expr::Call { callee: Callee::OrdThen, args: vec![recv, arg] };
+                return Some((call, self.expect(want, Some(Ty::named(ORDERING)))));
             }
             _ => {
                 let call = match args[0].unpositioned() {

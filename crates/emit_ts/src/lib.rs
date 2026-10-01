@@ -137,7 +137,7 @@ fn emit_package(krate: &Crate) -> Package {
         },
         File {
             stem: "str".to_string(),
-            source: format!("{HEADER}\nexport {{ Char, Slice, Str, Uuid, type UuidError, parseJson }} from \"purecrate\";\n"),
+            source: format!("{HEADER}\nexport {{ Char, Ord, Slice, Str, Uuid, type UuidError, parseJson }} from \"purecrate\";\n"),
         },
     ];
 

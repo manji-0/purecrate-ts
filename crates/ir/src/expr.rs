@@ -464,6 +464,14 @@ pub enum Callee {
     /// UTF-16 unit, which puts U+E000..=U+FFFF above the supplementary
     /// planes. Prints as `Str.cmp(a, b)`.
     StrCmp,
+    /// `a.cmp(&b)`, giving std's `Ordering`: `a`, then `b`, each evaluated
+    /// once. `text` for `char`, `String`/`&str`, and `Uuid`, ordered by code
+    /// point (`Ord.cmpStr`); else an integer or `bool`, ordered by JS `<`
+    /// (`Ord.cmp`).
+    OrdCmp { text: bool },
+    /// `o.then(p)`: `p` when `o` is `Equal`, else `o`; both evaluated, `o`
+    /// first, as Rust evaluates a call's arguments. Prints as `Ord.then`.
+    OrdThen,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
