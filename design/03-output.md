@@ -1,6 +1,6 @@
 # Generated TypeScript
 
-Status: current (2026-10-01, 0.6.0)
+Status: current (2026-10-02, 0.7.0)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -123,6 +123,7 @@ export const Meters = {
 | `xs[i]` on a `Vec` or slice | `Slice.at(xs, i)`, with Rust's bounds check and panic message |
 | `&xs[a..b]` on a `Vec` or slice | `Slice.range(xs, a, b)` (`null` for an open end), with Rust's range checks |
 | `s.strip_prefix(p)` / `strip_suffix` | `Str.stripPrefix(s, p)` / `Str.stripSuffix` |
+| `s.split_once(p)` | `Str.splitOnce(s, p)` (`p` a `char` or `&str`; `None` is `null`) |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
 
@@ -140,6 +141,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
 | `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)` |
+| `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
 | a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
 | `?` on `Result` | `if (r.kind === "Err") return r;` |
