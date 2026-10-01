@@ -294,6 +294,13 @@ export const Str = {
   /** `str::strip_suffix` with a `&str`. */
   stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
   // #endregion
+  // #region str.splitOnce
+  /** `str::split_once` with a `char` or a `&str`: the text around the first match. */
+  splitOnce: (s: string, p: string): readonly [string, string] | null => {
+    const i = s.indexOf(p);
+    return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
+  },
+  // #endregion
   // #region str.cmp ord.cmpStr
   /**
    * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
@@ -383,6 +390,18 @@ export const Iter = {
     let total = zero;
     for (const x of xs) total = add(total, x);
     return total;
+  },
+  // #endregion
+  // #region iter.tryCollect
+  /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
+  tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {
+    const out: T[] = [];
+    for (const x of xs) {
+      const r = f(x);
+      if (r.kind === "Err") return r;
+      out.push(r.value);
+    }
+    return Result.ok(out);
   },
   // #endregion
 } as const;

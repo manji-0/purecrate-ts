@@ -6,6 +6,7 @@ mod common;
 mod bits;
 mod box_erase;
 mod chars;
+mod collect;
 mod closures;
 mod complete;
 mod consts;

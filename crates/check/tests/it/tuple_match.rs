@@ -30,6 +30,28 @@ fn tuples_do_not_nest() {
 }
 
 #[test]
+fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
+    assert_clean(
+        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, _)) => a, None => s } }",
+    );
+    assert_clean(
+        "pub fn f(s: &str) -> bool { match s.split_once('-') { Some((a, b)) if a.is_empty() => b.is_empty(), _ => false } }",
+    );
+    assert_clean(
+        "pub fn f(o: Option<(i32, i32)>, n: i32) -> i32 { match (o, n) { (Some((a, b)), 0) => a + b, _ => n } }",
+    );
+    assert_clean("pub enum E { P((i32, i32)) } pub fn f(e: E) -> i32 { match e { E::P((a, b)) => a + b } }");
+    assert_parse_rejects(
+        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((Some(a), _)) => a, None => s } }",
+        "variant fields may only bind names",
+    );
+    assert_parse_rejects(
+        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, (b, c))) => a, None => s } }",
+        "found a tuple",
+    );
+}
+
+#[test]
 fn elements_follow_the_arm_rules() {
     assert_parse_rejects(&run("match (o, n) { (Some(Some(_)), _) => 1, _ => 0 }"), "variant fields may only bind names");
     // Guards on tuple arms are accepted (`guards_equivalence.rs`).

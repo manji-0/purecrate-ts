@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0 — 2026-10-02
+
+`split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering ([roadmap §8.8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#88-070-lists-from-text-2026-10-02)).
+
+### Added
+
+- `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>`. `c` is a `char`. `f` is `|x| ..` without `?` or `return`, or a function name. The target is `collect::<..>()`, a typed `let`, or the return type. Into a `Result`, iteration stops at the first `Err`.
+- `str::split_once` with a `char` or a `&str`, including an empty needle, as `Str.splitOnce`.
+- `Some((a, b))`, and the same tuple of names and `_` in `Ok`, `Err`, or a variant's fields. A variant, a literal, or another tuple inside it stays `[pattern/nested]`.
+
+### Changed
+
+- The runtime gains `Iter.tryCollect` and `Str.splitOnce`, each carried only by a package that uses it.
+- Collecting a `Vec`, `chars()`, or anything but `s.split(c)`, a `&str` separator for `split`, and `collect` with no target type stay refused. A variant constructor is not a function name (`.map(PreId::Numeric)`); write `|n| PreId::Numeric(n)`.
+
+### Examples
+
+- semver (SemVer 2.0.0 parsing and precedence) builds its identifier lists with `collect` and splits on `+` and `-` with `split_once` as `Some((x, y))`: 166 lines of logic with ordering, 138 with these (1.8× the idiomatic Rust). Pre-release and build metadata are `Vec`s.
+
 ## 0.6.0 — 2026-10-01
 
 Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below). Measured by reading the examples' output ([roadmap §8.7](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#87-060-generated-typescript-2026-10-01)).

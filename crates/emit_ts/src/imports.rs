@@ -298,6 +298,7 @@ impl Refs {
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result = true,
                     Callee::OrdCmp { .. } | Callee::OrdThen => self.ord = true,
+                    Callee::Collect { result: true } => self.iter = true,
                     Callee::Consume { method, over } => {
                         self.iter = true;
                         match over {
@@ -329,7 +330,9 @@ impl Refs {
                     }
                     Callee::StrBytes
                     | Callee::StrCmp
-                    | Callee::Str(purecrate_ir::StrMethod::StripPrefix | purecrate_ir::StrMethod::StripSuffix) => {
+                    | Callee::Str(
+                        purecrate_ir::StrMethod::StripPrefix | purecrate_ir::StrMethod::StripSuffix | purecrate_ir::StrMethod::SplitOnce,
+                    ) => {
                         self.str = true
                     }
                     Callee::Slice { of, start, .. } => {

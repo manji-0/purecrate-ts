@@ -244,16 +244,29 @@ pub(super) fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
             )))
         }
     };
-    if let Some(bad) = inner
-        .into_iter()
-        .find(|p| !matches!(p, Pattern::Var(_) | Pattern::Wildcard))
-    {
-        return Err(ParseError::new(Reason::NestedPattern, format!(
-            "variant fields may only bind names or `_` in v0, found {}",
-            describe_pat(bad)
-        )));
+    for p in inner {
+        field_pattern(p)?;
     }
     Ok(())
+}
+
+/// A variant field is `_`, a name, or one tuple of those (`Some((a, b))`).
+/// A variant, a literal, or a tuple inside that tuple is still nested.
+fn field_pattern(pattern: &Pattern) -> Result<(), ParseError> {
+    match pattern {
+        Pattern::Var(_) | Pattern::Wildcard => Ok(()),
+        Pattern::Tuple(elems) => match elems.iter().find(|e| !matches!(e, Pattern::Var(_) | Pattern::Wildcard)) {
+            Some(bad) => Err(ParseError::new(Reason::NestedPattern, format!(
+                "variant fields may only bind names or `_` in v0, found {}",
+                describe_pat(bad)
+            ))),
+            None => Ok(()),
+        },
+        bad => Err(ParseError::new(Reason::NestedPattern, format!(
+            "variant fields may only bind names or `_` in v0, found {}",
+            describe_pat(bad)
+        ))),
+    }
 }
 
 pub(super) fn describe_pat(pattern: &Pattern) -> String {

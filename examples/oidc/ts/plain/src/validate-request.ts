@@ -146,8 +146,7 @@ export const validateRequest = (
     const $opt: Prompt | null = parsePrompt(p);
     const $optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
     if ($opt === null) return Result.err($optOr);
-    const $q = $opt;
-    prompt = $q;
+    prompt = $opt;
   } else {
     prompt = { no_interaction: false, login: false, consent: false, select_account: false };
   }

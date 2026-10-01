@@ -3,7 +3,6 @@
 import { assertNever, Ord } from "./purecrate-runtime.ts";
 import { comparePreIds } from "./compare-pre-ids.ts";
 import type { Ordering } from "./ordering.ts";
-import type { PreIds } from "./pre-ids.ts";
 import type { Version } from "./version.ts";
 
 /** Precedence per SemVer 2.0.0 §11. Build metadata is ignored. */
@@ -15,32 +14,23 @@ export const compare = (a: Version, b: Version): Ordering => {
   switch ($ord.kind) {
     case "Less":
       return { kind: "Less" };
-    case "Equal":
-      switch (a.pre.kind) {
-        case "Nil":
-          switch (b.pre.kind) {
-            case "Nil":
-              return { kind: "Equal" };
-            case "Cons":
-              return { kind: "Greater" };
-            default:
-              return assertNever(b.pre);
-          }
-        case "Cons":
-          switch (b.pre.kind) {
-            case "Nil":
-              return { kind: "Less" };
-            case "Cons": {
-              const x = a.pre as PreIds;
-              const y = b.pre as PreIds;
-              return comparePreIds(x, y);
-            }
-            default:
-              return assertNever(b.pre);
-          }
-        default:
-          return assertNever(a.pre);
+    case "Equal": {
+      const $e: boolean = a.pre.length === 0;
+      const $e$1: boolean = b.pre.length === 0;
+      if ($e === true) {
+        if ($e$1 === true) {
+          return { kind: "Equal" };
+        } else {
+          return { kind: "Greater" };
+        }
+      } else {
+        if ($e$1 === true) {
+          return { kind: "Less" };
+        } else {
+          return comparePreIds(a.pre, b.pre);
+        }
       }
+    }
     case "Greater":
       return { kind: "Greater" };
     default:

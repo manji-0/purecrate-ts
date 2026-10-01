@@ -72,17 +72,23 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
             }
             (subjects, lets)
         }
-        // A tuple value: bind it, then read each element into its own name.
+        // A tuple value. A place is read where it sits (`t[0]`); anything
+        // else is bound once, then read the same way. No second name copies
+        // each element.
         other => {
-            let whole = lw.name("t");
-            let mut subjects = Vec::new();
-            let mut lets = vec![(whole.clone(), Ty::Tuple(tys.clone()), other)];
-            for (i, t) in tys.iter().enumerate() {
-                let n = lw.name("e");
-                subjects.push(Expr::Var(n.clone()));
-                let elem = Expr::Field { base: Box::new(Expr::Var(whole.clone())), name: tuple_field(i) };
-                lets.push((n, t.clone(), elem));
-            }
+            let (base, lets) = if is_place(&other) {
+                (other, Vec::new())
+            } else {
+                let whole = lw.name("t");
+                let lets = vec![(whole.clone(), Ty::Tuple(tys.clone()), other)];
+                (Expr::Var(whole), lets)
+            };
+            let subjects = (0..tys.len())
+                .map(|i| Expr::Field {
+                    base: Box::new(base.clone()),
+                    name: tuple_field(i),
+                })
+                .collect();
             (subjects, lets)
         }
     };
@@ -200,10 +206,7 @@ impl Lowering<'_, '_, '_> {
                                     .collect(),
                             };
                             for (i, p) in fields {
-                                if let Pattern::Var(n) = p {
-                                    used[i] = true;
-                                    row.binds.push((n, tys[i].clone(), Expr::Var(fresh[i].clone())));
-                                }
+                                bind_names(&mut row, p, &tys[i], Expr::Var(fresh[i].clone()), &mut used[i]);
                             }
                         }
                         Pattern::Or(alts) if alts.iter().any(|a| matches!(a, Pattern::Variant { variant, .. } if *variant == v.name)) => {}
@@ -285,9 +288,8 @@ impl Lowering<'_, '_, '_> {
                             (Pattern::OptionNone, Pattern::OptionNone) => None,
                             _ => return None,
                         };
-                        if let (Some(Pattern::Var(n)), Some((v, t))) = (inner, &payload) {
-                            uses = true;
-                            row.binds.push((n.clone(), t.clone(), Expr::Var(v.clone())));
+                        if let (Some(inner), Some((v, t))) = (inner, &payload) {
+                            bind_names(&mut row, inner.clone(), t, Expr::Var(v.clone()), &mut uses);
                         }
                         Some(row)
                     })
@@ -388,6 +390,35 @@ fn bools(p: &Pattern) -> Option<Vec<bool>> {
             Some(acc)
         }),
         _ => None,
+    }
+}
+
+/// `pattern` is `_`, a name, or a tuple of those. A name reads `place`;
+/// a tuple's names read `place[i]`. `used` is set when any name is bound,
+/// so the place itself is kept.
+fn bind_names(row: &mut Row, pattern: Pattern, ty: &Ty, place: Expr, used: &mut bool) {
+    match pattern {
+        Pattern::Var(n) => {
+            *used = true;
+            row.binds.push((n, ty.clone(), place));
+        }
+        Pattern::Tuple(ps) => {
+            let elems = match ty {
+                Ty::Tuple(xs) => xs.clone(),
+                _ => Vec::new(),
+            };
+            for (i, p) in ps.into_iter().enumerate() {
+                if let Pattern::Var(n) = p {
+                    *used = true;
+                    row.binds.push((
+                        n,
+                        elems.get(i).cloned().unwrap_or(Ty::Never),
+                        Expr::Field { base: Box::new(place.clone()), name: tuple_field(i) },
+                    ));
+                }
+            }
+        }
+        _ => {}
     }
 }
 

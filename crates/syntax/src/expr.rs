@@ -136,18 +136,22 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
         )
         .detail(path_text(&m.mac.path))),
-        // `xs.iter().sum::<T>()`: the type argument annotates the result.
-        SynExpr::MethodCall(m) if m.method == "sum" && m.args.is_empty() && m.turbofish.as_ref().is_some_and(|t| t.args.len() == 1) => {
+        // `xs.iter().sum::<T>()`, `s.split(c).collect::<T>()`: the type
+        // argument annotates the result.
+        SynExpr::MethodCall(m)
+            if (m.method == "sum" || m.method == "collect") && m.args.is_empty() && m.turbofish.as_ref().is_some_and(|t| t.args.len() == 1) =>
+        {
+            let method = m.method.to_string();
             let Some(syn::GenericArgument::Type(ty)) = m.turbofish.as_ref().and_then(|t| t.args.first()) else {
-                return Err(ParseError::new(Reason::MethodCall, "`sum::<T>()` takes a type".to_string()));
+                return Err(ParseError::new(Reason::MethodCall, format!("`{method}::<T>()` takes a type")));
             };
             let ty = lower_type(ty)?;
-            let name = cx.fresh("sum");
+            let name = cx.fresh(&method);
             let call = at(
                 m.method.span(),
                 Expr::MethodCall {
                     receiver: Box::new(lower_expr(cx, &m.receiver)?),
-                    name: Name::new("sum"),
+                    name: Name::new(method),
                     args: Vec::new(),
                 },
             );

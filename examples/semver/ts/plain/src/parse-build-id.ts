@@ -5,10 +5,12 @@ import { isIdentChar } from "./is-ident-char.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parseBuildId = (s: string): Result<string, SemverError> => {
-  if (s.length === 0) return Result.err({ kind: "EmptyBuild" });
-  if (!Iter.all(
-    Str.bytes(s),
-    (($x: U8): boolean => isIdentChar($x)),
-  )) return Result.err({ kind: "InvalidBuildChar" });
-  return Result.ok(s);
+  if (s === "") {
+    return Result.err({ kind: "EmptyBuild" });
+  } else {
+    return !Iter.all(
+      Str.bytes(s),
+      (($x: U8): boolean => isIdentChar($x)),
+    ) ? Result.err({ kind: "InvalidBuildChar" }) : Result.ok(s);
+  }
 };

@@ -273,10 +273,15 @@ pub enum StrMethod {
     /// the same string. Print as `Str.stripPrefix` / `Str.stripSuffix`.
     StripPrefix,
     StripSuffix,
+    /// Takes a `char` or a `&str`; `Option<(&str, &str)>`, the text around
+    /// the first match. The first match in UTF-8 bytes is the first in
+    /// UTF-16 units, both sides are on char boundaries, and an empty needle
+    /// matches at 0 in both. Prints as `Str.splitOnce`.
+    SplitOnce,
 }
 
 impl StrMethod {
-    pub const ALL: [StrMethod; 8] = [
+    pub const ALL: [StrMethod; 9] = [
         StrMethod::Len,
         StrMethod::IsEmpty,
         StrMethod::StartsWith,
@@ -285,6 +290,7 @@ impl StrMethod {
         StrMethod::AsStr,
         StrMethod::StripPrefix,
         StrMethod::StripSuffix,
+        StrMethod::SplitOnce,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -301,6 +307,7 @@ impl StrMethod {
             Self::AsStr => "as_str",
             Self::StripPrefix => "strip_prefix",
             Self::StripSuffix => "strip_suffix",
+            Self::SplitOnce => "split_once",
         }
     }
 
@@ -308,7 +315,7 @@ impl StrMethod {
     pub fn needles(self) -> usize {
         match self {
             Self::Len | Self::IsEmpty | Self::AsStr => 0,
-            Self::StartsWith | Self::EndsWith | Self::Contains | Self::StripPrefix | Self::StripSuffix => 1,
+            Self::StartsWith | Self::EndsWith | Self::Contains | Self::StripPrefix | Self::StripSuffix | Self::SplitOnce => 1,
         }
     }
 }
@@ -476,6 +483,15 @@ pub enum Callee {
     /// the source, then (but for `count` and `sum`) the predicate, a
     /// closure of one parameter. Prints as `Iter.<method>`.
     Consume { method: Consume, over: Over },
+    /// `s.split(c).collect()` or `s.split(c).map(f).collect()`: a `Vec`
+    /// built once from text, its length the input's (design/02 §3). The
+    /// arguments are the pieces (a `StrSplit`), then `f` if mapped, a closure
+    /// of one parameter. With `result`, the target is `Result<Vec<T>, E>`
+    /// and `f` returns `Result<T, E>`: `f` runs on the pieces in order and
+    /// stops at the first `Err`, which is the result, as std's
+    /// `FromIterator` for `Result` does. Prints as the array, its `map`, or
+    /// `Iter.tryCollect`.
+    Collect { result: bool },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte

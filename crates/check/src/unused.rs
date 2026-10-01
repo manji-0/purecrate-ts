@@ -83,6 +83,14 @@ impl Cx {
 
     fn expr(&mut self, expr: Expr) -> Expr {
         let mut expr = match expr {
+            // `collect::<T>()` and `sum::<T>()` are a typed `let $name = e; $name`
+            // so the turbofish is the `want` during typing. The name is used once,
+            // as that tail, so the binding prints as nothing.
+            Expr::Let { name, mutable: false, value, then, .. }
+                if name.as_str().starts_with('$') && matches!(then.as_ref(), Expr::Var(n) if n == &name) =>
+            {
+                return self.expr(*value);
+            }
             Expr::Let { name, value, then, .. } if !self.is_used(&name) => {
                 let value = self.expr(*value);
                 let then = self.expr(*then);

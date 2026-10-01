@@ -1,6 +1,6 @@
 # Writing Rust within the constraints
 
-Status: current (2026-10-01, 0.6.0)
+Status: current (2026-10-02, 0.7.0)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -37,13 +37,15 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Integer methods | `min`, `max`, `abs` (signed), `pow(e: u32)`, and `checked_*`, `saturating_*`, `wrapping_*` of `add`, `sub`, `mul`, `pow`, and (`checked_`, `wrapping_`) `div`, `rem`, `neg`, on every integer type | `Int.<ty>.checkedAdd(a, b)` etc., from the exact result |
 | Wide integers | `i64` / `u64` | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
-| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; slicing `&s[a..b]`, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
+| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; `split_once` with a `char` or a `&str`; slicing `&s[a..b]`, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.splitOnce(s, p)`; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, $e = b; i < $e; …)` |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
 | Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
 | Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, and `sum` (integers only) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow |
+| Text lists | `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure or a function name, no `?` or `return`). The target is a turbofish, a `let` type, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str` | the array from `s.split(c)`, its `.map`, or `Iter.tryCollect`; `Str.splitOnce` |
+| A list from text | `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()`, a typed `let`, or the return type. A `Result` stops at the first `Err`. Nothing else collects | the array from `s.split(c)`, or that array's `map`, or `Iter.tryCollect` |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
@@ -98,8 +100,11 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 
 #### Building a `Vec`
 
-- The crate builds a `Vec` only as a list of its elements: `vec![a, b]`, or `vec![]` where the type is known. Its length is fixed in the source. Use it for a list the caller expects as an array, such as a JSON claim.
-- It never grows. Rejected: `vec![x; n]`, `Vec::new` / `from`, `push`, `to_vec`, and `map` / `filter` / `collect`.
+<!-- constrained-by ./07-roadmap.md#6-not-doing -->
+
+- The crate builds a `Vec` as a list of its elements: `vec![a, b]`, or `vec![]` where the type is known. Its length is fixed in the source. Use it for a list the caller expects as an array, such as a JSON claim.
+- It also builds one from text, once: `s.split(c).collect()` or `s.split(c).map(f).collect()`, into the `Vec<T>` or `Result<Vec<T>, E>` the context names. `c` is a `char`. The length is the input's, so this is not a sequence that grows with the state. A `Result` stops at the first `Err`.
+- It never grows otherwise. Rejected: `vec![x; n]`, `Vec::new` / `from`, `push`, `to_vec`, `filter`, and `map` / `collect` on anything but that `split`.
 - `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
 - A sequence that grows or shrinks with the state is a recursive enum (above).
 
@@ -244,7 +249,7 @@ Output: the same nested `switch`es as a tuple `match` (a single value as a tuple
 - tuples inside tuple patterns
 - `|` arms that bind names
 - binding-only arms without a guard
-- nested patterns
+- a variant, a literal, or a tuple nested further (`Some(Some(x))`, `((a, b), c)`). `Some((a, b))`, a tuple of names and `_`, is accepted, and so is the same shape in `Ok`, `Err`, or a variant's fields
 - float literal patterns
 - half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
 - `let else`
@@ -259,8 +264,8 @@ Output: the same nested `switch`es as a tuple `match` (a single value as a tuple
 
 #### Methods
 
-- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
-- The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure.
+- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
+- The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. `split_once` also takes a `char`, and its pair is `Some((a, b))`.
 - As a `for` iterable only: `s.chars()`, `s.bytes()`, and `s.split(c)` ([§2](#2-what-can-be-written)).
 - Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).
 
@@ -305,9 +310,9 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 
 | Instead of | Write |
 | --- | --- |
-| `xs.iter().map(f).collect()` | `for x in &xs`; return new sequences as recursive enums |
+| `xs.iter().map(f).collect()`, `.filter(..)` | `for x in &xs`; return new sequences as recursive enums. A list split from text is `s.split(c).map(f).collect()` |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `?` inside a guard, `\|` arms that bind names, nested patterns | bind the `?` result with `let` first; split the match |
+| `?` inside a guard, `\|` arms that bind names, a variant or a literal nested in a pattern | bind the `?` result with `let` first; split the match. `Some((a, b))` is a tuple of names |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |

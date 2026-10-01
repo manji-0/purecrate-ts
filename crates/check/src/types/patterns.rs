@@ -182,17 +182,11 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     /// `scrutinee` is the normalized type of the matched value, when known.
     pub(super) fn bind(&mut self, pattern: &Pattern, scrutinee: Option<&Ty>) {
-        let inner = |p: &Pattern| match p {
-            Pattern::Var(n) => Some(n.as_str().to_string()),
-            _ => None,
-        };
         let (name, ty) = match (pattern, scrutinee) {
             (Pattern::Var(n), t) => (Some(n.as_str().to_string()), t.cloned()),
-            (Pattern::OptionSome(p), Some(Ty::Option(t))) => (inner(p), Some((**t).clone())),
-            (Pattern::ResultOk(p), Some(Ty::Result { ok, .. })) => (inner(p), Some((**ok).clone())),
-            (Pattern::ResultErr(p), Some(Ty::Result { err, .. })) => {
-                (inner(p), Some((**err).clone()))
-            }
+            (Pattern::OptionSome(p), Some(Ty::Option(t))) => return self.bind(p, Some(t.as_ref())),
+            (Pattern::ResultOk(p), Some(Ty::Result { ok, .. })) => return self.bind(p, Some(ok.as_ref())),
+            (Pattern::ResultErr(p), Some(Ty::Result { err, .. })) => return self.bind(p, Some(err.as_ref())),
             (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), other) => {
                 if let Some(t) = other {
                     self.error(Reason::TypeMismatch, format!(
@@ -201,7 +195,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                         show(t)
                     ));
                 }
-                (inner(p), None)
+                return self.bind(p, None);
             }
             (Pattern::OptionNone, Some(t)) if !matches!(t, Ty::Option(_)) => {
                 self.error(Reason::TypeMismatch, format!("pattern `None` does not match a value of type `{}`", show(t)));
@@ -244,28 +238,20 @@ impl<'d, 'a> Typer<'d, 'a> {
             .get(ty.as_str())
             .and_then(|e| e.variants.iter().find(|v| v.name == *variant))
             .map(|v| &v.fields);
-        let names: Vec<(String, Option<Ty>)> = match (bind, fields) {
-            (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => ps
-                .iter()
-                .zip(tys)
-                .filter_map(|(p, t)| match p {
-                    Pattern::Var(n) => Some((n.as_str().to_string(), Some(t.clone()))),
-                    _ => None,
-                })
-                .collect(),
-            (VariantBind::Struct(ps), Some(VariantFields::Struct(fs))) => ps
-                .iter()
-                .filter_map(|(field, p)| match p {
-                    Pattern::Var(n) => Some((
-                        n.as_str().to_string(),
-                        fs.iter().find(|f| f.name == *field).map(|f| f.ty.clone()),
-                    )),
-                    _ => None,
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        self.scopes.extend(names);
+        match (bind, fields) {
+            (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => {
+                for (p, t) in ps.iter().zip(tys) {
+                    self.bind(p, Some(t));
+                }
+            }
+            (VariantBind::Struct(ps), Some(VariantFields::Struct(fs))) => {
+                for (field, p) in ps {
+                    let ty = fs.iter().find(|f| f.name == *field).map(|f| f.ty.clone());
+                    self.bind(p, ty.as_ref());
+                }
+            }
+            _ => {}
+        }
     }
 }
 

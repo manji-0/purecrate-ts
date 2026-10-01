@@ -114,16 +114,28 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             value,
             then,
         } => {
-            emit_let(name.as_str(), *mutable, ty.as_ref(), value, indent, out);
-            emit_stmts(then, indent, sink, out);
+            // `let $x: T = e; $x` names `T` for `collect::<T>()` / `sum::<T>()`.
+            // `e` is the result; the binding would only be copied into the sink.
+            if !*mutable
+                && matches!(then.as_ref(), Expr::Var(n) if n == name)
+                && !peel_identity(value).needs_statements()
+            {
+                emit_stmts(peel_identity(value), indent, sink, out);
+            } else {
+                emit_let(name.as_str(), *mutable, ty.as_ref(), value, indent, out);
+                emit_stmts(then, indent, sink, out);
+            }
         }
         // A guard: `if (c) return v;` on one line, when both fit on one.
-        Expr::If { cond, then, else_ } if matches!(sink, Sink::Effect)
-            && **else_ == Expr::Lit(Lit::Unit)
-            && matches!(&**then, Expr::Return(v) if !v.needs_statements())
-            && !emit_expr(cond, indent).contains('\n') =>
+        Expr::If { cond, then, else_ }
+            if matches!(sink, Sink::Effect)
+                && **else_ == Expr::Lit(Lit::Unit)
+                && matches!(&**then, Expr::Return(v) if !v.needs_statements())
+                && !emit_expr(cond, indent).contains('\n') =>
         {
-            let Expr::Return(v) = &**then else { unreachable!("matched above") };
+            let Expr::Return(v) = &**then else {
+                unreachable!("matched above")
+            };
             out.push_str(&format!(
                 "{pad}if ({}) return {};\n",
                 crate::tidy::strip_outer(&emit_expr(cond, indent)),
@@ -131,7 +143,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             ));
         }
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
-            out.push_str(&format!("{pad}if ({}) {{\n", crate::tidy::strip_outer(&emit_expr(cond, indent))));
+            out.push_str(&format!(
+                "{pad}if ({}) {{\n",
+                crate::tidy::strip_outer(&emit_expr(cond, indent))
+            ));
             emit_stmts(then, indent + 1, sink, out);
             if !(matches!(sink, Sink::Effect) && **else_ == Expr::Lit(Lit::Unit)) {
                 out.push_str(&format!("{pad}}} else {{\n"));
@@ -167,18 +182,39 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
         }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, out),
-        Expr::For { var, ty, start, end, body } => {
+        Expr::For {
+            var,
+            ty,
+            start,
+            end,
+            body,
+        } => {
             let ty = ty.expect("check::accept types the range");
             emit_for(var.as_str(), ty, start, end, body, indent, out);
             sink.finish("undefined", &pad, out);
         }
-        Expr::ForEach { var, over, source: string, body } => {
+        Expr::ForEach {
+            var,
+            over,
+            source: string,
+            body,
+        } => {
             let iterable = iterable(*over, emit_expr(string, indent));
-            emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
+            emit_loop(
+                &format!("for (const {} of {iterable})", var.as_str()),
+                body,
+                indent,
+                out,
+            );
             sink.finish("undefined", &pad, out);
         }
         Expr::While { cond, body } => {
-            emit_loop(&format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))), body, indent, out);
+            emit_loop(
+                &format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))),
+                body,
+                indent,
+                out,
+            );
             sink.finish("undefined", &pad, out);
         }
         Expr::Break => out.push_str(&format!("{pad}break {};\n", innermost_loop())),
@@ -187,7 +223,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::Return(value) if value.needs_statements() && as_expr(value, indent).is_none() => {
             emit_stmts(value, indent, Sink::Return, out)
         }
-        Expr::Return(value) => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(&emit_expr(value, indent)))),
+        Expr::Return(value) => out.push_str(&format!(
+            "{pad}return {};\n",
+            crate::tidy::strip_outer(&emit_expr(value, indent))
+        )),
         // `x?;`: only the early return; there is no value to bind.
         // `x?;` on a binding: the test alone.
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) => {
@@ -218,6 +257,9 @@ pub(crate) fn iterable(over: purecrate_ir::Over, source: String) -> String {
 }
 
 pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) {
+    // `collect::<T>()` and `sum::<T>()` are a typed `let` whose body is the
+    // binding. Nested under another `let`, that binding is only a copy.
+    let value = peel_identity(value);
     let pad = "  ".repeat(indent);
     let keyword = if mutable { "let" } else { "const" };
     let annotation = ty.map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
@@ -245,11 +287,12 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
         // An annotation would narrow the union to this variant, or to what
         // an enclosing `switch` left of the place, and a later `switch` or
         // `=== null` on the binding could not name the rest.
-        v if ty.is_some_and(is_union) && (matches!(v, Expr::Construct { variant: Some(_), .. }) || is_place(v)) => out.push_str(&format!(
-            "{pad}{keyword} {name} = {} as {};\n",
-            emit_expr(v, indent),
-            emit_ty(ty.expect("checked"))
-        )),
+        v if ty.is_some_and(is_union) && (matches!(v, Expr::Construct { variant: Some(_), .. }) || is_place(v)) => out
+            .push_str(&format!(
+                "{pad}{keyword} {name} = {} as {};\n",
+                emit_expr(v, indent),
+                emit_ty(ty.expect("checked"))
+            )),
         v => out.push_str(&format!(
             "{pad}{keyword} {name}{annotation} = {};\n",
             crate::tidy::strip_outer(&emit_expr(v, indent))
@@ -296,6 +339,21 @@ pub(crate) fn peel(expr: &Expr) -> &Expr {
     }
 }
 
+/// `let $x = e; $x` when `e` is already an expression: the binding names a
+/// type (`collect::<T>()`, `sum::<T>()`) and is not a second evaluation.
+pub(crate) fn peel_identity(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Let {
+            name,
+            mutable: false,
+            value,
+            then,
+            ..
+        } if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() => peel_identity(value),
+        _ => expr,
+    }
+}
+
 /// Without an annotation a variant literal widens to `{ kind: string }`.
 pub(crate) fn scrutinee_ty(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Name> {
     arms.iter().find_map(|arm| match &arm.pattern {
@@ -316,13 +374,7 @@ pub(crate) fn declares_at_top(expr: &Expr) -> bool {
     }
 }
 
-pub(crate) fn emit_switch(
-    scrutinee: &Expr,
-    arms: &[purecrate_ir::Arm],
-    indent: usize,
-    sink: Sink,
-    out: &mut String,
-) {
+pub(crate) fn emit_switch(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, sink: Sink, out: &mut String) {
     // Statements after this one may hold another `match` at the same depth;
     // a block keeps the two temporaries apart.
     if !is_place(scrutinee) && !matches!(sink, Sink::Return) {
@@ -342,7 +394,10 @@ pub(crate) fn emit_switch_in(
     sink: Sink,
     out: &mut String,
 ) {
-    assert!(arms.iter().all(|a| a.guard.is_none()), "guards are lowered in check::accept");
+    assert!(
+        arms.iter().all(|a| a.guard.is_none()),
+        "guards are lowered in check::accept"
+    );
     let pad = "  ".repeat(indent);
     let pad1 = "  ".repeat(indent + 1);
     let subject = if is_place(scrutinee) {
@@ -452,7 +507,11 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
     match pattern {
         Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
         // By code point: JS orders strings by UTF-16 unit.
-        Pattern::Range { lo: Lit::Char(lo), hi: Lit::Char(hi), inclusive } => Some(format!(
+        Pattern::Range {
+            lo: Lit::Char(lo),
+            hi: Lit::Char(hi),
+            inclusive,
+        } => Some(format!(
             "Char.code({subject}) >= {} && Char.code({subject}) {} {}",
             u32::from(*lo),
             if *inclusive { "<=" } else { "<" },
@@ -498,8 +557,21 @@ pub(crate) fn two_way_prelude(pattern: &Pattern, subject: &str, pad: &str) -> St
     };
     match &**inner {
         Pattern::Var(n) => format!("{pad}const {} = {read};\n", n.as_str()),
+        Pattern::Tuple(elems) => tuple_names(elems, &read, pad),
         _ => String::new(),
     }
+}
+
+/// `const a = read[0]` for each name in a tuple of names and `_`.
+fn tuple_names(elems: &[Pattern], read: &str, pad: &str) -> String {
+    elems
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| match p {
+            Pattern::Var(n) => Some(format!("{pad}const {} = {read}[{i}];\n", n.as_str())),
+            _ => None,
+        })
+        .collect()
 }
 
 pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> String {
@@ -513,6 +585,7 @@ pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> Stri
                     "{pad}const {name} = {subject}.content[{i}];\n",
                     name = n.as_str()
                 )),
+                Pattern::Tuple(elems) => Some(tuple_names(elems, &format!("{subject}.content[{i}]"), pad)),
                 _ => None,
             })
             .collect(),

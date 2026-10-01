@@ -12,6 +12,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         if let Some(typed) = self.consume(receiver, name.as_str(), args, want) {
             return typed;
         }
+        if let Some(typed) = self.collect(receiver, name.as_str(), args, want) {
+            return typed;
+        }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
         if name.as_str() == "len" && args.is_empty() {
@@ -272,27 +275,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some(failed);
             }
         };
-        // The predicate, a closure of one parameter: the written closure, or
-        // `|$x| f($x)` for a function name.
-        let pred = match args.first().map(Expr::unpositioned) {
+        let pred = match args.first() {
             None => None,
-            Some(Expr::Closure { params, body, .. }) if params.len() == 1 => {
-                if leaves(body) {
-                    self.error(Reason::Closure, format!("a closure passed to `{name}` may not use `?` or `return` in v0; write the loop"));
-                    return Some(failed);
-                }
-                let p = &params[0];
-                let param = if p.name.as_str() == "_" { self.fresh_name("x") } else { p.name.clone() };
-                Some((param, p.ty.clone(), (**body).clone()))
-            }
-            Some(Expr::Var(f)) => {
-                let x = self.fresh_name("x");
-                Some((x.clone(), None, Expr::Call { callee: Callee::Fn(f.clone()), args: vec![Expr::Var(x)] }))
-            }
-            Some(_) => {
-                self.error(Reason::Closure, format!("`{name}` takes a closure `|x| ..` or a function name in v0"));
-                return Some(failed);
-            }
+            Some(arg) => match self.one_param_fn(name, arg) {
+                Some(f) => Some(f),
+                None => return Some(failed),
+            },
         };
         let method = match name {
             "all" => Consume::All,
@@ -338,6 +326,113 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: Callee::Consume { method, over }, args: call_args };
         Some((e, self.expect(want, Some(ty))))
+    }
+
+    /// What an iterator method takes as its function: a closure of one
+    /// parameter, or a function name as `|$x| f($x)`. The parameter, its
+    /// written type, and the body; `None` once reported. The closure is
+    /// inlined into a loop, so it may not use `?` or `return`, which would
+    /// leave the enclosing function.
+    fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
+        match arg.unpositioned() {
+            Expr::Closure { params, body, .. } if params.len() == 1 => {
+                if leaves(body) {
+                    self.error(Reason::Closure, format!("a closure passed to `{method}` may not use `?` or `return` in v0; write the loop"));
+                    return None;
+                }
+                let p = &params[0];
+                let param = if p.name.as_str() == "_" { self.fresh_name("x") } else { p.name.clone() };
+                Some((param, p.ty.clone(), (**body).clone()))
+            }
+            Expr::Var(f) => {
+                let x = self.fresh_name("x");
+                Some((x.clone(), None, Expr::Call { callee: Callee::Fn(f.clone()), args: vec![Expr::Var(x)] }))
+            }
+            _ => {
+                self.error(Reason::Closure, format!("`{method}` takes a closure `|x| ..` or a function name in v0"));
+                None
+            }
+        }
+    }
+
+    /// `s.split(c).collect()` and `s.split(c).map(f).collect()` into the
+    /// `Vec<T>` or `Result<Vec<T>, E>` the context names (a turbofish, a
+    /// `let` type, or the return type). The one way to build a `Vec` whose
+    /// length is not in the source: once, from text, so the length is the
+    /// input's. Collecting a `Vec` or a state is how a sequence grows, and
+    /// stays out (design/07 §6). `None` when `name` is not `collect`.
+    fn collect(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+        if name != "collect" {
+            return None;
+        }
+        let failed = (Expr::Lit(Lit::Unit), None);
+        if !args.is_empty() {
+            self.error(Reason::ConstructShape, format!("`collect` takes no arguments, got {}", args.len()));
+            return Some(failed);
+        }
+        let (pieces, map) = match receiver.unpositioned() {
+            Expr::MethodCall { receiver: inner, name: m, args: map_args } if m.as_str() == "map" && map_args.len() == 1 => {
+                (inner.unpositioned(), Some(&map_args[0]))
+            }
+            other => (other, None),
+        };
+        let source = match pieces {
+            Expr::MethodCall { receiver: s, name: m, args: sep } if m.as_str() == "split" && sep.len() == 1 => {
+                Expr::Call { callee: Callee::StrSplit, args: vec![(**s).clone(), sep[0].clone()] }
+            }
+            _ => {
+                self.error(Reason::MethodCall, "`collect` builds a `Vec` only from `s.split(c)` or `s.split(c).map(f)` in v0: a list read once from text. A sequence that grows with the state is a recursive enum (design/02 §3)".to_string());
+                return Some(failed);
+            }
+        };
+        let target = want.map(|t| self.norm(t));
+        let (result, elem, err) = match target {
+            Some(Ty::Vec(t)) => (false, *t, None),
+            Some(Ty::Result { ok, err }) if matches!(self.norm(&ok), Ty::Vec(_)) => {
+                let Ty::Vec(t) = self.norm(&ok) else { unreachable!("matched above") };
+                (true, *t, Some(*err))
+            }
+            Some(Ty::Never) => return Some(failed),
+            None => {
+                self.error(Reason::NeedsAnnotation, "`collect` needs its target: `collect::<Vec<T>>()`, `collect::<Result<Vec<T>, E>>()`, or a typed `let`".to_string());
+                return Some(failed);
+            }
+            Some(other) => {
+                self.error(Reason::TypeMismatch, format!("`collect` builds a `Vec<T>` or a `Result<Vec<T>, E>` in v0, not `{}`", show(&other)));
+                return Some(failed);
+            }
+        };
+        let (source, _) = self.expr(&source, None);
+        let item = Ty::Prim(Prim::Str);
+        let Some(map) = map else {
+            if result {
+                self.error(Reason::TypeMismatch, "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string());
+                return Some(failed);
+            }
+            let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source] };
+            return Some((e, self.expect(want, Some(Ty::Vec(Box::new(item))))));
+        };
+        let Some((param, written, body)) = self.one_param_fn("map", map) else {
+            return Some(failed);
+        };
+        if let Some(written) = &written {
+            if self.norm(written) != item {
+                self.error(Reason::TypeMismatch, format!("`map`'s closure takes `{}`, the pieces are `&str`", show(written)));
+                return Some(failed);
+            }
+        }
+        let ret = match &err {
+            Some(err) => Ty::Result { ok: Box::new(elem.clone()), err: Box::new(err.clone()) },
+            None => elem.clone(),
+        };
+        let closure = Expr::Closure {
+            params: vec![ClosureParam { name: param, ty: Some(item) }],
+            ret: Some(ret),
+            body: Box::new(body),
+        };
+        let (closure, _) = self.expr(&closure, None);
+        let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source, closure] };
+        Some((e, want.cloned()))
     }
 
     pub(super) fn fresh_name(&mut self, what: &str) -> Name {
@@ -537,7 +632,8 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `s.m(needles)` for an allow-listed `str` method. A needle must be a
-    /// string: `char` and closure patterns are not in the allow-list.
+    /// string, or for `split_once` a `char`: closure patterns are not in the
+    /// allow-list.
     pub(super) fn str_method(&mut self, m: StrMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
         if args.len() != m.needles() {
             self.error(Reason::ConstructShape, format!(
@@ -552,6 +648,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             let (e, t) = self.expr(a, None);
             match t.map(|t| self.norm(&t)) {
                 Some(Ty::Prim(Prim::String | Prim::Str)) | Some(Ty::Never) | None => {}
+                Some(Ty::Prim(Prim::Char)) if m == StrMethod::SplitOnce => {}
                 Some(other) => self.error(Reason::TypeMismatch, format!(
                     "`str::{}` takes a `&str` pattern in v0, found `{}`",
                     m.name(),
@@ -564,6 +661,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             StrMethod::Len => Ty::Prim(Prim::Usize),
             StrMethod::AsStr => Ty::Prim(Prim::Str),
             StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
+            StrMethod::SplitOnce => split_once_ty(),
             StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
         };
         let e = Expr::Call {
@@ -683,4 +781,9 @@ pub(super) fn char_sig(m: CharMethod) -> (Vec<Ty>, Ty) {
         CharMethod::ToDigit => (vec![u32_()], Ty::option(u32_())),
         _ => (Vec::new(), Ty::bool()),
     }
+}
+
+/// `Option<(&str, &str)>`, what `str::split_once` returns.
+pub(super) fn split_once_ty() -> Ty {
+    Ty::option(Ty::Tuple(vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]))
 }

@@ -151,6 +151,9 @@ const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number
   } as const;
 };
 
+const small64 = (n: bigint): Usize =>
+  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
@@ -172,38 +175,10 @@ export const Str = {
   },
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
-  /**
-   * `&s[start..end]` at UTF-8 byte positions (`end` absent for `&s[start..]`).
-   * Panics as Rust does, in its order: a position past the end, a reversed
-   * range, then a position inside a character, shown as `Debug` shows it.
-   */
-  slice: (s: string, start: Usize, end?: Usize): string => {
-    const len = utf8Len(s);
-    const stop = end ?? len;
-    if (start > len) panicWith(`start byte index ${start} is out of bounds for string of length ${len}`);
-    if (stop > len) panicWith(`end byte index ${stop} is out of bounds for string of length ${len}`);
-    if (start > stop) panicWith(`byte range starts at ${start} but ends at ${stop}`);
-    let byte = 0;
-    let unit = 0;
-    let from = -1;
-    let to = -1;
-    let inside: string | null = null;
-    for (const c of s) {
-      const w = utf8Width(c);
-      if (byte === start) from = unit;
-      if (byte === stop) to = unit;
-      for (const [which, at] of [["start", start], ["end", stop]] as const) {
-        if (inside === null && at > byte && at < byte + w) {
-          inside = `${which} byte index ${at} is not a char boundary; it is inside '${debugChar(c)}' (bytes ${byte}..${byte + w} of string)`;
-        }
-      }
-      byte += w;
-      unit += c.length;
-    }
-    if (byte === start) from = unit;
-    if (byte === stop) to = unit;
-    if (from < 0 || to < 0) panicWith(inside as string);
-    return s.slice(from, to);
+  /** `str::split_once` with a `char` or a `&str`: the text around the first match. */
+  splitOnce: (s: string, p: string): readonly [string, string] | null => {
+    const i = s.indexOf(p);
+    return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
   },
   /**
    * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
@@ -249,34 +224,28 @@ export const Iter = {
     for (const x of xs) if (!f(x)) return false;
     return true;
   },
-  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
-    let i = 0;
+  /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
+  tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {
+    const out: T[] = [];
     for (const x of xs) {
-      if (f(x)) return i as Usize;
-      i++;
+      const r = f(x);
+      if (r.kind === "Err") return r;
+      out.push(r.value);
     }
-    return null;
+    return Result.ok(out);
   },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
+  /** `xs[i]`. */
+  at: <T>(xs: ReadonlyArray<T>, i: number): T => {
+    if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
+      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    }
+    return xs[i] as T;
+  },
 } as const;
-
-/**
- * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
- * for a grapheme extender or a code point that is not printable (the
- * categories core's `printable.py` escapes), itself otherwise. The tables are
- * the JS engine's; they agree with Rust's where both use one Unicode version
- * (design/01 §3).
- */
-const debugChar = (c: string): string =>
-  (escaped ??= new RegExp("[\\p{Grapheme_Extend}\\p{Zs}\\p{Zl}\\p{Zp}\\p{Cc}\\p{Cf}\\p{Cs}\\p{Co}\\p{Cn}]", "u")).test(c) && c !== " "
-    ? `\\u{${(c.codePointAt(0) as number).toString(16)}}`
-    : c;
-// Built on first use: a literal with Unicode properties costs about half a
-// millisecond when the module loads, for a message only a panic prints.
-let escaped: RegExp | undefined;
 
 const utf8Len = (s: string): Usize => {
   let n = 0;
@@ -335,6 +304,7 @@ export const Int = {
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
+    ...methods(0n, 18446744073709551615n, 64, false, small64),
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),

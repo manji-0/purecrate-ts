@@ -113,7 +113,7 @@ The author's own examples cannot validate the constraints: the author writes aro
 | Withdrawal condition | Status |
 | --- | --- |
 | More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, oidc, and semver are from third-party specs; all six could be written |
-| Constrained Rust exceeds 2× | Not met on the adjusted count; semver is still 2.2× by the script, whose line split files `impl Ord` under types and counts the closed type's accessors. semver's first draft was 2.8× (2.0× adjusted), as every example's first draft was over before its gap's capability landed; with ordering (0.5.0) it is 2.2× by the script and 1.6× adjusted ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)) |
+| Constrained Rust exceeds 2× | Not met. semver, the last example over 2×, is 1.8× by the script after `split_once`, `collect`, and `Some((a, b))` (0.7.0), 1.3× leaving out the closed type's accessors and counting `impl Ord` as logic. Its first draft was 2.8× ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)) |
 | Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
 | No real use | Open. No real-world replacement yet (§5.2) |
 
@@ -126,7 +126,7 @@ Line counts against idiomatic Rust, logic only, both sides formatted with rustfm
 | payment | 1.6× | 2.1× at first, 1.8× after `_` and `A \| B` arms; one tuple `match` in 0.4.0 |
 | invoice | 1.6× | 2.2× for the first draft, 1.4× restructured (as written) |
 | oidc | 1.3× | 1.65× written from the authoring skill alone; 0.4.0 rewrite |
-| semver | 2.2× (1.6× counting `impl Ord` as logic and leaving out the closed type's accessors) | 2.8× written from the authoring skill alone, 2.6× restructured; ordering in 0.5.0 |
+| semver | 1.8× (1.3× counting `impl Ord` as logic and leaving out the closed type's accessors) | 2.8× written from the authoring skill alone, 2.6× restructured; 2.2× with ordering (0.5.0); 1.8× with `split_once`, `collect`, and `Some((a, b))` (0.7.0) |
 
 ## 5. Validating demand next
 

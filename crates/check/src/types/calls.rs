@@ -265,6 +265,21 @@ impl<'d, 'a> Typer<'d, 'a> {
                     purecrate_ir::Consume::Sum(int) => Ty::Prim(Prim::from(*int)),
                 }),
             ),
+            // Written only by `collect`, typed: the pieces, then `f` if mapped.
+            Callee::Collect { result } => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let item = match typed.get(1).and_then(|(_, t)| t.clone()) {
+                    Some(Ty::Fn { ret, .. }) => Some(*ret),
+                    _ if typed.len() == 1 => Some(Ty::Prim(Prim::Str)),
+                    _ => None,
+                };
+                let t = match (item, *result) {
+                    (Some(Ty::Result { ok, err }), true) => Some(Ty::Result { ok: Box::new(Ty::Vec(ok)), err }),
+                    (Some(item), false) => Some(Ty::Vec(Box::new(item))),
+                    _ => None,
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), t)
+            }
             // Written only by `cmp_method` and `ordering_method`, typed.
             Callee::OrdCmp { .. } | Callee::OrdThen => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
@@ -319,6 +334,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     StrMethod::Len => Ty::Prim(Prim::Usize),
                     StrMethod::AsStr => Ty::Prim(Prim::Str),
                     StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
+                    StrMethod::SplitOnce => super::methods::split_once_ty(),
                     _ => Ty::bool(),
                 }),
             ),

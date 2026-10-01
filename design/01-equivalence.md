@@ -1,6 +1,6 @@
 # Equivalence
 
-Status: current (2026-10-01, 0.6.0)
+Status: current (2026-10-02, 0.7.0)
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
@@ -118,13 +118,13 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 
 | Receiver | Accepted | TS | Verified by |
 | --- | --- | --- | --- |
-| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` (a `&str` needle), `as_bytes`, `as_str`, slicing `&s[a..b]`, `==`, `<` `<=` `>` `>=`, `cmp`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes` / `Str.stripPrefix` / `Str.stripSuffix`, `Str.bytes`, `Str.slice`, the string, `===`, `Str.cmp(a, b) < 0` etc. | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs`, `slicing_equivalence.rs`, `ordering_equivalence.rs` |
+| `String`, `&str` | `len`, `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` (a `&str` needle), `split_once` (a `char` or a `&str`), `as_bytes`, `as_str`, slicing `&s[a..b]`, `==`, `<` `<=` `>` `>=`, `cmp`, literal patterns | `Str.len`, `length === 0`, `startsWith` / `endsWith` / `includes` / `Str.stripPrefix` / `Str.stripSuffix` / `Str.splitOnce`, `Str.bytes`, `Str.slice`, the string, `===`, `Str.cmp(a, b) < 0` etc. | `strings_equivalence.rs`, `str_methods_equivalence.rs`, `str_patterns_equivalence.rs`, `slicing_equivalence.rs`, `ordering_equivalence.rs`, `collect_equivalence.rs` |
 | a string in a `for` head | `chars()`, `bytes()`, `split(c)` with a `char` | `for..of` over `s`, `Str.bytes(s)`, `s.split(c)` | `for_chars_equivalence.rs`, `for_each_equivalence.rs` |
 | `char` | literals, `==`, `<`, `cmp`, ranges; `u32::from`, `u64::from`, `char::from(u8)`, `char::from_u32`; `is_ascii*`, `to_ascii_{upper,lower}case`, `eq_ignore_ascii_case`, `len_utf8`, `is_digit` / `to_digit` | `Char` (branded `string`), compared through `Char.code` | `chars_equivalence.rs`, `ordering_equivalence.rs` |
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
 | integers, `bool` | `cmp` (§6.6) | `Ord.cmp`, by JS `<` | `ordering_equivalence.rs` |
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
-| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]` | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks | `std_methods_equivalence.rs`, `slicing_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]`; built as `vec![a, b]` or, once, from `s.split(c).collect()` / `.map(f).collect()` (§7.12) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks; the array, its `.map`, or `Iter.tryCollect` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
 
@@ -139,7 +139,8 @@ What prints as the plain JS operation, and why that is the same:
 - **Prefix, suffix, substring.** On well-formed strings a match on char boundaries is the same in UTF-8 bytes and UTF-16 units, so `is_empty`, `starts_with`, `ends_with`, `contains` need no encoding step. `char` and closure needles are rejected (tested: every pairing of 14 strings from empty to U+10FFFF).
 - **Equality and literal patterns.** Well-formed strings are equal as UTF-8 exactly when they are as UTF-16, so `==` and string literal patterns print as `===`; `String::as_str` prints as the string itself (tested: 16 strings including the literals, a shared prefix, NFC vs NFD, U+FFFF, and a supplementary-plane neighbor).
 - **`for c in s.chars()`.** A JS string iterates by code point, which for well-formed strings is Rust's sequence of scalar values, so it prints as `for (const c of s)` (tested: 14 strings across every UTF-8 length, the surrogate gap and U+E000, with `?`, early `return`, nesting, closures, and overflow in the body). `chars()` as a value and its adaptors are rejected.
-- **`for t in s.split(c)`** with a `char` separator prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list, except before a consumer (§7).
+- **`for t in s.split(c)`** with a `char` separator prints as `s.split(c)`. One code point occurs at the same places of a well-formed string in UTF-8 and UTF-16 (a supplementary one is a surrogate pair that appears nowhere else), and JS `split` keeps the empty pieces Rust keeps: leading, trailing, and between adjacent separators (tested: ten strings against separators of every UTF-8 length). A `&str` separator is refused, since an empty one splits differently (`"ab".split("")` is `["", "a", "b", ""]` in Rust, `["a", "b"]` in JS), and `split` as a value stays off the list, except before a consumer or `collect` (§7.12).
+- **`split_once`** with a `char` or a `&str` prints as `Str.splitOnce`, `Option<(&str, &str)>`. `indexOf` finds the first match, and the two slices are the same strings on a well-formed input, including an empty needle (`"ab".split_once("")` is `Some(("", "ab"))` on both sides). A needle that is not text is refused.
 
 What goes through the runtime, and what it keeps:
 
@@ -202,6 +203,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [integer methods](#79-integer-methods) | the exact result, then checked, clamped, or wrapped | `int_methods_equivalence.rs` |
 | [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | `Ord.cmp` / `Ord.cmpStr` / `Ord.then`; a `match` on the `Ordering` | `ordering_equivalence.rs` |
 | [`impl Display` with a fixed text](#711-impl-display-with-a-fixed-text) | the method `toString`, the text per value | `display_equivalence.rs` |
+| [`s.split(c).collect()`](#712-a-list-collected-from-text) and `.map(f).collect()` | the array, its `map`, or `Iter.tryCollect` | `collect_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -277,6 +279,16 @@ Tested with an overflowing `then` argument after a non-`Equal` receiver, an over
 ### 7.11 `impl Display` with a fixed text
 
 `impl Display for X` whose `fmt` writes a text fixed per value becomes the method `X.toString(self): string` (`to_string` before `check::rename` spells it for TS), and `x.to_string()` in the crate calls it. The shapes taken: `f.write_str(t)` or `write!(f, "..")` (no `{}`; `{{` and `}}` read as braces), a `match self` whose arms are those or string literals, and `let t = <such a match>; f.write_str(t)`. The text is what `to_string()` gives in Rust: `write!` writes its literal with the braces unescaped, `write_str` its argument. Any other `fmt` (formatting arguments, several writes) is skipped as before, so a crate that compiled keeps compiling, and has no `toString`. Tested with each shape, a non-ASCII text, escaped braces, a struct, and a skipped `fmt` with arguments.
+
+### 7.12 A list collected from text
+
+<!-- derived-from ./07-roadmap.md#88-070-lists-from-text-2026-10-02 -->
+
+`s.split(c).collect()` and `s.split(c).map(f).collect()` build a `Vec` whose length is the input's. `c` is a `char`, so the pieces are the ones `for t in s.split(c)` already walks, empty ones included. `f` is a closure of one `&str` parameter, or a function name, with no `?` or `return`. The target is named by `collect::<Vec<T>>()`, `collect::<Result<Vec<T>, E>>()`, a typed `let`, or the function's return type.
+
+Into a `Vec<T>`, the pieces (or `f`'s results) are the array. Into a `Result<Vec<T>, E>`, `f` returns `Result<T, E>` and `Iter.tryCollect` runs `f` in order and returns the first `Err`, which is what `FromIterator` for `Result` does, so a later piece is not evaluated. Collecting a `Vec`, `chars()`, or any receiver but `split(c)`, a `&str` separator, and a missing target type are refused.
+
+Tested with empty pieces, a non-ASCII separator, a function name and a closure, a turbofish and a typed `let`, an empty needle to `split_once`, and a `"boom"` after `"bad"` that panics only when the `Err` does not come first.
 
 ## 8. Verification
 

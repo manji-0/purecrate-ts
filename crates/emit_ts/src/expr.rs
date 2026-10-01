@@ -18,7 +18,11 @@ pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Ex
         Some(t) => format!("{}: {}", name.as_str(), emit_ty(t)),
         None => name.as_str().to_string(),
     };
-    let params = params.iter().map(|p| typed(&p.name, p.ty.as_ref())).collect::<Vec<_>>().join(", ");
+    let params = params
+        .iter()
+        .map(|p| typed(&p.name, p.ty.as_ref()))
+        .collect::<Vec<_>>()
+        .join(", ");
     match ret {
         Some(r) => arrow(&params, &emit_ty(r), body, indent),
         None => format!("({params}) => {}", arrow_expr(body, indent)),
@@ -28,15 +32,27 @@ pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Ex
 pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
     // `String::from(x)` prints as `x`: a `match` under it is the body itself.
     let body = match body {
-        Expr::Call { callee: Callee::StringFrom, args } if args[0].needs_statements() => &args[0],
+        Expr::Call {
+            callee: Callee::StringFrom,
+            args,
+        } if args[0].needs_statements() => &args[0],
         other => other,
     };
     if body.needs_statements() {
         let mut out = String::new();
         emit_stmts(body, indent + 1, Sink::Return, &mut out);
         // A body that is one `return` on one line is the arrow's expression.
-        if let Some(value) = out.trim().strip_prefix("return ").and_then(|v| v.strip_suffix(';')).filter(|_| out.trim_end().lines().count() == 1) {
-            let value = if value.starts_with('{') { format!("({value})") } else { value.to_string() };
+        if let Some(value) = out
+            .trim()
+            .strip_prefix("return ")
+            .and_then(|v| v.strip_suffix(';'))
+            .filter(|_| out.trim_end().lines().count() == 1)
+        {
+            let value = if value.starts_with('{') {
+                format!("({value})")
+            } else {
+                value.to_string()
+            };
             return format!("({params}): {ret} => {value}");
         }
         format!("({params}): {ret} => {{\n{out}{pad}}}", pad = "  ".repeat(indent))
@@ -54,7 +70,11 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
         // Parentheses around all of it, unless they keep an object literal
         // from reading as a block.
         let bare = crate::tidy::strip_outer(&s);
-        if bare.starts_with('{') { s } else { bare.to_string() }
+        if bare.starts_with('{') {
+            s
+        } else {
+            bare.to_string()
+        }
     }
 }
 
@@ -64,13 +84,22 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
 pub(crate) fn leads_with_brace(expr: &Expr) -> bool {
     match expr {
         Expr::Ignored { expr, .. } => leads_with_brace(expr),
-        Expr::Construct { ty, variant, fields, base: None } => {
-            variant.is_some() || !(matches!(fields, Fields::Positional(_)) || is_closed(ty.as_str()))
-        }
+        Expr::Construct {
+            ty,
+            variant,
+            fields,
+            base: None,
+        } => variant.is_some() || !(matches!(fields, Fields::Positional(_)) || is_closed(ty.as_str())),
         Expr::Field { base, .. } => leads_with_brace(base),
         Expr::Binary { left, .. } => !matches!(**left, Expr::Binary { .. }) && leads_with_brace(left),
-        Expr::Call { callee: Callee::OptionSome | Callee::StringFrom, args } => leads_with_brace(&args[0]),
-        Expr::Call { callee: Callee::IntFrom { from, to }, args } if *from == Some(*to) => leads_with_brace(&args[0]),
+        Expr::Call {
+            callee: Callee::OptionSome | Callee::StringFrom,
+            args,
+        } => leads_with_brace(&args[0]),
+        Expr::Call {
+            callee: Callee::IntFrom { from, to },
+            args,
+        } if *from == Some(*to) => leads_with_brace(&args[0]),
         _ => false,
     }
 }
@@ -117,21 +146,21 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
 }
 
 pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
+    let expr = peel_identity(expr);
     match expr {
         Expr::At { .. } => unreachable!("emit takes `check::accept` output, which has no positions"),
         Expr::Ignored { expr, .. } => emit_expr(expr, indent),
         Expr::Lit(lit) => emit_lit(lit),
         Expr::Var(n) => n.as_str().to_string(),
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),
-        Expr::Field { base, name } if name.as_str().starts_with('[') => format!("{}{}", emit_expr(base, indent), name.as_str()),
+        Expr::Field { base, name } if name.as_str().starts_with('[') => {
+            format!("{}{}", emit_expr(base, indent), name.as_str())
+        }
         Expr::Field { base, name } => format!("{}.{n}", emit_expr(base, indent), n = name.as_str()),
         Expr::Index { base, index } => format!("Slice.at({}, {})", emit_expr(base, indent), emit_expr(index, indent)),
-        Expr::Binary { op, left, right } => format!(
-            "{} {} {}",
-            operand(left, indent),
-            bin_op(*op),
-            operand(right, indent)
-        ),
+        Expr::Binary { op, left, right } => {
+            format!("{} {} {}", operand(left, indent), bin_op(*op), operand(right, indent))
+        }
         Expr::Unary { op, expr } => {
             let o = match op {
                 purecrate_ir::UnOp::Not => "!",
@@ -151,9 +180,17 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         }
         Expr::Closure { params, ret, body } => format!("({})", closure_arrow(params, ret.as_ref(), body, indent)),
         Expr::MethodCall { name, .. } => {
-            unreachable!("`.{}()` reaches emit unresolved; emit takes `check::accept` output", name.as_str())
+            unreachable!(
+                "`.{}()` reaches emit unresolved; emit takes `check::accept` output",
+                name.as_str()
+            )
         }
-        Expr::Construct { ty, variant, fields, base } => match (variant, base) {
+        Expr::Construct {
+            ty,
+            variant,
+            fields,
+            base,
+        } => match (variant, base) {
             (Some(v), None) => emit_variant_value(ty.as_str(), v.as_str(), fields),
             (None, None) if is_closed(ty.as_str()) => {
                 format!("{}({})", closed_ctor(ty.as_str()), emit_struct_value(fields))
@@ -173,7 +210,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         | Expr::For { .. }
         | Expr::ForEach { .. }
         | Expr::While { .. } => emit_iife(expr, indent),
-        Expr::Break | Expr::Continue => unreachable!("`check::accept` keeps `break` and `continue` in statement position"),
+        Expr::Break | Expr::Continue => {
+            unreachable!("`check::accept` keeps `break` and `continue` in statement position")
+        }
         Expr::If { cond, then, else_ } => format!(
             "({} ? {} : {})",
             emit_expr(cond, indent),
@@ -188,13 +227,25 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         } => {
             let entries = table
                 .iter()
-                .map(|(v, d)| format!("{}: {}", v.as_str(), emit_lit(&Lit::Int { value: *d, ty: Some(*to) })))
+                .map(|(v, d)| {
+                    format!(
+                        "{}: {}",
+                        v.as_str(),
+                        emit_lit(&Lit::Int {
+                            value: *d,
+                            ty: Some(*to)
+                        })
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             // `kind` may be typed `string` (a variant literal widens), and a
             // consumer may set `noUncheckedIndexedAccess`: hence both casts.
             let t = to.ts_name();
-            format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
+            format!(
+                "(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})",
+                emit_expr(&args[0], indent)
+            )
         }
         Expr::Call { callee, args } => {
             if let purecrate_ir::Callee::Consume { method, over } = callee {
@@ -204,7 +255,10 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::Consume::Sum(int) => format!(
                         "Iter.sum({source}, Int.{}.add, {})",
                         int.as_str(),
-                        emit_lit(&Lit::Int { value: 0, ty: Some(*int) })
+                        emit_lit(&Lit::Int {
+                            value: 0,
+                            ty: Some(*int)
+                        })
                     ),
                     m => format!("Iter.{}({source}, {})", m.ts_name(), emit_expr(&args[1], indent)),
                 };
@@ -238,6 +292,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::OptionIsNone
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StrSplit
+                | purecrate_ir::Callee::Collect { .. }
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::Slice { .. }
                 | purecrate_ir::Callee::Str(_)
@@ -256,7 +311,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             };
             if let purecrate_ir::Callee::CharCode(to) = callee {
                 let code = format!("Char.code({})", emit_expr(&args[0], indent));
-                return if to.is_big() { format!("(globalThis.BigInt({code}) as {})", to.ts_name()) } else { code };
+                return if to.is_big() {
+                    format!("(globalThis.BigInt({code}) as {})", to.ts_name())
+                } else {
+                    code
+                };
             }
             if let purecrate_ir::Callee::IntFrom { from, to } = callee {
                 let x = emit_expr(&args[0], indent);
@@ -271,10 +330,24 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 return format!("Str.bytes({})", emit_expr(&args[0], indent));
             }
             if let purecrate_ir::Callee::Slice { of, start, end } = callee {
-                return emit_slice(of.expect("check::accept sets what is sliced"), *start, *end, args, indent);
+                return emit_slice(
+                    of.expect("check::accept sets what is sliced"),
+                    *start,
+                    *end,
+                    args,
+                    indent,
+                );
             }
             if matches!(callee, purecrate_ir::Callee::StrSplit) {
                 return format!("{}.split({})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
+            }
+            if let purecrate_ir::Callee::Collect { result } = callee {
+                let pieces = emit_expr(&args[0], indent);
+                return match (args.get(1), result) {
+                    (None, _) => pieces,
+                    (Some(f), false) => format!("{pieces}.map({})", emit_expr(f, indent)),
+                    (Some(f), true) => format!("Iter.tryCollect({pieces}, {})", emit_expr(f, indent)),
+                };
             }
             if let purecrate_ir::Callee::Str(m) = callee {
                 let s = emit_expr(&args[0], indent);
@@ -288,6 +361,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::StrMethod::AsStr => s,
                     purecrate_ir::StrMethod::StripPrefix => format!("Str.stripPrefix({s}, {})", needle()),
                     purecrate_ir::StrMethod::StripSuffix => format!("Str.stripSuffix({s}, {})", needle()),
+                    purecrate_ir::StrMethod::SplitOnce => format!("Str.splitOnce({s}, {})", needle()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
@@ -308,14 +382,13 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
             }
-            if matches!(callee, purecrate_ir::Callee::OptionSome | purecrate_ir::Callee::StringFrom) {
+            if matches!(
+                callee,
+                purecrate_ir::Callee::OptionSome | purecrate_ir::Callee::StringFrom
+            ) {
                 return emit_expr(&args[0], indent);
             }
-            let a = args
-                .iter()
-                .map(|e| emit_expr(e, indent))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let a = args.iter().map(|e| emit_expr(e, indent)).collect::<Vec<_>>().join(", ");
             format!("{c}({a})")
         }
         Expr::Tuple(elems) => {
@@ -376,11 +449,7 @@ pub(crate) fn emit_struct_value(fields: &Fields) -> String {
     match fields {
         Fields::Unit => "{}".into(),
         Fields::Positional(elems) => {
-            let inner = elems
-                .iter()
-                .map(|e| emit_expr(e, 0))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let inner = elems.iter().map(|e| emit_expr(e, 0)).collect::<Vec<_>>().join(", ");
             format!("[{inner}]")
         }
         Fields::Named(pairs) => {
@@ -398,11 +467,7 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
     match fields {
         Fields::Unit => format!("{{ kind: \"{variant}\" }}"),
         Fields::Positional(elems) => {
-            let inner = elems
-                .iter()
-                .map(|e| emit_expr(e, 0))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let inner = elems.iter().map(|e| emit_expr(e, 0)).collect::<Vec<_>>().join(", ");
             format!("{{ kind: \"{variant}\", content: [{inner}] }}")
         }
         Fields::Named(pairs) => {
@@ -425,9 +490,13 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
 /// which evaluates a scrutinee that is not a place once.
 pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
     match expr {
-        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) || matches!(**value, Expr::Lit(_)) => {
-            as_expr(&subst(then, name, value), indent)
-        }
+        Expr::Let {
+            name,
+            mutable: false,
+            value,
+            then,
+            ..
+        } if is_place(value) || matches!(**value, Expr::Lit(_)) => as_expr(&subst(then, name, value), indent),
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_expr(scrutinee, arms, indent),
         Expr::If { cond, then, else_ } => {
             let (t, e) = (as_expr(then, indent)?, as_expr(else_, indent)?);
@@ -463,6 +532,29 @@ fn fold(test: String, (then, then_lit): (String, Option<bool>), (else_, else_lit
     }
 }
 
+/// Replace each name `p` binds with the place it reads. A tuple of names
+/// reads `read[i]`. `None` when `p` binds something else.
+fn bind_in(p: &Pattern, read: Expr, body: &mut Expr) -> Option<()> {
+    match p {
+        Pattern::Var(n) => {
+            *body = subst(body, n, &read);
+            Some(())
+        }
+        Pattern::Wildcard => Some(()),
+        Pattern::Tuple(ps) => {
+            for (i, e) in ps.iter().enumerate() {
+                bind_in(
+                    e,
+                    Expr::Field { base: Box::new(read.clone()), name: Name::new(format!("[{i}]")) },
+                    body,
+                )?;
+            }
+            Some(())
+        }
+        _ => None,
+    }
+}
+
 /// The arms in order, each a test on `scrutinee` and its body with the
 /// pattern's bindings read from `scrutinee`; the last is the `else`, as
 /// `check::accept` has made the `match` exhaustive.
@@ -471,21 +563,15 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
         return None;
     }
     let subject = emit_expr(scrutinee, indent);
-    let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
+    let field = |base: &Expr, name: &str| Expr::Field {
+        base: Box::new(base.clone()),
+        name: Name::new(name),
+    };
     let mut parts: Vec<(Option<String>, String, Option<bool>)> = Vec::new();
     for (i, arm) in arms.iter().enumerate() {
         let last = i + 1 == arms.len();
         let mut body = arm.body.clone();
-        let bind = |p: &Pattern, read: Expr, body: &mut Expr| -> Option<()> {
-            match p {
-                Pattern::Var(n) => {
-                    *body = subst(body, n, &read);
-                    Some(())
-                }
-                Pattern::Wildcard => Some(()),
-                _ => None,
-            }
-        };
+        let bind = bind_in;
         let test = match &arm.pattern {
             Pattern::Wildcard => None,
             Pattern::Var(n) => {
@@ -522,15 +608,23 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
                 Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
             }
             // Variants that bind nothing (`Cons(_, _)` counts).
-            Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { .. }) && a.bindings().is_empty()) => Some(
-                alts.iter()
-                    .filter_map(|a| match a {
-                        Pattern::Variant { variant, .. } => Some(format!("{subject}.kind === \"{}\"", variant.as_str())),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" || "),
-            ),
+            Pattern::Or(alts)
+                if alts
+                    .iter()
+                    .all(|a| matches!(a, Pattern::Variant { .. }) && a.bindings().is_empty()) =>
+            {
+                Some(
+                    alts.iter()
+                        .filter_map(|a| match a {
+                            Pattern::Variant { variant, .. } => {
+                                Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" || "),
+                )
+            }
             p if p.is_lit_case() => Some(lit_test(p, &subject)?),
             _ => return None,
         };
@@ -654,14 +748,22 @@ fn emit_slice(of: purecrate_ir::SliceOf, start: bool, end: bool, args: &[Expr], 
     let b = end.then(|| emit_expr(&args[args.len() - 1], indent));
     match of {
         purecrate_ir::SliceOf::Str => {
-            let a = if start { emit_expr(&args[1], indent) } else { "(0 as Usize)".into() };
+            let a = if start {
+                emit_expr(&args[1], indent)
+            } else {
+                "(0 as Usize)".into()
+            };
             match b {
                 Some(b) => format!("Str.slice({base}, {a}, {b})"),
                 None => format!("Str.slice({base}, {a})"),
             }
         }
         purecrate_ir::SliceOf::Items => {
-            let a = if start { emit_expr(&args[1], indent) } else { "null".into() };
+            let a = if start {
+                emit_expr(&args[1], indent)
+            } else {
+                "null".into()
+            };
             format!("Slice.range({base}, {a}, {})", b.unwrap_or_else(|| "null".into()))
         }
     }

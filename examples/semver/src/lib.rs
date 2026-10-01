@@ -48,28 +48,14 @@ pub enum PreId {
     Alpha(String),
 }
 
-/// Dot-separated pre-release identifiers, in order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreIds {
-    Nil,
-    Cons(PreId, Box<PreIds>),
-}
-
-/// Dot-separated build identifiers, in order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BuildIds {
-    Nil,
-    Cons(String, Box<BuildIds>),
-}
-
 /// A valid semantic version. Only [`Version::parse`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     major: u64,
     minor: u64,
     patch: u64,
-    pre: PreIds,
-    build: BuildIds,
+    pre: Vec<PreId>,
+    build: Vec<String>,
 }
 
 impl Version {
@@ -77,39 +63,40 @@ impl Version {
         if s.is_empty() {
             return Err(SemverError::Empty);
         }
-        let plus = s.bytes().position(|b| b == b'+');
-        let rest = match plus {
-            Some(i) => &s[..i],
-            None => s,
+        let (rest, build) = match s.split_once('+') {
+            Some((x, y)) => (x, Some(y)),
+            None => (s, None),
         };
-        let dash = rest.bytes().position(|b| b == b'-');
-        let core = match dash {
-            Some(i) => &rest[..i],
-            None => rest,
+        let (core, pre) = match rest.split_once('-') {
+            Some((x, y)) => (x, Some(y)),
+            None => (rest, None),
         };
-        let mut major: Option<u64> = None;
-        let mut minor: Option<u64> = None;
-        let mut patch: Option<u64> = None;
-        let mut n: u32 = 0;
-        for piece in core.split('.') {
-            match n {
-                0 => major = Some(parse_core_number(piece, CorePart::Major)?),
-                1 => minor = Some(parse_core_number(piece, CorePart::Minor)?),
-                2 => patch = Some(parse_core_number(piece, CorePart::Patch)?),
-                _ => return Err(SemverError::ExtraCorePart),
-            }
-            n += 1;
+        let parts = core.split('.').collect::<Vec<&str>>();
+        let major = parse_core_number(parts[0], CorePart::Major)?;
+        if parts.len() < 2 {
+            return Err(SemverError::MissingPart(CorePart::Minor));
         }
-        let major = major.ok_or(SemverError::MissingPart(CorePart::Major))?;
-        let minor = minor.ok_or(SemverError::MissingPart(CorePart::Minor))?;
-        let patch = patch.ok_or(SemverError::MissingPart(CorePart::Patch))?;
-        let pre = match dash {
-            Some(i) => parse_pre_ids(&rest[i + 1..])?,
-            None => PreIds::Nil,
+        let minor = parse_core_number(parts[1], CorePart::Minor)?;
+        if parts.len() < 3 {
+            return Err(SemverError::MissingPart(CorePart::Patch));
+        }
+        let patch = parse_core_number(parts[2], CorePart::Patch)?;
+        if parts.len() > 3 {
+            return Err(SemverError::ExtraCorePart);
+        }
+        let pre = match pre {
+            Some(p) => p
+                .split('.')
+                .map(parse_pre_id)
+                .collect::<Result<Vec<PreId>, SemverError>>()?,
+            None => vec![],
         };
-        let build = match plus {
-            Some(i) => parse_build_ids(&s[i + 1..])?,
-            None => BuildIds::Nil,
+        let build = match build {
+            Some(b) => b
+                .split('.')
+                .map(parse_build_id)
+                .collect::<Result<Vec<String>, SemverError>>()?,
+            None => vec![],
         };
         Ok(Version {
             major,
@@ -132,16 +119,16 @@ impl Version {
         self.patch
     }
 
-    pub fn pre_release(&self) -> &PreIds {
+    pub fn pre_release(&self) -> &Vec<PreId> {
         &self.pre
     }
 
-    pub fn build_metadata(&self) -> &BuildIds {
+    pub fn build_metadata(&self) -> &Vec<String> {
         &self.build
     }
 
     pub fn is_pre_release(&self) -> bool {
-        !matches!(self.pre, PreIds::Nil)
+        !self.pre.is_empty()
     }
 }
 
@@ -162,67 +149,36 @@ fn digits_to_u64(s: &str) -> Option<u64> {
     Some(acc)
 }
 
+fn has_leading_zero(s: &str) -> bool {
+    s.len() > 1 && s.starts_with("0")
+}
+
 fn parse_core_number(s: &str, part: CorePart) -> Result<u64, SemverError> {
-    if s.is_empty() {
-        return Err(SemverError::EmptyNumber(part));
+    match s {
+        "" => Err(SemverError::EmptyNumber(part)),
+        _ if !all_digits(s) => Err(SemverError::NotANumber(part)),
+        _ if has_leading_zero(s) => Err(SemverError::LeadingZero(part)),
+        _ => digits_to_u64(s).ok_or(SemverError::NumberTooLarge(part)),
     }
-    if !all_digits(s) {
-        return Err(SemverError::NotANumber(part));
-    }
-    if s.len() > 1 && s.starts_with("0") {
-        return Err(SemverError::LeadingZero(part));
-    }
-    digits_to_u64(s).ok_or(SemverError::NumberTooLarge(part))
 }
 
 fn parse_pre_id(s: &str) -> Result<PreId, SemverError> {
-    if s.is_empty() {
-        return Err(SemverError::EmptyPreRelease);
-    }
-    if !s.bytes().all(is_ident_char) {
-        return Err(SemverError::InvalidPreReleaseChar);
-    }
-    if all_digits(s) {
-        if s.len() > 1 && s.starts_with("0") {
-            return Err(SemverError::PreReleaseLeadingZero);
-        }
-        return match digits_to_u64(s) {
-            Some(n) => Ok(PreId::Numeric(n)),
-            None => Err(SemverError::PreReleaseTooLarge),
-        };
-    }
-    Ok(PreId::Alpha(String::from(s)))
-}
-
-fn parse_pre_ids(s: &str) -> Result<PreIds, SemverError> {
-    match s.bytes().position(|b| b == b'.') {
-        Some(i) => {
-            let head = parse_pre_id(&s[..i])?;
-            let tail = parse_pre_ids(&s[i + 1..])?;
-            Ok(PreIds::Cons(head, Box::new(tail)))
-        }
-        None => Ok(PreIds::Cons(parse_pre_id(s)?, Box::new(PreIds::Nil))),
+    match s {
+        "" => Err(SemverError::EmptyPreRelease),
+        _ if !s.bytes().all(is_ident_char) => Err(SemverError::InvalidPreReleaseChar),
+        _ if !all_digits(s) => Ok(PreId::Alpha(String::from(s))),
+        _ if has_leading_zero(s) => Err(SemverError::PreReleaseLeadingZero),
+        _ => digits_to_u64(s)
+            .map(|n| PreId::Numeric(n))
+            .ok_or(SemverError::PreReleaseTooLarge),
     }
 }
 
 fn parse_build_id(s: &str) -> Result<String, SemverError> {
-    if s.is_empty() {
-        return Err(SemverError::EmptyBuild);
-    }
-    if !s.bytes().all(is_ident_char) {
-        return Err(SemverError::InvalidBuildChar);
-    }
-    Ok(String::from(s))
-}
-
-fn parse_build_ids(s: &str) -> Result<BuildIds, SemverError> {
-    match s.bytes().position(|b| b == b'.') {
-        Some(i) => {
-            let head = parse_build_id(&s[..i])?;
-            let tail = parse_build_ids(&s[i + 1..])?;
-            Ok(BuildIds::Cons(head, Box::new(tail)))
-        }
-        None => Ok(BuildIds::Cons(parse_build_id(s)?, Box::new(BuildIds::Nil))),
+    match s {
+        "" => Err(SemverError::EmptyBuild),
+        _ if !s.bytes().all(is_ident_char) => Err(SemverError::InvalidBuildChar),
+        _ => Ok(String::from(s)),
     }
 }
 
@@ -236,22 +192,27 @@ fn compare_pre_id(a: &PreId, b: &PreId) -> Ordering {
 }
 
 /// Identifiers left to right; a longer list with an equal prefix is greater.
-fn compare_pre_ids(a: &PreIds, b: &PreIds) -> Ordering {
-    match (a, b) {
-        (PreIds::Nil, PreIds::Nil) => Ordering::Equal,
-        (PreIds::Nil, _) => Ordering::Less,
-        (_, PreIds::Nil) => Ordering::Greater,
-        (PreIds::Cons(x, xs), PreIds::Cons(y, ys)) => compare_pre_id(x, y).then_with(|| compare_pre_ids(xs, ys)),
+fn compare_pre_ids(a: &Vec<PreId>, b: &Vec<PreId>) -> Ordering {
+    for i in 0..a.len().min(b.len()) {
+        let o = compare_pre_id(&a[i], &b[i]);
+        if o != Ordering::Equal {
+            return o;
+        }
     }
+    a.len().cmp(&b.len())
 }
 
 /// Precedence per SemVer 2.0.0 §11. Build metadata is ignored.
 pub fn compare(a: &Version, b: &Version) -> Ordering {
-    a.major.cmp(&b.major).then(a.minor.cmp(&b.minor)).then(a.patch.cmp(&b.patch)).then_with(|| match (&a.pre, &b.pre) {
-        (PreIds::Nil, PreIds::Nil) => Ordering::Equal,
-        // A version without pre-release has higher precedence.
-        (PreIds::Nil, _) => Ordering::Greater,
-        (_, PreIds::Nil) => Ordering::Less,
-        (x, y) => compare_pre_ids(x, y),
-    })
+    a.major
+        .cmp(&b.major)
+        .then(a.minor.cmp(&b.minor))
+        .then(a.patch.cmp(&b.patch))
+        .then_with(|| match (a.pre.is_empty(), b.pre.is_empty()) {
+            (true, true) => Ordering::Equal,
+            // A version without pre-release has higher precedence.
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => compare_pre_ids(&a.pre, &b.pre),
+        })
 }

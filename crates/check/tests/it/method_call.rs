@@ -68,7 +68,7 @@ fn str_methods_come_from_the_allow_list() {
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
-        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `as_bytes`, `cmp`, slicing `s[a..b]`",
+        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `as_bytes`, `cmp`, slicing `s[a..b]`",
     );
 }
 

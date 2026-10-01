@@ -418,6 +418,11 @@ impl<'a> Cx<'_, 'a> {
                 self.arity(&format!("`{}`", method.ts_name()), takes, argc)
             }
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
+            Callee::Collect { .. } => {
+                if !(1..=2).contains(&argc) {
+                    self.arity("`collect`", 2, argc);
+                }
+            }
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Slice { start, end, .. } => self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc),
             Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),

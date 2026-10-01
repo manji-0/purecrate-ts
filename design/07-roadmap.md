@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-01, after 0.6.0)
+Status: current (2026-10-02, after 0.7.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -38,7 +38,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (0.4.1):
+**Now** (semver remeasured in 0.7.0; the other rows are unchanged since 0.4.1):
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
 | oidc | 327 | 423 | 1.3× | 1.65× as written from the skill alone |
 | payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 75 | 166 | 2.2× | 209 (2.8×) from the skill alone; 195 (2.6×) restructured; both with rustfmt |
+| semver | 75 | 138 | 1.8× | 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
 signup is counted by hand, as its test has no idiomatic module. The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 
@@ -75,7 +75,9 @@ signup is counted by hand, as its test has no idiomatic module. The "earlier" fi
 | Identifier lists | 0 | 20 | 20 | `split('.').map(..).collect()` (the constrained side recurses into cons lists) |
 | Accessors | 0 | 19 | 19 | `pub` fields (the constrained side is a closed type) |
 
-Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, the restructured draft was 176 / 90 (2.0×) and the rewrite with `Ordering` is 147 / 90 (1.6×), as estimated before it was built. What remains is parsing: `str::parse`, `split_once`, and lists built with `collect`, the last of which stays out (§6).
+Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, the restructured draft was 176 / 90 (2.0×) and the rewrite with `Ordering` is 147 / 90 (1.6×), as estimated before it was built.
+
+**With `collect` and `split_once` (0.7.0).** The script counts 138 / 75 (1.84×, printed 1.8×). Identifier lists are `split('.').map(f).collect()`, and `Version::parse` uses `split_once` as `Some((x, y))`; the cons-list parsers are gone. Adjusted the same way as the `Ordering` row — drop the 19 accessor lines, and count the 15 lines of `impl Ord` as logic — that is 119 / 90 (1.3×). `.map(PreId::Numeric)` is still not a function name (§3). `str::parse` stays out (§6): Rust accepts a leading `+`, and the threshold does not need it.
 
 **oidc by section.** Written by an agent that read only the authoring skill, to find what the skill leaves out. As written:
 
@@ -138,11 +140,11 @@ Besides the capabilities in §2.1:
 
 <!-- derived-from #2-evidence-from-examples -->
 
-What the evidence currently points at, strongest first. None is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it.
+What the evidence currently points at, strongest first. None is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([§8.8](#88-070-lists-from-text-2026-10-02)). A variant or a literal nested in a field stays `[pattern/nested]`.
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Nested patterns (a literal or a variant inside a variant's fields, `PasswordChecked { verified: false, .. }`) | oidc's idiomatic `step` relies on them (0.4.0 rewrites) | — |
+| Nested patterns (a literal or a variant inside a variant's fields, `PasswordChecked { verified: false, .. }`, `Some(Some(x))`) | oidc's idiomatic `step` relies on them (0.4.0 rewrites). `Some((a, b))`, a tuple of names, is in (§8.8) | — |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
@@ -168,7 +170,7 @@ Waits for an example that cannot be written without it.
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Iterator `map` / `filter` / `collect`, and every way of growing a `Vec`: they are how state sequences grow as arrays. Consumers that yield a scalar are the exception (§8.4).
+- Iterator `map` / `filter` / `collect` over a `Vec` or a state, and every other way of growing a `Vec`: they are how state sequences grow as arrays. Consumers that yield a scalar are one exception (§8.4). A `Vec` read once from text is the other: `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>` (§8.8). `filter`, collecting a `Vec` or anything but `split(c)`, and `split` on a `&str` stay out.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.
@@ -317,7 +319,7 @@ Why: semver, written from the authoring skill alone, was the first example over 
 
 - **Representation and rewrites** are in [01 §6.6](./01-equivalence.md#66-stdcmpordering) and [§7.10](./01-equivalence.md#710-cmp-and-orderings-methods). The one new runtime part is `Str.cmp`, which a package carries only when it compares strings.
 - **Refused:** `impl Ord` / `PartialOrd`, `cmp` on floats, tuples, `Vec`, `Option`, and the crate's types, and `Ordering` as a field (serde has no form for it).
-- **Measurement.** semver rewritten with it: 195 → 166 lines, 2.6× → 2.2× by the script, 1.6× adjusted (§2.2). The skill-only draft's 2.8× was the first draft over the threshold since normalization; like the first drafts before it, it came under once its gap's capability was in, on the adjusted count; by the script it is still over (2.2×), and the rest is parsing.
+- **Measurement.** semver rewritten with it: 195 → 166 lines, 2.6× → 2.2× by the script, 1.6× adjusted (§2.2). The skill-only draft's 2.8× was the first draft over the threshold since normalization; like the first drafts before it, it came under once its gap's capability was in, on the adjusted count. By the script it stayed over (2.2×) until parsing (§8.8).
 
 ### 8.7 0.6.0: generated TypeScript (2026-10-01)
 
@@ -334,3 +336,20 @@ Why: an exception to taking language capabilities first. Reading the examples' g
 
 - **Measurement.** Inline functions 28 → 2 (the two left evaluate a call inside `&&` once); semver's generated code 25.2 → 19.3 KB and payment's 23.5 → 20.3 KB, doc comments now included; counter's runtime copy 11.9 → 6.5 KB and its files 8 → 5; lines of code past 100 characters 129 → 36.
 - **Breaking** for callers: the names, the index's exports, and `--schema` on a crate with no serde derive ([CHANGELOG](../CHANGELOG.md)).
+
+### 8.8 0.7.0: lists from text (2026-10-02)
+
+<!-- derived-from #22-line-counts-against-idiomatic-rust -->
+
+Why: after `Ordering`, semver was still the example over 2×, and what remained was parsing (§2.2): `split_once`, and lists built with `collect`. A `Vec` whose length is the input's, read once from text, is not a sequence that grows with the state, which is why `collect` stays out everywhere else (§6).
+
+| Item | Verified by |
+| --- | --- |
+| `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>`, the target named by a turbofish, a `let` type, or the return type | `collect_equivalence.rs` |
+| A `Result` stops at the first `Err`, so a later piece that would panic does not run | `collect_equivalence.rs` |
+| `str::split_once` with a `char` or a `&str`, including an empty needle | `collect_equivalence.rs` |
+| `Some((a, b))`, and the same tuple of names in `Ok` / `Err` or a variant's fields, including under a guard | `tuple_match.rs`, `collect_equivalence.rs` |
+
+- **What is refused.** Collecting a `Vec`, `chars()`, or anything but `split(c)` with a `char`; `collect` with no target type; `split` on a `&str` (an empty separator differs in JS); a variant constructor passed as `.map(PreId::Numeric)` (built with no fields, or, for a unit variant, not a closure or a function name). A variant, a literal, or a tuple inside that tuple of names is still `[pattern/nested]`, as is a tuple nested in a tuple pattern.
+- **`str::parse` stays out.** Rust's `u64` parse accepts a leading `+`. Matching that, and the cases it rejects, is not what brings semver under the threshold.
+- **Measurement.** semver rewritten with them: 166 → 138 lines, 2.2× → 1.8× (§2.2). Pre-release and build identifiers are `Vec`s. The generated `parse` prints `split` as the array, `Iter.tryCollect` for a `Result`, and `Str.splitOnce`; the turbofish is not a second binding. `Some((x, y))` reads the two strings as `[0]` and `[1]`.

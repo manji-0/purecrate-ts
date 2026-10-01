@@ -5,8 +5,6 @@ export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from "./pu
 export { CorePart } from "./core-part.ts";
 export { SemverError } from "./semver-error.ts";
 export { PreId } from "./pre-id.ts";
-export { PreIds } from "./pre-ids.ts";
-export { BuildIds } from "./build-ids.ts";
 export { Version } from "./version.ts";
 export { compare } from "./compare.ts";
 export { Ordering } from "./ordering.ts";

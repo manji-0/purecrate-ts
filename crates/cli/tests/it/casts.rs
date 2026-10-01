@@ -98,7 +98,10 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("number as ") || (value == "number" && NUMERIC.contains(&target_name)) || (NUMERIC.contains(&target_name) && value.starts_with("globalThis.BigInt(")) {
         return Some("lossless widening");
     }
-    if NUMERIC.contains(&target_name) && (value.ends_with(" + 1)") || value.ends_with(" + 1n)")) && line.contains("for (let ") {
+    // The increment stays on the `for` line, or on the header's last line
+    // once the end expression wraps (`i < $e; i = (i + 1) as Usize) {`).
+    let for_header = line.contains("for (let ") || (line.contains("; ") && line.trim_end().ends_with(") {"));
+    if NUMERIC.contains(&target_name) && (value.ends_with(" + 1)") || value.ends_with(" + 1n)")) && for_header {
         return Some("for counter below its bound");
     }
     if target.starts_with("Record<string, ") || (NUMERIC.contains(&target_name) && value.ends_with(".kind]")) {
