@@ -243,7 +243,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
 }
 
 /// The width past which `tidy::wrap` breaks a line.
-const WIDTH: usize = 100;
+pub(crate) const WIDTH: usize = 100;
 
 #[cfg(test)]
 mod tests {

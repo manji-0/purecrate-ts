@@ -31,7 +31,11 @@ export const Pricing: Wire<Pricing$> = unitEnum("Pricing", ["Exclusive", "Inclus
 export const Rounding: Wire<Rounding$> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
 
 const Method$arm$Separate = memo(() => type({ "+": "reject", Separate: "null" }));
-const Method$arm$ToExclusive = memo(() => type({ "+": "reject", ToExclusive: { conversion: Rounding } }));
+const Method$arm$ToExclusive = memo(() => type({
+  "+": "reject",
+  ToExclusive: { conversion: Rounding },
+}));
+/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
 export const Method: Wire<Method$> = type("unknown").pipe((v, ctx): Method$ => {
   if (v === "Separate") return { kind: "Separate" };
   {
@@ -41,7 +45,10 @@ export const Method: Wire<Method$> = type("unknown").pipe((v, ctx): Method$ => {
   }
   {
     const parsed = Method$arm$ToExclusive()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "ToExclusive", conversion: parsed.ToExclusive.conversion };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "ToExclusive",
+      conversion: parsed.ToExclusive.conversion,
+    };
     if (keyed(v, "ToExclusive")) return fail(ctx, parsed);
   }
   return ctx.error("Method") as never;
@@ -54,7 +61,11 @@ export const Line: Wire<Line$> = type("unknown").pipe((v, ctx): Line$ => {
   return ({ amount: parsed.amount, rate: parsed.rate, pricing: parsed.pricing });
 });
 
-const Invoice$wire = memo(() => type({ lines: (Line).array(), rounding: Rounding, method: Method }));
+const Invoice$wire = memo(() => type({
+  lines: (Line).array(),
+  rounding: Rounding,
+  method: Method,
+}));
 export const Invoice: Wire<Invoice$> = type("unknown").pipe((v, ctx): Invoice$ => {
   const parsed = Invoice$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
@@ -62,20 +73,36 @@ export const Invoice: Wire<Invoice$> = type("unknown").pipe((v, ctx): Invoice$ =
 });
 
 const Group$wire = memo(() => type({ base: Yen, tax: Yen }));
+/** One rate and pricing: the total of its amounts and the tax on it. */
 export const Group: Wire<Group$> = type("unknown").pipe((v, ctx): Group$ => {
   const parsed = Group$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ base: parsed.base, tax: parsed.tax });
 });
 
-const Summary$wire = memo(() => type({ standard: Group, reduced: Group, standard_inclusive: Group, reduced_inclusive: Group, total: Yen }));
+const Summary$wire = memo(() => type({
+  standard: Group,
+  reduced: Group,
+  standard_inclusive: Group,
+  reduced_inclusive: Group,
+  total: Yen,
+}));
 export const Summary: Wire<Summary$> = type("unknown").pipe((v, ctx): Summary$ => {
   const parsed = Summary$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  return ({ standard: parsed.standard, reduced: parsed.reduced, standard_inclusive: parsed.standard_inclusive, reduced_inclusive: parsed.reduced_inclusive, total: parsed.total });
+  return ({
+    standard: parsed.standard,
+    reduced: parsed.reduced,
+    standard_inclusive: parsed.standard_inclusive,
+    reduced_inclusive: parsed.reduced_inclusive,
+    total: parsed.total,
+  });
 });
 
-export const InvoiceError: Wire<InvoiceError$> = unitEnum("InvoiceError", ["NegativeAmount", "NoLines"]);
+export const InvoiceError: Wire<InvoiceError$> = unitEnum(
+  "InvoiceError",
+  ["NegativeAmount", "NoLines"],
+);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;
@@ -105,12 +132,32 @@ export const toJson = {
       case "Separate":
         return "\"Separate\"";
       case "ToExclusive":
-        return `{"ToExclusive":{"conversion":${toJson.Rounding(x.conversion)}}}`;
+        return Json.object([[
+          "ToExclusive",
+          Json.object([["conversion", toJson.Rounding(x.conversion)]]),
+        ]]);
     }
   },
-  Line: (x: Line$): string => `{"amount":${toJson.Yen(x.amount)},"rate":${toJson.Rate(x.rate)},"pricing":${toJson.Pricing(x.pricing)}}`,
-  Invoice: (x: Invoice$): string => `{"lines":${Json.array(x.lines, (v0) => toJson.Line(v0))},"rounding":${toJson.Rounding(x.rounding)},"method":${toJson.Method(x.method)}}`,
-  Group: (x: Group$): string => `{"base":${toJson.Yen(x.base)},"tax":${toJson.Yen(x.tax)}}`,
-  Summary: (x: Summary$): string => `{"standard":${toJson.Group(x.standard)},"reduced":${toJson.Group(x.reduced)},"standard_inclusive":${toJson.Group(x.standard_inclusive)},"reduced_inclusive":${toJson.Group(x.reduced_inclusive)},"total":${toJson.Yen(x.total)}}`,
+  Line: (x: Line$): string => Json.object([
+    ["amount", toJson.Yen(x.amount)],
+    ["rate", toJson.Rate(x.rate)],
+    ["pricing", toJson.Pricing(x.pricing)],
+  ]),
+  Invoice: (x: Invoice$): string => Json.object([
+    ["lines", Json.array(x.lines, (v0) => toJson.Line(v0))],
+    ["rounding", toJson.Rounding(x.rounding)],
+    ["method", toJson.Method(x.method)],
+  ]),
+  Group: (x: Group$): string => Json.object([
+    ["base", toJson.Yen(x.base)],
+    ["tax", toJson.Yen(x.tax)],
+  ]),
+  Summary: (x: Summary$): string => Json.object([
+    ["standard", toJson.Group(x.standard)],
+    ["reduced", toJson.Group(x.reduced)],
+    ["standard_inclusive", toJson.Group(x.standard_inclusive)],
+    ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
+    ["total", toJson.Yen(x.total)],
+  ]),
   InvoiceError: (x: InvoiceError$): string => `"${x.kind}"`,
 } as const;

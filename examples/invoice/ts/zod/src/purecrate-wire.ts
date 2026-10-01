@@ -18,7 +18,12 @@ import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 export const Yen: z.ZodType<Yen$, unknown> = i64.transform((v, ctx): Yen$ => {
   const r = Yen$value.tryFrom(v);
   if (r.kind === "Err") {
-    ctx.addIssue({ code: "custom", message: `Yen: ${InvoiceError$text.toString(r.error)}`, input: v, params: { error: r.error } });
+    ctx.addIssue({
+      code: "custom",
+      message: `Yen: ${InvoiceError$text.toString(r.error)}`,
+      input: v,
+      params: { error: r.error },
+    });
     return z.NEVER;
   }
   return r.value;
@@ -30,6 +35,7 @@ export const Pricing: z.ZodType<Pricing$, unknown> = unitEnum(["Exclusive", "Inc
 
 export const Rounding: z.ZodType<Rounding$, unknown> = unitEnum(["Down", "Up", "HalfUp"]);
 
+/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
 export const Method: z.ZodType<Method$, unknown> = z.union([
   unitVariant("Separate").transform((): Method$ => ({ kind: "Separate" })),
   z.object({ ToExclusive: z.object({ conversion: Rounding }) })
@@ -51,6 +57,7 @@ export const Invoice: z.ZodType<Invoice$, unknown> = z.object({
 })
   .transform((v): Invoice$ => ({ lines: v.lines, rounding: v.rounding, method: v.method }));
 
+/** One rate and pricing: the total of its amounts and the tax on it. */
 export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen }).transform((v): Group$ => ({ base: v.base, tax: v.tax }));
 
 export const Summary: z.ZodType<Summary$, unknown> = z.object({
@@ -60,9 +67,18 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
   reduced_inclusive: Group,
   total: Yen,
 })
-  .transform((v): Summary$ => ({ standard: v.standard, reduced: v.reduced, standard_inclusive: v.standard_inclusive, reduced_inclusive: v.reduced_inclusive, total: v.total }));
+  .transform((v): Summary$ => ({
+    standard: v.standard,
+    reduced: v.reduced,
+    standard_inclusive: v.standard_inclusive,
+    reduced_inclusive: v.reduced_inclusive,
+    total: v.total,
+  }));
 
-export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum(["NegativeAmount", "NoLines"]);
+export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum([
+  "NegativeAmount",
+  "NoLines",
+]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;
@@ -92,12 +108,32 @@ export const toJson = {
       case "Separate":
         return "\"Separate\"";
       case "ToExclusive":
-        return `{"ToExclusive":{"conversion":${toJson.Rounding(x.conversion)}}}`;
+        return Json.object([[
+          "ToExclusive",
+          Json.object([["conversion", toJson.Rounding(x.conversion)]]),
+        ]]);
     }
   },
-  Line: (x: Line$): string => `{"amount":${toJson.Yen(x.amount)},"rate":${toJson.Rate(x.rate)},"pricing":${toJson.Pricing(x.pricing)}}`,
-  Invoice: (x: Invoice$): string => `{"lines":${Json.array(x.lines, (v0) => toJson.Line(v0))},"rounding":${toJson.Rounding(x.rounding)},"method":${toJson.Method(x.method)}}`,
-  Group: (x: Group$): string => `{"base":${toJson.Yen(x.base)},"tax":${toJson.Yen(x.tax)}}`,
-  Summary: (x: Summary$): string => `{"standard":${toJson.Group(x.standard)},"reduced":${toJson.Group(x.reduced)},"standard_inclusive":${toJson.Group(x.standard_inclusive)},"reduced_inclusive":${toJson.Group(x.reduced_inclusive)},"total":${toJson.Yen(x.total)}}`,
+  Line: (x: Line$): string => Json.object([
+    ["amount", toJson.Yen(x.amount)],
+    ["rate", toJson.Rate(x.rate)],
+    ["pricing", toJson.Pricing(x.pricing)],
+  ]),
+  Invoice: (x: Invoice$): string => Json.object([
+    ["lines", Json.array(x.lines, (v0) => toJson.Line(v0))],
+    ["rounding", toJson.Rounding(x.rounding)],
+    ["method", toJson.Method(x.method)],
+  ]),
+  Group: (x: Group$): string => Json.object([
+    ["base", toJson.Yen(x.base)],
+    ["tax", toJson.Yen(x.tax)],
+  ]),
+  Summary: (x: Summary$): string => Json.object([
+    ["standard", toJson.Group(x.standard)],
+    ["reduced", toJson.Group(x.reduced)],
+    ["standard_inclusive", toJson.Group(x.standard_inclusive)],
+    ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
+    ["total", toJson.Yen(x.total)],
+  ]),
   InvoiceError: (x: InvoiceError$): string => `"${x.kind}"`,
 } as const;

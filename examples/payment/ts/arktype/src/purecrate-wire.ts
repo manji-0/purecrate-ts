@@ -4,7 +4,10 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
 import { fail, i64, keyed, memo, nullable, str, unitEnum, type Wire } from "./purecrate-arktype.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
-import { PaymentMethodId as PaymentMethodId$value, type PaymentMethodId as PaymentMethodId$ } from "./payment-method-id.ts";
+import {
+  PaymentMethodId as PaymentMethodId$value,
+  type PaymentMethodId as PaymentMethodId$,
+} from "./payment-method-id.ts";
 import type { MethodKind as MethodKind$ } from "./method-kind.ts";
 import type { PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
 import type { CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
@@ -29,6 +32,7 @@ export const Amount: Wire<Amount$> = type("unknown").pipe((v, ctx): Amount$ => {
 });
 
 const PaymentMethodId$wire = memo(() => str);
+/** A payment method ID: `pm_` followed by at least one character. */
 export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, ctx): PaymentMethodId$ => {
   const parsed = PaymentMethodId$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
@@ -40,17 +44,30 @@ export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, 
 export const MethodKind: Wire<MethodKind$> = unitEnum("MethodKind", ["Card", "BankDebit"]);
 
 const PaymentMethod$wire = memo(() => type({ id: PaymentMethodId, kind: MethodKind }));
-export const PaymentMethod: Wire<PaymentMethod$> = type("unknown").pipe((v, ctx): PaymentMethod$ => {
+export const PaymentMethod: Wire<PaymentMethod$> = type("unknown").pipe((
+  v,
+  ctx,
+): PaymentMethod$ => {
   const parsed = PaymentMethod$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ id: parsed.id, kind: parsed.kind });
 });
 
-export const CaptureMethod: Wire<CaptureMethod$> = unitEnum("CaptureMethod", ["Automatic", "Manual"]);
+export const CaptureMethod: Wire<CaptureMethod$> = unitEnum(
+  "CaptureMethod",
+  ["Automatic", "Manual"],
+);
 
-export const ConfirmationMethod: Wire<ConfirmationMethod$> = unitEnum("ConfirmationMethod", ["Automatic", "Manual"]);
+export const ConfirmationMethod: Wire<ConfirmationMethod$> = unitEnum(
+  "ConfirmationMethod",
+  ["Automatic", "Manual"],
+);
 
-const Terms$wire = memo(() => type({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }));
+const Terms$wire = memo(() => type({
+  amount: Amount,
+  capture: CaptureMethod,
+  confirmation: ConfirmationMethod,
+}));
 export const Terms: Wire<Terms$> = type("unknown").pipe((v, ctx): Terms$ => {
   const parsed = Terms$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
@@ -71,54 +88,101 @@ export const CancellationReason: Wire<CancellationReason$> = unitEnum("Cancellat
   "Abandoned",
 ]);
 
-const Status$arm$RequiresPaymentMethod = memo(() => type({ "+": "reject", RequiresPaymentMethod: { last_error: nullable(DeclineCode).default(null) } }));
-const Status$arm$RequiresConfirmation = memo(() => type({ "+": "reject", RequiresConfirmation: { method: PaymentMethod } }));
-const Status$arm$RequiresAction = memo(() => type({ "+": "reject", RequiresAction: { method: PaymentMethod } }));
-const Status$arm$Processing = memo(() => type({ "+": "reject", Processing: { method: PaymentMethod } }));
-const Status$arm$RequiresCapture = memo(() => type({ "+": "reject", RequiresCapture: { method: PaymentMethod, capturable: i64 } }));
-const Status$arm$Succeeded = memo(() => type({ "+": "reject", Succeeded: { received: i64, application_fee: nullable(i64).default(null) } }));
-const Status$arm$Canceled = memo(() => type({ "+": "reject", Canceled: { reason: nullable(CancellationReason).default(null) } }));
+const Status$arm$RequiresPaymentMethod = memo(() => type({
+  "+": "reject",
+  RequiresPaymentMethod: { last_error: nullable(DeclineCode).default(null) },
+}));
+const Status$arm$RequiresConfirmation = memo(() => type({
+  "+": "reject",
+  RequiresConfirmation: { method: PaymentMethod },
+}));
+const Status$arm$RequiresAction = memo(() => type({
+  "+": "reject",
+  RequiresAction: { method: PaymentMethod },
+}));
+const Status$arm$Processing = memo(() => type({
+  "+": "reject",
+  Processing: { method: PaymentMethod },
+}));
+const Status$arm$RequiresCapture = memo(() => type({
+  "+": "reject",
+  RequiresCapture: { method: PaymentMethod, capturable: i64 },
+}));
+const Status$arm$Succeeded = memo(() => type({
+  "+": "reject",
+  Succeeded: { received: i64, application_fee: nullable(i64).default(null) },
+}));
+const Status$arm$Canceled = memo(() => type({
+  "+": "reject",
+  Canceled: { reason: nullable(CancellationReason).default(null) },
+}));
 export const Status: Wire<Status$> = type("unknown").pipe((v, ctx): Status$ => {
   {
     const parsed = Status$arm$RequiresPaymentMethod()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "RequiresPaymentMethod", last_error: parsed.RequiresPaymentMethod.last_error };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "RequiresPaymentMethod",
+      last_error: parsed.RequiresPaymentMethod.last_error,
+    };
     if (keyed(v, "RequiresPaymentMethod")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresConfirmation()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "RequiresConfirmation", method: parsed.RequiresConfirmation.method };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "RequiresConfirmation",
+      method: parsed.RequiresConfirmation.method,
+    };
     if (keyed(v, "RequiresConfirmation")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresAction()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "RequiresAction", method: parsed.RequiresAction.method };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "RequiresAction",
+      method: parsed.RequiresAction.method,
+    };
     if (keyed(v, "RequiresAction")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Processing()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Processing", method: parsed.Processing.method };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "Processing",
+      method: parsed.Processing.method,
+    };
     if (keyed(v, "Processing")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresCapture()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "RequiresCapture", method: parsed.RequiresCapture.method, capturable: parsed.RequiresCapture.capturable };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "RequiresCapture",
+      method: parsed.RequiresCapture.method,
+      capturable: parsed.RequiresCapture.capturable,
+    };
     if (keyed(v, "RequiresCapture")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Succeeded()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Succeeded", received: parsed.Succeeded.received, application_fee: parsed.Succeeded.application_fee };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "Succeeded",
+      received: parsed.Succeeded.received,
+      application_fee: parsed.Succeeded.application_fee,
+    };
     if (keyed(v, "Succeeded")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Canceled()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Canceled", reason: parsed.Canceled.reason };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "Canceled",
+      reason: parsed.Canceled.reason,
+    };
     if (keyed(v, "Canceled")) return fail(ctx, parsed);
   }
   return ctx.error("Status") as never;
 });
 
 const PaymentIntent$wire = memo(() => type({ terms: Terms, status: Status }));
-export const PaymentIntent: Wire<PaymentIntent$> = type("unknown").pipe((v, ctx): PaymentIntent$ => {
+export const PaymentIntent: Wire<PaymentIntent$> = type("unknown").pipe((
+  v,
+  ctx,
+): PaymentIntent$ => {
   const parsed = PaymentIntent$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ terms: parsed.terms, status: parsed.status });
@@ -128,6 +192,7 @@ const Outcome$arm$Authorized = memo(() => type({ "+": "reject", Authorized: "nul
 const Outcome$arm$ActionRequired = memo(() => type({ "+": "reject", ActionRequired: "null" }));
 const Outcome$arm$Pending = memo(() => type({ "+": "reject", Pending: "null" }));
 const Outcome$arm$Declined = memo(() => type({ "+": "reject", Declined: DeclineCode }));
+/** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: Wire<Outcome$> = type("unknown").pipe((v, ctx): Outcome$ => {
   if (v === "Authorized") return { kind: "Authorized" };
   {
@@ -156,26 +221,51 @@ export const Outcome: Wire<Outcome$> = type("unknown").pipe((v, ctx): Outcome$ =
 });
 
 const Event$arm$AttachMethod = memo(() => type({ "+": "reject", AttachMethod: PaymentMethod }));
-const Event$arm$Confirm = memo(() => type({ "+": "reject", Confirm: { method: nullable(PaymentMethod).default(null), outcome: Outcome } }));
+const Event$arm$Confirm = memo(() => type({
+  "+": "reject",
+  Confirm: { method: nullable(PaymentMethod).default(null), outcome: Outcome },
+}));
 const Event$arm$ActionHandled = memo(() => type({ "+": "reject", ActionHandled: Outcome }));
-const Event$arm$ProcessingSucceeded = memo(() => type({ "+": "reject", ProcessingSucceeded: "null" }));
-const Event$arm$ProcessingFailed = memo(() => type({ "+": "reject", ProcessingFailed: DeclineCode }));
-const Event$arm$Capture = memo(() => type({ "+": "reject", Capture: { amount_to_capture: nullable(i64).default(null), application_fee: nullable(i64).default(null) } }));
+const Event$arm$ProcessingSucceeded = memo(() => type({
+  "+": "reject",
+  ProcessingSucceeded: "null",
+}));
+const Event$arm$ProcessingFailed = memo(() => type({
+  "+": "reject",
+  ProcessingFailed: DeclineCode,
+}));
+const Event$arm$Capture = memo(() => type({
+  "+": "reject",
+  Capture: {
+    amount_to_capture: nullable(i64).default(null),
+    application_fee: nullable(i64).default(null),
+  },
+}));
 const Event$arm$Cancel = memo(() => type({ "+": "reject", Cancel: nullable(CancellationReason) }));
 export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   {
     const parsed = Event$arm$AttachMethod()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "AttachMethod", content: [parsed.AttachMethod] };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "AttachMethod",
+      content: [parsed.AttachMethod],
+    };
     if (keyed(v, "AttachMethod")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$Confirm()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Confirm", method: parsed.Confirm.method, outcome: parsed.Confirm.outcome };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "Confirm",
+      method: parsed.Confirm.method,
+      outcome: parsed.Confirm.outcome,
+    };
     if (keyed(v, "Confirm")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$ActionHandled()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "ActionHandled", content: [parsed.ActionHandled] };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "ActionHandled",
+      content: [parsed.ActionHandled],
+    };
     if (keyed(v, "ActionHandled")) return fail(ctx, parsed);
   }
   if (v === "ProcessingSucceeded") return { kind: "ProcessingSucceeded" };
@@ -186,12 +276,19 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   }
   {
     const parsed = Event$arm$ProcessingFailed()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "ProcessingFailed", content: [parsed.ProcessingFailed] };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "ProcessingFailed",
+      content: [parsed.ProcessingFailed],
+    };
     if (keyed(v, "ProcessingFailed")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$Capture()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Capture", amount_to_capture: parsed.Capture.amount_to_capture, application_fee: parsed.Capture.application_fee };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "Capture",
+      amount_to_capture: parsed.Capture.amount_to_capture,
+      application_fee: parsed.Capture.application_fee,
+    };
     if (keyed(v, "Capture")) return fail(ctx, parsed);
   }
   {
@@ -202,13 +299,31 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   return ctx.error("Event") as never;
 });
 
-const PaymentError$arm$AmountOutOfRange = memo(() => type({ "+": "reject", AmountOutOfRange: "null" }));
-const PaymentError$arm$InvalidPaymentMethodId = memo(() => type({ "+": "reject", InvalidPaymentMethodId: "null" }));
-const PaymentError$arm$MissingPaymentMethod = memo(() => type({ "+": "reject", MissingPaymentMethod: "null" }));
-const PaymentError$arm$InvalidCaptureAmount = memo(() => type({ "+": "reject", InvalidCaptureAmount: { capturable: i64 } }));
-const PaymentError$arm$NegativeApplicationFee = memo(() => type({ "+": "reject", NegativeApplicationFee: "null" }));
+const PaymentError$arm$AmountOutOfRange = memo(() => type({
+  "+": "reject",
+  AmountOutOfRange: "null",
+}));
+const PaymentError$arm$InvalidPaymentMethodId = memo(() => type({
+  "+": "reject",
+  InvalidPaymentMethodId: "null",
+}));
+const PaymentError$arm$MissingPaymentMethod = memo(() => type({
+  "+": "reject",
+  MissingPaymentMethod: "null",
+}));
+const PaymentError$arm$InvalidCaptureAmount = memo(() => type({
+  "+": "reject",
+  InvalidCaptureAmount: { capturable: i64 },
+}));
+const PaymentError$arm$NegativeApplicationFee = memo(() => type({
+  "+": "reject",
+  NegativeApplicationFee: "null",
+}));
 const PaymentError$arm$NotCancelable = memo(() => type({ "+": "reject", NotCancelable: "null" }));
-const PaymentError$arm$InvalidTransition = memo(() => type({ "+": "reject", InvalidTransition: "null" }));
+const PaymentError$arm$InvalidTransition = memo(() => type({
+  "+": "reject",
+  InvalidTransition: "null",
+}));
 export const PaymentError: Wire<PaymentError$> = type("unknown").pipe((v, ctx): PaymentError$ => {
   if (v === "AmountOutOfRange") return { kind: "AmountOutOfRange" };
   {
@@ -230,7 +345,10 @@ export const PaymentError: Wire<PaymentError$> = type("unknown").pipe((v, ctx): 
   }
   {
     const parsed = PaymentError$arm$InvalidCaptureAmount()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "InvalidCaptureAmount", capturable: parsed.InvalidCaptureAmount.capturable };
+    if (!(parsed instanceof type.errors)) return {
+      kind: "InvalidCaptureAmount",
+      capturable: parsed.InvalidCaptureAmount.capturable,
+    };
     if (keyed(v, "InvalidCaptureAmount")) return fail(ctx, parsed);
   }
   if (v === "NegativeApplicationFee") return { kind: "NegativeApplicationFee" };
@@ -280,31 +398,77 @@ export const toJson = {
   Amount: (x: Amount$): string => Json.int(x),
   PaymentMethodId: (x: PaymentMethodId$): string => Json.str(x),
   MethodKind: (x: MethodKind$): string => `"${x.kind}"`,
-  PaymentMethod: (x: PaymentMethod$): string => `{"id":${toJson.PaymentMethodId(x.id)},"kind":${toJson.MethodKind(x.kind)}}`,
+  PaymentMethod: (x: PaymentMethod$): string => Json.object([
+    ["id", toJson.PaymentMethodId(x.id)],
+    ["kind", toJson.MethodKind(x.kind)],
+  ]),
   CaptureMethod: (x: CaptureMethod$): string => `"${x.kind}"`,
   ConfirmationMethod: (x: ConfirmationMethod$): string => `"${x.kind}"`,
-  Terms: (x: Terms$): string => `{"amount":${toJson.Amount(x.amount)},"capture":${toJson.CaptureMethod(x.capture)},"confirmation":${toJson.ConfirmationMethod(x.confirmation)}}`,
+  Terms: (x: Terms$): string => Json.object([
+    ["amount", toJson.Amount(x.amount)],
+    ["capture", toJson.CaptureMethod(x.capture)],
+    ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
+  ]),
   DeclineCode: (x: DeclineCode$): string => `"${x.kind}"`,
   CancellationReason: (x: CancellationReason$): string => `"${x.kind}"`,
   Status: (x: Status$): string => {
     switch (x.kind) {
       case "RequiresPaymentMethod":
-        return `{"RequiresPaymentMethod":{"last_error":${(x.last_error === null ? "null" : toJson.DeclineCode(x.last_error))}}}`;
+        return Json.object([[
+          "RequiresPaymentMethod",
+          Json.object([[
+            "last_error",
+            (x.last_error === null ? "null" : toJson.DeclineCode(x.last_error)),
+          ]]),
+        ]]);
       case "RequiresConfirmation":
-        return `{"RequiresConfirmation":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "RequiresConfirmation",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "RequiresAction":
-        return `{"RequiresAction":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "RequiresAction",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "Processing":
-        return `{"Processing":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "Processing",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "RequiresCapture":
-        return `{"RequiresCapture":{"method":${toJson.PaymentMethod(x.method)},"capturable":${Json.int(x.capturable)}}}`;
+        return Json.object([[
+          "RequiresCapture",
+          Json.object([
+            ["method", toJson.PaymentMethod(x.method)],
+            ["capturable", Json.int(x.capturable)],
+          ]),
+        ]]);
       case "Succeeded":
-        return `{"Succeeded":{"received":${Json.int(x.received)},"application_fee":${(x.application_fee === null ? "null" : Json.int(x.application_fee))}}}`;
+        return Json.object([[
+          "Succeeded",
+          Json.object([
+            ["received", Json.int(x.received)],
+            [
+              "application_fee",
+              (x.application_fee === null ? "null" : Json.int(x.application_fee)),
+            ],
+          ]),
+        ]]);
       case "Canceled":
-        return `{"Canceled":{"reason":${(x.reason === null ? "null" : toJson.CancellationReason(x.reason))}}}`;
+        return Json.object([[
+          "Canceled",
+          Json.object([[
+            "reason",
+            (x.reason === null ? "null" : toJson.CancellationReason(x.reason)),
+          ]]),
+        ]]);
     }
   },
-  PaymentIntent: (x: PaymentIntent$): string => `{"terms":${toJson.Terms(x.terms)},"status":${toJson.Status(x.status)}}`,
+  PaymentIntent: (x: PaymentIntent$): string => Json.object([
+    ["terms", toJson.Terms(x.terms)],
+    ["status", toJson.Status(x.status)],
+  ]),
   Outcome: (x: Outcome$): string => {
     switch (x.kind) {
       case "Authorized":
@@ -314,25 +478,46 @@ export const toJson = {
       case "Pending":
         return "\"Pending\"";
       case "Declined":
-        return `{"Declined":${toJson.DeclineCode(x.content[0])}}`;
+        return Json.object([["Declined", toJson.DeclineCode(x.content[0])]]);
     }
   },
   Event: (x: Event$): string => {
     switch (x.kind) {
       case "AttachMethod":
-        return `{"AttachMethod":${toJson.PaymentMethod(x.content[0])}}`;
+        return Json.object([["AttachMethod", toJson.PaymentMethod(x.content[0])]]);
       case "Confirm":
-        return `{"Confirm":{"method":${(x.method === null ? "null" : toJson.PaymentMethod(x.method))},"outcome":${toJson.Outcome(x.outcome)}}}`;
+        return Json.object([[
+          "Confirm",
+          Json.object([
+            ["method", (x.method === null ? "null" : toJson.PaymentMethod(x.method))],
+            ["outcome", toJson.Outcome(x.outcome)],
+          ]),
+        ]]);
       case "ActionHandled":
-        return `{"ActionHandled":${toJson.Outcome(x.content[0])}}`;
+        return Json.object([["ActionHandled", toJson.Outcome(x.content[0])]]);
       case "ProcessingSucceeded":
         return "\"ProcessingSucceeded\"";
       case "ProcessingFailed":
-        return `{"ProcessingFailed":${toJson.DeclineCode(x.content[0])}}`;
+        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.content[0])]]);
       case "Capture":
-        return `{"Capture":{"amount_to_capture":${(x.amount_to_capture === null ? "null" : Json.int(x.amount_to_capture))},"application_fee":${(x.application_fee === null ? "null" : Json.int(x.application_fee))}}}`;
+        return Json.object([[
+          "Capture",
+          Json.object([
+            [
+              "amount_to_capture",
+              (x.amount_to_capture === null ? "null" : Json.int(x.amount_to_capture)),
+            ],
+            [
+              "application_fee",
+              (x.application_fee === null ? "null" : Json.int(x.application_fee)),
+            ],
+          ]),
+        ]]);
       case "Cancel":
-        return `{"Cancel":${(x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0]))}}`;
+        return Json.object([[
+          "Cancel",
+          (x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0])),
+        ]]);
     }
   },
   PaymentError: (x: PaymentError$): string => {
@@ -344,7 +529,10 @@ export const toJson = {
       case "MissingPaymentMethod":
         return "\"MissingPaymentMethod\"";
       case "InvalidCaptureAmount":
-        return `{"InvalidCaptureAmount":{"capturable":${Json.int(x.capturable)}}}`;
+        return Json.object([[
+          "InvalidCaptureAmount",
+          Json.object([["capturable", Json.int(x.capturable)]]),
+        ]]);
       case "NegativeApplicationFee":
         return "\"NegativeApplicationFee\"";
       case "NotCancelable":

@@ -104,24 +104,41 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     if schema == WireSchema::Arktype {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
-            match item {
-                Item::Struct(s) => out.push_str(&ark_struct(s, &refusal(krate, s))),
-                Item::Enum(e) => out.push_str(&ark_enum(e)),
-                _ => {}
-            }
+            let printed = match item {
+                Item::Struct(s) => ark_struct(s, &refusal(krate, s)),
+                Item::Enum(e) => ark_enum(e),
+                _ => continue,
+            };
+            out.push_str(&documented(item, &printed));
         }
     } else {
         for (item, recursive) in wire_order(&wired) {
-            match item {
-                Item::Struct(s) => out.push_str(&struct_schema(schema, s, recursive, &refusal(krate, s))),
-                Item::Enum(e) => out.push_str(&enum_schema(schema, e.name.as_str(), &e.variants, recursive)),
-                _ => {}
-            }
+            let printed = match item {
+                Item::Struct(s) => struct_schema(schema, s, recursive, &refusal(krate, s)),
+                Item::Enum(e) => enum_schema(schema, e.name.as_str(), &e.variants, recursive),
+                _ => continue,
+            };
+            out.push_str(&documented(item, &printed));
         }
     }
     out.push_str(&from_json(schema, &wired));
     out.push_str(&to_json(krate));
-    super::imports::prune_unused(&out)
+    crate::tidy::wrap(&super::imports::prune_unused(&out), crate::WIDTH)
+}
+
+/// `printed` with the type's `///` comment as JSDoc on its schema, so a
+/// hover on the schema reads what the type is.
+fn documented(item: &Item, printed: &str) -> String {
+    let doc = match item {
+        Item::Struct(s) => &s.doc,
+        Item::Enum(e) => &e.doc,
+        _ => return printed.to_string(),
+    };
+    let head = format!("export const {}:", item.name().as_str());
+    match printed.find(&head) {
+        Some(at) if doc.is_some() => format!("{}{}{}", &printed[..at], crate::items::jsdoc(doc, ""), &printed[at..]),
+        _ => printed.to_string(),
+    }
 }
 
 /// `fromJson.T(text)`: serde_json's text of a `T` read into the domain
@@ -798,20 +815,20 @@ fn to_json(krate: &Crate) -> String {
                     let value = match &v.fields {
                         VariantFields::Unit => format!("\"\\\"{var}\\\"\""),
                         VariantFields::Tuple(tys) if tys.len() == 1 => {
-                            format!("`{{\"{var}\":{}}}`", splice(&write_json(&tys[0], "x.content[0]", 0)))
+                            format!("Json.object([[\"{var}\", {}]])", write_json(&tys[0], "x.content[0]", 0))
                         }
                         VariantFields::Tuple(tys) => {
                             let elems = tys
                                 .iter()
                                 .enumerate()
-                                .map(|(i, t)| splice(&write_json(t, &format!("x.content[{i}]"), 0)))
+                                .map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0))
                                 .collect::<Vec<_>>()
-                                .join(",");
-                            format!("`{{\"{var}\":[{elems}]}}`")
+                                .join(", ");
+                            format!("Json.object([[\"{var}\", Json.tuple([{elems}])]])")
                         }
                         VariantFields::Struct(fields) => {
                             let inner = object_json(fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x.");
-                            format!("`{{\"{var}\":{}}}`", splice(&inner))
+                            format!("Json.object([[\"{var}\", {inner}]])")
                         }
                     };
                     out.push_str(&format!("      case \"{var}\":\n        return {value};\n"));
@@ -825,15 +842,16 @@ fn to_json(krate: &Crate) -> String {
     out
 }
 
-/// `{"a":…,"b":…}` for fields read from `<prefix><name>`.
+/// `{"a":…,"b":…}` for fields read from `<prefix><name>`, through
+/// `Json.object`: a call whose pairs a long line breaks one per line.
 fn object_json<'a>(fields: impl Iterator<Item = (&'a str, &'a Ty)>, prefix: &str) -> String {
     let pairs = fields
-        .map(|(name, ty)| format!("\"{name}\":{}", splice(&write_json(ty, &format!("{prefix}{name}"), 0))))
+        .map(|(name, ty)| format!("[\"{name}\", {}]", write_json(ty, &format!("{prefix}{name}"), 0)))
         .collect::<Vec<_>>();
     if pairs.is_empty() {
         return "\"{}\"".into();
     }
-    format!("`{{{}}}`", pairs.join(","))
+    format!("Json.object([{}])", pairs.join(", "))
 }
 
 /// A TS expression for the JSON text of `value`, of type `ty`. `depth`
@@ -862,10 +880,10 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> String {
             let parts = elems
                 .iter()
                 .enumerate()
-                .map(|(i, t)| splice(&write_json(t, &format!("{value}[{i}]"), depth)))
+                .map(|(i, t)| write_json(t, &format!("{value}[{i}]"), depth))
                 .collect::<Vec<_>>()
-                .join(",");
-            format!("`[{parts}]`")
+                .join(", ");
+            format!("Json.tuple([{parts}])")
         }
         Ty::Result { ok, err } => format!(
             "({value}.kind === \"Ok\" ? `{{\"Ok\":{}}}` : `{{\"Err\":{}}}`)",

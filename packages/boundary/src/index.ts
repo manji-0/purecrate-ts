@@ -650,6 +650,15 @@ const ryu = (x: number, digits: string, point: number, high: number, low: number
  * Generated `toJson` encoders compose these.
  */
 export const Json = {
+  /**
+   * `{"k":v,..}` from each key and its value's JSON text, in order: a
+   * struct's fields as serde writes them, or a variant's wrapper. The keys
+   * are Rust identifiers, which need no escaping.
+   */
+  object: (pairs: ReadonlyArray<readonly [string, string]>): string =>
+    `{${pairs.map(([k, v]) => `"${k}":${v}`).join(",")}}`,
+  /** `[a,b,..]` from each element's JSON text: a tuple or a tuple variant. */
+  tuple: (items: ReadonlyArray<string>): string => `[${items.join(",")}]`,
   int: (n: number | bigint): string => String(n),
   bool: (b: boolean): string => (b ? "true" : "false"),
   /** JSON.stringify escapes as serde_json does for well-formed strings. */

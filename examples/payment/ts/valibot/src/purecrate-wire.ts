@@ -4,7 +4,10 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
 import { i64, nullable, str, unitEnum, unitVariant } from "./purecrate-valibot.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
-import { PaymentMethodId as PaymentMethodId$value, type PaymentMethodId as PaymentMethodId$ } from "./payment-method-id.ts";
+import {
+  PaymentMethodId as PaymentMethodId$value,
+  type PaymentMethodId as PaymentMethodId$,
+} from "./payment-method-id.ts";
 import type { MethodKind as MethodKind$ } from "./method-kind.ts";
 import type { PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
 import type { CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
@@ -28,6 +31,7 @@ export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransf
   return r.value;
 }));
 
+/** A payment method ID: `pm_` followed by at least one character. */
 export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
   const r = PaymentMethodId$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
@@ -44,18 +48,38 @@ export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.pipe(
   v.transform((v): PaymentMethod$ => ({ id: v.id, kind: v.kind })),
 );
 
-export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum(["Automatic", "Manual"]);
+export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum([
+  "Automatic",
+  "Manual",
+]);
 
-export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> = unitEnum(["Automatic", "Manual"]);
+export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> = unitEnum([
+  "Automatic",
+  "Manual",
+]);
 
 export const Terms: v.GenericSchema<unknown, Terms$> = v.pipe(
   v.object({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }),
-  v.transform((v): Terms$ => ({ amount: v.amount, capture: v.capture, confirmation: v.confirmation })),
+  v.transform((v): Terms$ => ({
+    amount: v.amount,
+    capture: v.capture,
+    confirmation: v.confirmation,
+  })),
 );
 
-export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = unitEnum(["CardDeclined", "InsufficientFunds", "AuthenticationFailed", "DebitFailed"]);
+export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = unitEnum([
+  "CardDeclined",
+  "InsufficientFunds",
+  "AuthenticationFailed",
+  "DebitFailed",
+]);
 
-export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> = unitEnum(["Duplicate", "Fraudulent", "RequestedByCustomer", "Abandoned"]);
+export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> = unitEnum([
+  "Duplicate",
+  "Fraudulent",
+  "RequestedByCustomer",
+  "Abandoned",
+]);
 
 export const Status: v.GenericSchema<unknown, Status$> = v.union([
   v.pipe(
@@ -67,7 +91,10 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
   ),
   v.pipe(
     v.strictObject({ RequiresConfirmation: v.object({ method: PaymentMethod }) }),
-    v.transform((v): Status$ => ({ kind: "RequiresConfirmation", method: v.RequiresConfirmation.method })),
+    v.transform((v): Status$ => ({
+      kind: "RequiresConfirmation",
+      method: v.RequiresConfirmation.method,
+    })),
   ),
   v.pipe(
     v.strictObject({ RequiresAction: v.object({ method: PaymentMethod }) }),
@@ -86,7 +113,10 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
     })),
   ),
   v.pipe(
-    v.strictObject({ Succeeded: v.object({ received: i64, application_fee: v.optional(nullable(i64)) }) }),
+    v.strictObject({ Succeeded: v.object({
+      received: i64,
+      application_fee: v.optional(nullable(i64)),
+    }) }),
     v.transform((v): Status$ => ({
       kind: "Succeeded",
       received: v.Succeeded.received,
@@ -104,6 +134,7 @@ export const PaymentIntent: v.GenericSchema<unknown, PaymentIntent$> = v.pipe(
   v.transform((v): PaymentIntent$ => ({ terms: v.terms, status: v.status })),
 );
 
+/** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([
   v.pipe(unitVariant("Authorized"), v.transform((): Outcome$ => ({ kind: "Authorized" }))),
   v.pipe(
@@ -123,8 +154,15 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
     v.transform((v): Event$ => ({ kind: "AttachMethod", content: [v.AttachMethod] })),
   ),
   v.pipe(
-    v.strictObject({ Confirm: v.object({ method: v.optional(nullable(PaymentMethod)), outcome: Outcome }) }),
-    v.transform((v): Event$ => ({ kind: "Confirm", method: v.Confirm.method ?? null, outcome: v.Confirm.outcome })),
+    v.strictObject({ Confirm: v.object({
+      method: v.optional(nullable(PaymentMethod)),
+      outcome: Outcome,
+    }) }),
+    v.transform((v): Event$ => ({
+      kind: "Confirm",
+      method: v.Confirm.method ?? null,
+      outcome: v.Confirm.outcome,
+    })),
   ),
   v.pipe(
     v.strictObject({ ActionHandled: Outcome }),
@@ -170,7 +208,10 @@ export const PaymentError: v.GenericSchema<unknown, PaymentError$> = v.union([
   ),
   v.pipe(
     v.strictObject({ InvalidCaptureAmount: v.object({ capturable: i64 }) }),
-    v.transform((v): PaymentError$ => ({ kind: "InvalidCaptureAmount", capturable: v.InvalidCaptureAmount.capturable })),
+    v.transform((v): PaymentError$ => ({
+      kind: "InvalidCaptureAmount",
+      capturable: v.InvalidCaptureAmount.capturable,
+    })),
   ),
   v.pipe(
     unitVariant("NegativeApplicationFee"),
@@ -196,10 +237,16 @@ export const fromJson = {
   MethodKind: (text: string): MethodKind$ => v.parse(MethodKind, parseJson(text)),
   PaymentMethod: (text: string): PaymentMethod$ => v.parse(PaymentMethod, parseJson(text)),
   CaptureMethod: (text: string): CaptureMethod$ => v.parse(CaptureMethod, parseJson(text)),
-  ConfirmationMethod: (text: string): ConfirmationMethod$ => v.parse(ConfirmationMethod, parseJson(text)),
+  ConfirmationMethod: (text: string): ConfirmationMethod$ => v.parse(
+    ConfirmationMethod,
+    parseJson(text),
+  ),
   Terms: (text: string): Terms$ => v.parse(Terms, parseJson(text)),
   DeclineCode: (text: string): DeclineCode$ => v.parse(DeclineCode, parseJson(text)),
-  CancellationReason: (text: string): CancellationReason$ => v.parse(CancellationReason, parseJson(text)),
+  CancellationReason: (text: string): CancellationReason$ => v.parse(
+    CancellationReason,
+    parseJson(text),
+  ),
   Status: (text: string): Status$ => v.parse(Status, parseJson(text)),
   PaymentIntent: (text: string): PaymentIntent$ => v.parse(PaymentIntent, parseJson(text)),
   Outcome: (text: string): Outcome$ => v.parse(Outcome, parseJson(text)),
@@ -212,31 +259,77 @@ export const toJson = {
   Amount: (x: Amount$): string => Json.int(x),
   PaymentMethodId: (x: PaymentMethodId$): string => Json.str(x),
   MethodKind: (x: MethodKind$): string => `"${x.kind}"`,
-  PaymentMethod: (x: PaymentMethod$): string => `{"id":${toJson.PaymentMethodId(x.id)},"kind":${toJson.MethodKind(x.kind)}}`,
+  PaymentMethod: (x: PaymentMethod$): string => Json.object([
+    ["id", toJson.PaymentMethodId(x.id)],
+    ["kind", toJson.MethodKind(x.kind)],
+  ]),
   CaptureMethod: (x: CaptureMethod$): string => `"${x.kind}"`,
   ConfirmationMethod: (x: ConfirmationMethod$): string => `"${x.kind}"`,
-  Terms: (x: Terms$): string => `{"amount":${toJson.Amount(x.amount)},"capture":${toJson.CaptureMethod(x.capture)},"confirmation":${toJson.ConfirmationMethod(x.confirmation)}}`,
+  Terms: (x: Terms$): string => Json.object([
+    ["amount", toJson.Amount(x.amount)],
+    ["capture", toJson.CaptureMethod(x.capture)],
+    ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
+  ]),
   DeclineCode: (x: DeclineCode$): string => `"${x.kind}"`,
   CancellationReason: (x: CancellationReason$): string => `"${x.kind}"`,
   Status: (x: Status$): string => {
     switch (x.kind) {
       case "RequiresPaymentMethod":
-        return `{"RequiresPaymentMethod":{"last_error":${(x.last_error === null ? "null" : toJson.DeclineCode(x.last_error))}}}`;
+        return Json.object([[
+          "RequiresPaymentMethod",
+          Json.object([[
+            "last_error",
+            (x.last_error === null ? "null" : toJson.DeclineCode(x.last_error)),
+          ]]),
+        ]]);
       case "RequiresConfirmation":
-        return `{"RequiresConfirmation":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "RequiresConfirmation",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "RequiresAction":
-        return `{"RequiresAction":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "RequiresAction",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "Processing":
-        return `{"Processing":{"method":${toJson.PaymentMethod(x.method)}}}`;
+        return Json.object([[
+          "Processing",
+          Json.object([["method", toJson.PaymentMethod(x.method)]]),
+        ]]);
       case "RequiresCapture":
-        return `{"RequiresCapture":{"method":${toJson.PaymentMethod(x.method)},"capturable":${Json.int(x.capturable)}}}`;
+        return Json.object([[
+          "RequiresCapture",
+          Json.object([
+            ["method", toJson.PaymentMethod(x.method)],
+            ["capturable", Json.int(x.capturable)],
+          ]),
+        ]]);
       case "Succeeded":
-        return `{"Succeeded":{"received":${Json.int(x.received)},"application_fee":${(x.application_fee === null ? "null" : Json.int(x.application_fee))}}}`;
+        return Json.object([[
+          "Succeeded",
+          Json.object([
+            ["received", Json.int(x.received)],
+            [
+              "application_fee",
+              (x.application_fee === null ? "null" : Json.int(x.application_fee)),
+            ],
+          ]),
+        ]]);
       case "Canceled":
-        return `{"Canceled":{"reason":${(x.reason === null ? "null" : toJson.CancellationReason(x.reason))}}}`;
+        return Json.object([[
+          "Canceled",
+          Json.object([[
+            "reason",
+            (x.reason === null ? "null" : toJson.CancellationReason(x.reason)),
+          ]]),
+        ]]);
     }
   },
-  PaymentIntent: (x: PaymentIntent$): string => `{"terms":${toJson.Terms(x.terms)},"status":${toJson.Status(x.status)}}`,
+  PaymentIntent: (x: PaymentIntent$): string => Json.object([
+    ["terms", toJson.Terms(x.terms)],
+    ["status", toJson.Status(x.status)],
+  ]),
   Outcome: (x: Outcome$): string => {
     switch (x.kind) {
       case "Authorized":
@@ -246,25 +339,46 @@ export const toJson = {
       case "Pending":
         return "\"Pending\"";
       case "Declined":
-        return `{"Declined":${toJson.DeclineCode(x.content[0])}}`;
+        return Json.object([["Declined", toJson.DeclineCode(x.content[0])]]);
     }
   },
   Event: (x: Event$): string => {
     switch (x.kind) {
       case "AttachMethod":
-        return `{"AttachMethod":${toJson.PaymentMethod(x.content[0])}}`;
+        return Json.object([["AttachMethod", toJson.PaymentMethod(x.content[0])]]);
       case "Confirm":
-        return `{"Confirm":{"method":${(x.method === null ? "null" : toJson.PaymentMethod(x.method))},"outcome":${toJson.Outcome(x.outcome)}}}`;
+        return Json.object([[
+          "Confirm",
+          Json.object([
+            ["method", (x.method === null ? "null" : toJson.PaymentMethod(x.method))],
+            ["outcome", toJson.Outcome(x.outcome)],
+          ]),
+        ]]);
       case "ActionHandled":
-        return `{"ActionHandled":${toJson.Outcome(x.content[0])}}`;
+        return Json.object([["ActionHandled", toJson.Outcome(x.content[0])]]);
       case "ProcessingSucceeded":
         return "\"ProcessingSucceeded\"";
       case "ProcessingFailed":
-        return `{"ProcessingFailed":${toJson.DeclineCode(x.content[0])}}`;
+        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.content[0])]]);
       case "Capture":
-        return `{"Capture":{"amount_to_capture":${(x.amount_to_capture === null ? "null" : Json.int(x.amount_to_capture))},"application_fee":${(x.application_fee === null ? "null" : Json.int(x.application_fee))}}}`;
+        return Json.object([[
+          "Capture",
+          Json.object([
+            [
+              "amount_to_capture",
+              (x.amount_to_capture === null ? "null" : Json.int(x.amount_to_capture)),
+            ],
+            [
+              "application_fee",
+              (x.application_fee === null ? "null" : Json.int(x.application_fee)),
+            ],
+          ]),
+        ]]);
       case "Cancel":
-        return `{"Cancel":${(x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0]))}}`;
+        return Json.object([[
+          "Cancel",
+          (x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0])),
+        ]]);
     }
   },
   PaymentError: (x: PaymentError$): string => {
@@ -276,7 +390,10 @@ export const toJson = {
       case "MissingPaymentMethod":
         return "\"MissingPaymentMethod\"";
       case "InvalidCaptureAmount":
-        return `{"InvalidCaptureAmount":{"capturable":${Json.int(x.capturable)}}}`;
+        return Json.object([[
+          "InvalidCaptureAmount",
+          Json.object([["capturable", Json.int(x.capturable)]]),
+        ]]);
       case "NegativeApplicationFee":
         return "\"NegativeApplicationFee\"";
       case "NotCancelable":
