@@ -12,6 +12,7 @@
 //! accepts, with the same signatures and traits.
 
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -43,19 +44,18 @@ pub enum Failure {
 /// binary, as for cargo.
 pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let out_dir = Scratch::create()?;
-    let serde = serde_stub(&rustc, &out_dir.path)?;
-    let uuid = uuid_stub(&rustc, &out_dir.path)?;
+    let stubs = stubs(&rustc)?;
+    let scratch = Scratch::create()?;
     let output = Command::new(&rustc)
         .args(["--edition", edition, "--crate-type", "lib", "--emit=metadata"])
         .arg("--extern")
-        .arg(format!("serde={}", serde.display()))
+        .arg(format!("serde={}", stubs.serde.display()))
         .arg("--extern")
-        .arg(format!("uuid={}", uuid.display()))
+        .arg(format!("uuid={}", stubs.uuid.display()))
         .arg("-L")
-        .arg(&out_dir.path)
+        .arg(&stubs.dir)
         .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "--out-dir"])
-        .arg(&out_dir.path)
+        .arg(&scratch.path)
         .arg(src)
         .output();
     let output = output.map_err(|e| {
@@ -109,7 +109,7 @@ impl std::error::Error for Error {}
 ";
 
 /// Builds the stand-in `uuid` into `dir` and returns the rlib.
-fn uuid_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
+fn uuid_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
     let src = dir.join("uuid.rs");
     fs::write(&src, UUID_STUB).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
     let output = Command::new(rustc)
@@ -134,7 +134,7 @@ fn uuid_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
 
 /// Builds the stand-in `serde` (and its derive crate) into `dir` and returns
 /// the rlib.
-fn serde_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
+fn serde_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
     let build = |name: &str, source: &str, args: &[&str]| -> Result<(), Failure> {
         let src = dir.join(format!("{name}.rs"));
         fs::write(&src, source).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
@@ -160,20 +160,101 @@ fn serde_stub(rustc: &std::ffi::OsStr, dir: &Path) -> Result<PathBuf, Failure> {
         }
     };
     build("serde_derive", SERDE_DERIVE_STUB, &["--crate-type", "proc-macro"])?;
-    let derive = fs::read_dir(dir)
-        .map_err(|e| Failure::Other(format!("read {}: {e}", dir.display())))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| {
-            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            (stem == "serde_derive" || stem == "libserde_derive") && p.extension().is_some_and(|e| e != "rs")
-        })
-        .ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
+    let derive = derive_artifact(dir).ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
     build(
         "serde",
         SERDE_STUB,
         &["--crate-type", "rlib", "--extern", &format!("serde_derive={}", derive.display())],
     )?;
     Ok(dir.join("libserde.rlib"))
+}
+
+fn derive_artifact(dir: &Path) -> Option<PathBuf> {
+    fs::read_dir(dir).ok()?.filter_map(|e| e.ok().map(|e| e.path())).find(|p| {
+        let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        (stem == "serde_derive" || stem == "libserde_derive") && p.extension().is_some_and(|e| e != "rs")
+    })
+}
+
+struct Stubs {
+    dir: PathBuf,
+    serde: PathBuf,
+    uuid: PathBuf,
+}
+
+/// Stand-ins keyed by `rustc -vV` and the purecrate-ts version, so `check`
+/// does not rebuild the serde proc-macro on every run. Override the root
+/// with `XDG_CACHE_HOME`.
+fn stubs(rustc: &OsStr) -> Result<Stubs, Failure> {
+    load_or_build_stubs(rustc, &stub_cache_dir(rustc)?)
+}
+
+fn stub_cache_dir(rustc: &OsStr) -> Result<PathBuf, Failure> {
+    Ok(cache_root().join(rustc_id(rustc)?))
+}
+
+fn cache_root() -> PathBuf {
+    if let Some(p) = env::var_os("XDG_CACHE_HOME").filter(|s| !s.is_empty()) {
+        return PathBuf::from(p).join("purecrate-ts").join("rustc-stubs");
+    }
+    if let Some(h) = env::var_os("HOME").filter(|s| !s.is_empty()) {
+        return PathBuf::from(h).join(".cache").join("purecrate-ts").join("rustc-stubs");
+    }
+    env::temp_dir().join("purecrate-ts-rustc-stubs")
+}
+
+fn rustc_id(rustc: &OsStr) -> Result<String, Failure> {
+    let output = Command::new(rustc).arg("-vV").output().map_err(|e| {
+        Failure::Other(format!(
+            "run {}: {e}; check needs rustc to confirm the input compiles (set RUSTC to its path)",
+            Path::new(rustc).display()
+        ))
+    })?;
+    if !output.status.success() {
+        return Err(Failure::Other(format!(
+            "rustc -vV failed:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        )));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(": ").map(str::trim))
+            .unwrap_or("unknown")
+            .replace('/', "_")
+    };
+    Ok(format!("{}-{}-{}", env!("CARGO_PKG_VERSION"), field("release"), field("host")))
+}
+
+fn stubs_ready(dir: &Path) -> bool {
+    dir.join("ready").is_file()
+        && dir.join("libserde.rlib").is_file()
+        && dir.join("libuuid.rlib").is_file()
+        && derive_artifact(dir).is_some()
+}
+
+fn load_or_build_stubs(rustc: &OsStr, dir: &Path) -> Result<Stubs, Failure> {
+    if stubs_ready(dir) {
+        return Ok(Stubs {
+            dir: dir.to_path_buf(),
+            serde: dir.join("libserde.rlib"),
+            uuid: dir.join("libuuid.rlib"),
+        });
+    }
+    fs::create_dir_all(dir).map_err(|e| Failure::Other(format!("mkdir {}: {e}", dir.display())))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+    }
+    uuid_stub(rustc, dir)?;
+    serde_stub(rustc, dir)?;
+    fs::write(dir.join("ready"), b"").map_err(|e| Failure::Other(format!("write {}/ready: {e}", dir.display())))?;
+    Ok(Stubs {
+        dir: dir.to_path_buf(),
+        serde: dir.join("libserde.rlib"),
+        uuid: dir.join("libuuid.rlib"),
+    })
 }
 
 /// A unique 0700 directory in the process temp dir. Created exclusively so
@@ -309,5 +390,20 @@ error: aborting due to 2 previous errors
         drop(a);
         assert!(!path.exists());
         drop(b);
+    }
+
+    #[test]
+    fn stubs_are_reused_from_the_cache_without_rustc() {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = env::temp_dir().join(format!("purecrate-stub-cache-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        load_or_build_stubs(&rustc, &dir).unwrap_or_else(|_| panic!("build stubs"));
+        assert!(stubs_ready(&dir));
+        load_or_build_stubs(OsStr::new("/nonexistent/rustc"), &dir).unwrap_or_else(|_| panic!("reuse stubs"));
+        fs::remove_dir_all(&dir).ok();
     }
 }
