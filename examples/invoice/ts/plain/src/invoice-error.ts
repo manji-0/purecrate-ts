@@ -9,7 +9,7 @@ export type InvoiceError =
 export const InvoiceError = {
   NegativeAmount: (): InvoiceError => ({ kind: "NegativeAmount" }),
   NoLines: (): InvoiceError => ({ kind: "NoLines" }),
-  to_string: (self: InvoiceError): string => {
+  toString: (self: InvoiceError): string => {
     switch (self.kind) {
       case "NegativeAmount":
         return "amount must not be negative";

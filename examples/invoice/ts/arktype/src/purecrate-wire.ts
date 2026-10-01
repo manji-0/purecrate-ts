@@ -18,7 +18,7 @@ const Yen$wire = memo(() => i64);
 export const Yen: Wire<Yen$> = type("unknown").pipe((v, ctx): Yen$ => {
   const parsed = Yen$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  const r = Yen$value.try_from(parsed);
+  const r = Yen$value.tryFrom(parsed);
   if (r.kind === "Err") return ctx.error(`Yen: ${r.error.kind}`) as never;
   return r.value;
 });

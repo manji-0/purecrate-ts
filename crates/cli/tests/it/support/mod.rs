@@ -340,7 +340,8 @@ macro_rules! case {
     ($m:ident :: $f:ident($($a:expr),*)) => {
         support::run(
             stringify!($f),
-            format!("{}({})", stringify!($f), <[String]>::join(&[$(support::Js::js(&$a)),*], ", ")),
+            // The TS spelling of the function (`check::rename`).
+            format!("{}({})", purecrate_ir::to_camel(stringify!($f)), <[String]>::join(&[$(support::Js::js(&$a)),*], ", ")),
             || $m::$f($($a),*),
         )
     };
@@ -574,7 +575,8 @@ fn ts_fields(krate: &Crate, fields: &[purecrate_ir::Field], value: &str) -> Stri
 }
 
 fn driver(krate: &Crate, cases: &[Case]) -> String {
-    let mut names: Vec<&str> = cases.iter().map(|c| c.name).collect();
+    // The TS spelling of each function (`check::rename`).
+    let mut names: Vec<String> = cases.iter().map(|c| purecrate_ir::to_camel(c.name)).collect();
     names.sort();
     names.dedup();
     let mut out = String::from(PRELUDE);

@@ -5,7 +5,7 @@ import { ACR_MFA } from "./consts.ts";
 import { ACR_PASSWORD } from "./consts.ts";
 import type { AuthStrength } from "./auth-strength.ts";
 
-export const acr_value = (strength: AuthStrength): string => {
+export const acrValue = (strength: AuthStrength): string => {
   switch (strength.kind) {
     case "PasswordOnly":
       return ACR_PASSWORD;

@@ -3,7 +3,7 @@
 import { Int, Str, type U64, type U8 } from "./purecrate-runtime.ts";
 
 /** Digits only, already checked non-empty. `None` on overflow. */
-export const digits_to_u64 = (s: string): U64 | null => {
+export const digitsToU64 = (s: string): U64 | null => {
   let acc: U64 = 0n as U64;
   for (const b of Str.bytes(s)) {
     const $q1 = Int.u64.checkedMul(acc, (10n as U64));

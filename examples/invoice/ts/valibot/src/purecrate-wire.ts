@@ -15,7 +15,7 @@ import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
 
 export const Yen: v.GenericSchema<unknown, Yen$> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Yen$ => {
-  const r = Yen$value.try_from(dataset.value);
+  const r = Yen$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
     addIssue({ message: `Yen: ${r.error.kind}` });
     return NEVER;

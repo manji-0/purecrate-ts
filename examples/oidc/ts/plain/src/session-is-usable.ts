@@ -9,7 +9,7 @@ import type { Session } from "./session.ts";
  * End-User to log in again (OIDC Core §3.1.2.1 prompt, max_age,
  * acr_values; §3.1.2.3).
  */
-export const session_is_usable = (
+export const sessionIsUsable = (
   request: AuthorizationRequest,
   session: Session,
   now: I64,
@@ -21,8 +21,8 @@ export const session_is_usable = (
     {
       const $opt1 = request.max_age as I64 | null;
       if ($opt1 !== null) {
-        const max_age = $opt1;
-        $opt3 = Int.i64.sub(now, session.auth_time) <= max_age;
+        const maxAge = $opt1;
+        $opt3 = Int.i64.sub(now, session.auth_time) <= maxAge;
       } else {
         $opt3 = null;
       }
@@ -35,6 +35,6 @@ export const session_is_usable = (
       fresh = $arg5;
     }
   }
-  const strong_enough: boolean = !request.wants_mfa || (session.strength.kind === "PasswordAndTotp");
-  return fresh && strong_enough;
+  const strongEnough: boolean = !request.wants_mfa || (session.strength.kind === "PasswordAndTotp");
+  return fresh && strongEnough;
 };

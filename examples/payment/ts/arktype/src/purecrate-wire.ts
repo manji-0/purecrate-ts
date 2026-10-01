@@ -22,7 +22,7 @@ const Amount$wire = memo(() => i64);
 export const Amount: Wire<Amount$> = type("unknown").pipe((v, ctx): Amount$ => {
   const parsed = Amount$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  const r = Amount$value.try_from(parsed);
+  const r = Amount$value.tryFrom(parsed);
   if (r.kind === "Err") return ctx.error(`Amount: ${r.error.kind}`) as never;
   return r.value;
 });
@@ -31,7 +31,7 @@ const PaymentMethodId$wire = memo(() => str);
 export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, ctx): PaymentMethodId$ => {
   const parsed = PaymentMethodId$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  const r = PaymentMethodId$value.try_from(parsed);
+  const r = PaymentMethodId$value.tryFrom(parsed);
   if (r.kind === "Err") return ctx.error(`PaymentMethodId: ${r.error.kind}`) as never;
   return r.value;
 });

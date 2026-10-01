@@ -2,13 +2,13 @@
 
 import { Result, type I64 } from "./purecrate-runtime.ts";
 import { ACR_MFA } from "./consts.ts";
-import { has_token } from "./has-token.ts";
-import { parse_prompt } from "./parse-prompt.ts";
-import { parse_seconds } from "./parse-seconds.ts";
-import { pkce_string_is_valid } from "./pkce-string-is-valid.ts";
-import { redirect_error } from "./redirect-error.ts";
-import { redirect_uri_registered } from "./redirect-uri-registered.ts";
-import { state_is_valid } from "./state-is-valid.ts";
+import { hasToken } from "./has-token.ts";
+import { parsePrompt } from "./parse-prompt.ts";
+import { parseSeconds } from "./parse-seconds.ts";
+import { pkceStringIsValid } from "./pkce-string-is-valid.ts";
+import { redirectError } from "./redirect-error.ts";
+import { redirectUriRegistered } from "./redirect-uri-registered.ts";
+import { stateIsValid } from "./state-is-valid.ts";
 import { AuthorizationRequest$of } from "./authorization-request.ts";
 import type { AuthorizationError } from "./authorization-error.ts";
 import type { AuthorizationParams } from "./authorization-params.ts";
@@ -25,7 +25,7 @@ import type { Prompt } from "./prompt.ts";
  * Errors about the client or its redirect_uri are shown to the End-User;
  * everything after that is redirected with `error` and the echoed `state`.
  */
-export const validate_request = (
+export const validateRequest = (
   params: AuthorizationParams,
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
@@ -45,25 +45,25 @@ export const validate_request = (
   } else {
     return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
   }
-  let redirect_uri: string;
+  let redirectUri: string;
   if (params.redirect_uri !== null) {
     const u = params.redirect_uri;
-    redirect_uri = u;
+    redirectUri = u;
   } else {
     return Result.err({ kind: "Display", content: [{ kind: "MissingRedirectUri" }] });
   }
-  if (!redirect_uri_registered(client$1, redirect_uri)) return Result.err({
+  if (!redirectUriRegistered(client$1, redirectUri)) return Result.err({
     kind: "Display",
     content: [{ kind: "UnregisteredRedirectUri" }],
   });
   let echoed: string | null;
   if (params.state !== null) {
     const s = params.state;
-    echoed = state_is_valid(s) ? s : null;
+    echoed = stateIsValid(s) ? s : null;
   } else {
     echoed = null;
   }
-  const fail: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirect_error(redirect_uri, error, echoed);
+  const fail: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
   if (params.response_type !== null) {
     const rt = params.response_type;
     if (rt === "code") {
@@ -76,7 +76,7 @@ export const validate_request = (
   let scope: string;
   if (params.scope !== null) {
     const s$1 = params.scope;
-    if (has_token(s$1, "openid")) {
+    if (hasToken(s$1, "openid")) {
       scope = s$1;
     } else {
       return Result.err(fail({ kind: "InvalidScope" }));
@@ -94,7 +94,7 @@ export const validate_request = (
   let nonce: string | null;
   if (params.nonce !== null) {
     const n = params.nonce;
-    if (!state_is_valid(n)) {
+    if (!stateIsValid(n)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
       const n$1: string = n;
@@ -106,7 +106,7 @@ export const validate_request = (
   let pkce: Pkce | null;
   if (params.code_challenge !== null) {
     const challenge = params.code_challenge;
-    if (!pkce_string_is_valid(challenge)) {
+    if (!pkceStringIsValid(challenge)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
       const challenge$1: string = challenge;
@@ -143,7 +143,7 @@ export const validate_request = (
   let prompt: Prompt;
   if (params.prompt !== null) {
     const p = params.prompt;
-    const $opt9: Prompt | null = parse_prompt(p);
+    const $opt9: Prompt | null = parsePrompt(p);
     const $arg11: AuthorizationError = fail({ kind: "InvalidRequest" });
     if ($opt9 === null) return Result.err($arg11);
     const $q1 = $opt9;
@@ -151,33 +151,33 @@ export const validate_request = (
   } else {
     prompt = { no_interaction: false, login: false, consent: false, select_account: false };
   }
-  let max_age: I64 | null;
+  let maxAge: I64 | null;
   if (params.max_age !== null) {
     const m$2 = params.max_age;
-    const $opt13: I64 | null = parse_seconds(m$2);
+    const $opt13: I64 | null = parseSeconds(m$2);
     const $arg15: AuthorizationError = fail({ kind: "InvalidRequest" });
     if ($opt13 === null) return Result.err($arg15);
     const $q2 = $opt13;
-    max_age = $q2;
+    maxAge = $q2;
   } else {
-    max_age = null;
+    maxAge = null;
   }
-  let wants_mfa: boolean;
+  let wantsMfa: boolean;
   if (params.acr_values !== null) {
     const a = params.acr_values;
-    wants_mfa = has_token(a, ACR_MFA);
+    wantsMfa = hasToken(a, ACR_MFA);
   } else {
-    wants_mfa = false;
+    wantsMfa = false;
   }
   return Result.ok(AuthorizationRequest$of({
     client_id: client$1.client_id,
-    redirect_uri,
+    redirect_uri: redirectUri,
     scope,
     state,
     nonce,
     pkce,
     prompt,
-    max_age,
-    wants_mfa,
+    max_age: maxAge,
+    wants_mfa: wantsMfa,
   }));
 };

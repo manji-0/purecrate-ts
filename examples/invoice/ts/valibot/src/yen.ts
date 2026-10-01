@@ -16,5 +16,5 @@ export const Yen = {
     return Result.ok(Yen$of(value));
   },
   value: (self: Yen): I64 => self,
-  try_from: (value: I64): Result<Yen, InvoiceError> => Yen.new(value),
+  tryFrom: (value: I64): Result<Yen, InvoiceError> => Yen.new(value),
 } as const;

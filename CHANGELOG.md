@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Functions, methods, consts, parameters, and locals print in camelCase, as TS code is written: `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`, `to_string` → `toString`. Fields, types, and variants keep the Rust name, since a field is the JSON key; UPPER_SNAKE consts are unchanged. A caller of a generated package must use the new names. A name that would print as a TS reserved word or a name the package defines (`parse_json` → `parseJson`), or two methods of one type that print alike, are rejected.
 - `--schema` gives a wire form only to what serde does: a schema for each public struct and enum that derives `Deserialize`, and a `toJson` entry for each that derives `Serialize`. Before, every public type had both, so a closed type with no derive (signup's `Email`) could be built from JSON by shape, bypassing its constructor, though Rust cannot read it at all. A crate where no public type derives either is refused with `--schema`. Output generated with `--schema` must be regenerated.
 - A type that derives `Serialize` or `Deserialize` must hold only types that derive it too, as the real derive requires (`check` sees a stand-in serde); the new reason `item/serde-derive` reports the rest. `std::cmp::Ordering` is refused only in such a type: a type without a serde derive may hold one.
 - Indexing `xs[i]` and slicing `&xs[a..b]` on a `Vec` or slice call the runtime's `Slice.at` and `Slice.range` instead of an inline function at every use, with the same checks and panic messages; iban's generated code goes from 6.0 to 4.9 KB. `Slice` is now a reserved name.
@@ -21,7 +22,7 @@
 
 ### Added
 
-- `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.to_string`, so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
+- `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.toString` (`to_string` in Rust), so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
 - `///` (and `/** */`) comments carry over as JSDoc: on structs and enums, struct fields, each variant's constructor, functions, methods, consts, and aliases. Before, every doc comment was dropped.
 
 ### Fixed

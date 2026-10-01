@@ -2,7 +2,7 @@
 
 import { Int, Slice, type I32, type U32, type U8, type Usize } from "./purecrate-runtime.ts";
 import { SHA1_LEN } from "./consts.ts";
-import { digit_modulus } from "./digit-modulus.ts";
+import { digitModulus } from "./digit-modulus.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
 /**
@@ -10,7 +10,7 @@ import type { OtpDigits } from "./otp-digits.ts";
  * offset = low 4 bits of the last byte, take 31 bits at offset,
  * then mod 10^digits. None for a MAC shorter than SHA-1's 20 bytes.
  */
-export const truncate_mac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
+export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
   const n: Usize = (mac.length) as Usize;
   if (n < SHA1_LEN) return null;
   const offset: Usize = Int.u8.and(
@@ -33,5 +33,5 @@ export const truncate_mac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | n
     ),
     (Slice.at(mac, Int.usize.add(offset, (3 as Usize))) as number as U32),
   );
-  return Int.u32.rem(bin, digit_modulus(digits));
+  return Int.u32.rem(bin, digitModulus(digits));
 };

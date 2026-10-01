@@ -26,9 +26,9 @@ export type AuthorizationRequest = Readonly<{
 export const AuthorizationRequest$of = (fields: Readonly<{ client_id: string; redirect_uri: string; scope: string; state: string; nonce: string | null; pkce: Pkce | null; prompt: Prompt; max_age: I64 | null; wants_mfa: boolean }>): AuthorizationRequest => fields as AuthorizationRequest;
 
 export const AuthorizationRequest = {
-  client_id: (self: AuthorizationRequest): string => self.client_id,
-  redirect_uri: (self: AuthorizationRequest): string => self.redirect_uri,
+  clientId: (self: AuthorizationRequest): string => self.client_id,
+  redirectUri: (self: AuthorizationRequest): string => self.redirect_uri,
   scope: (self: AuthorizationRequest): string => self.scope,
   state: (self: AuthorizationRequest): string => self.state,
-  wants_mfa: (self: AuthorizationRequest): boolean => self.wants_mfa,
+  wantsMfa: (self: AuthorizationRequest): boolean => self.wants_mfa,
 } as const;

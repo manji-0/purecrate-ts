@@ -4,7 +4,7 @@ import { assertNever, Ord } from "./purecrate-runtime.ts";
 import type { Ordering } from "./ordering.ts";
 import type { PreId } from "./pre-id.ts";
 
-export const compare_pre_id = (a: PreId, b: PreId): Ordering => {
+export const comparePreId = (a: PreId, b: PreId): Ordering => {
   switch (a.kind) {
     case "Numeric": {
       const x = a.content[0];

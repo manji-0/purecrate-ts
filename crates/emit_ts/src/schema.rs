@@ -295,7 +295,7 @@ fn declare(schema: WireSchema, name: &str, expr: &str, recursive: bool) -> Strin
 fn try_from_error(krate: &Crate, s: &Struct) -> bool {
     s.wire_from.is_some()
         && krate.items.iter().any(|item| match item {
-            Item::Fn(f) if f.owner.as_ref() == Some(&s.name) && f.name.as_str() == "try_from" => match &f.ret {
+            Item::Fn(f) if f.owner.as_ref() == Some(&s.name) && f.name.as_str() == "tryFrom" => match &f.ret {
                 Ty::Result { err, .. } => match &**err {
                     Ty::Named(e) => krate.items.iter().any(|i| matches!(i, Item::Enum(en) if en.name == *e)),
                     _ => false,
@@ -377,7 +377,7 @@ fn try_from_message(name: &str, error_enum: bool) -> String {
     }
 }
 
-/// `#[serde(try_from = "T")]`: read `T`, then `S.try_from`; `Err` fails the
+/// `#[serde(try_from = "T")]`: read `T`, then `S.tryFrom`; `Err` fails the
 /// read, as serde fails deserialization (design/04 §5). The value comes
 /// only from the checked constructor, so a closed type keeps its invariant.
 fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, error_enum: bool) -> String {
@@ -390,7 +390,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, e
             name,
             &format!(
                 "{from}.transform((v, ctx): {name}$ => {{\n\
-                 \x20 const r = {name}$value.try_from(v);\n\
+                 \x20 const r = {name}$value.tryFrom(v);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
                  \x20   ctx.addIssue({{ code: \"custom\", message: {message}, input: v, params: {{ error: r.error }} }});\n\
                  \x20   return z.NEVER;\n\
@@ -405,7 +405,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, e
             name,
             &format!(
                 "v.pipe({from}, v.rawTransform(({{ dataset, addIssue, NEVER }}): {name}$ => {{\n\
-                 \x20 const r = {name}$value.try_from(dataset.value);\n\
+                 \x20 const r = {name}$value.tryFrom(dataset.value);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
                  \x20   addIssue({{ message: {message} }});\n\
                  \x20   return NEVER;\n\
@@ -420,7 +420,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, e
              export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
              \x20 const parsed = {name}$wire()(v);\n\
              \x20 if (parsed instanceof type.errors) return fail(ctx, parsed);\n\
-             \x20 const r = {name}$value.try_from(parsed);\n\
+             \x20 const r = {name}$value.tryFrom(parsed);\n\
              \x20 if (r.kind === \"Err\") return ctx.error({message}) as never;\n\
              \x20 return r.value;\n\
              }});\n"

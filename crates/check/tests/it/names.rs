@@ -103,3 +103,14 @@ fn companion_members_are_distinct() {
         "`S.f` is defined more than once",
     );
 }
+
+#[test]
+fn names_are_checked_as_ts_spells_them() {
+    // `parse_json` prints as `parseJson`, which the package exports.
+    assert_rejects("pub fn parse_json(n: i32) -> i32 { n }", "is reserved by the generated package");
+    assert_rejects("pub fn f(assert_never: i32) -> i32 { assert_never }", "shadows a name the generated code uses");
+    assert_rejects(
+        "pub struct S { pub n: i32 }\nimpl S {\n    pub fn get_n(&self) -> i32 { self.n }\n    #[allow(non_snake_case)]\n    pub fn getN(&self) -> i32 { self.n }\n}",
+        "would both be `S.getN` in TS",
+    );
+}

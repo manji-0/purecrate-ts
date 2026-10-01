@@ -4,7 +4,7 @@ import { assertNever } from "./purecrate-runtime.ts";
 import type { ErrorCode } from "./error-code.ts";
 
 /** The wire value of an error code. */
-export const error_code_wire = (code: ErrorCode): string => {
+export const errorCodeWire = (code: ErrorCode): string => {
   switch (code.kind) {
     case "InvalidRequest":
       return "invalid_request";

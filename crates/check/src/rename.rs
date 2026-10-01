@@ -2,10 +2,19 @@
 //! function uses. Rust shadowing then survives both TS block scoping (no
 //! duplicate `const`) and statement lowering, where a `let` target and an arm
 //! binding of the same name meet in one scope.
+//!
+//! Every function, method, `const`, parameter, and local gets its TS
+//! spelling here too, `to_camel` (`compare_pre_ids` → `comparePreIds`), so a
+//! local whose spelling meets another's is told apart like a shadowed one.
+//! Fields, types, and variants keep their names: a field is the JSON key.
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, VariantBind};
+use purecrate_ir::{to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, VariantBind};
+
+fn camel(n: &Name) -> Name {
+    Name::new(to_camel(n.as_str()))
+}
 
 pub fn rename(krate: Crate) -> Crate {
     let items: Vec<String> = krate
@@ -18,7 +27,11 @@ pub fn rename(krate: Crate) -> Crate {
         .items
         .into_iter()
         .map(|item| match item {
-            Item::Fn(f) => Item::Fn(rename_fn(f, &items)),
+            Item::Fn(f) => {
+                let f = rename_fn(f, &items);
+                Item::Fn(Fn { name: camel(&f.name), ..f })
+            }
+            Item::Const(c) => Item::Const(purecrate_ir::Const { name: camel(&c.name), ..c }),
             other => other,
         })
         .collect();
@@ -30,7 +43,7 @@ pub fn rename(krate: Crate) -> Crate {
 fn rename_fn(f: Fn, items: &[String]) -> Fn {
     let mut r = Renamer::default();
     items.iter().for_each(|n| {
-        r.claim(n);
+        r.claim(&to_camel(n));
     });
     let mut env = Env::new();
     let params = f
@@ -68,7 +81,7 @@ impl Renamer {
     }
 
     fn bind(&mut self, name: &Name, env: &mut Env) -> Name {
-        let printed = self.claim(name.as_str());
+        let printed = self.claim(&to_camel(name.as_str()));
         env.insert(name.as_str().to_string(), printed.clone());
         printed
     }
@@ -111,7 +124,8 @@ impl Renamer {
     fn expr(&mut self, e: Expr, env: &Env) -> Expr {
         match e {
             Expr::At { .. } => unreachable!("`accept` removes positions before renaming"),
-            Expr::Var(n) => Expr::Var(env.get(n.as_str()).cloned().unwrap_or(n)),
+            // Not bound here: a function or a `const`.
+            Expr::Var(n) => Expr::Var(env.get(n.as_str()).cloned().unwrap_or_else(|| camel(&n))),
             Expr::Let {
                 name,
                 mutable,
@@ -178,11 +192,15 @@ impl Renamer {
                 callee: Callee::Local(n),
                 args,
             } => Expr::Call {
-                callee: Callee::Local(env.get(n.as_str()).cloned().unwrap_or(n)),
+                callee: Callee::Local(env.get(n.as_str()).cloned().unwrap_or_else(|| camel(&n))),
                 args: self.all(args, env),
             },
             Expr::Call { callee, args } => Expr::Call {
-                callee,
+                callee: match callee {
+                    Callee::Fn(n) => Callee::Fn(camel(&n)),
+                    Callee::Method { ty, name } => Callee::Method { ty, name: camel(&name) },
+                    other => other,
+                },
                 args: self.all(args, env),
             },
             Expr::Closure { params, ret, body } => {

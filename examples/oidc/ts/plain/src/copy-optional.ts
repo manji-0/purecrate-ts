@@ -4,7 +4,7 @@
  * Rust's `clone` is outside the subset; strings are rebuilt with
  * `String::from`.
  */
-export const copy_optional = (s: string | null): string | null => {
+export const copyOptional = (s: string | null): string | null => {
   if (s !== null) {
     const v = s;
     return v;

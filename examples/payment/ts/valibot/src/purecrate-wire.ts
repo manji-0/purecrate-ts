@@ -19,7 +19,7 @@ import type { Event as Event$ } from "./event.ts";
 import type { PaymentError as PaymentError$ } from "./payment-error.ts";
 
 export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Amount$ => {
-  const r = Amount$value.try_from(dataset.value);
+  const r = Amount$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
     addIssue({ message: `Amount: ${r.error.kind}` });
     return NEVER;
@@ -28,7 +28,7 @@ export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransf
 }));
 
 export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
-  const r = PaymentMethodId$value.try_from(dataset.value);
+  const r = PaymentMethodId$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
     addIssue({ message: `PaymentMethodId: ${r.error.kind}` });
     return NEVER;

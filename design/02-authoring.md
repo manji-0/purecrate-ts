@@ -134,7 +134,7 @@ Rules:
 
 1. The defined name is the public name. `pub use a::B as C` is rejected: it would export a name the item does not have.
 2. Two types or two free functions with the same name are rejected, listing both paths. This includes non-public items reached from the public surface. Nothing is auto-prefixed.
-3. Names that are Rust keywords or TS reserved words are rejected, not renamed.
+3. Functions, methods, consts, parameters, and locals print in camelCase: an `_` between a letter or digit and a lowercase letter goes and the letter is raised (`compare_pre_ids` → `comparePreIds`; `_unused`, `type_`, `a_1`, and UPPER_SNAKE consts stay). Fields, types, and variants keep the Rust name: a field is the JSON key serde writes. Names that are Rust keywords or TS reserved words, or that print as one or as a name the package defines (`parse_json` → `parseJson`), are rejected, not renamed; so are two methods of one type that print alike (`get_n`, `getN`).
 4. Methods live in companions (`State.apply`) and do not collide with a free `apply`.
 5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)).
 
@@ -173,7 +173,7 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | associated consts in `impl` blocks | a crate-level `const` |
 | trait definitions and trait impls | none, except the three rows below |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
-| `impl Display` writing a fixed text per value | translated: becomes the method `X.to_string` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
+| `impl Display` writing a fixed text per value | translated: becomes the method `X.toString` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
 | any other `impl Display`, `impl std::error::Error` | skipped |
 
 Why the others are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and a `Display` that formats arguments has no translation in v0.

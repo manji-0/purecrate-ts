@@ -58,7 +58,7 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 - `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a string needle, slices `&s[a..b]` at byte positions, string contents through `s.as_bytes()`
 - structs with private fields stay closed: TS gets values only from your public constructors
 - modules, inline or in files: flattened, with exports following Rust's public surface
-- `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Display` / `Error` are allowed and not translated
+- `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Error` is allowed and not translated, and an `impl Display` writing a fixed text becomes `to_string` (`toString` in TS)
 
 There is no decimal type. Write money as an integer newtype in the smallest unit (`struct Yen(i64)`). For the full rules, see [design/02](design/02-authoring.md). For what TS callers must observe, see [design/03 §5](design/03-output.md#5-caller-contract).
 

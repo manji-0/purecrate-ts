@@ -5,7 +5,7 @@ import type { Lines } from "./lines.ts";
 import type { OrderError } from "./order-error.ts";
 import type { Sku } from "./sku.ts";
 
-export const remove_sku = (lines: Lines, sku: Sku): Result<Lines, OrderError> => {
+export const removeSku = (lines: Lines, sku: Sku): Result<Lines, OrderError> => {
   switch (lines.kind) {
     case "Nil":
       return Result.err({ kind: "UnknownSku" });
@@ -15,7 +15,7 @@ export const remove_sku = (lines: Lines, sku: Sku): Result<Lines, OrderError> =>
       if (head.sku === sku) {
         return Result.ok(rest);
       } else {
-        const $v_rest$1 = remove_sku(rest, sku);
+        const $v_rest$1 = removeSku(rest, sku);
         if ($v_rest$1.kind === "Err") return $v_rest$1;
         const rest$1: Lines = $v_rest$1.value;
         return Result.ok({ kind: "Cons", content: [head, rest$1] });

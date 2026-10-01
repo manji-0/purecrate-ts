@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use purecrate_ir::{Crate, Expr, Item, Name, Reason, VariantFields, PROTO_KEY, TS_GLOBALS};
+use purecrate_ir::{to_camel, Crate, Expr, Item, Name, Reason, VariantFields, PROTO_KEY, TS_GLOBALS};
 
 use crate::Diagnostic;
 
@@ -53,7 +53,12 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
     for (i, item) in krate.items.iter().enumerate().filter(|(_, it)| is_top_level(it)) {
         let name = item.name().as_str();
         let stem = item.file_stem();
-        if is_generated(name) {
+        // A function or const prints as its `to_camel` spelling (`check::rename`).
+        let printed = match item {
+            Item::Fn(_) | Item::Const(_) => to_camel(name),
+            _ => name.to_string(),
+        };
+        if is_generated(&printed) {
             out.push(Diagnostic::at(
                 i, Reason::ReservedName,
                 format!("`{name}` is reserved by the generated package"),
@@ -109,11 +114,14 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
             _ => {}
         }
     }
-    let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
+    let mut seen: HashMap<(&str, String), usize> = HashMap::new();
     for (i, item) in krate.items.iter().enumerate() {
         let Item::Fn(f) = item else { continue };
         let Some(owner) = &f.owner else { continue };
-        let (owner, name) = (owner.as_str(), f.name.as_str());
+        let (owner, rust) = (owner.as_str(), f.name.as_str());
+        // A method prints as its `to_camel` spelling (`check::rename`).
+        let printed = to_camel(rust);
+        let name = printed.as_str();
         if name == PROTO_KEY {
             out.push(Diagnostic::at(
                 i, Reason::ReservedName,
@@ -124,13 +132,16 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
                 i, Reason::NameCollision,
                 format!("method `{owner}.{name}` collides with the generated companion member `{name}`"),
             ));
-        } else if let Some(&first) = seen.get(&(owner, name)) {
-            out.push(
-                Diagnostic::at(i, Reason::NameCollision, format!("method `{owner}.{name}` is defined more than once"))
-                    .also(first),
-            );
+        } else if let Some(&first) = seen.get(&(owner, printed.clone())) {
+            let other = krate.items[first].name().as_str();
+            let message = if other == rust {
+                format!("method `{owner}.{rust}` is defined more than once")
+            } else {
+                format!("methods `{owner}.{other}` and `{owner}.{rust}` would both be `{owner}.{name}` in TS")
+            };
+            out.push(Diagnostic::at(i, Reason::NameCollision, message).also(first));
         } else {
-            seen.insert((owner, name), i);
+            seen.insert((owner, printed.clone()), i);
         }
     }
 }
@@ -143,7 +154,12 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
         ));
     };
     let mut ident = |what: &str, name: &Name| {
-        let s = name.as_str();
+        // Functions, consts, parameters, and bindings print as `to_camel`.
+        let printed = match what {
+            "field" | "variant" | "type" => name.as_str().to_string(),
+            _ => to_camel(name.as_str()),
+        };
+        let s = printed.as_str();
         if s == PROTO_KEY && matches!(what, "field" | "variant") {
             bad(what, name, "would set the prototype of the emitted object literal");
         } else if what == "variant" {

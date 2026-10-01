@@ -31,6 +31,6 @@ fn display_with_arguments_is_skipped() {
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
-    assert!(file("fixed").contains("to_string: (self: Fixed): string =>"), "{}", file("fixed"));
-    assert!(!file("formatted").contains("to_string"), "{}", file("formatted"));
+    assert!(file("fixed").contains("toString: (self: Fixed): string =>"), "{}", file("fixed"));
+    assert!(!file("formatted").contains("toString"), "{}", file("formatted"));
 }

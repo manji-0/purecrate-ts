@@ -2,4 +2,4 @@
 
 import { type U8 } from "./purecrate-runtime.ts";
 
-export const is_upper = (b: U8): boolean => b >= (65 as U8) && b <= (90 as U8);
+export const isUpper = (b: U8): boolean => b >= (65 as U8) && b <= (90 as U8);

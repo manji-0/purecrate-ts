@@ -144,13 +144,13 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "ProcessingFailed":
           return Result.err({ kind: "InvalidTransition" });
         case "Capture": {
-          const amount_to_capture = event.amount_to_capture;
-          const application_fee = event.application_fee;
-          if ((amount_to_capture !== null) && ((amount_to_capture < (1n as I64)) || (amount_to_capture > capturable))) return Result.err({ kind: "InvalidCaptureAmount", capturable });
-          if ((application_fee !== null) && (application_fee < (0n as I64))) return Result.err({ kind: "NegativeApplicationFee" });
+          const amountToCapture = event.amount_to_capture;
+          const applicationFee = event.application_fee;
+          if ((amountToCapture !== null) && ((amountToCapture < (1n as I64)) || (amountToCapture > capturable))) return Result.err({ kind: "InvalidCaptureAmount", capturable });
+          if ((applicationFee !== null) && (applicationFee < (0n as I64))) return Result.err({ kind: "NegativeApplicationFee" });
           let received: I64;
           {
-            const $opt8 = amount_to_capture as I64 | null;
+            const $opt8 = amountToCapture as I64 | null;
             const $arg10: I64 = capturable;
             if ($opt8 !== null) {
               const $some9 = $opt8;
@@ -162,8 +162,8 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           status = {
             kind: "Succeeded",
             received,
-            application_fee: ((application_fee !== null) ? Int.i64.min(
-              application_fee,
+            application_fee: ((applicationFee !== null) ? Int.i64.min(
+              applicationFee,
               received,
             ) : null),
           };

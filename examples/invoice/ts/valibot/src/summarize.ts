@@ -12,20 +12,20 @@ export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
   if (invoice.lines.length === 0) return Result.err({ kind: "NoLines" });
   const standard: Group = taxed(invoice, { kind: "Standard" }, false);
   const reduced: Group = taxed(invoice, { kind: "Reduced" }, false);
-  const standard_inclusive: Group = taxed(invoice, { kind: "Standard" }, true);
-  const reduced_inclusive: Group = taxed(invoice, { kind: "Reduced" }, true);
+  const standardInclusive: Group = taxed(invoice, { kind: "Standard" }, true);
+  const reducedInclusive: Group = taxed(invoice, { kind: "Reduced" }, true);
   const total: I64 = Int.i64.add(
     Int.i64.add(
       Int.i64.add(Int.i64.add(Int.i64.add(standard.base, standard.tax), reduced.base), reduced.tax),
-      standard_inclusive.base,
+      standardInclusive.base,
     ),
-    reduced_inclusive.base,
+    reducedInclusive.base,
   );
   return Result.ok({
     standard,
     reduced,
-    standard_inclusive,
-    reduced_inclusive,
+    standard_inclusive: standardInclusive,
+    reduced_inclusive: reducedInclusive,
     total: Yen$of(total),
   });
 };

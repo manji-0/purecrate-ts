@@ -15,7 +15,7 @@ import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
 
 export const Yen: z.ZodType<Yen$, unknown> = i64.transform((v, ctx): Yen$ => {
-  const r = Yen$value.try_from(v);
+  const r = Yen$value.tryFrom(v);
   if (r.kind === "Err") {
     ctx.addIssue({ code: "custom", message: `Yen: ${r.error.kind}`, input: v, params: { error: r.error } });
     return z.NEVER;

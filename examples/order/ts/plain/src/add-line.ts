@@ -4,7 +4,7 @@ import { assertNever, Int } from "./purecrate-runtime.ts";
 import type { Line } from "./line.ts";
 import type { Lines } from "./lines.ts";
 
-export const add_line = (lines: Lines, line: Line): Lines => {
+export const addLine = (lines: Lines, line: Line): Lines => {
   switch (lines.kind) {
     case "Nil":
       return { kind: "Cons", content: [line, { kind: "Nil" }] };
@@ -15,7 +15,7 @@ export const add_line = (lines: Lines, line: Line): Lines => {
         const merged: Line = { ...head, qty: Int.u32.add(head.qty, line.qty) };
         return { kind: "Cons", content: [merged, rest] };
       } else {
-        return { kind: "Cons", content: [head, add_line(rest, line)] };
+        return { kind: "Cons", content: [head, addLine(rest, line)] };
       }
     }
     default:

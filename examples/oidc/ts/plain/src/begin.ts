@@ -2,9 +2,9 @@
 
 import { Result, type I64, type U32 } from "./purecrate-runtime.ts";
 import { issue } from "./issue.ts";
-import { redirect_error } from "./redirect-error.ts";
-import { session_is_usable } from "./session-is-usable.ts";
-import { validate_request } from "./validate-request.ts";
+import { redirectError } from "./redirect-error.ts";
+import { sessionIsUsable } from "./session-is-usable.ts";
+import { validateRequest } from "./validate-request.ts";
 import type { Authentication } from "./authentication.ts";
 import type { AuthorizationError } from "./authorization-error.ts";
 import type { AuthorizationParams } from "./authorization-params.ts";
@@ -22,16 +22,16 @@ export const begin = (
   params: AuthorizationParams,
   client: Client | null,
   session: Session | null,
-  consent_on_file: boolean,
+  consentOnFile: boolean,
   now: I64,
 ): Result<Flow, AuthorizationError> => {
-  const $v_request = validate_request(params, client);
+  const $v_request = validateRequest(params, client);
   if ($v_request.kind === "Err") return $v_request;
   const request: AuthorizationRequest = $v_request.value;
   let reusable: Authentication | null;
   if (session !== null) {
     const s = session;
-    reusable = session_is_usable(request, s, now) ? {
+    reusable = sessionIsUsable(request, s, now) ? {
       subject: s.subject,
       auth_time: s.auth_time,
       strength: s.strength,
@@ -40,15 +40,15 @@ export const begin = (
   } else {
     reusable = null;
   }
-  const needs_consent: boolean = request.prompt.consent || !consent_on_file;
+  const needsConsent: boolean = request.prompt.consent || !consentOnFile;
   const state: string | null = request.state;
-  const refuse: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirect_error(request.redirect_uri, error, state);
+  const refuse: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirectError(request.redirect_uri, error, state);
   if (reusable !== null) {
     const auth = reusable;
-    if (request.prompt.no_interaction && needs_consent) {
+    if (request.prompt.no_interaction && needsConsent) {
       return Result.err(refuse({ kind: "ConsentRequired" }));
     } else {
-      if (!needs_consent) {
+      if (!needsConsent) {
         return Result.ok(issue(request, auth));
       } else {
         const auth$1 = auth as Authentication;

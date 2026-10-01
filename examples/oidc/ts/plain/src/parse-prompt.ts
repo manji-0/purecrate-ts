@@ -7,25 +7,25 @@ import type { Prompt } from "./prompt.ts";
  * Parses `prompt`. Unknown values and `none` combined with anything else
  * are invalid_request (OIDC Core §3.1.2.1).
  */
-export const parse_prompt = (s: string): Prompt | null => {
-  let no_interaction: boolean = false;
+export const parsePrompt = (s: string): Prompt | null => {
+  let noInteraction: boolean = false;
   let login: boolean = false;
   let consent: boolean = false;
-  let select_account: boolean = false;
+  let selectAccount: boolean = false;
   for (const token of s.split((" " as Char))) {
     if (token === "none") {
-      no_interaction = true;
+      noInteraction = true;
     } else if (token === "login") {
       login = true;
     } else if (token === "consent") {
       consent = true;
     } else if (token === "select_account") {
-      select_account = true;
+      selectAccount = true;
     } else if (token === "") {
     } else {
       return null;
     }
   }
-  if (no_interaction && ((login || consent) || select_account)) return null;
-  return { no_interaction, login, consent, select_account };
+  if (noInteraction && ((login || consent) || selectAccount)) return null;
+  return { no_interaction: noInteraction, login, consent, select_account: selectAccount };
 };

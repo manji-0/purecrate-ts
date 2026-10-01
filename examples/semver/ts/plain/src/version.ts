@@ -12,9 +12,9 @@ import {
   type U8,
   type Usize,
 } from "./purecrate-runtime.ts";
-import { parse_build_ids } from "./parse-build-ids.ts";
-import { parse_core_number } from "./parse-core-number.ts";
-import { parse_pre_ids } from "./parse-pre-ids.ts";
+import { parseBuildIds } from "./parse-build-ids.ts";
+import { parseCoreNumber } from "./parse-core-number.ts";
+import { parsePreIds } from "./parse-pre-ids.ts";
 import type { BuildIds } from "./build-ids.ts";
 import type { PreIds } from "./pre-ids.ts";
 import type { SemverError } from "./semver-error.ts";
@@ -61,15 +61,15 @@ export const Version = {
     let n: U32 = 0 as U32;
     for (const piece of core.split(("." as Char))) {
       if (n === (0 as U32)) {
-        const $q1 = parse_core_number(piece, { kind: "Major" });
+        const $q1 = parseCoreNumber(piece, { kind: "Major" });
         if ($q1.kind === "Err") return $q1;
         major = $q1.value;
       } else if (n === (1 as U32)) {
-        const $q2 = parse_core_number(piece, { kind: "Minor" });
+        const $q2 = parseCoreNumber(piece, { kind: "Minor" });
         if ($q2.kind === "Err") return $q2;
         minor = $q2.value;
       } else if (n === (2 as U32)) {
-        const $q3 = parse_core_number(piece, { kind: "Patch" });
+        const $q3 = parseCoreNumber(piece, { kind: "Patch" });
         if ($q3.kind === "Err") return $q3;
         patch = $q3.value;
       } else {
@@ -92,7 +92,7 @@ export const Version = {
     let pre: PreIds;
     if (dash !== null) {
       const i$2 = dash;
-      const $q4 = parse_pre_ids(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
+      const $q4 = parsePreIds(Str.slice(rest, Int.usize.add(i$2, (1 as Usize))));
       if ($q4.kind === "Err") return $q4;
       pre = $q4.value;
     } else {
@@ -101,7 +101,7 @@ export const Version = {
     let build: BuildIds;
     if (plus !== null) {
       const i$3 = plus;
-      const $q5 = parse_build_ids(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
+      const $q5 = parseBuildIds(Str.slice(s, Int.usize.add(i$3, (1 as Usize))));
       if ($q5.kind === "Err") return $q5;
       build = $q5.value;
     } else {
@@ -112,9 +112,9 @@ export const Version = {
   major: (self: Version): U64 => self.major,
   minor: (self: Version): U64 => self.minor,
   patch: (self: Version): U64 => self.patch,
-  pre_release: (self: Version): PreIds => self.pre,
-  build_metadata: (self: Version): BuildIds => self.build,
-  is_pre_release: (self: Version): boolean => !(() => {
+  preRelease: (self: Version): PreIds => self.pre,
+  buildMetadata: (self: Version): BuildIds => self.build,
+  isPreRelease: (self: Version): boolean => !(() => {
     switch (self.pre.kind) {
       case "Nil":
         return true;

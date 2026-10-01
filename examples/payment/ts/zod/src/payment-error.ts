@@ -24,9 +24,9 @@ export const PaymentError = {
   InvalidTransition: (): PaymentError => ({ kind: "InvalidTransition" }),
   /**
    * For the server's logs and serde's `try_from` errors; the client gets the
-   * same text from `PaymentError.to_string`.
+   * same text from `PaymentError.toString`.
    */
-  to_string: (self: PaymentError): string => {
+  toString: (self: PaymentError): string => {
     switch (self.kind) {
       case "AmountOutOfRange":
         return "amount must be 50 to 99999999";

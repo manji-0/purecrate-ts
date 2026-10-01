@@ -7,7 +7,7 @@ import { MAX_SECONDS_DIGITS } from "./consts.ts";
  * A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
  * At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
  */
-export const parse_seconds = (s: string): I64 | null => {
+export const parseSeconds = (s: string): I64 | null => {
   if (((s.length === 0) || (Str.len(s) > MAX_SECONDS_DIGITS)) || !Iter.all(
     Str.bytes(s),
     ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),

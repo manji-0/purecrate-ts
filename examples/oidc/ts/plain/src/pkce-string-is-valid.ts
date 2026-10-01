@@ -8,4 +8,4 @@ import { PKCE_MIN_LEN } from "./consts.ts";
  * RFC 7636 §4.1 / §4.2: 43..=128 characters of
  * unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
  */
-export const pkce_string_is_valid = (s: string): boolean => ((Str.len(s) >= PKCE_MIN_LEN) && (Str.len(s) <= PKCE_MAX_LEN)) && Iter.all(Str.bytes(s), ((b: U8): boolean => (b >= (65 as U8) && b <= (90 as U8)) || (b >= (97 as U8) && b <= (122 as U8)) || (b >= (48 as U8) && b <= (57 as U8)) || b === (45 as U8) || b === (46 as U8) || b === (95 as U8) || b === (126 as U8)));
+export const pkceStringIsValid = (s: string): boolean => ((Str.len(s) >= PKCE_MIN_LEN) && (Str.len(s) <= PKCE_MAX_LEN)) && Iter.all(Str.bytes(s), ((b: U8): boolean => (b >= (65 as U8) && b <= (90 as U8)) || (b >= (97 as U8) && b <= (122 as U8)) || (b >= (48 as U8) && b <= (57 as U8)) || b === (45 as U8) || b === (46 as U8) || b === (95 as U8) || b === (126 as U8)));
