@@ -4,15 +4,9 @@ import type { Line } from "./line.ts";
 
 export type Lines =
   | Readonly<{ kind: "Nil" }>
-  | Readonly<{ kind: "Cons"; content: readonly [
-    Line,
-    /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ Lines,
-  ] }>;
+  | Readonly<{ kind: "Cons"; content: readonly [Line, /* Box */ Lines] }>;
 
 export const Lines = {
   Nil: (): Lines => ({ kind: "Nil" }),
-  Cons: (
-    _0: Line,
-    _1: /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ Lines,
-  ): Lines => ({ kind: "Cons", content: [_0, _1] }),
+  Cons: (_0: Line, _1: /* Box */ Lines): Lines => ({ kind: "Cons", content: [_0, _1] }),
 } as const;

@@ -3,15 +3,9 @@
 /** Dot-separated build identifiers, in order. */
 export type BuildIds =
   | Readonly<{ kind: "Nil" }>
-  | Readonly<{ kind: "Cons"; content: readonly [
-    string,
-    /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ BuildIds,
-  ] }>;
+  | Readonly<{ kind: "Cons"; content: readonly [string, /* Box */ BuildIds] }>;
 
 export const BuildIds = {
   Nil: (): BuildIds => ({ kind: "Nil" }),
-  Cons: (
-    _0: string,
-    _1: /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ BuildIds,
-  ): BuildIds => ({ kind: "Cons", content: [_0, _1] }),
+  Cons: (_0: string, _1: /* Box */ BuildIds): BuildIds => ({ kind: "Cons", content: [_0, _1] }),
 } as const;

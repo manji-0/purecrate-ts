@@ -17,22 +17,10 @@ export const parse_build_ids = (s: string): Result<BuildIds, SemverError> => {
     const $v_tail = parse_build_ids(Str.slice(s, Int.usize.add(i, (1 as Usize))));
     if ($v_tail.kind === "Err") return $v_tail;
     const tail: BuildIds = $v_tail.value;
-    return Result.ok({
-      kind: "Cons",
-      content: [
-        head,
-        /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ tail,
-      ],
-    });
+    return Result.ok({ kind: "Cons", content: [head, tail] });
   } else {
     const $q1 = parse_build_id(s);
     if ($q1.kind === "Err") return $q1;
-    return Result.ok({
-      kind: "Cons",
-      content: [
-        $q1.value,
-        /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ { kind: "Nil" },
-      ],
-    });
+    return Result.ok({ kind: "Cons", content: [$q1.value, { kind: "Nil" }] });
   }
 };

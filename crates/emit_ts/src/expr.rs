@@ -92,9 +92,9 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
             format!("readonly [{inner}]")
         }
         Ty::Named(n) => n.as_str().to_string(),
-        Ty::Ignored { wrapper, inner } => {
-            format!("/* {} */ {}", wrapper.comment(), emit_ty(inner))
-        }
+        // The type says what Rust wrapped (design/03 §2 says why it is gone);
+        // a `Box::new(x)` in an expression is just `x`.
+        Ty::Ignored { wrapper, inner } => format!("/* {} */ {}", wrapper.rust_name(), emit_ty(inner)),
         Ty::Fn { params, ret } => {
             let params = params
                 .iter()
@@ -111,9 +111,7 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
 pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
     match expr {
         Expr::At { .. } => unreachable!("emit takes `check::accept` output, which has no positions"),
-        Expr::Ignored { wrapper, expr } => {
-            format!("/* {} */ {}", wrapper.comment(), emit_expr(expr, indent))
-        }
+        Expr::Ignored { expr, .. } => emit_expr(expr, indent),
         Expr::Lit(lit) => emit_lit(lit),
         Expr::Var(n) => n.as_str().to_string(),
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),

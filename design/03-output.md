@@ -37,7 +37,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
 | `(A, B)` | `readonly [A, B]` |
-| `Box<T>`, `Arc<T>`, `Mutex<T>` | `T`, with a comment |
+| `Box<T>`, `Arc<T>`, `Mutex<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads, `Mutex` exclusion between threads: a single-threaded program with values never mutated observes none of them |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |
 | newtype `S(T)` | `T & { readonly [SBrand]: true }` |
 | `enum` | `kind` union + companion |

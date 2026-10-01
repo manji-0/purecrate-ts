@@ -5,15 +5,9 @@ import type { PreId } from "./pre-id.ts";
 /** Dot-separated pre-release identifiers, in order. */
 export type PreIds =
   | Readonly<{ kind: "Nil" }>
-  | Readonly<{ kind: "Cons"; content: readonly [
-    PreId,
-    /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ PreIds,
-  ] }>;
+  | Readonly<{ kind: "Cons"; content: readonly [PreId, /* Box */ PreIds] }>;
 
 export const PreIds = {
   Nil: (): PreIds => ({ kind: "Nil" }),
-  Cons: (
-    _0: PreId,
-    _1: /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ PreIds,
-  ): PreIds => ({ kind: "Cons", content: [_0, _1] }),
+  Cons: (_0: PreId, _1: /* Box */ PreIds): PreIds => ({ kind: "Cons", content: [_0, _1] }),
 } as const;

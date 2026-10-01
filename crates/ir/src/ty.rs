@@ -214,20 +214,6 @@ impl Wrapper {
         }
     }
 
-    /// Placed on the generated type or expression that used to be this wrapper.
-    pub fn comment(self) -> &'static str {
-        match self {
-            Wrapper::Box => {
-                "In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T."
-            }
-            Wrapper::Arc => {
-                "In Rust, Arc<T> is shared ownership across threads. TS is single-threaded, so it is ignored and treated as T."
-            }
-            Wrapper::Mutex => {
-                "In Rust, Mutex<T> is mutual exclusion between threads. TS is single-threaded, so it is ignored and treated as T."
-            }
-        }
-    }
 }
 
 /// Value type. No references. `Fn` is the type of a closure; the parser

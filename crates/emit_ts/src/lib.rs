@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn erased_wrappers_keep_their_comment() {
+    fn erased_wrappers_are_named_in_types_only() {
         use purecrate_ir::{Fn, Item, Param, Vis, Wrapper};
         let share = Item::Fn(Fn {
             vis: Vis::Pub,
@@ -296,9 +296,7 @@ mod tests {
         });
         let pkg = emit(&Crate::new("wraps", vec![share]));
         let src = file(&pkg, "share");
-        assert!(src.contains(Wrapper::Box.comment()), "{src}");
-        assert!(src.contains(Wrapper::Arc.comment()), "{src}");
-        assert!(src.contains(Wrapper::Mutex.comment()), "{src}");
+        assert!(src.contains("(n: /* Mutex */ I32): /* Box */ I32 => n;"), "{src}");
     }
 
     #[test]
@@ -664,7 +662,7 @@ export const step = (state: State, event: Event): State => {
     }
 
     #[test]
-    fn object_literals_behind_a_comment_are_parenthesized() {
+    fn object_literals_inside_an_erased_wrapper_are_parenthesized() {
         use purecrate_ir::Wrapper;
         let lit = Expr::Construct {
             ty: Name::new("P"),
@@ -677,10 +675,10 @@ export const step = (state: State, event: Event): State => {
             expr: Box::new(lit.clone()),
         };
         let body = arrow_expr(&boxed, 0);
-        assert!(body.starts_with("(/* ") && body.ends_with("{ a })"), "{body}");
+        assert_eq!(body, "({ a })");
         let mut out = String::new();
         Sink::Effect.finish_expr(&boxed, 0, &mut out);
-        assert!(out.starts_with("(/* ") && out.ends_with("{ a });\n"), "{out}");
+        assert_eq!(out, "({ a });\n");
         let some = Expr::Call {
             callee: Callee::OptionSome,
             args: vec![lit],
