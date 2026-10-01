@@ -264,11 +264,11 @@ fn the_index_exports_the_runtime_the_surface_needs() {
         (file("index"), file("purecrate-runtime"))
     };
     let (plain, runtime) = index("pub fn twice(n: i32) -> i32 { n * 2 }", None);
-    assert!(plain.contains("export { Result, assertNever, Int } from"), "{plain}");
+    assert!(plain.contains("export { Result, Panic, assertNever, Int } from"), "{plain}");
     assert!(!plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"), "{plain}");
     assert!(!runtime.contains("fromU32") && !runtime.contains("export const parseJson"), "{runtime}");
     let (chars, runtime) = index("pub fn first(c: char) -> bool { c.is_ascii_digit() }", None);
-    assert!(chars.contains("export { Result, assertNever, Int, Char } from"), "{chars}");
+    assert!(chars.contains("export { Result, Panic, assertNever, Int, Char } from"), "{chars}");
     assert!(runtime.contains("fromU32"), "the whole of `Char` is kept:\n{runtime}");
     let source = "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
     let (wired, runtime) = index(source, Some(WireSchema::Zod));

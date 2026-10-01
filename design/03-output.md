@@ -16,7 +16,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Same-named companion | `export type T` + `export const T = { … } as const` |
 | Function properties, `export const f = (…) =>` | no classes, no method syntax, no `this`, no `export function` |
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
-| Expected failure is `Result` | only `assertNever` and arithmetic/index panics throw |
+| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
 | Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
 | Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; fields, types, variants, and UPPER_SNAKE consts keep the Rust name ([02 §3.3](./02-authoring.md)) |
@@ -301,7 +301,7 @@ What callers of a successfully generated package must observe.
 
 - Expected failure is a value: `Result` or `null`.
 - `undefined` means `()`, not absence.
-- Only overflow, division by zero, out-of-bounds indexing, and `assertNever` throw.
+- Overflow, division by zero, out-of-range shifts, and out-of-bounds indexing throw `Panic` (a subclass of `Error`). `message` is Rust's panic text, so `e.message` still matches a debug build. `instanceof Panic` works across copies of the runtime (`Symbol.for("purecrate.Panic")`). `assertNever` still throws a plain `Error` (`"unexpected variant"`): that is a generator bug, not a domain panic.
 
 ### 5.3 Numbers
 

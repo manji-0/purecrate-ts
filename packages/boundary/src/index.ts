@@ -20,6 +20,24 @@ export const Result = {
   isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
 } as const;
 
+/**
+ * A domain panic: overflow, division by zero, a shift out of range, or an
+ * index/slice Rust would panic on. `message` is Rust's panic text. Named
+ * `Panic` so `instanceof` works across copies of this file (`Symbol.for`).
+ */
+const PANIC = Symbol.for("purecrate.Panic");
+
+export class Panic extends Error {
+  readonly [PANIC] = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "Panic";
+  }
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return typeof value === "object" && value !== null && PANIC in (value as object);
+  }
+}
+
 /** The `default` of a `switch` that names every variant: unreachable. */
 export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
@@ -40,7 +58,7 @@ export type F64 = number & { readonly "purecrate.F64": true };
 export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
-  throw new Error(`attempt to ${what}`);
+  throw new Panic(`attempt to ${what}`);
 };
 
 const small = <T extends number>(min: number, max: number) => {
@@ -412,7 +430,7 @@ export const Slice = {
   /** `xs[i]`. */
   at: <T>(xs: ReadonlyArray<T>, i: number): T => {
     if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
-      throw new Error(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+      throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
     }
     return xs[i] as T;
   },
@@ -423,9 +441,9 @@ export const Slice = {
    * Checks the start, then the end, then their order, as Rust reports them.
    */
   range: <T>(xs: ReadonlyArray<T>, a: number | null, b: number | null): ReadonlyArray<T> => {
-    if (a !== null && a > xs.length) throw new Error(`range start index ${a} out of range for slice of length ${xs.length}`);
-    if (b !== null && b > xs.length) throw new Error(`range end index ${b} out of range for slice of length ${xs.length}`);
-    if (a !== null && b !== null && a > b) throw new Error(`slice index starts at ${a} but ends at ${b}`);
+    if (a !== null && a > xs.length) throw new Panic(`range start index ${a} out of range for slice of length ${xs.length}`);
+    if (b !== null && b > xs.length) throw new Panic(`range end index ${b} out of range for slice of length ${xs.length}`);
+    if (a !== null && b !== null && a > b) throw new Panic(`slice index starts at ${a} but ends at ${b}`);
     return xs.slice(a ?? 0, b ?? xs.length);
   },
   // #endregion
@@ -472,7 +490,7 @@ const radix = (r: U32): number =>
 // #endregion
 // #region char methods.usize str.slice
 const panicWith = (message: string): never => {
-  throw new Error(message);
+  throw new Panic(message);
 };
 // #endregion
 // #region char

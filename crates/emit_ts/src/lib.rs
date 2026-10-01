@@ -172,7 +172,7 @@ fn emit_index(krate: &Crate) -> String {
     // type. `pack` points `"purecrate"` at the package's copy of the runtime.
     // `Char` and `Uuid` go out when the public surface holds one, for a
     // caller to build or check it; `pack` adds `parseJson` with a schema.
-    let mut runtime = vec!["Result", "assertNever", "Int"];
+    let mut runtime = vec!["Result", "Panic", "assertNever", "Int"];
     if surface_holds(krate, Prim::Char) {
         runtime.push("Char");
     }

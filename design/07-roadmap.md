@@ -365,7 +365,7 @@ Users commit the generated output and check it with `check --out` in CI, so a ch
 | Public export names | functions, types, companions, `toJson` / `fromJson` keys |
 | Type shapes | `kind` unions, field names, brand keys, `Option` as `T \| null`, `Result` as `{ kind, value \| error }` |
 | Wire format | serde's default JSON, and the adapter that reads it |
-| Runtime API | `Int`, `Result`, `Str`, `Slice`, `Ord`, `Iter`, `parseJson` — names, signatures, panic messages |
+| Runtime API | `Int`, `Result`, `Panic`, `Str`, `Slice`, `Ord`, `Iter`, `parseJson` — names, signatures, panic messages |
 
 The following may change in a **patch** (formatting of generated files included). Callers must not depend on them:
 
