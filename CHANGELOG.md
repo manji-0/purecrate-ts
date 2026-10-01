@@ -17,6 +17,7 @@
 ### Docs
 
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
+- design/02 merges the duplicate "Text lists" / "A list from text" rows.
 
 - Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
 - Copied runtime and adapter files include the MIT copyright and permission notice, not only a link.
