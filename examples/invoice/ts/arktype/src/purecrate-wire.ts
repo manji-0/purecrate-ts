@@ -13,13 +13,14 @@ import type { Invoice as Invoice$ } from "./invoice.ts";
 import type { Group as Group$ } from "./group.ts";
 import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
+import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 const Yen$wire = memo(() => i64);
 export const Yen: Wire<Yen$> = type("unknown").pipe((v, ctx): Yen$ => {
   const parsed = Yen$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   const r = Yen$value.tryFrom(parsed);
-  if (r.kind === "Err") return ctx.error(`Yen: ${r.error.kind}`) as never;
+  if (r.kind === "Err") return ctx.error(`Yen: ${InvoiceError$text.toString(r.error)}`) as never;
   return r.value;
 });
 

@@ -17,11 +17,12 @@ import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
 import type { Outcome as Outcome$ } from "./outcome.ts";
 import type { Event as Event$ } from "./event.ts";
 import type { PaymentError as PaymentError$ } from "./payment-error.ts";
+import { PaymentError as PaymentError$text } from "./payment-error.ts";
 
 export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Amount$ => {
   const r = Amount$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
-    addIssue({ message: `Amount: ${r.error.kind}` });
+    addIssue({ message: `Amount: ${PaymentError$text.toString(r.error)}` });
     return NEVER;
   }
   return r.value;
@@ -30,7 +31,7 @@ export const Amount: v.GenericSchema<unknown, Amount$> = v.pipe(i64, v.rawTransf
 export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
   const r = PaymentMethodId$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
-    addIssue({ message: `PaymentMethodId: ${r.error.kind}` });
+    addIssue({ message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}` });
     return NEVER;
   }
   return r.value;

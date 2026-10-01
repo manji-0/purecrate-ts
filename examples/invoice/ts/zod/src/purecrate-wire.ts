@@ -13,11 +13,12 @@ import type { Invoice as Invoice$ } from "./invoice.ts";
 import type { Group as Group$ } from "./group.ts";
 import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
+import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 export const Yen: z.ZodType<Yen$, unknown> = i64.transform((v, ctx): Yen$ => {
   const r = Yen$value.tryFrom(v);
   if (r.kind === "Err") {
-    ctx.addIssue({ code: "custom", message: `Yen: ${r.error.kind}`, input: v, params: { error: r.error } });
+    ctx.addIssue({ code: "custom", message: `Yen: ${InvoiceError$text.toString(r.error)}`, input: v, params: { error: r.error } });
     return z.NEVER;
   }
   return r.value;

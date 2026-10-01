@@ -100,11 +100,12 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
         }
     }
     let wired: Vec<&Item> = krate.exported().filter(|i| serde(i).de).collect();
+    out.push_str(&refusal_imports(krate, &wired));
     if schema == WireSchema::Arktype {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
             match item {
-                Item::Struct(s) => out.push_str(&ark_struct(s, try_from_error(krate, s))),
+                Item::Struct(s) => out.push_str(&ark_struct(s, &refusal(krate, s))),
                 Item::Enum(e) => out.push_str(&ark_enum(e)),
                 _ => {}
             }
@@ -112,7 +113,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     } else {
         for (item, recursive) in wire_order(&wired) {
             match item {
-                Item::Struct(s) => out.push_str(&struct_schema(schema, s, recursive, try_from_error(krate, s))),
+                Item::Struct(s) => out.push_str(&struct_schema(schema, s, recursive, &refusal(krate, s))),
                 Item::Enum(e) => out.push_str(&enum_schema(schema, e.name.as_str(), &e.variants, recursive)),
                 _ => {}
             }
@@ -290,20 +291,55 @@ fn declare(schema: WireSchema, name: &str, expr: &str, recursive: bool) -> Strin
     }
 }
 
-/// When a `#[serde(try_from)]` struct's error type is an enum of the crate,
-/// its failing variant names the issue (`Amount: OutOfRange`).
-fn try_from_error(krate: &Crate, s: &Struct) -> bool {
-    s.wire_from.is_some()
-        && krate.items.iter().any(|item| match item {
-            Item::Fn(f) if f.owner.as_ref() == Some(&s.name) && f.name.as_str() == "tryFrom" => match &f.ret {
-                Ty::Result { err, .. } => match &**err {
-                    Ty::Named(e) => krate.items.iter().any(|i| matches!(i, Item::Enum(en) if en.name == *e)),
-                    _ => false,
-                },
-                _ => false,
+/// What names a refused `#[serde(try_from)]` read: the error's text when
+/// its type has `toString` (from `impl Display`, the text serde reports),
+/// else its variant when it is an enum of the crate, else the type alone.
+#[derive(Clone, PartialEq)]
+enum Refusal {
+    Type,
+    Variant,
+    /// The error type, whose `toString` gives the text.
+    Text(String),
+}
+
+fn refusal(krate: &Crate, s: &Struct) -> Refusal {
+    if s.wire_from.is_none() {
+        return Refusal::Type;
+    }
+    let err = krate.items.iter().find_map(|item| match item {
+        Item::Fn(f) if f.owner.as_ref() == Some(&s.name) && f.name.as_str() == "tryFrom" => match &f.ret {
+            Ty::Result { err, .. } => match &**err {
+                Ty::Named(e) => Some(e.clone()),
+                _ => None,
             },
-            _ => false,
-        })
+            _ => None,
+        },
+        _ => None,
+    });
+    let Some(err) = err else { return Refusal::Type };
+    let has_text = krate.items.iter().any(|i| matches!(i, Item::Fn(f) if f.owner.as_ref() == Some(&err) && f.name.as_str() == "toString"));
+    if has_text {
+        Refusal::Text(err.as_str().to_string())
+    } else if krate.items.iter().any(|i| matches!(i, Item::Enum(en) if en.name == err)) {
+        Refusal::Variant
+    } else {
+        Refusal::Type
+    }
+}
+
+/// `import { E as E$text }` for each error type whose text names a refusal.
+fn refusal_imports(krate: &Crate, wired: &[&Item]) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    for item in wired {
+        if let Item::Struct(s) = item {
+            if let Refusal::Text(err) = refusal(krate, s) {
+                seen.insert(err);
+            }
+        }
+    }
+    seen.into_iter()
+        .map(|err| format!("import {{ {err} as {err}$text }} from \"./{}.ts\";\n", purecrate_ir::Name::new(err.clone()).file_stem()))
+        .collect()
 }
 
 fn header(schema: WireSchema) -> String {
@@ -327,10 +363,10 @@ import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, s
 /// Zod and valibot. The domain value is built field by field: a schema's
 /// inferred object type makes a field that may be `undefined` optional
 /// (`unit?: undefined`), which the domain type does not accept.
-fn struct_schema(schema: WireSchema, s: &Struct, recursive: bool, error_enum: bool) -> String {
+fn struct_schema(schema: WireSchema, s: &Struct, recursive: bool, refused: &Refusal) -> String {
     let name = s.name.as_str();
     if let Some(from) = &s.wire_from {
-        return try_from_schema(schema, s, from, recursive, error_enum);
+        return try_from_schema(schema, s, from, recursive, refused);
     }
     if let Some(inner) = s.newtype_inner() {
         let value = schema_ty(schema, inner);
@@ -368,22 +404,22 @@ fn object_fields(schema: WireSchema, fields: &[purecrate_ir::Field]) -> Vec<Stri
 }
 
 /// The message of the issue a failed `try_from` raises: the type, and the
-/// error's variant when the error is an enum.
-fn try_from_message(name: &str, error_enum: bool) -> String {
-    if error_enum {
-        format!("`{name}: ${{r.error.kind}}`")
-    } else {
-        format!("\"{name}\"")
+/// error's text or variant (`refusal`).
+fn try_from_message(name: &str, refused: &Refusal) -> String {
+    match refused {
+        Refusal::Text(err) => format!("`{name}: ${{{err}$text.toString(r.error)}}`"),
+        Refusal::Variant => format!("`{name}: ${{r.error.kind}}`"),
+        Refusal::Type => format!("\"{name}\""),
     }
 }
 
 /// `#[serde(try_from = "T")]`: read `T`, then `S.tryFrom`; `Err` fails the
 /// read, as serde fails deserialization (design/04 §5). The value comes
 /// only from the checked constructor, so a closed type keeps its invariant.
-fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, error_enum: bool) -> String {
+fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, refused: &Refusal) -> String {
     let name = s.name.as_str();
     let from = schema_ty(schema, from);
-    let message = try_from_message(name, error_enum);
+    let message = try_from_message(name, refused);
     match schema {
         WireSchema::Zod => declare(
             schema,
@@ -528,10 +564,10 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
 /// on first use (`memo`), so a definition may refer to a schema declared
 /// later in the file. Variants are tried one at a time: arktype rejects an
 /// unordered union of two object morphs.
-fn ark_struct(s: &Struct, error_enum: bool) -> String {
+fn ark_struct(s: &Struct, refused: &Refusal) -> String {
     let name = s.name.as_str();
     if let Some(from) = &s.wire_from {
-        return try_from_schema(WireSchema::Arktype, s, from, false, error_enum);
+        return try_from_schema(WireSchema::Arktype, s, from, false, refused);
     }
     let (shape, build) = match s.newtype_inner() {
         Some(inner) => (schema_ty(WireSchema::Arktype, inner), newtype_build(s, "parsed")),

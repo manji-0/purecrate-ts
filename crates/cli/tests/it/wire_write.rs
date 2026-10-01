@@ -448,7 +448,7 @@ fn uuids_read_what_serde_reads() {
 /// the error being an enum, the variant it returned; zod also carries the
 /// error value itself.
 #[test]
-fn a_refused_try_from_names_its_error() {
+fn a_refused_try_from_says_what_serde_says() {
     for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
         let (import, message) = match schema {
             WireSchema::Zod => (
@@ -467,9 +467,10 @@ fn a_refused_try_from_names_its_error() {
         let script = format!("{import}import * as w from \"./src/purecrate-wire.ts\";\nconsole.log({message});\n");
         // `None` when node is skipped (PURECRATE_SKIP_NODE).
         let Some(out) = run_node_with(schema, "try-from-message", payment::SOURCE, &script) else { return };
+        // The text of the error's `impl Display`, which serde reports too.
         let want = match schema {
-            WireSchema::Zod => "Amount: AmountOutOfRange AmountOutOfRange",
-            _ => "Amount: AmountOutOfRange",
+            WireSchema::Zod => "Amount: amount must be 50 to 99999999 AmountOutOfRange",
+            _ => "Amount: amount must be 50 to 99999999",
         };
         assert!(out.contains(want), "{schema:?}: {out}");
     }

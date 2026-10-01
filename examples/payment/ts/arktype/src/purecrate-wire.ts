@@ -17,13 +17,14 @@ import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
 import type { Outcome as Outcome$ } from "./outcome.ts";
 import type { Event as Event$ } from "./event.ts";
 import type { PaymentError as PaymentError$ } from "./payment-error.ts";
+import { PaymentError as PaymentError$text } from "./payment-error.ts";
 
 const Amount$wire = memo(() => i64);
 export const Amount: Wire<Amount$> = type("unknown").pipe((v, ctx): Amount$ => {
   const parsed = Amount$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   const r = Amount$value.tryFrom(parsed);
-  if (r.kind === "Err") return ctx.error(`Amount: ${r.error.kind}`) as never;
+  if (r.kind === "Err") return ctx.error(`Amount: ${PaymentError$text.toString(r.error)}`) as never;
   return r.value;
 });
 
@@ -32,7 +33,7 @@ export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, 
   const parsed = PaymentMethodId$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   const r = PaymentMethodId$value.tryFrom(parsed);
-  if (r.kind === "Err") return ctx.error(`PaymentMethodId: ${r.error.kind}`) as never;
+  if (r.kind === "Err") return ctx.error(`PaymentMethodId: ${PaymentError$text.toString(r.error)}`) as never;
   return r.value;
 });
 

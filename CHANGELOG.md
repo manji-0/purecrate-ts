@@ -23,6 +23,7 @@
 
 ### Added
 
+- A refused `#[serde(try_from)]` read says what serde says: the error's `Display` text when it is translated (`Amount: amount must be 50 to 99999999`), instead of the variant's name (`Amount: AmountOutOfRange`), which stays when there is no text.
 - `impl Display` whose `fmt` writes a text fixed per value (`f.write_str("..")`, `write!(f, "..")` without arguments, a `match self` of those or of string literals, or `let t = <such a match>; f.write_str(t)`) becomes the method `X.toString` (`to_string` in Rust), so a TS caller shows the server's wording; `x.to_string()` in the crate calls it. Any other `Display` is skipped as before. invoice's and payment's errors have it.
 - `///` (and `/** */`) comments carry over as JSDoc: on structs and enums, struct fields, each variant's constructor, functions, methods, consts, and aliases. Before, every doc comment was dropped.
 

@@ -17,11 +17,12 @@ import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
 import type { Outcome as Outcome$ } from "./outcome.ts";
 import type { Event as Event$ } from "./event.ts";
 import type { PaymentError as PaymentError$ } from "./payment-error.ts";
+import { PaymentError as PaymentError$text } from "./payment-error.ts";
 
 export const Amount: z.ZodType<Amount$, unknown> = i64.transform((v, ctx): Amount$ => {
   const r = Amount$value.tryFrom(v);
   if (r.kind === "Err") {
-    ctx.addIssue({ code: "custom", message: `Amount: ${r.error.kind}`, input: v, params: { error: r.error } });
+    ctx.addIssue({ code: "custom", message: `Amount: ${PaymentError$text.toString(r.error)}`, input: v, params: { error: r.error } });
     return z.NEVER;
   }
   return r.value;
@@ -30,7 +31,7 @@ export const Amount: z.ZodType<Amount$, unknown> = i64.transform((v, ctx): Amoun
 export const PaymentMethodId: z.ZodType<PaymentMethodId$, unknown> = str.transform((v, ctx): PaymentMethodId$ => {
   const r = PaymentMethodId$value.tryFrom(v);
   if (r.kind === "Err") {
-    ctx.addIssue({ code: "custom", message: `PaymentMethodId: ${r.error.kind}`, input: v, params: { error: r.error } });
+    ctx.addIssue({ code: "custom", message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}`, input: v, params: { error: r.error } });
     return z.NEVER;
   }
   return r.value;

@@ -13,11 +13,12 @@ import type { Invoice as Invoice$ } from "./invoice.ts";
 import type { Group as Group$ } from "./group.ts";
 import type { Summary as Summary$ } from "./summary.ts";
 import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
+import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 export const Yen: v.GenericSchema<unknown, Yen$> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Yen$ => {
   const r = Yen$value.tryFrom(dataset.value);
   if (r.kind === "Err") {
-    addIssue({ message: `Yen: ${r.error.kind}` });
+    addIssue({ message: `Yen: ${InvoiceError$text.toString(r.error)}` });
     return NEVER;
   }
   return r.value;
