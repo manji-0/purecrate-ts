@@ -5,14 +5,14 @@ import { Email } from "./email.ts";
 import { Password } from "./password.ts";
 import type { SignupError } from "./signup-error.ts";
 
-declare const SignupBrand: unique symbol;
 export type Signup = Readonly<{
   email: Email;
   password: Password;
-}> & { readonly [SignupBrand]: true };
+}> & { readonly "signup.Signup": true };
 
-// A field is not `pub` in Rust: outside the crate, `Signup` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Signup` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Signup$of = (fields: Readonly<{ email: Email; password: Password }>): Signup => fields as Signup;
 
 export const Signup = {

@@ -12,17 +12,17 @@ import type { PreIds } from "./pre-ids.ts";
 import type { SemverError } from "./semver-error.ts";
 
 /** A valid semantic version. Only [`Version::parse`] makes one. */
-declare const VersionBrand: unique symbol;
 export type Version = Readonly<{
   major: U64;
   minor: U64;
   patch: U64;
   pre: PreIds;
   build: BuildIds;
-}> & { readonly [VersionBrand]: true };
+}> & { readonly "semver.Version": true };
 
-// A field is not `pub` in Rust: outside the crate, `Version` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Version` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Version$of = (fields: Readonly<{ major: U64; minor: U64; patch: U64; pre: PreIds; build: BuildIds }>): Version => fields as Version;
 
 export const Version = {

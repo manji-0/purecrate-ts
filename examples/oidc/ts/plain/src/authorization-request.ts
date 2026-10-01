@@ -8,7 +8,6 @@ import type { Prompt } from "./prompt.ts";
  * A request that passed §3.1.2.2 validation. Only `validate_request`
  * builds one.
  */
-declare const AuthorizationRequestBrand: unique symbol;
 export type AuthorizationRequest = Readonly<{
   client_id: string;
   redirect_uri: string;
@@ -19,10 +18,11 @@ export type AuthorizationRequest = Readonly<{
   prompt: Prompt;
   max_age: I64 | null;
   wants_mfa: boolean;
-}> & { readonly [AuthorizationRequestBrand]: true };
+}> & { readonly "oidc.AuthorizationRequest": true };
 
-// A field is not `pub` in Rust: outside the crate, `AuthorizationRequest` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `AuthorizationRequest` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const AuthorizationRequest$of = (fields: Readonly<{ client_id: string; redirect_uri: string; scope: string; state: string; nonce: string | null; pkce: Pkce | null; prompt: Prompt; max_age: I64 | null; wants_mfa: boolean }>): AuthorizationRequest => fields as AuthorizationRequest;
 
 export const AuthorizationRequest = {

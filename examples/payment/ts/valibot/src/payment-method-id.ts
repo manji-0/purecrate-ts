@@ -6,11 +6,11 @@ import { Str } from "./str.ts";
 import type { PaymentError } from "./payment-error.ts";
 
 /** A payment method ID: `pm_` followed by at least one character. */
-declare const PaymentMethodIdBrand: unique symbol;
-export type PaymentMethodId = string & { readonly [PaymentMethodIdBrand]: true };
+export type PaymentMethodId = string & { readonly "payment.PaymentMethodId": true };
 
-// A field is not `pub` in Rust: outside the crate, `PaymentMethodId` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `PaymentMethodId` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const PaymentMethodId$of = (value: string): PaymentMethodId => value as PaymentMethodId;
 
 export const PaymentMethodId = {

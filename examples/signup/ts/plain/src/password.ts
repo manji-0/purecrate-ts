@@ -6,11 +6,11 @@ import { Str, Slice } from "./str.ts";
 import { blocked } from "./blocked.ts";
 import type { PasswordError } from "./password-error.ts";
 
-declare const PasswordBrand: unique symbol;
-export type Password = string & { readonly [PasswordBrand]: true };
+export type Password = string & { readonly "signup.Password": true };
 
-// A field is not `pub` in Rust: outside the crate, `Password` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Password` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Password$of = (value: string): Password => value as Password;
 
 export const Password = {

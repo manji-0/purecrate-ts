@@ -4,11 +4,11 @@ import { type I64 } from "./int.ts";
 import { Result } from "./result.ts";
 import type { InvoiceError } from "./invoice-error.ts";
 
-declare const YenBrand: unique symbol;
-export type Yen = I64 & { readonly [YenBrand]: true };
+export type Yen = I64 & { readonly "invoice.Yen": true };
 
-// A field is not `pub` in Rust: outside the crate, `Yen` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Yen` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Yen$of = (value: I64): Yen => value as Yen;
 
 export const Yen = {

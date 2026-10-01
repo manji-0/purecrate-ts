@@ -3,11 +3,11 @@
 import { Result } from "./result.ts";
 import type { OrderError } from "./order-error.ts";
 
-declare const SkuBrand: unique symbol;
-export type Sku = string & { readonly [SkuBrand]: true };
+export type Sku = string & { readonly "order.Sku": true };
 
-// A field is not `pub` in Rust: outside the crate, `Sku` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Sku` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Sku$of = (value: string): Sku => value as Sku;
 
 export const Sku = {

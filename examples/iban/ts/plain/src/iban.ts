@@ -8,11 +8,11 @@ import { is_upper } from "./is-upper.ts";
 import { push } from "./push.ts";
 import type { IbanError } from "./iban-error.ts";
 
-declare const IbanBrand: unique symbol;
-export type Iban = string & { readonly [IbanBrand]: true };
+export type Iban = string & { readonly "iban.Iban": true };
 
-// A field is not `pub` in Rust: outside the crate, `Iban` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Iban` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Iban$of = (value: string): Iban => value as Iban;
 
 export const Iban = {

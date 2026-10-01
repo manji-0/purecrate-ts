@@ -39,7 +39,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | `(A, B)` | `readonly [A, B]` |
 | `Box<T>`, `Arc<T>`, `Mutex<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads, `Mutex` exclusion between threads: a single-threaded program with values never mutated observes none of them |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |
-| newtype `S(T)` | `T & { readonly [SBrand]: true }` |
+| newtype `S(T)` | `T & { readonly "<crate>.S": true }` |
 | `enum` | `kind` union + companion |
 
 ## 3. Shapes
@@ -73,8 +73,7 @@ impl Meters { pub fn plus(&self, other: &Meters) -> Self { Self(self.0 + other.0
 ```
 
 ```ts
-declare const MetersBrand: unique symbol;
-export type Meters = I32 & { readonly [MetersBrand]: true };
+export type Meters = I32 & { readonly "geo.Meters": true };
 
 // not exported from index.ts
 export const Meters$of = (value: I32): Meters => value as Meters;
@@ -252,7 +251,7 @@ The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can r
 
 **Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files name it (`Int.<ty>.<op>` for each type's bitwise operators and methods, `Str.<member>`, `Json`), and leaves the markers out (`crates/pack/src/trim.rs`). The types, each integer type's `of` and arithmetic, and what the index exports to callers (`Char`, `Uuid`, `parseJson`) are always kept. Why: the runtime's `Int` is one object that generated code always names, so a bundler cannot drop what it does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. payment's copy is 14.5 KB of the runtime's 23 KB, counter's 10.7 KB.
 
-**Brands.** The runtime's brands are keyed by string (`{ readonly "purecrate.I32": true }`), so packages that each carry a copy exchange values. A crate's own closed types keep `unique symbol` brands.
+**Brands.** Brands are keyed by string: the runtime's by `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), a crate's newtypes and closed structs by the crate's name and the type (`{ readonly "invoice.Yen": true }`). Packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error.
 
 **Why.** It removes the version skew between generator and runtime. Nothing has to be installed that is not on npm. A peer-installed runtime, the earlier design, had no place in a project that commits generated code, as vendoring into Oxide's console showed ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 

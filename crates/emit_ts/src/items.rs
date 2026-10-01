@@ -181,15 +181,19 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     out
 }
 
+/// `{ readonly "<crate>.<Type>": true }`. Keyed by string, as the runtime's
+/// brands are: two copies of one crate's package (two versions installed)
+/// exchange values, the key reads in a hover or a type error, and the crate
+/// and type names keep a nested brand (`struct A(Yen)`) apart from its inner.
+pub(crate) fn brand(krate: &Crate, name: &str) -> String {
+    format!("{{ readonly \"{}.{name}\": true }}", krate.name.as_str())
+}
+
 /// A newtype is its inner value at runtime (as in serde's JSON), branded so
-/// that `Id` and the bare inner type do not mix. A `unique symbol` key keeps
-/// nested brands from colliding.
+/// that `Id` and the bare inner type do not mix.
 pub(crate) fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
     let inner = emit_ty(inner);
-    let mut out = format!(
-        "declare const {name}Brand: unique symbol;\n\
-         export type {name} = {inner} & {{ readonly [{name}Brand]: true }};\n\n"
-    );
+    let mut out = format!("export type {name} = {inner} & {};\n\n", brand(krate, name));
     if closed {
         out.push_str(&closed_ctor_src(name, &format!("value: {inner}"), "value"));
     }
@@ -211,10 +215,7 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
         .map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty)))
         .collect::<Vec<_>>()
         .join("; ");
-    let mut out = format!(
-        "declare const {name}Brand: unique symbol;\n\
-         export type {name} = Readonly<{{\n{fields}\n}}> & {{ readonly [{name}Brand]: true }};\n\n"
-    );
+    let mut out = format!("export type {name} = Readonly<{{\n{fields}\n}}> & {};\n\n", brand(krate, name));
     out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
     out.push_str(&format!("export const {name} = {{\n"));
     out.push_str(&companion_methods(krate, name));
@@ -223,8 +224,9 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
 
 pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
     format!(
-        "// A field is not `pub` in Rust: outside the crate, `{name}` values come only from\n\
-         // the crate's functions. The generated files build them here; `index.ts` does not export it.\n\
+        "// A field is not `pub` in Rust: outside the crate, `{name}` values come\n\
+         // only from the crate's functions. The generated files build them here;\n\
+         // `index.ts` does not export it.\n\
          export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",
         ctor = closed_ctor(name)
     )

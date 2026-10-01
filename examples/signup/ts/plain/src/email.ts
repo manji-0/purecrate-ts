@@ -7,11 +7,11 @@ import { is_alnum } from "./is-alnum.ts";
 import { is_local } from "./is-local.ts";
 import type { EmailError } from "./email-error.ts";
 
-declare const EmailBrand: unique symbol;
-export type Email = string & { readonly [EmailBrand]: true };
+export type Email = string & { readonly "signup.Email": true };
 
-// A field is not `pub` in Rust: outside the crate, `Email` values come only from
-// the crate's functions. The generated files build them here; `index.ts` does not export it.
+// A field is not `pub` in Rust: outside the crate, `Email` values come
+// only from the crate's functions. The generated files build them here;
+// `index.ts` does not export it.
 export const Email$of = (value: string): Email => value as Email;
 
 export const Email = {
