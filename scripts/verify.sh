@@ -16,11 +16,11 @@ examples=()
 for dir in examples/*/; do
   dir=${dir%/}
   [ -f "$dir/src/lib.rs" ] || continue
-  cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir-ts"
-  examples+=("$dir-ts")
+  cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/plain"
+  examples+=("$dir/ts/plain")
   for lib in zod valibot arktype; do
-    cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir-$lib-ts" --schema "$lib"
-    examples+=("$dir-$lib-ts")
+    cargo run --offline -q -p purecrate-ts -- check "$dir" --out "$dir/ts/$lib" --schema "$lib"
+    examples+=("$dir/ts/$lib")
   done
 done
 # The adapters import the runtime package, which exports `dist`; here its

@@ -1,6 +1,6 @@
-//! `examples/counter-ts` is the committed output for `examples/counter`.
+//! `examples/counter/ts/plain` is the committed output for `examples/counter`.
 //! Regenerate with:
-//! `cargo run -p purecrate-ts -- build examples/counter --out examples/counter-ts`,
+//! `cargo run -p purecrate-ts -- build examples/counter --out examples/counter/ts/plain`,
 //! or every example's with `scripts/examples.sh`.
 
 use std::collections::BTreeSet;
@@ -40,7 +40,7 @@ fn counter_ts_matches_generated_output() {
     let krate = parse_source("counter", &src).expect("parse counter");
     let typed = accept(&krate).expect("counter is in the subset");
     let pkg = assemble(&prune_unreachable(&typed));
-    let golden = examples().join("counter-ts");
+    let golden = examples().join("counter/ts/plain");
 
     let generated: BTreeSet<String> = pkg.files.iter().map(|f| disk_path(&f.stem)).collect();
     assert_eq!(files_under(&golden), generated, "file set differs");
@@ -48,6 +48,6 @@ fn counter_ts_matches_generated_output() {
     for file in &pkg.files {
         let path = disk_path(&file.stem);
         let on_disk = fs::read_to_string(golden.join(&path)).expect("read golden");
-        assert_eq!(on_disk, file.source, "{path} differs; regenerate examples/counter-ts");
+        assert_eq!(on_disk, file.source, "{path} differs; regenerate examples/counter/ts/plain");
     }
 }

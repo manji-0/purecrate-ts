@@ -169,7 +169,7 @@ fn check_without_out_runs_the_subset_checks_and_rustc() {
 #[test]
 fn check_with_out_passes_on_the_committed_golden() {
     let crate_dir = repo().join("examples/counter");
-    let golden = repo().join("examples/counter-ts");
+    let golden = repo().join("examples/counter/ts/plain");
     let result = check(&[crate_dir.as_os_str(), "--out".as_ref(), golden.as_os_str()]);
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
 }
@@ -178,7 +178,7 @@ fn check_with_out_passes_on_the_committed_golden() {
 fn check_with_out_lists_every_drifted_file() {
     let dir = scratch("drift");
     let out = dir.join("pkg");
-    copy_tree(&repo().join("examples/counter-ts"), &out);
+    copy_tree(&repo().join("examples/counter/ts/plain"), &out);
     fs::write(out.join("src/step.ts"), "// edited by hand\n").expect("edit");
     fs::remove_file(out.join("src/event.ts")).expect("remove");
     fs::write(out.join("src/notes.ts"), "").expect("extra");

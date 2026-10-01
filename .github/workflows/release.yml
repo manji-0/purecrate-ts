@@ -82,7 +82,7 @@ jobs:
         if: matrix.run
         run: |
           "$PKG/purecrate-ts" --version
-          "$PKG/purecrate-ts" check examples/counter --out examples/counter-ts
+          "$PKG/purecrate-ts" check examples/counter --out examples/counter/ts/plain
           "$PKG/purecrate-ts" check examples/oidc
       - name: Attach to the release
         if: env.IS_TAG == 'true'
