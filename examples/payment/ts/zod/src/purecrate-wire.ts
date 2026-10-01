@@ -56,8 +56,7 @@ export const MethodKind: z.ZodType<MethodKind$, unknown> = unitEnum(["Card", "Ba
 export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
   id: PaymentMethodId,
   kind: MethodKind,
-})
-  .transform((x): PaymentMethod$ => ({ id: x.id, kind: x.kind }));
+});
 
 export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
 
@@ -70,12 +69,7 @@ export const Terms: z.ZodType<Terms$, unknown> = z.object({
   amount: Amount,
   capture: CaptureMethod,
   confirmation: ConfirmationMethod,
-})
-  .transform((x): Terms$ => ({
-    amount: x.amount,
-    capture: x.capture,
-    confirmation: x.confirmation,
-  }));
+});
 
 export const DeclineCode: z.ZodType<DeclineCode$, unknown> = unitEnum([
   "CardDeclined",
@@ -132,8 +126,7 @@ export const Status: z.ZodType<Status$, unknown> = z.union([
 export const PaymentIntent: z.ZodType<PaymentIntent$, unknown> = z.object({
   terms: Terms,
   status: Status,
-})
-  .transform((x): PaymentIntent$ => ({ terms: x.terms, status: x.status }));
+});
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: z.ZodType<Outcome$, unknown> = z.union([

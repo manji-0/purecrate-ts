@@ -43,38 +43,28 @@ export const Method: v.GenericSchema<unknown, Method$> = v.union([
   ),
 ]);
 
-export const Line: v.GenericSchema<unknown, Line$> = v.pipe(
-  v.object({ amount: Yen, rate: Rate, pricing: Pricing }),
-  v.transform((x): Line$ => ({ amount: x.amount, rate: x.rate, pricing: x.pricing })),
-);
+export const Line: v.GenericSchema<unknown, Line$> = v.object({
+  amount: Yen,
+  rate: Rate,
+  pricing: Pricing,
+});
 
-export const Invoice: v.GenericSchema<unknown, Invoice$> = v.pipe(
-  v.object({ lines: v.array(Line), rounding: Rounding, method: Method }),
-  v.transform((x): Invoice$ => ({ lines: x.lines, rounding: x.rounding, method: x.method })),
-);
+export const Invoice: v.GenericSchema<unknown, Invoice$> = v.object({
+  lines: v.array(Line),
+  rounding: Rounding,
+  method: Method,
+});
 
 /** One rate and pricing: the total of its amounts and the tax on it. */
-export const Group: v.GenericSchema<unknown, Group$> = v.pipe(
-  v.object({ base: Yen, tax: Yen }),
-  v.transform((x): Group$ => ({ base: x.base, tax: x.tax })),
-);
+export const Group: v.GenericSchema<unknown, Group$> = v.object({ base: Yen, tax: Yen });
 
-export const Summary: v.GenericSchema<unknown, Summary$> = v.pipe(
-  v.object({
-    standard: Group,
-    reduced: Group,
-    standard_inclusive: Group,
-    reduced_inclusive: Group,
-    total: Yen,
-  }),
-  v.transform((x): Summary$ => ({
-    standard: x.standard,
-    reduced: x.reduced,
-    standard_inclusive: x.standard_inclusive,
-    reduced_inclusive: x.reduced_inclusive,
-    total: x.total,
-  })),
-);
+export const Summary: v.GenericSchema<unknown, Summary$> = v.object({
+  standard: Group,
+  reduced: Group,
+  standard_inclusive: Group,
+  reduced_inclusive: Group,
+  total: Yen,
+});
 
 export const InvoiceError: v.GenericSchema<unknown, InvoiceError$> = unitEnum([
   "NegativeAmount",

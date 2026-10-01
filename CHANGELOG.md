@@ -22,6 +22,7 @@
 - A schema's transform reads its parsed value as `x`, not `v`, which valibot's namespace is named.
 - `return match ..` prints as the `match` returning from each arm, and `!matches!(x, A)` on an enum whose other variants have fields as `x.kind !== "A"`, both without an inline function; one remains only for a `match` on a value that is not a place, inside an expression, where hoisting it would change when it runs.
 - A name the generator makes says what it holds: `$parseCoreNumber` for a hoisted call's value and `$major` / `$majorOr` for `major.ok_or(..)`'s receiver and argument, instead of `$q1`, `$opt9`, and `$arg11`.
+- A struct's zod or valibot schema is the object schema alone, without a `.transform` copying every field, except for a closed struct, a `()` field, or (valibot) an `Option` field, where the copy is needed.
 - Tidier output: no parentheses around a whole condition, `return` value, or initializer; `{ reason }` for a field set from a variable of its name; `!(a === b)` as `a !== b`; and a function or method whose body is one `return` is an expression-bodied arrow.
 - A line past 100 characters is broken inside its outermost bracket with commas, one item per line with a trailing comma, as prettier breaks it: long signatures, calls, and object literals. A condition joined only by `&&` / `||` stays on one line.
 - `Box<T>`, `Arc<T>`, and `Mutex<T>` print as `/* Box */ T` in a type, and `Box::new(x)` as `x`, instead of a sentence on what the wrapper is in every type and expression; design/03 §2 says it once.

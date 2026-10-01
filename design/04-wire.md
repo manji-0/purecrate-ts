@@ -73,7 +73,7 @@ These follow serde's default behavior. Other sections refer to them by number.
 
 ### 3.4 Per-library notes
 
-- **zod and valibot.** Structs are built field by field, because inference makes `undefined`-valued (`()`) fields optional. Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once, and `unitEnum(["A", "B"])` reads an enum whose variants all are unit as one expression.
+- **zod and valibot.** A struct is the object schema's own output, unknown keys dropped as serde drops them; it is built field by field only where that output is not the domain value: a closed struct (through its constructor), a `()` field (which inference makes optional), and with valibot an `Option` field (missing reads as `undefined`, made `null`). Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once, and `unitEnum(["A", "B"])` reads an enum whose variants all are unit as one expression.
 - **arktype.**
   - Enums try variants in turn, because arktype rejects a union of objects containing morphs; the adapter's `unitEnum("E", ["A", "B"])` does it for an enum whose variants all are unit.
   - Each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve. (A `type.module` design hit a `ReferenceError` at import.)

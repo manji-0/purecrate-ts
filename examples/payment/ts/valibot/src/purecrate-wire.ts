@@ -43,10 +43,10 @@ export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pip
 
 export const MethodKind: v.GenericSchema<unknown, MethodKind$> = unitEnum(["Card", "BankDebit"]);
 
-export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.pipe(
-  v.object({ id: PaymentMethodId, kind: MethodKind }),
-  v.transform((x): PaymentMethod$ => ({ id: x.id, kind: x.kind })),
-);
+export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.object({
+  id: PaymentMethodId,
+  kind: MethodKind,
+});
 
 export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum([
   "Automatic",
@@ -58,14 +58,11 @@ export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> =
   "Manual",
 ]);
 
-export const Terms: v.GenericSchema<unknown, Terms$> = v.pipe(
-  v.object({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }),
-  v.transform((x): Terms$ => ({
-    amount: x.amount,
-    capture: x.capture,
-    confirmation: x.confirmation,
-  })),
-);
+export const Terms: v.GenericSchema<unknown, Terms$> = v.object({
+  amount: Amount,
+  capture: CaptureMethod,
+  confirmation: ConfirmationMethod,
+});
 
 export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = unitEnum([
   "CardDeclined",
@@ -129,10 +126,10 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
   ),
 ]);
 
-export const PaymentIntent: v.GenericSchema<unknown, PaymentIntent$> = v.pipe(
-  v.object({ terms: Terms, status: Status }),
-  v.transform((x): PaymentIntent$ => ({ terms: x.terms, status: x.status })),
-);
+export const PaymentIntent: v.GenericSchema<unknown, PaymentIntent$> = v.object({
+  terms: Terms,
+  status: Status,
+});
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([

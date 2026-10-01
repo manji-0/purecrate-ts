@@ -403,9 +403,10 @@ import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, s
     format!("import {{ Json, parseJson }} from \"purecrate\";\n{own}")
 }
 
-/// Zod and valibot. The domain value is built field by field: a schema's
-/// inferred object type makes a field that may be `undefined` optional
-/// (`unit?: undefined`), which the domain type does not accept.
+/// Zod and valibot. Where the object's output is not the domain value as it
+/// is, the value is built field by field: a schema's inferred object type
+/// makes a field that may be `undefined` optional (`unit?: undefined`),
+/// which the domain type does not accept.
 fn struct_schema(schema: WireSchema, s: &Struct, recursive: bool, refused: &Refusal) -> String {
     let name = s.name.as_str();
     if let Some(from) = &s.wire_from {
@@ -423,6 +424,22 @@ fn struct_schema(schema: WireSchema, s: &Struct, recursive: bool, refused: &Refu
         return declare(schema, name, &expr, recursive);
     }
     let fields = object_fields(schema, &s.fields);
+    // The object's own output is the domain value, but for a closed struct
+    // (built through its constructor), a `()` field (which inference makes
+    // optional), or with valibot an `Option` field (missing reads as
+    // `undefined`, which `?? null` turns into `None`). Both libraries drop
+    // unknown keys, as serde does.
+    let unit = |t: &Ty| matches!(t, Ty::Prim(purecrate_ir::Prim::Unit)) || matches!(t, Ty::Option(i) | Ty::Ignored { inner: i, .. } if matches!(**i, Ty::Prim(purecrate_ir::Prim::Unit)));
+    let built = s.closed
+        || s.fields.iter().any(|f| unit(&f.ty))
+        || (schema == WireSchema::Valibot && s.fields.iter().any(|f| matches!(f.ty, Ty::Option(_))));
+    if !built {
+        let expr = match schema {
+            WireSchema::Zod => list_within(100usize.saturating_sub(name.len() * 2 + 45), "z.object({", &fields, "})", true),
+            _ => list("v.object({", &fields, "})", true),
+        };
+        return declare(schema, name, &expr, recursive);
+    }
     let build = record_build(s, &fill(schema, &s.fields, "x"));
     let expr = match schema {
         // The object opens the declaration line, whose head takes room.

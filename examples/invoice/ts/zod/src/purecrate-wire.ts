@@ -47,18 +47,16 @@ export const Line: z.ZodType<Line$, unknown> = z.object({
   amount: Yen,
   rate: Rate,
   pricing: Pricing,
-})
-  .transform((x): Line$ => ({ amount: x.amount, rate: x.rate, pricing: x.pricing }));
+});
 
 export const Invoice: z.ZodType<Invoice$, unknown> = z.object({
   lines: z.array(Line),
   rounding: Rounding,
   method: Method,
-})
-  .transform((x): Invoice$ => ({ lines: x.lines, rounding: x.rounding, method: x.method }));
+});
 
 /** One rate and pricing: the total of its amounts and the tax on it. */
-export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen }).transform((x): Group$ => ({ base: x.base, tax: x.tax }));
+export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen });
 
 export const Summary: z.ZodType<Summary$, unknown> = z.object({
   standard: Group,
@@ -66,14 +64,7 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
   standard_inclusive: Group,
   reduced_inclusive: Group,
   total: Yen,
-})
-  .transform((x): Summary$ => ({
-    standard: x.standard,
-    reduced: x.reduced,
-    standard_inclusive: x.standard_inclusive,
-    reduced_inclusive: x.reduced_inclusive,
-    total: x.total,
-  }));
+});
 
 export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum([
   "NegativeAmount",
