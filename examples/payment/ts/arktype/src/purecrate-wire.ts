@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
-import { fail, i64, keyed, memo, nullable, str, type Wire } from "./purecrate-arktype.ts";
+import { fail, i64, keyed, memo, nullable, str, unitEnum, type Wire } from "./purecrate-arktype.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
 import { PaymentMethodId as PaymentMethodId$value, type PaymentMethodId as PaymentMethodId$ } from "./payment-method-id.ts";
 import type { MethodKind as MethodKind$ } from "./method-kind.ts";
@@ -37,23 +37,7 @@ export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, 
   return r.value;
 });
 
-const MethodKind$arm$Card = memo(() => type({ "+": "reject", Card: "null" }));
-const MethodKind$arm$BankDebit = memo(() => type({ "+": "reject", BankDebit: "null" }));
-export const MethodKind: Wire<MethodKind$> = type("unknown").pipe((v, ctx): MethodKind$ => {
-  if (v === "Card") return { kind: "Card" };
-  {
-    const parsed = MethodKind$arm$Card()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Card" };
-    if (keyed(v, "Card")) return fail(ctx, parsed);
-  }
-  if (v === "BankDebit") return { kind: "BankDebit" };
-  {
-    const parsed = MethodKind$arm$BankDebit()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "BankDebit" };
-    if (keyed(v, "BankDebit")) return fail(ctx, parsed);
-  }
-  return ctx.error("MethodKind") as never;
-});
+export const MethodKind: Wire<MethodKind$> = unitEnum("MethodKind", ["Card", "BankDebit"]);
 
 const PaymentMethod$wire = memo(() => type({ id: PaymentMethodId, kind: MethodKind }));
 export const PaymentMethod: Wire<PaymentMethod$> = type("unknown").pipe((v, ctx): PaymentMethod$ => {
@@ -62,41 +46,9 @@ export const PaymentMethod: Wire<PaymentMethod$> = type("unknown").pipe((v, ctx)
   return ({ id: parsed.id, kind: parsed.kind });
 });
 
-const CaptureMethod$arm$Automatic = memo(() => type({ "+": "reject", Automatic: "null" }));
-const CaptureMethod$arm$Manual = memo(() => type({ "+": "reject", Manual: "null" }));
-export const CaptureMethod: Wire<CaptureMethod$> = type("unknown").pipe((v, ctx): CaptureMethod$ => {
-  if (v === "Automatic") return { kind: "Automatic" };
-  {
-    const parsed = CaptureMethod$arm$Automatic()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Automatic" };
-    if (keyed(v, "Automatic")) return fail(ctx, parsed);
-  }
-  if (v === "Manual") return { kind: "Manual" };
-  {
-    const parsed = CaptureMethod$arm$Manual()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Manual" };
-    if (keyed(v, "Manual")) return fail(ctx, parsed);
-  }
-  return ctx.error("CaptureMethod") as never;
-});
+export const CaptureMethod: Wire<CaptureMethod$> = unitEnum("CaptureMethod", ["Automatic", "Manual"]);
 
-const ConfirmationMethod$arm$Automatic = memo(() => type({ "+": "reject", Automatic: "null" }));
-const ConfirmationMethod$arm$Manual = memo(() => type({ "+": "reject", Manual: "null" }));
-export const ConfirmationMethod: Wire<ConfirmationMethod$> = type("unknown").pipe((v, ctx): ConfirmationMethod$ => {
-  if (v === "Automatic") return { kind: "Automatic" };
-  {
-    const parsed = ConfirmationMethod$arm$Automatic()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Automatic" };
-    if (keyed(v, "Automatic")) return fail(ctx, parsed);
-  }
-  if (v === "Manual") return { kind: "Manual" };
-  {
-    const parsed = ConfirmationMethod$arm$Manual()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Manual" };
-    if (keyed(v, "Manual")) return fail(ctx, parsed);
-  }
-  return ctx.error("ConfirmationMethod") as never;
-});
+export const ConfirmationMethod: Wire<ConfirmationMethod$> = unitEnum("ConfirmationMethod", ["Automatic", "Manual"]);
 
 const Terms$wire = memo(() => type({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }));
 export const Terms: Wire<Terms$> = type("unknown").pipe((v, ctx): Terms$ => {
@@ -105,69 +57,19 @@ export const Terms: Wire<Terms$> = type("unknown").pipe((v, ctx): Terms$ => {
   return ({ amount: parsed.amount, capture: parsed.capture, confirmation: parsed.confirmation });
 });
 
-const DeclineCode$arm$CardDeclined = memo(() => type({ "+": "reject", CardDeclined: "null" }));
-const DeclineCode$arm$InsufficientFunds = memo(() => type({ "+": "reject", InsufficientFunds: "null" }));
-const DeclineCode$arm$AuthenticationFailed = memo(() => type({ "+": "reject", AuthenticationFailed: "null" }));
-const DeclineCode$arm$DebitFailed = memo(() => type({ "+": "reject", DebitFailed: "null" }));
-export const DeclineCode: Wire<DeclineCode$> = type("unknown").pipe((v, ctx): DeclineCode$ => {
-  if (v === "CardDeclined") return { kind: "CardDeclined" };
-  {
-    const parsed = DeclineCode$arm$CardDeclined()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "CardDeclined" };
-    if (keyed(v, "CardDeclined")) return fail(ctx, parsed);
-  }
-  if (v === "InsufficientFunds") return { kind: "InsufficientFunds" };
-  {
-    const parsed = DeclineCode$arm$InsufficientFunds()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "InsufficientFunds" };
-    if (keyed(v, "InsufficientFunds")) return fail(ctx, parsed);
-  }
-  if (v === "AuthenticationFailed") return { kind: "AuthenticationFailed" };
-  {
-    const parsed = DeclineCode$arm$AuthenticationFailed()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "AuthenticationFailed" };
-    if (keyed(v, "AuthenticationFailed")) return fail(ctx, parsed);
-  }
-  if (v === "DebitFailed") return { kind: "DebitFailed" };
-  {
-    const parsed = DeclineCode$arm$DebitFailed()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "DebitFailed" };
-    if (keyed(v, "DebitFailed")) return fail(ctx, parsed);
-  }
-  return ctx.error("DeclineCode") as never;
-});
+export const DeclineCode: Wire<DeclineCode$> = unitEnum("DeclineCode", [
+  "CardDeclined",
+  "InsufficientFunds",
+  "AuthenticationFailed",
+  "DebitFailed",
+]);
 
-const CancellationReason$arm$Duplicate = memo(() => type({ "+": "reject", Duplicate: "null" }));
-const CancellationReason$arm$Fraudulent = memo(() => type({ "+": "reject", Fraudulent: "null" }));
-const CancellationReason$arm$RequestedByCustomer = memo(() => type({ "+": "reject", RequestedByCustomer: "null" }));
-const CancellationReason$arm$Abandoned = memo(() => type({ "+": "reject", Abandoned: "null" }));
-export const CancellationReason: Wire<CancellationReason$> = type("unknown").pipe((v, ctx): CancellationReason$ => {
-  if (v === "Duplicate") return { kind: "Duplicate" };
-  {
-    const parsed = CancellationReason$arm$Duplicate()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Duplicate" };
-    if (keyed(v, "Duplicate")) return fail(ctx, parsed);
-  }
-  if (v === "Fraudulent") return { kind: "Fraudulent" };
-  {
-    const parsed = CancellationReason$arm$Fraudulent()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Fraudulent" };
-    if (keyed(v, "Fraudulent")) return fail(ctx, parsed);
-  }
-  if (v === "RequestedByCustomer") return { kind: "RequestedByCustomer" };
-  {
-    const parsed = CancellationReason$arm$RequestedByCustomer()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "RequestedByCustomer" };
-    if (keyed(v, "RequestedByCustomer")) return fail(ctx, parsed);
-  }
-  if (v === "Abandoned") return { kind: "Abandoned" };
-  {
-    const parsed = CancellationReason$arm$Abandoned()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Abandoned" };
-    if (keyed(v, "Abandoned")) return fail(ctx, parsed);
-  }
-  return ctx.error("CancellationReason") as never;
-});
+export const CancellationReason: Wire<CancellationReason$> = unitEnum("CancellationReason", [
+  "Duplicate",
+  "Fraudulent",
+  "RequestedByCustomer",
+  "Abandoned",
+]);
 
 const Status$arm$RequiresPaymentMethod = memo(() => type({ "+": "reject", RequiresPaymentMethod: { last_error: nullable(DeclineCode).default(null) } }));
 const Status$arm$RequiresConfirmation = memo(() => type({ "+": "reject", RequiresConfirmation: { method: PaymentMethod } }));

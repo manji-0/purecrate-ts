@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
-import { i64, unitVariant } from "./purecrate-valibot.ts";
+import { i64, unitEnum, unitVariant } from "./purecrate-valibot.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
 import type { Rate as Rate$ } from "./rate.ts";
 import type { Pricing as Pricing$ } from "./pricing.ts";
@@ -24,21 +24,11 @@ export const Yen: v.GenericSchema<unknown, Yen$> = v.pipe(i64, v.rawTransform(({
   return r.value;
 }));
 
-export const Rate: v.GenericSchema<unknown, Rate$> = v.union([
-  v.pipe(unitVariant("Standard"), v.transform((): Rate$ => ({ kind: "Standard" }))),
-  v.pipe(unitVariant("Reduced"), v.transform((): Rate$ => ({ kind: "Reduced" }))),
-]);
+export const Rate: v.GenericSchema<unknown, Rate$> = unitEnum(["Standard", "Reduced"]);
 
-export const Pricing: v.GenericSchema<unknown, Pricing$> = v.union([
-  v.pipe(unitVariant("Exclusive"), v.transform((): Pricing$ => ({ kind: "Exclusive" }))),
-  v.pipe(unitVariant("Inclusive"), v.transform((): Pricing$ => ({ kind: "Inclusive" }))),
-]);
+export const Pricing: v.GenericSchema<unknown, Pricing$> = unitEnum(["Exclusive", "Inclusive"]);
 
-export const Rounding: v.GenericSchema<unknown, Rounding$> = v.union([
-  v.pipe(unitVariant("Down"), v.transform((): Rounding$ => ({ kind: "Down" }))),
-  v.pipe(unitVariant("Up"), v.transform((): Rounding$ => ({ kind: "Up" }))),
-  v.pipe(unitVariant("HalfUp"), v.transform((): Rounding$ => ({ kind: "HalfUp" }))),
-]);
+export const Rounding: v.GenericSchema<unknown, Rounding$> = unitEnum(["Down", "Up", "HalfUp"]);
 
 export const Method: v.GenericSchema<unknown, Method$> = v.union([
   v.pipe(unitVariant("Separate"), v.transform((): Method$ => ({ kind: "Separate" }))),
@@ -74,13 +64,7 @@ export const Summary: v.GenericSchema<unknown, Summary$> = v.pipe(
   v.transform((v): Summary$ => ({ standard: v.standard, reduced: v.reduced, standard_inclusive: v.standard_inclusive, reduced_inclusive: v.reduced_inclusive, total: v.total })),
 );
 
-export const InvoiceError: v.GenericSchema<unknown, InvoiceError$> = v.union([
-  v.pipe(
-    unitVariant("NegativeAmount"),
-    v.transform((): InvoiceError$ => ({ kind: "NegativeAmount" })),
-  ),
-  v.pipe(unitVariant("NoLines"), v.transform((): InvoiceError$ => ({ kind: "NoLines" }))),
-]);
+export const InvoiceError: v.GenericSchema<unknown, InvoiceError$> = unitEnum(["NegativeAmount", "NoLines"]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;

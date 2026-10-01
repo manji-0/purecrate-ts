@@ -29,6 +29,27 @@ export const memo = <T>(make: () => T): (() => T) => {
   return () => (made ??= { value: make() }).value;
 };
 
+/**
+ * A fieldless enum named `enumName`: each of `names` as serde writes a unit
+ * variant, the string `"V"` or `{"V": null}`, into `{ kind: V }`. The
+ * variants are tried in turn; an object keyed by one reports that one's
+ * errors, anything else one error for the enum.
+ */
+export const unitEnum = <K extends string>(enumName: string, names: readonly [K, ...K[]]): Wire<Readonly<{ kind: K }>> => {
+  // The key is `name` at run time; TS sees one fixed key, as a computed
+  // key would give it an index signature that arktype reads differently.
+  const arms = names.map((name) => [name, memo(() => type({ "+": "reject", [name]: "null" } as { "+": "reject"; V: "null" }))] as const);
+  return type("unknown").pipe((v, ctx): Readonly<{ kind: K }> => {
+    for (const [name, arm] of arms) {
+      if (v === name) return { kind: name };
+      const parsed = arm()(v);
+      if (!(parsed instanceof type.errors)) return { kind: name };
+      if (keyed(v, name)) return fail(ctx, parsed);
+    }
+    return ctx.error(enumName) as never;
+  });
+};
+
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   type("number.integer")
     .narrow((n, ctx) => (n >= min && n <= max ? true : ctx.mustBe(`between ${min} and ${max}`)))

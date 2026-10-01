@@ -60,6 +60,16 @@ export const nullable = <T extends z.ZodType>(inner: T) => z.union([inner, z.nul
 /** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
 export const unitVariant = (name: string) => z.union([z.literal(name), z.object({ [name]: z.null() }).strict()]);
 
+/**
+ * A fieldless enum: each of `names` read as `unitVariant` reads it, into
+ * `{ kind: name }`. The arms are tried in order, as a union of the
+ * variants one by one would be.
+ */
+export const unitEnum = <K extends string>(names: readonly [K, ...K[]]): z.ZodType<Readonly<{ kind: K }>, unknown> => {
+  const arms = names.map((name) => unitVariant(name).transform((): Readonly<{ kind: K }> => ({ kind: name })));
+  return (arms.length === 1 ? arms[0] : z.union(arms as unknown as [z.ZodType, z.ZodType])) as unknown as z.ZodType<Readonly<{ kind: K }>, unknown>;
+};
+
 /** A struct field of type `Option<T>`: missing or `null` is `None`, as serde reads it. */
 export const optionalField = <T extends z.ZodType>(inner: T) =>
   nullable(inner)

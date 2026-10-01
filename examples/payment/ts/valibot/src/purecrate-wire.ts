@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
-import { i64, nullable, str, unitVariant } from "./purecrate-valibot.ts";
+import { i64, nullable, str, unitEnum, unitVariant } from "./purecrate-valibot.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
 import { PaymentMethodId as PaymentMethodId$value, type PaymentMethodId as PaymentMethodId$ } from "./payment-method-id.ts";
 import type { MethodKind as MethodKind$ } from "./method-kind.ts";
@@ -37,77 +37,25 @@ export const PaymentMethodId: v.GenericSchema<unknown, PaymentMethodId$> = v.pip
   return r.value;
 }));
 
-export const MethodKind: v.GenericSchema<unknown, MethodKind$> = v.union([
-  v.pipe(unitVariant("Card"), v.transform((): MethodKind$ => ({ kind: "Card" }))),
-  v.pipe(unitVariant("BankDebit"), v.transform((): MethodKind$ => ({ kind: "BankDebit" }))),
-]);
+export const MethodKind: v.GenericSchema<unknown, MethodKind$> = unitEnum(["Card", "BankDebit"]);
 
 export const PaymentMethod: v.GenericSchema<unknown, PaymentMethod$> = v.pipe(
   v.object({ id: PaymentMethodId, kind: MethodKind }),
   v.transform((v): PaymentMethod$ => ({ id: v.id, kind: v.kind })),
 );
 
-export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = v.union([
-  v.pipe(
-    unitVariant("Automatic"),
-    v.transform((): CaptureMethod$ => ({ kind: "Automatic" })),
-  ),
-  v.pipe(unitVariant("Manual"), v.transform((): CaptureMethod$ => ({ kind: "Manual" }))),
-]);
+export const CaptureMethod: v.GenericSchema<unknown, CaptureMethod$> = unitEnum(["Automatic", "Manual"]);
 
-export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> = v.union([
-  v.pipe(
-    unitVariant("Automatic"),
-    v.transform((): ConfirmationMethod$ => ({ kind: "Automatic" })),
-  ),
-  v.pipe(
-    unitVariant("Manual"),
-    v.transform((): ConfirmationMethod$ => ({ kind: "Manual" })),
-  ),
-]);
+export const ConfirmationMethod: v.GenericSchema<unknown, ConfirmationMethod$> = unitEnum(["Automatic", "Manual"]);
 
 export const Terms: v.GenericSchema<unknown, Terms$> = v.pipe(
   v.object({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }),
   v.transform((v): Terms$ => ({ amount: v.amount, capture: v.capture, confirmation: v.confirmation })),
 );
 
-export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = v.union([
-  v.pipe(
-    unitVariant("CardDeclined"),
-    v.transform((): DeclineCode$ => ({ kind: "CardDeclined" })),
-  ),
-  v.pipe(
-    unitVariant("InsufficientFunds"),
-    v.transform((): DeclineCode$ => ({ kind: "InsufficientFunds" })),
-  ),
-  v.pipe(
-    unitVariant("AuthenticationFailed"),
-    v.transform((): DeclineCode$ => ({ kind: "AuthenticationFailed" })),
-  ),
-  v.pipe(
-    unitVariant("DebitFailed"),
-    v.transform((): DeclineCode$ => ({ kind: "DebitFailed" })),
-  ),
-]);
+export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = unitEnum(["CardDeclined", "InsufficientFunds", "AuthenticationFailed", "DebitFailed"]);
 
-export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> = v.union([
-  v.pipe(
-    unitVariant("Duplicate"),
-    v.transform((): CancellationReason$ => ({ kind: "Duplicate" })),
-  ),
-  v.pipe(
-    unitVariant("Fraudulent"),
-    v.transform((): CancellationReason$ => ({ kind: "Fraudulent" })),
-  ),
-  v.pipe(
-    unitVariant("RequestedByCustomer"),
-    v.transform((): CancellationReason$ => ({ kind: "RequestedByCustomer" })),
-  ),
-  v.pipe(
-    unitVariant("Abandoned"),
-    v.transform((): CancellationReason$ => ({ kind: "Abandoned" })),
-  ),
-]);
+export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> = unitEnum(["Duplicate", "Fraudulent", "RequestedByCustomer", "Abandoned"]);
 
 export const Status: v.GenericSchema<unknown, Status$> = v.union([
   v.pipe(

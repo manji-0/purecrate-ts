@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
-import { i64, unitVariant } from "./purecrate-zod.ts";
+import { i64, unitEnum, unitVariant } from "./purecrate-zod.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
 import type { Rate as Rate$ } from "./rate.ts";
 import type { Pricing as Pricing$ } from "./pricing.ts";
@@ -24,21 +24,11 @@ export const Yen: z.ZodType<Yen$, unknown> = i64.transform((v, ctx): Yen$ => {
   return r.value;
 });
 
-export const Rate: z.ZodType<Rate$, unknown> = z.union([
-  unitVariant("Standard").transform((): Rate$ => ({ kind: "Standard" })),
-  unitVariant("Reduced").transform((): Rate$ => ({ kind: "Reduced" })),
-]);
+export const Rate: z.ZodType<Rate$, unknown> = unitEnum(["Standard", "Reduced"]);
 
-export const Pricing: z.ZodType<Pricing$, unknown> = z.union([
-  unitVariant("Exclusive").transform((): Pricing$ => ({ kind: "Exclusive" })),
-  unitVariant("Inclusive").transform((): Pricing$ => ({ kind: "Inclusive" })),
-]);
+export const Pricing: z.ZodType<Pricing$, unknown> = unitEnum(["Exclusive", "Inclusive"]);
 
-export const Rounding: z.ZodType<Rounding$, unknown> = z.union([
-  unitVariant("Down").transform((): Rounding$ => ({ kind: "Down" })),
-  unitVariant("Up").transform((): Rounding$ => ({ kind: "Up" })),
-  unitVariant("HalfUp").transform((): Rounding$ => ({ kind: "HalfUp" })),
-]);
+export const Rounding: z.ZodType<Rounding$, unknown> = unitEnum(["Down", "Up", "HalfUp"]);
 
 export const Method: z.ZodType<Method$, unknown> = z.union([
   unitVariant("Separate").transform((): Method$ => ({ kind: "Separate" })),
@@ -72,10 +62,7 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
 })
   .transform((v): Summary$ => ({ standard: v.standard, reduced: v.reduced, standard_inclusive: v.standard_inclusive, reduced_inclusive: v.reduced_inclusive, total: v.total }));
 
-export const InvoiceError: z.ZodType<InvoiceError$, unknown> = z.union([
-  unitVariant("NegativeAmount").transform((): InvoiceError$ => ({ kind: "NegativeAmount" })),
-  unitVariant("NoLines").transform((): InvoiceError$ => ({ kind: "NoLines" })),
-]);
+export const InvoiceError: z.ZodType<InvoiceError$, unknown> = unitEnum(["NegativeAmount", "NoLines"]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;

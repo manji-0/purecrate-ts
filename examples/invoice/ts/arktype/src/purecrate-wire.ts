@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
-import { fail, i64, keyed, memo, type Wire } from "./purecrate-arktype.ts";
+import { fail, i64, keyed, memo, unitEnum, type Wire } from "./purecrate-arktype.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
 import type { Rate as Rate$ } from "./rate.ts";
 import type { Pricing as Pricing$ } from "./pricing.ts";
@@ -24,66 +24,11 @@ export const Yen: Wire<Yen$> = type("unknown").pipe((v, ctx): Yen$ => {
   return r.value;
 });
 
-const Rate$arm$Standard = memo(() => type({ "+": "reject", Standard: "null" }));
-const Rate$arm$Reduced = memo(() => type({ "+": "reject", Reduced: "null" }));
-export const Rate: Wire<Rate$> = type("unknown").pipe((v, ctx): Rate$ => {
-  if (v === "Standard") return { kind: "Standard" };
-  {
-    const parsed = Rate$arm$Standard()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Standard" };
-    if (keyed(v, "Standard")) return fail(ctx, parsed);
-  }
-  if (v === "Reduced") return { kind: "Reduced" };
-  {
-    const parsed = Rate$arm$Reduced()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Reduced" };
-    if (keyed(v, "Reduced")) return fail(ctx, parsed);
-  }
-  return ctx.error("Rate") as never;
-});
+export const Rate: Wire<Rate$> = unitEnum("Rate", ["Standard", "Reduced"]);
 
-const Pricing$arm$Exclusive = memo(() => type({ "+": "reject", Exclusive: "null" }));
-const Pricing$arm$Inclusive = memo(() => type({ "+": "reject", Inclusive: "null" }));
-export const Pricing: Wire<Pricing$> = type("unknown").pipe((v, ctx): Pricing$ => {
-  if (v === "Exclusive") return { kind: "Exclusive" };
-  {
-    const parsed = Pricing$arm$Exclusive()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Exclusive" };
-    if (keyed(v, "Exclusive")) return fail(ctx, parsed);
-  }
-  if (v === "Inclusive") return { kind: "Inclusive" };
-  {
-    const parsed = Pricing$arm$Inclusive()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Inclusive" };
-    if (keyed(v, "Inclusive")) return fail(ctx, parsed);
-  }
-  return ctx.error("Pricing") as never;
-});
+export const Pricing: Wire<Pricing$> = unitEnum("Pricing", ["Exclusive", "Inclusive"]);
 
-const Rounding$arm$Down = memo(() => type({ "+": "reject", Down: "null" }));
-const Rounding$arm$Up = memo(() => type({ "+": "reject", Up: "null" }));
-const Rounding$arm$HalfUp = memo(() => type({ "+": "reject", HalfUp: "null" }));
-export const Rounding: Wire<Rounding$> = type("unknown").pipe((v, ctx): Rounding$ => {
-  if (v === "Down") return { kind: "Down" };
-  {
-    const parsed = Rounding$arm$Down()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Down" };
-    if (keyed(v, "Down")) return fail(ctx, parsed);
-  }
-  if (v === "Up") return { kind: "Up" };
-  {
-    const parsed = Rounding$arm$Up()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Up" };
-    if (keyed(v, "Up")) return fail(ctx, parsed);
-  }
-  if (v === "HalfUp") return { kind: "HalfUp" };
-  {
-    const parsed = Rounding$arm$HalfUp()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "HalfUp" };
-    if (keyed(v, "HalfUp")) return fail(ctx, parsed);
-  }
-  return ctx.error("Rounding") as never;
-});
+export const Rounding: Wire<Rounding$> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
 
 const Method$arm$Separate = memo(() => type({ "+": "reject", Separate: "null" }));
 const Method$arm$ToExclusive = memo(() => type({ "+": "reject", ToExclusive: { conversion: Rounding } }));
@@ -130,23 +75,7 @@ export const Summary: Wire<Summary$> = type("unknown").pipe((v, ctx): Summary$ =
   return ({ standard: parsed.standard, reduced: parsed.reduced, standard_inclusive: parsed.standard_inclusive, reduced_inclusive: parsed.reduced_inclusive, total: parsed.total });
 });
 
-const InvoiceError$arm$NegativeAmount = memo(() => type({ "+": "reject", NegativeAmount: "null" }));
-const InvoiceError$arm$NoLines = memo(() => type({ "+": "reject", NoLines: "null" }));
-export const InvoiceError: Wire<InvoiceError$> = type("unknown").pipe((v, ctx): InvoiceError$ => {
-  if (v === "NegativeAmount") return { kind: "NegativeAmount" };
-  {
-    const parsed = InvoiceError$arm$NegativeAmount()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "NegativeAmount" };
-    if (keyed(v, "NegativeAmount")) return fail(ctx, parsed);
-  }
-  if (v === "NoLines") return { kind: "NoLines" };
-  {
-    const parsed = InvoiceError$arm$NoLines()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "NoLines" };
-    if (keyed(v, "NoLines")) return fail(ctx, parsed);
-  }
-  return ctx.error("InvoiceError") as never;
-});
+export const InvoiceError: Wire<InvoiceError$> = unitEnum("InvoiceError", ["NegativeAmount", "NoLines"]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;

@@ -73,9 +73,9 @@ These follow serde's default behavior. Other sections refer to them by number.
 
 ### 3.4 Per-library notes
 
-- **zod and valibot.** Structs are built field by field, because inference makes `undefined`-valued (`()`) fields optional. Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once.
+- **zod and valibot.** Structs are built field by field, because inference makes `undefined`-valued (`()`) fields optional. Schemas are printed dependencies first, and only a type in a cycle of references (a recursive type, or two that refer to each other) is behind `lazy`. The adapters' `unitVariant` and zod's `optionalField` spell §3.3 rules 4 and 2 once, and `unitEnum(["A", "B"])` reads an enum whose variants all are unit as one expression.
 - **arktype.**
-  - Enums try variants in turn, because arktype rejects a union of objects containing morphs.
+  - Enums try variants in turn, because arktype rejects a union of objects containing morphs; the adapter's `unitEnum("E", ["A", "B"])` does it for an enum whose variants all are unit.
   - Each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve. (A `type.module` design hit a `ReferenceError` at import.)
   - A nested read that fails hands its errors to the morph's traversal (`fail`, through `ArkErrors.merge`), so they keep their path.
   - When no variant matches, an object keyed by a variant's name reports that variant's errors (`Confirm.outcome`), anything else one error for the enum.

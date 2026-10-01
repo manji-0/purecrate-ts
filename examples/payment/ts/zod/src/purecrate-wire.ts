@@ -2,7 +2,7 @@
 
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
-import { i64, nullable, optionalField, str, unitVariant } from "./purecrate-zod.ts";
+import { i64, nullable, optionalField, str, unitEnum, unitVariant } from "./purecrate-zod.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
 import { PaymentMethodId as PaymentMethodId$value, type PaymentMethodId as PaymentMethodId$ } from "./payment-method-id.ts";
 import type { MethodKind as MethodKind$ } from "./method-kind.ts";
@@ -37,10 +37,7 @@ export const PaymentMethodId: z.ZodType<PaymentMethodId$, unknown> = str.transfo
   return r.value;
 });
 
-export const MethodKind: z.ZodType<MethodKind$, unknown> = z.union([
-  unitVariant("Card").transform((): MethodKind$ => ({ kind: "Card" })),
-  unitVariant("BankDebit").transform((): MethodKind$ => ({ kind: "BankDebit" })),
-]);
+export const MethodKind: z.ZodType<MethodKind$, unknown> = unitEnum(["Card", "BankDebit"]);
 
 export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
   id: PaymentMethodId,
@@ -48,15 +45,9 @@ export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
 })
   .transform((v): PaymentMethod$ => ({ id: v.id, kind: v.kind }));
 
-export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = z.union([
-  unitVariant("Automatic").transform((): CaptureMethod$ => ({ kind: "Automatic" })),
-  unitVariant("Manual").transform((): CaptureMethod$ => ({ kind: "Manual" })),
-]);
+export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
 
-export const ConfirmationMethod: z.ZodType<ConfirmationMethod$, unknown> = z.union([
-  unitVariant("Automatic").transform((): ConfirmationMethod$ => ({ kind: "Automatic" })),
-  unitVariant("Manual").transform((): ConfirmationMethod$ => ({ kind: "Manual" })),
-]);
+export const ConfirmationMethod: z.ZodType<ConfirmationMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
 
 export const Terms: z.ZodType<Terms$, unknown> = z.object({
   amount: Amount,
@@ -65,22 +56,9 @@ export const Terms: z.ZodType<Terms$, unknown> = z.object({
 })
   .transform((v): Terms$ => ({ amount: v.amount, capture: v.capture, confirmation: v.confirmation }));
 
-export const DeclineCode: z.ZodType<DeclineCode$, unknown> = z.union([
-  unitVariant("CardDeclined").transform((): DeclineCode$ => ({ kind: "CardDeclined" })),
-  unitVariant("InsufficientFunds")
-    .transform((): DeclineCode$ => ({ kind: "InsufficientFunds" })),
-  unitVariant("AuthenticationFailed")
-    .transform((): DeclineCode$ => ({ kind: "AuthenticationFailed" })),
-  unitVariant("DebitFailed").transform((): DeclineCode$ => ({ kind: "DebitFailed" })),
-]);
+export const DeclineCode: z.ZodType<DeclineCode$, unknown> = unitEnum(["CardDeclined", "InsufficientFunds", "AuthenticationFailed", "DebitFailed"]);
 
-export const CancellationReason: z.ZodType<CancellationReason$, unknown> = z.union([
-  unitVariant("Duplicate").transform((): CancellationReason$ => ({ kind: "Duplicate" })),
-  unitVariant("Fraudulent").transform((): CancellationReason$ => ({ kind: "Fraudulent" })),
-  unitVariant("RequestedByCustomer")
-    .transform((): CancellationReason$ => ({ kind: "RequestedByCustomer" })),
-  unitVariant("Abandoned").transform((): CancellationReason$ => ({ kind: "Abandoned" })),
-]);
+export const CancellationReason: z.ZodType<CancellationReason$, unknown> = unitEnum(["Duplicate", "Fraudulent", "RequestedByCustomer", "Abandoned"]);
 
 export const Status: z.ZodType<Status$, unknown> = z.union([
   z.object({ RequiresPaymentMethod: z.object({ last_error: optionalField(DeclineCode) }) })

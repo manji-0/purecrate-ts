@@ -51,3 +51,11 @@ export const nullable = <T extends v.GenericSchema>(inner: T) => v.union([inner,
 
 /** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
 export const unitVariant = (name: string) => v.union([v.literal(name), v.strictObject({ [name]: v.null() })]);
+
+/**
+ * A fieldless enum: each of `names` read as `unitVariant` reads it, into
+ * `{ kind: name }`. The arms are tried in order, as a union of the
+ * variants one by one would be.
+ */
+export const unitEnum = <K extends string>(names: readonly [K, ...K[]]): v.GenericSchema<unknown, Readonly<{ kind: K }>> =>
+  v.union(names.map((name) => v.pipe(unitVariant(name), v.transform((): Readonly<{ kind: K }> => ({ kind: name })))));

@@ -372,15 +372,15 @@ fn header(schema: WireSchema) -> String {
     let own: &str = match schema {
         WireSchema::Zod => "\
 import { z } from \"zod\";
-import { bool, char, f32, f64, i16, i32, i64, i8, nullable, optionalField, str, u16, u32, u64, u8, unit, unitVariant, usize, uuid, uuidError } from \"purecrate-zod\";
+import { bool, char, f32, f64, i16, i32, i64, i8, nullable, optionalField, str, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError } from \"purecrate-zod\";
 ",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
-import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, unitVariant, usize, uuid, uuidError } from \"purecrate-valibot\";
+import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError } from \"purecrate-valibot\";
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, str, u16, u32, u64, u8, unit, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
+import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, str, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ Json, parseJson }} from \"purecrate\";\n{own}")
@@ -528,7 +528,19 @@ fn fill(schema: WireSchema, fields: &[purecrate_ir::Field], from: &str) -> Strin
         .join(", ")
 }
 
+/// The quoted names of a fieldless enum's variants, or `None` when one has
+/// fields: the adapters' `unitEnum` reads it whole.
+fn unit_names(variants: &[purecrate_ir::Variant]) -> Option<Vec<String>> {
+    variants
+        .iter()
+        .map(|v| matches!(v.fields, VariantFields::Unit).then(|| format!("\"{}\"", v.name.as_str())))
+        .collect()
+}
+
 fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant], recursive: bool) -> String {
+    if let Some(names) = unit_names(variants) {
+        return declare(schema, name, &list("unitEnum([", &names, "])", false), recursive);
+    }
     let arms: Vec<String> = variants
         .iter()
         .map(|v| variant_arm(schema, name, v.name.as_str(), &v.fields))
@@ -619,6 +631,10 @@ fn ark_struct(s: &Struct, refused: &Refusal) -> String {
 
 fn ark_enum(en: &purecrate_ir::Enum) -> String {
     let name = en.name.as_str();
+    if let Some(names) = unit_names(&en.variants) {
+        let names = list(&format!("unitEnum(\"{name}\", ["), &names, "])", false);
+        return format!("\nexport const {name}: Wire<{name}$> = {names};\n");
+    }
     let mut arms = String::new();
     let mut body = String::new();
     for variant in &en.variants {
