@@ -11,7 +11,7 @@ It is not a compiler for arbitrary Rust. You write new domain code within [the P
 Download the binary for your platform from the [latest release](https://github.com/manji-0/purecrate-ts/releases/latest) (Linux x86_64 and aarch64, macOS x86_64 and arm64), or build it from a tag:
 
 ```sh
-cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.6.0 purecrate-ts
+cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.7.0 purecrate-ts
 ```
 
 The binary carries the runtime and the schema adapters; it needs only `rustc` on the `PATH` (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
@@ -36,9 +36,9 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 ```
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
-- `build` replaces `--out` whole, removing files an earlier build left, but refuses a directory that is not empty and was not written by `build`.
+- `build` replaces `--out` whole, removing files an earlier build left, but keeps `node_modules/` so an `npm install` in the package survives a rebuild (`dist/` is dropped: it is stale). It refuses a directory that is not empty and was not written by `build`.
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output.
-- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime and, with `--schema`, the adapter are copied into `src/`; the schema library is the only peer dependency. `version` comes from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
+- The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime and, with `--schema`, the adapter are copied into `src/`; the schema library is the only peer dependency. `version` and `license` come from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `fromJson.T(text)`, the inverse of `toJson.T`, which goes through `parseJson` so that `i64`/`u64` above 2^53 stay exact, and throws on malformed text or a refused value; never `JSON.parse` then the schema.
 - `survey` reports, for each public function and type, whether it is accepted with everything it refers to, and the first cause when it is not. `--all-causes` lowers each item past what it cannot take and lists every cause, the type check's included, to estimate a rewrite.
 - Never edit generated packages. Change the Rust and regenerate.
@@ -69,7 +69,7 @@ A generated package carries everything it runs on. The runtime (`packages/bounda
 
 Use the output either way:
 
-- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write; pin the release binary (or `cargo install --git … --tag`) there so the check and the committed output come from the same version.
+- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Generated files import with `.ts` extensions (`from "./purecrate-runtime.ts"`). The consuming project's tsconfig must allow that: `allowImportingTsExtensions` with `noEmit` or a bundler, or `rewriteRelativeImportExtensions` when emitting (`tsc` reports TS5097 otherwise). The generated package's own `tsconfig.json` already sets the former. If the project cannot set them, install the package instead and import through `exports` (the `purecrate-source` condition resolves to the `.ts` sources; `types` / `default` to `dist` after `npm run build`). Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write; pin the release binary (or `cargo install --git … --tag`) there so the check and the committed output come from the same version.
 - **Install it as a package.** `npm pack` it (the `prepack` script builds `dist`) and install the tarball, or push it to a private registry.
 
 ```sh
@@ -102,7 +102,7 @@ CI (`.github/workflows/verify.yml`) runs it on every push inside `nix develop`, 
 
 The tests of each crate are one binary (`crates/*/tests/it`, one module per file), so they link once and run in parallel. `scripts/output-snapshot.sh` prints one digest of everything `build` and `survey` write for every example and test fixture; a refactor that must not change the output keeps it.
 
-`.github/workflows/release.yml` builds the release binaries when a `vX.Y.Z` tag is pushed (the tag must match the workspace version, and `CHANGELOG.md` must have its section, which becomes the release notes); run it by hand to build and smoke-test every target without publishing.
+`.github/workflows/release.yml` runs `scripts/verify.sh` first, then builds the release binaries when a `vX.Y.Z` tag is pushed (the tag must match the workspace version, and `CHANGELOG.md` must have its section, which becomes the release notes); the x86_64 macOS binary, cross-built on the arm64 runner, is smoke-tested under Rosetta. Run the workflow by hand to verify, build, and smoke-test every target without publishing.
 
 `scripts/line-counts.py` counts each example's logic against its idiomatic reference, both formatted by rustfmt ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 

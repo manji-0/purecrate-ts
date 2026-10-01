@@ -6,6 +6,10 @@ mod trim;
 /// The version a package gets when the crate's manifest names none.
 pub const DEFAULT_VERSION: &str = "0.1.0";
 
+/// The license a package gets when the crate's manifest names none.
+/// Matches the generator and the copied runtime.
+pub const DEFAULT_LICENSE: &str = "MIT";
+
 /// The TypeScript majors the package builds and type-checks with.
 const TYPESCRIPT_RANGE: &str = "^6.0.0 || ^7.0.0";
 
@@ -59,6 +63,16 @@ pub fn assemble_versioned(krate: &Crate, schema: Option<WireSchema>, version: &s
 }
 
 pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: &str, access: Access) -> Package {
+    assemble_with_license(krate, schema, version, DEFAULT_LICENSE, access)
+}
+
+pub fn assemble_with_license(
+    krate: &Crate,
+    schema: Option<WireSchema>,
+    version: &str,
+    license: &str,
+    access: Access,
+) -> Package {
     let mut pkg = emit(krate);
     if let Some(schema) = schema {
         pkg.files.push(TsFile {
@@ -96,7 +110,7 @@ pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: 
         }
     }
     let manifests = [
-        ("package.json", package_json(krate.name.as_str(), version, schema, access)),
+        ("package.json", package_json(krate.name.as_str(), version, license, schema, access)),
         ("tsconfig.json", tsconfig()),
         ("tsconfig.build.json", tsconfig_build()),
     ];
@@ -107,13 +121,38 @@ pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: 
 }
 
 /// A copy of a hand-written file from `packages/`, marked as generated so
-/// `build` may replace it, and with its license.
+/// `build` may replace it, and with the MIT copyright and permission notice
+/// the license requires in every copy.
 fn copied(package: &str, dir: &str, source: &str) -> String {
     format!(
-        "{HEADER}// `{package}` from purecrate-ts ({dir}; MIT, https://github.com/manji-0/purecrate-ts),\n\
-         // copied in at the generator's revision.\n\n{source}"
+        "{HEADER}// `{package}` from purecrate-ts ({dir}), copied in at the generator's revision.\n\
+         //\n\
+         {MIT_NOTICE}\n\
+         {source}"
     )
 }
+
+const MIT_NOTICE: &str = "\
+// Copyright (c) 2026 Wataru Manji
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the \"Software\"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+";
 
 pub fn disk_path(stem: &str) -> String {
     if stem.ends_with(".json") {
@@ -131,7 +170,7 @@ fn entry(stem: &str) -> String {
 
 /// The one dependency left is the schema library, which the consumer's
 /// own code uses too.
-fn package_json(name: &str, version: &str, schema: Option<WireSchema>, access: Access) -> String {
+fn package_json(name: &str, version: &str, license: &str, schema: Option<WireSchema>, access: Access) -> String {
     let kebab = purecrate_ir::to_kebab(name);
     let mut exports = vec![format!("    \".\": {}", entry("index"))];
     let mut peers = Vec::new();
@@ -143,13 +182,18 @@ fn package_json(name: &str, version: &str, schema: Option<WireSchema>, access: A
         Access::Private => "  \"private\": true,\n",
         Access::Publishable => "",
     };
+    let engines = if schema.is_some() {
+        "  \"engines\": { \"node\": \">=21\" },\n"
+    } else {
+        ""
+    };
     let peers = if peers.is_empty() {
         String::new()
     } else {
         format!("  \"peerDependencies\": {{\n{}\n  }},\n", peers.join(",\n"))
     };
     format!(
-        "{{\n  \"name\": \"{kebab}\",\n  \"version\": \"{version}\",\n{private}  \"type\": \"module\",\n  \"exports\": {{\n{exports}\n  }},\n  \"files\": [\"dist\", \"src\"],\n  \"scripts\": {{\n    \"build\": \"tsc -p tsconfig.build.json\",\n    \"prepack\": \"npm run build\"\n  }},\n{peers}  \"devDependencies\": {{\n    \"typescript\": \"{TYPESCRIPT_RANGE}\"\n  }}\n}}\n",
+        "{{\n  \"name\": \"{kebab}\",\n  \"version\": \"{version}\",\n  \"license\": \"{license}\",\n{private}  \"type\": \"module\",\n  \"sideEffects\": false,\n{engines}  \"exports\": {{\n{exports}\n  }},\n  \"files\": [\"dist\", \"src\"],\n  \"scripts\": {{\n    \"build\": \"tsc -p tsconfig.build.json\",\n    \"prepack\": \"npm run build\"\n  }},\n{peers}  \"devDependencies\": {{\n    \"typescript\": \"{TYPESCRIPT_RANGE}\"\n  }}\n}}\n",
         exports = exports.join(",\n"),
     )
 }
@@ -202,17 +246,33 @@ mod tests {
         let pkg = assemble_with(&krate, Some(WireSchema::Zod));
         let file = |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
         assert!(file(RUNTIME_STEM).starts_with(HEADER) && file(RUNTIME_STEM).contains("export const Int = {"));
+        assert!(file(RUNTIME_STEM).contains("Copyright (c) 2026 Wataru Manji"));
+        assert!(file(RUNTIME_STEM).contains("Permission is hereby granted"));
         assert!(file("purecrate-zod").contains("from \"./purecrate-runtime.ts\";"));
+        assert!(file("purecrate-zod").contains("Copyright (c) 2026 Wataru Manji"));
         assert!(file("purecrate-wire").contains("from \"./purecrate-zod.ts\";"));
         for f in &pkg.files {
             assert!(!f.source.contains("from \"purecrate"), "{} imports a purecrate package", f.stem);
         }
         let manifest = file("package.json");
         assert!(manifest.contains("\"peerDependencies\": {\n    \"zod\": \"^"), "{manifest}");
+        assert!(manifest.contains("\"license\": \"MIT\""), "{manifest}");
+        assert!(manifest.contains("\"sideEffects\": false"), "{manifest}");
+        assert!(manifest.contains("\"engines\": { \"node\": \">=21\" }"), "{manifest}");
         assert!(!manifest.contains("purecrate\""), "{manifest}");
         let plain = assemble(&counter_example());
         let manifest = &plain.files.iter().find(|f| f.stem == "package.json").unwrap().source;
         assert!(!manifest.contains("peerDependencies"), "{manifest}");
+        assert!(manifest.contains("\"sideEffects\": false"), "{manifest}");
+        assert!(!manifest.contains("\"engines\""), "{manifest}");
+    }
+
+    #[test]
+    fn the_license_is_copied_into_the_manifest() {
+        let pkg = assemble_with_license(&counter_example(), None, "1.2.3", "Apache-2.0", Access::Publishable);
+        let manifest = &pkg.files.iter().find(|f| f.stem == "package.json").unwrap().source;
+        assert!(manifest.contains("\"license\": \"Apache-2.0\""), "{manifest}");
+        assert!(!manifest.contains("\"private\""), "{manifest}");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: current (2026-10-01, 0.6.0)
+Status: current (2026-10-02, 0.7.0)
 
 <!-- derived-from ./00-overview.md#3-how-it-holds-together -->
 
@@ -17,7 +17,7 @@ crate source (root and module files)
   → assemble the package (package.json, tsconfig, index, runtime re-exports)
 ```
 
-`--out` is replaced only on success, and only if it is absent, empty, or an earlier build's output (`src/index.ts` beginning with the generated header); any other directory is refused untouched, since replacing it would delete its files. Each rejection carries `path:line:col` and a reason code (`Reason::code()`, e.g. `expr/method-call`). Problems inside a body point to the statement, the trailing expression, or the `match` arm; the parser marks these with `Expr::At`, removed after checking.
+`--out` is replaced only on success, and only if it is absent, empty, or an earlier build's output (`src/index.ts` beginning with the generated header); any other directory is refused untouched, since replacing it would delete its files. `node_modules/` from the previous `--out` is moved onto the new tree (`check --out` already skips it); `dist/` is not, it would be stale. Each rejection carries `path:line:col` and a reason code (`Reason::code()`, e.g. `expr/method-call`). Problems inside a body point to the statement, the trailing expression, or the `match` arm; the parser marks these with `Expr::At`, removed after checking.
 
 ## 2. Crates
 
@@ -62,7 +62,7 @@ Passes that only collect (reachability, emit's imports, `survey`'s references) h
 
 **Why.** The subset check erases borrows and does not track moves or lifetimes, so alone it would accept programs rustc rejects (one such hole: a string literal in a `String` position).
 
-**serde.** The crate may name `serde` for its derives; rustc gets a stand-in built on the fly, whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3.2](./04-wire.md#32-serde-in-the-input)).
+**serde.** The crate may name `serde` for its derives; rustc gets a stand-in whose `Serialize`/`Deserialize` derives expand to nothing ([04 §3.2](./04-wire.md#32-serde-in-the-input)). The `serde` and `uuid` stand-ins are built once per `rustc -vV` and purecrate-ts version into a per-user cache (`$XDG_CACHE_HOME/purecrate-ts/rustc-stubs`, or `~/.cache/...`). rustc's metadata for the input goes in a unique 0700 directory under the process temp dir, created exclusively and removed when `check` returns.
 
 **Edition.** The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`, 2015 if unset); a standalone file defaults to 2021 (`--edition`).
 
@@ -102,4 +102,4 @@ purecrate-ts survey <crate-path>... [--json]
 
 `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs`. `--name` defaults to the `Cargo.toml` package name, then the directory name. `check --out` also compares bytes with an existing output, listing differing, missing, and extra files. `survey` reports, per public function and type, whether it is accepted together with everything it references ([90](./90-acceptance-survey.md)).
 
-`scripts/verify.sh` runs `cargo test --offline`, drift detection on examples/counter, `check` on the other examples (order, signup, iban, payment, invoice), and `tsc` on TS 6 and 7 for the runtime packages and the counter output.
+`scripts/verify.sh` runs `cargo test --offline`, drift detection on every example's committed output (`examples/<name>/ts/plain`, and `ts/<lib>` with each schema library where the example derives serde), and `tsc` on TypeScript 6 and 7 for the runtime packages and those outputs.

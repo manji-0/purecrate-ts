@@ -42,6 +42,8 @@ pub struct Input {
     pub edition: String,
     /// The generated package's version: the crate's, else `0.1.0`.
     pub version: String,
+    /// The generated package's license: the crate's, else `MIT`.
+    pub license: String,
 }
 
 /// For a source file with no `Cargo.toml` to read.
@@ -164,8 +166,12 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
         None => infer_name(&src, crate_dir.as_deref())
             .ok_or_else(|| format!("cannot infer a crate name for {}; pass --name", src.display()))?,
     };
-    let (edition, version) = match crate_dir.filter(|d| d.join("Cargo.toml").is_file()) {
-        None => (DEFAULT_EDITION.to_string(), purecrate_pack::DEFAULT_VERSION.to_string()),
+    let (edition, version, license) = match crate_dir.filter(|d| d.join("Cargo.toml").is_file()) {
+        None => (
+            DEFAULT_EDITION.to_string(),
+            purecrate_pack::DEFAULT_VERSION.to_string(),
+            purecrate_pack::DEFAULT_LICENSE.to_string(),
+        ),
         Some(dir) => {
             // A manifest without an edition is 2015, as cargo reads it.
             let edition = package_field(&dir, "edition")?.unwrap_or_else(|| "2015".into());
@@ -173,10 +179,11 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
                 return Err(format!("{}: edition {edition} is not one of {}", dir.display(), EDITIONS.join(", ")));
             }
             let version = package_field(&dir, "version")?.unwrap_or_else(|| purecrate_pack::DEFAULT_VERSION.into());
-            (edition, version)
+            let license = package_field(&dir, "license")?.unwrap_or_else(|| purecrate_pack::DEFAULT_LICENSE.into());
+            (edition, version, license)
         }
     };
-    Ok(Input { src, name, edition, version })
+    Ok(Input { src, name, edition, version, license })
 }
 
 /// `[package] key` in `dir/Cargo.toml`. `key.workspace = true` reads
@@ -291,6 +298,7 @@ mod tests {
                     name: "counter".into(),
                     edition: "2021".into(),
                     version: "0.1.0".into(),
+                    license: "MIT".into(),
                 },
                 out: None,
                 schema: None,
@@ -381,7 +389,7 @@ mod tests {
         let Command::Check { input, .. } = parse(&args(&["check", krate.to_str().unwrap()])).unwrap() else {
             unreachable!()
         };
-        assert_eq!((input.version.as_str(), input.edition.as_str()), ("2.3.4", "2015"));
+        assert_eq!((input.version.as_str(), input.edition.as_str(), input.license.as_str()), ("2.3.4", "2015", "MIT"));
         fs::remove_dir_all(&dir).ok();
     }
 
