@@ -284,15 +284,6 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
                 emit_stmts(v, indent, Sink::Assign(name), out);
             }
         }
-        // An annotation would narrow the union to this variant, or to what
-        // an enclosing `switch` left of the place, and a later `switch` or
-        // `=== null` on the binding could not name the rest.
-        v if ty.is_some_and(is_union) && (matches!(v, Expr::Construct { variant: Some(_), .. }) || is_place(v)) => out
-            .push_str(&format!(
-                "{pad}{keyword} {name} = {} as {};\n",
-                emit_expr(v, indent),
-                emit_ty(ty.expect("checked"))
-            )),
         v => out.push_str(&format!(
             "{pad}{keyword} {name}{annotation} = {};\n",
             crate::tidy::strip_outer(&emit_expr(v, indent))
@@ -315,12 +306,6 @@ fn emit_try_test(tmp: &str, on: Option<TryOn>, indent: usize, out: &mut String) 
         Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
         Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),
     }
-}
-
-/// A type TS narrows: an enum (or any named type, which may be one),
-/// `Option`, or `Result`.
-pub(crate) fn is_union(ty: &Ty) -> bool {
-    matches!(ty, Ty::Named(_) | Ty::Option(_) | Ty::Result { .. })
 }
 
 /// `x`, `x.a.b`: references TS can narrow through `switch (x.kind)`.

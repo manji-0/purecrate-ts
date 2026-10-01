@@ -76,7 +76,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("const") {
         return Some("readonly literal");
     }
-    if line.trim_start().starts_with("import ") {
+    if line.trim_start().starts_with("import ") || (value.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && target_name.contains('$')) {
         return Some("import alias");
     }
     if target.starts_with("never") && value.starts_with("ctx.error(") {
@@ -113,13 +113,17 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if (value == "value" || value == "fields") && (line.contains("$of = (") || line.trim_start().starts_with("of: (value")) {
         return Some("the crate's constructor");
     }
-    if target.split(';').next().unwrap_or("").contains(" | null") {
+    if target.split(';').next().unwrap_or("").contains(" | null") && !is_place_text(value) {
         return Some("an `Option` given back its declared type");
     }
-    if !brands.contains(target_name) && target_name.starts_with(|c: char| c.is_ascii_uppercase()) && !NUMERIC.contains(&target_name) && target_name != "Char" && target_name != "Uuid" {
+    if !brands.contains(target_name) && target_name.starts_with(|c: char| c.is_ascii_uppercase()) && !NUMERIC.contains(&target_name) && target_name != "Char" && target_name != "Uuid" && value.trim_start().starts_with('{') {
         return Some("union given back its declared type");
     }
     None
+}
+
+fn is_place_text(value: &str) -> bool {
+    !value.is_empty() && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '.'))
 }
 
 #[test]
@@ -193,5 +197,8 @@ fn a_cast_of_no_sound_kind_is_caught() {
     // What the generator does print.
     assert!(!unexplained("export const Yen$of = (value: I64): Yen => value as Yen;"));
     assert!(!unexplained("  return Int.i32.add(n, (1 as I32));"));
-    assert!(!unexplained("  const s = state as State;"));
+    assert!(!unexplained("  const s = { kind: \"A\" } as State;"));
+    // A place whose type is already the target: the printer must not emit this.
+    assert!(unexplained("  const s = state as State;"));
+    assert!(unexplained("  const m = method as PaymentMethod | null;"));
 }
