@@ -1,8 +1,11 @@
 {
   "name": "invoice",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=21" },
   "exports": {
     ".": {
       "purecrate-source": "./src/index.ts",

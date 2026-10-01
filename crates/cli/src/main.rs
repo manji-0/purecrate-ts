@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_emit_ts::{has_wire, WireSchema};
-use purecrate_pack::{assemble_with_access, disk_path, Access};
+use purecrate_pack::{assemble_with_license, disk_path, Access};
 use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
 use args::{Command, Input};
@@ -129,7 +129,7 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Ac
                             lib.runtime_dep(),
                             summary(1, consequence)
                         )),
-                        _ => Ok(assemble_with_access(&pruned, schema, &input.version, access)),
+                        _ => Ok(assemble_with_license(&pruned, schema, &input.version, &input.license, access)),
                     }
                 }
                 Err(rustc::Failure::Other(e)) => Err(e),

@@ -256,7 +256,10 @@ Imports are those the printed code mentions.
 | `type` | `"module"` |
 | `exports` | `dist` (and `<package>/wire` with `--schema`); under the `purecrate-source` condition, the `.ts` sources |
 | `version` | from `Cargo.toml` |
+| `license` | from `Cargo.toml` (`MIT` if unset), so a `--publishable` package is not shown as unlicensed |
 | `private` | `true` unless `--publishable` is given |
+| `sideEffects` | `false` |
+| `engines` | `"node": ">=21"` with `--schema` (`parseJson` needs `JSON.parse` source text) |
 | `peerDependencies` | only the schema library |
 | `files` | `dist` and `src` |
 | `npm run build` | `tsc -p tsconfig.build.json`, TypeScript 6 or 7; also run by `prepack` |

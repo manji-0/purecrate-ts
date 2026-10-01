@@ -18,6 +18,8 @@
 
 - Vendoring generated sources needs `allowImportingTsExtensions` (with `noEmit` or a bundler) or `rewriteRelativeImportExtensions` when emitting, or the package / `purecrate-source` route.
 
+- Generated `package.json` has `license` (from `Cargo.toml`), `sideEffects: false`, and with `--schema` `engines.node >= 21`.
+
 ## 0.7.0 — 2026-10-02
 
 `split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering ([roadmap §8.8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#88-070-lists-from-text-2026-10-02)).
