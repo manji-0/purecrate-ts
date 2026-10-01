@@ -40,3 +40,17 @@ fn generated_option_methods_match_rust() {
     });
     support::assert_equivalent("option_methods", SOURCE, &cases);
 }
+
+/// `let x = opt.ok_or(e)?` prints as a guard, with `e` bound before the
+/// test (it is eager), not as an inline function building a `Result`.
+#[test]
+fn ok_or_then_try_is_a_guard() {
+    let krate = purecrate_syntax::parse_source("guard", SOURCE).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&purecrate_check::prune_unreachable(&typed));
+    let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
+    assert!(!src.contains("(() =>"), "{src}");
+    let arg = src.find("const $arg").expect("the argument is bound");
+    let guard = src.find("=== null)) return Result.err($arg").expect("one-line guard");
+    assert!(arg < guard, "{src}");
+}

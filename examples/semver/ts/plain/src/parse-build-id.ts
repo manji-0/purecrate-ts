@@ -6,9 +6,7 @@ import { is_ident_char } from "./is-ident-char.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parse_build_id = (s: string): Result<string, SemverError> => {
-  if ((s.length === 0)) {
-    return Result.err({ kind: "EmptyBuild" });
-  }
+  if ((s.length === 0)) return Result.err({ kind: "EmptyBuild" });
   if (!(() => {
     const $src4: string = s;
     let $acc2: boolean = true;

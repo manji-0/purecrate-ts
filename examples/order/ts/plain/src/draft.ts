@@ -16,9 +16,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
   switch (cmd.kind) {
     case "AddLine": {
       const line = cmd.content[0];
-      if (line.qty === (0 as U32)) {
-        return Result.err({ kind: "QtyZero" });
-      }
+      if (line.qty === (0 as U32)) return Result.err({ kind: "QtyZero" });
       return Result.ok({ kind: "Draft", lines: add_line(lines, line) });
     }
     case "RemoveSku": {

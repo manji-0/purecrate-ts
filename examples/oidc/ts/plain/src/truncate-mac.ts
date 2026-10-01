@@ -13,9 +13,7 @@ import type { OtpDigits } from "./otp-digits.ts";
  */
 export const truncate_mac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
   const n: Usize = ((mac.length) as Usize);
-  if (n < SHA1_LEN) {
-    return null;
-  }
+  if (n < SHA1_LEN) return null;
   const offset: Usize = (Int.u8.and(Slice.at(mac, Int.usize.sub(n, (1 as Usize))), (15 as U8)) as number as Usize);
   const bin: U32 = Int.u32.or(Int.u32.or(Int.u32.or(Int.u32.shl((Int.u8.and(Slice.at(mac, offset), (127 as U8)) as number as U32), (24 as I32)), Int.u32.shl((Slice.at(mac, Int.usize.add(offset, (1 as Usize))) as number as U32), (16 as I32))), Int.u32.shl((Slice.at(mac, Int.usize.add(offset, (2 as Usize))) as number as U32), (8 as I32))), (Slice.at(mac, Int.usize.add(offset, (3 as Usize))) as number as U32));
   return Int.u32.rem(bin, digit_modulus(digits));

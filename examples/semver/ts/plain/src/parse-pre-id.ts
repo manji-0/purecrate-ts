@@ -10,9 +10,7 @@ import type { PreId } from "./pre-id.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parse_pre_id = (s: string): Result<PreId, SemverError> => {
-  if ((s.length === 0)) {
-    return Result.err({ kind: "EmptyPreRelease" });
-  }
+  if ((s.length === 0)) return Result.err({ kind: "EmptyPreRelease" });
   if (!(() => {
     const $src4: string = s;
     let $acc2: boolean = true;
@@ -27,9 +25,7 @@ export const parse_pre_id = (s: string): Result<PreId, SemverError> => {
     return Result.err({ kind: "InvalidPreReleaseChar" });
   }
   if (all_digits(s)) {
-    if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) {
-      return Result.err({ kind: "PreReleaseLeadingZero" });
-    }
+    if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) return Result.err({ kind: "PreReleaseLeadingZero" });
     return (() => {
       const $m_3 = digits_to_u64(s);
       if ($m_3 !== null) {

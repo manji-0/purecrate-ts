@@ -23,7 +23,72 @@ pub fn lift(krate: Crate) -> Crate {
 /// the closure, so each is lifted on its own, innermost first.
 fn lift_body(mut body: Expr) -> Expr {
     lift_closures(&mut body);
-    Lifter::default().stmt(body)
+    let mut body = Lifter::default().stmt(body);
+    guard_ok_or(&mut body);
+    body
+}
+
+/// `let x = opt.ok_or(e)?` as a guard: `ok_or` lowers to a `match` that
+/// builds a `Result` only for `?` to take it apart again, which printed as
+/// an inline function. `e` still runs before the test, as `ok_or` is eager:
+///
+/// ```text
+/// let $opt = opt; let $arg = e;
+/// if $opt.is_none() { return Err($arg) }
+/// let x = $opt;
+/// ```
+fn guard_ok_or(expr: &mut Expr) {
+    if let Expr::Let { name, mutable, ty, value, then } = expr {
+        if let Some((opt, opt_ty, recv, arg, arg_ty, e)) = ok_or_try(value) {
+            let then = std::mem::replace(&mut **then, Expr::Unreachable);
+            let guard = Expr::If {
+                cond: Box::new(Expr::Call { callee: Callee::OptionIsNone, args: vec![Expr::Var(opt.clone())] }),
+                then: Box::new(Expr::Return(Box::new(Expr::Call { callee: Callee::ResultErr, args: vec![Expr::Var(arg.clone())] }))),
+                else_: Box::new(Expr::Lit(Lit::Unit)),
+            };
+            let bind = Expr::Let { name: name.clone(), mutable: *mutable, ty: ty.clone(), value: Box::new(Expr::Var(opt.clone())), then: Box::new(then) };
+            *expr = Expr::Let {
+                name: opt,
+                mutable: false,
+                ty: opt_ty,
+                value: Box::new(recv),
+                then: Box::new(Expr::Let {
+                    name: arg,
+                    mutable: false,
+                    ty: arg_ty,
+                    value: Box::new(e),
+                    then: Box::new(Expr::Seq { first: Box::new(guard), then: Box::new(bind) }),
+                }),
+            };
+        }
+    }
+    expr.children_mut().into_iter().for_each(guard_ok_or);
+}
+
+/// The pieces of `Try` on what `option_method` builds for `ok_or`:
+/// `let $opt = recv; let $arg = e; let $res = match $opt { Some(s) => Ok(s),
+/// None => Err($arg) }; $res`.
+#[allow(clippy::type_complexity)]
+fn ok_or_try(value: &Expr) -> Option<(Name, Option<purecrate_ir::Ty>, Expr, Name, Option<purecrate_ir::Ty>, Expr)> {
+    let Expr::Try { expr, on: Some(TryOn::Result) } = value else { return None };
+    let Expr::Let { name: opt, ty: opt_ty, value: recv, then, .. } = &**expr else { return None };
+    let Expr::Let { name: arg, ty: arg_ty, value: e, then, .. } = &**then else { return None };
+    let Expr::Let { name: res, value: m, then, .. } = &**then else { return None };
+    if **then != Expr::Var(res.clone()) {
+        return None;
+    }
+    let Expr::Match { scrutinee, arms } = &**m else { return None };
+    let [some, none] = arms.as_slice() else { return None };
+    let ok = match (&some.pattern, &some.body) {
+        (purecrate_ir::Pattern::OptionSome(p), Expr::Call { callee: Callee::ResultOk, args }) => {
+            matches!((&**p, args.as_slice()), (purecrate_ir::Pattern::Var(s), [Expr::Var(v)]) if s == v)
+        }
+        _ => false,
+    };
+    let err = matches!((&none.pattern, &none.body), (purecrate_ir::Pattern::OptionNone, Expr::Call { callee: Callee::ResultErr, args })
+        if args.as_slice() == [Expr::Var(arg.clone())]);
+    (**scrutinee == Expr::Var(opt.clone()) && ok && err && some.guard.is_none() && none.guard.is_none())
+        .then(|| (opt.clone(), opt_ty.clone(), (**recv).clone(), arg.clone(), arg_ty.clone(), (**e).clone()))
 }
 
 fn lift_closures(expr: &mut Expr) {

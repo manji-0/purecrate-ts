@@ -9,15 +9,9 @@ import type { CorePart } from "./core-part.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parse_core_number = (s: string, part: CorePart): Result<U64, SemverError> => {
-  if ((s.length === 0)) {
-    return Result.err({ kind: "EmptyNumber", content: [part] });
-  }
-  if (!all_digits(s)) {
-    return Result.err({ kind: "NotANumber", content: [part] });
-  }
-  if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) {
-    return Result.err({ kind: "LeadingZero", content: [part] });
-  }
+  if ((s.length === 0)) return Result.err({ kind: "EmptyNumber", content: [part] });
+  if (!all_digits(s)) return Result.err({ kind: "NotANumber", content: [part] });
+  if ((Str.len(s) > (1 as Usize)) && s.startsWith("0")) return Result.err({ kind: "LeadingZero", content: [part] });
   const $opt1: U64 | null = digits_to_u64(s);
   const $arg3 = { kind: "NumberTooLarge", content: [part] } as SemverError;
   let $res4: Result<U64, SemverError>;

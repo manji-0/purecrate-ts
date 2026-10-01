@@ -27,9 +27,7 @@ export const Version$of = (fields: Readonly<{ major: U64; minor: U64; patch: U64
 
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
-    if ((s.length === 0)) {
-      return Result.err({ kind: "Empty" });
-    }
+    if ((s.length === 0)) return Result.err({ kind: "Empty" });
     let plus: Usize | null;
     {
       const $src4: string = s;
@@ -99,48 +97,18 @@ export const Version = {
       }
       n = Int.u32.add(n, (1 as U32));
     }
-    const $v_major$1 = (() => {
-      const $opt9 = major as U64 | null;
-      const $arg11 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
-      let $res12: Result<U64, SemverError>;
-      if ($opt9 !== null) {
-        const $some10 = $opt9;
-        $res12 = Result.ok($some10);
-      } else {
-        $res12 = Result.err($arg11);
-      }
-      return $res12;
-    })();
-    if ($v_major$1.kind === "Err") return $v_major$1;
-    const major$1: U64 = $v_major$1.value;
-    const $v_minor$1 = (() => {
-      const $opt13 = minor as U64 | null;
-      const $arg15 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
-      let $res16: Result<U64, SemverError>;
-      if ($opt13 !== null) {
-        const $some14 = $opt13;
-        $res16 = Result.ok($some14);
-      } else {
-        $res16 = Result.err($arg15);
-      }
-      return $res16;
-    })();
-    if ($v_minor$1.kind === "Err") return $v_minor$1;
-    const minor$1: U64 = $v_minor$1.value;
-    const $v_patch$1 = (() => {
-      const $opt17 = patch as U64 | null;
-      const $arg19 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
-      let $res20: Result<U64, SemverError>;
-      if ($opt17 !== null) {
-        const $some18 = $opt17;
-        $res20 = Result.ok($some18);
-      } else {
-        $res20 = Result.err($arg19);
-      }
-      return $res20;
-    })();
-    if ($v_patch$1.kind === "Err") return $v_patch$1;
-    const patch$1: U64 = $v_patch$1.value;
+    const $opt9 = major as U64 | null;
+    const $arg11 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
+    if (($opt9 === null)) return Result.err($arg11);
+    const major$1: U64 = $opt9;
+    const $opt13 = minor as U64 | null;
+    const $arg15 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
+    if (($opt13 === null)) return Result.err($arg15);
+    const minor$1: U64 = $opt13;
+    const $opt17 = patch as U64 | null;
+    const $arg19 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
+    if (($opt17 === null)) return Result.err($arg19);
+    const patch$1: U64 = $opt17;
     let pre: PreIds;
     if (dash !== null) {
       const i$2 = dash;

@@ -117,6 +117,15 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             emit_let(name.as_str(), *mutable, ty.as_ref(), value, indent, out);
             emit_stmts(then, indent, sink, out);
         }
+        // A guard: `if (c) return v;` on one line, when both fit on one.
+        Expr::If { cond, then, else_ } if matches!(sink, Sink::Effect)
+            && **else_ == Expr::Lit(Lit::Unit)
+            && matches!(&**then, Expr::Return(v) if !v.needs_statements())
+            && !emit_expr(cond, indent).contains('\n') =>
+        {
+            let Expr::Return(v) = &**then else { unreachable!("matched above") };
+            out.push_str(&format!("{pad}if ({}) return {};\n", emit_expr(cond, indent), emit_expr(v, indent)));
+        }
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
             out.push_str(&format!("{pad}if ({}) {{\n", emit_expr(cond, indent)));
             emit_stmts(then, indent + 1, sink, out);

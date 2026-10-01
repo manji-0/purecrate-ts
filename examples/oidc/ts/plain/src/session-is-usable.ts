@@ -11,9 +11,7 @@ import type { Session } from "./session.ts";
  * acr_values; §3.1.2.3).
  */
 export const session_is_usable = (request: AuthorizationRequest, session: Session, now: I64): boolean => {
-  if (request.prompt.login || request.prompt.select_account) {
-    return false;
-  }
+  if (request.prompt.login || request.prompt.select_account) return false;
   let fresh: boolean;
   {
     let $opt3: boolean | null;

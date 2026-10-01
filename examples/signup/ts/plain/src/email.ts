@@ -23,29 +23,19 @@ export const Email = {
         at = i;
       }
     }
-    if (at === ((b.length) as Usize)) {
-      return Result.err({ kind: "MissingAt" });
-    }
-    if (at === (0 as Usize)) {
-      return Result.err({ kind: "BadLocal" });
-    }
+    if (at === ((b.length) as Usize)) return Result.err({ kind: "MissingAt" });
+    if (at === (0 as Usize)) return Result.err({ kind: "BadLocal" });
     for (let i$1 = (0 as Usize), $e_2 = at; i$1 < $e_2; i$1 = (i$1 + 1) as Usize) {
-      if (!is_local(Slice.at(b, i$1))) {
-        return Result.err({ kind: "BadLocal" });
-      }
+      if (!is_local(Slice.at(b, i$1))) return Result.err({ kind: "BadLocal" });
     }
     let start: Usize = Int.usize.add(at, (1 as Usize));
     for (let i$2 = Int.usize.add(at, (1 as Usize)), $e_2 = Int.usize.add(((b.length) as Usize), (1 as Usize)); i$2 < $e_2; i$2 = (i$2 + 1) as Usize) {
       if ((i$2 === ((b.length) as Usize)) || (Slice.at(b, i$2) === (46 as U8))) {
         const n: Usize = Int.usize.sub(i$2, start);
-        if ((((n === (0 as Usize)) || (n > (63 as Usize))) || (Slice.at(b, start) === (45 as U8))) || (Slice.at(b, Int.usize.sub(i$2, (1 as Usize))) === (45 as U8))) {
-          return Result.err({ kind: "BadDomain" });
-        }
+        if ((((n === (0 as Usize)) || (n > (63 as Usize))) || (Slice.at(b, start) === (45 as U8))) || (Slice.at(b, Int.usize.sub(i$2, (1 as Usize))) === (45 as U8))) return Result.err({ kind: "BadDomain" });
         start = Int.usize.add(i$2, (1 as Usize));
       } else {
-        if (!is_alnum(Slice.at(b, i$2)) && (Slice.at(b, i$2) !== (45 as U8))) {
-          return Result.err({ kind: "BadDomain" });
-        }
+        if (!is_alnum(Slice.at(b, i$2)) && (Slice.at(b, i$2) !== (45 as U8))) return Result.err({ kind: "BadDomain" });
       }
     }
     return Result.ok(Email$of(raw));

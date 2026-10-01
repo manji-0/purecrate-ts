@@ -66,9 +66,7 @@ export const check_totp = (code: string, now: I64, enrollment: TotpEnrollment, c
             fresh = $arg5;
           }
         }
-        if (fresh) {
-          return { kind: "Accepted", content: [c.step] };
-        }
+        if (fresh) return { kind: "Accepted", content: [c.step] };
         replayed = true;
       }
     }

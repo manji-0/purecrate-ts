@@ -13,9 +13,7 @@ export const Amount$of = (value: I64): Amount => value as Amount;
 
 export const Amount = {
   new: (value: I64): Result<Amount, PaymentError> => {
-    if ((value < (50n as I64)) || (value > (99999999n as I64))) {
-      return Result.err({ kind: "AmountOutOfRange" });
-    }
+    if ((value < (50n as I64)) || (value > (99999999n as I64))) return Result.err({ kind: "AmountOutOfRange" });
     return Result.ok(Amount$of(value));
   },
   try_from: (value: I64): Result<Amount, PaymentError> => Amount.new(value),

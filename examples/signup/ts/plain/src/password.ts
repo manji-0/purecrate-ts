@@ -29,15 +29,9 @@ export const Password = {
         n = Int.usize.add(n, (1 as Usize));
       }
     }
-    if (n < (15 as Usize)) {
-      return Result.err({ kind: "TooShort" });
-    }
-    if (n > (64 as Usize)) {
-      return Result.err({ kind: "TooLong" });
-    }
-    if (blocked(raw)) {
-      return Result.err({ kind: "Blocked" });
-    }
+    if (n < (15 as Usize)) return Result.err({ kind: "TooShort" });
+    if (n > (64 as Usize)) return Result.err({ kind: "TooLong" });
+    if (blocked(raw)) return Result.err({ kind: "Blocked" });
     return Result.ok(Password$of(raw));
   },
 } as const;

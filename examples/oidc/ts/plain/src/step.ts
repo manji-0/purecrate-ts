@@ -33,9 +33,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
             const request = $f1 as AuthorizationRequest;
             const failures: U32 = $f2;
             const failures$1: U32 = Int.u32.add(failures, (1 as U32));
-            if (failures$1 >= policy.max_password_failures) {
-              return Result.ok({ kind: "Locked" });
-            }
+            if (failures$1 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
             return Result.ok({ kind: "AwaitingPassword", request: request, failures: failures$1, notice: { kind: "WrongPassword" } });
           } else {
             const request$1 = $f1 as AuthorizationRequest;
@@ -109,9 +107,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
             }
           }
           const failures$3: U32 = Int.u32.add(failures$2, (1 as U32));
-          if (failures$3 >= policy.max_otp_failures) {
-            return Result.ok({ kind: "Locked" });
-          }
+          if (failures$3 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
           return Result.ok({ kind: "AwaitingOtp", request: request$2, subject: subject$1, enrollment: enrollment$1, failures: failures$3, notice: notice });
         }
         default:

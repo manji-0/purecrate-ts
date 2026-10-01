@@ -51,9 +51,7 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   } else {
     return Result.err({ kind: "Display", content: [{ kind: "MissingRedirectUri" }] });
   }
-  if (!redirect_uri_registered(client$1, redirect_uri)) {
-    return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
-  }
+  if (!redirect_uri_registered(client$1, redirect_uri)) return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
   let echoed: string | null;
   if (params.state !== null) {
     const $v2 = params.state;
@@ -158,20 +156,10 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   let prompt: Prompt;
   if (params.prompt !== null) {
     const p = params.prompt;
-    const $v_$q1 = (() => {
-      const $opt9: Prompt | null = parse_prompt(p);
-      const $arg11: AuthorizationError = fail({ kind: "InvalidRequest" });
-      let $res12: Result<Prompt, AuthorizationError>;
-      if ($opt9 !== null) {
-        const $some10 = $opt9;
-        $res12 = Result.ok($some10);
-      } else {
-        $res12 = Result.err($arg11);
-      }
-      return $res12;
-    })();
-    if ($v_$q1.kind === "Err") return $v_$q1;
-    const $q1 = $v_$q1.value;
+    const $opt9: Prompt | null = parse_prompt(p);
+    const $arg11: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if (($opt9 === null)) return Result.err($arg11);
+    const $q1 = $opt9;
     prompt = $q1;
   } else {
     prompt = { no_interaction: false, login: false, consent: false, select_account: false };
@@ -179,20 +167,10 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   let max_age: I64 | null;
   if (params.max_age !== null) {
     const m$2 = params.max_age;
-    const $v_$q2 = (() => {
-      const $opt13: I64 | null = parse_seconds(m$2);
-      const $arg15: AuthorizationError = fail({ kind: "InvalidRequest" });
-      let $res16: Result<I64, AuthorizationError>;
-      if ($opt13 !== null) {
-        const $some14 = $opt13;
-        $res16 = Result.ok($some14);
-      } else {
-        $res16 = Result.err($arg15);
-      }
-      return $res16;
-    })();
-    if ($v_$q2.kind === "Err") return $v_$q2;
-    const $q2 = $v_$q2.value;
+    const $opt13: I64 | null = parse_seconds(m$2);
+    const $arg15: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if (($opt13 === null)) return Result.err($arg15);
+    const $q2 = $opt13;
     max_age = $q2;
   } else {
     max_age = null;

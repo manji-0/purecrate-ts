@@ -12,9 +12,7 @@ export const paid = (lines: Lines, total$1: Yen, cmd: Command): Result<Order, Or
   switch (cmd.kind) {
     case "Ship": {
       const tracking = cmd.content[0];
-      if ((tracking.length === 0)) {
-        return Result.err({ kind: "EmptyTracking" });
-      }
+      if ((tracking.length === 0)) return Result.err({ kind: "EmptyTracking" });
       return Result.ok({ kind: "Shipped", lines: lines, total: total$1, tracking: tracking });
     }
     case "AddLine":

@@ -10,9 +10,7 @@ import type { InvoiceError } from "./invoice-error.ts";
 import type { Summary } from "./summary.ts";
 
 export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
-  if ((invoice.lines.length === 0)) {
-    return Result.err({ kind: "NoLines" });
-  }
+  if ((invoice.lines.length === 0)) return Result.err({ kind: "NoLines" });
   const standard: Group = taxed(invoice, { kind: "Standard" }, false);
   const reduced: Group = taxed(invoice, { kind: "Reduced" }, false);
   const standard_inclusive: Group = taxed(invoice, { kind: "Standard" }, true);

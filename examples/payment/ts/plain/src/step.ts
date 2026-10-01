@@ -31,20 +31,10 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           const $f16 = event.outcome;
           const method$1 = $f15 as PaymentMethod | null;
           const outcome = $f16 as Outcome;
-          const $v_method$2 = (() => {
-            const $opt1 = method$1 as PaymentMethod | null;
-            const $arg3 = { kind: "MissingPaymentMethod" } as PaymentError;
-            let $res4: Result<PaymentMethod, PaymentError>;
-            if ($opt1 !== null) {
-              const $some2 = $opt1;
-              $res4 = Result.ok($some2);
-            } else {
-              $res4 = Result.err($arg3);
-            }
-            return $res4;
-          })();
-          if ($v_method$2.kind === "Err") return $v_method$2;
-          const method$2: PaymentMethod = $v_method$2.value;
+          const $opt1 = method$1 as PaymentMethod | null;
+          const $arg3 = { kind: "MissingPaymentMethod" } as PaymentError;
+          if (($opt1 === null)) return Result.err($arg3);
+          const method$2 = $opt1 as PaymentMethod;
           status = attempt(terms, method$2, outcome);
           break;
         }
