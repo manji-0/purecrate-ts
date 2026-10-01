@@ -226,8 +226,11 @@ fn read_tree(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
 }
 
 /// Write into a sibling directory, then swap it in, so a failed write never
-/// leaves `out` half-replaced. Stale files of an earlier build go with it;
-/// a directory that holds anything else is refused, not emptied.
+/// leaves `out` half-replaced. Stale files of an earlier build go with it
+/// except `node_modules/`, which `check --out` already skips and which a
+/// user who ran `npm install` in the package would otherwise lose. `dist/`
+/// is not kept: it is the previous `npm run build` and would be stale.
+/// A directory that holds anything else is refused, not emptied.
 fn write_replacing(out: &Path, files: &[purecrate_emit_ts::File]) -> Result<(), String> {
     if !replaceable(out)? {
         return Err(format!(
@@ -253,8 +256,21 @@ fn write_replacing(out: &Path, files: &[purecrate_emit_ts::File]) -> Result<(), 
     if out.exists() {
         let old = sibling(out, "old");
         fs::rename(out, &old).map_err(|e| format!("move aside {}: {e}", out.display()))?;
+        let modules = old.join("node_modules");
+        if modules.exists() {
+            if let Err(e) = fs::rename(&modules, tmp.join("node_modules")) {
+                fs::rename(&old, out).ok();
+                fs::remove_dir_all(&tmp).ok();
+                return Err(format!("keep {}/node_modules: {e}", out.display()));
+            }
+        }
         if let Err(e) = fs::rename(&tmp, out) {
+            let restored = tmp.join("node_modules");
+            if restored.exists() {
+                fs::rename(&restored, old.join("node_modules")).ok();
+            }
             fs::rename(&old, out).ok();
+            fs::remove_dir_all(&tmp).ok();
             return Err(format!("replace {}: {e}", out.display()));
         }
         fs::remove_dir_all(&old).map_err(|e| format!("remove {}: {e}", old.display()))?;

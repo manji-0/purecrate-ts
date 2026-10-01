@@ -223,6 +223,30 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// A rebuild keeps `node_modules/` (an `npm install` in the package) and
+/// drops `dist/` (stale `npm run build` output). `check --out` already
+/// skips both.
+#[test]
+fn rebuild_keeps_node_modules_and_drops_stale_dist() {
+    let dir = scratch("keep-nm");
+    let out = dir.join("pkg");
+    let src = repo().join("examples/counter/src/lib.rs");
+    let first = build(&src, &out);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    fs::create_dir_all(out.join("node_modules/left")).expect("mkdir node_modules");
+    fs::write(out.join("node_modules/left/pkg.json"), "{}").expect("write sentinel");
+    fs::create_dir_all(out.join("dist")).expect("mkdir dist");
+    fs::write(out.join("dist/old.js"), "stale").expect("write dist");
+
+    let result = build(&src, &out);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(fs::read_to_string(out.join("node_modules/left/pkg.json")).expect("kept"), "{}");
+    assert!(!out.join("dist").exists());
+    assert!(out.join("src/step.ts").exists());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    fs::remove_dir_all(&dir).ok();
+}
+
 /// `--out` pointing at a directory of other files (a source tree, a test
 /// driver) is refused whole: replacing it would delete them.
 #[test]
