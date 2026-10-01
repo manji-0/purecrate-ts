@@ -509,3 +509,22 @@ fn errors_keep_their_location() {
         }
     }
 }
+
+/// `fromJson.T(text)` reads serde_json's text through `parseJson`, so an
+/// `i64` past 2^53 stays exact, and throws on malformed text and on a value
+/// the schema refuses, with each library.
+#[test]
+fn from_json_reads_the_text_exactly_and_throws_on_bad_input() {
+    let ints = r#"{"a":-128,"b":32767,"c":-2147483648,"d":-9223372036854775807,"e":255,"f":65535,"g":4294967295,"h":18446744073709551615,"i":9007199254740991}"#;
+    let script = format!(
+        "import * as w from \"./src/purecrate-wire.ts\";\n\
+         const ok = w.fromJson.Ints({ints:?});\n\
+         const threw = (text) => {{ try {{ w.fromJson.Ints(text); return \"read\"; }} catch {{ return \"threw\"; }} }};\n\
+         console.log(`${{ok.d}} ${{ok.h}} ${{threw('{{\"a\":1')}} ${{threw({bad:?})}}`);\n",
+        bad = ints.replace("-128", "-129"),
+    );
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let Some(out) = run_node_with(schema, "from-json", shapes::SOURCE, &script) else { return };
+        assert_eq!(out.trim(), "-9223372036854775807 18446744073709551615 threw threw", "{schema:?}");
+    }
+}

@@ -40,7 +40,7 @@ Of the options considered:
 | --- | --- | --- |
 | Core runtime `purecrate` | `packages/boundary` | The numeric brands, `Int.*.of`, `Str`, `Char`, `Uuid`, `parseJson`, and `Json` (the helpers of `toJson`). It depends on no schema library |
 | Adapters `purecrate-zod`, `-valibot`, `-arktype` | separate packages | Thin adapters, one per schema library. Only the one passed with `--schema` is used |
-| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's default JSON (no attributes) into the branded domain type, and `toJson` for each that derives `Serialize`, writing it back (§6); see §3.2 |
+| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's default JSON (no attributes) into the branded domain type, with `fromJson.T(text)` reading the text through `parseJson` and the schema, and `toJson` for each that derives `Serialize`, writing it back (§6); see §3.2 |
 
 Each adapter's library is a peer dependency of the generated package:
 

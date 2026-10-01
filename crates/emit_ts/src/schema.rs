@@ -119,8 +119,34 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
             }
         }
     }
+    out.push_str(&from_json(schema, &wired));
     out.push_str(&to_json(krate));
     super::imports::prune_unused(&out)
+}
+
+/// `fromJson.T(text)`: serde_json's text of a `T` read into the domain
+/// value, `toJson.T`'s inverse. The text goes through `parseJson`, so a
+/// 64-bit integer past 2^53 stays exact; a malformed text or a value the
+/// schema refuses throws, as `JSON.parse` and the library's `parse` do.
+fn from_json(schema: WireSchema, wired: &[&Item]) -> String {
+    if wired.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "\n/**\n * Each type read from the JSON text serde_json writes, through `parseJson`;\n \
+         * throws on malformed text or a value the schema refuses.\n */\nexport const fromJson = {\n",
+    );
+    for item in wired {
+        let name = item.name().as_str();
+        let read = match schema {
+            WireSchema::Zod => format!("{name}.parse(parseJson(text))"),
+            WireSchema::Valibot => format!("v.parse({name}, parseJson(text))"),
+            WireSchema::Arktype => format!("{name}.assert(parseJson(text))"),
+        };
+        out.push_str(&format!("  {name}: (text: string): {name}$ => {read},\n"));
+    }
+    out.push_str("} as const;\n");
+    out
 }
 
 /// The types an item's schema reads by name.
@@ -357,7 +383,7 @@ import { type } from \"arktype\";
 import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, str, u16, u32, u64, u8, unit, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
-    format!("import {{ Json }} from \"purecrate\";\n{own}")
+    format!("import {{ Json, parseJson }} from \"purecrate\";\n{own}")
 }
 
 /// Zod and valibot. The domain value is built field by field: a schema's
