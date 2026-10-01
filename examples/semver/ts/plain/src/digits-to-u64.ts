@@ -5,7 +5,7 @@ import { Str } from "./str.ts";
 
 /** Digits only, already checked non-empty. `None` on overflow. */
 export const digits_to_u64 = (s: string): U64 | null => {
-  let acc: U64 = (0n as U64);
+  let acc: U64 = 0n as U64;
   for (const b of Str.bytes(s)) {
     const $q1 = Int.u64.checkedMul(acc, (10n as U64));
     if ($q1 === null) return null;

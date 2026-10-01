@@ -8,6 +8,4 @@ import { MAX_STATE_LEN } from "./consts.ts";
  * RFC 6749 Appendix A.5: state = 1*VSCHAR, VSCHAR = %x20-7E, at most
  * `MAX_STATE_LEN` bytes.
  */
-export const state_is_valid = (state: string): boolean => (!(state.length === 0) && (Str.len(state) <= MAX_STATE_LEN)) && Iter.all(Str.bytes(state), ((b: U8): boolean => {
-  return (b >= (32 as U8) && b <= (126 as U8));
-}));
+export const state_is_valid = (state: string): boolean => ((state.length !== 0) && (Str.len(state) <= MAX_STATE_LEN)) && Iter.all(Str.bytes(state), ((b: U8): boolean => b >= (32 as U8) && b <= (126 as U8)));

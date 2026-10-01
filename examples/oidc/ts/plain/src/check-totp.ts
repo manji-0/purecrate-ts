@@ -71,5 +71,5 @@ export const check_totp = (code: string, now: I64, enrollment: TotpEnrollment, c
       }
     }
   }
-  return (replayed ? { kind: "Replayed" } : { kind: "Mismatch" });
+  return replayed ? { kind: "Replayed" } : { kind: "Mismatch" };
 };

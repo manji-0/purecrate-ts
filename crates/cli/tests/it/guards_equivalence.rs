@@ -152,7 +152,7 @@ fn a_match_in_an_expression_is_an_expression() {
     for stem in ["is-a", "not-c", "small", "or-zero"] {
         assert!(!file(stem).contains("(() =>"), "{}", file(stem));
     }
-    assert!(file("is-a").contains("(k.kind === \"A\")"), "{}", file("is-a"));
-    assert!(file("not-c").contains("x && !(k.kind === \"C\")"), "{}", file("not-c"));
+    assert!(file("is-a").contains("=> k.kind === \"A\";"), "{}", file("is-a"));
+    assert!(file("not-c").contains("x && (k.kind !== \"C\")"), "{}", file("not-c"));
     assert!(file("or-zero").contains("((o !== null) ? o : (0 as I32))"), "{}", file("or-zero"));
 }

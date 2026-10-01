@@ -36,7 +36,7 @@ export const check_redemption = (grant: CodeGrant, client_id: string, redirect_u
           default:
             return assertNever(pkce.method);
         }
-        return (matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" }));
+        return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
       }
     } else {
       return Result.err({ kind: "InvalidRequest" });

@@ -41,7 +41,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
       }
     case "Cancel": {
       const reason = cmd.content[0];
-      return Result.ok({ kind: "Cancelled", reason: reason });
+      return Result.ok({ kind: "Cancelled", reason });
     }
     case "Pay":
     case "Ship":

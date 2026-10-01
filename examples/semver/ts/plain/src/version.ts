@@ -27,7 +27,7 @@ export const Version$of = (fields: Readonly<{ major: U64; minor: U64; patch: U64
 
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
-    if ((s.length === 0)) return Result.err({ kind: "Empty" });
+    if (s.length === 0) return Result.err({ kind: "Empty" });
     const plus: Usize | null = Iter.position(Str.bytes(s), ((b: U8): boolean => b === (43 as U8)));
     let rest: string;
     if (plus !== null) {
@@ -47,7 +47,7 @@ export const Version = {
     let major: U64 | null = null;
     let minor: U64 | null = null;
     let patch: U64 | null = null;
-    let n: U32 = (0 as U32);
+    let n: U32 = 0 as U32;
     for (const piece of core.split(("." as Char))) {
       if (n === (0 as U32)) {
         const $q1 = parse_core_number(piece, { kind: "Major" });
@@ -68,15 +68,15 @@ export const Version = {
     }
     const $opt1 = major as U64 | null;
     const $arg3 = { kind: "MissingPart", content: [{ kind: "Major" }] } as SemverError;
-    if (($opt1 === null)) return Result.err($arg3);
+    if ($opt1 === null) return Result.err($arg3);
     const major$1: U64 = $opt1;
     const $opt5 = minor as U64 | null;
     const $arg7 = { kind: "MissingPart", content: [{ kind: "Minor" }] } as SemverError;
-    if (($opt5 === null)) return Result.err($arg7);
+    if ($opt5 === null) return Result.err($arg7);
     const minor$1: U64 = $opt5;
     const $opt9 = patch as U64 | null;
     const $arg11 = { kind: "MissingPart", content: [{ kind: "Patch" }] } as SemverError;
-    if (($opt9 === null)) return Result.err($arg11);
+    if ($opt9 === null) return Result.err($arg11);
     const patch$1: U64 = $opt9;
     let pre: PreIds;
     if (dash !== null) {
@@ -96,7 +96,7 @@ export const Version = {
     } else {
       build = { kind: "Nil" };
     }
-    return Result.ok(Version$of({ major: major$1, minor: minor$1, patch: patch$1, pre: pre, build: build }));
+    return Result.ok(Version$of({ major: major$1, minor: minor$1, patch: patch$1, pre, build }));
   },
   major: (self: Version): U64 => self.major,
   minor: (self: Version): U64 => self.minor,

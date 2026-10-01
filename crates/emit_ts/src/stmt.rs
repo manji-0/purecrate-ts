@@ -60,8 +60,8 @@ pub(crate) enum Sink<'a> {
 impl Sink<'_> {
     pub(crate) fn finish(self, value: &str, pad: &str, out: &mut String) {
         match self {
-            Sink::Return => out.push_str(&format!("{pad}return {value};\n")),
-            Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {value};\n")),
+            Sink::Return => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(value))),
+            Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {};\n", crate::tidy::strip_outer(value))),
             // A variable or `()` has no effect; anything else may panic.
             Sink::Effect if value == "undefined" || is_ident(value) => {}
             Sink::Effect => out.push_str(&format!("{pad}{value};\n")),
@@ -124,10 +124,14 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             && !emit_expr(cond, indent).contains('\n') =>
         {
             let Expr::Return(v) = &**then else { unreachable!("matched above") };
-            out.push_str(&format!("{pad}if ({}) return {};\n", emit_expr(cond, indent), emit_expr(v, indent)));
+            out.push_str(&format!(
+                "{pad}if ({}) return {};\n",
+                crate::tidy::strip_outer(&emit_expr(cond, indent)),
+                crate::tidy::strip_outer(&emit_expr(v, indent))
+            ));
         }
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
-            out.push_str(&format!("{pad}if ({}) {{\n", emit_expr(cond, indent)));
+            out.push_str(&format!("{pad}if ({}) {{\n", crate::tidy::strip_outer(&emit_expr(cond, indent))));
             emit_stmts(then, indent + 1, sink, out);
             if !(matches!(sink, Sink::Effect) && **else_ == Expr::Lit(Lit::Unit)) {
                 out.push_str(&format!("{pad}}} else {{\n"));
@@ -174,7 +178,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish("undefined", &pad, out);
         }
         Expr::While { cond, body } => {
-            emit_loop(&format!("while ({})", emit_expr(cond, indent)), body, indent, out);
+            emit_loop(&format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
         Expr::Break => out.push_str(&format!("{pad}break {};\n", innermost_loop())),
@@ -244,7 +248,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
         )),
         v => out.push_str(&format!(
             "{pad}{keyword} {name}{annotation} = {};\n",
-            emit_expr(v, indent)
+            crate::tidy::strip_outer(&emit_expr(v, indent))
         )),
     }
 }

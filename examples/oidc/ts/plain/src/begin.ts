@@ -26,13 +26,13 @@ export const begin = (params: AuthorizationParams, client: Client | null, sessio
   let reusable: Authentication | null;
   if (session !== null) {
     const s = session;
-    reusable = (session_is_usable(request, s, now) ? { subject: s.subject, auth_time: s.auth_time, strength: s.strength, totp_step: null } : null);
+    reusable = session_is_usable(request, s, now) ? { subject: s.subject, auth_time: s.auth_time, strength: s.strength, totp_step: null } : null;
   } else {
     reusable = null;
   }
   const needs_consent: boolean = request.prompt.consent || !consent_on_file;
   const state: string | null = request.state;
-  const refuse: ((_0: ErrorCode) => AuthorizationError) = ((error: ErrorCode): AuthorizationError => redirect_error(request.redirect_uri, error, state));
+  const refuse: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirect_error(request.redirect_uri, error, state);
   if (reusable !== null) {
     const auth = reusable;
     if (request.prompt.no_interaction && needs_consent) {
@@ -42,10 +42,10 @@ export const begin = (params: AuthorizationParams, client: Client | null, sessio
         return Result.ok(issue(request, auth));
       } else {
         const auth$1 = auth as Authentication;
-        return Result.ok({ kind: "AwaitingConsent", request: request, auth: auth$1 });
+        return Result.ok({ kind: "AwaitingConsent", request, auth: auth$1 });
       }
     }
   } else {
-    return (request.prompt.no_interaction ? Result.err(refuse({ kind: "LoginRequired" })) : Result.ok({ kind: "AwaitingPassword", request: request, failures: (0 as U32), notice: { kind: "Clear" } }));
+    return request.prompt.no_interaction ? Result.err(refuse({ kind: "LoginRequired" })) : Result.ok({ kind: "AwaitingPassword", request, failures: (0 as U32), notice: { kind: "Clear" } });
   }
 };

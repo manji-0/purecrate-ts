@@ -29,6 +29,11 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
     if body.needs_statements() {
         let mut out = String::new();
         emit_stmts(body, indent + 1, Sink::Return, &mut out);
+        // A body that is one `return` on one line is the arrow's expression.
+        if let Some(value) = out.trim().strip_prefix("return ").and_then(|v| v.strip_suffix(';')).filter(|_| out.trim_end().lines().count() == 1) {
+            let value = if value.starts_with('{') { format!("({value})") } else { value.to_string() };
+            return format!("({params}): {ret} => {value}");
+        }
         format!("({params}): {ret} => {{\n{out}{pad}}}", pad = "  ".repeat(indent))
     } else {
         format!("({params}): {ret} => {}", arrow_expr(body, indent))
@@ -127,6 +132,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::UnOp::Neg => "-",
             };
             let inner = operand(expr, indent);
+            if *op == purecrate_ir::UnOp::Not {
+                if let Some(flipped) = crate::tidy::negate(&inner) {
+                    return format!("({flipped})");
+                }
+            }
             if inner.starts_with(o) {
                 format!("{o}({inner})")
             } else {
@@ -342,9 +352,18 @@ pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
     };
     let mut parts = vec![format!("...{}", emit_expr(base, 0))];
     for (name, expr) in pairs {
-        parts.push(format!("{}: {}", name.as_str(), emit_expr(expr, 0)));
+        parts.push(field_pair(name.as_str(), emit_expr(expr, 0)));
     }
     format!("({{ {} }})", parts.join(", "))
+}
+
+/// `name: value`, or `name` alone when the value is a variable of that name.
+fn field_pair(name: &str, value: String) -> String {
+    if value == name {
+        value
+    } else {
+        format!("{name}: {value}")
+    }
 }
 
 pub(crate) fn emit_struct_value(fields: &Fields) -> String {
@@ -361,7 +380,7 @@ pub(crate) fn emit_struct_value(fields: &Fields) -> String {
         Fields::Named(pairs) => {
             let inner = pairs
                 .iter()
-                .map(|(n, e)| format!("{k}: {v}", k = n.as_str(), v = emit_expr(e, 0)))
+                .map(|(n, e)| field_pair(n.as_str(), emit_expr(e, 0)))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{{ {inner} }}")
@@ -383,7 +402,7 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
         Fields::Named(pairs) => {
             let inner = pairs
                 .iter()
-                .map(|(n, e)| format!("{k}: {v}", k = n.as_str(), v = emit_expr(e, 0)))
+                .map(|(n, e)| field_pair(n.as_str(), emit_expr(e, 0)))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{{ kind: \"{variant}\", {inner} }}")
@@ -425,7 +444,10 @@ fn bool_lit(e: &Expr) -> Option<bool> {
 fn fold(test: String, (then, then_lit): (String, Option<bool>), (else_, else_lit): (String, Option<bool>)) -> String {
     match (then_lit, else_lit) {
         (Some(true), Some(false)) => format!("({test})"),
-        (Some(false), Some(true)) => format!("!({test})"),
+        (Some(false), Some(true)) => match crate::tidy::negate(&test) {
+            Some(flipped) => format!("({flipped})"),
+            None => format!("!({test})"),
+        },
         // The other side may be a `?:` or an `||`, which bind looser.
         (Some(true), _) => format!("(({test}) || ({else_}))"),
         (Some(false), _) => format!("(!({test}) && ({else_}))"),

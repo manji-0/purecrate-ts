@@ -7,9 +7,9 @@ import type { Rate } from "./rate.ts";
 export const percent = (rate: Rate): I64 => {
   switch (rate.kind) {
     case "Standard":
-      return (10n as I64);
+      return 10n as I64;
     case "Reduced":
-      return (8n as I64);
+      return 8n as I64;
     default:
       return assertNever(rate);
   }

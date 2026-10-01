@@ -16,7 +16,7 @@ export const Password$of = (value: string): Password => value as Password;
 export const Password = {
   parse: (raw: string): Result<Password, PasswordError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    let n: Usize = (0 as Usize);
+    let n: Usize = 0 as Usize;
     for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
       if (!(() => {
         const $m_4 = Slice.at(b, i);

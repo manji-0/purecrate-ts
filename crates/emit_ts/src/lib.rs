@@ -3,6 +3,7 @@
 mod expr;
 mod imports;
 mod items;
+mod tidy;
 mod schema;
 mod stmt;
 
@@ -673,15 +674,15 @@ export const step = (state: State, event: Event): State => {
             expr: Box::new(lit.clone()),
         };
         let body = arrow_expr(&boxed, 0);
-        assert!(body.starts_with("(/* ") && body.ends_with("{ a: a })"), "{body}");
+        assert!(body.starts_with("(/* ") && body.ends_with("{ a })"), "{body}");
         let mut out = String::new();
         Sink::Effect.finish_expr(&boxed, 0, &mut out);
-        assert!(out.starts_with("(/* ") && out.ends_with("{ a: a });\n"), "{out}");
+        assert!(out.starts_with("(/* ") && out.ends_with("{ a });\n"), "{out}");
         let some = Expr::Call {
             callee: Callee::OptionSome,
             args: vec![lit],
         };
-        assert_eq!(arrow_expr(&some, 0), "({ a: a })");
+        assert_eq!(arrow_expr(&some, 0), "({ a })");
     }
 
     #[test]

@@ -54,11 +54,11 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   let echoed: string | null;
   if (params.state !== null) {
     const s = params.state;
-    echoed = (state_is_valid(s) ? s : null);
+    echoed = state_is_valid(s) ? s : null;
   } else {
     echoed = null;
   }
-  const fail: ((_0: ErrorCode) => AuthorizationError) = ((error: ErrorCode): AuthorizationError => redirect_error(redirect_uri, error, echoed));
+  const fail: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirect_error(redirect_uri, error, echoed);
   if (params.response_type !== null) {
     const rt = params.response_type;
     if (rt === "code") {
@@ -140,7 +140,7 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
     const p = params.prompt;
     const $opt9: Prompt | null = parse_prompt(p);
     const $arg11: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if (($opt9 === null)) return Result.err($arg11);
+    if ($opt9 === null) return Result.err($arg11);
     const $q1 = $opt9;
     prompt = $q1;
   } else {
@@ -151,7 +151,7 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
     const m$2 = params.max_age;
     const $opt13: I64 | null = parse_seconds(m$2);
     const $arg15: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if (($opt13 === null)) return Result.err($arg15);
+    if ($opt13 === null) return Result.err($arg15);
     const $q2 = $opt13;
     max_age = $q2;
   } else {
@@ -164,5 +164,5 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   } else {
     wants_mfa = false;
   }
-  return Result.ok(AuthorizationRequest$of({ client_id: client$1.client_id, redirect_uri: redirect_uri, scope: scope, state: state, nonce: nonce, pkce: pkce, prompt: prompt, max_age: max_age, wants_mfa: wants_mfa }));
+  return Result.ok(AuthorizationRequest$of({ client_id: client$1.client_id, redirect_uri, scope, state, nonce, pkce, prompt, max_age, wants_mfa }));
 };

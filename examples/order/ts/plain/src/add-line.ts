@@ -13,7 +13,7 @@ export const add_line = (lines: Lines, line: Line): Lines => {
       const head = lines.content[0];
       const rest = lines.content[1];
       if (head.sku === line.sku) {
-        const merged: Line = ({ ...head, qty: Int.u32.add(head.qty, line.qty) });
+        const merged: Line = { ...head, qty: Int.u32.add(head.qty, line.qty) };
         return { kind: "Cons", content: [merged, rest] };
       } else {
         return { kind: "Cons", content: [head, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ add_line(rest, line)] };

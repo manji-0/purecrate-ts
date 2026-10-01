@@ -9,11 +9,11 @@ import type { Terms } from "./terms.ts";
 export const attempt = (terms: Terms, method: PaymentMethod, outcome: Outcome): Status => {
   switch (outcome.kind) {
     case "Authorized":
-      return ((terms.capture.kind === "Manual") ? { kind: "RequiresCapture", method: method, capturable: terms.amount } : { kind: "Succeeded", received: terms.amount, application_fee: null });
+      return (terms.capture.kind === "Manual") ? { kind: "RequiresCapture", method, capturable: terms.amount } : { kind: "Succeeded", received: terms.amount, application_fee: null };
     case "ActionRequired":
-      return { kind: "RequiresAction", method: method };
+      return { kind: "RequiresAction", method };
     case "Pending":
-      return { kind: "Processing", method: method };
+      return { kind: "Processing", method };
     case "Declined": {
       const code = outcome.content[0];
       return { kind: "RequiresPaymentMethod", last_error: code };

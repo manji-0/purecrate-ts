@@ -51,7 +51,7 @@ fn ok_or_then_try_is_a_guard() {
     let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
     assert!(!src.contains("(() =>"), "{src}");
     let arg = src.find("const $arg").expect("the argument is bound");
-    let guard = src.find("=== null)) return Result.err($arg").expect("one-line guard");
+    let guard = src.find("=== null) return Result.err($arg").expect("one-line guard");
     assert!(arg < guard, "{src}");
 }
 

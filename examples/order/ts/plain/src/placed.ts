@@ -13,11 +13,11 @@ export const placed = (lines: Lines, total$1: Yen, cmd: Command): Result<Order, 
     case "Pay": {
       const amount = cmd.content[0];
       if (amount !== total$1) return Result.err({ kind: "AmountMismatch", expected: total$1, got: amount });
-      return Result.ok({ kind: "Paid", lines: lines, total: total$1 });
+      return Result.ok({ kind: "Paid", lines, total: total$1 });
     }
     case "Cancel": {
       const reason = cmd.content[0];
-      return Result.ok({ kind: "Cancelled", reason: reason });
+      return Result.ok({ kind: "Cancelled", reason });
     }
     case "AddLine":
     case "RemoveSku":

@@ -17,7 +17,7 @@ export const Email$of = (value: string): Email => value as Email;
 export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    let at: Usize = ((b.length) as Usize);
+    let at: Usize = (b.length) as Usize;
     for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
       if ((Slice.at(b, i) === (64 as U8)) && (at === ((b.length) as Usize))) {
         at = i;
