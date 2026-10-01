@@ -140,29 +140,36 @@ fn emit_package(krate: &Crate) -> Package {
     Package { files }
 }
 
-/// Some public type, field, or signature holds `prim`.
-fn surface_holds(krate: &Crate, prim: Prim) -> bool {
-    fn holds(ty: &Ty, prim: Prim) -> bool {
+/// Some public type, field, or signature satisfies `pred`.
+fn surface_ty(krate: &Crate, pred: impl std::ops::Fn(&Ty) -> bool) -> bool {
+    fn walk(ty: &Ty, pred: &impl std::ops::Fn(&Ty) -> bool) -> bool {
+        if pred(ty) {
+            return true;
+        }
         match ty {
-            Ty::Prim(p) => *p == prim,
-            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => holds(t, prim),
-            Ty::Result { ok, err } => holds(ok, prim) || holds(err, prim),
-            Ty::Tuple(ts) => ts.iter().any(|t| holds(t, prim)),
-            Ty::Fn { params, ret } => params.iter().any(|t| holds(t, prim)) || holds(ret, prim),
-            Ty::Named(_) | Ty::Never => false,
+            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => walk(t, pred),
+            Ty::Result { ok, err } => walk(ok, pred) || walk(err, pred),
+            Ty::Tuple(ts) => ts.iter().any(|t| walk(t, pred)),
+            Ty::Fn { params, ret } => params.iter().any(|t| walk(t, pred)) || walk(ret, pred),
+            Ty::Prim(_) | Ty::Named(_) | Ty::Never => false,
         }
     }
     krate.items.iter().filter(|i| i.vis() == Vis::Pub).any(|item| match item {
-        Item::Struct(s) => s.fields.iter().any(|f| holds(&f.ty, prim)),
+        Item::Struct(s) => s.fields.iter().any(|f| walk(&f.ty, &pred)),
         Item::Enum(e) => e.variants.iter().any(|v| match &v.fields {
             VariantFields::Unit => false,
-            VariantFields::Tuple(ts) => ts.iter().any(|t| holds(t, prim)),
-            VariantFields::Struct(fs) => fs.iter().any(|f| holds(&f.ty, prim)),
+            VariantFields::Tuple(ts) => ts.iter().any(|t| walk(t, &pred)),
+            VariantFields::Struct(fs) => fs.iter().any(|f| walk(&f.ty, &pred)),
         }),
-        Item::Alias(a) => holds(&a.ty, prim),
-        Item::Const(c) => holds(&c.ty, prim),
-        Item::Fn(f) => f.params.iter().any(|p| holds(&p.ty, prim)) || holds(&f.ret, prim),
+        Item::Alias(a) => walk(&a.ty, &pred),
+        Item::Const(c) => walk(&c.ty, &pred),
+        Item::Fn(f) => f.params.iter().any(|p| walk(&p.ty, &pred)) || walk(&f.ret, &pred),
     })
+}
+
+/// Some public type, field, or signature holds `prim`.
+fn surface_holds(krate: &Crate, prim: Prim) -> bool {
+    surface_ty(krate, |ty| matches!(ty, Ty::Prim(p) if *p == prim))
 }
 
 fn emit_index(krate: &Crate) -> String {
@@ -170,20 +177,34 @@ fn emit_index(krate: &Crate) -> String {
     out.push('\n');
     // A single value export carries both the companion and its same-named
     // type. `pack` points `"purecrate"` at the package's copy of the runtime.
-    // `Char` and `Uuid` go out when the public surface holds one, for a
-    // caller to build or check it; `pack` adds `parseJson` with a schema.
-    let mut runtime = vec!["Result", "Panic", "assertNever", "Int"];
+    // Runtime names go out when the public surface holds them, so two packages
+    // re-exported from one barrel do not collide on unused `I8` / `Result`.
+    // `pack` adds `parseJson` with a schema.
+    let mut runtime = Vec::new();
+    if surface_ty(krate, |ty| matches!(ty, Ty::Result { .. })) {
+        runtime.push("Result");
+    }
+    runtime.extend(["Panic", "assertNever", "Int"]);
     if surface_holds(krate, Prim::Char) {
         runtime.push("Char");
     }
     if surface_holds(krate, Prim::Uuid) || surface_holds(krate, Prim::UuidError) {
         runtime.extend(["Uuid", "type UuidError"]);
     }
-    out.push_str(&format!(
-        "export {{ {} }} from \"purecrate\";\n\
-         export type {{ I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 }} from \"purecrate\";\n",
-        runtime.join(", ")
-    ));
+    out.push_str(&format!("export {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
+    let mut types: Vec<&str> = IntTy::ALL
+        .into_iter()
+        .filter(|t| surface_holds(krate, Prim::from(*t)))
+        .map(IntTy::ts_name)
+        .collect();
+    for t in [FloatTy::F32, FloatTy::F64] {
+        if surface_holds(krate, Prim::from(t)) {
+            types.push(t.ts_name());
+        }
+    }
+    if !types.is_empty() {
+        out.push_str(&format!("export type {{ {} }} from \"purecrate\";\n", types.join(", ")));
+    }
     for item in krate.exported() {
         match item {
             Item::Fn(f) if f.owner.is_some() => {}
@@ -548,7 +569,7 @@ export const step = (state: State, event: Event): State => {
     fn index_exports_each_name_once() {
         let pkg = emit(&counter_example());
         let index = file(&pkg, "index");
-        for name in ["Result", "assertNever", "Event", "State", "step"] {
+        for name in ["Panic", "assertNever", "Int", "I32", "Event", "State", "step"] {
             // The names, not the paths they come from.
             let hits = index
                 .lines()

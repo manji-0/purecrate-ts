@@ -101,6 +101,54 @@ pub fn trim(source: &str, uses: &BTreeSet<String>) -> String {
         out.push('\n');
     }
     assert!(kept.is_empty(), "every `// #region` is closed");
+    drop_empty_namespaces(&out)
+}
+
+/// `export const Iter = { } as const` (and its JSDoc) when every member was
+/// trimmed: a namespace with no members is not a runtime API.
+fn drop_empty_namespaces(src: &str) -> String {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut skip = vec![false; lines.len()];
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.starts_with("export const ") && t.ends_with(" = {") && i + 1 < lines.len() && lines[i + 1].trim() == "} as const;"
+        {
+            let mut start = i;
+            while start > 0 && lines[start - 1].trim().is_empty() {
+                start -= 1;
+            }
+            if start > 0 && lines[start - 1].trim().ends_with("*/") {
+                let mut j = start - 1;
+                while j > 0 && !lines[j].trim_start().starts_with("/*") {
+                    j -= 1;
+                }
+                if lines[j].trim_start().starts_with("/*") {
+                    start = j;
+                    while start > 0 && lines[start - 1].trim().is_empty() {
+                        start -= 1;
+                    }
+                }
+            }
+            for n in start..=i + 1 {
+                skip[n] = true;
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    let mut out = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        if skip[i] {
+            continue;
+        }
+        if line.is_empty() && (out.is_empty() || out.ends_with("\n\n")) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
     out
 }
 
@@ -180,6 +228,9 @@ mod tests {
         assert!(none.contains("export type Usize") && none.contains("export const Int = {") && none.contains("...small<I8>"));
         for gone in ["methods(", "bits32<", "Grapheme", "parseStr", "ryu", "INTEGER_LITERAL", "digitValue", "/** `str::", "xs[i] as T", "xs.slice("] {
             assert!(!none.contains(gone), "{gone} is kept");
+        }
+        for empty in ["export const Str", "export const Ord", "export const Iter", "export const Slice", "export const Char ="] {
+            assert!(!none.contains(empty), "{empty} stays empty:\n{none}");
         }
     }
 }
