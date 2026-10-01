@@ -30,7 +30,7 @@ fn distinct_names_with_the_same_file_are_rejected() {
 fn generated_names_and_files_are_reserved() {
     assert_rejects("pub enum Result { A }", "`Result` is reserved");
     assert_rejects("pub struct Index { pub n: i32 }", "emitted as `index.ts`");
-    assert_rejects("pub struct AssertNever { pub n: i32 }", "emitted as `assert-never.ts`");
+    assert_rejects("pub struct PurecrateRuntime { pub n: i32 }", "emitted as `purecrate-runtime.ts`");
 }
 
 #[test]

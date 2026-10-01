@@ -143,7 +143,7 @@ Rules:
 | Kind | Reserved |
 | --- | --- |
 | Names | `Result`, `Int`, `Str`, `Slice`, `Ord`, `Iter`, `Char`, the numeric brands, `assertNever`, `Readonly`, `ReadonlyArray`, `globalThis`, `Uuid` ([§3.7](#37-types)) |
-| File stems | `index`, `result`, `assert-never`, `int`, `str`, `purecrate-runtime`, `purecrate-wire`, `purecrate-zod` / `-valibot` / `-arktype`; `consts` when the crate has a `const` |
+| File stems | `index`, `purecrate-runtime`, `purecrate-wire`, `purecrate-zod` / `-valibot` / `-arktype`; `consts` when the crate has a `const` |
 | Field | `kind` |
 | Companion member | `of` |
 

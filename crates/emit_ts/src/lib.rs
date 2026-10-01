@@ -123,24 +123,7 @@ fn emit_package(krate: &Crate) -> Package {
         buckets.entry(item.file_stem()).or_default().push(item);
     }
 
-    let mut files = vec![
-        File {
-            stem: "assert-never".to_string(),
-            source: assert_never_src(),
-        },
-        File {
-            stem: "int".to_string(),
-            source: int_src(),
-        },
-        File {
-            stem: "result".to_string(),
-            source: result_src(),
-        },
-        File {
-            stem: "str".to_string(),
-            source: format!("{HEADER}\nexport {{ Char, Iter, Ord, Slice, Str, Uuid, type UuidError, parseJson }} from \"purecrate\";\n"),
-        },
-    ];
+    let mut files = Vec::new();
 
     for (stem, items) in &buckets {
         files.push(File {
@@ -157,50 +140,14 @@ fn emit_package(krate: &Crate) -> Package {
     Package { files }
 }
 
-fn assert_never_src() -> String {
-    format!(
-        "{HEADER}\nexport const assertNever = (_x: never): never => {{\n  throw new Error(\"unexpected variant\");\n}};\n"
-    )
-}
-
-/// Integer arithmetic as a Rust debug build does it. `number` widths stay
-/// exact because every in-range result is below 2^53, and rounding cannot move
-/// an out-of-range product back inside the bounds. `+ 0` turns `-0` into `0`.
-fn int_src() -> String {
-    format!(
-        "{HEADER}\nexport {{ Int, type I8, type I16, type I32, type I64, type U8, type U16, type U32, type U64, type Usize, type F32, type F64 }} from \"purecrate\";\n"
-    )
-}
-
-fn result_src() -> String {
-    format!(
-        "{HEADER}
-export type Result<T, E> =
-  | Readonly<{{ kind: \"Ok\"; value: T }}>
-  | Readonly<{{ kind: \"Err\"; error: E }}>;
-
-export const Result = {{
-  ok: <T, E>(value: T): Result<T, E> => ({{ kind: \"Ok\", value }}),
-  err: <T, E>(error: E): Result<T, E> => ({{ kind: \"Err\", error }}),
-  isOk: <T, E>(r: Result<T, E>): r is Readonly<{{ kind: \"Ok\"; value: T }}> =>
-    r.kind === \"Ok\",
-  isErr: <T, E>(r: Result<T, E>): r is Readonly<{{ kind: \"Err\"; error: E }}> =>
-    r.kind === \"Err\",
-}} as const;
-"
-    )
-}
-
 fn emit_index(krate: &Crate) -> String {
     let mut out = String::from(HEADER);
     out.push('\n');
-    // A single value export carries both the companion and its same-named type.
-    out.push_str("export { Result } from \"./result.ts\";\n");
-    out.push_str("export { assertNever } from \"./assert-never.ts\";\n");
+    // A single value export carries both the companion and its same-named
+    // type. `pack` points `"purecrate"` at the package's copy of the runtime.
     out.push_str(
-        "export { Int } from \"./int.ts\";\n\
-         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"./int.ts\";\n\
-         export { Char, Uuid, type UuidError, parseJson } from \"./str.ts\";\n",
+        "export { Result, assertNever, Int, Char, Uuid, type UuidError, parseJson } from \"purecrate\";\n\
+         export type { I8, I16, I32, I64, U8, U16, U32, U64, Usize, F32, F64 } from \"purecrate\";\n",
     );
     for item in krate.exported() {
         match item {
@@ -535,7 +482,7 @@ export const step = (state: State, event: Event): State => {
         let log = file(&pkg, "log");
         assert!(log.contains("import type { Cmd } from \"./cmd.ts\";\n"), "{log}");
         let cmd = file(&pkg, "cmd");
-        assert!(cmd.contains("import { type I32 } from \"./int.ts\";\n"), "{cmd}");
+        assert!(cmd.contains("import { type I32 } from \"purecrate\";\n"), "{cmd}");
         assert!(!cmd.contains("from \"./cmd.ts\""), "{cmd}");
     }
 
@@ -559,7 +506,7 @@ export const step = (state: State, event: Event): State => {
         let cmd = file(&pkg, "cmd");
         assert!(cmd.contains("  weight: (self: Cmd): I32 => {\n    switch (self.kind) {"), "{cmd}");
         assert!(cmd.ends_with("  },\n} as const;\n"), "{cmd}");
-        assert!(cmd.starts_with(&format!("{HEADER}\nimport {{ assertNever }}")), "{cmd}");
+        assert!(cmd.starts_with(&format!("{HEADER}\nimport {{ assertNever, type I32 }}")), "{cmd}");
     }
 
     #[test]
@@ -567,9 +514,12 @@ export const step = (state: State, event: Event): State => {
         let pkg = emit(&counter_example());
         let index = file(&pkg, "index");
         for name in ["Result", "assertNever", "Event", "State", "step"] {
+            // The names, not the paths they come from.
             let hits = index
                 .lines()
-                .filter(|l| l.contains(&format!("{{ {name} }}")))
+                .filter_map(|l| l.split(" from ").next())
+                .flat_map(|l| l.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')))
+                .filter(|w| *w == name)
                 .count();
             assert_eq!(hits, 1, "{name} in:\n{index}");
         }
@@ -600,7 +550,8 @@ export const step = (state: State, event: Event): State => {
         });
         let pkg = emit(&Crate::new("p", vec![parse]));
         let src = file(&pkg, "parse");
-        assert_eq!(src.matches("from \"./result.ts\"").count(), 1, "{src}");
+        assert_eq!(src.matches("import ").count(), 1, "{src}");
+        assert!(src.contains("import { Result, type I32 } from \"purecrate\";"), "{src}");
     }
 
     fn f64_fn(body: Expr) -> String {

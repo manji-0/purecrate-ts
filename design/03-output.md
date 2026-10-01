@@ -204,9 +204,8 @@ The committed golden is [examples/counter/ts/plain](../examples/counter/ts/plain
   package.json  tsconfig.json  tsconfig.build.json (for npm run build)
   src/
     index.ts          re-exports only
-    result.ts  assert-never.ts
-    purecrate-runtime.ts  the runtime, copied in (§4.4)
-    int.ts  str.ts    re-export Int / Str and brands from purecrate-runtime.ts
+    purecrate-runtime.ts  the runtime, copied in (§4.4), with `Result` and
+                      `assertNever`; each file imports what it uses from it
     <concept>.ts      one per public concept, kebab-case
     consts.ts         every `const` of the crate, folded to its value
     purecrate-wire.ts only with --schema

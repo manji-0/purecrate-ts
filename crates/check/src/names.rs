@@ -32,7 +32,7 @@ fn is_generated(name: &str) -> bool {
 }
 
 /// File stems the emitted package already uses.
-const GENERATED_STEMS: &[&str] = &["index", "result", "assert-never", "int", "str", "purecrate-wire", "purecrate-runtime", "purecrate-zod", "purecrate-valibot", "purecrate-arktype"];
+const GENERATED_STEMS: &[&str] = &["index", "purecrate-wire", "purecrate-runtime", "purecrate-zod", "purecrate-valibot", "purecrate-arktype"];
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();

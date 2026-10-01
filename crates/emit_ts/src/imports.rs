@@ -467,38 +467,32 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
     };
     let elsewhere = |name: &String| file_of(name) != stem;
     let mut out = String::new();
-    if refs.never {
-        out.push_str("import { assertNever } from \"./assert-never.ts\";\n");
-    }
-    if refs.int || !refs.nums.is_empty() {
-        let types = refs.nums.iter().map(|n| format!("type {n}")).collect::<Vec<_>>().join(", ");
-        if refs.int && types.is_empty() {
-            out.push_str("import { Int } from \"./int.ts\";\n");
-        } else if refs.int {
-            out.push_str(&format!("import {{ Int, {types} }} from \"./int.ts\";\n"));
-        } else {
-            out.push_str(&format!("import {{ {types} }} from \"./int.ts\";\n"));
-        }
-    }
-    if refs.result {
-        out.push_str("import { Result } from \"./result.ts\";\n");
-    }
-    let str_names = [
+    // Everything from the runtime in one import, values then types; `pack`
+    // points `"purecrate"` at the package's copy.
+    let values = [
+        refs.never.then_some("assertNever"),
+        refs.int.then_some("Int"),
+        refs.result.then_some("Result"),
         refs.char_value.then_some("Char"),
-        (refs.char_type && !refs.char_value).then_some("type Char"),
         refs.uuid_value.then_some("Uuid"),
-        (refs.uuid_type && !refs.uuid_value).then_some("type Uuid"),
-        refs.uuid_error.then_some("type UuidError"),
         refs.str.then_some("Str"),
         refs.slice.then_some("Slice"),
         refs.ord.then_some("Ord"),
         refs.iter.then_some("Iter"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    if !str_names.is_empty() {
-        out.push_str(&format!("import {{ {} }} from \"./str.ts\";\n", str_names.join(", ")));
+    ];
+    let types = [
+        (refs.char_type && !refs.char_value).then_some("Char"),
+        (refs.uuid_type && !refs.uuid_value).then_some("Uuid"),
+        refs.uuid_error.then_some("UuidError"),
+    ];
+    let runtime: Vec<String> = values
+        .into_iter()
+        .flatten()
+        .map(str::to_string)
+        .chain(types.into_iter().flatten().chain(refs.nums.iter().map(String::as_str)).map(|t| format!("type {t}")))
+        .collect();
+    if !runtime.is_empty() {
+        out.push_str(&format!("import {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
     }
     for v in refs.values.iter().filter(|v| elsewhere(v)) {
         out.push_str(&format!("import {{ {v} }} from \"./{s}.ts\";\n", s = file_of(v)));

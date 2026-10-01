@@ -12,6 +12,23 @@
  * comments below mark code kept when any use they list is found in the
  * package, and are left out of the copy (crates/pack/src/trim.rs).
  */
+/** Rust's `Result`, as every generated package reads and builds it. */
+export type Result<T, E> =
+  | Readonly<{ kind: "Ok"; value: T }>
+  | Readonly<{ kind: "Err"; error: E }>;
+
+export const Result = {
+  ok: <T, E>(value: T): Result<T, E> => ({ kind: "Ok", value }),
+  err: <T, E>(error: E): Result<T, E> => ({ kind: "Err", error }),
+  isOk: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Ok"; value: T }> => r.kind === "Ok",
+  isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
+} as const;
+
+/** The `default` of a `switch` that names every variant: unreachable. */
+export const assertNever = (_x: never): never => {
+  throw new Error("unexpected variant");
+};
+
 export type I8 = number & { readonly "purecrate.I8": true };
 export type I16 = number & { readonly "purecrate.I16": true };
 export type I32 = number & { readonly "purecrate.I32": true };
