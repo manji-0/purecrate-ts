@@ -8,6 +8,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# `--tag vX.Y.Z` in the install docs must match the workspace version, so a
+# release cannot leave README or the authoring skill on an old pin.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+for f in README.md skills/purecrate-authoring/SKILL.md; do
+  if ! grep -qE -- "--tag v$version" "$f"; then
+    echo "verify: $f has no --tag v$version (workspace version)" >&2
+    exit 1
+  fi
+  others=$(grep -oE -- '--tag v[0-9]+\.[0-9]+\.[0-9]+' "$f" | grep -v -- "v$version" || true)
+  if [ -n "$others" ]; then
+    echo "verify: $f pins a tag other than v$version:" >&2
+    echo "$others" >&2
+    exit 1
+  fi
+done
+
 TS_MAJORS=(6 7)
 
 cargo test --offline -q
