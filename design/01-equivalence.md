@@ -50,14 +50,14 @@ In Rust, a struct with any non-`pub` field cannot be built by a literal outside 
 
 | Rust struct | Kind | TS companion | Values come from |
 | --- | --- | --- | --- |
-| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a `unique symbol` brand | no `of` | public functions, or the wire (§4.2) |
+| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a string brand (`{ readonly "geo.Meters": true }`) | no `of` | public functions, or the wire (§4.2) |
 | All fields `pub` | **open** | `of` | anyone, as in Rust |
 
 Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
 
 ### 4.1 Internal names
 
-- **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so deep imports cannot reach it. `$` cannot appear in Rust identifiers, so the name cannot collide.
+- **`Email$of`.** The generator builds values of a closed type through an internal `Email$of`. It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so an installed package cannot deep-import it. When the sources are vendored, `import { Email$of } from "./gen/src/email.ts"` reaches it and builds a value without a cast. Closedness is that convention plus the consumer's `as` lint ([03 §5.5](./03-output.md#55-closed-types)), not a type-level seal. `$` cannot appear in Rust identifiers, so the name cannot collide.
 - **Non-`pub` methods** are not on the companion either. They are emitted as `Email$unchecked`, exported from the file but not from `index.ts`, like `$of`. Otherwise a private `fn unchecked(raw) -> Email` would let TS callers build what Rust callers cannot (a hole found by real use, [07 §8.1](./07-roadmap.md#81-010-2026-09-30)).
 
 ### 4.2 The domain of a closed type

@@ -107,7 +107,7 @@ export const Meters = {
 
 - A newtype's runtime value is its content. This is also serde's JSON for it.
 - `.0` is the value itself.
-- The brand key is a `unique symbol`, so newtypes of newtypes do not collide.
+- The brand key is a string (`{ readonly "geo.Meters": true }`), so newtypes of newtypes do not collide and two copies of the package exchange values. Closedness is not a type-level guarantee: `$of` is a file export, and a vendored import of it builds a value without a cast.
 - `Meters` above is closed (its field is not `pub`), so there is no `of`. With `pub struct Meters(pub i32)` the companion would have `of`.
 
 **Methods.** Methods become companion properties with the receiver first. `Self` is replaced by the type name.
@@ -318,6 +318,7 @@ What callers of a successfully generated package must observe.
 - There is no `of`. Obtain values from public functions (`Email.parse`).
 - Object literals and raw primitives do not type-check as the closed type. Verified with `@ts-expect-error` consumers under TS 6 and 7.
 - A value produced with `as Email` is outside the equivalence guarantee.
+- `Email$of` is a file export, not an index export. An installed package cannot import it through `exports`; vendored sources can (`import { Email$of } from "./gen/src/email.ts"`). Closedness is that convention plus an `as` lint, not a unique-symbol seal.
 
 ### 5.6 Aliasing
 
