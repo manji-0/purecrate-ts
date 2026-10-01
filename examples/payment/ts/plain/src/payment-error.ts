@@ -15,7 +15,10 @@ export const PaymentError = {
   AmountOutOfRange: (): PaymentError => ({ kind: "AmountOutOfRange" }),
   InvalidPaymentMethodId: (): PaymentError => ({ kind: "InvalidPaymentMethodId" }),
   MissingPaymentMethod: (): PaymentError => ({ kind: "MissingPaymentMethod" }),
-  InvalidCaptureAmount: (capturable: I64): PaymentError => ({ kind: "InvalidCaptureAmount", capturable }),
+  InvalidCaptureAmount: (capturable: I64): PaymentError => ({
+    kind: "InvalidCaptureAmount",
+    capturable,
+  }),
   NegativeApplicationFee: (): PaymentError => ({ kind: "NegativeApplicationFee" }),
   NotCancelable: (): PaymentError => ({ kind: "NotCancelable" }),
   InvalidTransition: (): PaymentError => ({ kind: "InvalidTransition" }),

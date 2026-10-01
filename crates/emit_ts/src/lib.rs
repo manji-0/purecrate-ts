@@ -257,8 +257,11 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             }
         }
     }
-    imports::prune_unused(&out)
+    tidy::wrap(&imports::prune_unused(&out), WIDTH)
 }
+
+/// The width past which `tidy::wrap` breaks a line.
+const WIDTH: usize = 100;
 
 #[cfg(test)]
 mod tests {

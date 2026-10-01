@@ -16,5 +16,10 @@ export type Authentication = Readonly<{
 }>;
 
 export const Authentication = {
-  of: (subject: string, auth_time: I64, strength: AuthStrength, totp_step: I64 | null): Authentication => ({ subject, auth_time, strength, totp_step }),
+  of: (
+    subject: string,
+    auth_time: I64,
+    strength: AuthStrength,
+    totp_step: I64 | null,
+  ): Authentication => ({ subject, auth_time, strength, totp_step }),
 } as const;

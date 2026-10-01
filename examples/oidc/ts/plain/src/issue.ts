@@ -6,4 +6,18 @@ import type { Authentication } from "./authentication.ts";
 import type { AuthorizationRequest } from "./authorization-request.ts";
 import type { Flow } from "./flow.ts";
 
-export const issue = (request: AuthorizationRequest, auth: Authentication): Flow => ({ kind: "CodeIssued", content: [{ client_id: request.client_id, redirect_uri: request.redirect_uri, scope: request.scope, state: request.state, nonce: request.nonce, pkce: request.pkce, subject: auth.subject, auth_time: auth.auth_time, amr: amr_values(auth.strength), acr: acr_value(auth.strength) }] });
+export const issue = (request: AuthorizationRequest, auth: Authentication): Flow => ({
+  kind: "CodeIssued",
+  content: [{
+    client_id: request.client_id,
+    redirect_uri: request.redirect_uri,
+    scope: request.scope,
+    state: request.state,
+    nonce: request.nonce,
+    pkce: request.pkce,
+    subject: auth.subject,
+    auth_time: auth.auth_time,
+    amr: amr_values(auth.strength),
+    acr: acr_value(auth.strength),
+  }],
+});

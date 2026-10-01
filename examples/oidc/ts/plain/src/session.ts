@@ -11,5 +11,9 @@ export type Session = Readonly<{
 }>;
 
 export const Session = {
-  of: (subject: string, auth_time: I64, strength: AuthStrength): Session => ({ subject, auth_time, strength }),
+  of: (
+    subject: string,
+    auth_time: I64,
+    strength: AuthStrength,
+  ): Session => ({ subject, auth_time, strength }),
 } as const;

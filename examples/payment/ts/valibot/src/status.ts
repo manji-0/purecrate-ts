@@ -15,11 +15,23 @@ export type Status =
   | Readonly<{ kind: "Canceled"; reason: CancellationReason | null }>;
 
 export const Status = {
-  RequiresPaymentMethod: (last_error: DeclineCode | null): Status => ({ kind: "RequiresPaymentMethod", last_error }),
-  RequiresConfirmation: (method: PaymentMethod): Status => ({ kind: "RequiresConfirmation", method }),
+  RequiresPaymentMethod: (last_error: DeclineCode | null): Status => ({
+    kind: "RequiresPaymentMethod",
+    last_error,
+  }),
+  RequiresConfirmation: (method: PaymentMethod): Status => ({
+    kind: "RequiresConfirmation",
+    method,
+  }),
   RequiresAction: (method: PaymentMethod): Status => ({ kind: "RequiresAction", method }),
   Processing: (method: PaymentMethod): Status => ({ kind: "Processing", method }),
-  RequiresCapture: (method: PaymentMethod, capturable: I64): Status => ({ kind: "RequiresCapture", method, capturable }),
-  Succeeded: (received: I64, application_fee: I64 | null): Status => ({ kind: "Succeeded", received, application_fee }),
+  RequiresCapture: (
+    method: PaymentMethod,
+    capturable: I64,
+  ): Status => ({ kind: "RequiresCapture", method, capturable }),
+  Succeeded: (
+    received: I64,
+    application_fee: I64 | null,
+  ): Status => ({ kind: "Succeeded", received, application_fee }),
   Canceled: (reason: CancellationReason | null): Status => ({ kind: "Canceled", reason }),
 } as const;

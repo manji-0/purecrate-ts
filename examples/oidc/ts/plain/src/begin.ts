@@ -19,14 +19,25 @@ import type { Session } from "./session.ts";
  * Starts a flow for a request. `consent_on_file` says whether the End-User
  * already consented to this client and scope.
  */
-export const begin = (params: AuthorizationParams, client: Client | null, session: Session | null, consent_on_file: boolean, now: I64): Result<Flow, AuthorizationError> => {
+export const begin = (
+  params: AuthorizationParams,
+  client: Client | null,
+  session: Session | null,
+  consent_on_file: boolean,
+  now: I64,
+): Result<Flow, AuthorizationError> => {
   const $v_request = validate_request(params, client);
   if ($v_request.kind === "Err") return $v_request;
   const request: AuthorizationRequest = $v_request.value;
   let reusable: Authentication | null;
   if (session !== null) {
     const s = session;
-    reusable = session_is_usable(request, s, now) ? { subject: s.subject, auth_time: s.auth_time, strength: s.strength, totp_step: null } : null;
+    reusable = session_is_usable(request, s, now) ? {
+      subject: s.subject,
+      auth_time: s.auth_time,
+      strength: s.strength,
+      totp_step: null,
+    } : null;
   } else {
     reusable = null;
   }

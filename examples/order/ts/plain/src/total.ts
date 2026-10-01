@@ -13,7 +13,10 @@ export const total = (lines: Lines): Yen => {
     case "Cons": {
       const line = lines.content[0];
       const rest = lines.content[1];
-      return Yen$of(Int.i64.add(Int.i64.mul(line.unit_price, (globalThis.BigInt(line.qty) as I64)), total(rest)));
+      return Yen$of(Int.i64.add(
+        Int.i64.mul(line.unit_price, (globalThis.BigInt(line.qty) as I64)),
+        total(rest),
+      ));
     }
     default:
       return assertNever(lines);

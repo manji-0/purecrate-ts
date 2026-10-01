@@ -8,6 +8,9 @@ import type { SemverError } from "./semver-error.ts";
 
 export const parse_build_id = (s: string): Result<string, SemverError> => {
   if (s.length === 0) return Result.err({ kind: "EmptyBuild" });
-  if (!Iter.all(Str.bytes(s), (($x1: U8): boolean => is_ident_char($x1)))) return Result.err({ kind: "InvalidBuildChar" });
+  if (!Iter.all(
+    Str.bytes(s),
+    (($x1: U8): boolean => is_ident_char($x1)),
+  )) return Result.err({ kind: "InvalidBuildChar" });
   return Result.ok(s);
 };

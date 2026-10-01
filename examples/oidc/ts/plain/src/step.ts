@@ -29,16 +29,33 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           if (!verified) {
             const failures$1: U32 = Int.u32.add(failures, (1 as U32));
             if (failures$1 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
-            return Result.ok({ kind: "AwaitingPassword", request, failures: failures$1, notice: { kind: "WrongPassword" } });
+            return Result.ok({
+              kind: "AwaitingPassword",
+              request,
+              failures: failures$1,
+              notice: { kind: "WrongPassword" },
+            });
           } else {
             const request$1 = request as AuthorizationRequest;
             switch (second_factor.kind) {
               case "Totp": {
                 const enrollment = second_factor.content[0];
-                return Result.ok({ kind: "AwaitingOtp", request: request$1, subject, enrollment, failures: (0 as U32), notice: { kind: "Clear" } });
+                return Result.ok({
+                  kind: "AwaitingOtp",
+                  request: request$1,
+                  subject,
+                  enrollment,
+                  failures: (0 as U32),
+                  notice: { kind: "Clear" },
+                });
               }
               case "NotEnrolled": {
-                const auth: Authentication = { subject, auth_time: now, strength: { kind: "PasswordOnly" }, totp_step: null };
+                const auth: Authentication = {
+                  subject,
+                  auth_time: now,
+                  strength: { kind: "PasswordOnly" },
+                  totp_step: null,
+                };
                 return Result.ok({ kind: "AwaitingConsent", request: request$1, auth });
               }
               default:
@@ -74,7 +91,12 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
             switch ($m_6_notice.kind) {
               case "Accepted": {
                 const step$1 = $m_6_notice.content[0];
-                const auth$1: Authentication = { subject: subject$1, auth_time: now$1, strength: { kind: "PasswordAndTotp" }, totp_step: step$1 };
+                const auth$1: Authentication = {
+                  subject: subject$1,
+                  auth_time: now$1,
+                  strength: { kind: "PasswordAndTotp" },
+                  totp_step: step$1,
+                };
                 return Result.ok({ kind: "AwaitingConsent", request: request$2, auth: auth$1 });
               }
               case "Replayed":
@@ -93,7 +115,14 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           }
           const failures$3: U32 = Int.u32.add(failures$2, (1 as U32));
           if (failures$3 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
-          return Result.ok({ kind: "AwaitingOtp", request: request$2, subject: subject$1, enrollment: enrollment$1, failures: failures$3, notice });
+          return Result.ok({
+            kind: "AwaitingOtp",
+            request: request$2,
+            subject: subject$1,
+            enrollment: enrollment$1,
+            failures: failures$3,
+            notice,
+          });
         }
         default:
           return assertNever(event);
@@ -110,7 +139,14 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           return Result.ok(issue(request$3, auth$2));
         case "ConsentDenied": {
           const request$4 = request$3 as AuthorizationRequest;
-          return Result.ok({ kind: "Rejected", content: [{ redirect_uri: request$4.redirect_uri, error: { kind: "AccessDenied" }, state: request$4.state }] });
+          return Result.ok({
+            kind: "Rejected",
+            content: [{
+              redirect_uri: request$4.redirect_uri,
+              error: { kind: "AccessDenied" },
+              state: request$4.state,
+            }],
+          });
         }
         default:
           return assertNever(event);

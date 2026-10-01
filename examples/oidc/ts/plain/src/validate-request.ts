@@ -26,7 +26,10 @@ import type { Prompt } from "./prompt.ts";
  * Errors about the client or its redirect_uri are shown to the End-User;
  * everything after that is redirected with `error` and the echoed `state`.
  */
-export const validate_request = (params: AuthorizationParams, client: Client | null): Result<AuthorizationRequest, AuthorizationError> => {
+export const validate_request = (
+  params: AuthorizationParams,
+  client: Client | null,
+): Result<AuthorizationRequest, AuthorizationError> => {
   let client$1: Client;
   if (client !== null) {
     const c = client;
@@ -50,7 +53,10 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   } else {
     return Result.err({ kind: "Display", content: [{ kind: "MissingRedirectUri" }] });
   }
-  if (!redirect_uri_registered(client$1, redirect_uri)) return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
+  if (!redirect_uri_registered(client$1, redirect_uri)) return Result.err({
+    kind: "Display",
+    content: [{ kind: "UnregisteredRedirectUri" }],
+  });
   let echoed: string | null;
   if (params.state !== null) {
     const s = params.state;
@@ -164,5 +170,15 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   } else {
     wants_mfa = false;
   }
-  return Result.ok(AuthorizationRequest$of({ client_id: client$1.client_id, redirect_uri, scope, state, nonce, pkce, prompt, max_age, wants_mfa }));
+  return Result.ok(AuthorizationRequest$of({
+    client_id: client$1.client_id,
+    redirect_uri,
+    scope,
+    state,
+    nonce,
+    pkce,
+    prompt,
+    max_age,
+    wants_mfa,
+  }));
 };

@@ -25,7 +25,11 @@ export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I
             return apart ? line.amount : (0n as I64);
           case "ToExclusive": {
             const conversion = method.conversion;
-            return !apart ? divide(Int.i64.mul(line.amount, (100n as I64)), Int.i64.add((100n as I64), percent(rate)), conversion) : (0n as I64);
+            return !apart ? divide(
+              Int.i64.mul(line.amount, (100n as I64)),
+              Int.i64.add((100n as I64), percent(rate)),
+              conversion,
+            ) : (0n as I64);
           }
           default:
             return assertNever(method);

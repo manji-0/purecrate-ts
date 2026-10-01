@@ -11,5 +11,9 @@ export type Terms = Readonly<{
 }>;
 
 export const Terms = {
-  of: (amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod): Terms => ({ amount, capture, confirmation }),
+  of: (
+    amount: Amount,
+    capture: CaptureMethod,
+    confirmation: ConfirmationMethod,
+  ): Terms => ({ amount, capture, confirmation }),
 } as const;

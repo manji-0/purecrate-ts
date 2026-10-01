@@ -8,8 +8,17 @@ import { Int, type U32, type U8 } from "./int.ts";
  */
 export const push = (acc: U32, c: U8): U32 => {
   if (c >= (48 as U8) && c <= (57 as U8)) {
-    return Int.u32.rem(Int.u32.add(Int.u32.mul(acc, (10 as U32)), (Int.u8.sub(c, (48 as U8)) as number as U32)), (97 as U32));
+    return Int.u32.rem(
+      Int.u32.add(Int.u32.mul(acc, (10 as U32)), (Int.u8.sub(c, (48 as U8)) as number as U32)),
+      (97 as U32),
+    );
   } else {
-    return Int.u32.rem(Int.u32.add(Int.u32.add(Int.u32.mul(acc, (100 as U32)), (Int.u8.sub(c, (65 as U8)) as number as U32)), (10 as U32)), (97 as U32));
+    return Int.u32.rem(
+      Int.u32.add(
+        Int.u32.add(Int.u32.mul(acc, (100 as U32)), (Int.u8.sub(c, (65 as U8)) as number as U32)),
+        (10 as U32),
+      ),
+      (97 as U32),
+    );
   }
 };

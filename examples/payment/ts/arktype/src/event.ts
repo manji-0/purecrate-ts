@@ -17,10 +17,16 @@ export type Event =
 
 export const Event = {
   AttachMethod: (_0: PaymentMethod): Event => ({ kind: "AttachMethod", content: [_0] }),
-  Confirm: (method: PaymentMethod | null, outcome: Outcome): Event => ({ kind: "Confirm", method, outcome }),
+  Confirm: (
+    method: PaymentMethod | null,
+    outcome: Outcome,
+  ): Event => ({ kind: "Confirm", method, outcome }),
   ActionHandled: (_0: Outcome): Event => ({ kind: "ActionHandled", content: [_0] }),
   ProcessingSucceeded: (): Event => ({ kind: "ProcessingSucceeded" }),
   ProcessingFailed: (_0: DeclineCode): Event => ({ kind: "ProcessingFailed", content: [_0] }),
-  Capture: (amount_to_capture: I64 | null, application_fee: I64 | null): Event => ({ kind: "Capture", amount_to_capture, application_fee }),
+  Capture: (
+    amount_to_capture: I64 | null,
+    application_fee: I64 | null,
+  ): Event => ({ kind: "Capture", amount_to_capture, application_fee }),
   Cancel: (_0: CancellationReason | null): Event => ({ kind: "Cancel", content: [_0] }),
 } as const;

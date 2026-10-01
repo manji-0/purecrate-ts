@@ -161,7 +161,14 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
               received = $arg10;
             }
           }
-          status = { kind: "Succeeded", received, application_fee: ((application_fee !== null) ? Int.i64.min(application_fee, received) : null) };
+          status = {
+            kind: "Succeeded",
+            received,
+            application_fee: ((application_fee !== null) ? Int.i64.min(
+              application_fee,
+              received,
+            ) : null),
+          };
           break;
         }
         case "Cancel": {

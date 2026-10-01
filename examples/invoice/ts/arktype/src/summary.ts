@@ -13,5 +13,11 @@ export type Summary = Readonly<{
 }>;
 
 export const Summary = {
-  of: (standard: Group, reduced: Group, standard_inclusive: Group, reduced_inclusive: Group, total: Yen): Summary => ({ standard, reduced, standard_inclusive, reduced_inclusive, total }),
+  of: (
+    standard: Group,
+    reduced: Group,
+    standard_inclusive: Group,
+    reduced_inclusive: Group,
+    total: Yen,
+  ): Summary => ({ standard, reduced, standard_inclusive, reduced_inclusive, total }),
 } as const;

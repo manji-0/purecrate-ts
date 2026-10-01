@@ -9,7 +9,11 @@ import type { Session } from "./session.ts";
  * End-User to log in again (OIDC Core §3.1.2.1 prompt, max_age,
  * acr_values; §3.1.2.3).
  */
-export const session_is_usable = (request: AuthorizationRequest, session: Session, now: I64): boolean => {
+export const session_is_usable = (
+  request: AuthorizationRequest,
+  session: Session,
+  now: I64,
+): boolean => {
   if (request.prompt.login || request.prompt.select_account) return false;
   let fresh: boolean;
   {

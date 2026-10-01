@@ -27,7 +27,10 @@ export const Iban = {
     }
     let acc: U32 = 0 as U32;
     for (let i$2 = (4 as Usize), $e_2 = ((b.length) as Usize); i$2 < $e_2; i$2 = (i$2 + 1) as Usize) {
-      if (!is_upper(Slice.at(b, i$2)) && !is_digit(Slice.at(b, i$2))) return Result.err({ kind: "Bban" });
+      if (!is_upper(Slice.at(
+        b,
+        i$2,
+      )) && !is_digit(Slice.at(b, i$2))) return Result.err({ kind: "Bban" });
       acc = push(acc, Slice.at(b, i$2));
     }
     for (let i$3 = (0 as Usize), $e_2 = (4 as Usize); i$3 < $e_2; i$3 = (i$3 + 1) as Usize) {

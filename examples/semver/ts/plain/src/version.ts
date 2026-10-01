@@ -36,7 +36,10 @@ export const Version = {
     } else {
       rest = s;
     }
-    const dash: Usize | null = Iter.position(Str.bytes(rest), ((b$1: U8): boolean => b$1 === (45 as U8)));
+    const dash: Usize | null = Iter.position(
+      Str.bytes(rest),
+      ((b$1: U8): boolean => b$1 === (45 as U8)),
+    );
     let core: string;
     if (dash !== null) {
       const i$1 = dash;

@@ -15,6 +15,18 @@ export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
   const reduced: Group = taxed(invoice, { kind: "Reduced" }, false);
   const standard_inclusive: Group = taxed(invoice, { kind: "Standard" }, true);
   const reduced_inclusive: Group = taxed(invoice, { kind: "Reduced" }, true);
-  const total: I64 = Int.i64.add(Int.i64.add(Int.i64.add(Int.i64.add(Int.i64.add(standard.base, standard.tax), reduced.base), reduced.tax), standard_inclusive.base), reduced_inclusive.base);
-  return Result.ok({ standard, reduced, standard_inclusive, reduced_inclusive, total: Yen$of(total) });
+  const total: I64 = Int.i64.add(
+    Int.i64.add(
+      Int.i64.add(Int.i64.add(Int.i64.add(standard.base, standard.tax), reduced.base), reduced.tax),
+      standard_inclusive.base,
+    ),
+    reduced_inclusive.base,
+  );
+  return Result.ok({
+    standard,
+    reduced,
+    standard_inclusive,
+    reduced_inclusive,
+    total: Yen$of(total),
+  });
 };

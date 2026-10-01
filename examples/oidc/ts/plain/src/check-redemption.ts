@@ -10,7 +10,13 @@ import type { TokenError } from "./token-error.ts";
  * Checks a code redemption against its grant. `verifier_s256` is
  * BASE64URL(SHA256(ASCII(code_verifier))), computed by the caller.
  */
-export const check_redemption = (grant: CodeGrant, client_id: string, redirect_uri: string, code_verifier: string | null, verifier_s256: string | null): Result<undefined, TokenError> => {
+export const check_redemption = (
+  grant: CodeGrant,
+  client_id: string,
+  redirect_uri: string,
+  code_verifier: string | null,
+  verifier_s256: string | null,
+): Result<undefined, TokenError> => {
   if ((grant.client_id !== client_id) || (grant.redirect_uri !== redirect_uri)) return Result.err({ kind: "InvalidGrant" });
   if (grant.pkce !== null) {
     const pkce = grant.pkce;

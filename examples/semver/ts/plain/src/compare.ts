@@ -9,7 +9,10 @@ import type { Version } from "./version.ts";
 
 /** Precedence per SemVer 2.0.0 §11. Build metadata is ignored. */
 export const compare = (a: Version, b: Version): Ordering => {
-  const $ord3: Ordering = Ord.then(Ord.then(Ord.cmp(a.major, b.major), Ord.cmp(a.minor, b.minor)), Ord.cmp(a.patch, b.patch));
+  const $ord3: Ordering = Ord.then(
+    Ord.then(Ord.cmp(a.major, b.major), Ord.cmp(a.minor, b.minor)),
+    Ord.cmp(a.patch, b.patch),
+  );
   switch ($ord3.kind) {
     case "Less":
       return { kind: "Less" };

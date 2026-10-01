@@ -8,7 +8,13 @@ import type { Lines } from "./lines.ts";
 export const add_line = (lines: Lines, line: Line): Lines => {
   switch (lines.kind) {
     case "Nil":
-      return { kind: "Cons", content: [line, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ { kind: "Nil" }] };
+      return {
+        kind: "Cons",
+        content: [
+          line,
+          /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ { kind: "Nil" },
+        ],
+      };
     case "Cons": {
       const head = lines.content[0];
       const rest = lines.content[1];
@@ -16,7 +22,13 @@ export const add_line = (lines: Lines, line: Line): Lines => {
         const merged: Line = { ...head, qty: Int.u32.add(head.qty, line.qty) };
         return { kind: "Cons", content: [merged, rest] };
       } else {
-        return { kind: "Cons", content: [head, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ add_line(rest, line)] };
+        return {
+          kind: "Cons",
+          content: [
+            head,
+            /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ add_line(rest, line),
+          ],
+        };
       }
     }
     default:

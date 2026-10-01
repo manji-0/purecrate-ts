@@ -3,4 +3,7 @@
 import type { PaymentIntent } from "./payment-intent.ts";
 import type { Terms } from "./terms.ts";
 
-export const create = (terms: Terms): PaymentIntent => ({ terms, status: { kind: "RequiresPaymentMethod", last_error: null } });
+export const create = (terms: Terms): PaymentIntent => ({
+  terms,
+  status: { kind: "RequiresPaymentMethod", last_error: null },
+});

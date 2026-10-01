@@ -12,7 +12,11 @@ export const placed = (lines: Lines, total$1: Yen, cmd: Command): Result<Order, 
   switch (cmd.kind) {
     case "Pay": {
       const amount = cmd.content[0];
-      if (amount !== total$1) return Result.err({ kind: "AmountMismatch", expected: total$1, got: amount });
+      if (amount !== total$1) return Result.err({
+        kind: "AmountMismatch",
+        expected: total$1,
+        got: amount,
+      });
       return Result.ok({ kind: "Paid", lines, total: total$1 });
     }
     case "Cancel": {

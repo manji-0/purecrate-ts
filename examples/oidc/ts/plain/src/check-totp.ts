@@ -13,7 +13,12 @@ import type { TotpEnrollment } from "./totp-enrollment.ts";
  * the last accepted one. Candidates outside that window are ignored, so
  * the caller cannot widen it by passing more MACs.
  */
-export const check_totp = (code: string, now: I64, enrollment: TotpEnrollment, candidates: ReadonlyArray<StepMac>): OtpCheck => {
+export const check_totp = (
+  code: string,
+  now: I64,
+  enrollment: TotpEnrollment,
+  candidates: ReadonlyArray<StepMac>,
+): OtpCheck => {
   let current: I64;
   {
     const $m_2_current = totp_step(now, enrollment.t0, enrollment.period);
@@ -36,7 +41,10 @@ export const check_totp = (code: string, now: I64, enrollment: TotpEnrollment, c
   }
   let replayed: boolean = false;
   for (const c of candidates) {
-    if ((c.step >= Int.i64.sub(current, (1n as I64))) && (c.step <= Int.i64.add(current, (1n as I64)))) {
+    if ((c.step >= Int.i64.sub(
+      current,
+      (1n as I64),
+    )) && (c.step <= Int.i64.add(current, (1n as I64)))) {
       if ((() => {
         const $m_4 = truncate_mac(c.mac, enrollment.digits);
         if ($m_4 !== null) {

@@ -19,7 +19,13 @@ export const remove_sku = (lines: Lines, sku: Sku): Result<Lines, OrderError> =>
         const $v_rest$1 = remove_sku(rest, sku);
         if ($v_rest$1.kind === "Err") return $v_rest$1;
         const rest$1: Lines = $v_rest$1.value;
-        return Result.ok({ kind: "Cons", content: [head, /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ rest$1] });
+        return Result.ok({
+          kind: "Cons",
+          content: [
+            head,
+            /* In Rust, Box<T> is heap indirection for recursive types. TS is single-threaded, so it is ignored and treated as T. */ rest$1,
+          ],
+        });
       }
     }
     default:

@@ -15,5 +15,10 @@ export type TotpEnrollment = Readonly<{
 }>;
 
 export const TotpEnrollment = {
-  of: (t0: I64, period: I64, digits: OtpDigits, last_used_step: I64 | null): TotpEnrollment => ({ t0, period, digits, last_used_step }),
+  of: (
+    t0: I64,
+    period: I64,
+    digits: OtpDigits,
+    last_used_step: I64 | null,
+  ): TotpEnrollment => ({ t0, period, digits, last_used_step }),
 } as const;

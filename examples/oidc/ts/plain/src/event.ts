@@ -13,7 +13,11 @@ export type Event =
 export const Event = {
   /** The caller verified the password hash for `subject`. */
   PasswordChecked: (subject: string, verified: boolean, second_factor: SecondFactor, now: I64): Event => ({ kind: "PasswordChecked", subject, verified, second_factor, now }),
-  OtpSubmitted: (code: string, now: I64, candidates: ReadonlyArray<StepMac>): Event => ({ kind: "OtpSubmitted", code, now, candidates }),
+  OtpSubmitted: (
+    code: string,
+    now: I64,
+    candidates: ReadonlyArray<StepMac>,
+  ): Event => ({ kind: "OtpSubmitted", code, now, candidates }),
   ConsentGranted: (): Event => ({ kind: "ConsentGranted" }),
   ConsentDenied: (): Event => ({ kind: "ConsentDenied" }),
 } as const;
