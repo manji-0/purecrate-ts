@@ -25,13 +25,8 @@ export const begin = (params: AuthorizationParams, client: Client | null, sessio
   const request: AuthorizationRequest = $v_request.value;
   let reusable: Authentication | null;
   if (session !== null) {
-    const $v1 = session;
-    if (session_is_usable(request, $v1, now)) {
-      const s = $v1 as Session;
-      reusable = { subject: s.subject, auth_time: s.auth_time, strength: s.strength, totp_step: null };
-    } else {
-      reusable = null;
-    }
+    const s = session;
+    reusable = (session_is_usable(request, s, now) ? { subject: s.subject, auth_time: s.auth_time, strength: s.strength, totp_step: null } : null);
   } else {
     reusable = null;
   }
@@ -39,15 +34,14 @@ export const begin = (params: AuthorizationParams, client: Client | null, sessio
   const state: string | null = request.state;
   const refuse: ((_0: ErrorCode) => AuthorizationError) = ((error: ErrorCode): AuthorizationError => redirect_error(request.redirect_uri, error, state));
   if (reusable !== null) {
-    const $v2 = reusable;
+    const auth = reusable;
     if (request.prompt.no_interaction && needs_consent) {
       return Result.err(refuse({ kind: "ConsentRequired" }));
     } else {
       if (!needs_consent) {
-        const auth = $v2 as Authentication;
         return Result.ok(issue(request, auth));
       } else {
-        const auth$1 = $v2 as Authentication;
+        const auth$1 = auth as Authentication;
         return Result.ok({ kind: "AwaitingConsent", request: request, auth: auth$1 });
       }
     }

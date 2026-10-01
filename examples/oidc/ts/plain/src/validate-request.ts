@@ -36,8 +36,8 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
     return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
   }
   if (params.client_id !== null) {
-    const $v1 = params.client_id;
-    if ($v1 === client$1.client_id) {
+    const id = params.client_id;
+    if (id === client$1.client_id) {
     } else {
       return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
     }
@@ -54,20 +54,15 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   if (!redirect_uri_registered(client$1, redirect_uri)) return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
   let echoed: string | null;
   if (params.state !== null) {
-    const $v2 = params.state;
-    if (state_is_valid($v2)) {
-      const s: string = $v2;
-      echoed = s;
-    } else {
-      echoed = null;
-    }
+    const s = params.state;
+    echoed = (state_is_valid(s) ? s : null);
   } else {
     echoed = null;
   }
   const fail: ((_0: ErrorCode) => AuthorizationError) = ((error: ErrorCode): AuthorizationError => redirect_error(redirect_uri, error, echoed));
   if (params.response_type !== null) {
-    const $v3 = params.response_type;
-    if ($v3 === "code") {
+    const rt = params.response_type;
+    if (rt === "code") {
     } else {
       return Result.err(fail({ kind: "UnsupportedResponseType" }));
     }
@@ -76,9 +71,8 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   }
   let scope: string;
   if (params.scope !== null) {
-    const $v4 = params.scope;
-    if (has_token($v4, "openid")) {
-      const s$1: string = $v4;
+    const s$1 = params.scope;
+    if (has_token(s$1, "openid")) {
       scope = s$1;
     } else {
       return Result.err(fail({ kind: "InvalidScope" }));
@@ -95,11 +89,11 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   }
   let nonce: string | null;
   if (params.nonce !== null) {
-    const $v5 = params.nonce;
-    if (!state_is_valid($v5)) {
+    const n = params.nonce;
+    if (!state_is_valid(n)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      const n$1: string = $v5;
+      const n$1: string = n;
       nonce = n$1;
     }
   } else {
@@ -107,19 +101,19 @@ export const validate_request = (params: AuthorizationParams, client: Client | n
   }
   let pkce: Pkce | null;
   if (params.code_challenge !== null) {
-    const $v7 = params.code_challenge;
-    if (!pkce_string_is_valid($v7)) {
+    const challenge = params.code_challenge;
+    if (!pkce_string_is_valid(challenge)) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      const challenge$1: string = $v7;
+      const challenge$1: string = challenge;
       const method = params.code_challenge_method as string | null;
       let method$1: PkceMethod;
       if (method !== null) {
-        const $v6 = method;
-        if ($v6 === "S256") {
+        const m = method;
+        if (m === "S256") {
           method$1 = { kind: "S256" };
         } else {
-          if ($v6 === "plain") {
+          if (m === "plain") {
             method$1 = { kind: "Plain" };
           } else {
             return Result.err(fail({ kind: "InvalidRequest" }));

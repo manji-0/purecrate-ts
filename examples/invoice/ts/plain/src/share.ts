@@ -7,7 +7,6 @@ import { percent } from "./percent.ts";
 import type { Line } from "./line.ts";
 import type { Method } from "./method.ts";
 import type { Rate } from "./rate.ts";
-import type { Rounding } from "./rounding.ts";
 
 /**
  * What `line` adds to the total of `rate`'s group; `apart` is the group of
@@ -25,13 +24,8 @@ export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I
           case "Separate":
             return (apart ? line.amount : (0n as I64));
           case "ToExclusive": {
-            const $f1 = method.conversion;
-            if (!apart) {
-              const conversion = $f1 as Rounding;
-              return divide(Int.i64.mul(line.amount, (100n as I64)), Int.i64.add((100n as I64), percent(rate)), conversion);
-            } else {
-              return (0n as I64);
-            }
+            const conversion = method.conversion;
+            return (!apart ? divide(Int.i64.mul(line.amount, (100n as I64)), Int.i64.add((100n as I64), percent(rate)), conversion) : (0n as I64));
           }
           default:
             return assertNever(method);

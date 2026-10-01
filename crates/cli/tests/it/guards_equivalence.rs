@@ -108,3 +108,29 @@ fn random_guards_match_rust() {
     });
     support::assert_equivalent("guards_random", SOURCE, &cases);
 }
+
+/// A field or payload a lowered `match` reads binds the arm's own name
+/// directly, also when a guard reads it first: no `$f` or `$v` copy.
+#[test]
+fn a_lowered_match_binds_the_arms_names() {
+    let source = "pub enum Shape { Circle(i32), Rect { w: i32, h: i32 } }\n\
+                  pub fn area(s: Shape, big: bool) -> i32 {\n\
+                      match s {\n\
+                          Shape::Circle(r) if big => r * r * 3,\n\
+                          Shape::Circle(r) => r,\n\
+                          Shape::Rect { w, h } => w * h,\n\
+                      }\n\
+                  }\n\
+                  pub fn first(o: Option<i32>, limit: i32) -> i32 {\n\
+                      match o { Some(n) if n < limit => n, Some(_) => limit, None => 0 }\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("binds", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    for stem in ["area", "first"] {
+        let src = &pkg.files.iter().find(|f| f.stem == stem).expect(stem).source;
+        assert!(!src.contains("$f") && !src.contains("$v"), "{src}");
+    }
+    let area = &pkg.files.iter().find(|f| f.stem == "area").expect("area").source;
+    assert!(area.contains("const r = s.content[0];") && area.contains("const w = s.w;"), "{area}");
+}

@@ -144,7 +144,7 @@ switch (event.kind) {
 - Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness.
 - Integer, `char`, and string elements are `if`/`else` on one arm's pattern at a time.
 - Elements that are not places go into `const`s first, in order (`$e1`, `$e2`).
-- Field and payload bindings are read into `$f`/`$v` names, then into the arm's own names.
+- A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A fresh `$f`/`$v` name remains only where no arm names the value.
 - A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list.
 - A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`. An annotation would keep the narrowing of an enclosing `switch`.
 

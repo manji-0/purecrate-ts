@@ -9,6 +9,7 @@
 - Indexing `xs[i]` and slicing `&xs[a..b]` on a `Vec` or slice call the runtime's `Slice.at` and `Slice.range` instead of an inline function at every use, with the same checks and panic messages; iban's generated code goes from 6.0 to 4.9 KB. `Slice` is now a reserved name.
 - `let x = o.ok_or(e)?` prints as a guard, `if ($opt === null) return Result.err($arg);`, instead of an inline function that built a `Result` for `?` to take apart (15 lines to 4); `e` still runs first. A statement `if c { return v; }` prints on one line when it fits.
 - A `?` inside an expression binds its value once and tests it in place, `const $q1 = f(x); if ($q1.kind === "Err") return $q1;`, read as `$q1.value` (an `Option`'s as `$q1`), instead of a second binding for the payload.
+- A lowered `match` (a tuple `match`, guards, `Option` and `Result` cases) binds a variant's fields and a payload to the arm's own names, `const conversion = method.conversion;`, instead of a fresh `$f1` / `$v1` copied into each arm's name with an `as` cast; guards read the same name. semver's `compare_pre_ids` loses 9 lines.
 
 ### Added
 

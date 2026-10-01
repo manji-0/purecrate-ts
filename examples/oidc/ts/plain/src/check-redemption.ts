@@ -4,7 +4,6 @@ import { assertNever } from "./assert-never.ts";
 import { Result } from "./result.ts";
 import { pkce_string_is_valid } from "./pkce-string-is-valid.ts";
 import type { CodeGrant } from "./code-grant.ts";
-import type { Pkce } from "./pkce.ts";
 import type { TokenError } from "./token-error.ts";
 
 /**
@@ -14,14 +13,13 @@ import type { TokenError } from "./token-error.ts";
 export const check_redemption = (grant: CodeGrant, client_id: string, redirect_uri: string, code_verifier: string | null, verifier_s256: string | null): Result<undefined, TokenError> => {
   if ((grant.client_id !== client_id) || (grant.redirect_uri !== redirect_uri)) return Result.err({ kind: "InvalidGrant" });
   if (grant.pkce !== null) {
-    const $v1 = grant.pkce;
+    const pkce = grant.pkce;
     if (code_verifier !== null) {
-      const $v2 = code_verifier;
-      if (!pkce_string_is_valid($v2)) {
+      const verifier = code_verifier;
+      if (!pkce_string_is_valid(verifier)) {
         return Result.err({ kind: "InvalidRequest" });
       } else {
-        const pkce = $v1 as Pkce;
-        const verifier$1: string = $v2;
+        const verifier$1: string = verifier;
         let matches: boolean;
         switch (pkce.method.kind) {
           case "Plain":

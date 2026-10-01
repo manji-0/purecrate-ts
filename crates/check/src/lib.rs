@@ -2,6 +2,7 @@
 //! Diagnostics point at items by index into `Crate::items`; the caller maps
 //! indices to source locations.
 
+mod binds;
 mod complete;
 mod consts;
 mod defs;
@@ -88,7 +89,7 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
                 match complete::check(&typed) {
-                    missing if missing.is_empty() => return Ok(unused::drop_unused(lift::lift(rename::rename(rest::expand(typed))))),
+                    missing if missing.is_empty() => return Ok(unused::drop_unused(binds::merge(lift::lift(rename::rename(rest::expand(typed)))))),
                     missing => out = missing,
                 }
             }
