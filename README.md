@@ -69,7 +69,7 @@ A generated package carries everything it runs on. The runtime (`packages/bounda
 
 Use the output either way:
 
-- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write; pin the release binary (or `cargo install --git … --tag`) there so the check and the committed output come from the same version.
+- **Vendor the sources.** Commit the output (as one commits an OpenAPI client) and import `src/index.ts`. Generated files import with `.ts` extensions (`from "./purecrate-runtime.ts"`). The consuming project's tsconfig must allow that: `allowImportingTsExtensions` with `noEmit` or a bundler, or `rewriteRelativeImportExtensions` when emitting (`tsc` reports TS5097 otherwise). The generated package's own `tsconfig.json` already sets the former. If the project cannot set them, install the package instead and import through `exports` (the `purecrate-source` condition resolves to the `.ts` sources; `types` / `default` to `dist` after `npm run build`). Check the committed copy in CI with `purecrate-ts check <crate> --out <dir>`, which fails when it differs from what `build` would write; pin the release binary (or `cargo install --git … --tag`) there so the check and the committed output come from the same version.
 - **Install it as a package.** `npm pack` it (the `prepack` script builds `dist`) and install the tarball, or push it to a private registry.
 
 ```sh
