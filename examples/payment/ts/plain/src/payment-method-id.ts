@@ -13,7 +13,8 @@ export const PaymentMethodId$of = (value: string): PaymentMethodId => value as P
 
 export const PaymentMethodId = {
   new: (raw: string): Result<PaymentMethodId, PaymentError> => {
-    if ((Str.len(raw) < (4 as Usize)) || !raw.startsWith("pm_")) return Result.err({ kind: "InvalidPaymentMethodId" });
+    if (Str.len(raw) < (4 as Usize) || !raw.startsWith("pm_"))
+      return Result.err({ kind: "InvalidPaymentMethodId" });
     return Result.ok(PaymentMethodId$of(raw));
   },
   tryFrom: (raw: string): Result<PaymentMethodId, PaymentError> => PaymentMethodId.new(raw),

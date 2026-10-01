@@ -4,23 +4,25 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
 import { fail, i64, keyed, memo, nullable, str, unitEnum, type Wire } from "./purecrate-arktype.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
+import { type CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
+import { type CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
+import { type ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
+import { type DeclineCode as DeclineCode$ } from "./decline-code.ts";
+import { type Event as Event$ } from "./event.ts";
+import { type MethodKind as MethodKind$ } from "./method-kind.ts";
+import { type Outcome as Outcome$ } from "./outcome.ts";
+import {
+  PaymentError as PaymentError$text,
+  type PaymentError as PaymentError$,
+} from "./payment-error.ts";
+import { type PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
+import { type PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
 import {
   PaymentMethodId as PaymentMethodId$value,
   type PaymentMethodId as PaymentMethodId$,
 } from "./payment-method-id.ts";
-import type { MethodKind as MethodKind$ } from "./method-kind.ts";
-import type { PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
-import type { CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
-import type { ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
-import type { Terms as Terms$ } from "./terms.ts";
-import type { DeclineCode as DeclineCode$ } from "./decline-code.ts";
-import type { CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
-import type { Status as Status$ } from "./status.ts";
-import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
-import type { Outcome as Outcome$ } from "./outcome.ts";
-import type { Event as Event$ } from "./event.ts";
-import type { PaymentError as PaymentError$ } from "./payment-error.ts";
-import { PaymentError as PaymentError$text } from "./payment-error.ts";
+import { type Status as Status$ } from "./status.ts";
+import { type Terms as Terms$ } from "./terms.ts";
 
 const Amount$wire = memo(() => i64);
 export const Amount: Wire<Amount$> = type("unknown").pipe((v, ctx): Amount$ => {
@@ -33,11 +35,15 @@ export const Amount: Wire<Amount$> = type("unknown").pipe((v, ctx): Amount$ => {
 
 const PaymentMethodId$wire = memo(() => str);
 /** A payment method ID: `pm_` followed by at least one character. */
-export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((v, ctx): PaymentMethodId$ => {
+export const PaymentMethodId: Wire<PaymentMethodId$> = type("unknown").pipe((
+  v,
+  ctx,
+): PaymentMethodId$ => {
   const parsed = PaymentMethodId$wire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   const r = PaymentMethodId$value.tryFrom(parsed);
-  if (r.kind === "Err") return ctx.error(`PaymentMethodId: ${PaymentError$text.toString(r.error)}`) as never;
+  if (r.kind === "Err")
+    return ctx.error(`PaymentMethodId: ${PaymentError$text.toString(r.error)}`) as never;
   return r.value;
 });
 
@@ -119,60 +125,52 @@ const Status$arm$Canceled = memo(() => type({
 export const Status: Wire<Status$> = type("unknown").pipe((v, ctx): Status$ => {
   {
     const parsed = Status$arm$RequiresPaymentMethod()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "RequiresPaymentMethod",
-      last_error: parsed.RequiresPaymentMethod.last_error,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "RequiresPaymentMethod", last_error: parsed.RequiresPaymentMethod.last_error };
     if (keyed(v, "RequiresPaymentMethod")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresConfirmation()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "RequiresConfirmation",
-      method: parsed.RequiresConfirmation.method,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "RequiresConfirmation", method: parsed.RequiresConfirmation.method };
     if (keyed(v, "RequiresConfirmation")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresAction()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "RequiresAction",
-      method: parsed.RequiresAction.method,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "RequiresAction", method: parsed.RequiresAction.method };
     if (keyed(v, "RequiresAction")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Processing()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "Processing",
-      method: parsed.Processing.method,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "Processing", method: parsed.Processing.method };
     if (keyed(v, "Processing")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$RequiresCapture()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "RequiresCapture",
-      method: parsed.RequiresCapture.method,
-      capturable: parsed.RequiresCapture.capturable,
-    };
+    if (!(parsed instanceof type.errors))
+      return {
+        kind: "RequiresCapture",
+        method: parsed.RequiresCapture.method,
+        capturable: parsed.RequiresCapture.capturable,
+      };
     if (keyed(v, "RequiresCapture")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Succeeded()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "Succeeded",
-      received: parsed.Succeeded.received,
-      application_fee: parsed.Succeeded.application_fee,
-    };
+    if (!(parsed instanceof type.errors))
+      return {
+        kind: "Succeeded",
+        received: parsed.Succeeded.received,
+        application_fee: parsed.Succeeded.application_fee,
+      };
     if (keyed(v, "Succeeded")) return fail(ctx, parsed);
   }
   {
     const parsed = Status$arm$Canceled()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "Canceled",
-      reason: parsed.Canceled.reason,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "Canceled", reason: parsed.Canceled.reason };
     if (keyed(v, "Canceled")) return fail(ctx, parsed);
   }
   return ctx.error("Status") as never;
@@ -245,27 +243,20 @@ const Event$arm$Cancel = memo(() => type({ "+": "reject", Cancel: nullable(Cance
 export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   {
     const parsed = Event$arm$AttachMethod()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "AttachMethod",
-      content: [parsed.AttachMethod],
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "AttachMethod", content: [parsed.AttachMethod] };
     if (keyed(v, "AttachMethod")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$Confirm()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "Confirm",
-      method: parsed.Confirm.method,
-      outcome: parsed.Confirm.outcome,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "Confirm", method: parsed.Confirm.method, outcome: parsed.Confirm.outcome };
     if (keyed(v, "Confirm")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$ActionHandled()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "ActionHandled",
-      content: [parsed.ActionHandled],
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "ActionHandled", content: [parsed.ActionHandled] };
     if (keyed(v, "ActionHandled")) return fail(ctx, parsed);
   }
   if (v === "ProcessingSucceeded") return { kind: "ProcessingSucceeded" };
@@ -276,19 +267,18 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   }
   {
     const parsed = Event$arm$ProcessingFailed()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "ProcessingFailed",
-      content: [parsed.ProcessingFailed],
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "ProcessingFailed", content: [parsed.ProcessingFailed] };
     if (keyed(v, "ProcessingFailed")) return fail(ctx, parsed);
   }
   {
     const parsed = Event$arm$Capture()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "Capture",
-      amount_to_capture: parsed.Capture.amount_to_capture,
-      application_fee: parsed.Capture.application_fee,
-    };
+    if (!(parsed instanceof type.errors))
+      return {
+        kind: "Capture",
+        amount_to_capture: parsed.Capture.amount_to_capture,
+        application_fee: parsed.Capture.application_fee,
+      };
     if (keyed(v, "Capture")) return fail(ctx, parsed);
   }
   {
@@ -345,10 +335,8 @@ export const PaymentError: Wire<PaymentError$> = type("unknown").pipe((v, ctx): 
   }
   {
     const parsed = PaymentError$arm$InvalidCaptureAmount()(v);
-    if (!(parsed instanceof type.errors)) return {
-      kind: "InvalidCaptureAmount",
-      capturable: parsed.InvalidCaptureAmount.capturable,
-    };
+    if (!(parsed instanceof type.errors))
+      return { kind: "InvalidCaptureAmount", capturable: parsed.InvalidCaptureAmount.capturable };
     if (keyed(v, "InvalidCaptureAmount")) return fail(ctx, parsed);
   }
   if (v === "NegativeApplicationFee") return { kind: "NegativeApplicationFee" };
@@ -382,10 +370,12 @@ export const fromJson = {
   MethodKind: (text: string): MethodKind$ => MethodKind.assert(parseJson(text)),
   PaymentMethod: (text: string): PaymentMethod$ => PaymentMethod.assert(parseJson(text)),
   CaptureMethod: (text: string): CaptureMethod$ => CaptureMethod.assert(parseJson(text)),
-  ConfirmationMethod: (text: string): ConfirmationMethod$ => ConfirmationMethod.assert(parseJson(text)),
+  ConfirmationMethod: (text: string): ConfirmationMethod$ =>
+    ConfirmationMethod.assert(parseJson(text)),
   Terms: (text: string): Terms$ => Terms.assert(parseJson(text)),
   DeclineCode: (text: string): DeclineCode$ => DeclineCode.assert(parseJson(text)),
-  CancellationReason: (text: string): CancellationReason$ => CancellationReason.assert(parseJson(text)),
+  CancellationReason: (text: string): CancellationReason$ =>
+    CancellationReason.assert(parseJson(text)),
   Status: (text: string): Status$ => Status.assert(parseJson(text)),
   PaymentIntent: (text: string): PaymentIntent$ => PaymentIntent.assert(parseJson(text)),
   Outcome: (text: string): Outcome$ => Outcome.assert(parseJson(text)),

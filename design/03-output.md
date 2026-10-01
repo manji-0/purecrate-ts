@@ -18,7 +18,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
 | Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
-| Lines up to 100 characters | a longer line opens its outermost bracket with commas, one item per line (`emit_ts::tidy::wrap`) |
+| Lines up to 100 characters | a longer line opens a comma-separated bracket, a `if (cond) return`, a long `&&` / `||` / `?:`, or an arrow body (`emit_ts::tidy::wrap`). Parentheses follow operator precedence. `crates/cli/tests/it/line_width.rs` fails on any generated domain line over the limit |
 | Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
 

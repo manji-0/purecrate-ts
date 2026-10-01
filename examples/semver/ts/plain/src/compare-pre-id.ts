@@ -20,13 +20,13 @@ export const comparePreId = (a: PreId, b: PreId): Ordering => {
       }
     }
     case "Alpha": {
-      const x$1 = a.content[0];
+      const x = a.content[0];
       switch (b.kind) {
         case "Numeric":
           return { kind: "Greater" };
         case "Alpha": {
-          const y$1 = b.content[0];
-          return Ord.cmpStr(x$1, y$1);
+          const y = b.content[0];
+          return Ord.cmpStr(x, y);
         }
         default:
           return assertNever(b);

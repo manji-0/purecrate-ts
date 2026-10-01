@@ -4,4 +4,11 @@ import { copyOptional } from "./copy-optional.ts";
 import type { AuthorizationError } from "./authorization-error.ts";
 import type { ErrorCode } from "./error-code.ts";
 
-export const redirectError = (redirectUri: string, error: ErrorCode, state: string | null): AuthorizationError => ({ kind: "Redirect", content: [{ redirect_uri: redirectUri, error, state: copyOptional(state) }] });
+export const redirectError = (
+  redirectUri: string,
+  error: ErrorCode,
+  state: string | null,
+): AuthorizationError => ({
+  kind: "Redirect",
+  content: [{ redirect_uri: redirectUri, error, state: copyOptional(state) }],
+});

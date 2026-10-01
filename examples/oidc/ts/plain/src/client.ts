@@ -12,9 +12,14 @@ export type Client = Readonly<{
 
 export const Client = {
   of: (
-    client_id: string,
-    redirect_uris: ReadonlyArray<string>,
-    require_pkce: boolean,
-    allow_plain_pkce: boolean,
-  ): Client => ({ client_id, redirect_uris, require_pkce, allow_plain_pkce }),
+    clientId: string,
+    redirectUris: ReadonlyArray<string>,
+    requirePkce: boolean,
+    allowPlainPkce: boolean,
+  ): Client => ({
+    client_id: clientId,
+    redirect_uris: redirectUris,
+    require_pkce: requirePkce,
+    allow_plain_pkce: allowPlainPkce,
+  }),
 } as const;

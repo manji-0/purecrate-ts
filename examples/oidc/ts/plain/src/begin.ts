@@ -28,34 +28,33 @@ export const begin = (
   const $v_request = validateRequest(params, client);
   if ($v_request.kind === "Err") return $v_request;
   const request: AuthorizationRequest = $v_request.value;
-  let reusable: Authentication | null;
-  if (session !== null) {
-    const s = session;
-    reusable = sessionIsUsable(request, s, now) ? {
-      subject: s.subject,
-      auth_time: s.auth_time,
-      strength: s.strength,
-      totp_step: null,
-    } : null;
-  } else {
-    reusable = null;
-  }
+  const reusable: Authentication | null = session !== null ? (sessionIsUsable(
+    request,
+    session,
+    now,
+  ) ? {
+    subject: session.subject,
+    auth_time: session.auth_time,
+    strength: session.strength,
+    totp_step: null,
+  } : null) : null;
   const needsConsent: boolean = request.prompt.consent || !consentOnFile;
   const state: string | null = request.state;
-  const refuse: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError => redirectError(request.redirect_uri, error, state);
-  if (reusable !== null) {
-    const auth = reusable;
-    if (request.prompt.no_interaction && needsConsent) {
-      return Result.err(refuse({ kind: "ConsentRequired" }));
-    } else {
-      if (!needsConsent) {
-        return Result.ok(issue(request, auth));
-      } else {
-        const auth$1 = auth as Authentication;
-        return Result.ok({ kind: "AwaitingConsent", request, auth: auth$1 });
-      }
-    }
-  } else {
-    return request.prompt.no_interaction ? Result.err(refuse({ kind: "LoginRequired" })) : Result.ok({ kind: "AwaitingPassword", request, failures: (0 as U32), notice: { kind: "Clear" } });
-  }
+  const refuse: ((_0: ErrorCode) => AuthorizationError) = (error: ErrorCode): AuthorizationError =>
+    redirectError(request.redirect_uri, error, state);
+  return reusable !== null ? (
+    request.prompt.no_interaction && 
+    needsConsent
+      ? Result.err(refuse({ kind: "ConsentRequired" }))
+      : !needsConsent ? Result.ok(issue(request, reusable)) : Result.ok({
+        kind: "AwaitingConsent",
+        request,
+        auth: reusable,
+      })
+  ) : request.prompt.no_interaction ? Result.err(refuse({ kind: "LoginRequired" })) : Result.ok({
+    kind: "AwaitingPassword",
+    request,
+    failures: (0 as U32),
+    notice: { kind: "Clear" },
+  });
 };

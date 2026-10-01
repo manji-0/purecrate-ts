@@ -2,4 +2,5 @@
 
 import { Str, type Usize } from "./purecrate-runtime.ts";
 
-export const hasLeadingZero = (s: string): boolean => (Str.len(s) > (1 as Usize)) && s.startsWith("0");
+export const hasLeadingZero = (s: string): boolean =>
+  Str.len(s) > (1 as Usize) && s.startsWith("0");

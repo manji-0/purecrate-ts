@@ -16,14 +16,14 @@ export const Password = {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     let n: Usize = 0 as Usize;
     for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
-      if (!(() => {
+      if (!((() => {
         const $m_4 = Slice.at(b, i);
         if ($m_4 >= (128 as U8) && $m_4 <= (191 as U8)) {
           return true;
         } else {
           return false;
         }
-      })()) {
+      })())) {
         n = Int.usize.add(n, (1 as Usize));
       }
     }

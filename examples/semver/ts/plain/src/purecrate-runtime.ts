@@ -300,15 +300,6 @@ const panicWith = (message: string): never => {
 };
 
 /**
- * `char` operations (design/01 §6). Ordering and ranges go through `code`:
- * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
- * supplementary planes. Only ASCII and code-point methods are here; the
- * Unicode-table ones (`is_alphabetic`, ...) are not.
- */
-export const Char = {
-} as const;
-
-/**
  * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that
  * serde writes. In that form `===` is Rust's `==`, and string order is the
  * order of the 16 bytes, as the hyphens sit at the same places in both.

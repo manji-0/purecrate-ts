@@ -4,23 +4,25 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
 import { i64, nullable, optionalField, str, unitEnum, unitVariant } from "./purecrate-zod.ts";
 import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
+import { type CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
+import { type CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
+import { type ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
+import { type DeclineCode as DeclineCode$ } from "./decline-code.ts";
+import { type Event as Event$ } from "./event.ts";
+import { type MethodKind as MethodKind$ } from "./method-kind.ts";
+import { type Outcome as Outcome$ } from "./outcome.ts";
+import {
+  PaymentError as PaymentError$text,
+  type PaymentError as PaymentError$,
+} from "./payment-error.ts";
+import { type PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
+import { type PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
 import {
   PaymentMethodId as PaymentMethodId$value,
   type PaymentMethodId as PaymentMethodId$,
 } from "./payment-method-id.ts";
-import type { MethodKind as MethodKind$ } from "./method-kind.ts";
-import type { PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
-import type { CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
-import type { ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
-import type { Terms as Terms$ } from "./terms.ts";
-import type { DeclineCode as DeclineCode$ } from "./decline-code.ts";
-import type { CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
-import type { Status as Status$ } from "./status.ts";
-import type { PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
-import type { Outcome as Outcome$ } from "./outcome.ts";
-import type { Event as Event$ } from "./event.ts";
-import type { PaymentError as PaymentError$ } from "./payment-error.ts";
-import { PaymentError as PaymentError$text } from "./payment-error.ts";
+import { type Status as Status$ } from "./status.ts";
+import { type Terms as Terms$ } from "./terms.ts";
 
 export const Amount: z.ZodType<Amount$, unknown> = i64.transform((x, ctx): Amount$ => {
   const r = Amount$value.tryFrom(x);
@@ -37,7 +39,10 @@ export const Amount: z.ZodType<Amount$, unknown> = i64.transform((x, ctx): Amoun
 });
 
 /** A payment method ID: `pm_` followed by at least one character. */
-export const PaymentMethodId: z.ZodType<PaymentMethodId$, unknown> = str.transform((x, ctx): PaymentMethodId$ => {
+export const PaymentMethodId: z.ZodType<
+  PaymentMethodId$,
+  unknown
+> = str.transform((x, ctx): PaymentMethodId$ => {
   const r = PaymentMethodId$value.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
@@ -60,10 +65,10 @@ export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
 
 export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
 
-export const ConfirmationMethod: z.ZodType<ConfirmationMethod$, unknown> = unitEnum([
-  "Automatic",
-  "Manual",
-]);
+export const ConfirmationMethod: z.ZodType<
+  ConfirmationMethod$,
+  unknown
+> = unitEnum(["Automatic", "Manual"]);
 
 export const Terms: z.ZodType<Terms$, unknown> = z.object({
   amount: Amount,
@@ -202,10 +207,12 @@ export const fromJson = {
   MethodKind: (text: string): MethodKind$ => MethodKind.parse(parseJson(text)),
   PaymentMethod: (text: string): PaymentMethod$ => PaymentMethod.parse(parseJson(text)),
   CaptureMethod: (text: string): CaptureMethod$ => CaptureMethod.parse(parseJson(text)),
-  ConfirmationMethod: (text: string): ConfirmationMethod$ => ConfirmationMethod.parse(parseJson(text)),
+  ConfirmationMethod: (text: string): ConfirmationMethod$ =>
+    ConfirmationMethod.parse(parseJson(text)),
   Terms: (text: string): Terms$ => Terms.parse(parseJson(text)),
   DeclineCode: (text: string): DeclineCode$ => DeclineCode.parse(parseJson(text)),
-  CancellationReason: (text: string): CancellationReason$ => CancellationReason.parse(parseJson(text)),
+  CancellationReason: (text: string): CancellationReason$ =>
+    CancellationReason.parse(parseJson(text)),
   Status: (text: string): Status$ => Status.parse(parseJson(text)),
   PaymentIntent: (text: string): PaymentIntent$ => PaymentIntent.parse(parseJson(text)),
   Outcome: (text: string): Outcome$ => Outcome.parse(parseJson(text)),

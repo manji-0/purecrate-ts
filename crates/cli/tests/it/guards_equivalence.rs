@@ -136,8 +136,7 @@ fn a_lowered_match_binds_the_arms_names() {
 }
 
 /// A `match` or `matches!` on a place, in an expression, prints as `?:` or
-/// `||` / `&&`, not as an inline function; `||` / `&&` parenthesize what
-/// they join, since a `?:` or `||` operand binds looser.
+/// `||` / `&&`, not as an inline function. Parentheses follow precedence.
 #[test]
 fn a_match_in_an_expression_is_an_expression() {
     let source = "pub enum Kind { A, B, C }\n\
@@ -153,7 +152,7 @@ fn a_match_in_an_expression_is_an_expression() {
         assert!(!file(stem).contains("(() =>"), "{}", file(stem));
     }
     assert!(file("is-a").contains("=> k.kind === \"A\";"), "{}", file("is-a"));
-    assert!(file("not-c").contains("x && (k.kind !== \"C\")"), "{}", file("not-c"));
+    assert!(file("not-c").contains("x && k.kind !== \"C\""), "{}", file("not-c"));
     assert!(file("or-zero").contains("o ?? 0") || file("or-zero").contains("o !== null"), "{}", file("or-zero"));
 }
 

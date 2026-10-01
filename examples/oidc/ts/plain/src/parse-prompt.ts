@@ -26,6 +26,6 @@ export const parsePrompt = (s: string): Prompt | null => {
       return null;
     }
   }
-  if (noInteraction && ((login || consent) || selectAccount)) return null;
+  if (noInteraction && (login || consent || selectAccount)) return null;
   return { no_interaction: noInteraction, login, consent, select_account: selectAccount };
 };

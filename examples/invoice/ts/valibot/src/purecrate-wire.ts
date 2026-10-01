@@ -3,17 +3,19 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
 import { i64, unitEnum, unitVariant } from "./purecrate-valibot.ts";
+import { type Group as Group$ } from "./group.ts";
+import { type Invoice as Invoice$ } from "./invoice.ts";
+import {
+  InvoiceError as InvoiceError$text,
+  type InvoiceError as InvoiceError$,
+} from "./invoice-error.ts";
+import { type Line as Line$ } from "./line.ts";
+import { type Method as Method$ } from "./method.ts";
+import { type Pricing as Pricing$ } from "./pricing.ts";
+import { type Rate as Rate$ } from "./rate.ts";
+import { type Rounding as Rounding$ } from "./rounding.ts";
+import { type Summary as Summary$ } from "./summary.ts";
 import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
-import type { Rate as Rate$ } from "./rate.ts";
-import type { Pricing as Pricing$ } from "./pricing.ts";
-import type { Rounding as Rounding$ } from "./rounding.ts";
-import type { Method as Method$ } from "./method.ts";
-import type { Line as Line$ } from "./line.ts";
-import type { Invoice as Invoice$ } from "./invoice.ts";
-import type { Group as Group$ } from "./group.ts";
-import type { Summary as Summary$ } from "./summary.ts";
-import type { InvoiceError as InvoiceError$ } from "./invoice-error.ts";
-import { InvoiceError as InvoiceError$text } from "./invoice-error.ts";
 
 export const Yen: v.GenericSchema<unknown, Yen$> = v.pipe(i64, v.rawTransform(({
   dataset,
@@ -43,11 +45,10 @@ export const Method: v.GenericSchema<unknown, Method$> = v.union([
   ),
 ]);
 
-export const Line: v.GenericSchema<unknown, Line$> = v.object({
-  amount: Yen,
-  rate: Rate,
-  pricing: Pricing,
-});
+export const Line: v.GenericSchema<
+  unknown,
+  Line$
+> = v.object({ amount: Yen, rate: Rate, pricing: Pricing });
 
 export const Invoice: v.GenericSchema<unknown, Invoice$> = v.object({
   lines: v.array(Line),
@@ -66,10 +67,10 @@ export const Summary: v.GenericSchema<unknown, Summary$> = v.object({
   total: Yen,
 });
 
-export const InvoiceError: v.GenericSchema<unknown, InvoiceError$> = unitEnum([
-  "NegativeAmount",
-  "NoLines",
-]);
+export const InvoiceError: v.GenericSchema<
+  unknown,
+  InvoiceError$
+> = unitEnum(["NegativeAmount", "NoLines"]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;

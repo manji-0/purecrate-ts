@@ -264,7 +264,12 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
 }
 
 /// The width past which `tidy::wrap` breaks a line.
-pub(crate) const WIDTH: usize = 100;
+pub const WIDTH: usize = 100;
+
+/// Break generated source so no code line exceeds [`WIDTH`].
+pub fn wrap_source(src: &str) -> String {
+    tidy::wrap(src, WIDTH)
+}
 
 #[cfg(test)]
 mod tests {
@@ -644,8 +649,45 @@ export const step = (state: State, event: Event): State => {
         };
         let src = f64_fn(neg(neg(Expr::var("x"))));
         assert!(src.contains("=> -(-x);"), "{src}");
-        let src = f64_fn(neg(sum));
+        let src = f64_fn(neg(sum.clone()));
         assert!(src.contains("=> -(x + x);"), "{src}");
+        let src = f64_fn(bin(BinOp::Add, sum, Expr::var("x")));
+        assert!(src.contains("=> x + x + x;"), "{src}");
+        let src = f64_fn(bin(
+            BinOp::Sub,
+            Expr::var("x"),
+            bin(BinOp::Sub, Expr::var("x"), Expr::var("x")),
+        ));
+        assert!(src.contains("=> x - (x - x);"), "{src}");
+    }
+
+    fn bool_fn(body: Expr) -> String {
+        use purecrate_ir::{Name, Param, Prim, Vis};
+        let f = Item::Fn(Fn {
+            vis: Vis::Pub,
+            name: Name::new("f"),
+            owner: None,
+            params: vec![
+                Param { name: Name::new("a"), ty: Ty::Prim(Prim::Bool) },
+                Param { name: Name::new("b"), ty: Ty::Prim(Prim::Bool) },
+                Param { name: Name::new("c"), ty: Ty::Prim(Prim::Bool) },
+            ],
+            ret: Ty::Prim(Prim::Bool),
+            body,
+            doc: None,
+        });
+        file(&emit(&Crate::new("p", vec![f])), "f").to_string()
+    }
+
+    #[test]
+    fn boolean_operators_follow_precedence() {
+        let bin = |op, l, r| Expr::Binary { op, left: Box::new(l), right: Box::new(r) };
+        let and = bin(BinOp::And, Expr::var("a"), Expr::var("b"));
+        let src = bool_fn(bin(BinOp::Or, and, Expr::var("c")));
+        assert!(src.contains("=> a && b || c;"), "{src}");
+        let or = bin(BinOp::Or, Expr::var("a"), Expr::var("b"));
+        let src = bool_fn(bin(BinOp::And, or, Expr::var("c")));
+        assert!(src.contains("=> (a || b) && c;"), "{src}");
     }
 
     #[test]

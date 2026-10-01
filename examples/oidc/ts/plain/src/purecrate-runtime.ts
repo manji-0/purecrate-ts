@@ -239,10 +239,6 @@ export const Str = {
   len: (s: string): Usize => utf8Len(s),
 } as const;
 
-/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
-export const Ord = {
-} as const;
-
 /**
  * The consuming iterator methods, as std's default methods run them: in
  * order, `all` stopping at the first `false`, `any` and `position` at the
@@ -281,15 +277,6 @@ const utf8Width = (c: string): number => {
   const p = c.codePointAt(0) as number;
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
 };
-
-/**
- * `char` operations (design/01 §6). Ordering and ranges go through `code`:
- * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
- * supplementary planes. Only ASCII and code-point methods are here; the
- * Unicode-table ones (`is_alphabetic`, ...) are not.
- */
-export const Char = {
-} as const;
 
 /**
  * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that

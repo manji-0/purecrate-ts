@@ -1,8 +1,10 @@
 //! Small rewrites of printed TS that keep its meaning: the parentheses
 //! around a whole condition, `return` value, or initializer, `!(a === b)` as
-//! `a !== b`, and long lines broken inside their brackets. Each reads the
-//! text with strings, templates, and `/* */` comments skipped, so a bracket,
-//! comma, or operator inside one is never taken for code.
+//! `a !== b`, parentheses by operator precedence, and long lines broken at
+//! a comma-separated bracket, an `if (cond) return`, a long `&&` / `||` /
+//! `?:`, or an arrow body. Each reads the text with strings, templates, and
+//! `/* */` comments skipped, so a bracket, comma, or operator inside one is
+//! never taken for code.
 
 /// The byte ranges of `s` outside string and template literals, with the
 /// parenthesis depth at each byte (`None` inside a literal).
@@ -49,7 +51,10 @@ fn depths(s: &str) -> Vec<Option<usize>> {
                 // Type arguments, `Result<A, B>`: the printer writes a
                 // comparison with spaces around `<` and `>`, and `=>` is not
                 // a bracket.
-                b'<' if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$')) => {
+                b'<' if i > 0
+                    && (bytes[i - 1].is_ascii_alphanumeric()
+                        || matches!(bytes[i - 1], b'_' | b'$')) =>
+                {
                     out.push(Some(depth));
                     depth += 1;
                 }
@@ -120,12 +125,109 @@ pub(crate) fn negate(s: &str) -> Option<String> {
     Some(format!("{}{flip}{}", &s[..at], &s[at + 5..]))
 }
 
-/// `src` with each line longer than `width` broken inside a bracket, the
-/// way prettier breaks it: the outermost `(..)`, `[..]`, or `{..}` closed on
-/// the line whose items a top-level comma separates is opened, one item per
-/// line two spaces in, with a trailing comma; the lines that gives are
-/// broken in turn. A line breaks only inside brackets, where a newline never
-/// ends a statement. Comment lines are left as they are.
+/// JS/TS operator precedence; higher binds tighter. Used to parenthesize
+/// nested operators only when the child would parse otherwise.
+pub(crate) const PREC_ATOMIC: u8 = 20;
+pub(crate) const PREC_UNARY: u8 = 15;
+pub(crate) const PREC_MUL: u8 = 14;
+pub(crate) const PREC_ADD: u8 = 13;
+pub(crate) const PREC_REL: u8 = 11;
+pub(crate) const PREC_EQ: u8 = 10;
+pub(crate) const PREC_AND: u8 = 6;
+pub(crate) const PREC_OR: u8 = 5;
+pub(crate) const PREC_TERNARY: u8 = 4;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Side {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Assoc {
+    Left,
+    Right,
+}
+
+/// Whether a child of `child` precedence needs parentheses under a parent
+/// of `parent` precedence. `&&` / `||` are associative; `?:` is right-associative;
+/// the rest are left-associative (`a - (b - c)` keeps its grouping).
+pub(crate) fn needs_paren(child: u8, parent: u8, assoc: Assoc, side: Side) -> bool {
+    if child > parent || child == PREC_ATOMIC {
+        return false;
+    }
+    if child < parent {
+        return true;
+    }
+    if child == PREC_AND || child == PREC_OR {
+        return false;
+    }
+    match (assoc, side) {
+        (Assoc::Left, Side::Right) | (Assoc::Right, Side::Left) => true,
+        (Assoc::Left, Side::Left) | (Assoc::Right, Side::Right) => false,
+    }
+}
+
+/// Lowest-precedence operator at depth 0 of `s`. A fully parenthesized or
+/// atomic expression is `PREC_ATOMIC`.
+pub(crate) fn top_prec(s: &str) -> u8 {
+    let s = s.trim();
+    let d = depths(s);
+    let mut min = PREC_ATOMIC;
+    let mut i = 0;
+    while i < s.len() {
+        if d.get(i) != Some(&Some(0)) {
+            i += 1;
+            continue;
+        }
+        let rest = &s[i..];
+        let hit = [
+            (" !== ", PREC_EQ),
+            (" === ", PREC_EQ),
+            (" ?? ", PREC_OR),
+            (" || ", PREC_OR),
+            (" && ", PREC_AND),
+            (" <= ", PREC_REL),
+            (" >= ", PREC_REL),
+            (" < ", PREC_REL),
+            (" > ", PREC_REL),
+            (" + ", PREC_ADD),
+            (" - ", PREC_ADD),
+            (" * ", PREC_MUL),
+            (" / ", PREC_MUL),
+            (" % ", PREC_MUL),
+            (" ? ", PREC_TERNARY),
+        ]
+        .into_iter()
+        .find(|(op, _)| rest.starts_with(op));
+        if let Some((op, prec)) = hit {
+            min = min.min(prec);
+            i += op.len();
+        } else {
+            i += 1;
+        }
+    }
+    if min == PREC_ATOMIC && s.starts_with('!') {
+        PREC_UNARY
+    } else {
+        min
+    }
+}
+
+/// `s` parenthesized when it would bind looser than `parent` (or on the
+/// non-associative side at the same precedence).
+pub(crate) fn group(s: &str, parent: u8, assoc: Assoc, side: Side) -> String {
+    let s = strip_outer(s);
+    if needs_paren(top_prec(s), parent, assoc, side) {
+        format!("({s})")
+    } else {
+        s.to_string()
+    }
+}
+
+/// `src` with each line longer than `width` broken: a comma-separated
+/// bracket, a semicolon-separated type literal, `if (cond) return …`, a
+/// long `&&` / `||` / `?:`, or an arrow body. Comment lines stay as they are.
 pub(crate) fn wrap(src: &str, width: usize) -> String {
     let mut out = String::with_capacity(src.len());
     for line in src.lines() {
@@ -134,40 +236,548 @@ pub(crate) fn wrap(src: &str, width: usize) -> String {
     out
 }
 
-fn wrap_line(line: &str, width: usize, out: &mut String) {
-    let trimmed = line.trim_start();
-    let comment = trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*');
-    let Some((open, close, items)) = (line.len() > width && !comment).then(|| split_point(line, line.len() - width)).flatten() else {
-        out.push_str(line);
-        out.push('\n');
-        return;
-    };
-    let pad = &line[..line.len() - trimmed.len()];
-    wrap_line(&line[..=open], width, out);
-    for item in items {
-        wrap_line(&format!("{pad}  {item},"), width, out);
-    }
-    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+fn emit_raw(line: &str, out: &mut String) {
+    out.push_str(line);
+    out.push('\n');
 }
 
-/// The brackets to open on `line` and the items between them: the first,
-/// outermost pair closed on the line with a comma at its top level, and no
-/// `;` there (a `for` header or a type literal), that holds more than the
-/// `excess` past the width, so opening it shortens the line.
-fn split_point(line: &str, excess: usize) -> Option<(usize, usize, Vec<String>)> {
+fn is_comment(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("//") || t.starts_with("/*") || t.starts_with('*')
+}
+
+fn wrap_line(line: &str, width: usize, out: &mut String) {
+    if line.len() <= width || is_comment(line) {
+        emit_raw(line, out);
+        return;
+    }
+    if wrap_if_return(line, width, out) {
+        return;
+    }
+    if wrap_if_open(line, width, out) {
+        return;
+    }
+    if wrap_for(line, width, out) {
+        return;
+    }
+    if wrap_bracket(line, width, true, out) {
+        return;
+    }
+    if wrap_bracket(line, width, false, out) {
+        return;
+    }
+    if wrap_type_fields(line, width, out) {
+        return;
+    }
+    if wrap_fat_group(line, width, out) {
+        return;
+    }
+    if wrap_arrow(line, width, out) {
+        return;
+    }
+    if wrap_logical(line, width, out) {
+        return;
+    }
+    if wrap_ternary(line, width, out) {
+        return;
+    }
+    if wrap_outer_parens(line, width, out) {
+        return;
+    }
+    if wrap_top_commas(line, width, out) {
+        return;
+    }
+    emit_raw(line, out);
+}
+
+/// `if (cond) return value;` when it does not fit: the condition on its
+/// own `if` line when that fits, else opened, then `return` one indent in.
+fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool {
+    let Some((pad, cond, val)) = parse_if_return(line) else {
+        return false;
+    };
+    let header = format!("{pad}if ({cond})");
+    if header.len() <= width {
+        wrap_line(&header, width, out);
+    } else {
+        wrap_line(&format!("{pad}if ("), width, out);
+        wrap_line(&format!("{pad}  {cond}"), width, out);
+        wrap_line(&format!("{pad})"), width, out);
+    }
+    wrap_line(&format!("{pad}  return {val};"), width, out);
+    true
+}
+
+fn parse_if_return(line: &str) -> Option<(&str, &str, &str)> {
+    let pad_len = line.len() - line.trim_start().len();
+    let rest = &line[pad_len..];
+    let inner = rest.strip_prefix("if (")?.strip_suffix(';')?;
+    let d = depths(rest);
+    let open = 3usize;
+    let close = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')?;
+    let after = rest[close + 1..].strip_prefix(" return ")?;
+    let val = after.strip_suffix(';')?;
+    if val.is_empty() || val.contains('\n') {
+        return None;
+    }
+    let _ = inner;
+    Some((&line[..pad_len], &rest[open + 1..close], val))
+}
+
+/// `if (cond) {` whose condition does not fit on the line.
+fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
+    let pad_len = line.len() - line.trim_start().len();
+    let rest = &line[pad_len..];
+    let Some(inner) = rest.strip_prefix("if (") else {
+        return false;
+    };
+    if !inner.ends_with(") {") {
+        return false;
+    }
+    let d = depths(rest);
+    let open = 3usize;
+    let Some(close) =
+        (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')
+    else {
+        return false;
+    };
+    if &rest[close..] != ") {" {
+        return false;
+    }
+    let pad = &line[..pad_len];
+    let cond = &rest[open + 1..close];
+    wrap_line(&format!("{pad}if ("), width, out);
+    wrap_line(&format!("{pad}  {cond}"), width, out);
+    wrap_line(&format!("{pad}) {{"), width, out);
+    true
+}
+
+/// `for (init; test; step) {` with the three clauses on their own lines.
+fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
+    let pad_len = line.len() - line.trim_start().len();
+    let rest = &line[pad_len..];
+    let Some(inner) = rest.strip_prefix("for (") else {
+        return false;
+    };
+    if !inner.ends_with(") {") {
+        return false;
+    }
+    let d = depths(rest);
+    let open = 4usize;
+    let Some(close) =
+        (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')
+    else {
+        return false;
+    };
+    if &rest[close..] != ") {" {
+        return false;
+    }
+    let header = &rest[open + 1..close];
+    let hd = depths(header);
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for (j, &b) in header.as_bytes().iter().enumerate() {
+        if b == b';' && hd[j] == Some(0) {
+            parts.push(header[start..j].trim().to_string());
+            start = j + 1;
+        }
+    }
+    let last = header[start..].trim();
+    if !last.is_empty() {
+        parts.push(last.to_string());
+    }
+    if parts.len() != 3 {
+        return false;
+    }
+    let pad = &line[..pad_len];
+    wrap_line(&format!("{pad}for ("), width, out);
+    wrap_line(&format!("{pad}  {};", parts[0]), width, out);
+    wrap_line(&format!("{pad}  {};", parts[1]), width, out);
+    wrap_line(&format!("{pad}  {}", parts[2]), width, out);
+    wrap_line(&format!("{pad}) {{"), width, out);
+    true
+}
+
+fn wrap_bracket(line: &str, width: usize, require_excess: bool, out: &mut String) -> bool {
+    let excess = line.len() - width;
+    let Some((open, close, items, _sep)) =
+        split_point(line, if require_excess { Some(excess) } else { None })
+    else {
+        return false;
+    };
+    let trimmed = line.trim_start();
+    let pad = &line[..line.len() - trimmed.len()];
+    if !require_excess {
+        let first_fits = open + 1 <= width;
+        if !first_fits || items.len() < 2 {
+            return false;
+        }
+    }
+    wrap_line(&line[..=open], width, out);
+    let generic = line.as_bytes().get(open) == Some(&b'<');
+    let n = items.len();
+    for (i, item) in items.into_iter().enumerate() {
+        let comma = if generic && i + 1 == n { "" } else { "," };
+        wrap_line(&format!("{pad}  {item}{comma}"), width, out);
+    }
+    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    true
+}
+
+/// A long `{ … }` or `( … )` with no top-level comma (a one-field object
+/// or a single argument) still opens, so the contents can wrap.
+fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool {
+    let d = depths(line);
+    let bytes = line.as_bytes();
+    let mut best: Option<(usize, usize)> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if !matches!(b, b'(' | b'{') || d[i].is_none() {
+            continue;
+        }
+        let level = d[i].expect("checked");
+        let closer = if b == b'(' { b')' } else { b'}' };
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer)
+        else {
+            continue;
+        };
+        if close - i <= width / 2 || i + 1 > width {
+            continue;
+        }
+        if best.is_none_or(|(o, _)| i < o) {
+            best = Some((i, close));
+        }
+    }
+    let Some((open, close)) = best else {
+        return false;
+    };
+    let inner = line[open + 1..close].trim();
+    if inner.is_empty() {
+        return false;
+    }
+    let trimmed = line.trim_start();
+    let pad = &line[..line.len() - trimmed.len()];
+    wrap_line(&line[..=open], width, out);
+    let before = line[..open].trim_end();
+    let control = before.ends_with("if")
+        || before.ends_with("while")
+        || before.ends_with("switch")
+        || before.ends_with("for");
+    let call = !control
+        && before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')'));
+    let trail = if line.as_bytes()[open] == b'{' || call {
+        ","
+    } else {
+        ""
+    };
+    wrap_line(&format!("{pad}  {inner}{trail}"), width, out);
+    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    true
+}
+
+/// `{ kind: "X"; a: T; b: U }` in a type, split on `;`.
+fn wrap_type_fields(line: &str, width: usize, out: &mut String) -> bool {
+    wrap_bracket_sep(line, width, b';', out)
+}
+
+fn wrap_bracket_sep(line: &str, width: usize, sep: u8, out: &mut String) -> bool {
     let d = depths(line);
     let bytes = line.as_bytes();
     let mut best: Option<(usize, usize, usize)> = None;
     for (i, &b) in bytes.iter().enumerate() {
-        if !matches!(b, b'(' | b'[' | b'{') || d[i].is_none() {
+        if b != b'{' || d[i].is_none() {
             continue;
         }
         let level = d[i].expect("checked");
-        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && matches!(bytes[j], b')' | b']' | b'}')) else {
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == b'}')
+        else {
             continue;
         };
         let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
-        if top(b',') && !top(b';') && close - i > excess && best.is_none_or(|(_, _, l)| level < l) {
+        if top(sep) && !top(b',') && best.is_none_or(|(_, _, l)| level < l) {
+            best = Some((i, close, level));
+        }
+    }
+    let Some((open, close, level)) = best else {
+        return false;
+    };
+    let trimmed = line.trim_start();
+    let pad = &line[..line.len() - trimmed.len()];
+    let mut items = Vec::new();
+    let mut start = open + 1;
+    for j in open + 1..close {
+        if bytes[j] == sep && d[j] == Some(level + 1) {
+            items.push(line[start..j].trim().to_string());
+            start = j + 1;
+        }
+    }
+    let last = line[start..close].trim();
+    if !last.is_empty() {
+        items.push(last.to_string());
+    }
+    if items.len() < 2 || open + 1 > width {
+        return false;
+    }
+    let ch = sep as char;
+    wrap_line(&line[..=open], width, out);
+    for item in items {
+        wrap_line(&format!("{pad}  {item}{ch}"), width, out);
+    }
+    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    true
+}
+
+/// Break after `=>` when the head fits, so a long body can wrap on its own.
+fn wrap_arrow(line: &str, width: usize, out: &mut String) -> bool {
+    let d = depths(line);
+    let bytes = line.as_bytes();
+    let mut at = None;
+    let mut i = 0;
+    while i + 4 <= bytes.len() {
+        if d[i] == Some(0) && line[i..].starts_with(" => ") {
+            at = Some(i);
+        }
+        i += 1;
+    }
+    let at = match at {
+        Some(a) => a,
+        None => return false,
+    };
+    let head = &line[..=at + 3];
+    let body = line[at + 4..].trim();
+    if body.is_empty() || head.len() > width {
+        return false;
+    }
+    let pad_len = line.len() - line.trim_start().len();
+    wrap_line(head.trim_end(), width, out);
+    wrap_line(&format!("{}{body}", " ".repeat(pad_len + 2)), width, out);
+    true
+}
+
+/// Split at the loosest of `||` / `&&` / `??` on the line.
+fn wrap_logical(line: &str, width: usize, out: &mut String) -> bool {
+    let Some(parts) = split_logical(line) else {
+        return false;
+    };
+    let pad_len = line.len() - line.trim_start().len();
+    let pad = &line[..pad_len];
+    for part in parts {
+        wrap_line(&format!("{pad}{part}"), width, out);
+    }
+    true
+}
+
+fn split_logical(line: &str) -> Option<Vec<String>> {
+    let expr = line.trim_start();
+    let d = depths(expr);
+    let mut min_or: Option<usize> = None;
+    let mut min_and: Option<usize> = None;
+    let mut min_coalesce: Option<usize> = None;
+    let mut i = 0;
+    while i < expr.len() {
+        if let Some(depth) = d.get(i).copied().flatten() {
+            let rest = &expr[i..];
+            if rest.starts_with(" || ") {
+                min_or = Some(min_or.map_or(depth, |m| m.min(depth)));
+                i += 4;
+                continue;
+            }
+            if rest.starts_with(" && ") {
+                min_and = Some(min_and.map_or(depth, |m| m.min(depth)));
+                i += 4;
+                continue;
+            }
+            if rest.starts_with(" ?? ") {
+                min_coalesce = Some(min_coalesce.map_or(depth, |m| m.min(depth)));
+                i += 4;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let (op, depth) = if let Some(d0) = min_or {
+        (" || ", d0)
+    } else if let Some(d0) = min_and {
+        (" && ", d0)
+    } else {
+        (" ?? ", min_coalesce?)
+    };
+    split_at_op(expr, op, depth)
+}
+
+fn split_at_op(expr: &str, op: &str, depth: usize) -> Option<Vec<String>> {
+    let d = depths(expr);
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i + op.len() <= expr.len() {
+        if d.get(i).copied().flatten() == Some(depth) && expr[i..].starts_with(op) {
+            let part = expr[start..i].trim();
+            if !part.is_empty() {
+                parts.push(format!("{part}{op}"));
+            }
+            i += op.len();
+            start = i;
+            continue;
+        }
+        i += 1;
+    }
+    let last = expr[start..].trim();
+    if !last.is_empty() {
+        parts.push(last.to_string());
+    }
+    (parts.len() >= 2).then_some(parts)
+}
+
+/// `test ? then : else` with `?` / `:` on their own continuation lines.
+fn wrap_ternary(line: &str, width: usize, out: &mut String) -> bool {
+    let Some((first, then_line, else_line)) = split_ternary(line) else {
+        return false;
+    };
+    wrap_line(&first, width, out);
+    wrap_line(&then_line, width, out);
+    wrap_line(&else_line, width, out);
+    true
+}
+
+fn split_ternary(line: &str) -> Option<(String, String, String)> {
+    let pad_len = line.len() - line.trim_start().len();
+    let pad = &line[..pad_len];
+    let mut rest = &line[pad_len..];
+    let mut first_prefix = pad.to_string();
+    if let Some(r) = rest.strip_prefix("return ") {
+        first_prefix.push_str("return ");
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("? ") {
+        first_prefix.push_str("? ");
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix(": ") {
+        first_prefix.push_str(": ");
+        rest = r;
+    } else if let Some(eq) = top_assign(rest) {
+        first_prefix.push_str(&rest[..=eq + 2]);
+        rest = rest[eq + 3..].trim_start();
+    }
+    let (test, then, else_) = find_ternary(rest)?;
+    let inner = format!("{pad}  ");
+    Some((
+        format!("{first_prefix}{test}"),
+        format!("{inner}? {then}"),
+        format!("{inner}: {else_}"),
+    ))
+}
+
+fn top_assign(s: &str) -> Option<usize> {
+    let d = depths(s);
+    let mut last = None;
+    let mut i = 0;
+    while i + 3 <= s.len() {
+        if d.get(i) == Some(&Some(0)) && s[i..].starts_with(" = ") {
+            last = Some(i);
+        }
+        i += 1;
+    }
+    last
+}
+
+fn find_ternary(s: &str) -> Option<(&str, &str, &str)> {
+    let d = depths(s);
+    let mut q = None;
+    let mut i = 0;
+    while i + 3 <= s.len() {
+        if d.get(i) == Some(&Some(0)) && s[i..].starts_with(" ? ") {
+            q = Some(i);
+            break;
+        }
+        i += 1;
+    }
+    let q = q?;
+    let mut c = None;
+    i = q + 3;
+    while i + 3 <= s.len() {
+        if d.get(i) == Some(&Some(0)) && s[i..].starts_with(" : ") {
+            c = Some(i);
+            break;
+        }
+        i += 1;
+    }
+    let c = c?;
+    Some((s[..q].trim(), s[q + 3..c].trim(), s[c + 3..].trim()))
+}
+
+/// A long `(…)` group whose contents can wrap: open it so a nested `?:` or
+/// `&&` is not stuck behind an outer pair.
+fn wrap_outer_parens(line: &str, width: usize, out: &mut String) -> bool {
+    let pad_len = line.len() - line.trim_start().len();
+    let pad = &line[..pad_len];
+    let mut rest = &line[pad_len..];
+    let mut prefix = pad.to_string();
+    for p in ["return ", "? ", ": "] {
+        if let Some(r) = rest.strip_prefix(p) {
+            prefix.push_str(p);
+            rest = r;
+            break;
+        }
+    }
+    let (expr, trailer) = match rest.strip_suffix(';') {
+        Some(e) => (e, ";"),
+        None => (rest, ""),
+    };
+    let inner = strip_outer(expr);
+    if inner.len() + 2 >= expr.len() || !expr.trim_start().starts_with('(') {
+        return false;
+    }
+    wrap_line(&format!("{prefix}("), width, out);
+    wrap_line(&format!("{pad}  {inner}"), width, out);
+    wrap_line(&format!("{pad}){trailer}"), width, out);
+    true
+}
+
+/// A `let a = x, b = y` (a `for` init) split on commas at depth 0.
+fn wrap_top_commas(line: &str, width: usize, out: &mut String) -> bool {
+    let Some(parts) = split_at_op(line.trim_start(), ", ", 0) else {
+        return false;
+    };
+    if parts.len() < 2 {
+        return false;
+    }
+    let pad_len = line.len() - line.trim_start().len();
+    let pad = &line[..pad_len];
+    for part in parts {
+        wrap_line(&format!("{pad}{part}"), width, out);
+    }
+    true
+}
+
+/// The brackets to open on `line` and the items between them: the first,
+/// outermost pair closed on the line with a comma at its top level, and no
+/// `;` there (a `for` header), optionally required to hold more than the
+/// `excess` past the width so a small `Slice.at(b, i)` is not opened when
+/// the overflow is elsewhere.
+fn split_point(line: &str, excess: Option<usize>) -> Option<(usize, usize, Vec<String>, char)> {
+    let d = depths(line);
+    let bytes = line.as_bytes();
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        let generic = b == b'<'
+            && i > 0
+            && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$'));
+        if !(matches!(b, b'(' | b'[' | b'{') || generic) || d[i].is_none() {
+            continue;
+        }
+        let level = d[i].expect("checked");
+        let closer = match b {
+            b'(' => b')',
+            b'[' => b']',
+            b'{' => b'}',
+            _ => b'>',
+        };
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer)
+        else {
+            continue;
+        };
+        let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
+        let long_enough = excess.is_none_or(|e| close - i > e);
+        if top(b',') && !top(b';') && long_enough && best.is_none_or(|(_, _, l)| level < l) {
             best = Some((i, close, level));
         }
     }
@@ -184,7 +794,7 @@ fn split_point(line: &str, excess: usize) -> Option<(usize, usize, Vec<String>)>
     if !last.is_empty() {
         items.push(last.to_string());
     }
-    Some((open, close, items))
+    Some((open, close, items, ','))
 }
 
 #[cfg(test)]
@@ -207,22 +817,73 @@ mod tests {
             "  return Result.ok({\n    kind: \"AwaitingConsent\",\n    request,\n    auth: f(a, b),\n    note: \"x, y\",\n  });\n"
         );
         let sig = "export const f = (a: A, b: /* x, y */ B): R => {";
-        assert_eq!(wrap(sig, 30), "export const f = (\n  a: A,\n  b: /* x, y */ B,\n): R => {\n");
-        assert_eq!(wrap("short(a, b);", 40), "short(a, b);\n");
-        let header = "for (let i = (0 as Usize), $e = (n as Usize); i < $e; i = (i + 1) as Usize) {";
-        assert_eq!(wrap(header, 40), format!("{header}\n"));
-        let small = "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i))) return Result.err(e);";
-        assert_eq!(wrap(small, 60), format!("{small}\n"));
         assert_eq!(
-            wrap("f(r: Result<A, B>, n: Map<K, V<W>>, b: boolean): Result<A, B> => r;", 30),
+            wrap(sig, 30),
+            "export const f = (\n  a: A,\n  b: /* x, y */ B,\n): R => {\n"
+        );
+        assert_eq!(wrap("short(a, b);", 40), "short(a, b);\n");
+        let header =
+            "for (let i = (0 as Usize), $e = (n as Usize); i < $e; i = (i + 1) as Usize) {";
+        let wrapped = wrap(header, 40);
+        assert!(wrapped.lines().all(|l| l.len() <= 40), "{wrapped}");
+        assert!(wrapped.contains("for (\n"), "{wrapped}");
+        let small =
+            "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i))) return Result.err(e);";
+        assert_eq!(
+            wrap(small, 60),
+            "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i)))\n  return Result.err(e);\n"
+        );
+        assert!(
+            !wrap(small, 60).contains("Slice.at(\n"),
+            "small calls stay closed"
+        );
+        assert_eq!(
+            wrap(
+                "f(r: Result<A, B>, n: Map<K, V<W>>, b: boolean): Result<A, B> => r;",
+                30
+            ),
             "f(\n  r: Result<A, B>,\n  n: Map<K, V<W>>,\n  b: boolean,\n): Result<A, B> => r;\n"
         );
-        assert_eq!(wrap("// a, very, long, comment, line, here", 10), "// a, very, long, comment, line, here\n");
+        assert_eq!(
+            wrap("// a, very, long, comment, line, here", 10),
+            "// a, very, long, comment, line, here\n"
+        );
+    }
+
+    #[test]
+    fn wraps_if_return_and_logical_and_ternary() {
+        let line = "          if (amountToCapture !== null && (amountToCapture < (1n as I64) || amountToCapture > capturable)) return Result.err({ kind: \"InvalidCaptureAmount\", capturable });";
+        let out = wrap(line, 100);
+        assert!(out.lines().all(|l| l.len() <= 100), "{out}");
+        assert!(out.contains("if ("), "{out}");
+        assert!(out.contains("return Result.err("), "{out}");
+        let ident = "export const isIdentChar = (c: U8): boolean => c >= (48 as U8) && c <= (57 as U8) || c >= (65 as U8) && c <= (90 as U8) || c === (45 as U8);";
+        let out = wrap(ident, 100);
+        assert!(out.lines().all(|l| l.len() <= 100), "{out}");
+        assert!(out.contains("=>\n"), "{out}");
+        let tern = "  return reusable !== null ? Result.err({ kind: \"ConsentRequired\" }) : Result.ok({ kind: \"AwaitingPassword\", request, failures: (0 as U32), notice: { kind: \"Clear\" } });";
+        let out = wrap(tern, 80);
+        assert!(out.contains("?\n") || out.contains("? "), "{out}");
+        assert!(out.lines().all(|l| l.len() <= 80), "{out}");
+    }
+
+    #[test]
+    fn wraps_long_import_and_closed_ctor() {
+        let imp = "import { type Char, type F64, type I32, type U64, type U8, type Usize } from \"./purecrate-runtime.ts\";";
+        let out = wrap(imp, 100);
+        assert!(out.lines().all(|l| l.len() <= 100), "{out}");
+        assert!(out.contains("import {\n"), "{out}");
+        let ctor = "export const AuthorizationRequest$of = (fields: Readonly<{ client_id: string; redirect_uri: string; scope: string; state: string; nonce: string | null; pkce: Pkce | null; prompt: Prompt; max_age: I64 | null; wants_mfa: boolean }>): AuthorizationRequest => fields as AuthorizationRequest;";
+        let out = wrap(ctor, 100);
+        assert!(out.lines().all(|l| l.len() <= 100), "{out}");
     }
 
     #[test]
     fn negates_one_top_level_comparison() {
-        assert_eq!(negate("(k.kind === \"C\")").as_deref(), Some("k.kind !== \"C\""));
+        assert_eq!(
+            negate("(k.kind === \"C\")").as_deref(),
+            Some("k.kind !== \"C\"")
+        );
         assert_eq!(negate("x !== null").as_deref(), Some("x === null"));
         assert_eq!(negate("a === b || c"), None);
         assert_eq!(negate("f(a === b)"), None);

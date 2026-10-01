@@ -147,32 +147,6 @@ export const parseJson = (text: string): unknown =>
   );
 
 /**
- * `str` operations whose result depends on the encoding (design/01 §6).
- * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
- * string must be well-formed: a lone surrogate is not a Rust `String`, and
- * its bytes here are not specified.
- */
-export const Str = {
-} as const;
-
-/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
-export const Ord = {
-} as const;
-
-/**
- * The consuming iterator methods, as std's default methods run them: in
- * order, `all` stopping at the first `false`, `any` and `position` at the
- * first `true`. `sum` adds from `zero` with `add`, the type's checked
- * addition, so it panics where a debug build does.
- */
-export const Iter = {
-} as const;
-
-/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
-export const Slice = {
-} as const;
-
-/**
  * `char` operations (design/01 §6). Ordering and ranges go through `code`:
  * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
  * supplementary planes. Only ASCII and code-point methods are here; the

@@ -21,5 +21,27 @@ export type CodeGrant = Readonly<{
 }>;
 
 export const CodeGrant = {
-  of: (client_id: string, redirect_uri: string, scope: string, state: string, nonce: string | null, pkce: Pkce | null, subject: string, auth_time: I64, amr: ReadonlyArray<string>, acr: string): CodeGrant => ({ client_id, redirect_uri, scope, state, nonce, pkce, subject, auth_time, amr, acr }),
+  of: (
+    clientId: string,
+    redirectUri: string,
+    scope: string,
+    state: string,
+    nonce: string | null,
+    pkce: Pkce | null,
+    subject: string,
+    authTime: I64,
+    amr: ReadonlyArray<string>,
+    acr: string,
+  ): CodeGrant => ({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope,
+    state,
+    nonce,
+    pkce,
+    subject,
+    auth_time: authTime,
+    amr,
+    acr,
+  }),
 } as const;

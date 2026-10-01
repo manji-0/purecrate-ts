@@ -102,9 +102,7 @@ pub(crate) fn leads_with_brace(expr: &Expr) -> bool {
                 || !(matches!(fields, Fields::Positional(_)) || is_closed(ty.as_str()))
         }
         Expr::Field { base, .. } => leads_with_brace(base),
-        Expr::Binary { left, .. } => {
-            !matches!(**left, Expr::Binary { .. }) && leads_with_brace(left)
-        }
+        Expr::Binary { left, .. } | Expr::If { cond: left, .. } => leads_with_brace(left),
         Expr::Call {
             callee: Callee::OptionSome | Callee::StringFrom,
             args,
@@ -180,11 +178,24 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             emit_expr(index, indent)
         ),
         Expr::Binary { op, left, right } => {
+            let p = bin_prec(*op);
             format!(
                 "{} {} {}",
-                operand(left, indent),
+                grouped(
+                    left,
+                    indent,
+                    p,
+                    crate::tidy::Assoc::Left,
+                    crate::tidy::Side::Left
+                ),
                 bin_op(*op),
-                operand(right, indent)
+                grouped(
+                    right,
+                    indent,
+                    p,
+                    crate::tidy::Assoc::Left,
+                    crate::tidy::Side::Right
+                )
             )
         }
         Expr::Unary { op, expr } => {
@@ -192,10 +203,16 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::UnOp::Not => "!",
                 purecrate_ir::UnOp::Neg => "-",
             };
-            let inner = operand(expr, indent);
+            let inner = grouped(
+                expr,
+                indent,
+                crate::tidy::PREC_UNARY,
+                crate::tidy::Assoc::Right,
+                crate::tidy::Side::Right,
+            );
             if *op == purecrate_ir::UnOp::Not {
                 if let Some(flipped) = crate::tidy::negate(&inner) {
-                    return format!("({flipped})");
+                    return flipped;
                 }
             }
             if inner.starts_with(o) {
@@ -254,10 +271,28 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             unreachable!("`check::accept` keeps `break` and `continue` in statement position")
         }
         Expr::If { cond, then, else_ } => format!(
-            "({} ? {} : {})",
-            emit_expr(cond, indent),
-            emit_expr(then, indent),
-            emit_expr(else_, indent)
+            "{} ? {} : {}",
+            grouped(
+                cond,
+                indent,
+                crate::tidy::PREC_TERNARY,
+                crate::tidy::Assoc::Right,
+                crate::tidy::Side::Left
+            ),
+            grouped(
+                then,
+                indent,
+                crate::tidy::PREC_TERNARY,
+                crate::tidy::Assoc::Right,
+                crate::tidy::Side::Left
+            ),
+            grouped(
+                else_,
+                indent,
+                crate::tidy::PREC_TERNARY,
+                crate::tidy::Assoc::Right,
+                crate::tidy::Side::Right
+            )
         ),
         // Variant names are identifiers other than `__proto__` (checked), so
         // an object literal is a plain table.
@@ -488,12 +523,42 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
     }
 }
 
-/// The IR has no parentheses, so a nested operator is always grouped.
-pub(crate) fn operand(expr: &Expr, indent: usize) -> String {
+/// Print `expr` as an operand of a parent of `parent` precedence.
+fn grouped(
+    expr: &Expr,
+    indent: usize,
+    parent: u8,
+    assoc: crate::tidy::Assoc,
+    side: crate::tidy::Side,
+) -> String {
     let s = emit_expr(expr, indent);
-    match expr {
-        Expr::Binary { .. } => format!("({s})"),
-        _ => s,
+    if crate::tidy::needs_paren(expr_prec(expr), parent, assoc, side) {
+        format!("({s})")
+    } else {
+        s
+    }
+}
+
+fn bin_prec(op: BinOp) -> u8 {
+    match op {
+        BinOp::Mul | BinOp::Div | BinOp::Rem => crate::tidy::PREC_MUL,
+        BinOp::Add | BinOp::Sub => crate::tidy::PREC_ADD,
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => crate::tidy::PREC_REL,
+        BinOp::Eq | BinOp::Ne => crate::tidy::PREC_EQ,
+        BinOp::And => crate::tidy::PREC_AND,
+        BinOp::Or => crate::tidy::PREC_OR,
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+            unreachable!("`check::accept` rewrites bitwise operators into `Int` calls")
+        }
+    }
+}
+
+fn expr_prec(expr: &Expr) -> u8 {
+    match peel_identity(expr) {
+        Expr::Binary { op, .. } => bin_prec(*op),
+        Expr::Unary { .. } => crate::tidy::PREC_UNARY,
+        Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } => crate::tidy::PREC_TERNARY,
+        _ => crate::tidy::PREC_ATOMIC,
     }
 }
 
@@ -604,31 +669,52 @@ fn bool_lit(e: &Expr) -> Option<bool> {
 }
 
 /// `test ? then : else_`, as `||` / `&&` when either side is a `bool`
-/// literal. Each operand of `||` / `&&` is parenthesized.
+/// literal. Operands are parenthesized only when precedence requires it.
 fn fold(
     test: String,
     (then, then_lit): (String, Option<bool>),
     (else_, else_lit): (String, Option<bool>),
 ) -> String {
+    use crate::tidy::{group, Assoc, Side, PREC_AND, PREC_OR, PREC_TERNARY, PREC_UNARY};
     match (then_lit, else_lit) {
-        (Some(true), Some(false)) => format!("({test})"),
+        (Some(true), Some(false)) => crate::tidy::strip_outer(&test).to_string(),
         (Some(false), Some(true)) => match crate::tidy::negate(&test) {
-            Some(flipped) => format!("({flipped})"),
-            None => format!("!({test})"),
+            Some(flipped) => flipped,
+            None => format!("!{}", group(&test, PREC_UNARY, Assoc::Right, Side::Right)),
         },
-        // The other side may be a `?:` or an `||`, which bind looser.
-        (Some(true), _) => format!("(({test}) || ({else_}))"),
-        (Some(false), _) => format!("(!({test}) && ({else_}))"),
-        (_, Some(false)) => format!("(({test}) && ({then}))"),
-        (_, Some(true)) => format!("(!({test}) || ({then}))"),
+        (Some(true), _) => format!(
+            "{} || {}",
+            group(&test, PREC_OR, Assoc::Left, Side::Left),
+            group(&else_, PREC_OR, Assoc::Left, Side::Right)
+        ),
+        (Some(false), _) => format!(
+            "!{} && {}",
+            group(&test, PREC_UNARY, Assoc::Right, Side::Right),
+            group(&else_, PREC_AND, Assoc::Left, Side::Right)
+        ),
+        (_, Some(false)) => format!(
+            "{} && {}",
+            group(&test, PREC_AND, Assoc::Left, Side::Left),
+            group(&then, PREC_AND, Assoc::Left, Side::Right)
+        ),
+        (_, Some(true)) => format!(
+            "!{} || {}",
+            group(&test, PREC_UNARY, Assoc::Right, Side::Right),
+            group(&then, PREC_OR, Assoc::Left, Side::Right)
+        ),
         _ => {
             let t = crate::tidy::strip_outer(&then);
             // `unwrap_or` of a name, literal, or field: `x ?? d` is the test
             // `x !== null` with the same `x` in the Some arm (`??` keeps 0/false).
             if test == format!("{t} !== null") {
-                format!("({t} ?? {})", crate::tidy::strip_outer(&else_))
+                format!("{t} ?? {}", crate::tidy::strip_outer(&else_))
             } else {
-                format!("(({test}) ? {then} : {else_})")
+                format!(
+                    "{} ? {} : {}",
+                    group(&test, PREC_TERNARY, Assoc::Right, Side::Left),
+                    group(&then, PREC_TERNARY, Assoc::Right, Side::Left),
+                    group(&else_, PREC_TERNARY, Assoc::Right, Side::Right)
+                )
             }
         }
     }

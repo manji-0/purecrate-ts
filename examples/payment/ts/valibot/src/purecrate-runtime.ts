@@ -220,23 +220,6 @@ export const Str = {
   len: (s: string): Usize => utf8Len(s),
 } as const;
 
-/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
-export const Ord = {
-} as const;
-
-/**
- * The consuming iterator methods, as std's default methods run them: in
- * order, `all` stopping at the first `false`, `any` and `position` at the
- * first `true`. `sum` adds from `zero` with `add`, the type's checked
- * addition, so it panics where a debug build does.
- */
-export const Iter = {
-} as const;
-
-/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
-export const Slice = {
-} as const;
-
 const utf8Len = (s: string): Usize => {
   let n = 0;
   for (const c of s) n += utf8Width(c);

@@ -21,23 +21,12 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
         if (hasLeadingZero(s)) {
           return Result.err({ kind: "PreReleaseLeadingZero" });
         } else {
-          let $opt$1: PreId | null;
+          let $opt: PreId | null;
           {
-            const $opt: U64 | null = digitsToU64(s);
-            if ($opt !== null) {
-              const n = $opt;
-              $opt$1 = { kind: "Numeric", content: [n] };
-            } else {
-              $opt$1 = null;
-            }
+            const $opt$1: U64 | null = digitsToU64(s);
+            $opt = $opt$1 !== null ? { kind: "Numeric", content: [$opt$1] } : null;
           }
-          const $optOr = { kind: "PreReleaseTooLarge" } as SemverError;
-          if ($opt$1 !== null) {
-            const $some = $opt$1;
-            return Result.ok($some);
-          } else {
-            return Result.err($optOr);
-          }
+          return $opt !== null ? Result.ok($opt) : Result.err({ kind: "PreReleaseTooLarge" });
         }
       }
     }

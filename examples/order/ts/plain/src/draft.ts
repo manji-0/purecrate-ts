@@ -30,7 +30,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
         case "Cons": {
           const head = lines.content[0];
           const rest = lines.content[1];
-          const lines$1 = { kind: "Cons", content: [head, rest] } as Lines;
+          const lines$1: Lines = { kind: "Cons", content: [head, rest] };
           const total$1: Yen = total(lines$1);
           return Result.ok({ kind: "Placed", lines: lines$1, total: total$1 });
         }
@@ -41,10 +41,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
       const reason = cmd.content[0];
       return Result.ok({ kind: "Cancelled", reason });
     }
-    case "Pay":
-    case "Ship":
-      return Result.err({ kind: "InvalidTransition" });
     default:
-      return assertNever(cmd);
+      return Result.err({ kind: "InvalidTransition" });
   }
 };

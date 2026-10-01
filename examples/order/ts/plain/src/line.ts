@@ -11,5 +11,5 @@ export type Line = Readonly<{
 }>;
 
 export const Line = {
-  of: (sku: Sku, unit_price: Yen, qty: U32): Line => ({ sku, unit_price, qty }),
+  of: (sku: Sku, unitPrice: Yen, qty: U32): Line => ({ sku, unit_price: unitPrice, qty }),
 } as const;

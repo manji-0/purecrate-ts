@@ -645,7 +645,7 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
         Pattern::Or(alts) => Some(
             alts.iter()
                 .filter_map(|a| match a {
-                    Pattern::Range { .. } => lit_test(a, subject).map(|t| format!("({t})")),
+                    Pattern::Range { .. } => lit_test(a, subject),
                     _ => lit_test(a, subject),
                 })
                 .collect::<Vec<_>>()

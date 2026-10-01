@@ -13,7 +13,7 @@ export type Session = Readonly<{
 export const Session = {
   of: (
     subject: string,
-    auth_time: I64,
+    authTime: I64,
     strength: AuthStrength,
-  ): Session => ({ subject, auth_time, strength }),
+  ): Session => ({ subject, auth_time: authTime, strength }),
 } as const;

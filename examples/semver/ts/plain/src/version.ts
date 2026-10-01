@@ -19,7 +19,13 @@ export type Version = Readonly<{
 // A field is not `pub` in Rust: outside the crate, `Version` values come
 // only from the crate's functions. The generated files build them here;
 // `index.ts` does not export it.
-export const Version$of = (fields: Readonly<{ major: U64; minor: U64; patch: U64; pre: ReadonlyArray<PreId>; build: ReadonlyArray<string> }>): Version => fields as Version;
+export const Version$of = (fields: Readonly<{
+  major: U64;
+  minor: U64;
+  patch: U64;
+  pre: ReadonlyArray<PreId>;
+  build: ReadonlyArray<string>;
+}>): Version => fields as Version;
 
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
@@ -36,35 +42,31 @@ export const Version = {
       }
     }
     const rest: string = $t[0];
-    const build = $t[1] as string | null;
+    const build: string | null = $t[1];
     let $t$1: readonly [string, string | null];
     {
       const $m_3_$t$1 = Str.splitOnce(rest, ("-" as Char));
       if ($m_3_$t$1 !== null) {
-        const x$1 = $m_3_$t$1[0];
-        const y$1 = $m_3_$t$1[1];
-        $t$1 = [x$1, y$1];
+        const x = $m_3_$t$1[0];
+        const y = $m_3_$t$1[1];
+        $t$1 = [x, y];
       } else {
         $t$1 = [rest, null];
       }
     }
     const core: string = $t$1[0];
-    const pre = $t$1[1] as string | null;
+    const pre: string | null = $t$1[1];
     const parts: ReadonlyArray<string> = core.split(("." as Char));
     const $v_major = parseCoreNumber(Slice.at(parts, (0 as Usize)), { kind: "Major" });
     if ($v_major.kind === "Err") return $v_major;
     const major: U64 = $v_major.value;
-    if (((parts.length) as Usize) < (2 as Usize)) return Result.err({
-      kind: "MissingPart",
-      content: [{ kind: "Minor" }],
-    });
+    if (((parts.length) as Usize) < (2 as Usize))
+      return Result.err({ kind: "MissingPart", content: [{ kind: "Minor" }] });
     const $v_minor = parseCoreNumber(Slice.at(parts, (1 as Usize)), { kind: "Minor" });
     if ($v_minor.kind === "Err") return $v_minor;
     const minor: U64 = $v_minor.value;
-    if (((parts.length) as Usize) < (3 as Usize)) return Result.err({
-      kind: "MissingPart",
-      content: [{ kind: "Patch" }],
-    });
+    if (((parts.length) as Usize) < (3 as Usize))
+      return Result.err({ kind: "MissingPart", content: [{ kind: "Patch" }] });
     const $v_patch = parseCoreNumber(Slice.at(parts, (2 as Usize)), { kind: "Patch" });
     if ($v_patch.kind === "Err") return $v_patch;
     const patch: U64 = $v_patch.value;
@@ -86,7 +88,7 @@ export const Version = {
       const b = build;
       const $q2 = Iter.tryCollect(
         b.split(("." as Char)),
-        (($x$1: string): Result<string, SemverError> => parseBuildId($x$1)),
+        (($x: string): Result<string, SemverError> => parseBuildId($x)),
       );
       if ($q2.kind === "Err") return $q2;
       build$1 = $q2.value;

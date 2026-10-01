@@ -5,14 +5,25 @@ import type { SecondFactor } from "./second-factor.ts";
 import type { StepMac } from "./step-mac.ts";
 
 export type Event =
-  | Readonly<{ kind: "PasswordChecked"; subject: string; verified: boolean; second_factor: SecondFactor; now: I64 }>
+  | Readonly<{
+    kind: "PasswordChecked";
+    subject: string;
+    verified: boolean;
+    second_factor: SecondFactor;
+    now: I64;
+  }>
   | Readonly<{ kind: "OtpSubmitted"; code: string; now: I64; candidates: ReadonlyArray<StepMac> }>
   | Readonly<{ kind: "ConsentGranted" }>
   | Readonly<{ kind: "ConsentDenied" }>;
 
 export const Event = {
   /** The caller verified the password hash for `subject`. */
-  PasswordChecked: (subject: string, verified: boolean, second_factor: SecondFactor, now: I64): Event => ({ kind: "PasswordChecked", subject, verified, second_factor, now }),
+  PasswordChecked: (
+    subject: string,
+    verified: boolean,
+    secondFactor: SecondFactor,
+    now: I64,
+  ): Event => ({ kind: "PasswordChecked", subject, verified, second_factor: secondFactor, now }),
   OtpSubmitted: (
     code: string,
     now: I64,

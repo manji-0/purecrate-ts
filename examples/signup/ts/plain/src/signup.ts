@@ -13,7 +13,10 @@ export type Signup = Readonly<{
 // A field is not `pub` in Rust: outside the crate, `Signup` values come
 // only from the crate's functions. The generated files build them here;
 // `index.ts` does not export it.
-export const Signup$of = (fields: Readonly<{ email: Email; password: Password }>): Signup => fields as Signup;
+export const Signup$of = (fields: Readonly<{
+  email: Email;
+  password: Password;
+}>): Signup => fields as Signup;
 
 export const Signup = {
   parse: (email: string, password: string): Result<Signup, SignupError> => {
@@ -24,8 +27,8 @@ export const Signup = {
         const e = $m_3_email$1.value;
         email$1 = e;
       } else {
-        const e$1 = $m_3_email$1.error;
-        return Result.err({ kind: "Email", content: [e$1] });
+        const e = $m_3_email$1.error;
+        return Result.err({ kind: "Email", content: [e] });
       }
     }
     let password$1: Password;
@@ -35,8 +38,8 @@ export const Signup = {
         const p = $m_3_password$1.value;
         password$1 = p;
       } else {
-        const e$2 = $m_3_password$1.error;
-        return Result.err({ kind: "Password", content: [e$2] });
+        const e = $m_3_password$1.error;
+        return Result.err({ kind: "Password", content: [e] });
       }
     }
     return Result.ok(Signup$of({ email: email$1, password: password$1 }));
