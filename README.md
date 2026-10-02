@@ -53,7 +53,7 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 - local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`, `const` items in function bodies, tuple patterns in `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in &pairs`
 - `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`, and `.enumerate()` of any of them; `while` with `break` and `continue`
 - `all`, `any`, `position`, `count`, and integer `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()`
-- `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`
+- `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`; `Result` with `ok`, `map`, and `map_err`; integers read from text with `s.parse::<T>()`
 - integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`; `min`, `max`, `abs`, `pow`, and `checked_*` / `saturating_*` / `wrapping_*`. A `--release` server matches this only with `[profile.release] overflow-checks = true`
 - crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
 - growing sequences as recursive enums; `Vec` read by index, `len`, and slices `&xs[a..b]`, built as a fixed list `vec![a, b]`
