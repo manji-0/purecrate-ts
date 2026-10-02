@@ -727,6 +727,42 @@ pub(crate) fn emit_switch_in(
             two_way_test(&b.pattern, &subject),
         ) {
             let pad2 = "  ".repeat(indent + 1);
+            if let Some(joined) = joined_guard(a, b, scrutinee, &test, indent) {
+                // Bindings only the guard read need no prelude.
+                let (prelude, then) = if a.pattern.bindings().iter().any(|n| mentions(joined.then, n)) {
+                    read_in_place(&a.pattern, scrutinee, joined.then, &subject, &pad2)
+                } else {
+                    (String::new(), joined.then.clone())
+                };
+                let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
+                if then == Expr::Lit(Lit::Unit) && prelude.is_empty() {
+                    emit_guard(&joined.unless, &b_prelude, &b_body, indent, sink, out);
+                    return;
+                }
+                let branches = {
+                    let mut branches = vec![Branch { test: Some(joined.when), prelude, body: &then }];
+                    if !(matches!(sink, Sink::Effect) && b.body == Expr::Lit(Lit::Unit)) {
+                        branches.push(Branch { test: None, prelude: b_prelude, body: &b_body });
+                    }
+                    branches
+                };
+                emit_branches(&branches, indent, sink, tail, out);
+                return;
+            }
+            // `Some(x) => a, None => return e`: the exit first, then `a` with
+            // its payload read where the exit has narrowed it, as `let ..
+            // else` reads. Only where `a` declares nothing the block's later
+            // statements could meet.
+            if let Some(a_body) = exit_first(a, b, scrutinee) {
+                let b_test = two_way_test(&b.pattern, &subject).expect("two-way");
+                let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
+                let branches = vec![
+                    Branch { test: Some(b_test), prelude: b_prelude, body: &b_body },
+                    Branch { test: None, prelude: String::new(), body: &a_body },
+                ];
+                emit_branches(&branches, indent, sink, tail, out);
+                return;
+            }
             let (a_prelude, a_body) = read_in_place(&a.pattern, scrutinee, &a.body, &subject, &pad2);
             let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
             let mut branches = vec![Branch { test: Some(test), prelude: a_prelude, body: &a_body }];
@@ -811,6 +847,82 @@ pub(crate) fn emit_switch_in(
             "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
         ));
     }
+}
+
+/// The first arm's body with its payload read from `scrutinee`, where the
+/// other arm binds nothing and jumps, `scrutinee` is a place the first arm
+/// does not reassign, and the body declares nothing at its top.
+fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr) -> Option<Expr> {
+    if !ends_in_jump(&b.body) || !b.pattern.bindings().is_empty() || ends_in_jump(&a.body) {
+        return None;
+    }
+    let mut root = scrutinee;
+    while let Expr::Field { base, .. } = root {
+        root = base;
+    }
+    let Expr::Var(var) = root else { return None };
+    if touches(&a.body, var) || declares_at_top(&a.body) {
+        return None;
+    }
+    let mut body = a.body.clone();
+    match &a.pattern {
+        Pattern::OptionSome(p) => crate::expr::bind_in(p, scrutinee.clone(), &mut body)?,
+        Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
+            let field = if matches!(a.pattern, Pattern::ResultOk(_)) { "value" } else { "error" };
+            let read = Expr::Field { base: Box::new(scrutinee.clone()), name: purecrate_ir::Name::new(field) };
+            crate::expr::bind_in(p, read, &mut body)?
+        }
+        _ => return None,
+    }
+    Some(body)
+}
+
+/// A two-way `match` whose first arm is `if g { a } else { b }` and whose
+/// other arm is that `b`, binding nothing: the decision tree's guard
+/// (`Some(id) if id == x => a, _ => b`). The guard joins the arm's test,
+/// `when` (`o !== null && g`) and its negation `unless` (`o === null || !g`),
+/// so `b` is printed once.
+struct JoinedGuard<'e> {
+    when: String,
+    unless: String,
+    then: &'e Expr,
+}
+
+fn joined_guard<'e>(
+    a: &'e purecrate_ir::Arm,
+    b: &purecrate_ir::Arm,
+    scrutinee: &Expr,
+    test: &str,
+    indent: usize,
+) -> Option<JoinedGuard<'e>> {
+    use crate::tidy::{group, Assoc, Side, PREC_AND, PREC_OR};
+    let Expr::If { cond, then, else_ } = &a.body else { return None };
+    if **else_ != b.body || !b.pattern.bindings().is_empty() || !is_place(scrutinee) {
+        return None;
+    }
+    // The guard reads the payload where the test has narrowed it.
+    let mut cond = (**cond).clone();
+    match &a.pattern {
+        Pattern::OptionSome(p) => crate::expr::bind_in(p, scrutinee.clone(), &mut cond)?,
+        Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
+            let field = if matches!(a.pattern, Pattern::ResultOk(_)) { "value" } else { "error" };
+            let read = Expr::Field { base: Box::new(scrutinee.clone()), name: purecrate_ir::Name::new(field) };
+            crate::expr::bind_in(p, read, &mut cond)?
+        }
+        _ => return None,
+    }
+    let g = emit_expr(&cond, indent);
+    let when = format!(
+        "{} && {}",
+        group(test, PREC_AND, Assoc::Left, Side::Left),
+        group(&g, PREC_AND, Assoc::Left, Side::Right)
+    );
+    let unless = format!(
+        "{} || {}",
+        group(&not(test), PREC_OR, Assoc::Left, Side::Left),
+        group(&not(&g), PREC_OR, Assoc::Left, Side::Right)
+    );
+    Some(JoinedGuard { when, unless, then })
 }
 
 /// The one `A | B | …` (or `_`) that binds nothing, when other arms name

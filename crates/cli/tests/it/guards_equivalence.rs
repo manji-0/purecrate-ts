@@ -171,3 +171,27 @@ fn a_match_returned_or_negated_needs_no_inline_function() {
     assert!(file("non-empty").contains("=> ids.kind !== \"Nil\";"), "{}", file("non-empty"));
     assert!(!file("quarter").contains("(() =>"), "{}", file("quarter"));
 }
+
+/// A guard on `Some` that falls back to `_` joins the test instead of
+/// printing the fallback twice, in an expression and as an early exit; a
+/// `None` that returns goes first, and the `Some` side reads in place.
+#[test]
+fn a_guard_that_falls_back_joins_the_test() {
+    let source = "pub fn echoed(o: Option<i32>) -> Option<i32> {\n\
+                      match o { Some(n) if n > 0 => Some(n), _ => None }\n\
+                  }\n\
+                  pub struct P { pub id: Option<i32>, pub rt: Option<i32> }\n\
+                  pub fn checked(p: &P, want: i32) -> Result<i32, i32> {\n\
+                      match &p.id { Some(id) if *id == want => {} _ => return Err(1) }\n\
+                      match &p.rt { Some(rt) if *rt == 7 => {} Some(_) => return Err(2), None => return Err(3) }\n\
+                      Ok(want)\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("joins", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    assert!(file("echoed").contains("o !== null && o > 0 ? o : null"), "{}", file("echoed"));
+    let checked = file("checked");
+    assert!(checked.contains("if (p.id === null || p.id !== want) return Result.err(1 as I32);"), "{checked}");
+    assert!(checked.contains("if (p.rt === null) return Result.err(3 as I32);\n  if (p.rt !== 7) return Result.err(2 as I32);"), "{checked}");
+}

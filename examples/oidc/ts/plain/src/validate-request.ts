@@ -32,27 +32,18 @@ export const validateRequest = (
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
   if (client === null) return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  if (params.client_id !== null) {
-    const id = params.client_id;
-    if (id !== client.client_id)
-      return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  } else {
+  if (params.client_id === null || params.client_id !== client.client_id)
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  }
   if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   const redirectUri: string = params.redirect_uri;
   if (!redirectUriRegistered(client, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null =
-    params.state !== null ? (stateIsValid(params.state) ? params.state : null) : null;
+    params.state !== null && stateIsValid(params.state) ? params.state : null;
   const fail = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
-  if (params.response_type !== null) {
-    const rt = params.response_type;
-    if (rt !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
-  } else {
-    return Result.err(fail({ kind: "InvalidRequest" }));
-  }
+  if (params.response_type === null) return Result.err(fail({ kind: "InvalidRequest" }));
+  if (params.response_type !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
   if (params.scope === null) return Result.err(fail({ kind: "InvalidScope" }));
   if (!hasToken(params.scope, "openid")) return Result.err(fail({ kind: "InvalidScope" }));
   const scope: string = params.scope;

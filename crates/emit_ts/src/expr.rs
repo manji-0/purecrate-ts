@@ -835,7 +835,7 @@ fn fold(
 
 /// Replace each name `p` binds with the place it reads. A tuple of names
 /// reads `read[i]`. `None` when `p` binds something else.
-fn bind_in(p: &Pattern, read: Expr, body: &mut Expr) -> Option<()> {
+pub(crate) fn bind_in(p: &Pattern, read: Expr, body: &mut Expr) -> Option<()> {
     match p {
         Pattern::Var(n) => {
             *body = subst(body, n, &read);
@@ -939,6 +939,21 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
             p if p.is_lit_case() => Some(lit_test(p, &subject)?),
             _ => return None,
         };
+        // A guard the decision tree tested inside the arm, falling back to
+        // the next and last arm's body (`Some(s) if g => a, _ => b`), joins
+        // the arm's test: `x !== null && g ? a : b`, not `b` twice.
+        if let (Some(t), Expr::If { cond, then, else_ }) = (&test, &body) {
+            if i + 2 == arms.len() && **else_ == arms[i + 1].body && arms[i + 1].pattern.bindings().is_empty() {
+                use crate::tidy::{group, Assoc, Side, PREC_AND};
+                let joined = format!(
+                    "{} && {}",
+                    group(t, PREC_AND, Assoc::Left, Side::Left),
+                    group(&emit_expr(cond, indent), PREC_AND, Assoc::Left, Side::Right)
+                );
+                parts.push((Some(joined), as_expr(then, indent)?, bool_lit(then)));
+                continue;
+            }
+        }
         let lit = bool_lit(&body);
         let text = as_expr(&body, indent)?;
         parts.push((if last { None } else { test }, text, lit));
