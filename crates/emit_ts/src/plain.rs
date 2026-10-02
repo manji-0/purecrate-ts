@@ -159,6 +159,15 @@ mod tests {
     }
 
     #[test]
+    fn a_for_head_is_its_loop_alone() {
+        let src = "const f = () => {\n  for (let i = 0, $end_1 = a; i < $end_1; i++) { g(); }\n  for (let i = 0, $end_2 = b; i < $end_2; i++) { g(); }\n};\n";
+        assert_eq!(
+            plain_names(src),
+            "const f = () => {\n  for (let i = 0, end = a; i < end; i++) { g(); }\n  for (let i = 0, end = b; i < end; i++) { g(); }\n};\n"
+        );
+    }
+
+    #[test]
     fn strings_properties_and_shared_names_stay() {
         let src = "const $result = Version$of({ a: \"$x\" });\nreturn `${$result.value} $y`;\n";
         assert_eq!(plain_names(src), "const result = Version$of({ a: \"$x\" });\nreturn `${result.value} $y`;\n");

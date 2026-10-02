@@ -81,7 +81,8 @@ pub(crate) fn ident_spans(src: &str) -> Vec<(usize, usize, bool)> {
 }
 
 /// The byte ranges of the `{ .. }` pairs in the code of `src`, braces
-/// included; a template's `${ .. }` is not one.
+/// included, and of each `for (..) { .. }` from its `(`: the head's
+/// bindings are the loop's own. A template's `${ .. }` is not one.
 pub(crate) fn brace_spans(src: &str) -> Vec<(usize, usize)> {
     scan(src).1
 }
@@ -90,8 +91,14 @@ fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
     let chars: Vec<char> = src.chars().collect();
     let offsets: Vec<usize> = src.char_indices().map(|(at, _)| at).chain([src.len()]).collect();
     let mut out = Vec::new();
-    let mut open: Vec<usize> = Vec::new();
+    // Each open `{`, with the `(` of the `for` head it is the body of.
+    let mut open: Vec<(usize, Option<usize>)> = Vec::new();
     let mut blocks = Vec::new();
+    // Each open `(`, and whether it is a `for` head; a closed head waits
+    // for its body.
+    let mut parens: Vec<(usize, bool)> = Vec::new();
+    let mut after_for = false;
+    let mut head: Option<usize> = None;
     // Open template literals, each with the brace depth of the code in its
     // current `${..}`.
     let mut templates: Vec<usize> = Vec::new();
@@ -136,7 +143,21 @@ fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
             }
             '{' => {
                 depth += 1;
-                open.push(offsets[i]);
+                open.push((offsets[i], head.take()));
+            }
+            '(' => {
+                parens.push((offsets[i], after_for));
+                after_for = false;
+                head = None;
+                i += 1;
+                continue;
+            }
+            ')' => {
+                if let Some((start, true)) = parens.pop() {
+                    head = Some(start);
+                }
+                i += 1;
+                continue;
             }
             '}' if depth == 0 && !templates.is_empty() => {
                 i = skip_template_text(&chars, i + 1, &mut templates, &mut depth);
@@ -145,8 +166,11 @@ fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
             }
             '}' => {
                 depth = depth.saturating_sub(1);
-                if let Some(start) = open.pop() {
+                if let Some((start, for_head)) = open.pop() {
                     blocks.push((start, offsets[i + 1]));
+                    if let Some(h) = for_head {
+                        blocks.push((h, offsets[i + 1]));
+                    }
                 }
             }
             _ if c.is_ascii_alphabetic() || c == '_' || c == '$' => {
@@ -155,6 +179,8 @@ fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
                     i += 1;
                 }
                 out.push((offsets[start], offsets[i.min(chars.len())], after_dot));
+                after_for = !after_dot && chars[start..i].iter().collect::<String>() == "for";
+                head = None;
                 after_dot = false;
                 continue;
             }
@@ -176,6 +202,7 @@ fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
             _ => {}
         }
         after_dot = false;
+        after_for = false;
         i += 1;
     }
     (out, blocks)
