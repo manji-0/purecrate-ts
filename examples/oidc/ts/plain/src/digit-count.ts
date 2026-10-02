@@ -3,5 +3,11 @@
 import type { Usize } from "./purecrate-runtime.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
-export const digitCount = (d: OtpDigits): Usize =>
-  (({ Six: 6, Seven: 7, Eight: 8 }) satisfies Record<OtpDigits["kind"], number>)[d.kind] as Usize;
+/** Each `OtpDigits` variant's discriminant. */
+const otpDigitsDiscriminants = {
+  Six: 6,
+  Seven: 7,
+  Eight: 8,
+} satisfies Record<OtpDigits["kind"], number>;
+
+export const digitCount = (d: OtpDigits): Usize => otpDigitsDiscriminants[d.kind] as Usize;

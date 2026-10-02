@@ -3,8 +3,12 @@
 import { Int, type U32 } from "./purecrate-runtime.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
+/** Each `OtpDigits` variant's discriminant. */
+const otpDigitsDiscriminants = {
+  Six: 6,
+  Seven: 7,
+  Eight: 8,
+} satisfies Record<OtpDigits["kind"], number>;
+
 export const digitModulus = (d: OtpDigits): U32 =>
-  Int.u32.pow(
-    10 as U32,
-    ({ Six: 6, Seven: 7, Eight: 8 } satisfies Record<OtpDigits["kind"], number>)[d.kind] as U32,
-  );
+  Int.u32.pow(10 as U32, otpDigitsDiscriminants[d.kind] as U32);

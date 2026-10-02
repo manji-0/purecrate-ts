@@ -293,7 +293,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 out.push_str(&format!(
                     "{pad}{} = {};\n",
                     name.as_str(),
-                    emit_expr(value, indent)
+                    crate::expr::emit_item(value, indent)
                 ));
             }
             sink.finish("undefined", &pad, out);
@@ -401,7 +401,12 @@ pub(crate) fn iterable(over: purecrate_ir::Over, source: String) -> String {
     match over {
         // A JS string iterates by code point, as `chars` does by scalar
         // value; the two agree on well-formed strings (design/01 §6).
-        purecrate_ir::Over::Chars => format!("({source} as Iterable<Char>)"),
+        // Bare as a `for..of` source or an argument; a binary source keeps
+        // its parentheses under `as`.
+        purecrate_ir::Over::Chars if crate::tidy::top_prec(&source) < crate::tidy::PREC_UNARY => {
+            format!("({source}) as Iterable<Char>")
+        }
+        purecrate_ir::Over::Chars => format!("{} as Iterable<Char>", crate::tidy::strip_outer(&source)),
         // The UTF-8 bytes, as `as_bytes` reads them.
         purecrate_ir::Over::Bytes => format!("Str.bytes({source})"),
         purecrate_ir::Over::Items => source,
@@ -886,8 +891,8 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     let Some(flat_last) = flat_last else {
         for (i, b) in branches.iter().enumerate() {
             let head = match (i, &b.test) {
-                (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
-                (_, Some(test)) => format!("{pad}}} else if ({test}) {{\n"),
+                (0, Some(test)) => format!("{pad}if {} {{\n", crate::expr::if_test(test, &pad)),
+                (_, Some(test)) => format!("{pad}}} else if {} {{\n", crate::expr::if_test(test, &pad)),
                 (_, None) => format!("{pad}}} else {{\n"),
             };
             out.push_str(&head);
@@ -914,9 +919,9 @@ fn emit_guard(test: &str, prelude: &str, body: &Expr, indent: usize, sink: Sink,
     let one = inner.trim_start();
     let jump = ["return ", "break ", "continue "].iter().any(|k| one.starts_with(k));
     if prelude.is_empty() && jump && inner.lines().count() == 1 {
-        out.push_str(&format!("{pad}if ({test}) {one}"));
+        out.push_str(&format!("{pad}if {} {one}", crate::expr::if_test(test, &pad)));
     } else {
-        out.push_str(&format!("{pad}if ({test}) {{\n{prelude}{inner}{pad}}}\n"));
+        out.push_str(&format!("{pad}if {} {{\n{prelude}{inner}{pad}}}\n", crate::expr::if_test(test, &pad)));
     }
 }
 

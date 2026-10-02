@@ -79,7 +79,7 @@ pub(crate) fn plain_names(src: &str) -> String {
 /// arktype shape (`Yen$wire` → `yenWire`), and a variant's arm
 /// (`Method$arm$Card` → `methodCardArm`). They are top-level, so each is
 /// told apart from every other identifier in the file.
-pub(crate) fn wire_names(src: &str) -> String {
+pub(crate) fn wire_name_map(src: &str) -> BTreeMap<String, String> {
     let spans: Vec<(usize, usize)> = crate::imports::ident_spans(src)
         .into_iter()
         .filter(|(_, _, after_dot)| !after_dot)
@@ -107,7 +107,7 @@ pub(crate) fn wire_names(src: &str) -> String {
             taken.insert(word.to_string());
         }
     }
-    let mut renamed: BTreeMap<&str, String> = BTreeMap::new();
+    let mut renamed: BTreeMap<String, String> = BTreeMap::new();
     for &(start, end) in &spans {
         let word = &src[start..end];
         if renamed.contains_key(word) {
@@ -119,12 +119,24 @@ pub(crate) fn wire_names(src: &str) -> String {
             .find(|n| !taken.contains(n))
             .expect("a free name");
         taken.insert(name.clone());
-        renamed.insert(word, name);
+        renamed.insert(word.to_string(), name);
+    }
+    renamed
+}
+
+/// `src` with each identifier `map` names replaced; property names (after
+/// a `.`), strings, and comments are left as they are.
+pub(crate) fn rename_idents(src: &str, map: &BTreeMap<String, String>) -> String {
+    if map.is_empty() {
+        return src.to_string();
     }
     let mut out = String::with_capacity(src.len());
     let mut at = 0;
-    for &(start, end) in &spans {
-        if let Some(name) = renamed.get(&src[start..end]) {
+    for (start, end, after_dot) in crate::imports::ident_spans(src) {
+        if after_dot {
+            continue;
+        }
+        if let Some(name) = map.get(&src[start..end]) {
             out.push_str(&src[at..start]);
             out.push_str(name);
             at = end;

@@ -1,14 +1,12 @@
 {
   // The layout every example's generated output has (scripts/verify.sh runs
-  // `oxfmt --check`). The copied runtime and adapters are hand-written; the
-  // wire module (purecrate-wire.ts) does not follow it yet.
+  // `oxfmt --check`). The copied runtime and adapters are hand-written.
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 100,
   "ignorePatterns": [
     "**/purecrate-runtime.ts",
     "**/purecrate-zod.ts",
     "**/purecrate-valibot.ts",
-    "**/purecrate-arktype.ts",
-    "**/purecrate-wire.ts"
+    "**/purecrate-arktype.ts"
   ]
 }

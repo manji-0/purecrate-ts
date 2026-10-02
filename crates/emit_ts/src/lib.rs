@@ -1,8 +1,10 @@
 //! Print a `Crate` into kamae-ts files. No I/O.
 
+mod doc;
 mod expr;
 mod imports;
 mod items;
+mod js;
 mod plain;
 mod tidy;
 mod schema;
@@ -56,6 +58,10 @@ thread_local! {
     /// Whether the statement `stmt::emit_stmts` prints next is the last of
     /// its JS block, so nothing after it could meet a name it declares.
     static TAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The discriminant tables the file being printed reads (`expr::table`),
+    /// each keyed by its enum and whether it holds `bigint`s, with its name
+    /// and declaration; printed after the file's imports.
+    static TABLES: RefCell<Vec<((String, bool), String, String)>> = const { RefCell::new(Vec::new()) };
     /// The loops being printed, innermost last, each with its label when a
     /// `break` or `continue` in it leaves it.
     static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
@@ -334,23 +340,26 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     if !imports.is_empty() {
         out.push('\n');
     }
+    TABLES.with(|t| t.borrow_mut().clear());
+    let mut body = String::new();
+    let out_ = &mut body;
     for item in items {
         match item {
-            Item::Enum(en) => out.push_str(&emit_enum(krate, en)),
-            Item::Struct(st) => out.push_str(&emit_struct(krate, st)),
+            Item::Enum(en) => out_.push_str(&emit_enum(krate, en)),
+            Item::Struct(st) => out_.push_str(&emit_struct(krate, st)),
             Item::Alias(al) => {
-                out.push_str(&jsdoc(&al.doc, ""));
-                out.push_str(&format!(
+                out_.push_str(&jsdoc(&al.doc, ""));
+                out_.push_str(&format!(
                     "export type {name} = {ty};\n",
                     name = al.name.as_str(),
                     ty = emit_ty(&al.ty)
                 ));
             }
-            Item::Fn(f) if f.owner.is_none() => out.push_str(&emit_free_fn(f)),
+            Item::Fn(f) if f.owner.is_none() => out_.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
             Item::Const(c) => {
-                out.push_str(&jsdoc(&c.doc, ""));
-                out.push_str(&format!(
+                out_.push_str(&jsdoc(&c.doc, ""));
+                out_.push_str(&format!(
                     "export const {name}: {ty} = {value};\n",
                     name = c.name.as_str(),
                     ty = emit_ty(&c.ty),
@@ -359,6 +368,13 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             }
         }
     }
+    for (_, _, decl) in TABLES.with(|t| std::mem::take(&mut *t.borrow_mut())) {
+        out.push_str(&decl);
+        out.push('\n');
+    }
+    out.push_str(&body);
+    // A companion with nothing in it is `{}`, as oxfmt prints it.
+    let out = out.replace(" = {\n} as const;", " = {} as const;");
     tidy::wrap(&plain::plain_names(&imports::prune_unused(&out)), WIDTH)
 }
 
@@ -807,8 +823,11 @@ export const step = (state: State, event: Event): State => {
 
     #[test]
     fn strings_escape_as_json_does() {
-        let s = emit_lit(&Lit::Str("q\"\\\n\r\t\u{8}\u{c}\u{0}\u{1b}\u{2028}\u{2029}é".into()));
-        assert_eq!(s, "\"q\\\"\\\\\\n\\r\\t\\b\\f\\u0000\\u001b\\u2028\\u2029é\"");
+        let s = emit_lit(&Lit::Str("q\\\n\r\t\u{8}\u{c}\u{0}\u{1b}\u{2028}\u{2029}é".into()));
+        assert_eq!(s, "\"q\\\\\\n\\r\\t\\b\\f\\u0000\\u001b\\u2028\\u2029é\"");
+        // The quote that needs fewer escapes, as oxfmt picks it.
+        assert_eq!(emit_lit(&Lit::Str("a\"b".into())), "'a\"b'");
+        assert_eq!(emit_lit(&Lit::Str("a'b\"c".into())), "\"a'b\\\"c\"");
     }
 
     #[test]

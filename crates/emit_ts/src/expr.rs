@@ -53,7 +53,9 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
             .and_then(|v| v.strip_suffix(';'))
             .filter(|_| out.trim_end().lines().count() == 1)
         {
-            let value = if value.starts_with('{') {
+            // An object would read as a block; a `?:` is parenthesized on the
+            // arrow's line, as oxfmt prints it (`tidy::wrap_arrow` drops it).
+            let value = if value.starts_with('{') || crate::tidy::is_ternary(value) {
                 format!("({value})")
             } else {
                 value.to_string()
@@ -80,6 +82,10 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
         let bare = crate::tidy::strip_outer(&s);
         if bare.starts_with('{') {
             s
+        } else if crate::tidy::is_ternary(bare) {
+            // Parenthesized on the arrow's line, as oxfmt prints it;
+            // `tidy::wrap_arrow` drops the pair when the body moves down.
+            format!("({bare})")
         } else if let Some(rest) = bare.strip_prefix("({") {
             // An object heading a longer body (`({ .. } satisfies T)[k]`)
             // is parenthesized itself, as oxfmt prints it.
@@ -356,10 +362,10 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::Consume::Sum(int) => format!(
                         "Iter.sum({source}, Int.{}.add, {})",
                         int.as_str(),
-                        emit_lit(&Lit::Int {
+                        crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                             value: 0,
                             ty: Some(*int)
-                        })
+                        }))
                     ),
                     m => format!(
                         "Iter.{}({source}, {})",
@@ -443,7 +449,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 return match (from.is_big(), to.is_big()) {
                     _ if from == *to => x,
                     (false, true) => format!("(globalThis.BigInt({x}) as {})", to.ts_name()),
-                    _ => format!("({x} as number as {})", to.ts_name()),
+                    _ => format!("({} as number as {})", cast_operand(&x), to.ts_name()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
@@ -519,7 +525,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 );
             }
             if let purecrate_ir::Callee::AsFloat(ft) = callee {
-                return format!("({} as {})", emit_expr(&args[0], indent), ft.ts_name());
+                return format!("({} as {})", cast_operand(&emit_expr(&args[0], indent)), ft.ts_name());
             }
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
@@ -544,21 +550,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 .join(", ");
             format!("{c}({a})")
         }
-        Expr::Tuple(elems) => {
-            let inner = elems
-                .iter()
-                .map(|e| emit_item(e, indent))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{inner}]")
-        }
-        Expr::Array(elems) => {
-            let inner = elems
-                .iter()
-                .map(|e| emit_item(e, indent))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{inner}]")
+        Expr::Tuple(elems) | Expr::Array(elems) => {
+            let items: Vec<String> = elems.iter().map(|e| emit_item(e, indent)).collect();
+            bracket_list(&items, indent)
         }
         Expr::Return(e) => format!("(() => {{ return {}; }})()", emit_expr(e, indent)),
         Expr::Unreachable => "assertNever(undefined as never)".into(),
@@ -619,23 +613,39 @@ fn expr_prec(expr: &Expr) -> u8 {
     }
 }
 
-/// `({ A: 1, B: 4 } satisfies Record<E["kind"], number>)[e.kind]`, a
-/// `number` (a `bigint` for a 64-bit width, `1n`), where `e` is a place or a
-/// call: it has the enum's type, so its
-/// `kind` is one of the keys, the table is checked against them, and the
-/// lookup is a number even under `noUncheckedIndexedAccess`. `None` for a
-/// value whose `kind` may have widened to `string`.
+/// `eDiscriminants[e.kind]`, a `number` (a `bigint` for a 64-bit width),
+/// where `e` is a place or a call: it has the enum's type, so its `kind` is
+/// one of the table's keys, and the lookup is a number even under
+/// `noUncheckedIndexedAccess`. The table is a `const` of the file, checked
+/// against the enum's variants (`satisfies`), printed after its imports.
+/// `None` for a value whose `kind` may have widened to `string`.
 fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, indent: usize) -> Option<String> {
     if !(is_place(subject) || matches!(peel_identity(subject), Expr::Call { .. })) {
         return None;
     }
-    let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
-    let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
-    Some(format!(
-        "({{ {entries} }} satisfies Record<{}[\"kind\"], {num}>)[{}.kind]",
-        of.as_str(),
-        emit_expr(subject, indent)
-    ))
+    let key = (of.as_str().to_string(), big);
+    let name = TABLES.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some((_, name, _)) = t.iter().find(|(k, ..)| *k == key) {
+            return name.clone();
+        }
+        let base = format!("{}Discriminants{}", lower_initial(of.as_str()), if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" });
+        let name = temp(&base, 0);
+        let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
+        let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
+        let decl = format!(
+            "/** Each `{of}` variant's discriminant. */\nconst {name} = {{ {entries} }} satisfies Record<{of}[\"kind\"], {num}>;\n",
+            of = of.as_str()
+        );
+        t.push((key, name.clone(), decl));
+        name
+    });
+    Some(format!("{name}[{}.kind]", emit_expr(subject, indent)))
+}
+
+fn lower_initial(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_lowercase().chain(c).collect()).unwrap_or_default()
 }
 
 /// `{ ...base, a: e1 }`. `?` in the fields and the base is hoisted before this
@@ -797,16 +807,22 @@ fn fold(
             // `unwrap_or` of a name, literal, or field: `x ?? d` is the test
             // `x !== null` with the same `x` in the Some arm (`??` keeps 0/false).
             if test == format!("{t} !== null") {
-                format!("{t} ?? {}", crate::tidy::strip_outer(&else_))
+                // A cast beside `??` is parenthesized, as oxfmt prints it.
+                let d = crate::tidy::strip_outer(&else_);
+                if crate::tidy::has_top_as(d) { format!("{t} ?? ({d})") } else { format!("{t} ?? {d}") }
             } else {
-                // A cast in a branch is parenthesized, as oxfmt prints it.
+                // A cast in a branch, and a `??` anywhere in it, is
+                // parenthesized, as oxfmt prints it.
+                let coalesces = |g: &str| crate::tidy::top_prec(g) == PREC_OR && g.contains(" ?? ");
                 let branch = |s: &str, side| {
                     let g = group(s, PREC_TERNARY, Assoc::Right, side);
-                    if crate::tidy::has_top_as(&g) { format!("({g})") } else { g }
+                    if crate::tidy::has_top_as(&g) || coalesces(&g) { format!("({g})") } else { g }
                 };
+                let test = group(&test, PREC_TERNARY, Assoc::Right, Side::Left);
+                let test = if coalesces(&test) { format!("({test})") } else { test };
                 format!(
                     "{} ? {} : {}",
-                    group(&test, PREC_TERNARY, Assoc::Right, Side::Left),
+                    test,
                     // A `?:` in the middle is parenthesized, as oxfmt prints it
                     // on one line; `tidy::wrap` drops the pair when it splits.
                     branch(&then, Side::Left),
@@ -1040,11 +1056,16 @@ pub(crate) fn f32_literal(digits: &str) -> String {
 /// A double-quoted literal escaped as JSON escapes it, plus U+2028 and
 /// U+2029, which end a line in older JS parsers.
 pub(crate) fn js_string(s: &str) -> String {
+    // The quote that needs fewer escapes, double on a tie, as oxfmt picks.
+    let q = if s.matches('"').count() > s.matches('\'').count() { '\'' } else { '"' };
     let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
+    out.push(q);
     for c in s.chars() {
         match c {
-            '"' => out.push_str("\\\""),
+            c if c == q => {
+                out.push('\\');
+                out.push(c);
+            }
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
@@ -1057,7 +1078,7 @@ pub(crate) fn js_string(s: &str) -> String {
             c => out.push(c),
         }
     }
-    out.push('"');
+    out.push(q);
     out
 }
 
@@ -1098,14 +1119,14 @@ fn emit_slice(
     args: &[Expr],
     indent: usize,
 ) -> String {
-    let base = emit_expr(&args[0], indent);
-    let b = end.then(|| emit_expr(&args[args.len() - 1], indent));
+    let base = emit_item(&args[0], indent);
+    let b = end.then(|| emit_item(&args[args.len() - 1], indent));
     match of {
         purecrate_ir::SliceOf::Str => {
             let a = if start {
-                emit_expr(&args[1], indent)
+                emit_item(&args[1], indent)
             } else {
-                "(0 as Usize)".into()
+                "0 as Usize".into()
             };
             match b {
                 Some(b) => format!("Str.slice({base}, {a}, {b})"),
@@ -1114,7 +1135,7 @@ fn emit_slice(
         }
         purecrate_ir::SliceOf::Items => {
             let a = if start {
-                emit_expr(&args[1], indent)
+                emit_item(&args[1], indent)
             } else {
                 "null".into()
             };
@@ -1153,9 +1174,38 @@ fn is_cast(expr: &Expr) -> bool {
                 | purecrate_ir::Callee::Fround
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::Discriminant { .. }
+                | purecrate_ir::Callee::CharCode(_)
         ),
         _ => false,
     }
+}
+
+/// `[a, b]`; where an element spans lines (a function called at once), one
+/// element per line, each one indent in, as oxfmt prints it.
+fn bracket_list(items: &[String], indent: usize) -> String {
+    if !items.iter().any(|i| i.contains('\n')) {
+        return format!("[{}]", items.join(", "));
+    }
+    let pad = "  ".repeat(indent);
+    let body: String = items.iter().map(|i| format!("\n{pad}  {},", i.replace('\n', "\n  "))).collect();
+    format!("[{body}\n{pad}]")
+}
+
+/// `(test)` after `if`; a test that spans lines (a function called at once)
+/// opens the parentheses, one indent in, as oxfmt prints it.
+pub(crate) fn if_test(test: &str, pad: &str) -> String {
+    if test.contains('\n') {
+        format!("(\n{pad}  {}\n{pad})", test.replace('\n', "\n  "))
+    } else {
+        format!("({test})")
+    }
+}
+
+/// The operand of `as`: parenthesized where it is a binary expression or a
+/// `?:` (`(a / b) as F64`), as oxfmt prints it.
+fn cast_operand(s: &str) -> String {
+    let s = crate::tidy::strip_outer(s);
+    if crate::tidy::top_prec(s) < crate::tidy::PREC_UNARY { format!("({s})") } else { s.to_string() }
 }
 
 /// An argument, an element, or a field value: a comma or a brace already
@@ -1163,7 +1213,9 @@ fn is_cast(expr: &Expr) -> bool {
 /// (`f(1 as I32)`, `Iter.all(xs, (b: U8): boolean => b > 0)`).
 pub(crate) fn emit_item(expr: &Expr, indent: usize) -> String {
     let s = emit_expr(expr, indent);
-    if is_cast(expr) || matches!(peel_identity(expr), Expr::Closure { .. }) {
+    if is_cast(expr)
+        || matches!(peel_identity(expr), Expr::Closure { .. } | Expr::Construct { base: Some(_), .. })
+    {
         crate::tidy::strip_outer(&s).to_string()
     } else {
         s

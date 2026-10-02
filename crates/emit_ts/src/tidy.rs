@@ -619,6 +619,13 @@ fn wrap_arrow(line: &str, width: usize, out: &mut String) -> bool {
     if body.is_empty() || head.len() > width {
         return false;
     }
+    // A `?:` body is parenthesized on the arrow's line, bare below it.
+    let (core, end) = match body.strip_suffix([';', ',']) {
+        Some(c) => (c, &body[c.len()..]),
+        None => (body, ""),
+    };
+    let inner = strip_outer(core);
+    let body = if inner.len() < core.len() && is_ternary(inner) { format!("{inner}{end}") } else { body.to_string() };
     let pad_len = line.len() - line.trim_start().len();
     wrap_line(head.trim_end(), width, out);
     wrap_line(&format!("{}{body}", " ".repeat(pad_len + 2)), width, out);
@@ -655,7 +662,9 @@ fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool {
     if statement || arrow || ternary || expr.ends_with(['{', ',', '(']) || top_assign(expr).is_some() {
         return false;
     }
-    let Some(parts) = split_at_op(expr, " || ", 0).or_else(|| split_at_op(expr, " && ", 0)) else {
+    // The loosest operator at the top: `||`, then `&&`, then a comparison.
+    let ops = [" || ", " && ", " === ", " !== ", " <= ", " >= ", " < ", " > "];
+    let Some(parts) = ops.iter().find_map(|op| split_at_op(expr, op, 0)) else {
         return false;
     };
     let pad = &line[..line.len() - expr.len()];
@@ -751,9 +760,22 @@ fn wrap_ternary(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     };
     wrap_line(&first, width, out);
-    wrap_line(&then_line, width, out);
-    wrap_line(&else_line, width, out);
+    branch(&then_line, width, out);
+    branch(&else_line, width, out);
     true
+}
+
+/// A branch of a split `?:`: a `?:` in it splits too, however short, as
+/// oxfmt breaks a chain of conditionals whole.
+fn branch(line: &str, width: usize, out: &mut String) {
+    if !wrap_ternary(line, width, out) {
+        wrap_line(line, width, out);
+    }
+}
+
+/// Whether `s` is a `?:` at its top level.
+pub(crate) fn is_ternary(s: &str) -> bool {
+    find_ternary(s).is_some()
 }
 
 fn split_ternary(line: &str) -> Option<(String, String, String)> {

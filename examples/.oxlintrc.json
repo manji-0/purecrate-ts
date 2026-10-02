@@ -1,7 +1,7 @@
 {
   // The lint every example's generated output passes (scripts/verify.sh, with
-  // --type-aware). The copied runtime and adapters (purecrate-*.ts) are
-  // hand-written and not linted here.
+  // --type-aware), the wire module included. The copied runtime and adapters
+  // are hand-written and not linted here.
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "eslint", "unicorn", "oxc"],
   "categories": {
@@ -26,5 +26,12 @@
     "eslint/no-useless-rename": "error",
     "unicorn/empty-brace-spaces": "error"
   },
-  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/purecrate-*.ts"]
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/purecrate-runtime.ts",
+    "**/purecrate-zod.ts",
+    "**/purecrate-valibot.ts",
+    "**/purecrate-arktype.ts"
+  ]
 }

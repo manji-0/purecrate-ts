@@ -85,7 +85,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if NUMERIC.contains(&target_name) && is_number(value) {
         return Some("literal rustc range-checked");
     }
-    if target_name == "Char" && value.starts_with('"') {
+    if target_name == "Char" && value.starts_with(['"', '\'']) {
         return Some("char literal");
     }
     if target.starts_with("Iterable<Char>") {

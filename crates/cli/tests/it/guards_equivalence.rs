@@ -153,7 +153,7 @@ fn a_match_in_an_expression_is_an_expression() {
     }
     assert!(file("is-a").contains("=> k.kind === \"A\";"), "{}", file("is-a"));
     assert!(file("not-c").contains("x && k.kind !== \"C\""), "{}", file("not-c"));
-    assert!(file("or-zero").contains("o ?? 0") || file("or-zero").contains("o !== null"), "{}", file("or-zero"));
+    assert!(file("or-zero").contains("o ?? (0 as I32)") || file("or-zero").contains("o !== null"), "{}", file("or-zero"));
 }
 
 /// `!matches!(x, A)` on an enum whose other variants have fields, and

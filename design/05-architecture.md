@@ -50,7 +50,7 @@ Files follow the stages of their crate, not IR node kinds:
 | --- | --- |
 | `syntax` | `item.rs` items and the lowering context, `expr.rs` expressions and blocks, `expr/pattern.rs` patterns, `match`, guards and `matches!`, `ty.rs` types, `survey.rs` |
 | `check` | one file per pass (`names`, `resolve`, `exhaustive`, `position`, `wire`, `rest`, `rename`, `lift`, `unused`, `consts`, `tuple`, `reach`); typing in `types.rs` (entry, `Typer`, scopes) with `types/ops.rs` operators and literals, `types/patterns.rs` `match`, `types/calls.rs` calls, closures, construction and `?`, `types/methods.rs` methods, `Option` combinators and `as` |
-| `emit_ts` | `lib.rs` package assembly and per-file output, `items.rs` declarations, `stmt.rs` statements, loops and `switch`, `expr.rs` expressions, literals and types, `imports.rs` what a file imports, `schema.rs` wire schemas |
+| `emit_ts` | `lib.rs` package assembly and per-file output, `items.rs` declarations, `stmt.rs` statements, loops and `switch`, `expr.rs` expressions, literals and types, `imports.rs` what a file imports, `schema.rs` wire schemas, built as a small TS syntax tree (`js.rs`) laid out by a layout document and its printer (`doc.rs`, the group / indent / line model oxfmt formats with); the domain files are printed as text and broken by `tidy.rs` |
 
 `stmt.rs` and `expr.rs` call each other on purpose: a statement holds expressions, and an expression that needs statements prints as an arrow function around them. The child modules of `types` and `emit_ts` share their parent's items through `use super::*`, so the graph shows few edges between them.
 

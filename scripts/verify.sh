@@ -82,4 +82,22 @@ done
 # ..and is laid out as oxfmt lays it out (examples/.oxfmtrc.json).
 (cd examples && npx --no-install oxfmt --check '*/ts/*/src/**/*.ts') \
   || { echo "verify: oxfmt would reformat the generated output" >&2; exit 1; }
+# So is the output of each test fixture that builds, with each schema where it
+# has a wire form: shapes the examples do not reach.
+cargo build --offline -q -p purecrate-ts
+fx=$(mktemp -d)
+trap 'rm -rf "$fx"' EXIT
+for f in crates/cli/tests/fixtures/*.rs; do
+  n=$(basename "$f" .rs)
+  mkdir -p "$fx/src/$n/src"
+  cp "$f" "$fx/src/$n/src/lib.rs"
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n' "${n//_/-}" > "$fx/src/$n/Cargo.toml"
+  target/debug/purecrate-ts build "$fx/src/$n" --out "$fx/out/$n" >/dev/null 2>&1 || continue
+  for lib in zod valibot arktype; do
+    target/debug/purecrate-ts build "$fx/src/$n" --out "$fx/out/$n-$lib" --schema "$lib" >/dev/null 2>&1 || true
+  done
+done
+grep -v '"\$schema"' examples/.oxfmtrc.json > "$fx/out/.oxfmtrc.json"
+(cd "$fx/out" && node "$OLDPWD/examples/node_modules/oxfmt/bin/oxfmt" --check '*/src/**/*.ts') \
+  || { echo "verify: oxfmt would reformat a fixture's output" >&2; exit 1; }
 echo "verify: ok"
