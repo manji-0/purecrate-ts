@@ -321,7 +321,9 @@ pub(crate) fn int_case_lits(pattern: &Pattern, f: &mut impl FnMut(purecrate_ir::
 pub(crate) struct Refs {
     never: bool,
     int: bool,
-    result: bool,
+    /// `Result.ok` / `Result.err`, and the `Result` type.
+    result_value: bool,
+    result_type: bool,
     /// `Str` from `./str.ts`.
     str: bool,
     /// `Slice` from `./str.ts`, for indexing and slicing a `Vec`.
@@ -356,7 +358,7 @@ impl Refs {
                 self.types.insert(n.as_str().to_string());
             }
             Ty::Result { ok, err } => {
-                self.result = true;
+                self.result_type = true;
                 self.ty(ok);
                 self.ty(err);
             }
@@ -421,7 +423,7 @@ impl Refs {
                     Callee::Method { ty, .. } | Callee::Variant { ty, .. } | Callee::StructNew(ty) => {
                         self.values.insert(ty.as_str().to_string());
                     }
-                    Callee::ResultOk | Callee::ResultErr => self.result = true,
+                    Callee::ResultOk | Callee::ResultErr => self.result_value = true,
                     Callee::OrdCmp { .. } | Callee::OrdThen => self.ord = true,
                     Callee::Collect { result: true } => self.iter = true,
                     Callee::Consume { method, over } => {
@@ -602,7 +604,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
     let values = [
         refs.never.then_some("assertNever"),
         refs.int.then_some("Int"),
-        refs.result.then_some("Result"),
+        refs.result_value.then_some("Result"),
         refs.char_value.then_some("Char"),
         refs.uuid_value.then_some("Uuid"),
         refs.str.then_some("Str"),
@@ -611,6 +613,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.iter.then_some("Iter"),
     ];
     let types = [
+        (refs.result_type && !refs.result_value).then_some("Result"),
         (refs.char_type && !refs.char_value).then_some("Char"),
         (refs.uuid_type && !refs.uuid_value).then_some("Uuid"),
         refs.uuid_error.then_some("UuidError"),
