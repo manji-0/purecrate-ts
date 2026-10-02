@@ -375,7 +375,7 @@ The following may change in a **patch** (formatting of generated files included)
 | Formatting | line wrapping, parentheses that precedence does not need, import grouping, JSDoc layout |
 | Internal helpers | `$of`, `$unchecked`, temps (`majorResult`, `majorOr`), names of locals |
 | Local names | a binding that is not an export; numbering when a name is shadowed |
-| Trimmed runtime shape | empty namespaces dropped, which `Int` methods a copy keeps |
+| Trimmed runtime shape | empty namespaces dropped, which `Int` widths, operators, and methods a copy keeps |
 
 `check --out` still fails on any byte change, including unstable ones: pin the `purecrate-ts` version that generated the committed output. Reason codes (`[type/mutex]`, `[check/nested-option]`) are stable within a minor series; messages may change.
 

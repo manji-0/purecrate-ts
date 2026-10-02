@@ -96,7 +96,7 @@ pub fn assemble_with_license(
     uses.extend(trim::exported(&pkg.files.iter().find(|f| f.stem == "index").expect("index").source));
     pkg.files.push(TsFile {
         stem: RUNTIME_STEM.to_string(),
-        source: copied("purecrate", "packages/boundary", &trim::trim(RUNTIME_SOURCE, &uses)),
+        source: copied("purecrate", "packages/boundary", &trim::trim_closed(RUNTIME_SOURCE, &uses)),
     });
     // The sources above name the runtime and adapter as packages; here they
     // are files beside them.

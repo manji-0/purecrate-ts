@@ -8,6 +8,7 @@
  * comments below mark code kept when any use they list is found in the
  * package, and are left out of the copy (crates/pack/src/trim.rs).
  */
+// #region Result
 /** Rust's `Result`, as every generated package reads and builds it. */
 export type Result<T, E> =
   | Readonly<{ kind: "Ok"; value: T }>
@@ -19,6 +20,7 @@ export const Result = {
   isOk: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Ok"; value: T }> => r.kind === "Ok",
   isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
 } as const;
+// #endregion
 
 /**
  * A domain panic: overflow, division by zero, a shift out of range, or an
@@ -43,24 +45,29 @@ export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
 };
 
-export type I8 = number & { readonly "purecrate.I8": true };
-export type I16 = number & { readonly "purecrate.I16": true };
-export type I32 = number & { readonly "purecrate.I32": true };
-export type I64 = bigint & { readonly "purecrate.I64": true };
-export type U8 = number & { readonly "purecrate.U8": true };
-export type U16 = number & { readonly "purecrate.U16": true };
-export type U32 = number & { readonly "purecrate.U32": true };
-export type U64 = bigint & { readonly "purecrate.U64": true };
-export type Usize = number & { readonly "purecrate.Usize": true };
-export type F32 = number & { readonly "purecrate.F32": true };
-export type F64 = number & { readonly "purecrate.F64": true };
+export type I8 = number & { readonly "purecrate.I8": true }; // #needs I8
+export type I16 = number & { readonly "purecrate.I16": true }; // #needs I16
+export type I32 = number & { readonly "purecrate.I32": true }; // #needs I32
+export type I64 = bigint & { readonly "purecrate.I64": true }; // #needs I64
+export type U8 = number & { readonly "purecrate.U8": true }; // #needs U8
+export type U16 = number & { readonly "purecrate.U16": true }; // #needs U16
+export type U32 = number & { readonly "purecrate.U32": true }; // #needs U32
+export type U64 = bigint & { readonly "purecrate.U64": true }; // #needs U64
+export type Usize = number & { readonly "purecrate.Usize": true }; // #needs Usize
+export type F32 = number & { readonly "purecrate.F32": true }; // #needs F32
+export type F64 = number & { readonly "purecrate.F64": true }; // #needs F64
+// #region Char
 /** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
 export type Char = string & { readonly "purecrate.Char": true };
+// #endregion
 
+// #region panic
 const panic = (what: string): never => {
   throw new Panic(`attempt to ${what}`);
 };
+// #endregion
 
+// #region small
 const small = <T extends number>(min: number, max: number) => {
   const fit = (n: number, what: string): T =>
     (n < min || n > max ? panic(`${what} with overflow`) : n + 0) as T;
@@ -70,37 +77,48 @@ const small = <T extends number>(min: number, max: number) => {
   };
   return {
     of,
-    add: (a: T, b: T): T => fit(a + b, "add"),
-    sub: (a: T, b: T): T => fit(a - b, "subtract"),
-    mul: (a: T, b: T): T => fit(a * b, "multiply"),
+    add: (a: T, b: T): T => fit(a + b, "add"), // #needs op.add
+    sub: (a: T, b: T): T => fit(a - b, "subtract"), // #needs op.sub
+    mul: (a: T, b: T): T => fit(a * b, "multiply"), // #needs op.mul
+    // #region op.div
     div: (a: T, b: T): T =>
       b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
+    // #endregion
+    // #region op.rem
     rem: (a: T, b: T): T =>
       b === 0
         ? panic("calculate the remainder with a divisor of zero")
         : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
-    neg: (a: T): T => fit(-a, "negate"),
+    // #endregion
+    neg: (a: T): T => fit(-a, "negate"), // #needs op.neg
   } as const;
 };
+// #endregion
 
+// #region big
 const big = <T extends bigint>(min: bigint, max: bigint) => {
   const fit = (n: bigint, what: string): T =>
     (n < min || n > max ? panic(`${what} with overflow`) : n) as T;
-  const n = (x: T): bigint => x as bigint;
+  const n = (x: T): bigint => x as bigint; // #needs op.add op.sub op.mul op.div op.rem op.neg
   return {
     of: (value: bigint): T => fit(value, "convert"),
-    add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
-    sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"),
-    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
+    add: (a: T, b: T): T => fit(n(a) + n(b), "add"), // #needs op.add
+    sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"), // #needs op.sub
+    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"), // #needs op.mul
+    // #region op.div
     div: (a: T, b: T): T =>
       n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
+    // #endregion
+    // #region op.rem
     rem: (a: T, b: T): T =>
       n(b) === 0n
         ? panic("calculate the remainder with a divisor of zero")
         : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
-    neg: (a: T): T => fit(-n(a), "negate"),
+    // #endregion
+    neg: (a: T): T => fit(-n(a), "negate"), // #needs op.neg
   } as const;
 };
+// #endregion
 
 // #region methods.i8 methods.i16 methods.i32 methods.u8 methods.u16 methods.u32 methods.usize methods.i64 methods.u64
 /**
@@ -110,20 +128,23 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
  * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
  * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
  */
-const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number, signed: boolean, to: (n: bigint) => T) => {
-  const v = (x: T): bigint => BigInt(x);
-  const inRange = (n: bigint): boolean => n >= lo && n <= hi;
-  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? to(n) : panic(`${what} with overflow`));
-  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? to(n) : null);
-  const clamp = (n: bigint): T => to(n < lo ? lo : n > hi ? hi : n);
-  const wrap = (n: bigint): T => to(signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n));
+const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: number; signed: boolean; to: (n: bigint) => T }) => {
+  const v = (x: T): bigint => BigInt(x); // #needs m.abs m.pow m.checkedAdd m.checkedSub m.checkedMul m.checkedDiv m.checkedRem m.checkedNeg m.checkedPow m.saturatingAdd m.saturatingSub m.saturatingMul m.saturatingPow m.wrappingAdd m.wrappingSub m.wrappingMul m.wrappingDiv m.wrappingRem m.wrappingNeg m.wrappingPow
+  const inRange = (n: bigint): boolean => n >= r.lo && n <= r.hi; // #needs m.abs m.pow m.checkedAdd m.checkedSub m.checkedMul m.checkedDiv m.checkedRem m.checkedNeg m.checkedPow
+  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? r.to(n) : panic(`${what} with overflow`)); // #needs m.abs m.pow
+  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? r.to(n) : null); // #needs m.checkedAdd m.checkedSub m.checkedMul m.checkedDiv m.checkedRem m.checkedNeg m.checkedPow
+  const clamp = (n: bigint): T => r.to(n < r.lo ? r.lo : n > r.hi ? r.hi : n); // #needs m.saturatingAdd m.saturatingSub m.saturatingMul m.saturatingPow
+  const wrap = (n: bigint): T => r.to(r.signed ? BigInt.asIntN(r.bits, n) : BigInt.asUintN(r.bits, n)); // #needs m.wrappingAdd m.wrappingSub m.wrappingMul m.wrappingDiv m.wrappingRem m.wrappingNeg m.wrappingPow
+  // #region m.pow m.checkedPow m.saturatingPow
   // `a ** e`, or `null` where it is certainly outside the range: a base of
   // magnitude 2 or more to an exponent of `bits` or more.
   const power = (a: bigint, e: number): bigint | null =>
-    e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= bits ? null : a ** BigInt(e);
+    e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= r.bits ? null : a ** BigInt(e);
+  // #endregion
+  // #region m.wrappingPow
   const modPower = (a: bigint, e: number): bigint => {
-    const m = 1n << BigInt(bits);
-    let base = BigInt.asUintN(bits, a);
+    const m = 1n << BigInt(r.bits);
+    let base = BigInt.asUintN(r.bits, a);
     let acc = 1n;
     for (let k = e; k > 0; k = Math.floor(k / 2)) {
       if (k % 2 === 1) acc = (acc * base) % m;
@@ -131,40 +152,57 @@ const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number
     }
     return acc;
   };
-  const quotient = (a: bigint, b: bigint): bigint | null => (b === 0n ? null : a / b);
+  // #endregion
+  const quotient = (a: bigint, b: bigint): bigint | null => (b === 0n ? null : a / b); // #needs m.checkedDiv m.checkedRem
+  // #region m.wrappingDiv m.wrappingRem
   const zero = (b: T, what: string): void => {
     if (v(b) === 0n) panic(what);
   };
+  // #endregion
   return {
-    min: (a: T, b: T): T => (a <= b ? a : b),
-    max: (a: T, b: T): T => (a >= b ? a : b),
-    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"),
-    pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
-    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
-    checkedSub: (a: T, b: T): T | null => checked(v(a) - v(b)),
-    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
-    checkedDiv: (a: T, b: T): T | null => checked(quotient(v(a), v(b))),
+    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"), // #needs m.abs
+    pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"), // #needs m.pow
+    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)), // #needs m.checkedAdd
+    checkedSub: (a: T, b: T): T | null => checked(v(a) - v(b)), // #needs m.checkedSub
+    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)), // #needs m.checkedMul
+    checkedDiv: (a: T, b: T): T | null => checked(quotient(v(a), v(b))), // #needs m.checkedDiv
+    // #region m.checkedRem
     // `MIN % -1` is `None`: the quotient it comes from overflows.
     checkedRem: (a: T, b: T): T | null =>
-      checked(quotient(v(a), v(b))) === null ? null : to(v(a) % v(b)),
-    checkedNeg: (a: T): T | null => checked(-v(a)),
-    checkedPow: (a: T, e: U32): T | null => checked(power(v(a), e)),
-    saturatingAdd: (a: T, b: T): T => clamp(v(a) + v(b)),
-    saturatingSub: (a: T, b: T): T => clamp(v(a) - v(b)),
-    saturatingMul: (a: T, b: T): T => clamp(v(a) * v(b)),
+      checked(quotient(v(a), v(b))) === null ? null : r.to(v(a) % v(b)),
+    // #endregion
+    checkedNeg: (a: T): T | null => checked(-v(a)), // #needs m.checkedNeg
+    checkedPow: (a: T, e: U32): T | null => checked(power(v(a), e)), // #needs m.checkedPow
+    saturatingAdd: (a: T, b: T): T => clamp(v(a) + v(b)), // #needs m.saturatingAdd
+    saturatingSub: (a: T, b: T): T => clamp(v(a) - v(b)), // #needs m.saturatingSub
+    saturatingMul: (a: T, b: T): T => clamp(v(a) * v(b)), // #needs m.saturatingMul
+    // #region m.saturatingPow
     saturatingPow: (a: T, e: U32): T => {
       const n = power(v(a), e);
-      return n !== null ? clamp(n) : to(v(a) < 0n && e % 2 === 1 ? lo : hi);
+      return n !== null ? clamp(n) : r.to(v(a) < 0n && e % 2 === 1 ? r.lo : r.hi);
     },
-    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)),
-    wrappingSub: (a: T, b: T): T => wrap(v(a) - v(b)),
-    wrappingMul: (a: T, b: T): T => wrap(v(a) * v(b)),
-    wrappingDiv: (a: T, b: T): T => (zero(b, "divide by zero"), wrap(v(a) / v(b))),
-    wrappingRem: (a: T, b: T): T => (zero(b, "calculate the remainder with a divisor of zero"), wrap(v(a) % v(b))),
-    wrappingNeg: (a: T): T => wrap(-v(a)),
-    wrappingPow: (a: T, e: U32): T => wrap(modPower(v(a), e)),
+    // #endregion
+    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)), // #needs m.wrappingAdd
+    wrappingSub: (a: T, b: T): T => wrap(v(a) - v(b)), // #needs m.wrappingSub
+    wrappingMul: (a: T, b: T): T => wrap(v(a) * v(b)), // #needs m.wrappingMul
+    wrappingDiv: (a: T, b: T): T => (zero(b, "divide by zero"), wrap(v(a) / v(b))), // #needs m.wrappingDiv
+    // #region m.wrappingRem
+    wrappingRem: (a: T, b: T): T =>
+      (zero(b, "calculate the remainder with a divisor of zero"), wrap(v(a) % v(b))),
+    // #endregion
+    wrappingNeg: (a: T): T => wrap(-v(a)), // #needs m.wrappingNeg
+    wrappingPow: (a: T, e: U32): T => wrap(modPower(v(a), e)), // #needs m.wrappingPow
   } as const;
 };
+// #endregion
+
+// #region minmax.i8 minmax.i16 minmax.i32 minmax.u8 minmax.u16 minmax.u32 minmax.usize minmax.i64 minmax.u64
+/** `min` and `max`: JS `<=` orders numbers and bigints as Rust orders integers. */
+const minMax = <T extends number | bigint>() =>
+  ({
+    min: (a: T, b: T): T => (a <= b ? a : b), // #needs m.min
+    max: (a: T, b: T): T => (a >= b ? a : b), // #needs m.max
+  }) as const;
 
 // #endregion
 
@@ -571,14 +609,18 @@ export const Char = {
   // #endregion
 } as const;
 
+// #region Uuid
 /**
  * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that
  * serde writes. In that form `===` is Rust's `==`, and string order is the
  * order of the 16 bytes, as the hyphens sit at the same places in both.
  */
 export type Uuid = string & { readonly "purecrate.Uuid": true };
+// #endregion
+// #region UuidError
 /** A `uuid::Error`. Nothing translated reads one, so it carries nothing. */
 export type UuidError = { readonly "purecrate.UuidError": true };
+// #endregion
 
 // #region uuid
 const UUID_ERROR = Object.freeze({}) as UuidError;
@@ -627,67 +669,98 @@ export const Uuid = {
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
+  // #region int.i8
   i8: {
     ...small<I8>(-128, 127),
     ...bits32<I8>(8, true), // #needs bits.i8
-    ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8), // #needs methods.i8
+    ...minMax<I8>(), // #needs minmax.i8
+    ...methods({ lo: -128n, hi: 127n, bits: 8, signed: true, to: (n) => Number(n) as I8 }), // #needs methods.i8
     parse: parser(-128n, 127n, true, (n) => Number(n) as I8), // #needs parse.i8
   },
+  // #endregion
+  // #region int.i16
   i16: {
     ...small<I16>(-32768, 32767),
     ...bits32<I16>(16, true), // #needs bits.i16
-    ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16), // #needs methods.i16
+    ...minMax<I16>(), // #needs minmax.i16
+    ...methods({ lo: -32768n, hi: 32767n, bits: 16, signed: true, to: (n) => Number(n) as I16 }), // #needs methods.i16
     parse: parser(-32768n, 32767n, true, (n) => Number(n) as I16), // #needs parse.i16
   },
+  // #endregion
+  // #region int.i32
   i32: {
     ...small<I32>(-2147483648, 2147483647),
     ...bits32<I32>(32, true), // #needs bits.i32
-    ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32), // #needs methods.i32
+    ...minMax<I32>(), // #needs minmax.i32
+    ...methods({ lo: -2147483648n, hi: 2147483647n, bits: 32, signed: true, to: (n) => Number(n) as I32 }), // #needs methods.i32
     parse: parser(-2147483648n, 2147483647n, true, (n) => Number(n) as I32), // #needs parse.i32
   },
+  // #endregion
+  // #region int.u8
   u8: {
     ...small<U8>(0, 255),
     ...bits32<U8>(8, false), // #needs bits.u8
-    ...methods(0n, 255n, 8, false, (n) => Number(n) as U8), // #needs methods.u8
+    ...minMax<U8>(), // #needs minmax.u8
+    ...methods({ lo: 0n, hi: 255n, bits: 8, signed: false, to: (n) => Number(n) as U8 }), // #needs methods.u8
     parse: parser(0n, 255n, false, (n) => Number(n) as U8), // #needs parse.u8
   },
+  // #endregion
+  // #region int.u16
   u16: {
     ...small<U16>(0, 65535),
     ...bits32<U16>(16, false), // #needs bits.u16
-    ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16), // #needs methods.u16
+    ...minMax<U16>(), // #needs minmax.u16
+    ...methods({ lo: 0n, hi: 65535n, bits: 16, signed: false, to: (n) => Number(n) as U16 }), // #needs methods.u16
     parse: parser(0n, 65535n, false, (n) => Number(n) as U16), // #needs parse.u16
   },
+  // #endregion
+  // #region int.u32
   u32: {
     ...small<U32>(0, 4294967295),
     ...bits32<U32>(32, false), // #needs bits.u32
-    ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32), // #needs methods.u32
+    ...minMax<U32>(), // #needs minmax.u32
+    ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }), // #needs methods.u32
     parse: parser(0n, 4294967295n, false, (n) => Number(n) as U32), // #needs parse.u32
   },
+  // #endregion
+  // #region int.usize
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
-    ...methods(0n, 18446744073709551615n, 64, false, small64), // #needs methods.usize
+    ...minMax<Usize>(), // #needs minmax.usize
+    ...methods({ lo: 0n, hi: 18446744073709551615n, bits: 64, signed: false, to: small64 }), // #needs methods.usize
     parse: parser(0n, 18446744073709551615n, false, small64), // #needs parse.usize
   },
+  // #endregion
+  // #region int.i64
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
     ...bits64<I64>(true), // #needs bits.i64
-    ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64), // #needs methods.i64
+    ...minMax<I64>(), // #needs minmax.i64
+    ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }), // #needs methods.i64
     parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64), // #needs parse.i64
   },
+  // #endregion
+  // #region int.u64
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
     ...bits64<U64>(false), // #needs bits.u64
-    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64), // #needs methods.u64
+    ...minMax<U64>(), // #needs minmax.u64
+    ...methods({ lo: 0n, hi: 18446744073709551615n, bits: 64, signed: false, to: (n) => n as U64 }), // #needs methods.u64
     parse: parser(0n, 18446744073709551615n, false, (n) => n as U64), // #needs parse.u64
   },
+  // #endregion
+  // #region int.f32
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
   },
+  // #endregion
+  // #region int.f64
   f64: {
     of: (value: number): F64 => value as F64,
   },
+  // #endregion
 } as const;
 
 // #region json

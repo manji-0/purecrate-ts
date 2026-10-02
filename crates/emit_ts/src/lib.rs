@@ -188,7 +188,14 @@ fn emit_index(krate: &Crate) -> String {
     if surface_ty(krate, |ty| matches!(ty, Ty::Result { .. })) {
         runtime.push("Result");
     }
-    runtime.extend(["Panic", "assertNever", "Int"]);
+    runtime.extend(["Panic", "assertNever"]);
+    // `Int` makes the values of the brands the surface holds; without one,
+    // the runtime's copy has no `Int` to export.
+    let numeric = IntTy::ALL.into_iter().any(|t| surface_holds(krate, Prim::from(t)))
+        || [FloatTy::F32, FloatTy::F64].into_iter().any(|t| surface_holds(krate, Prim::from(t)));
+    if numeric {
+        runtime.push("Int");
+    }
     if surface_holds(krate, Prim::Char) {
         runtime.push("Char");
     }

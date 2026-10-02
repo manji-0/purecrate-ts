@@ -66,19 +66,9 @@ export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
 };
 
-export type I8 = number & { readonly "purecrate.I8": true };
-export type I16 = number & { readonly "purecrate.I16": true };
-export type I32 = number & { readonly "purecrate.I32": true };
-export type I64 = bigint & { readonly "purecrate.I64": true };
 export type U8 = number & { readonly "purecrate.U8": true };
-export type U16 = number & { readonly "purecrate.U16": true };
-export type U32 = number & { readonly "purecrate.U32": true };
 export type U64 = bigint & { readonly "purecrate.U64": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
-export type F32 = number & { readonly "purecrate.F32": true };
-export type F64 = number & { readonly "purecrate.F64": true };
-/** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
-export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
   throw new Panic(`attempt to ${what}`);
@@ -93,103 +83,22 @@ const small = <T extends number>(min: number, max: number) => {
   };
   return {
     of,
-    add: (a: T, b: T): T => fit(a + b, "add"),
-    sub: (a: T, b: T): T => fit(a - b, "subtract"),
-    mul: (a: T, b: T): T => fit(a * b, "multiply"),
-    div: (a: T, b: T): T =>
-      b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
-    rem: (a: T, b: T): T =>
-      b === 0
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
-    neg: (a: T): T => fit(-a, "negate"),
   } as const;
 };
 
 const big = <T extends bigint>(min: bigint, max: bigint) => {
   const fit = (n: bigint, what: string): T =>
     (n < min || n > max ? panic(`${what} with overflow`) : n) as T;
-  const n = (x: T): bigint => x as bigint;
   return {
     of: (value: bigint): T => fit(value, "convert"),
-    add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
-    sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"),
-    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
-    div: (a: T, b: T): T =>
-      n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
-    rem: (a: T, b: T): T =>
-      n(b) === 0n
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
-    neg: (a: T): T => fit(-n(a), "negate"),
   } as const;
 };
 
-/**
- * The integer methods, from the exact result: `x.checked_add(y)` is it or
- * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
- * low `bits`, and the others panic outside the range as a debug build does.
- * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
- * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
- */
-const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number, signed: boolean, to: (n: bigint) => T) => {
-  const v = (x: T): bigint => BigInt(x);
-  const inRange = (n: bigint): boolean => n >= lo && n <= hi;
-  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? to(n) : panic(`${what} with overflow`));
-  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? to(n) : null);
-  const clamp = (n: bigint): T => to(n < lo ? lo : n > hi ? hi : n);
-  const wrap = (n: bigint): T => to(signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n));
-  // `a ** e`, or `null` where it is certainly outside the range: a base of
-  // magnitude 2 or more to an exponent of `bits` or more.
-  const power = (a: bigint, e: number): bigint | null =>
-    e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= bits ? null : a ** BigInt(e);
-  const modPower = (a: bigint, e: number): bigint => {
-    const m = 1n << BigInt(bits);
-    let base = BigInt.asUintN(bits, a);
-    let acc = 1n;
-    for (let k = e; k > 0; k = Math.floor(k / 2)) {
-      if (k % 2 === 1) acc = (acc * base) % m;
-      base = (base * base) % m;
-    }
-    return acc;
-  };
-  const quotient = (a: bigint, b: bigint): bigint | null => (b === 0n ? null : a / b);
-  const zero = (b: T, what: string): void => {
-    if (v(b) === 0n) panic(what);
-  };
-  return {
+/** `min` and `max`: JS `<=` orders numbers and bigints as Rust orders integers. */
+const minMax = <T extends number | bigint>() =>
+  ({
     min: (a: T, b: T): T => (a <= b ? a : b),
-    max: (a: T, b: T): T => (a >= b ? a : b),
-    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"),
-    pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
-    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
-    checkedSub: (a: T, b: T): T | null => checked(v(a) - v(b)),
-    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
-    checkedDiv: (a: T, b: T): T | null => checked(quotient(v(a), v(b))),
-    // `MIN % -1` is `None`: the quotient it comes from overflows.
-    checkedRem: (a: T, b: T): T | null =>
-      checked(quotient(v(a), v(b))) === null ? null : to(v(a) % v(b)),
-    checkedNeg: (a: T): T | null => checked(-v(a)),
-    checkedPow: (a: T, e: U32): T | null => checked(power(v(a), e)),
-    saturatingAdd: (a: T, b: T): T => clamp(v(a) + v(b)),
-    saturatingSub: (a: T, b: T): T => clamp(v(a) - v(b)),
-    saturatingMul: (a: T, b: T): T => clamp(v(a) * v(b)),
-    saturatingPow: (a: T, e: U32): T => {
-      const n = power(v(a), e);
-      return n !== null ? clamp(n) : to(v(a) < 0n && e % 2 === 1 ? lo : hi);
-    },
-    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)),
-    wrappingSub: (a: T, b: T): T => wrap(v(a) - v(b)),
-    wrappingMul: (a: T, b: T): T => wrap(v(a) * v(b)),
-    wrappingDiv: (a: T, b: T): T => (zero(b, "divide by zero"), wrap(v(a) / v(b))),
-    wrappingRem: (a: T, b: T): T => (zero(b, "calculate the remainder with a divisor of zero"), wrap(v(a) % v(b))),
-    wrappingNeg: (a: T): T => wrap(-v(a)),
-    wrappingPow: (a: T, e: U32): T => wrap(modPower(v(a), e)),
-  } as const;
-};
-
-const small64 = (n: bigint): Usize =>
-  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+  }) as const;
 
 /** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
 export type ParseIntError = { readonly "purecrate.ParseIntError": true };
@@ -314,57 +223,17 @@ const utf8Width = (c: string): number => {
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
 };
 
-const panicWith = (message: string): never => {
-  throw new Panic(message);
-};
-
-/**
- * A `uuid::Uuid`, always in the lowercase hyphenated form (8-4-4-4-12) that
- * serde writes. In that form `===` is Rust's `==`, and string order is the
- * order of the 16 bytes, as the hyphens sit at the same places in both.
- */
-export type Uuid = string & { readonly "purecrate.Uuid": true };
-/** A `uuid::Error`. Nothing translated reads one, so it carries nothing. */
-export type UuidError = { readonly "purecrate.UuidError": true };
-
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  i8: {
-    ...small<I8>(-128, 127),
-  },
-  i16: {
-    ...small<I16>(-32768, 32767),
-  },
-  i32: {
-    ...small<I32>(-2147483648, 2147483647),
-  },
-  u8: {
-    ...small<U8>(0, 255),
-  },
-  u16: {
-    ...small<U16>(0, 65535),
-  },
-  u32: {
-    ...small<U32>(0, 4294967295),
-  },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
-    ...methods(0n, 18446744073709551615n, 64, false, small64),
-  },
-  i64: {
-    ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    ...minMax<Usize>(),
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
     parse: parser(0n, 18446744073709551615n, false, (n) => n as U64),
-  },
-  f32: {
-    of: (value: number): F32 => Math.fround(value) as F32,
-  },
-  f64: {
-    of: (value: number): F64 => value as F64,
   },
 } as const;
 

@@ -274,8 +274,9 @@ fn one_module_is_imported_once() {
     assert!(wire.contains("type PaymentError as PaymentError$"), "{wire}");
 }
 
-/// The index exports `Char` and `Uuid` when the public surface holds one,
-/// and `parseJson` with a schema; the runtime keeps them whole then.
+/// The index exports `Char`, `Uuid`, and `Int` when the public surface holds
+/// one of their types, and `parseJson` with a schema; the runtime keeps them
+/// whole then (`Int` for the widths the surface holds).
 #[test]
 fn the_index_exports_the_runtime_the_surface_needs() {
     let index = |source: &str, schema: Option<WireSchema>| {
@@ -293,7 +294,9 @@ fn the_index_exports_the_runtime_the_surface_needs() {
     assert!(!runtime.contains("fromU32") && !runtime.contains("export const parseJson"), "{runtime}");
     assert!(!runtime.contains("export const Iter") && !runtime.contains("export const Slice"), "{runtime}");
     let (chars, runtime) = index("pub fn first(c: char) -> bool { c.is_ascii_digit() }", None);
-    assert!(chars.contains("export { Panic, assertNever, Int, Char } from"), "{chars}");
+    // No integer on the surface: no `Int` to export, and none in the copy.
+    assert!(chars.contains("export { Panic, assertNever, Char } from"), "{chars}");
+    assert!(!runtime.contains("export const Int"), "{runtime}");
     assert!(runtime.contains("fromU32"), "the whole of `Char` is kept:\n{runtime}");
     let source = "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
     let (wired, runtime) = index(source, Some(WireSchema::Zod));
