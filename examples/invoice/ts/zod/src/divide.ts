@@ -9,9 +9,9 @@ export const divide = (n: I64, d: I64, rounding: Rounding): I64 => {
     case "Down":
       return Int.i64.div(n, d);
     case "Up":
-      return Int.i64.div(Int.i64.sub(Int.i64.add(n, d), (1n as I64)), d);
+      return Int.i64.div(Int.i64.sub(Int.i64.add(n, d), 1n as I64), d);
     case "HalfUp":
-      return Int.i64.div(Int.i64.add(Int.i64.mul((2n as I64), n), d), Int.i64.mul((2n as I64), d));
+      return Int.i64.div(Int.i64.add(Int.i64.mul(2n as I64, n), d), Int.i64.mul(2n as I64, d));
     default:
       return assertNever(rounding);
   }

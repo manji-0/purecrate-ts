@@ -54,7 +54,7 @@ export const begin = (
   ) : request.prompt.no_interaction ? Result.err(refuse({ kind: "LoginRequired" })) : Result.ok({
     kind: "AwaitingPassword",
     request,
-    failures: (0 as U32),
+    failures: 0 as U32,
     notice: { kind: "Clear" },
   });
 };

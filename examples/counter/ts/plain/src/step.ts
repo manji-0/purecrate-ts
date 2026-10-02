@@ -7,11 +7,11 @@ import type { State } from "./state.ts";
 export const step = (state: State, event: Event): State => {
   switch (event.kind) {
     case "Inc":
-      return { n: Int.i32.add(state.n, (1 as I32)) };
+      return { n: Int.i32.add(state.n, 1 as I32) };
     case "Dec":
-      return { n: Int.i32.sub(state.n, (1 as I32)) };
+      return { n: Int.i32.sub(state.n, 1 as I32) };
     case "Reset":
-      return { n: (0 as I32) };
+      return { n: 0 as I32 };
     default:
       return assertNever(event);
   }

@@ -7,6 +7,6 @@ import { Int, type I64 } from "./purecrate-runtime.ts";
  * non-positive period.
  */
 export const totpStep = (now: I64, t0: I64, period: I64): I64 | null => {
-  if (period <= (0n as I64) || now < t0) return null;
+  if (period <= 0n || now < t0) return null;
   return Int.i64.div(Int.i64.sub(now, t0), period);
 };

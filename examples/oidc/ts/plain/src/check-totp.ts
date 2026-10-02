@@ -41,17 +41,14 @@ export const checkTotp = (
   }
   let replayed: boolean = false;
   for (const c of candidates) {
-    if (
-      c.step >= Int.i64.sub(current, (1n as I64)) && c.step <= Int.i64.add(current, (1n as I64))
-    ) {
+    if (c.step >= Int.i64.sub(current, 1n as I64) && c.step <= Int.i64.add(current, 1n as I64)) {
       if ((() => {
         const option2 = truncateMac(c.mac, enrollment.digits);
         if (option2 !== null) {
           const value = option2;
           return value === submitted;
-        } else {
-          return false;
         }
+        return false;
       })()) {
         let fresh: boolean;
         {

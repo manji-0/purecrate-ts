@@ -18,18 +18,11 @@ export const compare = (a: Version, b: Version): Ordering => {
       const elem: boolean = a.pre.length === 0;
       const elem2: boolean = b.pre.length === 0;
       if (elem) {
-        if (elem2) {
-          return { kind: "Equal" };
-        } else {
-          return { kind: "Greater" };
-        }
-      } else {
-        if (elem2) {
-          return { kind: "Less" };
-        } else {
-          return comparePreIds(a.pre, b.pre);
-        }
+        if (elem2) return { kind: "Equal" };
+        return { kind: "Greater" };
       }
+      if (elem2) return { kind: "Less" };
+      return comparePreIds(a.pre, b.pre);
     }
     case "Greater":
       return { kind: "Greater" };

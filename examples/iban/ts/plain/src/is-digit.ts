@@ -2,4 +2,4 @@
 
 import { type U8 } from "./purecrate-runtime.ts";
 
-export const isDigit = (b: U8): boolean => b >= (48 as U8) && b <= (57 as U8);
+export const isDigit = (b: U8): boolean => b >= 48 && b <= 57;

@@ -14,9 +14,8 @@ export const addLine = (lines: Lines, line: Line): Lines => {
       if (head.sku === line.sku) {
         const merged: Line = { ...head, qty: Int.u32.add(head.qty, line.qty) };
         return { kind: "Cons", content: [merged, rest] };
-      } else {
-        return { kind: "Cons", content: [head, addLine(rest, line)] };
       }
+      return { kind: "Cons", content: [head, addLine(rest, line)] };
     }
     default:
       return assertNever(lines);

@@ -130,16 +130,19 @@ pub(crate) fn emit_for(
     let head = if matches!(peel(end), Expr::Lit(_)) {
         format!(
             "for (let {var} = {}; {var} < {}; {var} = ({var} + {one}) as {})",
-            emit_expr(start, indent),
-            emit_expr(end, indent),
+            emit_item(start, indent),
+            match peel(end) {
+                Expr::Lit(lit) => bare_lit(lit),
+                _ => unreachable!("matched above"),
+            },
             ty.ts_name()
         )
     } else {
         let bound = temp("end", indent);
         format!(
             "for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {})",
-            emit_expr(start, indent),
-            emit_expr(end, indent),
+            emit_item(start, indent),
+            emit_item(end, indent),
             ty.ts_name()
         )
     };
@@ -191,16 +194,12 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             ));
         }
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
-            out.push_str(&format!(
-                "{pad}if ({}) {{\n",
-                crate::tidy::strip_outer(&emit_expr(cond, indent))
-            ));
-            emit_stmts(then, indent + 1, sink, out);
+            let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
+            let mut branches = vec![Branch { test: Some(test), prelude: String::new(), body: then }];
             if !(matches!(sink, Sink::Effect) && **else_ == Expr::Lit(Lit::Unit)) {
-                out.push_str(&format!("{pad}}} else {{\n"));
-                emit_stmts(else_, indent + 1, sink, out);
+                branches.push(Branch { test: None, prelude: String::new(), body: else_ });
             }
-            out.push_str(&format!("{pad}}}\n"));
+            emit_branches(&branches, indent, sink, out);
         }
         Expr::Assign { name, value } => {
             if value.needs_statements() {
@@ -524,15 +523,15 @@ pub(crate) fn emit_switch_in(
             two_way_test(&b.pattern, &subject),
         ) {
             let pad2 = "  ".repeat(indent + 1);
-            out.push_str(&format!("{pad}if ({test}) {{\n"));
-            out.push_str(&two_way_prelude(&a.pattern, &subject, &pad2));
-            emit_stmts(&a.body, indent + 1, sink, out);
+            let mut branches = vec![Branch {
+                test: Some(test),
+                prelude: two_way_prelude(&a.pattern, &subject, &pad2),
+                body: &a.body,
+            }];
             if !(matches!(sink, Sink::Effect) && b.body == Expr::Lit(Lit::Unit)) {
-                out.push_str(&format!("{pad}}} else {{\n"));
-                out.push_str(&two_way_prelude(&b.pattern, &subject, &pad2));
-                emit_stmts(&b.body, indent + 1, sink, out);
+                branches.push(Branch { test: None, prelude: two_way_prelude(&b.pattern, &subject, &pad2), body: &b.body });
             }
-            out.push_str(&format!("{pad}}}\n"));
+            emit_branches(&branches, indent, sink, out);
             return;
         }
     }
@@ -640,6 +639,56 @@ fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
 /// A `match` on an integer or a `&str`: arms tried in order, the last (`_`)
 /// as `else`. Well-formed strings are equal in UTF-8 exactly when they are in
 /// UTF-16, so `===` is `str` equality.
+/// One branch of an `if` chain: its test (`None` for the last `else`), the
+/// bindings its pattern reads, and its code.
+pub(crate) struct Branch<'e> {
+    pub test: Option<String>,
+    pub prelude: String,
+    pub body: &'e Expr,
+}
+
+/// `if (a) { .. } else if (b) { .. } else { .. }`. Where the value is
+/// returned, every branch returns, so a branch follows the `if` before it
+/// instead of an `else`, and a branch that is one `return` sits on the
+/// `if`'s line: `if (s === "") return Result.err(..);`. A returned value is
+/// the last statement of its block, and `rename` already kept each branch's
+/// bindings apart from the block's.
+pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let flat = matches!(sink, Sink::Return) && branches.last().is_some_and(|b| b.test.is_none());
+    if !flat {
+        for (i, b) in branches.iter().enumerate() {
+            let head = match (i, &b.test) {
+                (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
+                (_, Some(test)) => format!("{pad}}} else if ({test}) {{\n"),
+                (_, None) => format!("{pad}}} else {{\n"),
+            };
+            out.push_str(&head);
+            out.push_str(&b.prelude);
+            emit_stmts(b.body, indent + 1, sink, out);
+        }
+        out.push_str(&format!("{pad}}}\n"));
+        return;
+    }
+    for b in branches {
+        let Some(test) = &b.test else {
+            // The last branch: its prelude was printed one level in.
+            let prelude: String = b.prelude.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
+            out.push_str(&prelude);
+            emit_stmts(b.body, indent, sink, out);
+            continue;
+        };
+        let mut inner = String::new();
+        emit_stmts(b.body, indent + 1, sink, &mut inner);
+        let one = inner.trim_start();
+        if b.prelude.is_empty() && one.starts_with("return ") && inner.lines().count() == 1 {
+            out.push_str(&format!("{pad}if ({test}) {one}"));
+        } else {
+            out.push_str(&format!("{pad}if ({test}) {{\n{}{inner}{pad}}}\n", b.prelude));
+        }
+    }
+}
+
 pub(crate) fn emit_lit_chain(
     subject: &str,
     arms: &[purecrate_ir::Arm],
@@ -647,17 +696,11 @@ pub(crate) fn emit_lit_chain(
     sink: Sink,
     out: &mut String,
 ) {
-    let pad = "  ".repeat(indent);
-    for (i, arm) in arms.iter().enumerate() {
-        let head = match (i, lit_test(&arm.pattern, subject)) {
-            (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
-            (_, Some(test)) => format!("{pad}}} else if ({test}) {{\n"),
-            (_, None) => format!("{pad}}} else {{\n"),
-        };
-        out.push_str(&head);
-        emit_stmts(&arm.body, indent + 1, sink, out);
-    }
-    out.push_str(&format!("{pad}}}\n"));
+    let branches: Vec<Branch> = arms
+        .iter()
+        .map(|arm| Branch { test: lit_test(&arm.pattern, subject), prelude: String::new(), body: &arm.body })
+        .collect();
+    emit_branches(&branches, indent, sink, out);
 }
 
 /// The test for an integer, `char`, `bool`, or string arm; `None` for `_`.
@@ -666,7 +709,7 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
         // A `bool` reads as itself: `x`, `!x`.
         Pattern::Lit(Lit::Bool(true)) => Some(subject.to_string()),
         Pattern::Lit(Lit::Bool(false)) => Some(format!("!{subject}")),
-        Pattern::Lit(lit) => Some(format!("{subject} === {}", emit_lit(lit))),
+        Pattern::Lit(lit) => Some(format!("{subject} === {}", bare_lit(lit))),
         // By code point: JS orders strings by UTF-16 unit.
         Pattern::Range {
             lo: Lit::Char(lo),
@@ -680,9 +723,9 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
         )),
         Pattern::Range { lo, hi, inclusive } => Some(format!(
             "{subject} >= {} && {subject} {} {}",
-            emit_lit(lo),
+            bare_lit(lo),
             if *inclusive { "<=" } else { "<" },
-            emit_lit(hi)
+            bare_lit(hi)
         )),
         Pattern::Or(alts) => Some(
             alts.iter()

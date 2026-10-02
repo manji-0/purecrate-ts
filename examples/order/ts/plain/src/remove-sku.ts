@@ -12,14 +12,11 @@ export const removeSku = (lines: Lines, sku: Sku): Result<Lines, OrderError> => 
     case "Cons": {
       const head = lines.content[0];
       const rest = lines.content[1];
-      if (head.sku === sku) {
-        return Result.ok(rest);
-      } else {
-        const rest2Result = removeSku(rest, sku);
-        if (rest2Result.kind === "Err") return rest2Result;
-        const rest2: Lines = rest2Result.value;
-        return Result.ok({ kind: "Cons", content: [head, rest2] });
-      }
+      if (head.sku === sku) return Result.ok(rest);
+      const rest2Result = removeSku(rest, sku);
+      if (rest2Result.kind === "Err") return rest2Result;
+      const rest2: Lines = rest2Result.value;
+      return Result.ok({ kind: "Cons", content: [head, rest2] });
     }
     default:
       return assertNever(lines);

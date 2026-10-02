@@ -13,12 +13,12 @@ export const pkceStringIsValid = (s: string): boolean =>
     Str.bytes(s),
     (
       (b: U8): boolean =>
-        b >= (65 as U8) && b <= (90 as U8) || 
-        b >= (97 as U8) && b <= (122 as U8) || 
-        b >= (48 as U8) && b <= (57 as U8) || 
-        b === (45 as U8) || 
-        b === (46 as U8) || 
-        b === (95 as U8) || 
-        b === (126 as U8)
+        b >= 65 && b <= 90 || 
+        b >= 97 && b <= 122 || 
+        b >= 48 && b <= 57 || 
+        b === 45 || 
+        b === 46 || 
+        b === 95 || 
+        b === 126
     ),
   );

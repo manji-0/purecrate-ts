@@ -15,20 +15,17 @@ export const Password = {
   parse: (raw: string): Result<Password, PasswordError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     let n: Usize = 0 as Usize;
-    for (let i = (0 as Usize), end = ((b.length) as Usize); i < end; i = (i + 1) as Usize) {
+    for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       if (!((() => {
         const value = Slice.at(b, i);
-        if (value >= (128 as U8) && value <= (191 as U8)) {
-          return true;
-        } else {
-          return false;
-        }
+        if (value >= 128 && value <= 191) return true;
+        return false;
       })())) {
-        n = Int.usize.add(n, (1 as Usize));
+        n = Int.usize.add(n, 1 as Usize);
       }
     }
-    if (n < (15 as Usize)) return Result.err({ kind: "TooShort" });
-    if (n > (64 as Usize)) return Result.err({ kind: "TooLong" });
+    if (n < 15) return Result.err({ kind: "TooShort" });
+    if (n > 64) return Result.err({ kind: "TooLong" });
     if (blocked(raw)) return Result.err({ kind: "Blocked" });
     return Result.ok(Password$of(raw));
   },

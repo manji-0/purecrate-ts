@@ -4,5 +4,5 @@ import { Str, Iter, type U8 } from "./purecrate-runtime.ts";
 
 export const allDigits = (s: string): boolean => Iter.all(
   Str.bytes(s),
-  ((b: U8): boolean => b >= (48 as U8) && b <= (57 as U8)),
+  ((b: U8): boolean => b >= 48 && b <= 57),
 );

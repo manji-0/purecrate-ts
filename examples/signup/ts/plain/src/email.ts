@@ -15,38 +15,35 @@ export const Email$of = (value: string): Email => value as Email;
 export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    let at: Usize = (b.length) as Usize;
-    for (let i = (0 as Usize), end = ((b.length) as Usize); i < end; i = (i + 1) as Usize) {
-      if (Slice.at(b, i) === (64 as U8) && at === ((b.length) as Usize)) {
+    let at: Usize = b.length as Usize;
+    for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
+      if (Slice.at(b, i) === 64 && at === b.length) {
         at = i;
       }
     }
-    if (at === ((b.length) as Usize)) return Result.err({ kind: "MissingAt" });
-    if (at === (0 as Usize)) return Result.err({ kind: "BadLocal" });
-    for (let i = (0 as Usize), end = at; i < end; i = (i + 1) as Usize) {
+    if (at === b.length) return Result.err({ kind: "MissingAt" });
+    if (at === 0) return Result.err({ kind: "BadLocal" });
+    for (let i = 0 as Usize, end = at; i < end; i = (i + 1) as Usize) {
       if (!isLocal(Slice.at(b, i))) return Result.err({ kind: "BadLocal" });
     }
-    let start: Usize = Int.usize.add(at, (1 as Usize));
+    let start: Usize = Int.usize.add(at, 1 as Usize);
     for (
-      let i = Int.usize.add(
-        at,
-        (1 as Usize),
-      ), end = Int.usize.add(((b.length) as Usize), (1 as Usize));
+      let i = Int.usize.add(at, 1 as Usize), end = Int.usize.add(b.length as Usize, 1 as Usize);
       i < end;
       i = (i + 1) as Usize
     ) {
-      if (i === ((b.length) as Usize) || Slice.at(b, i) === (46 as U8)) {
+      if (i === b.length || Slice.at(b, i) === 46) {
         const n: Usize = Int.usize.sub(i, start);
         if (
-          n === (0 as Usize) || n > (63 as Usize) || Slice.at(
+          n === 0 || n > 63 || Slice.at(
             b,
             start,
-          ) === (45 as U8) || Slice.at(b, Int.usize.sub(i, (1 as Usize))) === (45 as U8)
+          ) === 45 || Slice.at(b, Int.usize.sub(i, 1 as Usize)) === 45
         )
           return Result.err({ kind: "BadDomain" });
-        start = Int.usize.add(i, (1 as Usize));
+        start = Int.usize.add(i, 1 as Usize);
       } else {
-        if (!isAlnum(Slice.at(b, i)) && Slice.at(b, i) !== (45 as U8))
+        if (!isAlnum(Slice.at(b, i)) && Slice.at(b, i) !== 45)
           return Result.err({ kind: "BadDomain" });
       }
     }

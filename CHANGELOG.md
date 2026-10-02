@@ -9,6 +9,7 @@
 ### Changed
 
 - **No `$` in local names.** Temporaries say what they hold, without the `$` (`$v_major` → `majorResult`, `$m_3_$t` → `option`, `$e_2` → `end`, `$l2` → `loop`), and a shadowed binding counts from two (`pre$1` → `pre2`). A made name is numbered only where an identifier in the block that holds its uses already has it. A loop with a literal end reads it in place (`i < 4`). File-level helpers other files import keep theirs (`Version$of`).
+- **Shorter generated code.** Where a value is returned, a branch that returns is followed by the next one instead of an `else`, and a branch of one `return` sits on its `if`'s line, so a chain of guards reads top to bottom. A function name passed as a function is the name, not an arrow around it. A cast stands bare as an argument, element, or field value (`Int.i32.add(n, 1 as I32)`), and a comparison reads a literal or a length bare (`parts.length < 2`, `b >= 48`). semver's generated domain code is 409 → 358 lines.
 
 ### Added
 

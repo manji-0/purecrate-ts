@@ -18,6 +18,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
 | Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
+| `return` ends a branch | where a value is returned, a branch that returns is an `if` the next one follows, not an `else` (`if (s === "") return ..;` then the rest); a branch of one `return` sits on its `if`'s line. A function name passed as a function (`.map(f)`, `Iter.all(xs, f)`) is `f`, not an arrow around it |
 | Lines up to 100 characters | a longer line opens a comma-separated bracket, a `if (cond) return`, a long `&&` / `||` / `?:`, or an arrow body (`emit_ts::tidy::wrap`). Parentheses follow operator precedence. `crates/cli/tests/it/line_width.rs` fails on any generated domain line over the limit |
 | Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
@@ -28,9 +29,9 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 
 | Kind | Example | Why the value is what the type says |
 | --- | --- | --- |
-| Literal | `(1 as I32)`, `(10n as I64)`, `(1.0 as F64)` | rustc refuses an integer literal its type cannot hold |
+| Literal | `1 as I32`, `10n as I64`, `1.0 as F64` | rustc refuses an integer literal its type cannot hold |
 | `char` literal | `"." as Char` | a Rust `char` literal is one scalar value |
-| Length | `(xs.length) as Usize` | a JS length is an integer below 2^32 |
+| Length | `xs.length as Usize` | a JS length is an integer below 2^32 |
 | Widening | `(x as number as U32)`, `(globalThis.BigInt(x) as I64)` | `check` takes `T::from(x)` only where std has `From`, which is lossless |
 | `for` counter | `i = (i + 1) as Usize` | `i` is below the exclusive end, so `i + 1` is at most the end |
 | Discriminant | `({ A: (1 as U8) } as Record<string, U8>)[e.kind] as U8` | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)) |
@@ -38,6 +39,8 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Constructor | `Yen$of = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
+
+A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`); as an argument, an element, or a field value it stands bare (`Int.i32.add(n, 1 as I32)`). A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
 
 A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as `@typescript-eslint/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
 

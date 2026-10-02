@@ -7,21 +7,12 @@ import type { CorePart } from "./core-part.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverError> => {
-  if (s === "") {
-    return Result.err({ kind: "EmptyNumber", value: part });
-  } else {
-    if (!allDigits(s)) {
-      return Result.err({ kind: "NotANumber", value: part });
-    } else {
-      if (hasLeadingZero(s)) {
-        return Result.err({ kind: "LeadingZero", value: part });
-      } else {
-        const result: Result<U64, ParseIntError> = Int.u64.parse(s);
-        return result.kind === "Ok" ? Result.ok(result.value) : Result.err({
-          kind: "NumberTooLarge",
-          value: part,
-        });
-      }
-    }
-  }
+  if (s === "") return Result.err({ kind: "EmptyNumber", value: part });
+  if (!allDigits(s)) return Result.err({ kind: "NotANumber", value: part });
+  if (hasLeadingZero(s)) return Result.err({ kind: "LeadingZero", value: part });
+  const result: Result<U64, ParseIntError> = Int.u64.parse(s);
+  return result.kind === "Ok" ? Result.ok(result.value) : Result.err({
+    kind: "NumberTooLarge",
+    value: part,
+  });
 };

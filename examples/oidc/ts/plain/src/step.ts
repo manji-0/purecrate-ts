@@ -24,7 +24,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const secondFactor = event.second_factor;
           const now = event.now;
           if (!verified) {
-            const failures2: U32 = Int.u32.add(failures, (1 as U32));
+            const failures2: U32 = Int.u32.add(failures, 1 as U32);
             if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
             return Result.ok({
               kind: "AwaitingPassword",
@@ -32,31 +32,30 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
               failures: failures2,
               notice: { kind: "WrongPassword" },
             });
-          } else {
-            switch (secondFactor.kind) {
-              case "Totp": {
-                const enrollment = secondFactor.value;
-                return Result.ok({
-                  kind: "AwaitingOtp",
-                  request,
-                  subject,
-                  enrollment,
-                  failures: (0 as U32),
-                  notice: { kind: "Clear" },
-                });
-              }
-              case "NotEnrolled": {
-                const auth: Authentication = {
-                  subject,
-                  auth_time: now,
-                  strength: { kind: "PasswordOnly" },
-                  totp_step: null,
-                };
-                return Result.ok({ kind: "AwaitingConsent", request, auth });
-              }
-              default:
-                return assertNever(secondFactor);
+          }
+          switch (secondFactor.kind) {
+            case "Totp": {
+              const enrollment = secondFactor.value;
+              return Result.ok({
+                kind: "AwaitingOtp",
+                request,
+                subject,
+                enrollment,
+                failures: 0 as U32,
+                notice: { kind: "Clear" },
+              });
             }
+            case "NotEnrolled": {
+              const auth: Authentication = {
+                subject,
+                auth_time: now,
+                strength: { kind: "PasswordOnly" },
+                totp_step: null,
+              };
+              return Result.ok({ kind: "AwaitingConsent", request, auth });
+            }
+            default:
+              return assertNever(secondFactor);
           }
         }
         default:
@@ -98,7 +97,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
                 break;
             }
           }
-          const failures2: U32 = Int.u32.add(failures, (1 as U32));
+          const failures2: U32 = Int.u32.add(failures, 1 as U32);
           if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
           return Result.ok({
             kind: "AwaitingOtp",

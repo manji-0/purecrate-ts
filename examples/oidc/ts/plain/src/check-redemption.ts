@@ -22,19 +22,14 @@ export const checkRedemption = (
     const pkce = grant.pkce;
     if (codeVerifier !== null) {
       const verifier = codeVerifier;
-      if (!pkceStringIsValid(verifier)) {
-        return Result.err({ kind: "InvalidRequest" });
-      } else {
-        const matches: boolean = pkce.method.kind === "Plain"
-          ? verifier === pkce.challenge
-          : verifierS256 !== null &&
-        verifierS256 === pkce.challenge;
-        return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
-      }
-    } else {
-      return Result.err({ kind: "InvalidRequest" });
+      if (!pkceStringIsValid(verifier)) return Result.err({ kind: "InvalidRequest" });
+      const matches: boolean = pkce.method.kind === "Plain"
+        ? verifier === pkce.challenge
+        : verifierS256 !== null &&
+      verifierS256 === pkce.challenge;
+      return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
     }
-  } else {
-    return codeVerifier !== null ? Result.err({ kind: "InvalidRequest" }) : Result.ok(undefined);
+    return Result.err({ kind: "InvalidRequest" });
   }
+  return codeVerifier !== null ? Result.err({ kind: "InvalidRequest" }) : Result.ok(undefined);
 };

@@ -12,7 +12,7 @@ export const Yen$of = (value: I64): Yen => value as Yen;
 
 export const Yen = {
   new: (value: I64): Result<Yen, InvoiceError> => {
-    if (value < (0n as I64)) return Result.err({ kind: "NegativeAmount" });
+    if (value < 0n) return Result.err({ kind: "NegativeAmount" });
     return Result.ok(Yen$of(value));
   },
   value: (self: Yen): I64 => self,

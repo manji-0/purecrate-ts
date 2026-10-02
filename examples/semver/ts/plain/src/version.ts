@@ -32,7 +32,7 @@ export const Version = {
     if (s.length === 0) return Result.err({ kind: "Empty" });
     let tuple: readonly [string, string | null];
     {
-      const option = Str.splitOnce(s, ("+" as Char));
+      const option = Str.splitOnce(s, "+" as Char);
       if (option !== null) {
         const x = option[0];
         const y = option[1];
@@ -45,7 +45,7 @@ export const Version = {
     const build: string | null = tuple[1];
     let tuple2: readonly [string, string | null];
     {
-      const option = Str.splitOnce(rest, ("-" as Char));
+      const option = Str.splitOnce(rest, "-" as Char);
       if (option !== null) {
         const x = option[0];
         const y = option[1];
@@ -56,28 +56,23 @@ export const Version = {
     }
     const core: string = tuple2[0];
     const pre: string | null = tuple2[1];
-    const parts: ReadonlyArray<string> = core.split(("." as Char));
-    const majorResult = parseCoreNumber(Slice.at(parts, (0 as Usize)), { kind: "Major" });
+    const parts: ReadonlyArray<string> = core.split(".");
+    const majorResult = parseCoreNumber(Slice.at(parts, 0 as Usize), { kind: "Major" });
     if (majorResult.kind === "Err") return majorResult;
     const major: U64 = majorResult.value;
-    if (((parts.length) as Usize) < (2 as Usize))
-      return Result.err({ kind: "MissingPart", value: { kind: "Minor" } });
-    const minorResult = parseCoreNumber(Slice.at(parts, (1 as Usize)), { kind: "Minor" });
+    if (parts.length < 2) return Result.err({ kind: "MissingPart", value: { kind: "Minor" } });
+    const minorResult = parseCoreNumber(Slice.at(parts, 1 as Usize), { kind: "Minor" });
     if (minorResult.kind === "Err") return minorResult;
     const minor: U64 = minorResult.value;
-    if (((parts.length) as Usize) < (3 as Usize))
-      return Result.err({ kind: "MissingPart", value: { kind: "Patch" } });
-    const patchResult = parseCoreNumber(Slice.at(parts, (2 as Usize)), { kind: "Patch" });
+    if (parts.length < 3) return Result.err({ kind: "MissingPart", value: { kind: "Patch" } });
+    const patchResult = parseCoreNumber(Slice.at(parts, 2 as Usize), { kind: "Patch" });
     if (patchResult.kind === "Err") return patchResult;
     const patch: U64 = patchResult.value;
-    if (((parts.length) as Usize) > (3 as Usize)) return Result.err({ kind: "ExtraCorePart" });
+    if (parts.length > 3) return Result.err({ kind: "ExtraCorePart" });
     let pre2: ReadonlyArray<PreId>;
     if (pre !== null) {
       const p = pre;
-      const result = Iter.tryCollect(
-        p.split(("." as Char)),
-        ((x2: string): Result<PreId, SemverError> => parsePreId(x2)),
-      );
+      const result = Iter.tryCollect(p.split("."), parsePreId);
       if (result.kind === "Err") return result;
       pre2 = result.value;
     } else {
@@ -86,10 +81,7 @@ export const Version = {
     let build2: ReadonlyArray<string>;
     if (build !== null) {
       const b = build;
-      const result2 = Iter.tryCollect(
-        b.split(("." as Char)),
-        ((x2: string): Result<string, SemverError> => parseBuildId(x2)),
-      );
+      const result2 = Iter.tryCollect(b.split("."), parseBuildId);
       if (result2.kind === "Err") return result2;
       build2 = result2.value;
     } else {

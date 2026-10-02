@@ -16,6 +16,6 @@ export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
     base = Int.i64.add(base, share(line, rate, apart, invoice.method));
   }
   const p: I64 = percent(rate);
-  const d: I64 = apart ? Int.i64.add((100n as I64), p) : 100n as I64;
+  const d: I64 = apart ? Int.i64.add(100n as I64, p) : 100n as I64;
   return { base: Yen$of(base), tax: Yen$of(divide(Int.i64.mul(base, p), d, invoice.rounding)) };
 };

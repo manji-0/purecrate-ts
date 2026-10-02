@@ -14,5 +14,5 @@ export const Yen = {
   new: (amount: I64): Result<
     Yen,
     OrderError
-  > => amount < (0n as I64) ? Result.err({ kind: "NegativeAmount" }) : Result.ok(Yen$of(amount)),
+  > => amount < 0n ? Result.err({ kind: "NegativeAmount" }) : Result.ok(Yen$of(amount)),
 } as const;

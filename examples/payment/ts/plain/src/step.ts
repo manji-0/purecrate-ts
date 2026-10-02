@@ -114,13 +114,9 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "Capture": {
           const amountToCapture = event.amount_to_capture;
           const applicationFee = event.application_fee;
-          if (
-            amountToCapture !== null && (
-              amountToCapture < (1n as I64) || amountToCapture > capturable
-            )
-          )
+          if (amountToCapture !== null && (amountToCapture < 1n || amountToCapture > capturable))
             return Result.err({ kind: "InvalidCaptureAmount", capturable });
-          if (applicationFee !== null && applicationFee < (0n as I64))
+          if (applicationFee !== null && applicationFee < 0n)
             return Result.err({ kind: "NegativeApplicationFee" });
           const received: I64 = amountToCapture ?? capturable;
           status = {

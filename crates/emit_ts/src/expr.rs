@@ -176,10 +176,20 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Index { base, index } => format!(
             "Slice.at({}, {})",
             emit_expr(base, indent),
-            emit_expr(index, indent)
+            emit_item(index, indent)
         ),
         Expr::Binary { op, left, right } => {
             let p = bin_prec(*op);
+            // A comparison reads a literal or a length bare: `<` and `===`
+            // compare the values, and a brand does not change them.
+            if matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Eq | BinOp::Ne) {
+                let (l, r) = (bare(left, indent), bare(right, indent));
+                if l.is_some() || r.is_some() {
+                    let l = l.unwrap_or_else(|| grouped(left, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Left));
+                    let r = r.unwrap_or_else(|| grouped(right, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Right));
+                    return format!("{l} {} {r}", bin_op(*op));
+                }
+            }
             format!(
                 "{} {} {}",
                 grouped(
@@ -221,6 +231,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             } else {
                 format!("{o}{inner}")
             }
+        }
+        // `|x| f(x)`, which a function name passed to `map` or `all` becomes,
+        // is `f` itself: its parameter and return types are the arrow's.
+        Expr::Closure { params, body, .. } if forwards(params, body).is_some() => {
+            forwards(params, body).expect("checked above").to_string()
         }
         Expr::Closure { params, ret, body } => {
             format!("({})", closure_arrow(params, ret.as_ref(), body, indent))
@@ -426,10 +441,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 );
             }
             if matches!(callee, purecrate_ir::Callee::StrSplit) {
+                // JS `split` takes a string; the `char` needs no brand.
                 return format!(
                     "{}.split({})",
                     emit_expr(&args[0], indent),
-                    emit_expr(&args[1], indent)
+                    bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
                 );
             }
             if let purecrate_ir::Callee::Collect { result } = callee {
@@ -444,7 +460,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if let purecrate_ir::Callee::Str(m) = callee {
                 let s = emit_expr(&args[0], indent);
-                let needle = || emit_expr(&args[1], indent);
+                let needle = || emit_item(&args[1], indent);
                 return match m {
                     purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
                     purecrate_ir::StrMethod::IsEmpty => format!("({s}.length === 0)"),
@@ -464,7 +480,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
-                return format!("(({}.length) as Usize)", emit_expr(&args[0], indent));
+                return format!("({}.length as Usize)", emit_expr(&args[0], indent));
             }
             match callee {
                 purecrate_ir::Callee::VecIsEmpty => {
@@ -498,7 +514,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             let a = args
                 .iter()
-                .map(|e| emit_expr(e, indent))
+                .map(|e| emit_item(e, indent))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{c}({a})")
@@ -506,7 +522,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Tuple(elems) => {
             let inner = elems
                 .iter()
-                .map(|e| emit_expr(e, indent))
+                .map(|e| emit_item(e, indent))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("[{inner}]")
@@ -514,7 +530,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Array(elems) => {
             let inner = elems
                 .iter()
-                .map(|e| emit_expr(e, indent))
+                .map(|e| emit_item(e, indent))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("[{inner}]")
@@ -573,7 +589,7 @@ pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
     };
     let mut parts = vec![format!("...{}", emit_expr(base, 0))];
     for (name, expr) in pairs {
-        parts.push(field_pair(name.as_str(), emit_expr(expr, 0)));
+        parts.push(field_pair(name.as_str(), emit_item(expr, 0)));
     }
     format!("({{ {} }})", parts.join(", "))
 }
@@ -593,7 +609,7 @@ pub(crate) fn emit_struct_value(fields: &Fields) -> String {
         Fields::Positional(elems) => {
             let inner = elems
                 .iter()
-                .map(|e| emit_expr(e, 0))
+                .map(|e| emit_item(e, 0))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("[{inner}]")
@@ -601,7 +617,7 @@ pub(crate) fn emit_struct_value(fields: &Fields) -> String {
         Fields::Named(pairs) => {
             let inner = pairs
                 .iter()
-                .map(|(n, e)| field_pair(n.as_str(), emit_expr(e, 0)))
+                .map(|(n, e)| field_pair(n.as_str(), emit_item(e, 0)))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{{ {inner} }}")
@@ -613,7 +629,7 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
     match fields {
         Fields::Unit => format!("{{ kind: \"{variant}\" }}"),
         Fields::Positional(elems) if elems.len() == 1 => {
-            let value = emit_expr(&elems[0], 0);
+            let value = emit_item(&elems[0], 0);
             if value == "value" {
                 format!("{{ kind: \"{variant}\", value }}")
             } else {
@@ -623,7 +639,7 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
         Fields::Positional(elems) => {
             let inner = elems
                 .iter()
-                .map(|e| emit_expr(e, 0))
+                .map(|e| emit_item(e, 0))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{{ kind: \"{variant}\", content: [{inner}] }}")
@@ -631,7 +647,7 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
         Fields::Named(pairs) => {
             let inner = pairs
                 .iter()
-                .map(|(n, e)| field_pair(n.as_str(), emit_expr(e, 0)))
+                .map(|(n, e)| field_pair(n.as_str(), emit_item(e, 0)))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{{ kind: \"{variant}\", {inner} }}")
@@ -1036,5 +1052,68 @@ fn emit_slice(
                 b.unwrap_or_else(|| "null".into())
             )
         }
+    }
+}
+
+/// The function a closure only forwards its parameters to, in order.
+fn forwards<'e>(params: &[purecrate_ir::ClosureParam], body: &'e Expr) -> Option<&'e str> {
+    match body {
+        Expr::Call { callee: purecrate_ir::Callee::Fn(f), args }
+            if args.len() == params.len()
+                && args.iter().zip(params).all(|(a, p)| matches!(a, Expr::Var(n) if *n == p.name))
+                && params.iter().all(|p| p.name != *f) =>
+        {
+            Some(f.as_str())
+        }
+        _ => None,
+    }
+}
+
+/// A cast the printer writes around a value (`(1 as I32)`, `(xs.length as
+/// Usize)`): one operand, parenthesized for an operator beside it.
+fn is_cast(expr: &Expr) -> bool {
+    match peel_identity(expr) {
+        Expr::Ignored { expr, .. } => is_cast(expr),
+        Expr::Lit(Lit::Int { ty: Some(_), .. } | Lit::Float { ty: Some(_), .. } | Lit::Char(_)) => true,
+        Expr::Call { callee, .. } => matches!(
+            callee,
+            purecrate_ir::Callee::VecLen | purecrate_ir::Callee::AsFloat(_) | purecrate_ir::Callee::Fround
+        ),
+        _ => false,
+    }
+}
+
+/// An argument, an element, or a field value: a comma or a brace already
+/// bounds it, so a cast needs no parentheses of its own (`f(1 as I32)`).
+pub(crate) fn emit_item(expr: &Expr, indent: usize) -> String {
+    let s = emit_expr(expr, indent);
+    if is_cast(expr) {
+        crate::tidy::strip_outer(&s).to_string()
+    } else {
+        s
+    }
+}
+
+/// A comparison's operand without its brand: an integer or `char` literal
+/// (`2`, `"a"`), or a length (`xs.length`). `None` for anything else.
+fn bare(expr: &Expr, indent: usize) -> Option<String> {
+    match peel_identity(expr) {
+        Expr::Ignored { expr, .. } => bare(expr, indent),
+        Expr::Lit(lit @ (Lit::Int { ty: Some(_), .. } | Lit::Char(_))) => Some(bare_lit(lit)),
+        Expr::Call { callee: purecrate_ir::Callee::VecLen, args } => {
+            Some(format!("{}.length", emit_expr(&args[0], indent)))
+        }
+        _ => None,
+    }
+}
+
+/// A literal as a comparison reads it: an integer or a `char` without its
+/// brand (`48`, `2n`, `"a"`); anything else as `emit_lit` prints it.
+pub(crate) fn bare_lit(lit: &Lit) -> String {
+    match lit {
+        Lit::Int { value, ty: Some(t) } if t.is_big() => format!("{value}n"),
+        Lit::Int { value, .. } => value.to_string(),
+        Lit::Char(c) => js_string(&c.to_string()),
+        other => emit_lit(other),
     }
 }

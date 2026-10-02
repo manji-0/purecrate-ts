@@ -8,7 +8,7 @@ import type { Yen } from "./yen.ts";
 export const total = (lines: Lines): Yen => {
   switch (lines.kind) {
     case "Nil":
-      return Yen$of((0n as I64));
+      return Yen$of(0n as I64);
     case "Cons": {
       const line = lines.content[0];
       const rest = lines.content[1];
