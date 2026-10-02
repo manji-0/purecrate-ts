@@ -791,11 +791,13 @@ pub(crate) fn emit_switch_in(
     }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
     let remainder = remainder_arm(arms);
+    // `A | B` binds nothing: its cases share one body, as do the cases of
+    // arms that bind nothing and do the same (`Succeeded` and `Canceled`).
+    let mut groups: Vec<(Vec<&Name>, Option<&VariantBind>, &purecrate_ir::Arm)> = Vec::new();
     for arm in arms {
         if remainder.is_some_and(|r| std::ptr::eq(r, arm)) {
             continue;
         }
-        // `A | B` binds nothing: its cases share one body.
         let (variants, bind) = match &arm.pattern {
             Pattern::Variant { variant, bind, .. } => (vec![variant], Some(bind)),
             Pattern::Or(alts) => (
@@ -809,6 +811,15 @@ pub(crate) fn emit_switch_in(
             ),
             _ => continue,
         };
+        let shared = arm.pattern.bindings().is_empty().then(|| {
+            groups.iter_mut().find(|(_, _, g)| g.pattern.bindings().is_empty() && g.body == arm.body)
+        });
+        match shared.flatten() {
+            Some((vs, _, _)) => vs.extend(variants),
+            None => groups.push((variants, bind, arm)),
+        }
+    }
+    for (variants, bind, arm) in groups {
         if let Some((last, first)) = variants.split_last() {
             for v in first {
                 out.push_str(&format!("{pad1}case \"{v}\":\n", v = v.as_str()));

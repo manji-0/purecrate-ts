@@ -220,3 +220,15 @@ fn a_nested_returned_choice_is_if_lines() {
     assert!(small.contains("if (x === 0n) return 0n as I64;") && !small.contains(" ? "), "{small}");
     assert!(file("sum-both").contains("x !== null ? (y !== null ? "), "{}", file("sum-both"));
 }
+
+/// Arms that bind nothing and do the same share their cases.
+#[test]
+fn arms_that_do_the_same_share_cases() {
+    let source = "pub enum S { A, B(i32), C, D }\n\
+                  pub fn code(s: S) -> i32 { match s { S::A => 1, S::B(n) => n, S::C => 1, S::D => 2 } }\n";
+    let krate = purecrate_syntax::parse_source("shared", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let code = &pkg.files.iter().find(|f| f.stem == "code").expect("code").source;
+    assert!(code.contains("case \"A\":\n    case \"C\":\n      return 1 as I32;"), "{code}");
+}

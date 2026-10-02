@@ -132,12 +132,6 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       break;
     }
     case "Succeeded":
-      switch (event.kind) {
-        case "Cancel":
-          return Result.err({ kind: "NotCancelable" });
-        default:
-          return Result.err({ kind: "InvalidTransition" });
-      }
     case "Canceled":
       switch (event.kind) {
         case "Cancel":
