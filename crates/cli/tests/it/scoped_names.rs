@@ -96,7 +96,7 @@ fn a_let_from_match_does_not_collide_with_the_arm_binding() {
          }\n",
         "first-or-bail",
     );
-    assert!(src.contains("let v:"), "{src}");
-    assert!(src.contains("const v2 = "), "{src}");
-    assert!(src.contains("v = v2"), "{src}");
+    // The exit first, then `v` read from `x`: the arm's `v` is not bound.
+    assert!(src.contains("if (x === null) return -1 as I32;"), "{src}");
+    assert!(src.contains("const v: I32 = x;"), "{src}");
 }

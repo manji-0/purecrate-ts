@@ -29,29 +29,18 @@ export const validateRequest = (
   params: AuthorizationParams,
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
-  let client2: Client;
-  if (client !== null) {
-    const c = client;
-    client2 = c;
-  } else {
-    return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  }
+  if (client === null) return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
+  const client2: Client = client as Client;
   if (params.client_id !== null) {
     const id = params.client_id;
-    if (id === client2.client_id) {
-    } else {
+    if (id !== client2.client_id)
       return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-    }
   } else {
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   }
-  let redirectUri: string;
-  if (params.redirect_uri !== null) {
-    const u = params.redirect_uri;
-    redirectUri = u;
-  } else {
+  if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
-  }
+  const redirectUri: string = params.redirect_uri;
   if (!redirectUriRegistered(client2, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null = params.state !== null
@@ -61,31 +50,15 @@ export const validateRequest = (
     redirectError(redirectUri, error, echoed);
   if (params.response_type !== null) {
     const rt = params.response_type;
-    if (rt === "code") {
-    } else {
-      return Result.err(fail({ kind: "UnsupportedResponseType" }));
-    }
+    if (rt !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
   } else {
     return Result.err(fail({ kind: "InvalidRequest" }));
   }
-  let scope: string;
-  if (params.scope !== null) {
-    const s = params.scope;
-    if (hasToken(s, "openid")) {
-      scope = s;
-    } else {
-      return Result.err(fail({ kind: "InvalidScope" }));
-    }
-  } else {
-    return Result.err(fail({ kind: "InvalidScope" }));
-  }
-  let state: string;
-  if (echoed !== null) {
-    const s = echoed;
-    state = s;
-  } else {
-    return Result.err(fail({ kind: "InvalidRequest" }));
-  }
+  if (params.scope === null) return Result.err(fail({ kind: "InvalidScope" }));
+  if (!hasToken(params.scope, "openid")) return Result.err(fail({ kind: "InvalidScope" }));
+  const scope: string = params.scope;
+  if (echoed === null) return Result.err(fail({ kind: "InvalidRequest" }));
+  const state: string = echoed;
   let nonce: string | null;
   if (params.nonce !== null) {
     const n = params.nonce;
@@ -110,11 +83,8 @@ export const validateRequest = (
         if (m === "S256") {
           method2 = { kind: "S256" };
         } else {
-          if (m === "plain") {
-            method2 = { kind: "Plain" };
-          } else {
-            return Result.err(fail({ kind: "InvalidRequest" }));
-          }
+          if (m !== "plain") return Result.err(fail({ kind: "InvalidRequest" }));
+          method2 = { kind: "Plain" };
         }
       } else {
         method2 = { kind: "Plain" };
@@ -127,11 +97,8 @@ export const validateRequest = (
     if (params.code_challenge_method !== null) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      if (client2.require_pkce) {
-        return Result.err(fail({ kind: "InvalidRequest" }));
-      } else {
-        pkce = null;
-      }
+      if (client2.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
+      pkce = null;
     }
   }
   let prompt: Prompt;

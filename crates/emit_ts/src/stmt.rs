@@ -211,6 +211,25 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 crate::tidy::strip_outer(&emit_expr(v, indent))
             ));
         }
+        // A value of one side, the other returning: the exit, then the
+        // value. Only an expression stays, so no binding joins the block.
+        Expr::If { cond, then, else_ }
+            if matches!(sink, Sink::Assign(_))
+                && (ends_in_jump(then) && !else_.needs_statements()
+                    || ends_in_jump(else_) && !then.needs_statements()) =>
+        {
+            let c = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
+            let (test, exit, keep) = if ends_in_jump(then) { (c, then, else_) } else { (not(&c), else_, then) };
+            emit_guard(&test, "", exit, indent, Sink::Effect, out);
+            sink.finish_expr(keep, indent, out);
+        }
+        // `if c {} else { .. }` as a statement: the test turned round.
+        Expr::If { cond, then, else_ }
+            if matches!(sink, Sink::Effect) && **then == Expr::Lit(Lit::Unit) && **else_ != Expr::Lit(Lit::Unit) =>
+        {
+            let test = not(crate::tidy::strip_outer(&emit_expr(cond, indent)));
+            emit_guard(&test, "", else_, indent, sink, out);
+        }
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
             let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
             let mut branches = vec![Branch { test: Some(test), prelude: String::new(), body: then }];
@@ -365,6 +384,7 @@ pub(crate) fn emit_let(
                 emit_expr(v, indent)
             ));
         }
+        v if v.needs_statements() && let_else(name, mutable, ty, v, indent, out) => {}
         v if let Some((prelude, s)) = value_expr(v, indent) => {
             out.push_str(&prelude);
             out.push_str(&format!("{pad}{keyword} {name}{annotation} = {};\n", crate::tidy::strip_outer(&s)));
@@ -766,15 +786,83 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, out:
             emit_stmts(b.body, indent, sink, out);
             continue;
         };
-        let mut inner = String::new();
-        emit_stmts(b.body, indent + 1, sink, &mut inner);
-        let one = inner.trim_start();
-        if b.prelude.is_empty() && one.starts_with("return ") && inner.lines().count() == 1 {
-            out.push_str(&format!("{pad}if ({test}) {one}"));
-        } else {
-            out.push_str(&format!("{pad}if ({test}) {{\n{}{inner}{pad}}}\n", b.prelude));
-        }
+        emit_guard(test, &b.prelude, b.body, indent, sink, out);
     }
+}
+
+/// `if (test) { prelude body }`, on one line when the body is one
+/// `return` or jump and there is no prelude.
+fn emit_guard(test: &str, prelude: &str, body: &Expr, indent: usize, sink: Sink, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let mut inner = String::new();
+    emit_stmts(body, indent + 1, sink, &mut inner);
+    let one = inner.trim_start();
+    let jump = ["return ", "break ", "continue "].iter().any(|k| one.starts_with(k));
+    if prelude.is_empty() && jump && inner.lines().count() == 1 {
+        out.push_str(&format!("{pad}if ({test}) {one}"));
+    } else {
+        out.push_str(&format!("{pad}if ({test}) {{\n{prelude}{inner}{pad}}}\n"));
+    }
+}
+
+/// `!c`, as `a !== b` for `a === b` and the like.
+fn not(cond: &str) -> String {
+    use crate::tidy::{group, Assoc, Side, PREC_UNARY};
+    crate::tidy::negate(cond).unwrap_or_else(|| format!("!{}", group(cond, PREC_UNARY, Assoc::Right, Side::Right)))
+}
+
+/// `let x = match o { Some(v) => e, None => return .. }`, or the `if` that
+/// returns on one side: the exit first, then `x` from the side that stays,
+/// its payload read in place. Prints and returns `true` when `value` is
+/// one; a side that stays and still needs statements goes round again.
+fn let_else(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) -> bool {
+    let pad = "  ".repeat(indent);
+    let (test, prelude, exit, keep) = match peel_identity(value) {
+        Expr::If { cond, then, else_ } => {
+            let c = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
+            match (ends_in_jump(then), ends_in_jump(else_)) {
+                (true, false) => (c, String::new(), &**then, (**else_).clone()),
+                (false, true) => (not(&c), String::new(), &**else_, (**then).clone()),
+                _ => return false,
+            }
+        }
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
+            let [a, b] = arms.as_slice() else { return false };
+            let subject = emit_expr(scrutinee, indent);
+            let (exit, keep) = match (ends_in_jump(&a.body), ends_in_jump(&b.body)) {
+                (true, false) => (a, b),
+                (false, true) => (b, a),
+                _ => return false,
+            };
+            let (Some(test), Some(_)) = (two_way_test(&exit.pattern, &subject), two_way_test(&keep.pattern, &subject)) else {
+                return false;
+            };
+            let (inner, read) = match &keep.pattern {
+                Pattern::OptionSome(p) => (Some(&**p), (**scrutinee).clone()),
+                Pattern::ResultOk(p) => (Some(&**p), field_of(scrutinee, "value")),
+                Pattern::ResultErr(p) => (Some(&**p), field_of(scrutinee, "error")),
+                _ => (None, (**scrutinee).clone()),
+            };
+            let kept = match inner {
+                Some(Pattern::Var(n)) => subst(&keep.body, n, &read),
+                None | Some(Pattern::Wildcard) => keep.body.clone(),
+                Some(_) => return false,
+            };
+            let prelude = two_way_prelude(&exit.pattern, &subject, &"  ".repeat(indent + 1));
+            (test, prelude, &exit.body, kept)
+        }
+        _ => return false,
+    };
+    emit_guard(&test, &prelude, exit, indent, Sink::Effect, out);
+    if !let_else(name, mutable, ty, &keep, indent, out) {
+        emit_let(name, mutable, ty, &keep, indent, out);
+    }
+    let _ = pad;
+    true
+}
+
+fn field_of(base: &Expr, name: &str) -> Expr {
+    Expr::Field { base: Box::new(base.clone()), name: Name::new(name) }
 }
 
 pub(crate) fn emit_lit_chain(

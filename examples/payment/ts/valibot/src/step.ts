@@ -96,11 +96,8 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         }
         case "Cancel": {
           const reason = event.value;
-          if (method.kind.kind === "BankDebit") {
-            status = { kind: "Canceled", reason };
-          } else {
-            return Result.err({ kind: "NotCancelable" });
-          }
+          if (method.kind.kind !== "BankDebit") return Result.err({ kind: "NotCancelable" });
+          status = { kind: "Canceled", reason };
           break;
         }
         default:
