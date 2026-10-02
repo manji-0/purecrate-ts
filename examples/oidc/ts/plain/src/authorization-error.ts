@@ -4,10 +4,10 @@ import type { DisplayError } from "./display-error.ts";
 import type { ErrorRedirect } from "./error-redirect.ts";
 
 export type AuthorizationError =
-  | Readonly<{ kind: "Display"; content: readonly [DisplayError] }>
-  | Readonly<{ kind: "Redirect"; content: readonly [ErrorRedirect] }>;
+  | Readonly<{ kind: "Display"; value: DisplayError }>
+  | Readonly<{ kind: "Redirect"; value: ErrorRedirect }>;
 
 export const AuthorizationError = {
-  Display: (_0: DisplayError): AuthorizationError => ({ kind: "Display", content: [_0] }),
-  Redirect: (_0: ErrorRedirect): AuthorizationError => ({ kind: "Redirect", content: [_0] }),
+  Display: (value: DisplayError): AuthorizationError => ({ kind: "Display", value }),
+  Redirect: (value: ErrorRedirect): AuthorizationError => ({ kind: "Redirect", value }),
 } as const;

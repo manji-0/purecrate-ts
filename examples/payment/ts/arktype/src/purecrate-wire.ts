@@ -212,7 +212,7 @@ export const Outcome: Wire<Outcome$> = type("unknown").pipe((v, ctx): Outcome$ =
   }
   {
     const parsed = Outcome$arm$Declined()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Declined", content: [parsed.Declined] };
+    if (!(parsed instanceof type.errors)) return { kind: "Declined", value: parsed.Declined };
     if (keyed(v, "Declined")) return fail(ctx, parsed);
   }
   return ctx.error("Outcome") as never;
@@ -244,7 +244,7 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   {
     const parsed = Event$arm$AttachMethod()(v);
     if (!(parsed instanceof type.errors))
-      return { kind: "AttachMethod", content: [parsed.AttachMethod] };
+      return { kind: "AttachMethod", value: parsed.AttachMethod };
     if (keyed(v, "AttachMethod")) return fail(ctx, parsed);
   }
   {
@@ -256,7 +256,7 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   {
     const parsed = Event$arm$ActionHandled()(v);
     if (!(parsed instanceof type.errors))
-      return { kind: "ActionHandled", content: [parsed.ActionHandled] };
+      return { kind: "ActionHandled", value: parsed.ActionHandled };
     if (keyed(v, "ActionHandled")) return fail(ctx, parsed);
   }
   if (v === "ProcessingSucceeded") return { kind: "ProcessingSucceeded" };
@@ -268,7 +268,7 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   {
     const parsed = Event$arm$ProcessingFailed()(v);
     if (!(parsed instanceof type.errors))
-      return { kind: "ProcessingFailed", content: [parsed.ProcessingFailed] };
+      return { kind: "ProcessingFailed", value: parsed.ProcessingFailed };
     if (keyed(v, "ProcessingFailed")) return fail(ctx, parsed);
   }
   {
@@ -283,7 +283,7 @@ export const Event: Wire<Event$> = type("unknown").pipe((v, ctx): Event$ => {
   }
   {
     const parsed = Event$arm$Cancel()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Cancel", content: [parsed.Cancel] };
+    if (!(parsed instanceof type.errors)) return { kind: "Cancel", value: parsed.Cancel };
     if (keyed(v, "Cancel")) return fail(ctx, parsed);
   }
   return ctx.error("Event") as never;
@@ -468,13 +468,13 @@ export const toJson = {
       case "Pending":
         return "\"Pending\"";
       case "Declined":
-        return Json.object([["Declined", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["Declined", toJson.DeclineCode(x.value)]]);
     }
   },
   Event: (x: Event$): string => {
     switch (x.kind) {
       case "AttachMethod":
-        return Json.object([["AttachMethod", toJson.PaymentMethod(x.content[0])]]);
+        return Json.object([["AttachMethod", toJson.PaymentMethod(x.value)]]);
       case "Confirm":
         return Json.object([[
           "Confirm",
@@ -484,11 +484,11 @@ export const toJson = {
           ]),
         ]]);
       case "ActionHandled":
-        return Json.object([["ActionHandled", toJson.Outcome(x.content[0])]]);
+        return Json.object([["ActionHandled", toJson.Outcome(x.value)]]);
       case "ProcessingSucceeded":
         return "\"ProcessingSucceeded\"";
       case "ProcessingFailed":
-        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.value)]]);
       case "Capture":
         return Json.object([[
           "Capture",
@@ -506,7 +506,7 @@ export const toJson = {
       case "Cancel":
         return Json.object([[
           "Cancel",
-          (x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0])),
+          (x.value === null ? "null" : toJson.CancellationReason(x.value)),
         ]]);
     }
   },

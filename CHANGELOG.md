@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+- **A one-field tuple variant is `{ kind, value }`.** `PreId::Numeric(5)` was `{ kind: "Numeric", content: [5n] }`, read as `id.content[0]`; it is now `{ kind: "Numeric", value: 5n }`, read as `id.value`, and the constructor's parameter is `value`. Two or more fields stay `content: [..]`. The JSON is serde's as before (`{"Numeric": 5}`). Regenerate, and replace `.content[0]` on one-field variants with `.value` in calling code.
+
 ### Added
 
 - A side of `|` may test inside its case (`Started | Paid(Method::Card, Some(0)) =>`), and a tuple inside a case or a tuple may hold any pattern (`Some((1, b))`, `(a, (true, n))`). Both were `[pattern/nested]`. The sides of `|` still bind nothing.

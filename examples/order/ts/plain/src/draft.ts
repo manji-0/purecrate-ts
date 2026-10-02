@@ -13,12 +13,12 @@ import type { Yen } from "./yen.ts";
 export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
     case "AddLine": {
-      const line = cmd.content[0];
+      const line = cmd.value;
       if (line.qty === (0 as U32)) return Result.err({ kind: "QtyZero" });
       return Result.ok({ kind: "Draft", lines: addLine(lines, line) });
     }
     case "RemoveSku": {
-      const sku = cmd.content[0];
+      const sku = cmd.value;
       const $removeSku = removeSku(lines, sku);
       if ($removeSku.kind === "Err") return $removeSku;
       return Result.ok({ kind: "Draft", lines: $removeSku.value });
@@ -38,7 +38,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
           return assertNever(lines);
       }
     case "Cancel": {
-      const reason = cmd.content[0];
+      const reason = cmd.value;
       return Result.ok({ kind: "Cancelled", reason });
     }
     default:

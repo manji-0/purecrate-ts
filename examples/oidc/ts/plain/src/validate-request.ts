@@ -34,26 +34,26 @@ export const validateRequest = (
     const c = client;
     client$1 = c;
   } else {
-    return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
+    return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   }
   if (params.client_id !== null) {
     const id = params.client_id;
     if (id === client$1.client_id) {
     } else {
-      return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
+      return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
     }
   } else {
-    return Result.err({ kind: "Display", content: [{ kind: "UnknownClient" }] });
+    return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   }
   let redirectUri: string;
   if (params.redirect_uri !== null) {
     const u = params.redirect_uri;
     redirectUri = u;
   } else {
-    return Result.err({ kind: "Display", content: [{ kind: "MissingRedirectUri" }] });
+    return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   }
   if (!redirectUriRegistered(client$1, redirectUri))
-    return Result.err({ kind: "Display", content: [{ kind: "UnregisteredRedirectUri" }] });
+    return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null = params.state !== null
     ? (stateIsValid(params.state) ? params.state : null)
     : null;

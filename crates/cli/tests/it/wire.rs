@@ -68,8 +68,8 @@ const holder = {
 const holderValue = {
   tree: { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Node", content: [{ kind: "Leaf" }, 2, { kind: "Leaf" }] }] },
   shapes: [
-    { kind: "Dot" }, { kind: "Circle", content: [1.5] }, { kind: "Rect", content: [1, 2] },
-    { kind: "Named", label: "x", tag: 3 }, { kind: "Named", label: "y", tag: null }, { kind: "Tagged", content: [7n] },
+    { kind: "Dot" }, { kind: "Circle", value: 1.5 }, { kind: "Rect", content: [1, 2] },
+    { kind: "Named", label: "x", tag: 3 }, { kind: "Named", label: "y", tag: null }, { kind: "Tagged", value: 7n },
   ],
   first: null,
   chain: { value: 1, next: { value: 2, next: null } },
@@ -89,8 +89,8 @@ const accepts = [
   ["Ints", ints, intsValue],
   ["Ints", parseJson(intsText), intsValue],
   ["Ints", { ...ints, d: -5, h: 9007199254740991 }, { ...intsValue, d: -5n, h: 9007199254740991n }],
-  ["Shape", parseJson('{"Tagged":9007199254740993}'), { kind: "Tagged", content: [9007199254740993n] }],
-  ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", content: [7n] }],
+  ["Shape", parseJson('{"Tagged":9007199254740993}'), { kind: "Tagged", value: 9007199254740993n }],
+  ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", value: 7n }],
   ["Shape", { Rect: [-1, 0] }, { kind: "Rect", content: [-1, 0] }],
   ["Chain", { value: 3, next: null }, { value: 3, next: null }],
   // serde ignores unknown struct fields by default, inside a variant too.
@@ -101,7 +101,7 @@ const accepts = [
   ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
   ["Sealed", { code: -1 }, { code: -1, hint: null }],
   ["Node", { Group: { label: "g", children: [{ Leaf: 1 }, { Group: { label: "h", children: [] } }] } },
-    { kind: "Group", content: [{ label: "g", children: [{ kind: "Leaf", content: [1] }, { kind: "Group", content: [{ label: "h", children: [] }] }] }] }],
+    { kind: "Group", value: { label: "g", children: [{ kind: "Leaf", value: 1 }, { kind: "Group", value: { label: "h", children: [] } }] } }],
   ["Early", { late: { n: 2 } }, { late: { n: 2 } }],
   ["Letters", { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }, { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }],
   ["Letters", { one: "\n", many: [] }, { one: "\n", maybe: null, many: [] }],

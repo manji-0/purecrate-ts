@@ -69,23 +69,25 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 ### 3.1 Enums
 
 ```rust
-enum Cmd { Quit, Move(i32, i32), Paint { color: String } }
+enum Cmd { Quit, Add(i32), Move(i32, i32), Paint { color: String } }
 ```
 
 ```ts
 export type Cmd =
   | Readonly<{ kind: "Quit" }>
+  | Readonly<{ kind: "Add"; value: I32 }>
   | Readonly<{ kind: "Move"; content: readonly [I32, I32] }>
   | Readonly<{ kind: "Paint"; color: string }>;
 
 export const Cmd = {
   Quit: (): Cmd => ({ kind: "Quit" }),
+  Add: (value: I32): Cmd => ({ kind: "Add", value }),
   Move: (_0: I32, _1: I32): Cmd => ({ kind: "Move", content: [_0, _1] }),
   Paint: (color: string): Cmd => ({ kind: "Paint", color }),
 } as const;
 ```
 
-A one-field tuple variant is `{ kind: "Add"; content: readonly [I32] }`, read as `event.content[0]`. Representing it as `{ kind, value: T }` (JSON unchanged: the wire module still writes serde's `{"Add": 1}`) is a candidate and a breaking change to the type shape ([07 §9](./07-roadmap.md#9-generated-api-stability)). Two or more fields stay `content`.
+A one-field tuple variant is `{ kind: "Add"; value: I32 }`, read as `event.value`; its constructor's parameter is `value`. Two or more fields are `content`, read as `event.content[0]`, with parameters `_0`, `_1`. The JSON is serde's either way (`{"Add": 1}`, `{"Move": [1, 2]}`). Until 0.8.0 one field was also `content: [T]`.
 
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
 

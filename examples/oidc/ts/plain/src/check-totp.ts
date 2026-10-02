@@ -60,7 +60,7 @@ export const checkTotp = (
             : null;
           fresh = !($opt !== null) || $opt;
         }
-        if (fresh) return { kind: "Accepted", content: [c.step] };
+        if (fresh) return { kind: "Accepted", value: c.step };
         replayed = true;
       }
     }

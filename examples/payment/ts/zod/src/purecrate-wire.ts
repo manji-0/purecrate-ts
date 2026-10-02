@@ -140,13 +140,13 @@ export const Outcome: z.ZodType<Outcome$, unknown> = z.union([
   unitVariant("Pending").transform((): Outcome$ => ({ kind: "Pending" })),
   z.object({ Declined: DeclineCode })
     .strict()
-    .transform((x): Outcome$ => ({ kind: "Declined", content: [x.Declined] })),
+    .transform((x): Outcome$ => ({ kind: "Declined", value: x.Declined })),
 ]);
 
 export const Event: z.ZodType<Event$, unknown> = z.union([
   z.object({ AttachMethod: PaymentMethod })
     .strict()
-    .transform((x): Event$ => ({ kind: "AttachMethod", content: [x.AttachMethod] })),
+    .transform((x): Event$ => ({ kind: "AttachMethod", value: x.AttachMethod })),
   z.object({ Confirm: z.object({ method: optionalField(PaymentMethod), outcome: Outcome }) })
     .strict()
     .transform((x): Event$ => ({
@@ -156,12 +156,12 @@ export const Event: z.ZodType<Event$, unknown> = z.union([
     })),
   z.object({ ActionHandled: Outcome })
     .strict()
-    .transform((x): Event$ => ({ kind: "ActionHandled", content: [x.ActionHandled] })),
+    .transform((x): Event$ => ({ kind: "ActionHandled", value: x.ActionHandled })),
   unitVariant("ProcessingSucceeded")
     .transform((): Event$ => ({ kind: "ProcessingSucceeded" })),
   z.object({ ProcessingFailed: DeclineCode })
     .strict()
-    .transform((x): Event$ => ({ kind: "ProcessingFailed", content: [x.ProcessingFailed] })),
+    .transform((x): Event$ => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
   z.object({ Capture: z.object({
     amount_to_capture: optionalField(i64),
     application_fee: optionalField(i64),
@@ -174,7 +174,7 @@ export const Event: z.ZodType<Event$, unknown> = z.union([
     })),
   z.object({ Cancel: nullable(CancellationReason) })
     .strict()
-    .transform((x): Event$ => ({ kind: "Cancel", content: [x.Cancel] })),
+    .transform((x): Event$ => ({ kind: "Cancel", value: x.Cancel })),
 ]);
 
 export const PaymentError: z.ZodType<PaymentError$, unknown> = z.union([
@@ -305,13 +305,13 @@ export const toJson = {
       case "Pending":
         return "\"Pending\"";
       case "Declined":
-        return Json.object([["Declined", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["Declined", toJson.DeclineCode(x.value)]]);
     }
   },
   Event: (x: Event$): string => {
     switch (x.kind) {
       case "AttachMethod":
-        return Json.object([["AttachMethod", toJson.PaymentMethod(x.content[0])]]);
+        return Json.object([["AttachMethod", toJson.PaymentMethod(x.value)]]);
       case "Confirm":
         return Json.object([[
           "Confirm",
@@ -321,11 +321,11 @@ export const toJson = {
           ]),
         ]]);
       case "ActionHandled":
-        return Json.object([["ActionHandled", toJson.Outcome(x.content[0])]]);
+        return Json.object([["ActionHandled", toJson.Outcome(x.value)]]);
       case "ProcessingSucceeded":
         return "\"ProcessingSucceeded\"";
       case "ProcessingFailed":
-        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.value)]]);
       case "Capture":
         return Json.object([[
           "Capture",
@@ -343,7 +343,7 @@ export const toJson = {
       case "Cancel":
         return Json.object([[
           "Cancel",
-          (x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0])),
+          (x.value === null ? "null" : toJson.CancellationReason(x.value)),
         ]]);
     }
   },

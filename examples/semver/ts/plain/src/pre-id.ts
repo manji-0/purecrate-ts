@@ -4,10 +4,10 @@ import { type U64 } from "./purecrate-runtime.ts";
 
 /** One pre-release identifier. */
 export type PreId =
-  | Readonly<{ kind: "Numeric"; content: readonly [U64] }>
-  | Readonly<{ kind: "Alpha"; content: readonly [string] }>;
+  | Readonly<{ kind: "Numeric"; value: U64 }>
+  | Readonly<{ kind: "Alpha"; value: string }>;
 
 export const PreId = {
-  Numeric: (_0: U64): PreId => ({ kind: "Numeric", content: [_0] }),
-  Alpha: (_0: string): PreId => ({ kind: "Alpha", content: [_0] }),
+  Numeric: (value: U64): PreId => ({ kind: "Numeric", value }),
+  Alpha: (value: string): PreId => ({ kind: "Alpha", value }),
 } as const;

@@ -7,10 +7,10 @@ import type { PreId } from "./pre-id.ts";
 export const comparePreId = (a: PreId, b: PreId): Ordering => {
   switch (a.kind) {
     case "Numeric": {
-      const x = a.content[0];
+      const x = a.value;
       switch (b.kind) {
         case "Numeric": {
-          const y = b.content[0];
+          const y = b.value;
           return Ord.cmp(x, y);
         }
         case "Alpha":
@@ -20,12 +20,12 @@ export const comparePreId = (a: PreId, b: PreId): Ordering => {
       }
     }
     case "Alpha": {
-      const x = a.content[0];
+      const x = a.value;
       switch (b.kind) {
         case "Numeric":
           return { kind: "Greater" };
         case "Alpha": {
-          const y = b.content[0];
+          const y = b.value;
           return Ord.cmpStr(x, y);
         }
         default:

@@ -16,7 +16,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
     case "RequiresPaymentMethod":
       switch (event.kind) {
         case "AttachMethod": {
-          const method = event.content[0];
+          const method = event.value;
           status = { kind: "RequiresConfirmation", method };
           break;
         }
@@ -29,7 +29,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Cancel": {
-          const reason = event.content[0];
+          const reason = event.value;
           status = { kind: "Canceled", reason };
           break;
         }
@@ -41,7 +41,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       const current = intent.status.method;
       switch (event.kind) {
         case "AttachMethod": {
-          const method = event.content[0];
+          const method = event.value;
           status = { kind: "RequiresConfirmation", method };
           break;
         }
@@ -52,7 +52,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Cancel": {
-          const reason = event.content[0];
+          const reason = event.value;
           status = { kind: "Canceled", reason };
           break;
         }
@@ -65,7 +65,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       const method = intent.status.method;
       switch (event.kind) {
         case "ActionHandled": {
-          const outcome = event.content[0];
+          const outcome = event.value;
           if ((terms.confirmation.kind === "Manual") && outcome.kind !== "Declined") {
             status = { kind: "RequiresConfirmation", method };
           } else {
@@ -74,7 +74,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Cancel": {
-          const reason = event.content[0];
+          const reason = event.value;
           status = { kind: "Canceled", reason };
           break;
         }
@@ -90,12 +90,12 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           status = attempt(terms, method, { kind: "Authorized" });
           break;
         case "ProcessingFailed": {
-          const code = event.content[0];
+          const code = event.value;
           status = { kind: "RequiresPaymentMethod", last_error: code };
           break;
         }
         case "Cancel": {
-          const reason = event.content[0];
+          const reason = event.value;
           if (method.kind.kind === "BankDebit") {
             status = { kind: "Canceled", reason };
           } else {
@@ -131,7 +131,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Cancel": {
-          const reason = event.content[0];
+          const reason = event.value;
           status = { kind: "Canceled", reason };
           break;
         }

@@ -3,10 +3,10 @@
 import type { TotpEnrollment } from "./totp-enrollment.ts";
 
 export type SecondFactor =
-  | Readonly<{ kind: "Totp"; content: readonly [TotpEnrollment] }>
+  | Readonly<{ kind: "Totp"; value: TotpEnrollment }>
   | Readonly<{ kind: "NotEnrolled" }>;
 
 export const SecondFactor = {
-  Totp: (_0: TotpEnrollment): SecondFactor => ({ kind: "Totp", content: [_0] }),
+  Totp: (value: TotpEnrollment): SecondFactor => ({ kind: "Totp", value }),
   NotEnrolled: (): SecondFactor => ({ kind: "NotEnrolled" }),
 } as const;

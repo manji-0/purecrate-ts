@@ -28,7 +28,7 @@ export const Signup = {
         email$1 = e;
       } else {
         const e = $m_3_email$1.error;
-        return Result.err({ kind: "Email", content: [e] });
+        return Result.err({ kind: "Email", value: e });
       }
     }
     let password$1: Password;
@@ -39,7 +39,7 @@ export const Signup = {
         password$1 = p;
       } else {
         const e = $m_3_password$1.error;
-        return Result.err({ kind: "Password", content: [e] });
+        return Result.err({ kind: "Password", value: e });
       }
     }
     return Result.ok(Signup$of({ email: email$1, password: password$1 }));

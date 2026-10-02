@@ -24,8 +24,8 @@ export type Flow =
     notice: Notice;
   }>
   | Readonly<{ kind: "AwaitingConsent"; request: AuthorizationRequest; auth: Authentication }>
-  | Readonly<{ kind: "CodeIssued"; content: readonly [CodeGrant] }>
-  | Readonly<{ kind: "Rejected"; content: readonly [ErrorRedirect] }>
+  | Readonly<{ kind: "CodeIssued"; value: CodeGrant }>
+  | Readonly<{ kind: "Rejected"; value: ErrorRedirect }>
   | Readonly<{ kind: "Locked" }>;
 
 export const Flow = {
@@ -45,9 +45,9 @@ export const Flow = {
     request: AuthorizationRequest,
     auth: Authentication,
   ): Flow => ({ kind: "AwaitingConsent", request, auth }),
-  CodeIssued: (_0: CodeGrant): Flow => ({ kind: "CodeIssued", content: [_0] }),
+  CodeIssued: (value: CodeGrant): Flow => ({ kind: "CodeIssued", value }),
   /** Terminal: redirect to the client with an error (e.g. consent denied). */
-  Rejected: (_0: ErrorRedirect): Flow => ({ kind: "Rejected", content: [_0] }),
+  Rejected: (value: ErrorRedirect): Flow => ({ kind: "Rejected", value }),
   /** Terminal: too many failures; shown to the End-User, not redirected. */
   Locked: (): Flow => ({ kind: "Locked" }),
 } as const;

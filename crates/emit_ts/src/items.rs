@@ -91,6 +91,9 @@ pub(crate) fn variant_type(v: &purecrate_ir::Variant) -> String {
     let kind = v.name.as_str();
     match &v.fields {
         VariantFields::Unit => format!("Readonly<{{ kind: \"{kind}\" }}>"),
+        VariantFields::Tuple(elems) if elems.len() == 1 => {
+            format!("Readonly<{{ kind: \"{kind}\"; value: {} }}>", emit_ty(&elems[0]))
+        }
         VariantFields::Tuple(elems) => {
             let inner = elems
                 .iter()
@@ -113,6 +116,9 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
     let kind = v.name.as_str();
     match &v.fields {
         VariantFields::Unit => format!("(): {ty} => ({{ kind: \"{kind}\" }})"),
+        VariantFields::Tuple(elems) if elems.len() == 1 => {
+            format!("(value: {}): {ty} => ({{ kind: \"{kind}\", value }})", emit_ty(&elems[0]))
+        }
         VariantFields::Tuple(elems) => {
             let params: Vec<String> = elems
                 .iter()

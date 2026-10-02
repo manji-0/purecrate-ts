@@ -151,14 +151,14 @@ export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([
   v.pipe(unitVariant("Pending"), v.transform((): Outcome$ => ({ kind: "Pending" }))),
   v.pipe(
     v.strictObject({ Declined: DeclineCode }),
-    v.transform((x): Outcome$ => ({ kind: "Declined", content: [x.Declined] })),
+    v.transform((x): Outcome$ => ({ kind: "Declined", value: x.Declined })),
   ),
 ]);
 
 export const Event: v.GenericSchema<unknown, Event$> = v.union([
   v.pipe(
     v.strictObject({ AttachMethod: PaymentMethod }),
-    v.transform((x): Event$ => ({ kind: "AttachMethod", content: [x.AttachMethod] })),
+    v.transform((x): Event$ => ({ kind: "AttachMethod", value: x.AttachMethod })),
   ),
   v.pipe(
     v.strictObject({ Confirm: v.object({
@@ -173,7 +173,7 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ ActionHandled: Outcome }),
-    v.transform((x): Event$ => ({ kind: "ActionHandled", content: [x.ActionHandled] })),
+    v.transform((x): Event$ => ({ kind: "ActionHandled", value: x.ActionHandled })),
   ),
   v.pipe(
     unitVariant("ProcessingSucceeded"),
@@ -181,7 +181,7 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ ProcessingFailed: DeclineCode }),
-    v.transform((x): Event$ => ({ kind: "ProcessingFailed", content: [x.ProcessingFailed] })),
+    v.transform((x): Event$ => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
   ),
   v.pipe(
     v.strictObject({ Capture: v.object({
@@ -196,7 +196,7 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ Cancel: nullable(CancellationReason) }),
-    v.transform((x): Event$ => ({ kind: "Cancel", content: [x.Cancel] })),
+    v.transform((x): Event$ => ({ kind: "Cancel", value: x.Cancel })),
   ),
 ]);
 
@@ -346,13 +346,13 @@ export const toJson = {
       case "Pending":
         return "\"Pending\"";
       case "Declined":
-        return Json.object([["Declined", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["Declined", toJson.DeclineCode(x.value)]]);
     }
   },
   Event: (x: Event$): string => {
     switch (x.kind) {
       case "AttachMethod":
-        return Json.object([["AttachMethod", toJson.PaymentMethod(x.content[0])]]);
+        return Json.object([["AttachMethod", toJson.PaymentMethod(x.value)]]);
       case "Confirm":
         return Json.object([[
           "Confirm",
@@ -362,11 +362,11 @@ export const toJson = {
           ]),
         ]]);
       case "ActionHandled":
-        return Json.object([["ActionHandled", toJson.Outcome(x.content[0])]]);
+        return Json.object([["ActionHandled", toJson.Outcome(x.value)]]);
       case "ProcessingSucceeded":
         return "\"ProcessingSucceeded\"";
       case "ProcessingFailed":
-        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.content[0])]]);
+        return Json.object([["ProcessingFailed", toJson.DeclineCode(x.value)]]);
       case "Capture":
         return Json.object([[
           "Capture",
@@ -384,7 +384,7 @@ export const toJson = {
       case "Cancel":
         return Json.object([[
           "Cancel",
-          (x.content[0] === null ? "null" : toJson.CancellationReason(x.content[0])),
+          (x.value === null ? "null" : toJson.CancellationReason(x.value)),
         ]]);
     }
   },

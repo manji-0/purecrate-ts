@@ -379,4 +379,4 @@ The following may change in a **patch** (formatting of generated files included)
 
 `check --out` still fails on any byte change, including unstable ones: pin the `purecrate-ts` version that generated the committed output. Reason codes (`[type/mutex]`, `[check/nested-option]`) are stable within a minor series; messages may change.
 
-Cleanup of generated code (identity casts, scoped names, wrapping) is therefore a patch when behavior and the stable surface stay the same. A change such as single-field tuple variants becoming `{ kind, value }` instead of `{ kind, content: [T] }`, or honouring `#[serde(rename_all = "camelCase")]` on field names, is a minor (a major after 1.0).
+Cleanup of generated code (identity casts, scoped names, wrapping) is therefore a patch when behavior and the stable surface stay the same. A change such as single-field tuple variants becoming `{ kind, value }` instead of `{ kind, content: [T] }` (0.8.0), or honouring `#[serde(rename_all = "camelCase")]` on field names, is a minor (a major after 1.0).

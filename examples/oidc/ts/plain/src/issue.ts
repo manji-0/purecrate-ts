@@ -8,7 +8,7 @@ import type { Flow } from "./flow.ts";
 
 export const issue = (request: AuthorizationRequest, auth: Authentication): Flow => ({
   kind: "CodeIssued",
-  content: [{
+  value: {
     client_id: request.client_id,
     redirect_uri: request.redirect_uri,
     scope: request.scope,
@@ -19,5 +19,5 @@ export const issue = (request: AuthorizationRequest, auth: Authentication): Flow
     auth_time: auth.auth_time,
     amr: amrValues(auth.strength),
     acr: acrValue(auth.strength),
-  }],
+  },
 });

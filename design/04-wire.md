@@ -15,7 +15,7 @@ Shared behavior is useless if the values it consumes still arrive through hand-w
 | Rust | Generated value | serde_json default |
 | --- | --- | --- |
 | unit `Inc` | `{ kind: "Inc" }` | `"Inc"` |
-| `Add(i32)` | `{ kind: "Add", content: [1] }` | `{"Add":1}` |
+| `Add(i32)` | `{ kind: "Add", value: 1 }` | `{"Add":1}` |
 | `P(i32, i32)` | `{ kind: "P", content: [1, 2] }` | `{"P":[1,2]}` |
 | `Move { dx }` | `{ kind: "Move", dx: 1 }` | `{"Move":{"dx":1}}` |
 | `i64` | `bigint` | number |

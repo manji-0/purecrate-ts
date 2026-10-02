@@ -30,7 +30,7 @@ fn match_arms_reuse_the_rust_name() {
          }\n",
         "step",
     );
-    assert!(src.contains("const method = event.content[0]"), "{src}");
+    assert!(src.contains("const method = event.value"), "{src}");
     assert!(!src.contains("method$"), "{src}");
 }
 
@@ -78,8 +78,8 @@ fn a_shadow_in_one_arm_does_not_renumber_the_next() {
          }\n",
         "step",
     );
-    assert!(step.contains("const n$1 = event.content[0]"), "{step}");
-    assert!(step.contains("const k = event.content[0]"), "{step}");
+    assert!(step.contains("const n$1 = event.value"), "{step}");
+    assert!(step.contains("const k = event.value"), "{step}");
     assert!(!step.contains("k$"), "{step}");
 }
 

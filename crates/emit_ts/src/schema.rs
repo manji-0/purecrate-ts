@@ -616,7 +616,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
         }
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(schema, variant, tys);
-            (json, format!("content: {content}"))
+            (json, content)
         }
         VariantFields::Struct(fs) => {
             let fields = object_fields(schema, fs);
@@ -713,7 +713,7 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
         }
         VariantFields::Tuple(tys) => {
             let (json, content) = tuple_json(WireSchema::Arktype, name, tys);
-            (json, format!("content: {}", content.replace("x.", "parsed.")))
+            (json, content.replace("x.", "parsed."))
         }
         VariantFields::Struct(fields) => {
             let inner = fields
@@ -734,9 +734,11 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, String) {
 
 /// A one-element tuple variant is serde's newtype variant: `{"Add": 4}`, not
 /// `{"Add": [4]}`. The domain value is still a one-element tuple.
+/// The schema of a tuple variant's JSON, and the fields of its TS value
+/// read from `x`: `value: x.V` for one field, `content: x.V` for several.
 fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty]) -> (String, String) {
     if tys.len() == 1 {
-        return (schema_ty(schema, &tys[0]), format!("[x.{variant}]"));
+        return (schema_ty(schema, &tys[0]), format!("value: x.{variant}"));
     }
     let inner = tys
         .iter()
@@ -748,7 +750,7 @@ fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty]) -> (String, String)
         WireSchema::Valibot => format!("v.tuple([{inner}])"),
         WireSchema::Arktype => format!("[{inner}]"),
     };
-    (json, format!("x.{variant}"))
+    (json, format!("content: x.{variant}"))
 }
 
 fn schema_ty(schema: WireSchema, ty: &Ty) -> String {
@@ -845,7 +847,7 @@ fn to_json(krate: &Crate) -> String {
                     let value = match &v.fields {
                         VariantFields::Unit => format!("\"\\\"{var}\\\"\""),
                         VariantFields::Tuple(tys) if tys.len() == 1 => {
-                            format!("Json.object([[\"{var}\", {}]])", write_json(&tys[0], "x.content[0]", 0))
+                            format!("Json.object([[\"{var}\", {}]])", write_json(&tys[0], "x.value", 0))
                         }
                         VariantFields::Tuple(tys) => {
                             let elems = tys

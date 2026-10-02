@@ -10,5 +10,5 @@ export const redirectError = (
   state: string | null,
 ): AuthorizationError => ({
   kind: "Redirect",
-  content: [{ redirect_uri: redirectUri, error, state: copyOptional(state) }],
+  value: { redirect_uri: redirectUri, error, state: copyOptional(state) },
 });

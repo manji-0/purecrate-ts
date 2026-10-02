@@ -19,7 +19,7 @@ export const attempt = (terms: Terms, method: PaymentMethod, outcome: Outcome): 
     case "Pending":
       return { kind: "Processing", method };
     case "Declined": {
-      const code = outcome.content[0];
+      const code = outcome.value;
       return { kind: "RequiresPaymentMethod", last_error: code };
     }
     default:

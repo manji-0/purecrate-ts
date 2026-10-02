@@ -4,14 +4,14 @@ import { type I64 } from "./purecrate-runtime.ts";
 
 /** Result of checking a submitted OTP against the candidate MACs. */
 export type OtpCheck =
-  | Readonly<{ kind: "Accepted"; content: readonly [I64] }>
+  | Readonly<{ kind: "Accepted"; value: I64 }>
   | Readonly<{ kind: "Replayed" }>
   | Readonly<{ kind: "Mismatch" }>
   | Readonly<{ kind: "Malformed" }>
   | Readonly<{ kind: "ClockBeforeEpoch" }>;
 
 export const OtpCheck = {
-  Accepted: (_0: I64): OtpCheck => ({ kind: "Accepted", content: [_0] }),
+  Accepted: (value: I64): OtpCheck => ({ kind: "Accepted", value }),
   Replayed: (): OtpCheck => ({ kind: "Replayed" }),
   Mismatch: (): OtpCheck => ({ kind: "Mismatch" }),
   Malformed: (): OtpCheck => ({ kind: "Malformed" }),

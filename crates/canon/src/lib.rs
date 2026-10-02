@@ -339,6 +339,9 @@ fn js_enum(en: &purecrate_ir::Enum) -> String {
         let var = v.name.as_str();
         let arm = match &v.fields {
             VariantFields::Unit => format!("{name}::{var} => \"({{ kind: \\\"{var}\\\" }})\".to_string(),"),
+            VariantFields::Tuple(tys) if tys.len() == 1 => format!(
+                "{name}::{var}(f0) => format!(\"({{{{ kind: \\\"{var}\\\", value: {{}} }}}})\", {JS}::js(f0)),"
+            ),
             VariantFields::Tuple(tys) => {
                 let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
                 let holes = vec!["{}"; tys.len()].join(", ");

@@ -61,12 +61,12 @@ export const Version = {
     if ($v_major.kind === "Err") return $v_major;
     const major: U64 = $v_major.value;
     if (((parts.length) as Usize) < (2 as Usize))
-      return Result.err({ kind: "MissingPart", content: [{ kind: "Minor" }] });
+      return Result.err({ kind: "MissingPart", value: { kind: "Minor" } });
     const $v_minor = parseCoreNumber(Slice.at(parts, (1 as Usize)), { kind: "Minor" });
     if ($v_minor.kind === "Err") return $v_minor;
     const minor: U64 = $v_minor.value;
     if (((parts.length) as Usize) < (3 as Usize))
-      return Result.err({ kind: "MissingPart", content: [{ kind: "Patch" }] });
+      return Result.err({ kind: "MissingPart", value: { kind: "Patch" } });
     const $v_patch = parseCoreNumber(Slice.at(parts, (2 as Usize)), { kind: "Patch" });
     if ($v_patch.kind === "Err") return $v_patch;
     const patch: U64 = $v_patch.value;

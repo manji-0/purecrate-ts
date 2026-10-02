@@ -6,18 +6,18 @@ import type { Sku } from "./sku.ts";
 import type { Yen } from "./yen.ts";
 
 export type Command =
-  | Readonly<{ kind: "AddLine"; content: readonly [Line] }>
-  | Readonly<{ kind: "RemoveSku"; content: readonly [Sku] }>
+  | Readonly<{ kind: "AddLine"; value: Line }>
+  | Readonly<{ kind: "RemoveSku"; value: Sku }>
   | Readonly<{ kind: "Place" }>
-  | Readonly<{ kind: "Pay"; content: readonly [Yen] }>
-  | Readonly<{ kind: "Ship"; content: readonly [string] }>
-  | Readonly<{ kind: "Cancel"; content: readonly [CancelReason] }>;
+  | Readonly<{ kind: "Pay"; value: Yen }>
+  | Readonly<{ kind: "Ship"; value: string }>
+  | Readonly<{ kind: "Cancel"; value: CancelReason }>;
 
 export const Command = {
-  AddLine: (_0: Line): Command => ({ kind: "AddLine", content: [_0] }),
-  RemoveSku: (_0: Sku): Command => ({ kind: "RemoveSku", content: [_0] }),
+  AddLine: (value: Line): Command => ({ kind: "AddLine", value }),
+  RemoveSku: (value: Sku): Command => ({ kind: "RemoveSku", value }),
   Place: (): Command => ({ kind: "Place" }),
-  Pay: (_0: Yen): Command => ({ kind: "Pay", content: [_0] }),
-  Ship: (_0: string): Command => ({ kind: "Ship", content: [_0] }),
-  Cancel: (_0: CancelReason): Command => ({ kind: "Cancel", content: [_0] }),
+  Pay: (value: Yen): Command => ({ kind: "Pay", value }),
+  Ship: (value: string): Command => ({ kind: "Ship", value }),
+  Cancel: (value: CancelReason): Command => ({ kind: "Cancel", value }),
 } as const;

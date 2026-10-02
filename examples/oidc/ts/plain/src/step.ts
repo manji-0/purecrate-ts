@@ -35,7 +35,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           } else {
             switch (secondFactor.kind) {
               case "Totp": {
-                const enrollment = secondFactor.content[0];
+                const enrollment = secondFactor.value;
                 return Result.ok({
                   kind: "AwaitingOtp",
                   request,
@@ -78,7 +78,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
             const $m_6_notice: OtpCheck = checkTotp(code, now, enrollment, candidates);
             switch ($m_6_notice.kind) {
               case "Accepted": {
-                const step$1 = $m_6_notice.content[0];
+                const step$1 = $m_6_notice.value;
                 const auth: Authentication = {
                   subject,
                   auth_time: now,
@@ -122,11 +122,11 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
         case "ConsentDenied": {
           return Result.ok({
             kind: "Rejected",
-            content: [{
+            value: {
               redirect_uri: request.redirect_uri,
               error: { kind: "AccessDenied" },
               state: request.state,
-            }],
+            },
           });
         }
         default:

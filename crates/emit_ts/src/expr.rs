@@ -612,6 +612,14 @@ pub(crate) fn emit_struct_value(fields: &Fields) -> String {
 pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> String {
     match fields {
         Fields::Unit => format!("{{ kind: \"{variant}\" }}"),
+        Fields::Positional(elems) if elems.len() == 1 => {
+            let value = emit_expr(&elems[0], 0);
+            if value == "value" {
+                format!("{{ kind: \"{variant}\", value }}")
+            } else {
+                format!("{{ kind: \"{variant}\", value: {value} }}")
+            }
+        }
         Fields::Positional(elems) => {
             let inner = elems
                 .iter()
@@ -791,11 +799,12 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
                     VariantBind::Unit => {}
                     VariantBind::Tuple(ps) => {
                         for (k, p) in ps.iter().enumerate() {
-                            bind(
-                                p,
-                                field(&field(scrutinee, "content"), &format!("[{k}]")),
-                                &mut body,
-                            )?;
+                            let place = if ps.len() == 1 {
+                                field(scrutinee, "value")
+                            } else {
+                                field(&field(scrutinee, "content"), &format!("[{k}]"))
+                            };
+                            bind(p, place, &mut body)?;
                         }
                     }
                     VariantBind::Struct(ps) => {

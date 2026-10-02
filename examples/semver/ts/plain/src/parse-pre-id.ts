@@ -23,7 +23,7 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
       return Result.err({ kind: "InvalidPreReleaseChar" });
     } else {
       if (!allDigits(s)) {
-        return Result.ok({ kind: "Alpha", content: [s] });
+        return Result.ok({ kind: "Alpha", value: s });
       } else {
         if (hasLeadingZero(s)) {
           return Result.err({ kind: "PreReleaseLeadingZero" });
@@ -33,7 +33,7 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
             const $result$1: Result<U64, ParseIntError> = Int.u64.parse(s);
             $result = $result$1.kind === "Ok" ? Result.ok({
               kind: "Numeric",
-              content: [$result$1.value],
+              value: $result$1.value,
             }) : Result.err($result$1.error);
           }
           return $result.kind === "Ok"

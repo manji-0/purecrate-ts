@@ -7,27 +7,27 @@ import type { Outcome } from "./outcome.ts";
 import type { PaymentMethod } from "./payment-method.ts";
 
 export type Event =
-  | Readonly<{ kind: "AttachMethod"; content: readonly [PaymentMethod] }>
+  | Readonly<{ kind: "AttachMethod"; value: PaymentMethod }>
   | Readonly<{ kind: "Confirm"; method: PaymentMethod | null; outcome: Outcome }>
-  | Readonly<{ kind: "ActionHandled"; content: readonly [Outcome] }>
+  | Readonly<{ kind: "ActionHandled"; value: Outcome }>
   | Readonly<{ kind: "ProcessingSucceeded" }>
-  | Readonly<{ kind: "ProcessingFailed"; content: readonly [DeclineCode] }>
+  | Readonly<{ kind: "ProcessingFailed"; value: DeclineCode }>
   | Readonly<{ kind: "Capture"; amount_to_capture: I64 | null; application_fee: I64 | null }>
-  | Readonly<{ kind: "Cancel"; content: readonly [CancellationReason | null] }>;
+  | Readonly<{ kind: "Cancel"; value: CancellationReason | null }>;
 
 export const Event = {
-  AttachMethod: (_0: PaymentMethod): Event => ({ kind: "AttachMethod", content: [_0] }),
+  AttachMethod: (value: PaymentMethod): Event => ({ kind: "AttachMethod", value }),
   Confirm: (
     method: PaymentMethod | null,
     outcome: Outcome,
   ): Event => ({ kind: "Confirm", method, outcome }),
-  ActionHandled: (_0: Outcome): Event => ({ kind: "ActionHandled", content: [_0] }),
+  ActionHandled: (value: Outcome): Event => ({ kind: "ActionHandled", value }),
   ProcessingSucceeded: (): Event => ({ kind: "ProcessingSucceeded" }),
-  ProcessingFailed: (_0: DeclineCode): Event => ({ kind: "ProcessingFailed", content: [_0] }),
+  ProcessingFailed: (value: DeclineCode): Event => ({ kind: "ProcessingFailed", value }),
   Capture: (amountToCapture: I64 | null, applicationFee: I64 | null): Event => ({
     kind: "Capture",
     amount_to_capture: amountToCapture,
     application_fee: applicationFee,
   }),
-  Cancel: (_0: CancellationReason | null): Event => ({ kind: "Cancel", content: [_0] }),
+  Cancel: (value: CancellationReason | null): Event => ({ kind: "Cancel", value }),
 } as const;

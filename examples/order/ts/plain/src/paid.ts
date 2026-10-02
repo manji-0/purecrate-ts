@@ -10,7 +10,7 @@ import type { Yen } from "./yen.ts";
 export const paid = (lines: Lines, total$1: Yen, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
     case "Ship": {
-      const tracking = cmd.content[0];
+      const tracking = cmd.value;
       if (tracking.length === 0) return Result.err({ kind: "EmptyTracking" });
       return Result.ok({ kind: "Shipped", lines, total: total$1, tracking });
     }

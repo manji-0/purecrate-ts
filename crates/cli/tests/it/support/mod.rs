@@ -553,7 +553,10 @@ fn ts_printers(krate: &Crate) -> String {
                             "`{name}::{var}({})`",
                             tys.iter()
                                 .enumerate()
-                                .map(|(i, t)| format!("${{({})(v.content[{i}])}}", ts_printer(krate, t)))
+                                .map(|(i, t)| {
+                                    let field = if tys.len() == 1 { "v.value".to_string() } else { format!("v.content[{i}]") };
+                                    format!("${{({})({field})}}", ts_printer(krate, t))
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),

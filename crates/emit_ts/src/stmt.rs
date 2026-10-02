@@ -696,6 +696,16 @@ fn tuple_names(elems: &[Pattern], read: &str, pad: &str) -> String {
         .collect()
 }
 
+/// Field `i` of a tuple variant of `n` fields: `.value` when it is the
+/// only one, else `.content[i]`.
+pub(crate) fn tuple_variant_field(subject: &str, i: usize, n: usize) -> String {
+    if n == 1 {
+        format!("{subject}.value")
+    } else {
+        format!("{subject}.content[{i}]")
+    }
+}
+
 pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> String {
     match bind {
         VariantBind::Unit => String::new(),
@@ -704,11 +714,12 @@ pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> Stri
             .enumerate()
             .filter_map(|(i, p)| match p {
                 Pattern::Var(n) => Some(format!(
-                    "{pad}const {name} = {subject}.content[{i}];\n",
+                    "{pad}const {name} = {};\n",
+                    tuple_variant_field(subject, i, pats.len()),
                     name = n.as_str()
                 )),
                 Pattern::Tuple(elems) => {
-                    Some(tuple_names(elems, &format!("{subject}.content[{i}]"), pad))
+                    Some(tuple_names(elems, &tuple_variant_field(subject, i, pats.len()), pad))
                 }
                 _ => None,
             })
