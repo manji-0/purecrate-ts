@@ -277,8 +277,14 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     if wrap_arrow_first(line, width, out) {
         return;
     }
+    if wrap_assign_ternary(line, width, out) {
+        return;
+    }
     // A top-level `?:` splits before a bracket in one of its branches opens.
     if wrap_ternary(line, width, out) {
+        return;
+    }
+    if wrap_sole_item(line, width, out) {
         return;
     }
     if wrap_bracket(line, width, true, out) {
@@ -501,6 +507,40 @@ fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool {
     true
 }
 
+/// The outermost call or parameter list on the line holding one item that
+/// oxfmt does not hug (an object, array, or arrow is hugged): it opens, the
+/// item one indent in with a trailing comma, so `unsafeMakeYen(` then
+/// `Int.i64.add(..),` and `(` then `fields: Readonly<{ .. }>,`.
+fn wrap_sole_item(line: &str, width: usize, out: &mut String) -> bool {
+    let d = depths(line);
+    let bytes = line.as_bytes();
+    let Some(open) = (0..bytes.len()).find(|&i| bytes[i] == b'(' && d[i] == Some(0)) else { return false };
+    let Some(close) = (open + 1..bytes.len()).find(|&j| bytes[j] == b')' && d[j] == Some(0)) else { return false };
+    let before = line[..open].trim_end();
+    let call = before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')' | ']'));
+    let after = &line[close + 1..];
+    // Parameters open only where the arrow's head does not fit; else its
+    // body breaks (`wrap_arrow_first`, `wrap_bracket`).
+    let params = before.ends_with('=')
+        && (after.starts_with(": ") || after.starts_with(" =>"))
+        && arrow_split(line, width).is_none();
+    let control = ["if", "for", "while", "switch"].iter().any(|k| before.ends_with(k));
+    if !(call || params) || control || open + 1 > width {
+        return false;
+    }
+    let item = line[open + 1..close].trim();
+    let commas = (open + 1..close).any(|j| bytes[j] == b',' && d[j] == Some(1));
+    let arrow = (open + 1..close).any(|j| d[j] == Some(1) && line[j..].starts_with(" => "));
+    if item.is_empty() || commas || arrow || item.starts_with(['{', '[', '`']) {
+        return false;
+    }
+    let pad = &line[..line.len() - line.trim_start().len()];
+    wrap_line(&line[..=open], width, out);
+    wrap_line(&format!("{pad}  {item},"), width, out);
+    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    true
+}
+
 /// `{ kind: "X"; a: T; b: U }` in a type, split on `;`.
 fn wrap_type_fields(line: &str, width: usize, out: &mut String) -> bool {
     wrap_bracket_sep(line, width, b';', out)
@@ -529,6 +569,11 @@ fn wrap_bracket_sep(line: &str, width: usize, sep: u8, out: &mut String) -> bool
     };
     let trimmed = line.trim_start();
     let pad = &line[..line.len() - trimmed.len()];
+    // A union member's contents sit past its `| `, its close under the `R`.
+    let (item_pad, close_pad) = match trimmed.starts_with("| ") {
+        true => (format!("{pad}    "), format!("{pad}  ")),
+        false => (format!("{pad}  "), pad.to_string()),
+    };
     let mut items = Vec::new();
     let mut start = open + 1;
     for j in open + 1..close {
@@ -547,9 +592,9 @@ fn wrap_bracket_sep(line: &str, width: usize, sep: u8, out: &mut String) -> bool
     let ch = sep as char;
     wrap_line(&line[..=open], width, out);
     for item in items {
-        wrap_line(&format!("{pad}  {item}{ch}"), width, out);
+        wrap_line(&format!("{item_pad}{item}{ch}"), width, out);
     }
-    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    wrap_line(&format!("{close_pad}{}", &line[close..]), width, out);
     true
 }
 
@@ -682,6 +727,24 @@ fn split_at_op(expr: &str, op: &str, depth: usize) -> Option<Vec<String>> {
     (parts.len() >= 2).then_some(parts)
 }
 
+/// `const x: T = a === b ? c : d;` breaks after `=`, the `?:` one indent
+/// in on a line of its own or split there, as oxfmt prints a conditional
+/// whose test is a binary expression. A test that is a name or a `!`
+/// stays on the `=` line (`wrap_ternary`).
+fn wrap_assign_ternary(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    let Some(eq) = top_assign(rest) else { return false };
+    let rhs = &rest[eq + 3..];
+    let Some((test, _, _)) = find_ternary(rhs.trim_end_matches(';')) else { return false };
+    if top_prec(test) >= PREC_UNARY {
+        return false;
+    }
+    wrap_line(&format!("{pad}{} =", &rest[..eq]), width, out);
+    wrap_line(&format!("{pad}  {rhs}"), width, out);
+    true
+}
+
 /// `test ? then : else` with `?` / `:` on their own continuation lines.
 fn wrap_ternary(line: &str, width: usize, out: &mut String) -> bool {
     let Some((first, then_line, else_line)) = split_ternary(line) else {
@@ -712,6 +775,12 @@ fn split_ternary(line: &str) -> Option<(String, String, String)> {
         rest = rest[eq + 3..].trim_start();
     }
     let (test, then, else_) = find_ternary(rest)?;
+    // A nested `?:` is parenthesized on one line, bare once split.
+    let bare = |s: &str| -> String {
+        let inner = strip_outer(s);
+        if inner.len() < s.len() && find_ternary(inner).is_some() { inner.to_string() } else { s.to_string() }
+    };
+    let (then, else_) = (bare(then), bare(else_.trim_end_matches(';')) + if else_.ends_with(';') { ";" } else { "" });
     let inner = format!("{pad}  ");
     Some((
         format!("{first_prefix}{test}"),
@@ -979,7 +1048,7 @@ mod tests {
         let line = "      const matches: boolean = pkce.method.kind === \"Plain\" ? verifier === pkce.challenge : verifierS256 !== null && verifierS256 === pkce.challenge;";
         assert_eq!(
             wrap(line, 100),
-            "      const matches: boolean = pkce.method.kind === \"Plain\"\n        ? verifier === pkce.challenge\n        : verifierS256 !== null && verifierS256 === pkce.challenge;\n"
+            "      const matches: boolean =\n        pkce.method.kind === \"Plain\"\n          ? verifier === pkce.challenge\n          : verifierS256 !== null && verifierS256 === pkce.challenge;\n"
         );
     }
 

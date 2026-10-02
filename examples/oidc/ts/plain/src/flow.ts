@@ -10,19 +10,19 @@ import type { TotpEnrollment } from "./totp-enrollment.ts";
 
 export type Flow =
   | Readonly<{
-    kind: "AwaitingPassword";
-    request: AuthorizationRequest;
-    failures: U32;
-    notice: Notice;
-  }>
+      kind: "AwaitingPassword";
+      request: AuthorizationRequest;
+      failures: U32;
+      notice: Notice;
+    }>
   | Readonly<{
-    kind: "AwaitingOtp";
-    request: AuthorizationRequest;
-    subject: string;
-    enrollment: TotpEnrollment;
-    failures: U32;
-    notice: Notice;
-  }>
+      kind: "AwaitingOtp";
+      request: AuthorizationRequest;
+      subject: string;
+      enrollment: TotpEnrollment;
+      failures: U32;
+      notice: Notice;
+    }>
   | Readonly<{ kind: "AwaitingConsent"; request: AuthorizationRequest; auth: Authentication }>
   | Readonly<{ kind: "CodeIssued"; value: CodeGrant }>
   | Readonly<{ kind: "Rejected"; value: ErrorRedirect }>

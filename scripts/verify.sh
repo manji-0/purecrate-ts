@@ -4,7 +4,8 @@
 # runtime; those with a schema find its library in examples/node_modules) and
 # over the runtime and adapter sources that every package copies, under each
 # supported TypeScript major (see TS_MAJORS in
-# crates/cli/tests/it/support/mod.rs), then oxlint over the generated output.
+# crates/cli/tests/it/support/mod.rs), then oxlint and `oxfmt --check` over
+# the generated output.
 # `npm ci` in examples/ installs the schema libraries, oxlint, and oxfmt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -78,4 +79,7 @@ done
 # from examples/node_modules.
 (cd examples && npx --no-install oxlint --type-aware --deny-warnings .) \
   || { echo "verify: oxlint rejects the generated output" >&2; exit 1; }
+# ..and is laid out as oxfmt lays it out (examples/.oxfmtrc.json).
+(cd examples && npx --no-install oxfmt --check '*/ts/*/src/**/*.ts') \
+  || { echo "verify: oxfmt would reformat the generated output" >&2; exit 1; }
 echo "verify: ok"

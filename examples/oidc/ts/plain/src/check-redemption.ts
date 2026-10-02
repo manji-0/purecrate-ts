@@ -23,9 +23,10 @@ export const checkRedemption = (
     if (codeVerifier !== null) {
       if (!pkceStringIsValid(codeVerifier)) return Result.err({ kind: "InvalidRequest" });
       const verifier: string = codeVerifier;
-      const matches: boolean = pkce.method.kind === "Plain"
-        ? verifier === pkce.challenge
-        : verifierS256 !== null && verifierS256 === pkce.challenge;
+      const matches: boolean =
+        pkce.method.kind === "Plain"
+          ? verifier === pkce.challenge
+          : verifierS256 !== null && verifierS256 === pkce.challenge;
       return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
     }
     return Result.err({ kind: "InvalidRequest" });

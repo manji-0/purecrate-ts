@@ -30,10 +30,9 @@ export const Amount: Wire<DomainAmount> = type("unknown").pipe((v, ctx): DomainA
 
 const paymentMethodIdWire = memo(() => str);
 /** A payment method ID: `pm_` followed by at least one character. */
-export const PaymentMethodId: Wire<DomainPaymentMethodId> = type("unknown").pipe((
-  v,
-  ctx,
-): DomainPaymentMethodId => {
+export const PaymentMethodId: Wire<DomainPaymentMethodId> = type(
+  "unknown",
+).pipe((v, ctx): DomainPaymentMethodId => {
   const parsed = paymentMethodIdWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   const r = DomainPaymentMethodId.tryFrom(parsed);
@@ -45,10 +44,9 @@ export const PaymentMethodId: Wire<DomainPaymentMethodId> = type("unknown").pipe
 export const MethodKind: Wire<DomainMethodKind> = unitEnum("MethodKind", ["Card", "BankDebit"]);
 
 const paymentMethodWire = memo(() => type({ id: PaymentMethodId, kind: MethodKind }));
-export const PaymentMethod: Wire<DomainPaymentMethod> = type("unknown").pipe((
-  v,
-  ctx,
-): DomainPaymentMethod => {
+export const PaymentMethod: Wire<DomainPaymentMethod> = type(
+  "unknown",
+).pipe((v, ctx): DomainPaymentMethod => {
   const parsed = paymentMethodWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ id: parsed.id, kind: parsed.kind });
@@ -172,10 +170,9 @@ export const Status: Wire<DomainStatus> = type("unknown").pipe((v, ctx): DomainS
 });
 
 const paymentIntentWire = memo(() => type({ terms: Terms, status: Status }));
-export const PaymentIntent: Wire<DomainPaymentIntent> = type("unknown").pipe((
-  v,
-  ctx,
-): DomainPaymentIntent => {
+export const PaymentIntent: Wire<DomainPaymentIntent> = type(
+  "unknown",
+).pipe((v, ctx): DomainPaymentIntent => {
   const parsed = paymentIntentWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ terms: parsed.terms, status: parsed.status });
@@ -306,10 +303,9 @@ const paymentErrorInvalidTransitionArm = memo(() => type({
   "+": "reject",
   InvalidTransition: "null",
 }));
-export const PaymentError: Wire<DomainPaymentError> = type("unknown").pipe((
-  v,
-  ctx,
-): DomainPaymentError => {
+export const PaymentError: Wire<DomainPaymentError> = type(
+  "unknown",
+).pipe((v, ctx): DomainPaymentError => {
   if (v === "AmountOutOfRange") return { kind: "AmountOutOfRange" };
   {
     const parsed = paymentErrorAmountOutOfRangeArm()(v);

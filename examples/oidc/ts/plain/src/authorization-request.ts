@@ -28,17 +28,19 @@ export type AuthorizationRequest = Readonly<{
  * `index.ts` does not export it.
  * @internal
  */
-export const unsafeMakeAuthorizationRequest = (fields: Readonly<{
-  client_id: string;
-  redirect_uri: string;
-  scope: string;
-  state: string;
-  nonce: string | null;
-  pkce: Pkce | null;
-  prompt: Prompt;
-  max_age: I64 | null;
-  wants_mfa: boolean;
-}>): AuthorizationRequest => fields as AuthorizationRequest;
+export const unsafeMakeAuthorizationRequest = (
+  fields: Readonly<{
+    client_id: string;
+    redirect_uri: string;
+    scope: string;
+    state: string;
+    nonce: string | null;
+    pkce: Pkce | null;
+    prompt: Prompt;
+    max_age: I64 | null;
+    wants_mfa: boolean;
+  }>,
+): AuthorizationRequest => fields as AuthorizationRequest;
 
 export const AuthorizationRequest = {
   clientId: (self: AuthorizationRequest): string => self.client_id,

@@ -28,16 +28,17 @@ export const begin = (
   const requestResult = validateRequest(params, client);
   if (requestResult.kind === "Err") return requestResult;
   const request: AuthorizationRequest = requestResult.value;
-  const reusable: Authentication | null = session !== null
-    ? sessionIsUsable(request, session, now)
-      ? {
-          subject: session.subject,
-          auth_time: session.auth_time,
-          strength: session.strength,
-          totp_step: null,
-        }
-      : null
-    : null;
+  const reusable: Authentication | null =
+    session !== null
+      ? sessionIsUsable(request, session, now)
+        ? {
+            subject: session.subject,
+            auth_time: session.auth_time,
+            strength: session.strength,
+            totp_step: null,
+          }
+        : null
+      : null;
   const needsConsent: boolean = request.prompt.consent || !consentOnFile;
   const state: string | null = request.state;
   const refuse = (error: ErrorCode): AuthorizationError =>

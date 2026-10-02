@@ -2,9 +2,7 @@
 
 import { assertNever } from "./purecrate-runtime.ts";
 
-export type InvoiceError =
-  | Readonly<{ kind: "NegativeAmount" }>
-  | Readonly<{ kind: "NoLines" }>;
+export type InvoiceError = Readonly<{ kind: "NegativeAmount" }> | Readonly<{ kind: "NoLines" }>;
 
 export const InvoiceError = {
   NegativeAmount: (): InvoiceError => ({ kind: "NegativeAmount" }),

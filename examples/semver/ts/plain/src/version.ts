@@ -24,13 +24,15 @@ export type Version = Readonly<{
  * `index.ts` does not export it.
  * @internal
  */
-export const unsafeMakeVersion = (fields: Readonly<{
-  major: U64;
-  minor: U64;
-  patch: U64;
-  pre: ReadonlyArray<PreId>;
-  build: ReadonlyArray<string>;
-}>): Version => fields as Version;
+export const unsafeMakeVersion = (
+  fields: Readonly<{
+    major: U64;
+    minor: U64;
+    patch: U64;
+    pre: ReadonlyArray<PreId>;
+    build: ReadonlyArray<string>;
+  }>,
+): Version => fields as Version;
 
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {

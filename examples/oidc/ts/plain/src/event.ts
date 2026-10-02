@@ -6,12 +6,12 @@ import type { StepMac } from "./step-mac.ts";
 
 export type Event =
   | Readonly<{
-    kind: "PasswordChecked";
-    subject: string;
-    verified: boolean;
-    second_factor: SecondFactor;
-    now: I64;
-  }>
+      kind: "PasswordChecked";
+      subject: string;
+      verified: boolean;
+      second_factor: SecondFactor;
+      now: I64;
+    }>
   | Readonly<{ kind: "OtpSubmitted"; code: string; now: I64; candidates: ReadonlyArray<StepMac> }>
   | Readonly<{ kind: "ConsentGranted" }>
   | Readonly<{ kind: "ConsentDenied" }>;

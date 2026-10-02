@@ -80,6 +80,11 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
         let bare = crate::tidy::strip_outer(&s);
         if bare.starts_with('{') {
             s
+        } else if let Some(rest) = bare.strip_prefix("({") {
+            // An object heading a longer body (`({ .. } satisfies T)[k]`)
+            // is parenthesized itself, as oxfmt prints it.
+            let close = rest.find("} ").map_or(rest.len(), |c| c + 1);
+            format!("(({{{}){}", &rest[..close], &rest[close..])
         } else {
             bare.to_string()
         }
@@ -802,8 +807,9 @@ fn fold(
                 format!(
                     "{} ? {} : {}",
                     group(&test, PREC_TERNARY, Assoc::Right, Side::Left),
-                    // The middle operand is any expression, a `?:` too.
-                    branch(&then, Side::Right),
+                    // A `?:` in the middle is parenthesized, as oxfmt prints it
+                    // on one line; `tidy::wrap` drops the pair when it splits.
+                    branch(&then, Side::Left),
                     branch(&else_, Side::Right)
                 )
             }

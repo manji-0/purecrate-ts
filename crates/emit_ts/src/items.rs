@@ -69,16 +69,18 @@ pub(crate) fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {
 pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
     let name = en.name.as_str();
     let mut out = jsdoc(&en.doc, "");
-    out.push_str(&format!("export type {name} =\n"));
-    for (i, v) in en.variants.iter().enumerate() {
-        let sep = if i + 1 == en.variants.len() {
-            ";\n"
-        } else {
-            "\n"
-        };
-        out.push_str("  | ");
-        out.push_str(&variant_type(v));
-        out.push_str(sep);
+    // On one line where it fits, else a variant per line, as oxfmt prints it.
+    let members: Vec<String> = en.variants.iter().map(variant_type).collect();
+    let one = format!("export type {name} = {};", members.join(" | "));
+    if one.len() <= crate::WIDTH {
+        out.push_str(&one);
+        out.push('\n');
+    } else {
+        out.push_str(&format!("export type {name} ="));
+        for m in &members {
+            out.push_str(&format!("\n  | {m}"));
+        }
+        out.push_str(";\n");
     }
     out.push('\n');
     out.push_str(&format!("export const {name} = {{\n"));

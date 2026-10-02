@@ -44,9 +44,8 @@ export const validateRequest = (
   const redirectUri: string = params.redirect_uri;
   if (!redirectUriRegistered(client, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
-  const echoed: string | null = params.state !== null
-    ? stateIsValid(params.state) ? params.state : null
-    : null;
+  const echoed: string | null =
+    params.state !== null ? (stateIsValid(params.state) ? params.state : null) : null;
   const fail = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
   if (params.response_type !== null) {
     const rt = params.response_type;
@@ -113,15 +112,17 @@ export const validateRequest = (
     maxAge = null;
   }
   const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
-  return Result.ok(unsafeMakeAuthorizationRequest({
-    client_id: client.client_id,
-    redirect_uri: redirectUri,
-    scope,
-    state,
-    nonce,
-    pkce,
-    prompt,
-    max_age: maxAge,
-    wants_mfa: wantsMfa,
-  }));
+  return Result.ok(
+    unsafeMakeAuthorizationRequest({
+      client_id: client.client_id,
+      redirect_uri: redirectUri,
+      scope,
+      state,
+      nonce,
+      pkce,
+      prompt,
+      max_age: maxAge,
+      wants_mfa: wantsMfa,
+    }),
+  );
 };

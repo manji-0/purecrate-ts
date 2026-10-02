@@ -13,9 +13,10 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
   if (!allDigits(s)) return Result.ok({ kind: "Alpha", value: s });
   if (hasLeadingZero(s)) return Result.err({ kind: "PreReleaseLeadingZero" });
   const result: Result<U64, ParseIntError> = Int.u64.parse(s);
-  const result2: Result<PreId, ParseIntError> = result.kind === "Ok"
-    ? Result.ok({ kind: "Numeric", value: result.value })
-    : Result.err(result.error);
+  const result2: Result<PreId, ParseIntError> =
+    result.kind === "Ok"
+      ? Result.ok({ kind: "Numeric", value: result.value })
+      : Result.err(result.error);
   return result2.kind === "Ok"
     ? Result.ok(result2.value)
     : Result.err({ kind: "PreReleaseTooLarge" });
