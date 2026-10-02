@@ -11,9 +11,9 @@ export type Invoice = Readonly<{
 }>;
 
 export const Invoice = {
-  of: (
-    lines: ReadonlyArray<Line>,
-    rounding: Rounding,
-    method: Method,
-  ): Invoice => ({ lines, rounding, method }),
+  of: (lines: ReadonlyArray<Line>, rounding: Rounding, method: Method): Invoice => ({
+    lines,
+    rounding,
+    method,
+  }),
 } as const;

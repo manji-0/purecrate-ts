@@ -19,11 +19,14 @@ fn camel(n: &Name) -> Name {
 }
 
 pub fn rename(krate: Crate) -> Crate {
-    let items: Vec<String> = krate
+    // Each top-level name, and whether it is a function, which only a call
+    // or a read brings into a file. A `const` stays taken: the file imports
+    // a crate `const` by name, even where a local `const` has it.
+    let items: Vec<(String, bool)> = krate
         .items
         .iter()
         .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
-        .map(|item| to_camel(item.name().as_str()))
+        .map(|item| (to_camel(item.name().as_str()), matches!(item, Item::Fn(_))))
         .collect();
     let renamed = krate
         .items
@@ -47,12 +50,29 @@ pub fn rename(krate: Crate) -> Crate {
 }
 
 /// Top-level names are taken up front: a TS `const` shadows an import for the
-/// whole block, including uses before it that Rust resolves to the item.
-fn rename_fn(f: Fn, items: &[String]) -> Fn {
-    let mut r = Renamer;
+/// whole block, including uses before it that Rust resolves to the item. A
+/// function the body does not read is not imported into its file,
+/// so a local may have its name (`paid(lines, total, cmd)` keeps `total`).
+/// What the body reads is what a first pass finds no binding for, and what
+/// it calls; a binding resolves the same whatever names are taken.
+fn rename_fn(f: Fn, items: &[(String, bool)]) -> Fn {
+    let mut first = Renamer::default();
+    let mut cx = Cx { env: HashMap::new(), taken: items.iter().map(|(n, _)| n.clone()).collect() };
+    for p in &f.params {
+        first.bind(&p.name, &mut cx);
+    }
+    first.stmt_binds(f.body.clone(), &mut cx);
+    let mut read = first.free;
+    calls(&f.body, &mut read);
+
+    let mut r = Renamer::default();
     let mut cx = Cx {
         env: HashMap::new(),
-        taken: items.iter().cloned().collect(),
+        taken: items
+            .iter()
+            .filter(|(name, value)| !value || read.contains(name))
+            .map(|(name, _)| name.clone())
+            .collect(),
     };
     let params = f
         .params
@@ -69,6 +89,14 @@ fn rename_fn(f: Fn, items: &[String]) -> Fn {
     }
 }
 
+/// The functions `expr` calls, camelCased.
+fn calls(expr: &Expr, out: &mut HashSet<String>) {
+    if let Expr::Call { callee: Callee::Fn(n), .. } = expr {
+        out.insert(to_camel(n.as_str()));
+    }
+    expr.children().into_iter().for_each(|c| calls(c, out));
+}
+
 /// Source name to the name it prints as, for the bindings in scope.
 type Env = HashMap<String, Name>;
 
@@ -82,7 +110,11 @@ struct Cx {
     taken: HashSet<String>,
 }
 
-struct Renamer;
+/// `free` gathers the names read with no binding in scope: items.
+#[derive(Default)]
+struct Renamer {
+    free: HashSet<String>,
+}
 
 impl Renamer {
     fn pick(&self, name: &Name, taken: &HashSet<String>) -> Name {
@@ -208,7 +240,11 @@ impl Renamer {
         match e {
             Expr::At { .. } => unreachable!("`accept` removes positions before renaming"),
             // Not bound here: a function or a `const`.
-            Expr::Var(n) => Expr::Var(cx.env.get(n.as_str()).cloned().unwrap_or_else(|| camel(&n))),
+            Expr::Var(n) => Expr::Var(cx.env.get(n.as_str()).cloned().unwrap_or_else(|| {
+                let item = camel(&n);
+                self.free.insert(item.as_str().to_string());
+                item
+            })),
             Expr::Let {
                 name,
                 mutable,

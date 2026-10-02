@@ -255,8 +255,18 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::If { cond, then, else_ } if expr.needs_statements() => {
             let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
             let mut branches = vec![Branch { test: Some(test), prelude: String::new(), body: then }];
-            if !(matches!(sink, Sink::Effect) && **else_ == Expr::Lit(Lit::Unit)) {
-                branches.push(Branch { test: None, prelude: String::new(), body: else_ });
+            // An `else` that is one more `if` with statements is `else if`.
+            let mut rest = &**else_;
+            while let Expr::If { cond, then, else_ } = rest {
+                if !rest.needs_statements() {
+                    break;
+                }
+                let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
+                branches.push(Branch { test: Some(test), prelude: String::new(), body: then });
+                rest = else_;
+            }
+            if !(matches!(sink, Sink::Effect) && *rest == Expr::Lit(Lit::Unit)) {
+                branches.push(Branch { test: None, prelude: String::new(), body: rest });
             }
             emit_branches(&branches, indent, sink, out);
         }
@@ -385,7 +395,11 @@ pub(crate) fn emit_let(
     let value = peel_identity(value);
     let pad = "  ".repeat(indent);
     let keyword = if mutable { "let" } else { "const" };
-    let annotation = ty.map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
+    // An arrow states its own type, and a `let` of `true` or `false` is a
+    // `boolean` without one.
+    let inferred = matches!(value, Expr::Closure { .. })
+        || (mutable && matches!(value, Expr::Lit(Lit::Bool(_))) && matches!(ty, Some(t) if *t == Ty::bool()));
+    let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
     match value {
         Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
@@ -398,8 +412,10 @@ pub(crate) fn emit_let(
             out.push_str(&format!("{pad}{keyword} {name}{annotation} = {payload};\n"));
         }
         // A place in a `switch` arm is a narrowed union; the annotation
-        // alone does not widen it for TS, so `as T` gives back the type.
-        v if is_place(v) && matches!(ty, Some(Ty::Named(_))) => {
+        // alone does not widen it for TS, so `as T` gives back the type. A
+        // struct is no union: narrowing only drops a `null`, which the
+        // annotation already says.
+        v if is_place(v) && matches!(ty, Some(Ty::Named(n)) if !crate::is_struct(n.as_str())) => {
             let t = emit_ty(ty.unwrap());
             out.push_str(&format!(
                 "{pad}{keyword} {name}{annotation} = {} as {t};\n",
@@ -671,13 +687,11 @@ pub(crate) fn emit_switch_in(
             two_way_test(&b.pattern, &subject),
         ) {
             let pad2 = "  ".repeat(indent + 1);
-            let mut branches = vec![Branch {
-                test: Some(test),
-                prelude: two_way_prelude(&a.pattern, &subject, &pad2),
-                body: &a.body,
-            }];
+            let (a_prelude, a_body) = read_in_place(&a.pattern, scrutinee, &a.body, &subject, &pad2);
+            let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
+            let mut branches = vec![Branch { test: Some(test), prelude: a_prelude, body: &a_body }];
             if !(matches!(sink, Sink::Effect) && b.body == Expr::Lit(Lit::Unit)) {
-                branches.push(Branch { test: None, prelude: two_way_prelude(&b.pattern, &subject, &pad2), body: &b.body });
+                branches.push(Branch { test: None, prelude: b_prelude, body: &b_body });
             }
             emit_branches(&branches, indent, sink, out);
             return;
@@ -795,16 +809,34 @@ pub(crate) struct Branch<'e> {
     pub body: &'e Expr,
 }
 
-/// `if (a) { .. } else if (b) { .. } else { .. }`. Where the value is
-/// returned, every branch returns, so a branch follows the `if` before it
-/// instead of an `else`, and a branch that is one `return` sits on the
-/// `if`'s line: `if (s === "") return Result.err(..);`. A returned value is
-/// the last statement of its block, and `rename` already kept each branch's
-/// bindings apart from the block's.
+/// `if (a) { .. } else if (b) { .. } else { .. }`. Where every branch
+/// before the last jumps (each returns, where the value is returned), a
+/// branch follows the `if` before it instead of an `else`, and a branch that
+/// is one `return` sits on the `if`'s line: `if (s === "") return
+/// Result.err(..);`. A returned value is the last statement of its block,
+/// and `rename` already kept each branch's bindings apart from the block's;
+/// elsewhere statements follow, so the last branch moves out of its `else`
+/// only when it declares nothing they could meet.
 pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, out: &mut String) {
     let pad = "  ".repeat(indent);
-    let flat = matches!(sink, Sink::Return) && branches.last().is_some_and(|b| b.test.is_none());
-    if !flat {
+    let last = match branches.split_last() {
+        Some((last, _)) if last.test.is_some() => None,
+        Some((last, _)) if matches!(sink, Sink::Return) => Some(last),
+        Some((last, rest)) if last.prelude.is_empty() && rest.iter().all(|b| ends_in_jump(b.body)) => Some(last),
+        _ => None,
+    };
+    let flat_last = last.and_then(|last| {
+        let mut body = String::new();
+        emit_stmts(last.body, indent, sink, &mut body);
+        let declares = body.lines().any(|l| {
+            let l = l.strip_prefix(pad.as_str()).unwrap_or(l);
+            l.starts_with("const ") || l.starts_with("let ")
+        });
+        let prelude: String =
+            last.prelude.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
+        (matches!(sink, Sink::Return) || !declares).then(|| format!("{prelude}{body}"))
+    });
+    let Some(flat_last) = flat_last else {
         for (i, b) in branches.iter().enumerate() {
             let head = match (i, &b.test) {
                 (0, Some(test)) => format!("{pad}if ({test}) {{\n"),
@@ -817,17 +849,13 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, out:
         }
         out.push_str(&format!("{pad}}}\n"));
         return;
-    }
-    for b in branches {
-        let Some(test) = &b.test else {
-            // The last branch: its prelude was printed one level in.
-            let prelude: String = b.prelude.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
-            out.push_str(&prelude);
-            emit_stmts(b.body, indent, sink, out);
-            continue;
-        };
+    };
+    for b in &branches[..branches.len() - 1] {
+        let test = b.test.as_ref().expect("only the last branch has no test");
         emit_guard(test, &b.prelude, b.body, indent, sink, out);
     }
+    // The last branch: its prelude was printed one level in.
+    out.push_str(&flat_last);
 }
 
 /// `if (test) { prelude body }`, on one line when the body is one
@@ -861,44 +889,86 @@ fn let_else(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
         Expr::If { cond, then, else_ } => {
             let c = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
             match (ends_in_jump(then), ends_in_jump(else_)) {
-                (true, false) => (c, String::new(), &**then, (**else_).clone()),
-                (false, true) => (not(&c), String::new(), &**else_, (**then).clone()),
+                (true, false) => (c, String::new(), (**then).clone(), (**else_).clone()),
+                (false, true) => (not(&c), String::new(), (**else_).clone(), (**then).clone()),
                 _ => return false,
             }
         }
-        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
-            let [a, b] = arms.as_slice() else { return false };
-            let subject = emit_expr(scrutinee, indent);
-            let (exit, keep) = match (ends_in_jump(&a.body), ends_in_jump(&b.body)) {
-                (true, false) => (a, b),
-                (false, true) => (b, a),
-                _ => return false,
-            };
-            let (Some(test), Some(_)) = (two_way_test(&exit.pattern, &subject), two_way_test(&keep.pattern, &subject)) else {
+        // `let e = match Email::parse(raw) { Ok(e) => e, Err(e) => return .. }`:
+        // the call is bound first, as Rust evaluates it first, and the
+        // binding goes round as a place.
+        Expr::Match { scrutinee, arms } if !is_place(scrutinee) => {
+            if exit_arms(arms).is_none() {
                 return false;
+            }
+            let tmp = match_temp(arms, indent);
+            bind_scrutinee(&tmp, scrutinee, arms, indent, out);
+            let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp))), arms: arms.clone() };
+            return let_else(name, mutable, ty, &on_tmp, indent, out);
+        }
+        Expr::Match { scrutinee, arms } => {
+            let Some((exit, keep)) = exit_arms(arms) else { return false };
+            let subject = emit_expr(scrutinee, indent);
+            let test = two_way_test(&exit.pattern, &subject).expect("exit_arms checked");
+            let read = match &keep.pattern {
+                Pattern::ResultOk(_) => field_of(scrutinee, "value"),
+                Pattern::ResultErr(_) => field_of(scrutinee, "error"),
+                _ => (**scrutinee).clone(),
             };
-            let (inner, read) = match &keep.pattern {
-                Pattern::OptionSome(p) => (Some(&**p), (**scrutinee).clone()),
-                Pattern::ResultOk(p) => (Some(&**p), field_of(scrutinee, "value")),
-                Pattern::ResultErr(p) => (Some(&**p), field_of(scrutinee, "error")),
-                _ => (None, (**scrutinee).clone()),
-            };
-            let kept = match inner {
+            let kept = match payload(&keep.pattern) {
                 Some(Pattern::Var(n)) => subst(&keep.body, n, &read),
-                None | Some(Pattern::Wildcard) => keep.body.clone(),
-                Some(_) => return false,
+                _ => keep.body.clone(),
             };
-            let prelude = two_way_prelude(&exit.pattern, &subject, &"  ".repeat(indent + 1));
-            (test, prelude, &exit.body, kept)
+            // The exit reads its payload in place too (`return Result.err(
+            // { kind: "Email", value: result.error })`), unless it takes the
+            // payload apart.
+            match (payload(&exit.pattern), &exit.pattern) {
+                (Some(Pattern::Var(n)), Pattern::ResultErr(_)) => {
+                    (test, String::new(), subst(&exit.body, n, &field_of(scrutinee, "error")), kept)
+                }
+                (Some(Pattern::Var(n)), Pattern::ResultOk(_)) => {
+                    (test, String::new(), subst(&exit.body, n, &field_of(scrutinee, "value")), kept)
+                }
+                _ => {
+                    let prelude = two_way_prelude(&exit.pattern, &subject, &"  ".repeat(indent + 1));
+                    (test, prelude, exit.body.clone(), kept)
+                }
+            }
         }
         _ => return false,
     };
-    emit_guard(&test, &prelude, exit, indent, Sink::Effect, out);
+    emit_guard(&test, &prelude, &exit, indent, Sink::Effect, out);
     if !let_else(name, mutable, ty, &keep, indent, out) {
         emit_let(name, mutable, ty, &keep, indent, out);
     }
     let _ = pad;
     true
+}
+
+/// The arm that jumps and the arm that stays of a two-way `match` on an
+/// `Option` or `Result` (`let_else`), when the one that stays binds its
+/// payload to a name or nothing.
+fn exit_arms(arms: &[purecrate_ir::Arm]) -> Option<(&purecrate_ir::Arm, &purecrate_ir::Arm)> {
+    let [a, b] = arms else { return None };
+    let (exit, keep) = match (ends_in_jump(&a.body), ends_in_jump(&b.body)) {
+        (true, false) => (a, b),
+        (false, true) => (b, a),
+        _ => return None,
+    };
+    two_way_test(&exit.pattern, "")?;
+    two_way_test(&keep.pattern, "")?;
+    match payload(&keep.pattern) {
+        None | Some(Pattern::Var(_) | Pattern::Wildcard) => Some((exit, keep)),
+        Some(_) => None,
+    }
+}
+
+/// The pattern inside `Some(..)`, `Ok(..)`, or `Err(..)`.
+fn payload(pattern: &Pattern) -> Option<&Pattern> {
+    match pattern {
+        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => Some(p),
+        _ => None,
+    }
 }
 
 fn field_of(base: &Expr, name: &str) -> Expr {
@@ -966,6 +1036,38 @@ pub(crate) fn two_way_test(pattern: &Pattern, subject: &str) -> Option<String> {
         Pattern::ResultErr(_) => Some(format!("{subject}.kind === \"Err\"")),
         _ => None,
     }
+}
+
+/// An arm's binding and body. `Some(m)` on a variable is the variable
+/// itself, narrowed: the body reads it in place of `m` (`if (method !==
+/// null)` then `method`, not `const m = method`) where nothing in the body
+/// binds or assigns the variable or captures it in a closure, which TS may
+/// not narrow. A field or a `Result` payload is read once, into the name.
+fn read_in_place(pattern: &Pattern, scrutinee: &Expr, body: &Expr, subject: &str, pad: &str) -> (String, Expr) {
+    if let (Pattern::OptionSome(inner), Expr::Var(var)) = (pattern, scrutinee) {
+        if let Pattern::Var(n) = &**inner {
+            if !touches(body, var) {
+                return (String::new(), subst(body, n, scrutinee));
+            }
+        }
+    }
+    (two_way_prelude(pattern, subject, pad), body.clone())
+}
+
+/// Whether `expr` binds or assigns `name`, or holds a closure that reads it.
+fn touches(expr: &Expr, name: &Name) -> bool {
+    let here = match expr {
+        Expr::Let { name: n, .. } | Expr::Assign { name: n, .. } => n == name,
+        Expr::For { var, .. } | Expr::ForEach { var, .. } => var == name,
+        Expr::Match { arms, .. } => arms.iter().any(|a| a.pattern.bindings().iter().any(|b| *b == name)),
+        Expr::Closure { body, .. } => reads(body, name),
+        _ => false,
+    };
+    here || expr.children().into_iter().any(|c| touches(c, name))
+}
+
+fn reads(expr: &Expr, name: &Name) -> bool {
+    matches!(expr, Expr::Var(n) if n == name) || expr.children().into_iter().any(|c| reads(c, name))
 }
 
 pub(crate) fn two_way_prelude(pattern: &Pattern, subject: &str, pad: &str) -> String {

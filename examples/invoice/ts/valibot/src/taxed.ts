@@ -2,12 +2,12 @@
 
 import { Int, type I64 } from "./purecrate-runtime.ts";
 import { divide } from "./divide.ts";
-import { percent } from "./percent.ts";
-import { share } from "./share.ts";
-import { unsafeMakeYen } from "./yen.ts";
 import type { Group } from "./group.ts";
 import type { Invoice } from "./invoice.ts";
+import { percent } from "./percent.ts";
 import type { Rate } from "./rate.ts";
+import { share } from "./share.ts";
+import { unsafeMakeYen } from "./yen.ts";
 
 /** One group's total and its tax, rounded once (消令70の10). */
 export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
@@ -16,7 +16,7 @@ export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
     base = Int.i64.add(base, share(line, rate, apart, invoice.method));
   }
   const p: I64 = percent(rate);
-  const d: I64 = apart ? Int.i64.add(100n as I64, p) : 100n as I64;
+  const d: I64 = apart ? Int.i64.add(100n as I64, p) : (100n as I64);
   return {
     base: unsafeMakeYen(base),
     tax: unsafeMakeYen(divide(Int.i64.mul(base, p), d, invoice.rounding)),

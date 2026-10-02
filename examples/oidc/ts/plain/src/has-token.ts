@@ -6,7 +6,5 @@ import { Iter } from "./purecrate-runtime.ts";
  * Whether the space-delimited list `list` contains `word` as a whole token
  * (scope: RFC 6749 §3.3; prompt and acr_values: OIDC Core §3.1.2.1).
  */
-export const hasToken = (list: string, word: string): boolean => Iter.any(
-  list.split(" "),
-  ((token: string): boolean => token === word),
-);
+export const hasToken = (list: string, word: string): boolean =>
+  Iter.any(list.split(" "), (token: string): boolean => token === word);

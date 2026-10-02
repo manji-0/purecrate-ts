@@ -13,9 +13,9 @@ export type ErrorRedirect = Readonly<{
 }>;
 
 export const ErrorRedirect = {
-  of: (
-    redirectUri: string,
-    error: ErrorCode,
-    state: string | null,
-  ): ErrorRedirect => ({ redirect_uri: redirectUri, error, state }),
+  of: (redirectUri: string, error: ErrorCode, state: string | null): ErrorRedirect => ({
+    redirect_uri: redirectUri,
+    error,
+    state,
+  }),
 } as const;

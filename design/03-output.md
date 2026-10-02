@@ -19,7 +19,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
 | `return` ends a branch | where a value is returned, a branch that returns is an `if` the next one follows, not an `else` (`if (s === "") return ..;` then the rest); a branch of one `return` sits on its `if`'s line. A function name passed as a function (`.map(f)`, `Iter.all(xs, f)`) is `f`, not an arrow around it |
-| Lines up to 100 characters | a longer line opens a comma-separated bracket, a `if (cond) return`, a long `&&` / `||` / `?:`, or an arrow body (`emit_ts::tidy::wrap`). Parentheses follow operator precedence. `crates/cli/tests/it/line_width.rs` fails on any generated domain line over the limit |
+| Lines up to 100 characters | a longer line opens a comma-separated bracket, a `if (cond) return`, a long `&&` / `||` / `?:`, or an arrow body (`emit_ts::tidy::wrap`), as Prettier would: an arrow whose head fits keeps its parameters, opening an object, block, or array body and moving any other body after `=>`; a condition breaks at its top-level `||` before a call in it opens; a top-level `?:` splits before the `&&` or a bracket in its branches, each branch one indent past its `?` / `:`, and a `?:` in the middle operand stands without parentheses. Parentheses follow operator precedence. `crates/cli/tests/it/line_width.rs` fails on any generated domain line over the limit |
 | Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
 
@@ -40,7 +40,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
-A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`); as an argument, an element, or a field value it stands bare (`Int.i32.add(n, 1 as I32)`). A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
+A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as Prettier prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
 
 A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as `@typescript-eslint/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
 
@@ -107,7 +107,9 @@ impl Meters { pub fn plus(&self, other: &Meters) -> Self { Self(self.0 + other.0
 export type Meters = I32 & { readonly "geo.Meters": true };
 
 /**
- * A `Meters` built without a check. [..] `index.ts` does not export it.
+ * Makes `Meters` values without a check.
+ *
+ * [..] `index.ts` does not export it.
  * @internal
  */
 export const unsafeMakeMeters = (value: I32): Meters => value as Meters;
@@ -160,7 +162,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
 | `?` on `Result` | `if (r.kind === "Err") return r;` |
 | `?` on `Option` | `if (r === null) return null;` |
-| `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
+| `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`, or on a `Result`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`, `if (r.kind === "Err") return Result.err(f(r.error));`), a call matched this way bound first (`const result = Email.parse(raw);`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
 | `let (a, b) = v` where `v` is not a place | `const [a, b] = v`, annotated only where an element may be an object literal |
 | `match` (or `matches!`) on a place inside an expression, each arm an expression | `?:` on each arm's test, `||` / `&&` where arms are `true` / `false`, bindings read from the place: `(o !== null ? o : 0)`, `(k.kind === "A")`. On a value that is not a place, an inline function that evaluates it once; in an `if` condition, where it is evaluated first, a `const` before the `if` instead |
 | a `match` on a place whose arms are all `true` / `false` | the test, `return (b >= 48 && b <= 57);`, not a `switch` |
@@ -183,7 +185,7 @@ switch (event.kind) {
 - Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness.
 - Integer, `char`, `bool`, and string elements are `if`/`else` on one arm's pattern at a time; a `bool` test prints as `x` or `!x`.
 - Elements that are not places go into `const`s first, in order (`elem`, `elem2`).
-- A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A made name (`field`, `value`) remains only where no arm names the value.
+- A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). `Some(m)` on a variable binds nothing: the arm reads the narrowed variable (`if (method !== null)` then `method === "S256"`, not `const m = method;`), unless the arm binds or assigns that variable or a closure in it reads it. A made name (`field`, `value`) remains only where no arm names the value.
 - A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list. A `_` (or the remaining variants of a tuple element) prints as `default:`; `assertNever` is only the `default` of a `switch` that names every variant. Hoisting an arm that ignores an earlier element (`(_, Event::Cancel)`) is a candidate.
 - A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`. An annotation would keep the narrowing of an enclosing `switch`.
 
@@ -209,12 +211,12 @@ A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `
 
 - Bindings are numbered (`x2`, counting the first as one) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
 - A name the generator makes is printed plain (`emit_ts::plain`): while the code is built it starts with `$`, which no Rust identifier has, and last it takes its plain spelling unless an identifier read or declared in the innermost block holding its uses has it, or another made name of an overlapping block took it; then the next number (`result2`). So it never captures or hides a source name. Until 0.8.0 the `$` was printed (`$v_major`, `$m_3_$t`, `x$1`).
-- A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
+- A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block: a type or `const` always, a function only where the function calls or reads it, since only then does its file import it (`paid(lines, total, cmd)` keeps `total`; `let total = total(&lines)` is `total2`).
 
 ### 3.4 Closures
 
 ```ts
-const scale: ((_0: I32) => I32) = ((v: I32): I32 => Int.i32.mul(v, k));
+const scale = (v: I32): I32 => Int.i32.mul(v, k);
 ```
 
 `?` and `return` exit the closure, so they need a return annotation in Rust. Hoisting stays inside the closure body.

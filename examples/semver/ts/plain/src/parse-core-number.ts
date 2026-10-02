@@ -2,8 +2,8 @@
 
 import { Int, Result, type ParseIntError, type U64 } from "./purecrate-runtime.ts";
 import { allDigits } from "./all-digits.ts";
-import { hasLeadingZero } from "./has-leading-zero.ts";
 import type { CorePart } from "./core-part.ts";
+import { hasLeadingZero } from "./has-leading-zero.ts";
 import type { SemverError } from "./semver-error.ts";
 
 export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverError> => {
@@ -11,8 +11,7 @@ export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverEr
   if (!allDigits(s)) return Result.err({ kind: "NotANumber", value: part });
   if (hasLeadingZero(s)) return Result.err({ kind: "LeadingZero", value: part });
   const result: Result<U64, ParseIntError> = Int.u64.parse(s);
-  return result.kind === "Ok" ? Result.ok(result.value) : Result.err({
-    kind: "NumberTooLarge",
-    value: part,
-  });
+  return result.kind === "Ok"
+    ? Result.ok(result.value)
+    : Result.err({ kind: "NumberTooLarge", value: part });
 };

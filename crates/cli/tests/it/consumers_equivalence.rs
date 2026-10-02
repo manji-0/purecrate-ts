@@ -65,9 +65,9 @@ fn consumers_are_runtime_calls() {
         let src = pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
         src.lines().map(str::trim).collect::<Vec<_>>().join(" ").replace("( ", "(").replace(", )", ")")
     };
-    assert!(file("digits").contains("Iter.all(Str.bytes(s), ((b: U8): boolean => "), "{}", file("digits"));
+    assert!(file("digits").contains("Iter.all(Str.bytes(s), (b: U8): boolean => "), "{}", file("digits"));
     assert!(file("total").contains("Iter.sum(xs, Int.u8.add, (0 as U8))"), "{}", file("total"));
-    assert!(file("at").contains("Iter.position((s as Iterable<Char>), ((c: Char): boolean => "), "{}", file("at"));
+    assert!(file("at").contains("Iter.position((s as Iterable<Char>), (c: Char): boolean => "), "{}", file("at"));
     for stem in ["digits", "total", "at"] {
         assert!(!file(stem).contains("(() =>") && !file(stem).contains("$acc"), "{}", file(stem));
     }

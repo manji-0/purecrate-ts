@@ -6,9 +6,11 @@ import type { InvoiceError } from "./invoice-error.ts";
 export type Yen = I64 & { readonly "invoice.Yen": true };
 
 /**
- * A `Yen` built without a check. Its fields are not `pub` in Rust, so
- * outside the crate a value comes only from the crate's functions; the
- * generated files build them here, and `index.ts` does not export it.
+ * Makes `Yen` values without a check.
+ *
+ * Its fields are not `pub` in Rust, so outside the crate a value comes only
+ * from the crate's functions; the generated files build them here, and
+ * `index.ts` does not export it.
  * @internal
  */
 export const unsafeMakeYen = (value: I64): Yen => value as Yen;

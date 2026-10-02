@@ -322,10 +322,10 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     format!(
                         "{}: {}",
                         v.as_str(),
-                        emit_lit(&Lit::Int {
+                        crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                             value: *d,
                             ty: Some(*to)
-                        })
+                        }))
                     )
                 })
                 .collect::<Vec<_>>()
@@ -354,7 +354,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     m => format!(
                         "Iter.{}({source}, {})",
                         m.ts_name(),
-                        emit_expr(&args[1], indent)
+                        emit_item(&args[1], indent)
                     ),
                 };
             }
@@ -452,9 +452,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 let pieces = emit_expr(&args[0], indent);
                 return match (args.get(1), result) {
                     (None, _) => pieces,
-                    (Some(f), false) => format!("{pieces}.map({})", emit_expr(f, indent)),
+                    (Some(f), false) => format!("{pieces}.map({})", emit_item(f, indent)),
                     (Some(f), true) => {
-                        format!("Iter.tryCollect({pieces}, {})", emit_expr(f, indent))
+                        format!("Iter.tryCollect({pieces}, {})", emit_item(f, indent))
                     }
                 };
             }
@@ -463,7 +463,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 let needle = || bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
                 return match m {
                     purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
-                    purecrate_ir::StrMethod::IsEmpty => format!("({s}.length === 0)"),
+                    purecrate_ir::StrMethod::IsEmpty => format!("{s}.length === 0"),
                     purecrate_ir::StrMethod::StartsWith => format!("{s}.startsWith({})", needle()),
                     purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
                     purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
@@ -484,13 +484,13 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             match callee {
                 purecrate_ir::Callee::VecIsEmpty => {
-                    return format!("({}.length === 0)", emit_expr(&args[0], indent))
+                    return format!("{}.length === 0", emit_expr(&args[0], indent))
                 }
                 purecrate_ir::Callee::OptionIsSome => {
-                    return format!("({} !== null)", emit_expr(&args[0], indent))
+                    return format!("{} !== null", emit_expr(&args[0], indent))
                 }
                 purecrate_ir::Callee::OptionIsNone => {
-                    return format!("({} === null)", emit_expr(&args[0], indent))
+                    return format!("{} === null", emit_expr(&args[0], indent))
                 }
                 _ => {}
             }
@@ -550,6 +550,11 @@ fn grouped(
     side: crate::tidy::Side,
 ) -> String {
     let s = emit_expr(expr, indent);
+    // A `match` or `if` may print as a test (`k.kind === "A"`): what it
+    // printed decides, as `tidy::group` reads it.
+    if matches!(peel_identity(expr), Expr::If { .. } | Expr::Match { .. }) && !crate::tidy::has_top_as(&s) {
+        return crate::tidy::group(&s, parent, assoc, side);
+    }
     if crate::tidy::needs_paren(expr_prec(expr), parent, assoc, side) {
         format!("({s})")
     } else {
@@ -575,6 +580,15 @@ fn expr_prec(expr: &Expr) -> u8 {
     match peel_identity(expr) {
         Expr::Binary { op, .. } => bin_prec(*op),
         Expr::Unary { .. } => crate::tidy::PREC_UNARY,
+        // Printed as a comparison (`s.length === 0`, `o !== null`).
+        Expr::Call {
+            callee:
+                purecrate_ir::Callee::Str(purecrate_ir::StrMethod::IsEmpty)
+                | purecrate_ir::Callee::VecIsEmpty
+                | purecrate_ir::Callee::OptionIsSome
+                | purecrate_ir::Callee::OptionIsNone,
+            ..
+        } => crate::tidy::PREC_EQ,
         Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } => crate::tidy::PREC_TERNARY,
         _ => crate::tidy::PREC_ATOMIC,
     }
@@ -735,11 +749,17 @@ fn fold(
             if test == format!("{t} !== null") {
                 format!("{t} ?? {}", crate::tidy::strip_outer(&else_))
             } else {
+                // A cast in a branch is parenthesized, as Prettier prints it.
+                let branch = |s: &str, side| {
+                    let g = group(s, PREC_TERNARY, Assoc::Right, side);
+                    if crate::tidy::has_top_as(&g) { format!("({g})") } else { g }
+                };
                 format!(
                     "{} ? {} : {}",
                     group(&test, PREC_TERNARY, Assoc::Right, Side::Left),
-                    group(&then, PREC_TERNARY, Assoc::Right, Side::Left),
-                    group(&else_, PREC_TERNARY, Assoc::Right, Side::Right)
+                    // The middle operand is any expression, a `?:` too.
+                    branch(&then, Side::Right),
+                    branch(&else_, Side::Right)
                 )
             }
         }
@@ -1077,17 +1097,22 @@ fn is_cast(expr: &Expr) -> bool {
         Expr::Lit(Lit::Int { ty: Some(_), .. } | Lit::Float { ty: Some(_), .. } | Lit::Char(_)) => true,
         Expr::Call { callee, .. } => matches!(
             callee,
-            purecrate_ir::Callee::VecLen | purecrate_ir::Callee::AsFloat(_) | purecrate_ir::Callee::Fround
+            purecrate_ir::Callee::VecLen
+                | purecrate_ir::Callee::AsFloat(_)
+                | purecrate_ir::Callee::Fround
+                | purecrate_ir::Callee::IntFrom { .. }
+                | purecrate_ir::Callee::Discriminant { .. }
         ),
         _ => false,
     }
 }
 
 /// An argument, an element, or a field value: a comma or a brace already
-/// bounds it, so a cast needs no parentheses of its own (`f(1 as I32)`).
+/// bounds it, so a cast or an arrow needs no parentheses of its own
+/// (`f(1 as I32)`, `Iter.all(xs, (b: U8): boolean => b > 0)`).
 pub(crate) fn emit_item(expr: &Expr, indent: usize) -> String {
     let s = emit_expr(expr, indent);
-    if is_cast(expr) {
+    if is_cast(expr) || matches!(peel_identity(expr), Expr::Closure { .. }) {
         crate::tidy::strip_outer(&s).to_string()
     } else {
         s

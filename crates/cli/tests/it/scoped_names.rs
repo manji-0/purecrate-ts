@@ -100,3 +100,16 @@ fn a_let_from_match_does_not_collide_with_the_arm_binding() {
     assert!(src.contains("if (x === null) return -1 as I32;"), "{src}");
     assert!(src.contains("const v: I32 = x;"), "{src}");
 }
+
+#[test]
+fn a_local_takes_the_name_of_a_function_its_body_does_not_read() {
+    let source = "pub fn total(n: i32) -> i32 { n * 2 }\n\
+                  pub fn keep(total: i32) -> i32 { total + 1 }\n\
+                  pub fn calls(n: i32) -> i32 { let total = total(n); total + 1 }\n";
+    let keep = file("names", source, "keep");
+    assert!(keep.contains("(total: I32): I32"), "{keep}");
+    assert!(!keep.contains("total2"), "{keep}");
+    // A call reads the import, so the local beside it is numbered.
+    let calls = file("names", source, "calls");
+    assert!(calls.contains("const total2: I32 = total(n);"), "{calls}");
+}

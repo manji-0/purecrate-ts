@@ -2,12 +2,12 @@
 
 import { assertNever, Result } from "./purecrate-runtime.ts";
 import { addLine } from "./add-line.ts";
-import { removeSku } from "./remove-sku.ts";
-import { total } from "./total.ts";
 import type { Command } from "./command.ts";
 import type { Lines } from "./lines.ts";
-import type { Order } from "./order.ts";
 import type { OrderError } from "./order-error.ts";
+import type { Order } from "./order.ts";
+import { removeSku } from "./remove-sku.ts";
+import { total } from "./total.ts";
 import type { Yen } from "./yen.ts";
 
 export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => {

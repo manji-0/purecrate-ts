@@ -46,6 +46,9 @@ thread_local! {
     /// Closed structs of the crate `emit` is printing (design/01 §4). The
     /// expression printer has no `Crate`; `emit` sets this for its duration.
     static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// Structs of the crate, likewise: a place of one needs no `as` to
+    /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
+    static STRUCTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     /// The crate's internal names (`internal_names`), likewise.
     static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
@@ -57,6 +60,10 @@ thread_local! {
 
 fn is_closed(name: &str) -> bool {
     CLOSED.with(|c| c.borrow().contains(name))
+}
+
+fn is_struct(name: &str) -> bool {
+    STRUCTS.with(|c| c.borrow().contains(name))
 }
 
 fn is_private_method(ty: &str, name: &str) -> bool {
@@ -184,7 +191,13 @@ pub struct Package {
 pub fn emit(krate: &Crate) -> Package {
     let previous = CLOSED.with(|c| c.replace(closed_names(krate)));
     let previous_private = PRIVATE.with(|p| p.replace(private_methods(krate)));
+    let structs = krate.items.iter().filter_map(|item| match item {
+        Item::Struct(st) => Some(st.name.as_str().to_string()),
+        _ => None,
+    });
+    let previous_structs = STRUCTS.with(|c| c.replace(structs.collect()));
     let package = with_internal_names(krate, || emit_package(krate));
+    STRUCTS.with(|c| c.replace(previous_structs));
     CLOSED.with(|c| c.replace(previous));
     PRIVATE.with(|p| p.replace(previous_private));
     package
@@ -338,7 +351,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
                     "export const {name}: {ty} = {value};\n",
                     name = c.name.as_str(),
                     ty = emit_ty(&c.ty),
-                    value = emit_expr(&c.value, 0)
+                    value = crate::tidy::strip_outer(&emit_expr(&c.value, 0))
                 ));
             }
         }
@@ -627,7 +640,7 @@ export const step = (state: State, event: Event): State => {
         let log = file(&pkg, "log");
         assert!(log.contains("import type { Cmd } from \"./cmd.ts\";\n"), "{log}");
         let cmd = file(&pkg, "cmd");
-        assert!(cmd.contains("import { type I32 } from \"purecrate\";\n"), "{cmd}");
+        assert!(cmd.contains("import type { I32 } from \"purecrate\";\n"), "{cmd}");
         assert!(!cmd.contains("from \"./cmd.ts\""), "{cmd}");
     }
 

@@ -16,10 +16,11 @@ export const OrderError = {
   QtyZero: (): OrderError => ({ kind: "QtyZero" }),
   UnknownSku: (): OrderError => ({ kind: "UnknownSku" }),
   Empty: (): OrderError => ({ kind: "Empty" }),
-  AmountMismatch: (
-    expected: Yen,
-    got: Yen,
-  ): OrderError => ({ kind: "AmountMismatch", expected, got }),
+  AmountMismatch: (expected: Yen, got: Yen): OrderError => ({
+    kind: "AmountMismatch",
+    expected,
+    got,
+  }),
   EmptyTracking: (): OrderError => ({ kind: "EmptyTracking" }),
   InvalidTransition: (): OrderError => ({ kind: "InvalidTransition" }),
   NegativeAmount: (): OrderError => ({ kind: "NegativeAmount" }),

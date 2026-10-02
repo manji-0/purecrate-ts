@@ -11,40 +11,24 @@ export type Signup = Readonly<{
 }> & { readonly "signup.Signup": true };
 
 /**
- * A `Signup` built without a check. Its fields are not `pub` in Rust, so
- * outside the crate a value comes only from the crate's functions; the
- * generated files build them here, and `index.ts` does not export it.
+ * Makes `Signup` values without a check.
+ *
+ * Its fields are not `pub` in Rust, so outside the crate a value comes only
+ * from the crate's functions; the generated files build them here, and
+ * `index.ts` does not export it.
  * @internal
  */
-export const unsafeMakeSignup = (fields: Readonly<{
-  email: Email;
-  password: Password;
-}>): Signup => fields as Signup;
+export const unsafeMakeSignup = (fields: Readonly<{ email: Email; password: Password }>): Signup =>
+  fields as Signup;
 
 export const Signup = {
   parse: (email: string, password: string): Result<Signup, SignupError> => {
-    let email2: Email;
-    {
-      const result = Email.parse(email);
-      if (result.kind === "Ok") {
-        const e = result.value;
-        email2 = e;
-      } else {
-        const e = result.error;
-        return Result.err({ kind: "Email", value: e });
-      }
-    }
-    let password2: Password;
-    {
-      const result = Password.parse(password);
-      if (result.kind === "Ok") {
-        const p = result.value;
-        password2 = p;
-      } else {
-        const e = result.error;
-        return Result.err({ kind: "Password", value: e });
-      }
-    }
+    const result = Email.parse(email);
+    if (result.kind === "Err") return Result.err({ kind: "Email", value: result.error });
+    const email2: Email = result.value;
+    const result2 = Password.parse(password);
+    if (result2.kind === "Err") return Result.err({ kind: "Password", value: result2.error });
+    const password2: Password = result2.value;
     return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
 } as const;

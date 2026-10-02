@@ -3,7 +3,5 @@
 import { Iter } from "./purecrate-runtime.ts";
 import type { Client } from "./client.ts";
 
-export const redirectUriRegistered = (client: Client, uri: string): boolean => Iter.any(
-  client.redirect_uris,
-  ((registered: string): boolean => registered === uri),
-);
+export const redirectUriRegistered = (client: Client, uri: string): boolean =>
+  Iter.any(client.redirect_uris, (registered: string): boolean => registered === uri);

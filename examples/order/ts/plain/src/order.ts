@@ -15,10 +15,11 @@ export const Order = {
   Draft: (lines: Lines): Order => ({ kind: "Draft", lines }),
   Placed: (lines: Lines, total: Yen): Order => ({ kind: "Placed", lines, total }),
   Paid: (lines: Lines, total: Yen): Order => ({ kind: "Paid", lines, total }),
-  Shipped: (
-    lines: Lines,
-    total: Yen,
-    tracking: string,
-  ): Order => ({ kind: "Shipped", lines, total, tracking }),
+  Shipped: (lines: Lines, total: Yen, tracking: string): Order => ({
+    kind: "Shipped",
+    lines,
+    total,
+    tracking,
+  }),
   Cancelled: (reason: CancelReason): Order => ({ kind: "Cancelled", reason }),
 } as const;

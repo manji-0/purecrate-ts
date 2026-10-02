@@ -7,10 +7,10 @@ import type { Prompt } from "./prompt.ts";
  * are invalid_request (OIDC Core §3.1.2.1).
  */
 export const parsePrompt = (s: string): Prompt | null => {
-  let noInteraction: boolean = false;
-  let login: boolean = false;
-  let consent: boolean = false;
-  let selectAccount: boolean = false;
+  let noInteraction = false;
+  let login = false;
+  let consent = false;
+  let selectAccount = false;
   for (const token of s.split(" ")) {
     if (token === "none") {
       noInteraction = true;

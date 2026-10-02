@@ -2,9 +2,9 @@
 
 import { assertNever, Int, type I64 } from "./purecrate-runtime.ts";
 import { divide } from "./divide.ts";
-import { percent } from "./percent.ts";
 import type { Line } from "./line.ts";
 import type { Method } from "./method.ts";
+import { percent } from "./percent.ts";
 import type { Rate } from "./rate.ts";
 
 /**
@@ -22,11 +22,13 @@ export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I
           return apart ? line.amount : (0n as I64);
         case "ToExclusive": {
           const conversion = method.conversion;
-          return !apart ? divide(
-            Int.i64.mul(line.amount, 100n as I64),
-            Int.i64.add(100n as I64, percent(rate)),
-            conversion,
-          ) : (0n as I64);
+          return !apart
+            ? divide(
+                Int.i64.mul(line.amount, 100n as I64),
+                Int.i64.add(100n as I64, percent(rate)),
+                conversion,
+              )
+            : (0n as I64);
         }
         default:
           return assertNever(method);

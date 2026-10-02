@@ -214,6 +214,12 @@ pub(crate) fn top_prec(s: &str) -> u8 {
     }
 }
 
+/// Whether `s` is a cast at its top level (`1 as I32`, `x as number as U8`).
+pub(crate) fn has_top_as(s: &str) -> bool {
+    let d = depths(s);
+    (0..s.len()).any(|i| d[i] == Some(0) && s[i..].starts_with(" as "))
+}
+
 /// `s` parenthesized when it would bind looser than `parent` (or on the
 /// non-associative side at the same precedence).
 pub(crate) fn group(s: &str, parent: u8, assoc: Assoc, side: Side) -> String {
@@ -260,6 +266,16 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     if wrap_for(line, width, out) {
         return;
     }
+    if wrap_condition(line, width, out) {
+        return;
+    }
+    if wrap_arrow_first(line, width, out) {
+        return;
+    }
+    // A top-level `?:` splits before a bracket in one of its branches opens.
+    if wrap_ternary(line, width, out) {
+        return;
+    }
     if wrap_bracket(line, width, true, out) {
         return;
     }
@@ -275,10 +291,12 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     if wrap_arrow(line, width, out) {
         return;
     }
-    if wrap_logical(line, width, out) {
+    // A top-level `?:` binds looser than the `&&` / `||` in its operands, so
+    // it splits first.
+    if wrap_ternary(line, width, out) {
         return;
     }
-    if wrap_ternary(line, width, out) {
+    if wrap_logical(line, width, out) {
         return;
     }
     if wrap_outer_parens(line, width, out) {
@@ -399,14 +417,18 @@ fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
 }
 
 fn wrap_bracket(line: &str, width: usize, require_excess: bool, out: &mut String) -> bool {
-    let excess = line.len() - width;
-    let Some((open, close, items, _sep)) =
-        split_point(line, if require_excess { Some(excess) } else { None })
-    else {
+    let excess = (line.len() - width, require_excess);
+    let excess = excess.1.then_some(excess.0);
+    // A literal body's bracket, when the line up to it fits; else any.
+    let body = split_point(line, excess, arrow_body(line, width)).filter(|p| p.0 < width);
+    let Some((open, close, items, _sep)) = body.or_else(|| split_point(line, excess, 0)) else {
         return false;
     };
     let trimmed = line.trim_start();
-    let pad = &line[..line.len() - trimmed.len()];
+    // A `?:` branch's contents sit one indent past its `?` / `:`.
+    let branch = if trimmed.starts_with("? ") || trimmed.starts_with(": ") { "  " } else { "" };
+    let pad = format!("{}{branch}", &line[..line.len() - trimmed.len()]);
+    let pad = pad.as_str();
     if !require_excess {
         let first_fits = open + 1 <= width;
         if !first_fits || items.len() < 2 {
@@ -561,7 +583,32 @@ fn wrap_logical(line: &str, width: usize, out: &mut String) -> bool {
     let pad_len = line.len() - line.trim_start().len();
     let pad = &line[..pad_len];
     for part in parts {
-        wrap_line(&format!("{pad}{part}"), width, out);
+        wrap_line(format!("{pad}{part}").trim_end(), width, out);
+    }
+    true
+}
+
+/// A condition on a line of its own (what `wrap_if_return` and
+/// `wrap_if_open` leave between `if (` and `)`) breaks at its top-level
+/// `||`, else `&&`, before any call in it opens: `n === 0 ||` then
+/// `Slice.at(b, start) === 45`, not `Slice.at(` alone.
+fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool {
+    let expr = line.trim_start();
+    let statement = ["return ", "const ", "let ", "? ", ": ", "if ", "for ", "while "]
+        .iter()
+        .any(|p| expr.starts_with(p));
+    let d = depths(expr);
+    let arrow = (0..expr.len()).any(|i| d[i] == Some(0) && expr[i..].starts_with(" => "));
+    let ternary = find_ternary(expr).is_some();
+    if statement || arrow || ternary || expr.ends_with([';', '{', ',', '(']) || top_assign(expr).is_some() {
+        return false;
+    }
+    let Some(parts) = split_at_op(expr, " || ", 0).or_else(|| split_at_op(expr, " && ", 0)) else {
+        return false;
+    };
+    let pad = &line[..line.len() - expr.len()];
+    for part in parts {
+        wrap_line(format!("{pad}{part}").trim_end(), width, out);
     }
     true
 }
@@ -691,12 +738,22 @@ fn find_ternary(s: &str) -> Option<(&str, &str, &str)> {
         i += 1;
     }
     let q = q?;
+    // The `:` that pairs with this `?`: a `?:` nested in the middle operand
+    // opens and closes before it.
     let mut c = None;
+    let mut open = 0usize;
     i = q + 3;
     while i + 3 <= s.len() {
-        if d.get(i) == Some(&Some(0)) && s[i..].starts_with(" : ") {
-            c = Some(i);
-            break;
+        if d.get(i) == Some(&Some(0)) {
+            if s[i..].starts_with(" ? ") {
+                open += 1;
+            } else if s[i..].starts_with(" : ") {
+                if open == 0 {
+                    c = Some(i);
+                    break;
+                }
+                open -= 1;
+            }
         }
         i += 1;
     }
@@ -748,16 +805,51 @@ fn wrap_top_commas(line: &str, width: usize, out: &mut String) -> bool {
     true
 }
 
+/// Where the body starts when `line` is an arrow whose head, up to the
+/// first top-level `=>`, fits and whose body is a literal (`({`, `{`, `[`):
+/// that bracket opens, so the parameters stay on the head's line
+/// (`(a: A, b: B): T => ({` then the fields). `0` for any other line.
+fn arrow_body(line: &str, width: usize) -> usize {
+    arrow_split(line, width).filter(|&from| hugs(&line[from..])).unwrap_or(0)
+}
+
+fn arrow_split(line: &str, width: usize) -> Option<usize> {
+    let d = depths(line);
+    (0..line.len())
+        .find(|&i| d[i] == Some(0) && line[i..].starts_with(" => "))
+        .filter(|&at| at + 3 <= width)
+        .map(|at| at + 4)
+}
+
+/// A body Prettier keeps on the arrow's line, opening its bracket.
+fn hugs(body: &str) -> bool {
+    body.starts_with("({") || body.starts_with('{') || body.starts_with('[')
+}
+
+/// An arrow whose head fits and whose body is not a literal breaks after
+/// `=>`, the body one indent in (`(a: A): T =>` then `f(a, b)`), as Prettier
+/// prints it, rather than opening the parameters or the body's call.
+fn wrap_arrow_first(line: &str, width: usize, out: &mut String) -> bool {
+    match arrow_split(line, width) {
+        Some(from) if !hugs(&line[from..]) => wrap_arrow(line, width, out),
+        _ => false,
+    }
+}
+
 /// The brackets to open on `line` and the items between them: the first,
 /// outermost pair closed on the line with a comma at its top level, and no
 /// `;` there (a `for` header), optionally required to hold more than the
 /// `excess` past the width so a small `Slice.at(b, i)` is not opened when
 /// the overflow is elsewhere.
-fn split_point(line: &str, excess: Option<usize>) -> Option<(usize, usize, Vec<String>, char)> {
+fn split_point(
+    line: &str,
+    excess: Option<usize>,
+    from: usize,
+) -> Option<(usize, usize, Vec<String>, char)> {
     let d = depths(line);
     let bytes = line.as_bytes();
     let mut best: Option<(usize, usize, usize)> = None;
-    for (i, &b) in bytes.iter().enumerate() {
+    for (i, &b) in bytes.iter().enumerate().skip(from) {
         let generic = b == b'<'
             && i > 0
             && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$'));
@@ -865,6 +957,55 @@ mod tests {
         let out = wrap(tern, 80);
         assert!(out.contains("?\n") || out.contains("? "), "{out}");
         assert!(out.lines().all(|l| l.len() <= 80), "{out}");
+    }
+
+    #[test]
+    fn splits_a_ternary_before_the_and_in_its_else() {
+        let line = "      const matches: boolean = pkce.method.kind === \"Plain\" ? verifier === pkce.challenge : verifierS256 !== null && verifierS256 === pkce.challenge;";
+        assert_eq!(
+            wrap(line, 100),
+            "      const matches: boolean = pkce.method.kind === \"Plain\"\n        ? verifier === pkce.challenge\n        : verifierS256 !== null && verifierS256 === pkce.challenge;\n"
+        );
+    }
+
+    #[test]
+    fn a_ternary_splits_before_its_branches_open() {
+        let line = "          return !apart ? divide(Int.i64.mul(line.amount, 100n as I64), Int.i64.add(100n as I64, percent(rate)), conversion) : (0n as I64);";
+        assert_eq!(
+            wrap(line, 100),
+            "          return !apart\n            ? divide(\n                Int.i64.mul(line.amount, 100n as I64),\n                Int.i64.add(100n as I64, percent(rate)),\n                conversion,\n              )\n            : (0n as I64);\n"
+        );
+        // A `?:` in the middle operand: its `:` is not the outer one.
+        let nested = "  return reusable !== null ? request.prompt.no_interaction && needsConsent ? Result.err(e) : Result.ok(x) : Result.ok(y);";
+        assert_eq!(
+            wrap(nested, 80),
+            "  return reusable !== null\n    ? request.prompt.no_interaction && needsConsent\n      ? Result.err(e)\n      : Result.ok(x)\n    : Result.ok(y);\n"
+        );
+    }
+
+    #[test]
+    fn breaks_a_condition_at_its_or_before_a_call() {
+        let line = "        if (n === 0 || n > 63 || Slice.at(b, start) === 45 || Slice.at(b, Int.usize.sub(i, 1 as Usize)) === 45) return Result.err({ kind: \"BadDomain\" });";
+        assert_eq!(
+            wrap(line, 100),
+            "        if (\n          n === 0 ||\n          n > 63 ||\n          Slice.at(b, start) === 45 ||\n          Slice.at(b, Int.usize.sub(i, 1 as Usize)) === 45\n        )\n          return Result.err({ kind: \"BadDomain\" });\n"
+        );
+    }
+
+    #[test]
+    fn an_arrow_keeps_its_parameters_and_opens_or_moves_its_body() {
+        let ctor = "  RequiresCapture: (method: PaymentMethod, capturable: I64): Status => ({ kind: \"RequiresCapture\", method, capturable }),";
+        assert_eq!(
+            wrap(ctor, 100),
+            "  RequiresCapture: (method: PaymentMethod, capturable: I64): Status => ({\n    kind: \"RequiresCapture\",\n    method,\n    capturable,\n  }),\n"
+        );
+        let call = "export const by = (n: U8, m: U8, c: Char, d: Char): Ordering => Ord.then(Ord.cmp(n, m), Ord.cmpStr(c, d));";
+        assert_eq!(
+            wrap(call, 100),
+            "export const by = (n: U8, m: U8, c: Char, d: Char): Ordering =>\n  Ord.then(Ord.cmp(n, m), Ord.cmpStr(c, d));\n"
+        );
+        let generic = "  new: (code: string): Result<Sku, OrderError> => (code.length === 0) ? Result.err({ kind: \"EmptySku\" }) : Result.ok(x),";
+        assert!(wrap(generic, 100).starts_with("  new: (code: string): Result<Sku, OrderError> =>\n"));
     }
 
     #[test]

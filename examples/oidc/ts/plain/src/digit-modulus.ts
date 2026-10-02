@@ -3,11 +3,12 @@
 import { Int, type U32, type U8 } from "./purecrate-runtime.ts";
 import type { OtpDigits } from "./otp-digits.ts";
 
-export const digitModulus = (d: OtpDigits): U32 => Int.u32.pow(
-  10 as U32,
-  ((({
-    Six: (6 as U8),
-    Seven: (7 as U8),
-    Eight: (8 as U8),
-  } as Record<string, U8>)[d.kind] as U8) as number as U32),
-);
+export const digitModulus = (d: OtpDigits): U32 =>
+  Int.u32.pow(
+    10 as U32,
+    (({
+      Six: 6 as U8,
+      Seven: 7 as U8,
+      Eight: 8 as U8,
+    } as Record<string, U8>)[d.kind] as U8) as number as U32,
+  );

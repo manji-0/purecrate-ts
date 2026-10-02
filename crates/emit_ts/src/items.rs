@@ -233,9 +233,11 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
 pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
     format!(
         "/**\n\
-         \x20* A `{name}` built without a check. Its fields are not `pub` in Rust, so\n\
-         \x20* outside the crate a value comes only from the crate's functions; the\n\
-         \x20* generated files build them here, and `index.ts` does not export it.\n\
+         \x20* Makes `{name}` values without a check.\n\
+         \x20*\n\
+         \x20* Its fields are not `pub` in Rust, so outside the crate a value comes only\n\
+         \x20* from the crate's functions; the generated files build them here, and\n\
+         \x20* `index.ts` does not export it.\n\
          \x20* @internal\n\
          \x20*/\n\
          export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",

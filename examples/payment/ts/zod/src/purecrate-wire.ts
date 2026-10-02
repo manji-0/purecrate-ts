@@ -4,19 +4,19 @@ import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
 import { i64, nullable, optionalField, str, unitEnum, unitVariant } from "./purecrate-zod.ts";
 import { Amount as DomainAmount } from "./amount.ts";
-import { type CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
-import { type CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
-import { type ConfirmationMethod as DomainConfirmationMethod } from "./confirmation-method.ts";
-import { type DeclineCode as DomainDeclineCode } from "./decline-code.ts";
-import { type Event as DomainEvent } from "./event.ts";
-import { type MethodKind as DomainMethodKind } from "./method-kind.ts";
-import { type Outcome as DomainOutcome } from "./outcome.ts";
+import type { CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
+import type { CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
+import type { ConfirmationMethod as DomainConfirmationMethod } from "./confirmation-method.ts";
+import type { DeclineCode as DomainDeclineCode } from "./decline-code.ts";
+import type { Event as DomainEvent } from "./event.ts";
+import type { MethodKind as DomainMethodKind } from "./method-kind.ts";
+import type { Outcome as DomainOutcome } from "./outcome.ts";
 import { PaymentError as DomainPaymentError } from "./payment-error.ts";
-import { type PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
-import { type PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
+import type { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
 import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
-import { type Status as DomainStatus } from "./status.ts";
-import { type Terms as DomainTerms } from "./terms.ts";
+import type { PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
+import type { Status as DomainStatus } from "./status.ts";
+import type { Terms as DomainTerms } from "./terms.ts";
 
 export const Amount: z.ZodType<DomainAmount, unknown> = i64.transform((x, ctx): DomainAmount => {
   const r = DomainAmount.tryFrom(x);
@@ -222,17 +222,16 @@ export const toJson = {
   Amount: (x: DomainAmount): string => Json.int(x),
   PaymentMethodId: (x: DomainPaymentMethodId): string => Json.str(x),
   MethodKind: (x: DomainMethodKind): string => `"${x.kind}"`,
-  PaymentMethod: (x: DomainPaymentMethod): string => Json.object([
-    ["id", toJson.PaymentMethodId(x.id)],
-    ["kind", toJson.MethodKind(x.kind)],
-  ]),
+  PaymentMethod: (x: DomainPaymentMethod): string =>
+    Json.object([["id", toJson.PaymentMethodId(x.id)], ["kind", toJson.MethodKind(x.kind)]]),
   CaptureMethod: (x: DomainCaptureMethod): string => `"${x.kind}"`,
   ConfirmationMethod: (x: DomainConfirmationMethod): string => `"${x.kind}"`,
-  Terms: (x: DomainTerms): string => Json.object([
-    ["amount", toJson.Amount(x.amount)],
-    ["capture", toJson.CaptureMethod(x.capture)],
-    ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
-  ]),
+  Terms: (x: DomainTerms): string =>
+    Json.object([
+      ["amount", toJson.Amount(x.amount)],
+      ["capture", toJson.CaptureMethod(x.capture)],
+      ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
+    ]),
   DeclineCode: (x: DomainDeclineCode): string => `"${x.kind}"`,
   CancellationReason: (x: DomainCancellationReason): string => `"${x.kind}"`,
   Status: (x: DomainStatus): string => {
@@ -289,10 +288,8 @@ export const toJson = {
         ]]);
     }
   },
-  PaymentIntent: (x: DomainPaymentIntent): string => Json.object([
-    ["terms", toJson.Terms(x.terms)],
-    ["status", toJson.Status(x.status)],
-  ]),
+  PaymentIntent: (x: DomainPaymentIntent): string =>
+    Json.object([["terms", toJson.Terms(x.terms)], ["status", toJson.Status(x.status)]]),
   Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":

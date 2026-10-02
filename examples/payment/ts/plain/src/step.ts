@@ -10,7 +10,7 @@ import type { Status } from "./status.ts";
 import type { Terms } from "./terms.ts";
 
 export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent, PaymentError> => {
-  const terms: Terms = intent.terms as Terms;
+  const terms: Terms = intent.terms;
   let status: Status;
   switch (intent.status.kind) {
     case "RequiresPaymentMethod":
@@ -24,7 +24,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           const method = event.method;
           const outcome = event.outcome;
           if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
-          const method2: PaymentMethod = method as PaymentMethod;
+          const method2: PaymentMethod = method;
           status = attempt(terms, method2, outcome);
           break;
         }
@@ -66,7 +66,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       switch (event.kind) {
         case "ActionHandled": {
           const outcome = event.value;
-          if ((terms.confirmation.kind === "Manual") && outcome.kind !== "Declined") {
+          if (terms.confirmation.kind === "Manual" && outcome.kind !== "Declined") {
             status = { kind: "RequiresConfirmation", method };
           } else {
             status = attempt(terms, method, outcome);

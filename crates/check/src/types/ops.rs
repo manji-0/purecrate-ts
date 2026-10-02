@@ -196,9 +196,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                     let zero = Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::I32) });
                     return (rebuild(op, cmp, zero), self.expect(want, Some(Ty::bool())));
                 }
-                // An `Ordering` is an object: its variant is what compares.
+                // An `Ordering` is an object: its variant is what compares. A
+                // variant written out is its name (`o.kind !== "Equal"`).
                 if t.as_ref().is_some_and(|t| self.is_ordering(t)) {
-                    let kind = |e| Expr::Field { base: Box::new(e), name: Name::new("kind") };
+                    let kind = |e| match e {
+                        Expr::Construct { variant: Some(v), fields: Fields::Unit, base: None, .. } => {
+                            Expr::Lit(Lit::Str(v.as_str().to_string()))
+                        }
+                        e => Expr::Field { base: Box::new(e), name: Name::new("kind") },
+                    };
                     return (rebuild(op, kind(l), kind(r)), self.expect(want, Some(Ty::bool())));
                 }
                 (rebuild(op, l, r), self.expect(want, Some(Ty::bool())))

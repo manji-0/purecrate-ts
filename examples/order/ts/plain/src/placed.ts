@@ -3,17 +3,17 @@
 import { Result } from "./purecrate-runtime.ts";
 import type { Command } from "./command.ts";
 import type { Lines } from "./lines.ts";
-import type { Order } from "./order.ts";
 import type { OrderError } from "./order-error.ts";
+import type { Order } from "./order.ts";
 import type { Yen } from "./yen.ts";
 
-export const placed = (lines: Lines, total2: Yen, cmd: Command): Result<Order, OrderError> => {
+export const placed = (lines: Lines, total: Yen, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
     case "Pay": {
       const amount = cmd.value;
-      if (amount !== total2)
-        return Result.err({ kind: "AmountMismatch", expected: total2, got: amount });
-      return Result.ok({ kind: "Paid", lines, total: total2 });
+      if (amount !== total)
+        return Result.err({ kind: "AmountMismatch", expected: total, got: amount });
+      return Result.ok({ kind: "Paid", lines, total });
     }
     case "Cancel": {
       const reason = cmd.value;

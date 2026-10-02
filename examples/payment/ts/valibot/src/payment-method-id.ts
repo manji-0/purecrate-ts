@@ -7,9 +7,11 @@ import type { PaymentError } from "./payment-error.ts";
 export type PaymentMethodId = string & { readonly "payment.PaymentMethodId": true };
 
 /**
- * A `PaymentMethodId` built without a check. Its fields are not `pub` in Rust, so
- * outside the crate a value comes only from the crate's functions; the
- * generated files build them here, and `index.ts` does not export it.
+ * Makes `PaymentMethodId` values without a check.
+ *
+ * Its fields are not `pub` in Rust, so outside the crate a value comes only
+ * from the crate's functions; the generated files build them here, and
+ * `index.ts` does not export it.
  * @internal
  */
 export const unsafeMakePaymentMethodId = (value: string): PaymentMethodId =>

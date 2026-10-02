@@ -3,16 +3,16 @@
 import { Result } from "./purecrate-runtime.ts";
 import type { Command } from "./command.ts";
 import type { Lines } from "./lines.ts";
-import type { Order } from "./order.ts";
 import type { OrderError } from "./order-error.ts";
+import type { Order } from "./order.ts";
 import type { Yen } from "./yen.ts";
 
-export const paid = (lines: Lines, total2: Yen, cmd: Command): Result<Order, OrderError> => {
+export const paid = (lines: Lines, total: Yen, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
     case "Ship": {
       const tracking = cmd.value;
       if (tracking.length === 0) return Result.err({ kind: "EmptyTracking" });
-      return Result.ok({ kind: "Shipped", lines, total: total2, tracking });
+      return Result.ok({ kind: "Shipped", lines, total, tracking });
     }
     default:
       return Result.err({ kind: "InvalidTransition" });

@@ -6,16 +6,16 @@ import type { OrderError } from "./order-error.ts";
 export type Yen = I64 & { readonly "order.Yen": true };
 
 /**
- * A `Yen` built without a check. Its fields are not `pub` in Rust, so
- * outside the crate a value comes only from the crate's functions; the
- * generated files build them here, and `index.ts` does not export it.
+ * Makes `Yen` values without a check.
+ *
+ * Its fields are not `pub` in Rust, so outside the crate a value comes only
+ * from the crate's functions; the generated files build them here, and
+ * `index.ts` does not export it.
  * @internal
  */
 export const unsafeMakeYen = (value: I64): Yen => value as Yen;
 
 export const Yen = {
-  new: (amount: I64): Result<
-    Yen,
-    OrderError
-  > => amount < 0n ? Result.err({ kind: "NegativeAmount" }) : Result.ok(unsafeMakeYen(amount)),
+  new: (amount: I64): Result<Yen, OrderError> =>
+    amount < 0n ? Result.err({ kind: "NegativeAmount" }) : Result.ok(unsafeMakeYen(amount)),
 } as const;

@@ -24,6 +24,66 @@ pub fn prune_unused(src: &str) -> String {
     while out.contains("\n\n\n") {
         out = out.replace("\n\n\n", "\n\n");
     }
+    organize(&out)
+}
+
+/// The imports as TS's organize-imports leaves them: one declaration per
+/// module, `import type` when it brings only types (an inline `type` there
+/// would keep a bare `import "./m.ts"` under `verbatimModuleSyntax`), values
+/// then types, each by name. Packages and the runtime come first as they
+/// are; the crate's own files follow by path.
+fn organize(src: &str) -> String {
+    let mut modules: Vec<(String, Vec<String>)> = Vec::new();
+    let mut others: Vec<String> = Vec::new();
+    let mut at = None;
+    let mut rest = String::with_capacity(src.len());
+    for line in src.split_inclusive('\n') {
+        let Some(import) = line.trim_end_matches('\n').strip_prefix("import ") else {
+            rest.push_str(line);
+            continue;
+        };
+        at.get_or_insert(rest.len());
+        let (type_only, import) = match import.strip_prefix("type ") {
+            Some(r) => (true, r),
+            None => (false, import),
+        };
+        let parsed = import.strip_prefix('{').and_then(|r| r.split_once("} from ")).filter(|(_, m)| m.ends_with(';'));
+        let Some((specs, module)) = parsed else {
+            others.push(line.trim_end_matches('\n').to_string());
+            continue;
+        };
+        let specs = specs.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| {
+            if type_only && !s.starts_with("type ") { format!("type {s}") } else { s.to_string() }
+        });
+        let module = module.trim_end_matches(';').to_string();
+        match modules.iter_mut().find(|(m, _)| *m == module) {
+            Some((_, list)) => list.extend(specs),
+            None => modules.push((module, specs.collect())),
+        }
+    }
+    let Some(at) = at else { return src.to_string() };
+    let local = |m: &str| m.starts_with("\"./") && !m.starts_with("\"./purecrate");
+    let (mut own, packages): (Vec<_>, Vec<_>) = modules.into_iter().partition(|(m, _)| local(m));
+    own.sort_by(|a, b| a.0.cmp(&b.0));
+    let key = |s: &String| s.trim_start_matches("type ").to_lowercase();
+    let declaration = |(module, mut specs): (String, Vec<String>)| {
+        specs.sort_by_key(|s| (s.starts_with("type "), key(s)));
+        specs.dedup();
+        if specs.iter().all(|s| s.starts_with("type ")) {
+            let names: Vec<&str> = specs.iter().map(|s| s.trim_start_matches("type ")).collect();
+            format!("import type {{ {} }} from {module};\n", names.join(", "))
+        } else {
+            format!("import {{ {} }} from {module};\n", specs.join(", "))
+        }
+    };
+    let mut head: String = packages.into_iter().map(declaration).collect();
+    for line in &others {
+        head.push_str(line);
+        head.push('\n');
+    }
+    head.extend(own.into_iter().map(declaration));
+    let mut out = rest;
+    out.insert_str(at, &head);
     out
 }
 
@@ -609,6 +669,26 @@ mod tests {
     }
 
     #[test]
+    fn one_declaration_per_module_types_last() {
+        let src = "import { Result, type I64, Int } from \"purecrate\";\n\
+            import { unsafeMakeYen } from \"./yen.ts\";\n\
+            import type { Lines } from \"./lines.ts\";\n\
+            import type { Yen } from \"./yen.ts\";\n\
+            import { type U8 } from \"./u8.ts\";\n\
+            \n\
+            const f = (l: Lines, y: Yen, b: U8): I64 => Int.i64.add(unsafeMakeYen(y), Result);\n";
+        assert_eq!(
+            prune_unused(src),
+            "import { Int, Result, type I64 } from \"purecrate\";\n\
+            import type { Lines } from \"./lines.ts\";\n\
+            import type { U8 } from \"./u8.ts\";\n\
+            import { unsafeMakeYen, type Yen } from \"./yen.ts\";\n\
+            \n\
+            const f = (l: Lines, y: Yen, b: U8): I64 => Int.i64.add(unsafeMakeYen(y), Result);\n"
+        );
+    }
+
+    #[test]
     fn keeps_what_the_code_reads() {
         let src = "/* generated */\n\
             import { Int, type U32, type F64 } from \"./int.ts\";\n\
@@ -621,10 +701,10 @@ mod tests {
         assert_eq!(
             prune_unused(src),
             "/* generated */\n\
+            import * as v from \"valibot\";\n\
+            import type { A as A$ } from \"./a.ts\";\n\
             import { Int } from \"./int.ts\";\n\
             import type { Order } from \"./order.ts\";\n\
-            import { type A as A$ } from \"./a.ts\";\n\
-            import * as v from \"valibot\";\n\
             \n\
             // F64 in a comment\n\
             export const f = (o: Order): A$ => Int.u32.add(o.F64, \"U32\" as never);\n"

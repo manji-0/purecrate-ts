@@ -20,12 +20,12 @@ export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | nu
   const bin: U32 = Int.u32.or(
     Int.u32.or(
       Int.u32.or(
-        Int.u32.shl((Int.u8.and(Slice.at(mac, offset), 127 as U8) as number as U32), 24 as I32),
-        Int.u32.shl((Slice.at(mac, Int.usize.add(offset, 1 as Usize)) as number as U32), 16 as I32),
+        Int.u32.shl(Int.u8.and(Slice.at(mac, offset), 127 as U8) as number as U32, 24 as I32),
+        Int.u32.shl(Slice.at(mac, Int.usize.add(offset, 1 as Usize)) as number as U32, 16 as I32),
       ),
-      Int.u32.shl((Slice.at(mac, Int.usize.add(offset, 2 as Usize)) as number as U32), 8 as I32),
+      Int.u32.shl(Slice.at(mac, Int.usize.add(offset, 2 as Usize)) as number as U32, 8 as I32),
     ),
-    (Slice.at(mac, Int.usize.add(offset, 3 as Usize)) as number as U32),
+    Slice.at(mac, Int.usize.add(offset, 3 as Usize)) as number as U32,
   );
   return Int.u32.rem(bin, digitModulus(digits));
 };
