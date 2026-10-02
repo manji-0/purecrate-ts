@@ -7,10 +7,13 @@ import type { EmailError } from "./email-error.ts";
 
 export type Email = string & { readonly "signup.Email": true };
 
-// A field is not `pub` in Rust: outside the crate, `Email` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Email$of = (value: string): Email => value as Email;
+/**
+ * A `Email` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeEmail = (value: string): Email => value as Email;
 
 export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
@@ -47,6 +50,6 @@ export const Email = {
           return Result.err({ kind: "BadDomain" });
       }
     }
-    return Result.ok(Email$of(raw));
+    return Result.ok(unsafeMakeEmail(raw));
   },
 } as const;

@@ -8,10 +8,13 @@ import type { IbanError } from "./iban-error.ts";
 
 export type Iban = string & { readonly "iban.Iban": true };
 
-// A field is not `pub` in Rust: outside the crate, `Iban` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Iban$of = (value: string): Iban => value as Iban;
+/**
+ * A `Iban` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeIban = (value: string): Iban => value as Iban;
 
 export const Iban = {
   parse: (raw: string): Result<Iban, IbanError> => {
@@ -32,6 +35,6 @@ export const Iban = {
       acc = push(acc, Slice.at(b, i));
     }
     if (acc !== 1) return Result.err({ kind: "Checksum" });
-    return Result.ok(Iban$of(raw));
+    return Result.ok(unsafeMakeIban(raw));
   },
 } as const;

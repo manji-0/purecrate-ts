@@ -6,16 +6,20 @@ import type { PaymentError } from "./payment-error.ts";
 /** A payment method ID: `pm_` followed by at least one character. */
 export type PaymentMethodId = string & { readonly "payment.PaymentMethodId": true };
 
-// A field is not `pub` in Rust: outside the crate, `PaymentMethodId` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const PaymentMethodId$of = (value: string): PaymentMethodId => value as PaymentMethodId;
+/**
+ * A `PaymentMethodId` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakePaymentMethodId = (value: string): PaymentMethodId =>
+  value as PaymentMethodId;
 
 export const PaymentMethodId = {
   new: (raw: string): Result<PaymentMethodId, PaymentError> => {
     if (Str.len(raw) < 4 || !raw.startsWith("pm_"))
       return Result.err({ kind: "InvalidPaymentMethodId" });
-    return Result.ok(PaymentMethodId$of(raw));
+    return Result.ok(unsafeMakePaymentMethodId(raw));
   },
   tryFrom: (raw: string): Result<PaymentMethodId, PaymentError> => PaymentMethodId.new(raw),
 } as const;

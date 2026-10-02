@@ -3,50 +3,47 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
 import { fail, i64, keyed, memo, unitEnum, type Wire } from "./purecrate-arktype.ts";
-import { type Group as Group$ } from "./group.ts";
-import { type Invoice as Invoice$ } from "./invoice.ts";
-import {
-  InvoiceError as InvoiceError$text,
-  type InvoiceError as InvoiceError$,
-} from "./invoice-error.ts";
-import { type Line as Line$ } from "./line.ts";
-import { type Method as Method$ } from "./method.ts";
-import { type Pricing as Pricing$ } from "./pricing.ts";
-import { type Rate as Rate$ } from "./rate.ts";
-import { type Rounding as Rounding$ } from "./rounding.ts";
-import { type Summary as Summary$ } from "./summary.ts";
-import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
+import { type Group as DomainGroup } from "./group.ts";
+import { type Invoice as DomainInvoice } from "./invoice.ts";
+import { InvoiceError as DomainInvoiceError } from "./invoice-error.ts";
+import { type Line as DomainLine } from "./line.ts";
+import { type Method as DomainMethod } from "./method.ts";
+import { type Pricing as DomainPricing } from "./pricing.ts";
+import { type Rate as DomainRate } from "./rate.ts";
+import { type Rounding as DomainRounding } from "./rounding.ts";
+import { type Summary as DomainSummary } from "./summary.ts";
+import { Yen as DomainYen } from "./yen.ts";
 
-const Yen$wire = memo(() => i64);
-export const Yen: Wire<Yen$> = type("unknown").pipe((v, ctx): Yen$ => {
-  const parsed = Yen$wire()(v);
+const yenWire = memo(() => i64);
+export const Yen: Wire<DomainYen> = type("unknown").pipe((v, ctx): DomainYen => {
+  const parsed = yenWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  const r = Yen$value.tryFrom(parsed);
-  if (r.kind === "Err") return ctx.error(`Yen: ${InvoiceError$text.toString(r.error)}`) as never;
+  const r = DomainYen.tryFrom(parsed);
+  if (r.kind === "Err") return ctx.error(`Yen: ${DomainInvoiceError.toString(r.error)}`) as never;
   return r.value;
 });
 
-export const Rate: Wire<Rate$> = unitEnum("Rate", ["Standard", "Reduced"]);
+export const Rate: Wire<DomainRate> = unitEnum("Rate", ["Standard", "Reduced"]);
 
-export const Pricing: Wire<Pricing$> = unitEnum("Pricing", ["Exclusive", "Inclusive"]);
+export const Pricing: Wire<DomainPricing> = unitEnum("Pricing", ["Exclusive", "Inclusive"]);
 
-export const Rounding: Wire<Rounding$> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
+export const Rounding: Wire<DomainRounding> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
 
-const Method$arm$Separate = memo(() => type({ "+": "reject", Separate: "null" }));
-const Method$arm$ToExclusive = memo(() => type({
+const methodSeparateArm = memo(() => type({ "+": "reject", Separate: "null" }));
+const methodToExclusiveArm = memo(() => type({
   "+": "reject",
   ToExclusive: { conversion: Rounding },
 }));
 /** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
-export const Method: Wire<Method$> = type("unknown").pipe((v, ctx): Method$ => {
+export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainMethod => {
   if (v === "Separate") return { kind: "Separate" };
   {
-    const parsed = Method$arm$Separate()(v);
+    const parsed = methodSeparateArm()(v);
     if (!(parsed instanceof type.errors)) return { kind: "Separate" };
     if (keyed(v, "Separate")) return fail(ctx, parsed);
   }
   {
-    const parsed = Method$arm$ToExclusive()(v);
+    const parsed = methodToExclusiveArm()(v);
     if (!(parsed instanceof type.errors))
       return { kind: "ToExclusive", conversion: parsed.ToExclusive.conversion };
     if (keyed(v, "ToExclusive")) return fail(ctx, parsed);
@@ -54,41 +51,37 @@ export const Method: Wire<Method$> = type("unknown").pipe((v, ctx): Method$ => {
   return ctx.error("Method") as never;
 });
 
-const Line$wire = memo(() => type({ amount: Yen, rate: Rate, pricing: Pricing }));
-export const Line: Wire<Line$> = type("unknown").pipe((v, ctx): Line$ => {
-  const parsed = Line$wire()(v);
+const lineWire = memo(() => type({ amount: Yen, rate: Rate, pricing: Pricing }));
+export const Line: Wire<DomainLine> = type("unknown").pipe((v, ctx): DomainLine => {
+  const parsed = lineWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ amount: parsed.amount, rate: parsed.rate, pricing: parsed.pricing });
 });
 
-const Invoice$wire = memo(() => type({
-  lines: (Line).array(),
-  rounding: Rounding,
-  method: Method,
-}));
-export const Invoice: Wire<Invoice$> = type("unknown").pipe((v, ctx): Invoice$ => {
-  const parsed = Invoice$wire()(v);
+const invoiceWire = memo(() => type({ lines: (Line).array(), rounding: Rounding, method: Method }));
+export const Invoice: Wire<DomainInvoice> = type("unknown").pipe((v, ctx): DomainInvoice => {
+  const parsed = invoiceWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ lines: parsed.lines, rounding: parsed.rounding, method: parsed.method });
 });
 
-const Group$wire = memo(() => type({ base: Yen, tax: Yen }));
+const groupWire = memo(() => type({ base: Yen, tax: Yen }));
 /** One rate and pricing: the total of its amounts and the tax on it. */
-export const Group: Wire<Group$> = type("unknown").pipe((v, ctx): Group$ => {
-  const parsed = Group$wire()(v);
+export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGroup => {
+  const parsed = groupWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({ base: parsed.base, tax: parsed.tax });
 });
 
-const Summary$wire = memo(() => type({
+const summaryWire = memo(() => type({
   standard: Group,
   reduced: Group,
   standard_inclusive: Group,
   reduced_inclusive: Group,
   total: Yen,
 }));
-export const Summary: Wire<Summary$> = type("unknown").pipe((v, ctx): Summary$ => {
-  const parsed = Summary$wire()(v);
+export const Summary: Wire<DomainSummary> = type("unknown").pipe((v, ctx): DomainSummary => {
+  const parsed = summaryWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return ({
     standard: parsed.standard,
@@ -99,7 +92,7 @@ export const Summary: Wire<Summary$> = type("unknown").pipe((v, ctx): Summary$ =
   });
 });
 
-export const InvoiceError: Wire<InvoiceError$> = unitEnum(
+export const InvoiceError: Wire<DomainInvoiceError> = unitEnum(
   "InvoiceError",
   ["NegativeAmount", "NoLines"],
 );
@@ -109,25 +102,25 @@ export const InvoiceError: Wire<InvoiceError$> = unitEnum(
  * throws on malformed text or a value the schema refuses.
  */
 export const fromJson = {
-  Yen: (text: string): Yen$ => Yen.assert(parseJson(text)),
-  Rate: (text: string): Rate$ => Rate.assert(parseJson(text)),
-  Pricing: (text: string): Pricing$ => Pricing.assert(parseJson(text)),
-  Rounding: (text: string): Rounding$ => Rounding.assert(parseJson(text)),
-  Method: (text: string): Method$ => Method.assert(parseJson(text)),
-  Line: (text: string): Line$ => Line.assert(parseJson(text)),
-  Invoice: (text: string): Invoice$ => Invoice.assert(parseJson(text)),
-  Group: (text: string): Group$ => Group.assert(parseJson(text)),
-  Summary: (text: string): Summary$ => Summary.assert(parseJson(text)),
-  InvoiceError: (text: string): InvoiceError$ => InvoiceError.assert(parseJson(text)),
+  Yen: (text: string): DomainYen => Yen.assert(parseJson(text)),
+  Rate: (text: string): DomainRate => Rate.assert(parseJson(text)),
+  Pricing: (text: string): DomainPricing => Pricing.assert(parseJson(text)),
+  Rounding: (text: string): DomainRounding => Rounding.assert(parseJson(text)),
+  Method: (text: string): DomainMethod => Method.assert(parseJson(text)),
+  Line: (text: string): DomainLine => Line.assert(parseJson(text)),
+  Invoice: (text: string): DomainInvoice => Invoice.assert(parseJson(text)),
+  Group: (text: string): DomainGroup => Group.assert(parseJson(text)),
+  Summary: (text: string): DomainSummary => Summary.assert(parseJson(text)),
+  InvoiceError: (text: string): DomainInvoiceError => InvoiceError.assert(parseJson(text)),
 } as const;
 
 /** Each type written as serde_json writes the Rust value. */
 export const toJson = {
-  Yen: (x: Yen$): string => Json.int(x),
-  Rate: (x: Rate$): string => `"${x.kind}"`,
-  Pricing: (x: Pricing$): string => `"${x.kind}"`,
-  Rounding: (x: Rounding$): string => `"${x.kind}"`,
-  Method: (x: Method$): string => {
+  Yen: (x: DomainYen): string => Json.int(x),
+  Rate: (x: DomainRate): string => `"${x.kind}"`,
+  Pricing: (x: DomainPricing): string => `"${x.kind}"`,
+  Rounding: (x: DomainRounding): string => `"${x.kind}"`,
+  Method: (x: DomainMethod): string => {
     switch (x.kind) {
       case "Separate":
         return "\"Separate\"";
@@ -138,26 +131,26 @@ export const toJson = {
         ]]);
     }
   },
-  Line: (x: Line$): string => Json.object([
+  Line: (x: DomainLine): string => Json.object([
     ["amount", toJson.Yen(x.amount)],
     ["rate", toJson.Rate(x.rate)],
     ["pricing", toJson.Pricing(x.pricing)],
   ]),
-  Invoice: (x: Invoice$): string => Json.object([
+  Invoice: (x: DomainInvoice): string => Json.object([
     ["lines", Json.array(x.lines, (v0) => toJson.Line(v0))],
     ["rounding", toJson.Rounding(x.rounding)],
     ["method", toJson.Method(x.method)],
   ]),
-  Group: (x: Group$): string => Json.object([
+  Group: (x: DomainGroup): string => Json.object([
     ["base", toJson.Yen(x.base)],
     ["tax", toJson.Yen(x.tax)],
   ]),
-  Summary: (x: Summary$): string => Json.object([
+  Summary: (x: DomainSummary): string => Json.object([
     ["standard", toJson.Group(x.standard)],
     ["reduced", toJson.Group(x.reduced)],
     ["standard_inclusive", toJson.Group(x.standard_inclusive)],
     ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
     ["total", toJson.Yen(x.total)],
   ]),
-  InvoiceError: (x: InvoiceError$): string => `"${x.kind}"`,
+  InvoiceError: (x: DomainInvoiceError): string => `"${x.kind}"`,
 } as const;

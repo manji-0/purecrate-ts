@@ -4,7 +4,7 @@ import { Int, type I64 } from "./purecrate-runtime.ts";
 import { divide } from "./divide.ts";
 import { percent } from "./percent.ts";
 import { share } from "./share.ts";
-import { Yen$of } from "./yen.ts";
+import { unsafeMakeYen } from "./yen.ts";
 import type { Group } from "./group.ts";
 import type { Invoice } from "./invoice.ts";
 import type { Rate } from "./rate.ts";
@@ -17,5 +17,8 @@ export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
   }
   const p: I64 = percent(rate);
   const d: I64 = apart ? Int.i64.add(100n as I64, p) : 100n as I64;
-  return { base: Yen$of(base), tax: Yen$of(divide(Int.i64.mul(base, p), d, invoice.rounding)) };
+  return {
+    base: unsafeMakeYen(base),
+    tax: unsafeMakeYen(divide(Int.i64.mul(base, p), d, invoice.rounding)),
+  };
 };

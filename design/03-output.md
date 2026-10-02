@@ -36,7 +36,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | `for` counter | `i = (i + 1) as Usize` | `i` is below the exclusive end, so `i + 1` is at most the end |
 | Discriminant | `({ A: (1 as U8) } as Record<string, U8>)[e.kind] as U8` | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)) |
 | Float | `(a * b as F64)`, `(Math.fround(x) as F32)` | every `number` is an `f64`; `fround` gives an `f32` |
-| Constructor | `Yen$of = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
+| Constructor | `unsafeMakeYen = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
@@ -106,11 +106,14 @@ impl Meters { pub fn plus(&self, other: &Meters) -> Self { Self(self.0 + other.0
 ```ts
 export type Meters = I32 & { readonly "geo.Meters": true };
 
-// not exported from index.ts
-export const Meters$of = (value: I32): Meters => value as Meters;
+/**
+ * A `Meters` built without a check. [..] `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeMeters = (value: I32): Meters => value as Meters;
 
 export const Meters = {
-  plus: (self: Meters, other: Meters): Meters => Meters$of(Int.i32.add(self, other)),
+  plus: (self: Meters, other: Meters): Meters => unsafeMakeMeters(Int.i32.add(self, other)),
 } as const;
 ```
 
@@ -118,7 +121,7 @@ export const Meters = {
 
 - A newtype's runtime value is its content. This is also serde's JSON for it.
 - `.0` is the value itself.
-- The brand key is a string (`{ readonly "geo.Meters": true }`), so newtypes of newtypes do not collide and two copies of the package exchange values. Closedness is not a type-level guarantee: `$of` is a file export, and a vendored import of it builds a value without a cast.
+- The brand key is a string (`{ readonly "geo.Meters": true }`), so newtypes of newtypes do not collide and two copies of the package exchange values. Closedness is not a type-level guarantee: `unsafeMakeMeters` is a file export, and a vendored import of it builds a value without a cast.
 - `Meters` above is closed (its field is not `pub`), so there is no `of`. With `pub struct Meters(pub i32)` the companion would have `of`.
 
 **Methods.** Methods become companion properties with the receiver first. `Self` is replaced by the type name.
@@ -331,7 +334,7 @@ What callers of a successfully generated package must observe.
 - There is no `of`. Obtain values from public functions (`Email.parse`).
 - Object literals and raw primitives do not type-check as the closed type. Verified with `@ts-expect-error` consumers under TS 6 and 7.
 - A value produced with `as Email` is outside the equivalence guarantee.
-- `Email$of` is a file export, not an index export. An installed package cannot import it through `exports`; vendored sources can (`import { Email$of } from "./gen/src/email.ts"`). Closedness is that convention plus an `as` lint, not a unique-symbol seal.
+- `unsafeMakeEmail` is a file export, not an index export, and `@internal`. An installed package cannot import it through `exports`; vendored sources can (`import { unsafeMakeEmail } from "./gen/src/email.ts"`). Closedness is that convention plus an `as` lint, not a unique-symbol seal.
 
 ### 5.6 Aliasing
 

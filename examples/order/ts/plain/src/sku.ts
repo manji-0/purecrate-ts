@@ -5,14 +5,17 @@ import type { OrderError } from "./order-error.ts";
 
 export type Sku = string & { readonly "order.Sku": true };
 
-// A field is not `pub` in Rust: outside the crate, `Sku` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Sku$of = (value: string): Sku => value as Sku;
+/**
+ * A `Sku` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeSku = (value: string): Sku => value as Sku;
 
 export const Sku = {
   new: (code: string): Result<
     Sku,
     OrderError
-  > => (code.length === 0) ? Result.err({ kind: "EmptySku" }) : Result.ok(Sku$of(code)),
+  > => (code.length === 0) ? Result.err({ kind: "EmptySku" }) : Result.ok(unsafeMakeSku(code)),
 } as const;

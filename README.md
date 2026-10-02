@@ -80,7 +80,7 @@ Use the output either way:
 npm install tarballs/<name>-<version>.tgz
 ```
 
-Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and every brand is keyed by string (`I32` as `{ readonly "purecrate.I32": true }`, a crate newtype as `{ readonly "payment.Amount": true }`), so a value from one package is the same type in another. Closed types of your crate have no `of` on the companion and do not export `Amount$of` from `index.ts`; that is a convention, backed by a consumer `as` lint, not a type-level guarantee (a string brand does not stop `import { Amount$of } from "./gen/src/amount.ts"` when the sources are vendored). `crates/cli/tests/it/package.rs` runs the two-package flow.
+Generated packages are `"private": true` by default, which stops an accidental `npm publish` but not `npm pack` or installing the tarball; build with `--publishable` (and pass it to `check --out` too, which compares bytes) when the package is meant for a private registry. Several generated packages can live in one project: each carries its own copy of the runtime, and every brand is keyed by string (`I32` as `{ readonly "purecrate.I32": true }`, a crate newtype as `{ readonly "payment.Amount": true }`), so a value from one package is the same type in another. Closed types of your crate have no `of` on the companion and do not export `unsafeMakeAmount` (marked `@internal`) from `index.ts`; that is a convention, backed by a consumer `as` lint, not a type-level guarantee (a string brand does not stop `import { unsafeMakeAmount } from "./gen/src/amount.ts"` when the sources are vendored). `crates/cli/tests/it/package.rs` runs the two-package flow.
 
 ## Agent skill
 
@@ -110,7 +110,7 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 
 ## Stability
 
-Commit the generated output and check it in CI with `purecrate-ts check <crate> --out <dir>`, pinning the same version that wrote it. Within a minor series, **export names, type shapes, the wire format, and the runtime API** stay the same; **formatting, internal helpers (`$of`, temps), local names, and which runtime members a copy keeps** may change. A change to the stable surface is a minor bump (a major after 1.0). The table is in [design/07 §9](design/07-roadmap.md#9-generated-api-stability).
+Commit the generated output and check it in CI with `purecrate-ts check <crate> --out <dir>`, pinning the same version that wrote it. Within a minor series, **export names, type shapes, the wire format, and the runtime API** stay the same; **formatting, internal helpers (`unsafeMakeX`, temps), local names, and which runtime members a copy keeps** may change. A change to the stable surface is a minor bump (a major after 1.0). The table is in [design/07 §9](design/07-roadmap.md#9-generated-api-stability).
 
 ## Design documents
 

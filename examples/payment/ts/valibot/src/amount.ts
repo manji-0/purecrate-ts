@@ -5,15 +5,18 @@ import type { PaymentError } from "./payment-error.ts";
 
 export type Amount = I64 & { readonly "payment.Amount": true };
 
-// A field is not `pub` in Rust: outside the crate, `Amount` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Amount$of = (value: I64): Amount => value as Amount;
+/**
+ * A `Amount` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeAmount = (value: I64): Amount => value as Amount;
 
 export const Amount = {
   new: (value: I64): Result<Amount, PaymentError> => {
     if (value < 50n || value > 99999999n) return Result.err({ kind: "AmountOutOfRange" });
-    return Result.ok(Amount$of(value));
+    return Result.ok(unsafeMakeAmount(value));
   },
   tryFrom: (value: I64): Result<Amount, PaymentError> => Amount.new(value),
 } as const;

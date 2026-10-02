@@ -219,7 +219,7 @@ fn tsconfig() -> String {
 /// `dist`: JavaScript with `./x.ts` imports rewritten to `./x.js`, and
 /// declarations. Consumers read it without a TypeScript loader.
 fn tsconfig_build() -> String {
-    "{\n  \"extends\": \"./tsconfig.json\",\n  \"compilerOptions\": {\n    \"noEmit\": false,\n    \"declaration\": true,\n    \"rewriteRelativeImportExtensions\": true,\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\"\n  }\n}\n"
+    "{\n  \"extends\": \"./tsconfig.json\",\n  \"compilerOptions\": {\n    \"noEmit\": false,\n    \"declaration\": true,\n    \"stripInternal\": true,\n    \"rewriteRelativeImportExtensions\": true,\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\"\n  }\n}\n"
         .to_string()
 }
 

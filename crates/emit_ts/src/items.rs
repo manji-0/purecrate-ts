@@ -24,7 +24,7 @@ pub(crate) fn jsdoc(doc: &Option<String>, indent: &str) -> String {
 }
 
 /// The `pub` methods, closing the companion object, then the others as
-/// `Ty$name` (see `private_method`).
+/// `tyName`, marked `@internal` (see `private_method`).
 pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     let mut out = String::new();
     let (public, private): (Vec<&Fn>, Vec<&Fn>) =
@@ -40,7 +40,12 @@ pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     out.push_str("} as const;\n");
     for m in private {
         out.push('\n');
-        out.push_str(&jsdoc(&m.doc, ""));
+        // Not `pub` in Rust: for the generated files only.
+        let doc = Some(match &m.doc {
+            Some(d) => format!("{d}\n@internal"),
+            None => "@internal".to_string(),
+        });
+        out.push_str(&jsdoc(&doc, ""));
         out.push_str(&format!(
             "export const {n} = {impl};\n",
             n = private_method(ty, m.name.as_str()),
@@ -227,9 +232,12 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
 
 pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
     format!(
-        "// A field is not `pub` in Rust: outside the crate, `{name}` values come\n\
-         // only from the crate's functions. The generated files build them here;\n\
-         // `index.ts` does not export it.\n\
+        "/**\n\
+         \x20* A `{name}` built without a check. Its fields are not `pub` in Rust, so\n\
+         \x20* outside the crate a value comes only from the crate's functions; the\n\
+         \x20* generated files build them here, and `index.ts` does not export it.\n\
+         \x20* @internal\n\
+         \x20*/\n\
          export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",
         ctor = closed_ctor(name)
     )

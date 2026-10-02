@@ -3,26 +3,23 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
 import { i64, unitEnum, unitVariant } from "./purecrate-zod.ts";
-import { type Group as Group$ } from "./group.ts";
-import { type Invoice as Invoice$ } from "./invoice.ts";
-import {
-  InvoiceError as InvoiceError$text,
-  type InvoiceError as InvoiceError$,
-} from "./invoice-error.ts";
-import { type Line as Line$ } from "./line.ts";
-import { type Method as Method$ } from "./method.ts";
-import { type Pricing as Pricing$ } from "./pricing.ts";
-import { type Rate as Rate$ } from "./rate.ts";
-import { type Rounding as Rounding$ } from "./rounding.ts";
-import { type Summary as Summary$ } from "./summary.ts";
-import { Yen as Yen$value, type Yen as Yen$ } from "./yen.ts";
+import { type Group as DomainGroup } from "./group.ts";
+import { type Invoice as DomainInvoice } from "./invoice.ts";
+import { InvoiceError as DomainInvoiceError } from "./invoice-error.ts";
+import { type Line as DomainLine } from "./line.ts";
+import { type Method as DomainMethod } from "./method.ts";
+import { type Pricing as DomainPricing } from "./pricing.ts";
+import { type Rate as DomainRate } from "./rate.ts";
+import { type Rounding as DomainRounding } from "./rounding.ts";
+import { type Summary as DomainSummary } from "./summary.ts";
+import { Yen as DomainYen } from "./yen.ts";
 
-export const Yen: z.ZodType<Yen$, unknown> = i64.transform((x, ctx): Yen$ => {
-  const r = Yen$value.tryFrom(x);
+export const Yen: z.ZodType<DomainYen, unknown> = i64.transform((x, ctx): DomainYen => {
+  const r = DomainYen.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
-      message: `Yen: ${InvoiceError$text.toString(r.error)}`,
+      message: `Yen: ${DomainInvoiceError.toString(r.error)}`,
       input: x,
       params: { error: r.error },
     });
@@ -31,36 +28,39 @@ export const Yen: z.ZodType<Yen$, unknown> = i64.transform((x, ctx): Yen$ => {
   return r.value;
 });
 
-export const Rate: z.ZodType<Rate$, unknown> = unitEnum(["Standard", "Reduced"]);
+export const Rate: z.ZodType<DomainRate, unknown> = unitEnum(["Standard", "Reduced"]);
 
-export const Pricing: z.ZodType<Pricing$, unknown> = unitEnum(["Exclusive", "Inclusive"]);
+export const Pricing: z.ZodType<DomainPricing, unknown> = unitEnum(["Exclusive", "Inclusive"]);
 
-export const Rounding: z.ZodType<Rounding$, unknown> = unitEnum(["Down", "Up", "HalfUp"]);
+export const Rounding: z.ZodType<DomainRounding, unknown> = unitEnum(["Down", "Up", "HalfUp"]);
 
 /** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
-export const Method: z.ZodType<Method$, unknown> = z.union([
-  unitVariant("Separate").transform((): Method$ => ({ kind: "Separate" })),
+export const Method: z.ZodType<DomainMethod, unknown> = z.union([
+  unitVariant("Separate").transform((): DomainMethod => ({ kind: "Separate" })),
   z.object({ ToExclusive: z.object({ conversion: Rounding }) })
     .strict()
-    .transform((x): Method$ => ({ kind: "ToExclusive", conversion: x.ToExclusive.conversion })),
+    .transform((x): DomainMethod => ({
+      kind: "ToExclusive",
+      conversion: x.ToExclusive.conversion,
+    })),
 ]);
 
-export const Line: z.ZodType<Line$, unknown> = z.object({
+export const Line: z.ZodType<DomainLine, unknown> = z.object({
   amount: Yen,
   rate: Rate,
   pricing: Pricing,
 });
 
-export const Invoice: z.ZodType<Invoice$, unknown> = z.object({
+export const Invoice: z.ZodType<DomainInvoice, unknown> = z.object({
   lines: z.array(Line),
   rounding: Rounding,
   method: Method,
 });
 
 /** One rate and pricing: the total of its amounts and the tax on it. */
-export const Group: z.ZodType<Group$, unknown> = z.object({ base: Yen, tax: Yen });
+export const Group: z.ZodType<DomainGroup, unknown> = z.object({ base: Yen, tax: Yen });
 
-export const Summary: z.ZodType<Summary$, unknown> = z.object({
+export const Summary: z.ZodType<DomainSummary, unknown> = z.object({
   standard: Group,
   reduced: Group,
   standard_inclusive: Group,
@@ -69,7 +69,7 @@ export const Summary: z.ZodType<Summary$, unknown> = z.object({
 });
 
 export const InvoiceError: z.ZodType<
-  InvoiceError$,
+  DomainInvoiceError,
   unknown
 > = unitEnum(["NegativeAmount", "NoLines"]);
 
@@ -78,25 +78,25 @@ export const InvoiceError: z.ZodType<
  * throws on malformed text or a value the schema refuses.
  */
 export const fromJson = {
-  Yen: (text: string): Yen$ => Yen.parse(parseJson(text)),
-  Rate: (text: string): Rate$ => Rate.parse(parseJson(text)),
-  Pricing: (text: string): Pricing$ => Pricing.parse(parseJson(text)),
-  Rounding: (text: string): Rounding$ => Rounding.parse(parseJson(text)),
-  Method: (text: string): Method$ => Method.parse(parseJson(text)),
-  Line: (text: string): Line$ => Line.parse(parseJson(text)),
-  Invoice: (text: string): Invoice$ => Invoice.parse(parseJson(text)),
-  Group: (text: string): Group$ => Group.parse(parseJson(text)),
-  Summary: (text: string): Summary$ => Summary.parse(parseJson(text)),
-  InvoiceError: (text: string): InvoiceError$ => InvoiceError.parse(parseJson(text)),
+  Yen: (text: string): DomainYen => Yen.parse(parseJson(text)),
+  Rate: (text: string): DomainRate => Rate.parse(parseJson(text)),
+  Pricing: (text: string): DomainPricing => Pricing.parse(parseJson(text)),
+  Rounding: (text: string): DomainRounding => Rounding.parse(parseJson(text)),
+  Method: (text: string): DomainMethod => Method.parse(parseJson(text)),
+  Line: (text: string): DomainLine => Line.parse(parseJson(text)),
+  Invoice: (text: string): DomainInvoice => Invoice.parse(parseJson(text)),
+  Group: (text: string): DomainGroup => Group.parse(parseJson(text)),
+  Summary: (text: string): DomainSummary => Summary.parse(parseJson(text)),
+  InvoiceError: (text: string): DomainInvoiceError => InvoiceError.parse(parseJson(text)),
 } as const;
 
 /** Each type written as serde_json writes the Rust value. */
 export const toJson = {
-  Yen: (x: Yen$): string => Json.int(x),
-  Rate: (x: Rate$): string => `"${x.kind}"`,
-  Pricing: (x: Pricing$): string => `"${x.kind}"`,
-  Rounding: (x: Rounding$): string => `"${x.kind}"`,
-  Method: (x: Method$): string => {
+  Yen: (x: DomainYen): string => Json.int(x),
+  Rate: (x: DomainRate): string => `"${x.kind}"`,
+  Pricing: (x: DomainPricing): string => `"${x.kind}"`,
+  Rounding: (x: DomainRounding): string => `"${x.kind}"`,
+  Method: (x: DomainMethod): string => {
     switch (x.kind) {
       case "Separate":
         return "\"Separate\"";
@@ -107,26 +107,26 @@ export const toJson = {
         ]]);
     }
   },
-  Line: (x: Line$): string => Json.object([
+  Line: (x: DomainLine): string => Json.object([
     ["amount", toJson.Yen(x.amount)],
     ["rate", toJson.Rate(x.rate)],
     ["pricing", toJson.Pricing(x.pricing)],
   ]),
-  Invoice: (x: Invoice$): string => Json.object([
+  Invoice: (x: DomainInvoice): string => Json.object([
     ["lines", Json.array(x.lines, (v0) => toJson.Line(v0))],
     ["rounding", toJson.Rounding(x.rounding)],
     ["method", toJson.Method(x.method)],
   ]),
-  Group: (x: Group$): string => Json.object([
+  Group: (x: DomainGroup): string => Json.object([
     ["base", toJson.Yen(x.base)],
     ["tax", toJson.Yen(x.tax)],
   ]),
-  Summary: (x: Summary$): string => Json.object([
+  Summary: (x: DomainSummary): string => Json.object([
     ["standard", toJson.Group(x.standard)],
     ["reduced", toJson.Group(x.reduced)],
     ["standard_inclusive", toJson.Group(x.standard_inclusive)],
     ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
     ["total", toJson.Yen(x.total)],
   ]),
-  InvoiceError: (x: InvoiceError$): string => `"${x.kind}"`,
+  InvoiceError: (x: DomainInvoiceError): string => `"${x.kind}"`,
 } as const;

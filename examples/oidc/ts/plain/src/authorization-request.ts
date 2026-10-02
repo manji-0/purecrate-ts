@@ -20,10 +20,13 @@ export type AuthorizationRequest = Readonly<{
   wants_mfa: boolean;
 }> & { readonly "oidc.AuthorizationRequest": true };
 
-// A field is not `pub` in Rust: outside the crate, `AuthorizationRequest` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const AuthorizationRequest$of = (fields: Readonly<{
+/**
+ * A `AuthorizationRequest` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeAuthorizationRequest = (fields: Readonly<{
   client_id: string;
   redirect_uri: string;
   scope: string;

@@ -2,7 +2,7 @@
 
 import { Int, Result, type I64 } from "./purecrate-runtime.ts";
 import { taxed } from "./taxed.ts";
-import { Yen$of } from "./yen.ts";
+import { unsafeMakeYen } from "./yen.ts";
 import type { Group } from "./group.ts";
 import type { Invoice } from "./invoice.ts";
 import type { InvoiceError } from "./invoice-error.ts";
@@ -26,6 +26,6 @@ export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
     reduced,
     standard_inclusive: standardInclusive,
     reduced_inclusive: reducedInclusive,
-    total: Yen$of(total),
+    total: unsafeMakeYen(total),
   });
 };

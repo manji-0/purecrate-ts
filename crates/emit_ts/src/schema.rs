@@ -68,6 +68,10 @@ pub fn has_wire(krate: &Crate) -> bool {
 }
 
 pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
+    crate::with_internal_names(krate, || emit_wire_in(krate, schema))
+}
+
+fn emit_wire_in(krate: &Crate, schema: WireSchema) -> String {
     let mut out = String::from(super::HEADER);
     out.push('\n');
     out.push_str(&header(schema));
@@ -95,7 +99,7 @@ pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
     }
     out.push_str(&from_json(schema, &wired));
     out.push_str(&to_json(krate));
-    crate::tidy::wrap(&super::imports::prune_unused(&out), crate::WIDTH)
+    crate::tidy::wrap(&crate::plain::wire_names(&super::imports::prune_unused(&out)), crate::WIDTH)
 }
 
 /// `printed` with the type's `///` comment as JSDoc on its schema, so a
@@ -342,8 +346,9 @@ fn refusal(krate: &Crate, s: &Struct) -> Refusal {
     }
 }
 
-/// One import per module: values then `type` aliases, including `{E as E$text}`
-/// for an error type whose text names a refusal.
+/// One import per module: values then `type` aliases, each domain type and
+/// its companion under one alias (`DomainYen`, from `Yen$`), including an
+/// error type whose text names a refusal.
 fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
     #[derive(Default)]
     struct Specs {
@@ -351,15 +356,18 @@ fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
         types: Vec<String>,
     }
     let mut by_file: std::collections::BTreeMap<String, Specs> = std::collections::BTreeMap::new();
+    // A value import of `T` names its type too, so a type is imported alone
+    // only where nothing reads its companion.
     let mut push = |stem: String, value: Option<String>, ty: Option<String>| {
         let e = by_file.entry(stem).or_default();
         if let Some(v) = value {
+            e.types.retain(|t| *t != v);
             if !e.values.contains(&v) {
                 e.values.push(v);
             }
         }
         if let Some(t) = ty {
-            if !e.types.contains(&t) {
+            if !e.types.contains(&t) && !e.values.contains(&t) {
                 e.types.push(t);
             }
         }
@@ -367,22 +375,22 @@ fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
     for item in krate.exported().filter(|i| serde(i).any()) {
         let name = item.name().as_str();
         let stem = item.file_stem();
+        let alias = format!("{name} as {name}$");
         let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
-        if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_some()) {
-            push(stem, Some(format!("{name} as {name}$value")), Some(format!("{name} as {name}$")));
-        } else if matches!(item, Item::Struct(s) if s.closed) {
-            push(stem, Some(closed_ctor(name)), Some(format!("{name} as {name}$")));
+        if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_none()) {
+            push(stem.clone(), Some(closed_ctor(name)), None);
+            push(stem, None, Some(alias));
         } else if value {
-            push(stem, Some(format!("{name} as {name}$value")), Some(format!("{name} as {name}$")));
+            push(stem, Some(alias), None);
         } else {
-            push(stem, None, Some(format!("{name} as {name}$")));
+            push(stem, None, Some(alias));
         }
     }
     for item in wired {
         if let Item::Struct(s) = item {
             if let Refusal::Text(err) = refusal(krate, s) {
                 let stem = purecrate_ir::Name::new(err.clone()).file_stem();
-                push(stem, Some(format!("{err} as {err}$text")), None);
+                push(stem, Some(format!("{err} as {err}$")), None);
             }
         }
     }
@@ -479,7 +487,7 @@ fn object_fields(schema: WireSchema, fields: &[purecrate_ir::Field]) -> Vec<Stri
 /// error's text or variant (`refusal`).
 fn try_from_message(name: &str, refused: &Refusal) -> String {
     match refused {
-        Refusal::Text(err) => format!("`{name}: ${{{err}$text.toString(r.error)}}`"),
+        Refusal::Text(err) => format!("`{name}: ${{{err}$.toString(r.error)}}`"),
         Refusal::Variant => format!("`{name}: ${{r.error.kind}}`"),
         Refusal::Type => format!("\"{name}\""),
     }
@@ -498,7 +506,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, r
             name,
             &format!(
                 "{from}.transform((x, ctx): {name}$ => {{\n\
-                 \x20 const r = {name}$value.tryFrom(x);\n\
+                 \x20 const r = {name}$.tryFrom(x);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
                  \x20   ctx.addIssue({{ code: \"custom\", message: {message}, input: x, params: {{ error: r.error }} }});\n\
                  \x20   return z.NEVER;\n\
@@ -513,7 +521,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, r
             name,
             &format!(
                 "v.pipe({from}, v.rawTransform(({{ dataset, addIssue, NEVER }}): {name}$ => {{\n\
-                 \x20 const r = {name}$value.tryFrom(dataset.value);\n\
+                 \x20 const r = {name}$.tryFrom(dataset.value);\n\
                  \x20 if (r.kind === \"Err\") {{\n\
                  \x20   addIssue({{ message: {message} }});\n\
                  \x20   return NEVER;\n\
@@ -528,7 +536,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, recursive: bool, r
              export const {name}: Wire<{name}$> = type(\"unknown\").pipe((v, ctx): {name}$ => {{\n\
              \x20 const parsed = {name}$wire()(v);\n\
              \x20 if (parsed instanceof type.errors) return fail(ctx, parsed);\n\
-             \x20 const r = {name}$value.tryFrom(parsed);\n\
+             \x20 const r = {name}$.tryFrom(parsed);\n\
              \x20 if (r.kind === \"Err\") return ctx.error({message}) as never;\n\
              \x20 return r.value;\n\
              }});\n"
@@ -544,7 +552,7 @@ fn newtype_build(s: &Struct, from: &str) -> String {
     if s.closed {
         format!("{}({from})", closed_ctor(name))
     } else {
-        format!("{name}$value.of({from})")
+        format!("{name}$.of({from})")
     }
 }
 

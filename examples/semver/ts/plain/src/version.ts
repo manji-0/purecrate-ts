@@ -16,10 +16,13 @@ export type Version = Readonly<{
   build: ReadonlyArray<string>;
 }> & { readonly "semver.Version": true };
 
-// A field is not `pub` in Rust: outside the crate, `Version` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Version$of = (fields: Readonly<{
+/**
+ * A `Version` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeVersion = (fields: Readonly<{
   major: U64;
   minor: U64;
   patch: U64;
@@ -65,7 +68,7 @@ export const Version = {
     } else {
       build2 = [];
     }
-    return Result.ok(Version$of({ major, minor, patch, pre: pre2, build: build2 }));
+    return Result.ok(unsafeMakeVersion({ major, minor, patch, pre: pre2, build: build2 }));
   },
   major: (self: Version): U64 => self.major,
   minor: (self: Version): U64 => self.minor,

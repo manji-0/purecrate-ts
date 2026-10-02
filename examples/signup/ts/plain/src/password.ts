@@ -6,10 +6,13 @@ import type { PasswordError } from "./password-error.ts";
 
 export type Password = string & { readonly "signup.Password": true };
 
-// A field is not `pub` in Rust: outside the crate, `Password` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Password$of = (value: string): Password => value as Password;
+/**
+ * A `Password` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakePassword = (value: string): Password => value as Password;
 
 export const Password = {
   parse: (raw: string): Result<Password, PasswordError> => {
@@ -24,6 +27,6 @@ export const Password = {
     if (n < 15) return Result.err({ kind: "TooShort" });
     if (n > 64) return Result.err({ kind: "TooLong" });
     if (blocked(raw)) return Result.err({ kind: "Blocked" });
-    return Result.ok(Password$of(raw));
+    return Result.ok(unsafeMakePassword(raw));
   },
 } as const;

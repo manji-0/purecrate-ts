@@ -10,10 +10,13 @@ export type Signup = Readonly<{
   password: Password;
 }> & { readonly "signup.Signup": true };
 
-// A field is not `pub` in Rust: outside the crate, `Signup` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Signup$of = (fields: Readonly<{
+/**
+ * A `Signup` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeSignup = (fields: Readonly<{
   email: Email;
   password: Password;
 }>): Signup => fields as Signup;
@@ -42,6 +45,6 @@ export const Signup = {
         return Result.err({ kind: "Password", value: e });
       }
     }
-    return Result.ok(Signup$of({ email: email2, password: password2 }));
+    return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
 } as const;

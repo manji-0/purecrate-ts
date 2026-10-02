@@ -3,34 +3,28 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import * as v from "valibot";
 import { i64, nullable, str, unitEnum, unitVariant } from "./purecrate-valibot.ts";
-import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
-import { type CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
-import { type CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
-import { type ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
-import { type DeclineCode as DeclineCode$ } from "./decline-code.ts";
-import { type Event as Event$ } from "./event.ts";
-import { type MethodKind as MethodKind$ } from "./method-kind.ts";
-import { type Outcome as Outcome$ } from "./outcome.ts";
-import {
-  PaymentError as PaymentError$text,
-  type PaymentError as PaymentError$,
-} from "./payment-error.ts";
-import { type PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
-import { type PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
-import {
-  PaymentMethodId as PaymentMethodId$value,
-  type PaymentMethodId as PaymentMethodId$,
-} from "./payment-method-id.ts";
-import { type Status as Status$ } from "./status.ts";
-import { type Terms as Terms$ } from "./terms.ts";
+import { Amount as DomainAmount } from "./amount.ts";
+import { type CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
+import { type CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
+import { type ConfirmationMethod as DomainConfirmationMethod } from "./confirmation-method.ts";
+import { type DeclineCode as DomainDeclineCode } from "./decline-code.ts";
+import { type Event as DomainEvent } from "./event.ts";
+import { type MethodKind as DomainMethodKind } from "./method-kind.ts";
+import { type Outcome as DomainOutcome } from "./outcome.ts";
+import { PaymentError as DomainPaymentError } from "./payment-error.ts";
+import { type PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
+import { type PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
+import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
+import { type Status as DomainStatus } from "./status.ts";
+import { type Terms as DomainTerms } from "./terms.ts";
 
 export const Amount: v.GenericSchema<
   unknown,
-  Amount$
-> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): Amount$ => {
-  const r = Amount$value.tryFrom(dataset.value);
+  DomainAmount
+> = v.pipe(i64, v.rawTransform(({ dataset, addIssue, NEVER }): DomainAmount => {
+  const r = DomainAmount.tryFrom(dataset.value);
   if (r.kind === "Err") {
-    addIssue({ message: `Amount: ${PaymentError$text.toString(r.error)}` });
+    addIssue({ message: `Amount: ${DomainPaymentError.toString(r.error)}` });
     return NEVER;
   }
   return r.value;
@@ -39,81 +33,84 @@ export const Amount: v.GenericSchema<
 /** A payment method ID: `pm_` followed by at least one character. */
 export const PaymentMethodId: v.GenericSchema<
   unknown,
-  PaymentMethodId$
-> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): PaymentMethodId$ => {
-  const r = PaymentMethodId$value.tryFrom(dataset.value);
+  DomainPaymentMethodId
+> = v.pipe(str, v.rawTransform(({ dataset, addIssue, NEVER }): DomainPaymentMethodId => {
+  const r = DomainPaymentMethodId.tryFrom(dataset.value);
   if (r.kind === "Err") {
-    addIssue({ message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}` });
+    addIssue({ message: `PaymentMethodId: ${DomainPaymentError.toString(r.error)}` });
     return NEVER;
   }
   return r.value;
 }));
 
-export const MethodKind: v.GenericSchema<unknown, MethodKind$> = unitEnum(["Card", "BankDebit"]);
+export const MethodKind: v.GenericSchema<
+  unknown,
+  DomainMethodKind
+> = unitEnum(["Card", "BankDebit"]);
 
 export const PaymentMethod: v.GenericSchema<
   unknown,
-  PaymentMethod$
+  DomainPaymentMethod
 > = v.object({ id: PaymentMethodId, kind: MethodKind });
 
 export const CaptureMethod: v.GenericSchema<
   unknown,
-  CaptureMethod$
+  DomainCaptureMethod
 > = unitEnum(["Automatic", "Manual"]);
 
 export const ConfirmationMethod: v.GenericSchema<
   unknown,
-  ConfirmationMethod$
+  DomainConfirmationMethod
 > = unitEnum(["Automatic", "Manual"]);
 
-export const Terms: v.GenericSchema<unknown, Terms$> = v.object({
+export const Terms: v.GenericSchema<unknown, DomainTerms> = v.object({
   amount: Amount,
   capture: CaptureMethod,
   confirmation: ConfirmationMethod,
 });
 
-export const DeclineCode: v.GenericSchema<unknown, DeclineCode$> = unitEnum([
+export const DeclineCode: v.GenericSchema<unknown, DomainDeclineCode> = unitEnum([
   "CardDeclined",
   "InsufficientFunds",
   "AuthenticationFailed",
   "DebitFailed",
 ]);
 
-export const CancellationReason: v.GenericSchema<unknown, CancellationReason$> = unitEnum([
+export const CancellationReason: v.GenericSchema<unknown, DomainCancellationReason> = unitEnum([
   "Duplicate",
   "Fraudulent",
   "RequestedByCustomer",
   "Abandoned",
 ]);
 
-export const Status: v.GenericSchema<unknown, Status$> = v.union([
+export const Status: v.GenericSchema<unknown, DomainStatus> = v.union([
   v.pipe(
     v.strictObject(
       { RequiresPaymentMethod: v.object({ last_error: v.optional(nullable(DeclineCode)) }) },
     ),
-    v.transform((x): Status$ => ({
+    v.transform((x): DomainStatus => ({
       kind: "RequiresPaymentMethod",
       last_error: x.RequiresPaymentMethod.last_error ?? null,
     })),
   ),
   v.pipe(
     v.strictObject({ RequiresConfirmation: v.object({ method: PaymentMethod }) }),
-    v.transform((x): Status$ => ({
+    v.transform((x): DomainStatus => ({
       kind: "RequiresConfirmation",
       method: x.RequiresConfirmation.method,
     })),
   ),
   v.pipe(
     v.strictObject({ RequiresAction: v.object({ method: PaymentMethod }) }),
-    v.transform((x): Status$ => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
+    v.transform((x): DomainStatus => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
   ),
   v.pipe(
     v.strictObject({ Processing: v.object({ method: PaymentMethod }) }),
-    v.transform((x): Status$ => ({ kind: "Processing", method: x.Processing.method })),
+    v.transform((x): DomainStatus => ({ kind: "Processing", method: x.Processing.method })),
   ),
   v.pipe(
     v.strictObject({ RequiresCapture: v.object({ method: PaymentMethod, capturable: i64 }) }),
-    v.transform((x): Status$ => ({
+    v.transform((x): DomainStatus => ({
       kind: "RequiresCapture",
       method: x.RequiresCapture.method,
       capturable: x.RequiresCapture.capturable,
@@ -124,7 +121,7 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
       received: i64,
       application_fee: v.optional(nullable(i64)),
     }) }),
-    v.transform((x): Status$ => ({
+    v.transform((x): DomainStatus => ({
       kind: "Succeeded",
       received: x.Succeeded.received,
       application_fee: x.Succeeded.application_fee ?? null,
@@ -132,40 +129,40 @@ export const Status: v.GenericSchema<unknown, Status$> = v.union([
   ),
   v.pipe(
     v.strictObject({ Canceled: v.object({ reason: v.optional(nullable(CancellationReason)) }) }),
-    v.transform((x): Status$ => ({ kind: "Canceled", reason: x.Canceled.reason ?? null })),
+    v.transform((x): DomainStatus => ({ kind: "Canceled", reason: x.Canceled.reason ?? null })),
   ),
 ]);
 
 export const PaymentIntent: v.GenericSchema<
   unknown,
-  PaymentIntent$
+  DomainPaymentIntent
 > = v.object({ terms: Terms, status: Status });
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
-export const Outcome: v.GenericSchema<unknown, Outcome$> = v.union([
-  v.pipe(unitVariant("Authorized"), v.transform((): Outcome$ => ({ kind: "Authorized" }))),
+export const Outcome: v.GenericSchema<unknown, DomainOutcome> = v.union([
+  v.pipe(unitVariant("Authorized"), v.transform((): DomainOutcome => ({ kind: "Authorized" }))),
   v.pipe(
     unitVariant("ActionRequired"),
-    v.transform((): Outcome$ => ({ kind: "ActionRequired" })),
+    v.transform((): DomainOutcome => ({ kind: "ActionRequired" })),
   ),
-  v.pipe(unitVariant("Pending"), v.transform((): Outcome$ => ({ kind: "Pending" }))),
+  v.pipe(unitVariant("Pending"), v.transform((): DomainOutcome => ({ kind: "Pending" }))),
   v.pipe(
     v.strictObject({ Declined: DeclineCode }),
-    v.transform((x): Outcome$ => ({ kind: "Declined", value: x.Declined })),
+    v.transform((x): DomainOutcome => ({ kind: "Declined", value: x.Declined })),
   ),
 ]);
 
-export const Event: v.GenericSchema<unknown, Event$> = v.union([
+export const Event: v.GenericSchema<unknown, DomainEvent> = v.union([
   v.pipe(
     v.strictObject({ AttachMethod: PaymentMethod }),
-    v.transform((x): Event$ => ({ kind: "AttachMethod", value: x.AttachMethod })),
+    v.transform((x): DomainEvent => ({ kind: "AttachMethod", value: x.AttachMethod })),
   ),
   v.pipe(
     v.strictObject({ Confirm: v.object({
       method: v.optional(nullable(PaymentMethod)),
       outcome: Outcome,
     }) }),
-    v.transform((x): Event$ => ({
+    v.transform((x): DomainEvent => ({
       kind: "Confirm",
       method: x.Confirm.method ?? null,
       outcome: x.Confirm.outcome,
@@ -173,22 +170,22 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ ActionHandled: Outcome }),
-    v.transform((x): Event$ => ({ kind: "ActionHandled", value: x.ActionHandled })),
+    v.transform((x): DomainEvent => ({ kind: "ActionHandled", value: x.ActionHandled })),
   ),
   v.pipe(
     unitVariant("ProcessingSucceeded"),
-    v.transform((): Event$ => ({ kind: "ProcessingSucceeded" })),
+    v.transform((): DomainEvent => ({ kind: "ProcessingSucceeded" })),
   ),
   v.pipe(
     v.strictObject({ ProcessingFailed: DeclineCode }),
-    v.transform((x): Event$ => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
+    v.transform((x): DomainEvent => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
   ),
   v.pipe(
     v.strictObject({ Capture: v.object({
       amount_to_capture: v.optional(nullable(i64)),
       application_fee: v.optional(nullable(i64)),
     }) }),
-    v.transform((x): Event$ => ({
+    v.transform((x): DomainEvent => ({
       kind: "Capture",
       amount_to_capture: x.Capture.amount_to_capture ?? null,
       application_fee: x.Capture.application_fee ?? null,
@@ -196,41 +193,41 @@ export const Event: v.GenericSchema<unknown, Event$> = v.union([
   ),
   v.pipe(
     v.strictObject({ Cancel: nullable(CancellationReason) }),
-    v.transform((x): Event$ => ({ kind: "Cancel", value: x.Cancel })),
+    v.transform((x): DomainEvent => ({ kind: "Cancel", value: x.Cancel })),
   ),
 ]);
 
-export const PaymentError: v.GenericSchema<unknown, PaymentError$> = v.union([
+export const PaymentError: v.GenericSchema<unknown, DomainPaymentError> = v.union([
   v.pipe(
     unitVariant("AmountOutOfRange"),
-    v.transform((): PaymentError$ => ({ kind: "AmountOutOfRange" })),
+    v.transform((): DomainPaymentError => ({ kind: "AmountOutOfRange" })),
   ),
   v.pipe(
     unitVariant("InvalidPaymentMethodId"),
-    v.transform((): PaymentError$ => ({ kind: "InvalidPaymentMethodId" })),
+    v.transform((): DomainPaymentError => ({ kind: "InvalidPaymentMethodId" })),
   ),
   v.pipe(
     unitVariant("MissingPaymentMethod"),
-    v.transform((): PaymentError$ => ({ kind: "MissingPaymentMethod" })),
+    v.transform((): DomainPaymentError => ({ kind: "MissingPaymentMethod" })),
   ),
   v.pipe(
     v.strictObject({ InvalidCaptureAmount: v.object({ capturable: i64 }) }),
-    v.transform((x): PaymentError$ => ({
+    v.transform((x): DomainPaymentError => ({
       kind: "InvalidCaptureAmount",
       capturable: x.InvalidCaptureAmount.capturable,
     })),
   ),
   v.pipe(
     unitVariant("NegativeApplicationFee"),
-    v.transform((): PaymentError$ => ({ kind: "NegativeApplicationFee" })),
+    v.transform((): DomainPaymentError => ({ kind: "NegativeApplicationFee" })),
   ),
   v.pipe(
     unitVariant("NotCancelable"),
-    v.transform((): PaymentError$ => ({ kind: "NotCancelable" })),
+    v.transform((): DomainPaymentError => ({ kind: "NotCancelable" })),
   ),
   v.pipe(
     unitVariant("InvalidTransition"),
-    v.transform((): PaymentError$ => ({ kind: "InvalidTransition" })),
+    v.transform((): DomainPaymentError => ({ kind: "InvalidTransition" })),
   ),
 ]);
 
@@ -239,47 +236,50 @@ export const PaymentError: v.GenericSchema<unknown, PaymentError$> = v.union([
  * throws on malformed text or a value the schema refuses.
  */
 export const fromJson = {
-  Amount: (text: string): Amount$ => v.parse(Amount, parseJson(text)),
-  PaymentMethodId: (text: string): PaymentMethodId$ => v.parse(PaymentMethodId, parseJson(text)),
-  MethodKind: (text: string): MethodKind$ => v.parse(MethodKind, parseJson(text)),
-  PaymentMethod: (text: string): PaymentMethod$ => v.parse(PaymentMethod, parseJson(text)),
-  CaptureMethod: (text: string): CaptureMethod$ => v.parse(CaptureMethod, parseJson(text)),
-  ConfirmationMethod: (text: string): ConfirmationMethod$ => v.parse(
+  Amount: (text: string): DomainAmount => v.parse(Amount, parseJson(text)),
+  PaymentMethodId: (text: string): DomainPaymentMethodId => v.parse(
+    PaymentMethodId,
+    parseJson(text),
+  ),
+  MethodKind: (text: string): DomainMethodKind => v.parse(MethodKind, parseJson(text)),
+  PaymentMethod: (text: string): DomainPaymentMethod => v.parse(PaymentMethod, parseJson(text)),
+  CaptureMethod: (text: string): DomainCaptureMethod => v.parse(CaptureMethod, parseJson(text)),
+  ConfirmationMethod: (text: string): DomainConfirmationMethod => v.parse(
     ConfirmationMethod,
     parseJson(text),
   ),
-  Terms: (text: string): Terms$ => v.parse(Terms, parseJson(text)),
-  DeclineCode: (text: string): DeclineCode$ => v.parse(DeclineCode, parseJson(text)),
-  CancellationReason: (text: string): CancellationReason$ => v.parse(
+  Terms: (text: string): DomainTerms => v.parse(Terms, parseJson(text)),
+  DeclineCode: (text: string): DomainDeclineCode => v.parse(DeclineCode, parseJson(text)),
+  CancellationReason: (text: string): DomainCancellationReason => v.parse(
     CancellationReason,
     parseJson(text),
   ),
-  Status: (text: string): Status$ => v.parse(Status, parseJson(text)),
-  PaymentIntent: (text: string): PaymentIntent$ => v.parse(PaymentIntent, parseJson(text)),
-  Outcome: (text: string): Outcome$ => v.parse(Outcome, parseJson(text)),
-  Event: (text: string): Event$ => v.parse(Event, parseJson(text)),
-  PaymentError: (text: string): PaymentError$ => v.parse(PaymentError, parseJson(text)),
+  Status: (text: string): DomainStatus => v.parse(Status, parseJson(text)),
+  PaymentIntent: (text: string): DomainPaymentIntent => v.parse(PaymentIntent, parseJson(text)),
+  Outcome: (text: string): DomainOutcome => v.parse(Outcome, parseJson(text)),
+  Event: (text: string): DomainEvent => v.parse(Event, parseJson(text)),
+  PaymentError: (text: string): DomainPaymentError => v.parse(PaymentError, parseJson(text)),
 } as const;
 
 /** Each type written as serde_json writes the Rust value. */
 export const toJson = {
-  Amount: (x: Amount$): string => Json.int(x),
-  PaymentMethodId: (x: PaymentMethodId$): string => Json.str(x),
-  MethodKind: (x: MethodKind$): string => `"${x.kind}"`,
-  PaymentMethod: (x: PaymentMethod$): string => Json.object([
+  Amount: (x: DomainAmount): string => Json.int(x),
+  PaymentMethodId: (x: DomainPaymentMethodId): string => Json.str(x),
+  MethodKind: (x: DomainMethodKind): string => `"${x.kind}"`,
+  PaymentMethod: (x: DomainPaymentMethod): string => Json.object([
     ["id", toJson.PaymentMethodId(x.id)],
     ["kind", toJson.MethodKind(x.kind)],
   ]),
-  CaptureMethod: (x: CaptureMethod$): string => `"${x.kind}"`,
-  ConfirmationMethod: (x: ConfirmationMethod$): string => `"${x.kind}"`,
-  Terms: (x: Terms$): string => Json.object([
+  CaptureMethod: (x: DomainCaptureMethod): string => `"${x.kind}"`,
+  ConfirmationMethod: (x: DomainConfirmationMethod): string => `"${x.kind}"`,
+  Terms: (x: DomainTerms): string => Json.object([
     ["amount", toJson.Amount(x.amount)],
     ["capture", toJson.CaptureMethod(x.capture)],
     ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
   ]),
-  DeclineCode: (x: DeclineCode$): string => `"${x.kind}"`,
-  CancellationReason: (x: CancellationReason$): string => `"${x.kind}"`,
-  Status: (x: Status$): string => {
+  DeclineCode: (x: DomainDeclineCode): string => `"${x.kind}"`,
+  CancellationReason: (x: DomainCancellationReason): string => `"${x.kind}"`,
+  Status: (x: DomainStatus): string => {
     switch (x.kind) {
       case "RequiresPaymentMethod":
         return Json.object([[
@@ -333,11 +333,11 @@ export const toJson = {
         ]]);
     }
   },
-  PaymentIntent: (x: PaymentIntent$): string => Json.object([
+  PaymentIntent: (x: DomainPaymentIntent): string => Json.object([
     ["terms", toJson.Terms(x.terms)],
     ["status", toJson.Status(x.status)],
   ]),
-  Outcome: (x: Outcome$): string => {
+  Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":
         return "\"Authorized\"";
@@ -349,7 +349,7 @@ export const toJson = {
         return Json.object([["Declined", toJson.DeclineCode(x.value)]]);
     }
   },
-  Event: (x: Event$): string => {
+  Event: (x: DomainEvent): string => {
     switch (x.kind) {
       case "AttachMethod":
         return Json.object([["AttachMethod", toJson.PaymentMethod(x.value)]]);
@@ -388,7 +388,7 @@ export const toJson = {
         ]]);
     }
   },
-  PaymentError: (x: PaymentError$): string => {
+  PaymentError: (x: DomainPaymentError): string => {
     switch (x.kind) {
       case "AmountOutOfRange":
         return "\"AmountOutOfRange\"";

@@ -76,7 +76,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("const") {
         return Some("readonly literal");
     }
-    if line.trim_start().starts_with("import ") || (value.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && target_name.contains('$')) {
+    if line.trim_start().starts_with("import ") || (value.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && target_name == format!("Domain{value}")) {
         return Some("import alias");
     }
     if target.starts_with("never") && value.starts_with("ctx.error(") {
@@ -112,7 +112,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target_name == "F64" || (target_name == "F32" && value.starts_with("globalThis.Math.fround(")) {
         return Some("float");
     }
-    if (value == "value" || value == "fields") && (line.contains("$of = (") || line.trim_start().starts_with("of: (value")) {
+    if (value == "value" || value == "fields") && (line.contains("export const unsafeMake") || line.trim_start().starts_with("of: (value")) {
         return Some("the crate's constructor");
     }
     if target.split(';').next().unwrap_or("").contains(" | null") && !is_place_text(value) {
@@ -159,7 +159,12 @@ fn every_cast_is_of_a_sound_kind() {
             .collect();
         for (file, text) in &package {
             files += 1;
+            let mut prev = "";
             for line in text.lines() {
+                // A constructor whose arrow wrapped reads with its first line.
+                let joined = format!("{} {}", prev.trim(), line.trim());
+                let before = prev;
+                prev = line;
                 let t = line.trim_start();
                 if t.starts_with("//") || t.starts_with('*') || t.starts_with("/*") {
                     continue;
@@ -168,7 +173,9 @@ fn every_cast_is_of_a_sound_kind() {
                 while let Some(at) = line[from..].find(" as ").map(|i| from + i) {
                     let value = operand(line, at);
                     let target = &line[at + 4..];
-                    if kind(line, value, target, &brands).is_none() {
+                    if kind(line, value, target, &brands).is_none()
+                        && !(before.contains("export const unsafeMake") && kind(&joined, value, target, &brands).is_some())
+                    {
                         unexplained.push(format!("{file}: `{value} as {}` in\n    {}", target.split([';', ',']).next().unwrap_or(""), line.trim()));
                     }
                     from = at + 4;
@@ -197,7 +204,9 @@ fn a_cast_of_no_sound_kind_is_caught() {
     // A string into a `Char`.
     assert!(unexplained("  const c = s as Char;"));
     // What the generator does print.
-    assert!(!unexplained("export const Yen$of = (value: I64): Yen => value as Yen;"));
+    assert!(!unexplained("export const unsafeMakeYen = (value: I64): Yen => value as Yen;"));
+    // Not the constructor: a cast to the brand anywhere else.
+    assert!(unexplained("  const y = value as Yen;"));
     assert!(!unexplained("  return Int.i32.add(n, (1 as I32));"));
     assert!(!unexplained("  const s = { kind: \"A\" } as State;"));
     assert!(!unexplained("  const s = state as State;"));

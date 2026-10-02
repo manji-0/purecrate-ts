@@ -3,33 +3,27 @@
 import { Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
 import { i64, nullable, optionalField, str, unitEnum, unitVariant } from "./purecrate-zod.ts";
-import { Amount as Amount$value, type Amount as Amount$ } from "./amount.ts";
-import { type CancellationReason as CancellationReason$ } from "./cancellation-reason.ts";
-import { type CaptureMethod as CaptureMethod$ } from "./capture-method.ts";
-import { type ConfirmationMethod as ConfirmationMethod$ } from "./confirmation-method.ts";
-import { type DeclineCode as DeclineCode$ } from "./decline-code.ts";
-import { type Event as Event$ } from "./event.ts";
-import { type MethodKind as MethodKind$ } from "./method-kind.ts";
-import { type Outcome as Outcome$ } from "./outcome.ts";
-import {
-  PaymentError as PaymentError$text,
-  type PaymentError as PaymentError$,
-} from "./payment-error.ts";
-import { type PaymentIntent as PaymentIntent$ } from "./payment-intent.ts";
-import { type PaymentMethod as PaymentMethod$ } from "./payment-method.ts";
-import {
-  PaymentMethodId as PaymentMethodId$value,
-  type PaymentMethodId as PaymentMethodId$,
-} from "./payment-method-id.ts";
-import { type Status as Status$ } from "./status.ts";
-import { type Terms as Terms$ } from "./terms.ts";
+import { Amount as DomainAmount } from "./amount.ts";
+import { type CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
+import { type CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
+import { type ConfirmationMethod as DomainConfirmationMethod } from "./confirmation-method.ts";
+import { type DeclineCode as DomainDeclineCode } from "./decline-code.ts";
+import { type Event as DomainEvent } from "./event.ts";
+import { type MethodKind as DomainMethodKind } from "./method-kind.ts";
+import { type Outcome as DomainOutcome } from "./outcome.ts";
+import { PaymentError as DomainPaymentError } from "./payment-error.ts";
+import { type PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
+import { type PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
+import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
+import { type Status as DomainStatus } from "./status.ts";
+import { type Terms as DomainTerms } from "./terms.ts";
 
-export const Amount: z.ZodType<Amount$, unknown> = i64.transform((x, ctx): Amount$ => {
-  const r = Amount$value.tryFrom(x);
+export const Amount: z.ZodType<DomainAmount, unknown> = i64.transform((x, ctx): DomainAmount => {
+  const r = DomainAmount.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
-      message: `Amount: ${PaymentError$text.toString(r.error)}`,
+      message: `Amount: ${DomainPaymentError.toString(r.error)}`,
       input: x,
       params: { error: r.error },
     });
@@ -40,14 +34,14 @@ export const Amount: z.ZodType<Amount$, unknown> = i64.transform((x, ctx): Amoun
 
 /** A payment method ID: `pm_` followed by at least one character. */
 export const PaymentMethodId: z.ZodType<
-  PaymentMethodId$,
+  DomainPaymentMethodId,
   unknown
-> = str.transform((x, ctx): PaymentMethodId$ => {
-  const r = PaymentMethodId$value.tryFrom(x);
+> = str.transform((x, ctx): DomainPaymentMethodId => {
+  const r = DomainPaymentMethodId.tryFrom(x);
   if (r.kind === "Err") {
     ctx.addIssue({
       code: "custom",
-      message: `PaymentMethodId: ${PaymentError$text.toString(r.error)}`,
+      message: `PaymentMethodId: ${DomainPaymentError.toString(r.error)}`,
       input: x,
       params: { error: r.error },
     });
@@ -56,145 +50,148 @@ export const PaymentMethodId: z.ZodType<
   return r.value;
 });
 
-export const MethodKind: z.ZodType<MethodKind$, unknown> = unitEnum(["Card", "BankDebit"]);
+export const MethodKind: z.ZodType<DomainMethodKind, unknown> = unitEnum(["Card", "BankDebit"]);
 
-export const PaymentMethod: z.ZodType<PaymentMethod$, unknown> = z.object({
+export const PaymentMethod: z.ZodType<DomainPaymentMethod, unknown> = z.object({
   id: PaymentMethodId,
   kind: MethodKind,
 });
 
-export const CaptureMethod: z.ZodType<CaptureMethod$, unknown> = unitEnum(["Automatic", "Manual"]);
-
-export const ConfirmationMethod: z.ZodType<
-  ConfirmationMethod$,
+export const CaptureMethod: z.ZodType<
+  DomainCaptureMethod,
   unknown
 > = unitEnum(["Automatic", "Manual"]);
 
-export const Terms: z.ZodType<Terms$, unknown> = z.object({
+export const ConfirmationMethod: z.ZodType<
+  DomainConfirmationMethod,
+  unknown
+> = unitEnum(["Automatic", "Manual"]);
+
+export const Terms: z.ZodType<DomainTerms, unknown> = z.object({
   amount: Amount,
   capture: CaptureMethod,
   confirmation: ConfirmationMethod,
 });
 
-export const DeclineCode: z.ZodType<DeclineCode$, unknown> = unitEnum([
+export const DeclineCode: z.ZodType<DomainDeclineCode, unknown> = unitEnum([
   "CardDeclined",
   "InsufficientFunds",
   "AuthenticationFailed",
   "DebitFailed",
 ]);
 
-export const CancellationReason: z.ZodType<CancellationReason$, unknown> = unitEnum([
+export const CancellationReason: z.ZodType<DomainCancellationReason, unknown> = unitEnum([
   "Duplicate",
   "Fraudulent",
   "RequestedByCustomer",
   "Abandoned",
 ]);
 
-export const Status: z.ZodType<Status$, unknown> = z.union([
+export const Status: z.ZodType<DomainStatus, unknown> = z.union([
   z.object({ RequiresPaymentMethod: z.object({ last_error: optionalField(DeclineCode) }) })
     .strict()
-    .transform((x): Status$ => ({
+    .transform((x): DomainStatus => ({
       kind: "RequiresPaymentMethod",
       last_error: x.RequiresPaymentMethod.last_error,
     })),
   z.object({ RequiresConfirmation: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((x): Status$ => ({
+    .transform((x): DomainStatus => ({
       kind: "RequiresConfirmation",
       method: x.RequiresConfirmation.method,
     })),
   z.object({ RequiresAction: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((x): Status$ => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
+    .transform((x): DomainStatus => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
   z.object({ Processing: z.object({ method: PaymentMethod }) })
     .strict()
-    .transform((x): Status$ => ({ kind: "Processing", method: x.Processing.method })),
+    .transform((x): DomainStatus => ({ kind: "Processing", method: x.Processing.method })),
   z.object({ RequiresCapture: z.object({ method: PaymentMethod, capturable: i64 }) })
     .strict()
-    .transform((x): Status$ => ({
+    .transform((x): DomainStatus => ({
       kind: "RequiresCapture",
       method: x.RequiresCapture.method,
       capturable: x.RequiresCapture.capturable,
     })),
   z.object({ Succeeded: z.object({ received: i64, application_fee: optionalField(i64) }) })
     .strict()
-    .transform((x): Status$ => ({
+    .transform((x): DomainStatus => ({
       kind: "Succeeded",
       received: x.Succeeded.received,
       application_fee: x.Succeeded.application_fee,
     })),
   z.object({ Canceled: z.object({ reason: optionalField(CancellationReason) }) })
     .strict()
-    .transform((x): Status$ => ({ kind: "Canceled", reason: x.Canceled.reason })),
+    .transform((x): DomainStatus => ({ kind: "Canceled", reason: x.Canceled.reason })),
 ]);
 
-export const PaymentIntent: z.ZodType<PaymentIntent$, unknown> = z.object({
+export const PaymentIntent: z.ZodType<DomainPaymentIntent, unknown> = z.object({
   terms: Terms,
   status: Status,
 });
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
-export const Outcome: z.ZodType<Outcome$, unknown> = z.union([
-  unitVariant("Authorized").transform((): Outcome$ => ({ kind: "Authorized" })),
-  unitVariant("ActionRequired").transform((): Outcome$ => ({ kind: "ActionRequired" })),
-  unitVariant("Pending").transform((): Outcome$ => ({ kind: "Pending" })),
+export const Outcome: z.ZodType<DomainOutcome, unknown> = z.union([
+  unitVariant("Authorized").transform((): DomainOutcome => ({ kind: "Authorized" })),
+  unitVariant("ActionRequired").transform((): DomainOutcome => ({ kind: "ActionRequired" })),
+  unitVariant("Pending").transform((): DomainOutcome => ({ kind: "Pending" })),
   z.object({ Declined: DeclineCode })
     .strict()
-    .transform((x): Outcome$ => ({ kind: "Declined", value: x.Declined })),
+    .transform((x): DomainOutcome => ({ kind: "Declined", value: x.Declined })),
 ]);
 
-export const Event: z.ZodType<Event$, unknown> = z.union([
+export const Event: z.ZodType<DomainEvent, unknown> = z.union([
   z.object({ AttachMethod: PaymentMethod })
     .strict()
-    .transform((x): Event$ => ({ kind: "AttachMethod", value: x.AttachMethod })),
+    .transform((x): DomainEvent => ({ kind: "AttachMethod", value: x.AttachMethod })),
   z.object({ Confirm: z.object({ method: optionalField(PaymentMethod), outcome: Outcome }) })
     .strict()
-    .transform((x): Event$ => ({
+    .transform((x): DomainEvent => ({
       kind: "Confirm",
       method: x.Confirm.method,
       outcome: x.Confirm.outcome,
     })),
   z.object({ ActionHandled: Outcome })
     .strict()
-    .transform((x): Event$ => ({ kind: "ActionHandled", value: x.ActionHandled })),
+    .transform((x): DomainEvent => ({ kind: "ActionHandled", value: x.ActionHandled })),
   unitVariant("ProcessingSucceeded")
-    .transform((): Event$ => ({ kind: "ProcessingSucceeded" })),
+    .transform((): DomainEvent => ({ kind: "ProcessingSucceeded" })),
   z.object({ ProcessingFailed: DeclineCode })
     .strict()
-    .transform((x): Event$ => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
+    .transform((x): DomainEvent => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
   z.object({ Capture: z.object({
     amount_to_capture: optionalField(i64),
     application_fee: optionalField(i64),
   }) })
     .strict()
-    .transform((x): Event$ => ({
+    .transform((x): DomainEvent => ({
       kind: "Capture",
       amount_to_capture: x.Capture.amount_to_capture,
       application_fee: x.Capture.application_fee,
     })),
   z.object({ Cancel: nullable(CancellationReason) })
     .strict()
-    .transform((x): Event$ => ({ kind: "Cancel", value: x.Cancel })),
+    .transform((x): DomainEvent => ({ kind: "Cancel", value: x.Cancel })),
 ]);
 
-export const PaymentError: z.ZodType<PaymentError$, unknown> = z.union([
+export const PaymentError: z.ZodType<DomainPaymentError, unknown> = z.union([
   unitVariant("AmountOutOfRange")
-    .transform((): PaymentError$ => ({ kind: "AmountOutOfRange" })),
+    .transform((): DomainPaymentError => ({ kind: "AmountOutOfRange" })),
   unitVariant("InvalidPaymentMethodId")
-    .transform((): PaymentError$ => ({ kind: "InvalidPaymentMethodId" })),
+    .transform((): DomainPaymentError => ({ kind: "InvalidPaymentMethodId" })),
   unitVariant("MissingPaymentMethod")
-    .transform((): PaymentError$ => ({ kind: "MissingPaymentMethod" })),
+    .transform((): DomainPaymentError => ({ kind: "MissingPaymentMethod" })),
   z.object({ InvalidCaptureAmount: z.object({ capturable: i64 }) })
     .strict()
-    .transform((x): PaymentError$ => ({
+    .transform((x): DomainPaymentError => ({
       kind: "InvalidCaptureAmount",
       capturable: x.InvalidCaptureAmount.capturable,
     })),
   unitVariant("NegativeApplicationFee")
-    .transform((): PaymentError$ => ({ kind: "NegativeApplicationFee" })),
-  unitVariant("NotCancelable").transform((): PaymentError$ => ({ kind: "NotCancelable" })),
+    .transform((): DomainPaymentError => ({ kind: "NegativeApplicationFee" })),
+  unitVariant("NotCancelable").transform((): DomainPaymentError => ({ kind: "NotCancelable" })),
   unitVariant("InvalidTransition")
-    .transform((): PaymentError$ => ({ kind: "InvalidTransition" })),
+    .transform((): DomainPaymentError => ({ kind: "InvalidTransition" })),
 ]);
 
 /**
@@ -202,43 +199,43 @@ export const PaymentError: z.ZodType<PaymentError$, unknown> = z.union([
  * throws on malformed text or a value the schema refuses.
  */
 export const fromJson = {
-  Amount: (text: string): Amount$ => Amount.parse(parseJson(text)),
-  PaymentMethodId: (text: string): PaymentMethodId$ => PaymentMethodId.parse(parseJson(text)),
-  MethodKind: (text: string): MethodKind$ => MethodKind.parse(parseJson(text)),
-  PaymentMethod: (text: string): PaymentMethod$ => PaymentMethod.parse(parseJson(text)),
-  CaptureMethod: (text: string): CaptureMethod$ => CaptureMethod.parse(parseJson(text)),
-  ConfirmationMethod: (text: string): ConfirmationMethod$ =>
+  Amount: (text: string): DomainAmount => Amount.parse(parseJson(text)),
+  PaymentMethodId: (text: string): DomainPaymentMethodId => PaymentMethodId.parse(parseJson(text)),
+  MethodKind: (text: string): DomainMethodKind => MethodKind.parse(parseJson(text)),
+  PaymentMethod: (text: string): DomainPaymentMethod => PaymentMethod.parse(parseJson(text)),
+  CaptureMethod: (text: string): DomainCaptureMethod => CaptureMethod.parse(parseJson(text)),
+  ConfirmationMethod: (text: string): DomainConfirmationMethod =>
     ConfirmationMethod.parse(parseJson(text)),
-  Terms: (text: string): Terms$ => Terms.parse(parseJson(text)),
-  DeclineCode: (text: string): DeclineCode$ => DeclineCode.parse(parseJson(text)),
-  CancellationReason: (text: string): CancellationReason$ =>
+  Terms: (text: string): DomainTerms => Terms.parse(parseJson(text)),
+  DeclineCode: (text: string): DomainDeclineCode => DeclineCode.parse(parseJson(text)),
+  CancellationReason: (text: string): DomainCancellationReason =>
     CancellationReason.parse(parseJson(text)),
-  Status: (text: string): Status$ => Status.parse(parseJson(text)),
-  PaymentIntent: (text: string): PaymentIntent$ => PaymentIntent.parse(parseJson(text)),
-  Outcome: (text: string): Outcome$ => Outcome.parse(parseJson(text)),
-  Event: (text: string): Event$ => Event.parse(parseJson(text)),
-  PaymentError: (text: string): PaymentError$ => PaymentError.parse(parseJson(text)),
+  Status: (text: string): DomainStatus => Status.parse(parseJson(text)),
+  PaymentIntent: (text: string): DomainPaymentIntent => PaymentIntent.parse(parseJson(text)),
+  Outcome: (text: string): DomainOutcome => Outcome.parse(parseJson(text)),
+  Event: (text: string): DomainEvent => Event.parse(parseJson(text)),
+  PaymentError: (text: string): DomainPaymentError => PaymentError.parse(parseJson(text)),
 } as const;
 
 /** Each type written as serde_json writes the Rust value. */
 export const toJson = {
-  Amount: (x: Amount$): string => Json.int(x),
-  PaymentMethodId: (x: PaymentMethodId$): string => Json.str(x),
-  MethodKind: (x: MethodKind$): string => `"${x.kind}"`,
-  PaymentMethod: (x: PaymentMethod$): string => Json.object([
+  Amount: (x: DomainAmount): string => Json.int(x),
+  PaymentMethodId: (x: DomainPaymentMethodId): string => Json.str(x),
+  MethodKind: (x: DomainMethodKind): string => `"${x.kind}"`,
+  PaymentMethod: (x: DomainPaymentMethod): string => Json.object([
     ["id", toJson.PaymentMethodId(x.id)],
     ["kind", toJson.MethodKind(x.kind)],
   ]),
-  CaptureMethod: (x: CaptureMethod$): string => `"${x.kind}"`,
-  ConfirmationMethod: (x: ConfirmationMethod$): string => `"${x.kind}"`,
-  Terms: (x: Terms$): string => Json.object([
+  CaptureMethod: (x: DomainCaptureMethod): string => `"${x.kind}"`,
+  ConfirmationMethod: (x: DomainConfirmationMethod): string => `"${x.kind}"`,
+  Terms: (x: DomainTerms): string => Json.object([
     ["amount", toJson.Amount(x.amount)],
     ["capture", toJson.CaptureMethod(x.capture)],
     ["confirmation", toJson.ConfirmationMethod(x.confirmation)],
   ]),
-  DeclineCode: (x: DeclineCode$): string => `"${x.kind}"`,
-  CancellationReason: (x: CancellationReason$): string => `"${x.kind}"`,
-  Status: (x: Status$): string => {
+  DeclineCode: (x: DomainDeclineCode): string => `"${x.kind}"`,
+  CancellationReason: (x: DomainCancellationReason): string => `"${x.kind}"`,
+  Status: (x: DomainStatus): string => {
     switch (x.kind) {
       case "RequiresPaymentMethod":
         return Json.object([[
@@ -292,11 +289,11 @@ export const toJson = {
         ]]);
     }
   },
-  PaymentIntent: (x: PaymentIntent$): string => Json.object([
+  PaymentIntent: (x: DomainPaymentIntent): string => Json.object([
     ["terms", toJson.Terms(x.terms)],
     ["status", toJson.Status(x.status)],
   ]),
-  Outcome: (x: Outcome$): string => {
+  Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":
         return "\"Authorized\"";
@@ -308,7 +305,7 @@ export const toJson = {
         return Json.object([["Declined", toJson.DeclineCode(x.value)]]);
     }
   },
-  Event: (x: Event$): string => {
+  Event: (x: DomainEvent): string => {
     switch (x.kind) {
       case "AttachMethod":
         return Json.object([["AttachMethod", toJson.PaymentMethod(x.value)]]);
@@ -347,7 +344,7 @@ export const toJson = {
         ]]);
     }
   },
-  PaymentError: (x: PaymentError$): string => {
+  PaymentError: (x: DomainPaymentError): string => {
     switch (x.kind) {
       case "AmountOutOfRange":
         return "\"AmountOutOfRange\"";

@@ -252,8 +252,8 @@ fn the_derives_decide_what_is_on_the_wire() {
     assert!(!wire.contains("Email$of"), "{wire}");
 }
 
-/// Type and value imports of one module are a single statement, including
-/// `{E as E$text}` next to `type E as E$` for a `try_from` refusal.
+/// Type and value imports of one module are a single statement: one alias
+/// (`DomainE`) for the type and the companion a `try_from` refusal reads.
 #[test]
 fn one_module_is_imported_once() {
     let source = include_str!("../../../../examples/payment/src/lib.rs");
@@ -270,8 +270,9 @@ fn one_module_is_imported_once() {
         1,
         "payment-error.ts imported more than once:\n{wire}"
     );
-    assert!(wire.contains("PaymentError as PaymentError$text"), "{wire}");
-    assert!(wire.contains("type PaymentError as PaymentError$"), "{wire}");
+    // One value import names the type and the companion both.
+    assert!(wire.contains("import { PaymentError as DomainPaymentError } from"), "{wire}");
+    assert!(!wire.contains("PaymentError$"), "{wire}");
 }
 
 /// The index exports `Char`, `Uuid`, and `Int` when the public surface holds

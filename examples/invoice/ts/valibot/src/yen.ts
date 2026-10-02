@@ -5,15 +5,18 @@ import type { InvoiceError } from "./invoice-error.ts";
 
 export type Yen = I64 & { readonly "invoice.Yen": true };
 
-// A field is not `pub` in Rust: outside the crate, `Yen` values come
-// only from the crate's functions. The generated files build them here;
-// `index.ts` does not export it.
-export const Yen$of = (value: I64): Yen => value as Yen;
+/**
+ * A `Yen` built without a check. Its fields are not `pub` in Rust, so
+ * outside the crate a value comes only from the crate's functions; the
+ * generated files build them here, and `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeYen = (value: I64): Yen => value as Yen;
 
 export const Yen = {
   new: (value: I64): Result<Yen, InvoiceError> => {
     if (value < 0n) return Result.err({ kind: "NegativeAmount" });
-    return Result.ok(Yen$of(value));
+    return Result.ok(unsafeMakeYen(value));
   },
   value: (self: Yen): I64 => self,
   tryFrom: (value: I64): Result<Yen, InvoiceError> => Yen.new(value),

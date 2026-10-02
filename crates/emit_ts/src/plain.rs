@@ -74,6 +74,66 @@ pub(crate) fn plain_names(src: &str) -> String {
     out
 }
 
+/// The wire file's own names, plain: a domain type and its companion,
+/// imported beside the schema of the same name (`Yen$` → `DomainYen`), an
+/// arktype shape (`Yen$wire` → `yenWire`), and a variant's arm
+/// (`Method$arm$Card` → `methodCardArm`). They are top-level, so each is
+/// told apart from every other identifier in the file.
+pub(crate) fn wire_names(src: &str) -> String {
+    let spans: Vec<(usize, usize)> = crate::imports::ident_spans(src)
+        .into_iter()
+        .filter(|(_, _, after_dot)| !after_dot)
+        .map(|(start, end, _)| (start, end))
+        .collect();
+    let lower = |s: &str| {
+        let mut c = s.chars();
+        c.next().map(|f| f.to_lowercase().chain(c).collect::<String>()).unwrap_or_default()
+    };
+    let wire_base = |word: &str| -> Option<String> {
+        let (ty, rest) = word.split_once('$')?;
+        if !ty.starts_with(|c: char| c.is_ascii_uppercase()) {
+            return None;
+        }
+        match rest {
+            "" => Some(format!("Domain{ty}")),
+            "wire" => Some(format!("{}Wire", lower(ty))),
+            _ => rest.strip_prefix("arm$").map(|v| format!("{}{v}Arm", lower(ty))),
+        }
+    };
+    let mut taken: std::collections::BTreeSet<String> = RESERVED.iter().map(|w| w.to_string()).collect();
+    for &(start, end) in &spans {
+        let word = &src[start..end];
+        if wire_base(word).is_none() {
+            taken.insert(word.to_string());
+        }
+    }
+    let mut renamed: BTreeMap<&str, String> = BTreeMap::new();
+    for &(start, end) in &spans {
+        let word = &src[start..end];
+        if renamed.contains_key(word) {
+            continue;
+        }
+        let Some(base) = wire_base(word) else { continue };
+        let name = (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base}{n}") })
+            .find(|n| !taken.contains(n))
+            .expect("a free name");
+        taken.insert(name.clone());
+        renamed.insert(word, name);
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut at = 0;
+    for &(start, end) in &spans {
+        if let Some(name) = renamed.get(&src[start..end]) {
+            out.push_str(&src[at..start]);
+            out.push_str(name);
+            at = end;
+        }
+    }
+    out.push_str(&src[at..]);
+    out
+}
+
 /// The plain base of a compiler-made name, and the first number to try
 /// (`n + 1` for a shadowed source name `x$n`, else `1` for the bare base).
 /// `None` for any other identifier.

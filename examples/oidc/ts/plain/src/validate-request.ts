@@ -9,7 +9,7 @@ import { pkceStringIsValid } from "./pkce-string-is-valid.ts";
 import { redirectError } from "./redirect-error.ts";
 import { redirectUriRegistered } from "./redirect-uri-registered.ts";
 import { stateIsValid } from "./state-is-valid.ts";
-import { AuthorizationRequest$of } from "./authorization-request.ts";
+import { unsafeMakeAuthorizationRequest } from "./authorization-request.ts";
 import type { AuthorizationError } from "./authorization-error.ts";
 import type { AuthorizationParams } from "./authorization-params.ts";
 import type { AuthorizationRequest } from "./authorization-request.ts";
@@ -122,7 +122,7 @@ export const validateRequest = (
     maxAge = null;
   }
   const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
-  return Result.ok(AuthorizationRequest$of({
+  return Result.ok(unsafeMakeAuthorizationRequest({
     client_id: client2.client_id,
     redirect_uri: redirectUri,
     scope,
