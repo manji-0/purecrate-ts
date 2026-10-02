@@ -41,18 +41,19 @@ export const begin = (
   const state: string | null = request.state;
   const refuse = (error: ErrorCode): AuthorizationError =>
     redirectError(request.redirect_uri, error, state);
-  return reusable !== null
-    ? request.prompt.no_interaction && needsConsent
-      ? Result.err(refuse({ kind: "ConsentRequired" }))
-      : !needsConsent
-        ? Result.ok(issue(request, reusable))
-        : Result.ok({ kind: "AwaitingConsent", request, auth: reusable })
-    : request.prompt.no_interaction
-      ? Result.err(refuse({ kind: "LoginRequired" }))
-      : Result.ok({
-          kind: "AwaitingPassword",
-          request,
-          failures: 0 as U32,
-          notice: { kind: "Clear" },
-        });
+  if (reusable !== null) {
+    if (request.prompt.no_interaction && needsConsent)
+      return Result.err(refuse({ kind: "ConsentRequired" }));
+    if (!needsConsent) return Result.ok(issue(request, reusable));
+    const auth: Authentication = reusable;
+    return Result.ok({ kind: "AwaitingConsent", request, auth });
+  }
+  return request.prompt.no_interaction
+    ? Result.err(refuse({ kind: "LoginRequired" }))
+    : Result.ok({
+        kind: "AwaitingPassword",
+        request,
+        failures: 0 as U32,
+        notice: { kind: "Clear" },
+      });
 };

@@ -195,3 +195,28 @@ fn a_guard_that_falls_back_joins_the_test() {
     assert!(checked.contains("if (p.id === null || p.id !== want) return Result.err(1 as I32);"), "{checked}");
     assert!(checked.contains("if (p.rt === null) return Result.err(3 as I32);\n  if (p.rt !== 7) return Result.err(2 as I32);"), "{checked}");
 }
+
+/// A returned choice inside a choice that does not fit on one line is
+/// `if (..) return ..;` lines; one that fits stays one `?:`.
+#[test]
+fn a_nested_returned_choice_is_if_lines() {
+    let source = "pub fn small(x: Option<i64>) -> i64 {\n\
+                      match x {\n\
+                          Some(0) => 0,\n\
+                          Some(1 | 2) => 1,\n\
+                          Some(-5..=-1) => -1,\n\
+                          Some(x) => x * 2,\n\
+                          None => -100,\n\
+                      }\n\
+                  }\n\
+                  pub fn sum_both(x: Option<i32>, y: Option<i32>) -> i32 {\n\
+                      match x { Some(x) => match y { Some(y) => x + y, None => x }, None => 0 }\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("choices", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let small = file("small");
+    assert!(small.contains("if (x === 0n) return 0n as I64;") && !small.contains(" ? "), "{small}");
+    assert!(file("sum-both").contains("x !== null ? (y !== null ? "), "{}", file("sum-both"));
+}

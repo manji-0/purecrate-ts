@@ -4,6 +4,7 @@ mod doc;
 mod expr;
 mod imports;
 mod items;
+mod join;
 mod js;
 mod plain;
 mod tidy;

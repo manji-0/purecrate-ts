@@ -125,6 +125,24 @@ pub(crate) fn negate(s: &str) -> Option<String> {
     Some(format!("{}{flip}{}", &s[..at], &s[at + 5..]))
 }
 
+/// `s` split at each `op` at its top level (outside brackets and strings).
+pub(crate) fn split_top<'s>(s: &'s str, op: &str) -> Vec<&'s str> {
+    let d = depths(s);
+    let mut parts = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < s.len() {
+        if d[i] == Some(0) && s[i..].starts_with(op) {
+            parts.push(&s[start..i]);
+            i += op.len();
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
 /// JS/TS operator precedence; higher binds tighter. Used to parenthesize
 /// nested operators only when the child would parse otherwise.
 pub(crate) const PREC_ATOMIC: u8 = 20;

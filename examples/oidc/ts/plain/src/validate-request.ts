@@ -44,8 +44,8 @@ export const validateRequest = (
   const fail = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
   if (params.response_type === null) return Result.err(fail({ kind: "InvalidRequest" }));
   if (params.response_type !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
-  if (params.scope === null) return Result.err(fail({ kind: "InvalidScope" }));
-  if (!hasToken(params.scope, "openid")) return Result.err(fail({ kind: "InvalidScope" }));
+  if (params.scope === null || !hasToken(params.scope, "openid"))
+    return Result.err(fail({ kind: "InvalidScope" }));
   const scope: string = params.scope;
   if (echoed === null) return Result.err(fail({ kind: "InvalidRequest" }));
   const state: string = echoed;

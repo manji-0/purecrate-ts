@@ -149,6 +149,25 @@ pub(crate) fn emit_for(
     emit_loop(&head, body, indent, out);
 }
 
+/// Whether `expr` prints as a `?:` of its own (not `&&` / `||` with a
+/// `bool` literal): one inside a returned `?:` is a nested choice, which
+/// reads better as `if (..) return ..;` lines.
+fn chooses(expr: &Expr) -> bool {
+    let lit = |e: &Expr| matches!(e, Expr::Lit(Lit::Bool(_)));
+    match peel(expr) {
+        Expr::If { then, else_, .. } => !lit(then) && !lit(else_),
+        Expr::Match { arms, .. } => !arms.iter().any(|a| lit(&a.body)),
+        _ => false,
+    }
+}
+
+/// Whether `return expr;` is one line within the width.
+fn fits_returned(expr: &Expr, indent: usize) -> bool {
+    as_expr(expr, indent).is_some_and(|v| {
+        !v.contains('\n') && 2 * indent + "return ;".len() + crate::tidy::strip_outer(&v).len() <= crate::WIDTH
+    })
+}
+
 /// `emit_stmts`, told whether `expr` is the last statement of its block.
 fn emit_tail(expr: &Expr, indent: usize, sink: Sink, out: &mut String, tail: bool) {
     crate::TAIL.with(|t| t.set(tail));
@@ -268,13 +287,17 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             let test = not(crate::tidy::strip_outer(&emit_expr(cond, indent)));
             emit_guard(&test, "", else_, indent, sink, out);
         }
-        Expr::If { cond, then, else_ } if expr.needs_statements() => {
+        Expr::If { cond, then, else_ }
+            if expr.needs_statements()
+                || matches!(sink, Sink::Return) && (chooses(then) || chooses(else_)) && !fits_returned(expr, indent) =>
+        {
             let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
             let mut branches = vec![Branch { test: Some(test), prelude: String::new(), body: then }];
-            // An `else` that is one more `if` with statements is `else if`.
+            // An `else` that is one more `if` with statements is `else if`,
+            // as is any where the value is returned.
             let mut rest = &**else_;
             while let Expr::If { cond, then, else_ } = rest {
-                if !rest.needs_statements() {
+                if !rest.needs_statements() && !(matches!(sink, Sink::Return) && chooses(rest) && !fits_returned(rest, indent)) {
                     break;
                 }
                 let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
@@ -321,7 +344,8 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             if !matches!(sink, Sink::Effect)
                 && is_place(scrutinee)
                 && (arms.iter().all(|a| matches!(a.body, Expr::Lit(Lit::Bool(_))))
-                    || (arms.len() == 2 && two_way_test(&arms[0].pattern, "").is_some())) =>
+                    || (arms.len() == 2 && two_way_test(&arms[0].pattern, "").is_some()))
+                && !(matches!(sink, Sink::Return) && arms.iter().any(|a| chooses(&a.body)) && !fits_returned(expr, indent)) =>
         {
             match as_expr(expr, indent) {
                 Some(value) => sink.finish(&value, &pad, out),
@@ -727,28 +751,6 @@ pub(crate) fn emit_switch_in(
             two_way_test(&b.pattern, &subject),
         ) {
             let pad2 = "  ".repeat(indent + 1);
-            if let Some(joined) = joined_guard(a, b, scrutinee, &test, indent) {
-                // Bindings only the guard read need no prelude.
-                let (prelude, then) = if a.pattern.bindings().iter().any(|n| mentions(joined.then, n)) {
-                    read_in_place(&a.pattern, scrutinee, joined.then, &subject, &pad2)
-                } else {
-                    (String::new(), joined.then.clone())
-                };
-                let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
-                if then == Expr::Lit(Lit::Unit) && prelude.is_empty() {
-                    emit_guard(&joined.unless, &b_prelude, &b_body, indent, sink, out);
-                    return;
-                }
-                let branches = {
-                    let mut branches = vec![Branch { test: Some(joined.when), prelude, body: &then }];
-                    if !(matches!(sink, Sink::Effect) && b.body == Expr::Lit(Lit::Unit)) {
-                        branches.push(Branch { test: None, prelude: b_prelude, body: &b_body });
-                    }
-                    branches
-                };
-                emit_branches(&branches, indent, sink, tail, out);
-                return;
-            }
             // `Some(x) => a, None => return e`: the exit first, then `a` with
             // its payload read where the exit has narrowed it, as `let ..
             // else` reads. Only where `a` declares nothing the block's later
@@ -877,54 +879,6 @@ fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr) ->
     Some(body)
 }
 
-/// A two-way `match` whose first arm is `if g { a } else { b }` and whose
-/// other arm is that `b`, binding nothing: the decision tree's guard
-/// (`Some(id) if id == x => a, _ => b`). The guard joins the arm's test,
-/// `when` (`o !== null && g`) and its negation `unless` (`o === null || !g`),
-/// so `b` is printed once.
-struct JoinedGuard<'e> {
-    when: String,
-    unless: String,
-    then: &'e Expr,
-}
-
-fn joined_guard<'e>(
-    a: &'e purecrate_ir::Arm,
-    b: &purecrate_ir::Arm,
-    scrutinee: &Expr,
-    test: &str,
-    indent: usize,
-) -> Option<JoinedGuard<'e>> {
-    use crate::tidy::{group, Assoc, Side, PREC_AND, PREC_OR};
-    let Expr::If { cond, then, else_ } = &a.body else { return None };
-    if **else_ != b.body || !b.pattern.bindings().is_empty() || !is_place(scrutinee) {
-        return None;
-    }
-    // The guard reads the payload where the test has narrowed it.
-    let mut cond = (**cond).clone();
-    match &a.pattern {
-        Pattern::OptionSome(p) => crate::expr::bind_in(p, scrutinee.clone(), &mut cond)?,
-        Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
-            let field = if matches!(a.pattern, Pattern::ResultOk(_)) { "value" } else { "error" };
-            let read = Expr::Field { base: Box::new(scrutinee.clone()), name: purecrate_ir::Name::new(field) };
-            crate::expr::bind_in(p, read, &mut cond)?
-        }
-        _ => return None,
-    }
-    let g = emit_expr(&cond, indent);
-    let when = format!(
-        "{} && {}",
-        group(test, PREC_AND, Assoc::Left, Side::Left),
-        group(&g, PREC_AND, Assoc::Left, Side::Right)
-    );
-    let unless = format!(
-        "{} || {}",
-        group(&not(test), PREC_OR, Assoc::Left, Side::Left),
-        group(&not(&g), PREC_OR, Assoc::Left, Side::Right)
-    );
-    Some(JoinedGuard { when, unless, then })
-}
-
 /// The one `A | B | …` (or `_`) that binds nothing, when other arms name
 /// variants: it is the Rust `_`, printed as `default` instead of listing
 /// every remaining case and `assertNever`.
@@ -1038,8 +992,17 @@ fn emit_guard(test: &str, prelude: &str, body: &Expr, indent: usize, sink: Sink,
 }
 
 /// `!c`, as `a !== b` for `a === b` and the like.
+/// An `&&` chain turns into an `||` of each side turned round.
 fn not(cond: &str) -> String {
-    use crate::tidy::{group, Assoc, Side, PREC_UNARY};
+    use crate::tidy::{group, Assoc, Side, PREC_AND, PREC_OR, PREC_UNARY};
+    let cond = crate::tidy::strip_outer(cond);
+    if crate::tidy::top_prec(cond) == PREC_AND {
+        return crate::tidy::split_top(cond, " && ")
+            .iter()
+            .map(|side| group(&not(side), PREC_OR, Assoc::Left, Side::Left))
+            .collect::<Vec<_>>()
+            .join(" || ");
+    }
     crate::tidy::negate(cond).unwrap_or_else(|| format!("!{}", group(cond, PREC_UNARY, Assoc::Right, Side::Right)))
 }
 
@@ -1256,7 +1219,7 @@ fn read_in_place(pattern: &Pattern, scrutinee: &Expr, body: &Expr, subject: &str
 }
 
 /// Whether `expr` binds or assigns `name`, or holds a closure that reads it.
-fn touches(expr: &Expr, name: &Name) -> bool {
+pub(crate) fn touches(expr: &Expr, name: &Name) -> bool {
     let here = match expr {
         Expr::Let { name: n, .. } | Expr::Assign { name: n, .. } => n == name,
         Expr::For { var, .. } | Expr::ForEach { var, .. } => var == name,
