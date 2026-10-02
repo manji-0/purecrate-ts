@@ -8,12 +8,14 @@ import { PKCE_MAX_LEN, PKCE_MIN_LEN } from "./consts.ts";
  * unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
  */
 export const pkceStringIsValid = (s: string): boolean =>
-  Str.len(s) >= PKCE_MIN_LEN && Str.len(s) <= PKCE_MAX_LEN && Iter.all(
+  Str.len(s) >= PKCE_MIN_LEN &&
+  Str.len(s) <= PKCE_MAX_LEN &&
+  Iter.all(
     Str.bytes(s),
     (b: U8): boolean =>
-      b >= 65 && b <= 90 ||
-      b >= 97 && b <= 122 ||
-      b >= 48 && b <= 57 ||
+      (b >= 65 && b <= 90) ||
+      (b >= 97 && b <= 122) ||
+      (b >= 48 && b <= 57) ||
       b === 45 ||
       b === 46 ||
       b === 95 ||

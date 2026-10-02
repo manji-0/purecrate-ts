@@ -73,29 +73,27 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const now = event.now;
           const candidates = event.candidates;
           let notice: Notice;
-          {
-            const otpCheck: OtpCheck = checkTotp(code, now, enrollment, candidates);
-            switch (otpCheck.kind) {
-              case "Accepted": {
-                const step = otpCheck.value;
-                const auth: Authentication = {
-                  subject,
-                  auth_time: now,
-                  strength: { kind: "PasswordAndTotp" },
-                  totp_step: step,
-                };
-                return Result.ok({ kind: "AwaitingConsent", request, auth });
-              }
-              case "Replayed":
-                notice = { kind: "OtpReplayed" };
-                break;
-              case "Malformed":
-                notice = { kind: "MalformedOtp" };
-                break;
-              default:
-                notice = { kind: "WrongOtp" };
-                break;
+          const otpCheck: OtpCheck = checkTotp(code, now, enrollment, candidates);
+          switch (otpCheck.kind) {
+            case "Accepted": {
+              const step2 = otpCheck.value;
+              const auth: Authentication = {
+                subject,
+                auth_time: now,
+                strength: { kind: "PasswordAndTotp" },
+                totp_step: step2,
+              };
+              return Result.ok({ kind: "AwaitingConsent", request, auth });
             }
+            case "Replayed":
+              notice = { kind: "OtpReplayed" };
+              break;
+            case "Malformed":
+              notice = { kind: "MalformedOtp" };
+              break;
+            default:
+              notice = { kind: "WrongOtp" };
+              break;
           }
           const failures2: U32 = Int.u32.add(failures, 1 as U32);
           if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });

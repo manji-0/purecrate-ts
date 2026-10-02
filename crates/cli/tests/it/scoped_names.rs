@@ -113,3 +113,18 @@ fn a_local_takes_the_name_of_a_function_its_body_does_not_read() {
     let calls = file("names", source, "calls");
     assert!(calls.contains("const total2: I32 = total(n);"), "{calls}");
 }
+
+#[test]
+fn an_option_unwrapped_into_its_own_name_is_read_narrowed() {
+    let src = file(
+        "unwrap",
+        "pub fn twice(n: Option<i32>) -> i32 {\n\
+             let n = match n { Some(n) => n, None => return 0 };\n\
+             n * 2\n\
+         }\n",
+        "twice",
+    );
+    // No `const n2 = n`: past the exit, TS has narrowed `n`.
+    assert!(src.contains("if (n === null) return 0 as I32;"), "{src}");
+    assert!(src.contains("Int.i32.mul(n, 2 as I32)") && !src.contains("n2"), "{src}");
+}

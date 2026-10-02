@@ -53,6 +53,9 @@ thread_local! {
     static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
     static PRIVATE: RefCell<BTreeSet<(String, String)>> = const { RefCell::new(BTreeSet::new()) };
+    /// Whether the statement `stmt::emit_stmts` prints next is the last of
+    /// its JS block, so nothing after it could meet a name it declares.
+    static TAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The loops being printed, innermost last, each with its label when a
     /// `break` or `continue` in it leaves it.
     static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
@@ -781,7 +784,8 @@ export const step = (state: State, event: Event): State => {
         let bin = |op, l, r| Expr::Binary { op, left: Box::new(l), right: Box::new(r) };
         let and = bin(BinOp::And, Expr::var("a"), Expr::var("b"));
         let src = bool_fn(bin(BinOp::Or, and, Expr::var("c")));
-        assert!(src.contains("=> a && b || c;"), "{src}");
+        // Not needed for precedence, but read as oxfmt writes it.
+        assert!(src.contains("=> (a && b) || c;"), "{src}");
         let or = bin(BinOp::Or, Expr::var("a"), Expr::var("b"));
         let src = bool_fn(bin(BinOp::And, or, Expr::var("c")));
         assert!(src.contains("=> (a || b) && c;"), "{src}");

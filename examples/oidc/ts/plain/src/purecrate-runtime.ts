@@ -66,7 +66,6 @@ export const assertNever = (_x: never): never => {
   throw new Error("unexpected variant");
 };
 
-export type I32 = number & { readonly "purecrate.I32": true };
 export type I64 = bigint & { readonly "purecrate.I64": true };
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U32 = number & { readonly "purecrate.U32": true };

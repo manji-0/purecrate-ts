@@ -23,7 +23,7 @@ jobs:
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
-      - name: Install the schema libraries (adapters and examples)
+      - name: Install the schema libraries (adapters and examples) and the examples' linter
         run: |
           for p in packages/boundary-zod packages/boundary-valibot packages/boundary-arktype examples; do
             nix develop --command npm ci --ignore-scripts --prefix "$p"

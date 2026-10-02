@@ -1,8 +1,11 @@
 {
   "private": true,
-  "description": "The schema libraries the examples' committed output (examples/<name>/ts/<lib>) imports, for tsc in scripts/verify.sh.",
+  "description": "The schema libraries the examples' committed output (examples/<name>/ts/<lib>) imports, for tsc in scripts/verify.sh, and oxlint and oxfmt for the lint and format of that output.",
   "devDependencies": {
     "arktype": "2.1.22",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
     "valibot": "1.1.0",
     "zod": "4.6.5"
   }

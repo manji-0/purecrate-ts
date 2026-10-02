@@ -20,8 +20,7 @@ export const parsePrompt = (s: string): Prompt | null => {
       consent = true;
     } else if (token === "select_account") {
       selectAccount = true;
-    } else if (token === "") {
-    } else {
+    } else if (token !== "") {
       return null;
     }
   }

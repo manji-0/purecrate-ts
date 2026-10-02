@@ -150,9 +150,14 @@ pub(crate) enum Assoc {
 }
 
 /// Whether a child of `child` precedence needs parentheses under a parent
-/// of `parent` precedence. `&&` / `||` are associative; `?:` is right-associative;
+/// of `parent` precedence. `&&` / `||` are associative, and an `&&` under
+/// `||` is parenthesized all the same; `?:` is right-associative;
 /// the rest are left-associative (`a - (b - c)` keeps its grouping).
 pub(crate) fn needs_paren(child: u8, parent: u8, assoc: Assoc, side: Side) -> bool {
+    // `a && b || c` reads as `(a && b) || c`, as oxfmt writes it.
+    if child == PREC_AND && parent == PREC_OR {
+        return true;
+    }
     if child > parent || child == PREC_ATOMIC {
         return false;
     }
@@ -589,7 +594,8 @@ fn wrap_logical(line: &str, width: usize, out: &mut String) -> bool {
 }
 
 /// A condition on a line of its own (what `wrap_if_return` and
-/// `wrap_if_open` leave between `if (` and `)`) breaks at its top-level
+/// `wrap_if_open` leave between `if (` and `)`, or an arrow's body after
+/// `wrap_arrow`) breaks at its top-level
 /// `||`, else `&&`, before any call in it opens: `n === 0 ||` then
 /// `Slice.at(b, start) === 45`, not `Slice.at(` alone.
 fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool {
@@ -600,7 +606,8 @@ fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool {
     let d = depths(expr);
     let arrow = (0..expr.len()).any(|i| d[i] == Some(0) && expr[i..].starts_with(" => "));
     let ternary = find_ternary(expr).is_some();
-    if statement || arrow || ternary || expr.ends_with([';', '{', ',', '(']) || top_assign(expr).is_some() {
+    // A `;` ends an arrow's body that `wrap_arrow` moved to its own line.
+    if statement || arrow || ternary || expr.ends_with(['{', ',', '(']) || top_assign(expr).is_some() {
         return false;
     }
     let Some(parts) = split_at_op(expr, " || ", 0).or_else(|| split_at_op(expr, " && ", 0)) else {
@@ -821,13 +828,21 @@ fn arrow_split(line: &str, width: usize) -> Option<usize> {
         .map(|at| at + 4)
 }
 
-/// A body Prettier keeps on the arrow's line, opening its bracket.
+/// A body oxfmt keeps on the arrow's line, opening its bracket: an
+/// object, block, or array that is the whole body, not the head of a longer
+/// expression (`({ .. } satisfies T)[k]`).
 fn hugs(body: &str) -> bool {
-    body.starts_with("({") || body.starts_with('{') || body.starts_with('[')
+    if !(body.starts_with("({") || body.starts_with('{') || body.starts_with('[')) {
+        return false;
+    }
+    let d = depths(body);
+    let close = (1..body.len()).find(|&j| d[j] == Some(0) && matches!(body.as_bytes()[j], b')' | b'}' | b']'));
+    // Unclosed on the line: a block, or a literal already opened.
+    close.is_none_or(|c| body[c + 1..].trim_start_matches([')', ',', ';']).is_empty())
 }
 
 /// An arrow whose head fits and whose body is not a literal breaks after
-/// `=>`, the body one indent in (`(a: A): T =>` then `f(a, b)`), as Prettier
+/// `=>`, the body one indent in (`(a: A): T =>` then `f(a, b)`), as oxfmt
 /// prints it, rather than opening the parameters or the body's call.
 fn wrap_arrow_first(line: &str, width: usize, out: &mut String) -> bool {
     match arrow_split(line, width) {
@@ -1006,6 +1021,14 @@ mod tests {
         );
         let generic = "  new: (code: string): Result<Sku, OrderError> => (code.length === 0) ? Result.err({ kind: \"EmptySku\" }) : Result.ok(x),";
         assert!(wrap(generic, 100).starts_with("  new: (code: string): Result<Sku, OrderError> =>\n"));
+    }
+
+    #[test]
+    fn an_object_heading_a_longer_body_does_not_hug() {
+        let line = "export const digitCount = (d: OtpDigits): Usize => ({ Six: 6, Seven: 7, Eight: 8 } satisfies Record<OtpDigits[\"kind\"], number>)[d.kind] as Usize;";
+        assert!(wrap(line, 100).starts_with("export const digitCount = (d: OtpDigits): Usize =>\n  ({ Six"));
+        let block = "export const validateRequestWithAVeryLongName = (params: AuthorizationParams, client: Client): R => {";
+        assert!(!wrap(block, 100).contains("=>\n"), "{}", wrap(block, 100));
     }
 
     #[test]

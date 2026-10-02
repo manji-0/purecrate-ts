@@ -12,14 +12,11 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
   if (!Iter.all(Str.bytes(s), isIdentChar)) return Result.err({ kind: "InvalidPreReleaseChar" });
   if (!allDigits(s)) return Result.ok({ kind: "Alpha", value: s });
   if (hasLeadingZero(s)) return Result.err({ kind: "PreReleaseLeadingZero" });
-  let result: Result<PreId, ParseIntError>;
-  {
-    const result2: Result<U64, ParseIntError> = Int.u64.parse(s);
-    result = result2.kind === "Ok"
-      ? Result.ok({ kind: "Numeric", value: result2.value })
-      : Result.err(result2.error);
-  }
-  return result.kind === "Ok"
-    ? Result.ok(result.value)
+  const result: Result<U64, ParseIntError> = Int.u64.parse(s);
+  const result2: Result<PreId, ParseIntError> = result.kind === "Ok"
+    ? Result.ok({ kind: "Numeric", value: result.value })
+    : Result.err(result.error);
+  return result2.kind === "Ok"
+    ? Result.ok(result2.value)
     : Result.err({ kind: "PreReleaseTooLarge" });
 };

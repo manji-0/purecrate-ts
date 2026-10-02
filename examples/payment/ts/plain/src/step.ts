@@ -5,7 +5,6 @@ import { attempt } from "./attempt.ts";
 import type { Event } from "./event.ts";
 import type { PaymentError } from "./payment-error.ts";
 import type { PaymentIntent } from "./payment-intent.ts";
-import type { PaymentMethod } from "./payment-method.ts";
 import type { Status } from "./status.ts";
 import type { Terms } from "./terms.ts";
 
@@ -24,8 +23,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           const method = event.method;
           const outcome = event.outcome;
           if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
-          const method2: PaymentMethod = method;
-          status = attempt(terms, method2, outcome);
+          status = attempt(terms, method, outcome);
           break;
         }
         case "Cancel": {

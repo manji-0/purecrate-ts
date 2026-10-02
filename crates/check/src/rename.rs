@@ -64,6 +64,8 @@ fn rename_fn(f: Fn, items: &[(String, bool)]) -> Fn {
     first.stmt_binds(f.body.clone(), &mut cx);
     let mut read = first.free;
     calls(&f.body, &mut read);
+    // A local named like the function itself would hide it in its body.
+    read.insert(to_camel(f.name.as_str()));
 
     let mut r = Renamer::default();
     let mut cx = Cx {

@@ -173,10 +173,14 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             format!("{}{}", emit_expr(base, indent), name.as_str())
         }
         Expr::Field { base, name } => format!("{}.{n}", emit_expr(base, indent), n = name.as_str()),
+        // `Slice.at` takes a plain `number`: a literal index needs no brand.
         Expr::Index { base, index } => format!(
             "Slice.at({}, {})",
             emit_expr(base, indent),
-            emit_item(index, indent)
+            match peel_identity(index) {
+                Expr::Lit(lit @ Lit::Int { .. }) => bare_lit(lit),
+                _ => emit_item(index, indent),
+            }
         ),
         Expr::Binary { op, left, right } => {
             let p = bin_prec(*op);
@@ -313,31 +317,32 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         // Variant names are identifiers other than `__proto__` (checked), so
         // an object literal is a plain table.
         Expr::Call {
-            callee: purecrate_ir::Callee::Discriminant { to, table },
+            callee: purecrate_ir::Callee::Discriminant { to, table, of },
             args,
-        } => {
-            let entries = table
-                .iter()
-                .map(|(v, d)| {
-                    format!(
-                        "{}: {}",
-                        v.as_str(),
-                        crate::tidy::strip_outer(&emit_lit(&Lit::Int {
-                            value: *d,
-                            ty: Some(*to)
-                        }))
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            // `kind` may be typed `string` (a variant literal widens), and a
-            // consumer may set `noUncheckedIndexedAccess`: hence both casts.
-            let t = to.ts_name();
-            format!(
-                "(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})",
-                emit_expr(&args[0], indent)
-            )
-        }
+        } => match typed_table(table, of, to.is_big(), &args[0], indent) {
+            Some(lookup) => format!("({lookup} as {})", to.ts_name()),
+            None => {
+                // `kind` may be typed `string` here (a variant literal
+                // widens), and a consumer may set `noUncheckedIndexedAccess`:
+                // hence both casts.
+                let t = to.ts_name();
+                let entries = table
+                    .iter()
+                    .map(|(v, d)| {
+                        format!(
+                            "{}: {}",
+                            v.as_str(),
+                            crate::tidy::strip_outer(&emit_lit(&Lit::Int {
+                                value: *d,
+                                ty: Some(*to)
+                            }))
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
+            }
+        },
         Expr::Call { callee, args } => {
             if let purecrate_ir::Callee::Consume { method, over } = callee {
                 let source = iterable(*over, emit_expr(&args[0], indent));
@@ -420,6 +425,14 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 };
             }
             if let purecrate_ir::Callee::IntFrom { from, to } = callee {
+                // A discriminant widened: the table's number is cast once.
+                if let Expr::Call { callee: purecrate_ir::Callee::Discriminant { table, of, .. }, args: inner } =
+                    peel_identity(&args[0])
+                {
+                    if let (false, Some(lookup)) = (to.is_big(), typed_table(table, of, false, &inner[0], indent)) {
+                        return format!("({lookup} as {})", to.ts_name());
+                    }
+                }
                 let x = emit_expr(&args[0], indent);
                 let from = from.expect("check::accept sets the source width");
                 return match (from.is_big(), to.is_big()) {
@@ -512,9 +525,16 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             ) {
                 return emit_expr(&args[0], indent);
             }
+            // A shift amount is a plain `number` in the runtime: a literal
+            // there needs no brand.
+            let shift = matches!(callee, purecrate_ir::Callee::Int { op, .. } if op.is_shift());
             let a = args
                 .iter()
-                .map(|e| emit_item(e, indent))
+                .enumerate()
+                .map(|(i, e)| match (shift && i == 1, peel_identity(e)) {
+                    (true, Expr::Lit(lit @ Lit::Int { .. })) => bare_lit(lit),
+                    _ => emit_item(e, indent),
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{c}({a})")
@@ -592,6 +612,25 @@ fn expr_prec(expr: &Expr) -> u8 {
         Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } => crate::tidy::PREC_TERNARY,
         _ => crate::tidy::PREC_ATOMIC,
     }
+}
+
+/// `({ A: 1, B: 4 } satisfies Record<E["kind"], number>)[e.kind]`, a
+/// `number` (a `bigint` for a 64-bit width, `1n`), where `e` is a place or a
+/// call: it has the enum's type, so its
+/// `kind` is one of the keys, the table is checked against them, and the
+/// lookup is a number even under `noUncheckedIndexedAccess`. `None` for a
+/// value whose `kind` may have widened to `string`.
+fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, indent: usize) -> Option<String> {
+    if !(is_place(subject) || matches!(peel_identity(subject), Expr::Call { .. })) {
+        return None;
+    }
+    let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
+    let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
+    Some(format!(
+        "({{ {entries} }} satisfies Record<{}[\"kind\"], {num}>)[{}.kind]",
+        of.as_str(),
+        emit_expr(subject, indent)
+    ))
 }
 
 /// `{ ...base, a: e1 }`. `?` in the fields and the base is hoisted before this
@@ -708,6 +747,12 @@ fn bool_lit(e: &Expr) -> Option<bool> {
     }
 }
 
+/// `!test`, as `a !== b` for `a === b` (`opt === null || opt`).
+fn not_test(test: &str) -> String {
+    use crate::tidy::{group, Assoc, Side, PREC_UNARY};
+    crate::tidy::negate(test).unwrap_or_else(|| format!("!{}", group(test, PREC_UNARY, Assoc::Right, Side::Right)))
+}
+
 /// `test ? then : else_`, as `||` / `&&` when either side is a `bool`
 /// literal. Operands are parenthesized only when precedence requires it.
 fn fold(
@@ -728,8 +773,8 @@ fn fold(
             group(&else_, PREC_OR, Assoc::Left, Side::Right)
         ),
         (Some(false), _) => format!(
-            "!{} && {}",
-            group(&test, PREC_UNARY, Assoc::Right, Side::Right),
+            "{} && {}",
+            group(&not_test(&test), PREC_AND, Assoc::Left, Side::Left),
             group(&else_, PREC_AND, Assoc::Left, Side::Right)
         ),
         (_, Some(false)) => format!(
@@ -738,8 +783,8 @@ fn fold(
             group(&then, PREC_AND, Assoc::Left, Side::Right)
         ),
         (_, Some(true)) => format!(
-            "!{} || {}",
-            group(&test, PREC_UNARY, Assoc::Right, Side::Right),
+            "{} || {}",
+            group(&not_test(&test), PREC_OR, Assoc::Left, Side::Left),
             group(&then, PREC_OR, Assoc::Left, Side::Right)
         ),
         _ => {
@@ -749,7 +794,7 @@ fn fold(
             if test == format!("{t} !== null") {
                 format!("{t} ?? {}", crate::tidy::strip_outer(&else_))
             } else {
-                // A cast in a branch is parenthesized, as Prettier prints it.
+                // A cast in a branch is parenthesized, as oxfmt prints it.
                 let branch = |s: &str, side| {
                     let g = group(s, PREC_TERNARY, Assoc::Right, side);
                     if crate::tidy::has_top_as(&g) { format!("({g})") } else { g }

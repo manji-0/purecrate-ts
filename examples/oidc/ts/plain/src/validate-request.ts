@@ -32,10 +32,9 @@ export const validateRequest = (
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
   if (client === null) return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  const client2: Client = client;
   if (params.client_id !== null) {
     const id = params.client_id;
-    if (id !== client2.client_id)
+    if (id !== client.client_id)
       return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   } else {
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
@@ -43,7 +42,7 @@ export const validateRequest = (
   if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   const redirectUri: string = params.redirect_uri;
-  if (!redirectUriRegistered(client2, redirectUri))
+  if (!redirectUriRegistered(client, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null = params.state !== null
     ? stateIsValid(params.state) ? params.state : null
@@ -71,29 +70,26 @@ export const validateRequest = (
   let pkce: Pkce | null;
   if (params.code_challenge !== null) {
     const challenge = params.code_challenge;
-    if (!pkceStringIsValid(challenge)) {
-      return Result.err(fail({ kind: "InvalidRequest" }));
-    } else {
-      const method: string | null = params.code_challenge_method;
-      let method2: PkceMethod;
-      if (method !== null) {
-        if (method === "S256") {
-          method2 = { kind: "S256" };
-        } else if (method === "plain") {
-          method2 = { kind: "Plain" };
-        } else {
-          return Result.err(fail({ kind: "InvalidRequest" }));
-        }
-      } else {
+    if (!pkceStringIsValid(challenge)) return Result.err(fail({ kind: "InvalidRequest" }));
+    const method: string | null = params.code_challenge_method;
+    let method2: PkceMethod;
+    if (method !== null) {
+      if (method === "S256") {
+        method2 = { kind: "S256" };
+      } else if (method === "plain") {
         method2 = { kind: "Plain" };
-      }
-      if (method2.kind === "Plain" && !client2.allow_plain_pkce)
+      } else {
         return Result.err(fail({ kind: "InvalidRequest" }));
-      pkce = { challenge, method: method2 };
+      }
+    } else {
+      method2 = { kind: "Plain" };
     }
+    if (method2.kind === "Plain" && !client.allow_plain_pkce)
+      return Result.err(fail({ kind: "InvalidRequest" }));
+    pkce = { challenge, method: method2 };
   } else {
     if (params.code_challenge_method !== null) return Result.err(fail({ kind: "InvalidRequest" }));
-    if (client2.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
+    if (client.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
     pkce = null;
   }
   let prompt: Prompt;
@@ -118,7 +114,7 @@ export const validateRequest = (
   }
   const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
   return Result.ok(unsafeMakeAuthorizationRequest({
-    client_id: client2.client_id,
+    client_id: client.client_id,
     redirect_uri: redirectUri,
     scope,
     state,

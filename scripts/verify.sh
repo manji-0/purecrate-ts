@@ -4,7 +4,8 @@
 # runtime; those with a schema find its library in examples/node_modules) and
 # over the runtime and adapter sources that every package copies, under each
 # supported TypeScript major (see TS_MAJORS in
-# crates/cli/tests/it/support/mod.rs).
+# crates/cli/tests/it/support/mod.rs), then oxlint over the generated output.
+# `npm ci` in examples/ installs the schema libraries, oxlint, and oxfmt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -73,4 +74,8 @@ for major in "${TS_MAJORS[@]}"; do
       || { echo "verify: tsc $major failed in $dir" >&2; exit 1; }
   done
 done
+# Every example's output passes oxlint with examples/.oxlintrc.json, type-aware,
+# from examples/node_modules.
+(cd examples && npx --no-install oxlint --type-aware --deny-warnings .) \
+  || { echo "verify: oxlint rejects the generated output" >&2; exit 1; }
 echo "verify: ok"

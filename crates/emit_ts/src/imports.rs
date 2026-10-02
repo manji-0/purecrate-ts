@@ -485,8 +485,9 @@ impl Refs {
                     Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
                     Callee::UuidParse | Callee::UuidNil => self.uuid_value = true,
                     Callee::StrParse(_) => self.int = true,
-                    Callee::Discriminant { to, .. } => {
+                    Callee::Discriminant { to, of, .. } => {
                         self.nums.insert(to.ts_name().to_string());
+                        self.ty(&Ty::Named(of.clone()));
                     }
                     _ => {}
                 }

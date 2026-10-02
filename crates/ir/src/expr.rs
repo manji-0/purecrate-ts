@@ -450,6 +450,8 @@ pub enum Callee {
     Discriminant {
         to: IntTy,
         table: Vec<(Name, i128)>,
+        /// The enum, whose `kind`s the table's keys are.
+        of: Name,
     },
     /// A local binding holding a closure. `check::accept` rewrites
     /// `Callee::Fn` to this when a binding shadows the item.
