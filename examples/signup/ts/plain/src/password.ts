@@ -16,11 +16,8 @@ export const Password = {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     let n: Usize = 0 as Usize;
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
-      if (!((() => {
-        const value = Slice.at(b, i);
-        if (value >= 128 && value <= 191) return true;
-        return false;
-      })())) {
+      const value = Slice.at(b, i);
+      if (!(value >= 128 && value <= 191)) {
         n = Int.usize.add(n, 1 as Usize);
       }
     }

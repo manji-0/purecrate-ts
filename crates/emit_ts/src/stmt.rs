@@ -211,6 +211,28 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 crate::tidy::strip_outer(&emit_expr(v, indent))
             ));
         }
+        // `if matches!(f(x), p) ..` (or `!matches!`): the matched value is
+        // the first thing the condition evaluates, so it is bound before the
+        // `if` and the test reads the binding, not an inline function.
+        Expr::If { cond, then, else_ } if hoistable_test(cond).is_some() => {
+            let (scrutinee, arms, negated) = hoistable_test(cond).expect("checked above");
+            let tmp = match_temp(arms, indent);
+            let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.to_vec() };
+            // A test that does not read the value (every arm `true`) still
+            // evaluates it, for what it may panic on.
+            if emit_expr(&on_tmp, indent).contains(tmp.as_str()) {
+                bind_scrutinee(&tmp, scrutinee, arms, indent, out);
+            } else {
+                Sink::Effect.finish_expr(scrutinee, indent, out);
+            }
+            let test = if negated {
+                Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(on_tmp) }
+            } else {
+                on_tmp
+            };
+            let rewritten = Expr::If { cond: Box::new(test), then: then.clone(), else_: else_.clone() };
+            emit_stmts(&rewritten, indent, sink, out);
+        }
         // A value of one side, the other returning: the exit, then the
         // value. Only an expression stays, so no binding joins the block.
         Expr::If { cond, then, else_ }
@@ -584,6 +606,24 @@ fn destructured<'e>(t: &Name, mut then: &'e Expr) -> Option<(Vec<Option<&'e Name
         then = rest;
     }
     (slots.iter().filter(|s| s.is_some()).count() >= 2 && !mentions(then, t)).then_some((slots, then))
+}
+
+/// `matches!(v, p)` or `!matches!(v, p)` on a value that is not a place,
+/// each arm an expression (a guard's included): the value, the arms, and
+/// whether it is negated.
+fn hoistable_test(cond: &Expr) -> Option<(&Expr, &[purecrate_ir::Arm], bool)> {
+    let (inner, negated) = match peel_identity(cond) {
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => (peel_identity(expr), true),
+        other => (other, false),
+    };
+    match inner {
+        Expr::Match { scrutinee, arms }
+            if !is_place(scrutinee) && arms.iter().all(|a| !a.body.needs_statements()) =>
+        {
+            Some((scrutinee, arms, negated))
+        }
+        _ => None,
+    }
 }
 
 /// A type whose values may be object literals: a crate type or a `Result`.

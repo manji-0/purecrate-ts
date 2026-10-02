@@ -159,7 +159,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `?` on `Option` | `if (r === null) return null;` |
 | `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
 | `let (a, b) = v` where `v` is not a place | `const [a, b] = v`, annotated only where an element may be an object literal |
-| `match` (or `matches!`) on a place inside an expression, each arm an expression | `?:` on each arm's test, `||` / `&&` where arms are `true` / `false`, bindings read from the place: `(o !== null ? o : 0)`, `(k.kind === "A")`. On a value that is not a place, an inline function that evaluates it once |
+| `match` (or `matches!`) on a place inside an expression, each arm an expression | `?:` on each arm's test, `||` / `&&` where arms are `true` / `false`, bindings read from the place: `(o !== null ? o : 0)`, `(k.kind === "A")`. On a value that is not a place, an inline function that evaluates it once; in an `if` condition, where it is evaluated first, a `const` before the `if` instead |
 | a `match` on a place whose arms are all `true` / `false` | the test, `return (b >= 48 && b <= 57);`, not a `switch` |
 | `S { a: 1, ..s }` | `({ ...s, a: 1 })` |
 
