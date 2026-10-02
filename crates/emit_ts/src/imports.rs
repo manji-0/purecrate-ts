@@ -215,6 +215,8 @@ pub(crate) struct Refs {
     uuid_value: bool,
     uuid_type: bool,
     uuid_error: bool,
+    /// The `ParseIntError` type, from `str::parse`.
+    parse_int_error: bool,
     /// Brand type names (`I32`, `F64`) this file mentions.
     nums: BTreeSet<String>,
     types: BTreeSet<String>,
@@ -245,6 +247,7 @@ impl Refs {
             Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
             Ty::Prim(purecrate_ir::Prim::Uuid) => self.uuid_type = true,
             Ty::Prim(purecrate_ir::Prim::UuidError) => self.uuid_error = true,
+            Ty::Prim(purecrate_ir::Prim::ParseIntError) => self.parse_int_error = true,
             Ty::Prim(p) => {
                 if let Some(name) = p.int().map(|t| t.ts_name()).or_else(|| p.float().map(|t| t.ts_name())) {
                     self.nums.insert(name.to_string());
@@ -359,6 +362,7 @@ impl Refs {
                     }
                     Callee::CharFromU8 | Callee::CharFromU32 | Callee::Char(_) => self.char_value = true,
                     Callee::UuidParse | Callee::UuidNil => self.uuid_value = true,
+                    Callee::StrParse(_) => self.int = true,
                     Callee::Discriminant { to, .. } => {
                         self.nums.insert(to.ts_name().to_string());
                     }
@@ -487,6 +491,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         (refs.char_type && !refs.char_value).then_some("Char"),
         (refs.uuid_type && !refs.uuid_value).then_some("Uuid"),
         refs.uuid_error.then_some("UuidError"),
+        refs.parse_int_error.then_some("ParseIntError"),
     ];
     let runtime: Vec<String> = values
         .into_iter()

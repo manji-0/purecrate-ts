@@ -168,9 +168,32 @@ const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number
 
 // #endregion
 
-// #region methods.usize
+// #region methods.usize parse.usize
 const small64 = (n: bigint): Usize =>
   n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+// #endregion
+
+// #region parseIntError parse.i8 parse.i16 parse.i32 parse.u8 parse.u16 parse.u32 parse.usize parse.i64 parse.u64
+/** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
+export type ParseIntError = { readonly "purecrate.ParseIntError": true };
+// #endregion
+
+// #region parse.i8 parse.i16 parse.i32 parse.u8 parse.u16 parse.u32 parse.usize parse.i64 parse.u64
+const PARSE_INT_ERROR = Object.freeze({}) as ParseIntError;
+
+/**
+ * `s.parse::<T>()` into an integer: Rust's `from_str_radix(s, 10)`. An
+ * optional `+`, or `-` for a signed type, then one or more ASCII digits,
+ * in `lo..=hi`; `to` makes the runtime value. Anything else is `Err`.
+ */
+const parser =
+  <T>(lo: bigint, hi: bigint, signed: boolean, to: (n: bigint) => T) =>
+  (s: string): Result<T, ParseIntError> => {
+    const digits = s.startsWith("+") || (signed && s.startsWith("-")) ? s.slice(1) : s;
+    if (!/^[0-9]+$/.test(digits)) return { kind: "Err", error: PARSE_INT_ERROR };
+    const n = s.startsWith("-") ? -BigInt(digits) : BigInt(digits);
+    return n < lo || n > hi ? { kind: "Err", error: PARSE_INT_ERROR } : { kind: "Ok", value: to(n) };
+  };
 // #endregion
 
 // #region bits.i8 bits.i16 bits.i32 bits.u8 bits.u16 bits.u32 bits.i64 bits.u64
@@ -488,7 +511,7 @@ const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
   r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 // #endregion
-// #region char methods.usize str.slice
+// #region char methods.usize parse.usize str.slice
 const panicWith = (message: string): never => {
   throw new Panic(message);
 };
@@ -608,47 +631,56 @@ export const Int = {
     ...small<I8>(-128, 127),
     ...bits32<I8>(8, true), // #needs bits.i8
     ...methods(-128n, 127n, 8, true, (n) => Number(n) as I8), // #needs methods.i8
+    parse: parser(-128n, 127n, true, (n) => Number(n) as I8), // #needs parse.i8
   },
   i16: {
     ...small<I16>(-32768, 32767),
     ...bits32<I16>(16, true), // #needs bits.i16
     ...methods(-32768n, 32767n, 16, true, (n) => Number(n) as I16), // #needs methods.i16
+    parse: parser(-32768n, 32767n, true, (n) => Number(n) as I16), // #needs parse.i16
   },
   i32: {
     ...small<I32>(-2147483648, 2147483647),
     ...bits32<I32>(32, true), // #needs bits.i32
     ...methods(-2147483648n, 2147483647n, 32, true, (n) => Number(n) as I32), // #needs methods.i32
+    parse: parser(-2147483648n, 2147483647n, true, (n) => Number(n) as I32), // #needs parse.i32
   },
   u8: {
     ...small<U8>(0, 255),
     ...bits32<U8>(8, false), // #needs bits.u8
     ...methods(0n, 255n, 8, false, (n) => Number(n) as U8), // #needs methods.u8
+    parse: parser(0n, 255n, false, (n) => Number(n) as U8), // #needs parse.u8
   },
   u16: {
     ...small<U16>(0, 65535),
     ...bits32<U16>(16, false), // #needs bits.u16
     ...methods(0n, 65535n, 16, false, (n) => Number(n) as U16), // #needs methods.u16
+    parse: parser(0n, 65535n, false, (n) => Number(n) as U16), // #needs parse.u16
   },
   u32: {
     ...small<U32>(0, 4294967295),
     ...bits32<U32>(32, false), // #needs bits.u32
     ...methods(0n, 4294967295n, 32, false, (n) => Number(n) as U32), // #needs methods.u32
+    parse: parser(0n, 4294967295n, false, (n) => Number(n) as U32), // #needs parse.u32
   },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
     ...methods(0n, 18446744073709551615n, 64, false, small64), // #needs methods.usize
+    parse: parser(0n, 18446744073709551615n, false, small64), // #needs parse.usize
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
     ...bits64<I64>(true), // #needs bits.i64
     ...methods(-9223372036854775808n, 9223372036854775807n, 64, true, (n) => n as I64), // #needs methods.i64
+    parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64), // #needs parse.i64
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
     ...bits64<U64>(false), // #needs bits.u64
     ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64), // #needs methods.u64
+    parse: parser(0n, 18446744073709551615n, false, (n) => n as U64), // #needs parse.u64
   },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,

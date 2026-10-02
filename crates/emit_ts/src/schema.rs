@@ -763,6 +763,7 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> String {
             purecrate_ir::Prim::Char => "char".into(),
             purecrate_ir::Prim::Uuid => "uuid".into(),
             purecrate_ir::Prim::UuidError => "uuidError".into(),
+            purecrate_ir::Prim::ParseIntError => "parseIntError".into(),
             purecrate_ir::Prim::Unit => "unit".into(),
             other => other
                 .int()
@@ -893,6 +894,7 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> String {
             Prim::String | Prim::Str | Prim::Char | Prim::Uuid => format!("Json.str({value})"),
             // Rust cannot serialize one either.
             Prim::UuidError => "((): never => { throw new globalThis.Error(\"uuid::Error has no JSON form\"); })()".into(),
+            Prim::ParseIntError => "((): never => { throw new globalThis.Error(\"ParseIntError has no JSON form\"); })()".into(),
             Prim::Unit => "\"null\"".into(),
             other => match other.float() {
                 Some(FloatTy::F32) => format!("Json.f32({value})"),

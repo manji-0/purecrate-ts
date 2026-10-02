@@ -56,6 +56,9 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     match (plain, segs.iter().map(String::as_str).collect::<Vec<_>>().as_slice()) {
         (true, ["uuid", "Uuid"]) => return Ok(Ty::Prim(Prim::Uuid)),
         (true, ["uuid", "Error"]) => return Ok(Ty::Prim(Prim::UuidError)),
+        (true, ["std", "num", "ParseIntError"] | ["num", "ParseIntError"] | ["ParseIntError"]) => {
+            return Ok(Ty::Prim(Prim::ParseIntError))
+        }
         _ => {}
     }
     if path.segments.len() != 1 || path.leading_colon.is_some() {

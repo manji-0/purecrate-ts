@@ -6,6 +6,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// Rust's `?` also converts the error with `From`; v0 has no traits, so
     /// the error type must already be the function's.
     pub(super) fn try_(&mut self, inner: &Expr, want: Option<&Ty>) -> Typed {
+        if let Some(typed) = self.map_err_try(inner, want) {
+            return typed;
+        }
         let (inner, it) = self.expr(inner, None);
         let ret = self.norm(&self.ret);
         let (on, t) = match (it.map(|t| self.norm(&t)), &ret) {
@@ -40,6 +43,44 @@ impl<'d, 'a> Typer<'d, 'a> {
             on,
         };
         (e, self.expect(want, t))
+    }
+
+    /// `r.map_err(f)?` is `match r { Ok(v) => v, Err(e) => return Err(f(e)) }`:
+    /// the mapped `Result` is never built. `None` when `inner` is not a
+    /// `map_err` on a `Result`.
+    fn map_err_try(&mut self, inner: &Expr, want: Option<&Ty>) -> Option<Typed> {
+        let Expr::MethodCall { receiver, name, args } = inner.unpositioned() else { return None };
+        let [f] = args.as_slice() else { return None };
+        if name.as_str() != "map_err" {
+            return None;
+        }
+        let before = self.out.len();
+        let (recv, rt) = self.expr(receiver, None);
+        let Some(Ty::Result { ok, err }) = rt.as_ref().map(|t| self.norm(t)) else {
+            // Typed again, reported once, on the general path.
+            self.out.truncate(before);
+            return None;
+        };
+        let (pattern, body) = self.arm_fn("map_err", f)?;
+        let r = self.fresh_name("result");
+        let value = self.fresh_name("value");
+        let rest = Expr::Match {
+            scrutinee: Box::new(Expr::Var(r.clone())),
+            arms: vec![
+                Arm { guard: None, pattern: Pattern::ResultOk(Box::new(Pattern::Var(value.clone()))), body: Expr::Var(value) },
+                Arm {
+                    guard: None,
+                    pattern: Pattern::ResultErr(Box::new(pattern)),
+                    body: Expr::Return(Box::new(Expr::Call { callee: Callee::ResultErr, args: vec![body] })),
+                },
+            ],
+        };
+        let rt = Ty::result(*ok.clone(), *err);
+        self.scopes.push((r.as_str().to_string(), Some(rt.clone())));
+        let (typed, t) = self.expr(&rest, want.or(Some(&*ok)));
+        self.scopes.pop();
+        let e = Expr::Let { name: r, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
+        Some((e, t))
     }
 
     pub(super) fn is_local(&self, name: &str) -> bool {
@@ -356,6 +397,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Some(Ty::result(Ty::Prim(Prim::Uuid), Ty::Prim(Prim::UuidError))),
             ),
             Callee::UuidNil => (Vec::new(), Some(Ty::Prim(Prim::Uuid))),
+            Callee::StrParse(t) => (
+                typed_args(self, vec![Ty::Prim(Prim::Str)]),
+                Some(Ty::result(Ty::Prim((*t).into()), Ty::Prim(Prim::ParseIntError))),
+            ),
             Callee::Discriminant { to, .. } => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::from(*to)))),
         };
         let e = Expr::Call {

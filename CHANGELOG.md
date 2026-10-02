@@ -6,6 +6,8 @@
 
 - A side of `|` may test inside its case (`Started | Paid(Method::Card, Some(0)) =>`), and a tuple inside a case or a tuple may hold any pattern (`Some((1, b))`, `(a, (true, n))`). Both were `[pattern/nested]`. The sides of `|` still bind nothing.
 - `Option::map` takes a one-field tuple variant as its function (`.map(PreId::Numeric)`), as Rust does. semver uses it.
+- `s.parse::<T>()` into every integer type, as `Int.<t>.parse(s)`: Rust's `from_str_radix(s, 10)` (a `+`, a `-` when signed, ASCII digits, in range). The error is `ParseIntError`, which carries nothing. semver drops its digit loop for it.
+- `Result::ok`, `map`, and `map_err`, as the `match` std writes; `r.map_err(f)?` returns `Err(f(e))` without building the mapped `Result`.
 
 ## 0.7.0 — 2026-10-02
 

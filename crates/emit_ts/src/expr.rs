@@ -123,6 +123,7 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
             purecrate_ir::Prim::Char => "Char".into(),
             purecrate_ir::Prim::Uuid => "Uuid".into(),
             purecrate_ir::Prim::UuidError => "UuidError".into(),
+            purecrate_ir::Prim::ParseIntError => "ParseIntError".into(),
             purecrate_ir::Prim::Unit => "undefined".into(),
             other => match other.int() {
                 Some(t) => t.ts_name().into(),
@@ -388,6 +389,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),
                 purecrate_ir::Callee::UuidParse => "Uuid.parseStr".into(),
                 purecrate_ir::Callee::UuidNil => "Uuid.nil".into(),
+                purecrate_ir::Callee::StrParse(t) => format!("Int.{}.parse", t.as_str()),
                 purecrate_ir::Callee::StrCmp => "Str.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),

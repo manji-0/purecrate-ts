@@ -28,6 +28,9 @@ pub enum Prim {
     Uuid,
     /// `uuid::Error`, what `Uuid::parse_str` fails with: an opaque value.
     UuidError,
+    /// `std::num::ParseIntError`, what `str::parse` into an integer fails
+    /// with: an opaque value, as nothing translated reads its `kind()`.
+    ParseIntError,
     Unit,
 }
 

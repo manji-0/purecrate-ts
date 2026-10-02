@@ -191,6 +191,25 @@ const methods = <T extends number | bigint>(lo: bigint, hi: bigint, bits: number
 const small64 = (n: bigint): Usize =>
   n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
 
+/** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
+export type ParseIntError = { readonly "purecrate.ParseIntError": true };
+
+const PARSE_INT_ERROR = Object.freeze({}) as ParseIntError;
+
+/**
+ * `s.parse::<T>()` into an integer: Rust's `from_str_radix(s, 10)`. An
+ * optional `+`, or `-` for a signed type, then one or more ASCII digits,
+ * in `lo..=hi`; `to` makes the runtime value. Anything else is `Err`.
+ */
+const parser =
+  <T>(lo: bigint, hi: bigint, signed: boolean, to: (n: bigint) => T) =>
+  (s: string): Result<T, ParseIntError> => {
+    const digits = s.startsWith("+") || (signed && s.startsWith("-")) ? s.slice(1) : s;
+    if (!/^[0-9]+$/.test(digits)) return { kind: "Err", error: PARSE_INT_ERROR };
+    const n = s.startsWith("-") ? -BigInt(digits) : BigInt(digits);
+    return n < lo || n > hi ? { kind: "Err", error: PARSE_INT_ERROR } : { kind: "Ok", value: to(n) };
+  };
+
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
@@ -339,7 +358,7 @@ export const Int = {
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...methods(0n, 18446744073709551615n, 64, false, (n) => n as U64),
+    parse: parser(0n, 18446744073709551615n, false, (n) => n as U64),
   },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,

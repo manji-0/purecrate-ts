@@ -128,6 +128,8 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
 | `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]`; built as `vec![a, b]` or, once, from `s.split(c).collect()` / `.map(f).collect()` (§7.12) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks; the array, its `.map`, or `Iter.tryCollect` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
+| `Result` | `ok`, `map`, `map_err` (§7.1) | the `match` std writes | `parse_equivalence.rs` |
+| `String`, `&str` into an integer | `s.parse::<T>()` for every integer `T`, into `Result<T, ParseIntError>` (§6.7) | `Int.<t>.parse(s)` | `parse_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
 
 `wire.rs` and `wire_write.rs` cover the JSON forms of `char` and `Uuid` against serde_json through each schema library.
@@ -188,13 +190,21 @@ A `number` checked to 0..2^53−1; the gap above that is in §3.
 - **`cmp`** on integers, `char`, `bool` (`false` first), `String` / `&str`, and `Uuid`, and the methods of `Ordering`, are rewritten (§7.10). `==` and `!=` on two `Ordering`s compare the variant: std derives `PartialEq`, so equality is structural, unlike a crate enum's (§5.1).
 - **Refused.** `cmp` on floats (`partial_cmp` too), tuples, `Vec`, `Option`, and the crate's types; `impl Ord` / `PartialOrd` (trait impls); `<` on `Ordering` or `bool`; `Ordering` in a struct or enum that derives `Serialize` or `Deserialize`, since serde gives it neither ([04 §3.2](./04-wire.md#32-serde-in-the-input)).
 
+### 6.7 `str::parse` into an integer
+
+`s.parse::<T>()`, `T` any integer type, is Rust's `T::from_str_radix(s, 10)`: an optional `+`, or a `-` when `T` is signed, then one or more ASCII digits, with the value in `T`'s range. Everything else is `Err`: an empty string, a sign alone, whitespace, `_`, a non-ASCII digit, a value out of range. Leading zeros are accepted. The target is named by the turbofish or by a `let` of `Result<T, ParseIntError>`. `Int.<t>.parse` checks the same grammar with an ASCII regular expression and the range on a `bigint`.
+
+`ParseIntError` carries nothing: nothing translated reads its `kind()`, and the two sides agree on whether the result is `Ok` and on its value, not on which kind an `Err` is. A `usize` above 2^53−1 parses in Rust and panics in TS, as any `usize` that large does (§3). Floats, `bool`, `char`, and a crate's own `FromStr` are refused.
+
+Tested with every integer type at its bounds and one past them, signs alone and doubled, leading zeros, whitespace, `_`, hex and exponent forms, and Arabic-Indic digits, through `ok()`, `match`, `map_err`, and `map_err(..)?`.
+
 ## 7. Rewritten constructs
 
 Some accepted Rust has no one-to-one TS form. It is rewritten into constructs that are already equivalent, and the rewrite keeps Rust's evaluation order.
 
 | Construct | Becomes | Verified by |
 | --- | --- | --- |
-| [`Option::unwrap_or`, `ok_or`, `map`](#71-option-methods) | the `match` std writes | `option_methods_equivalence.rs` |
+| [`Option::unwrap_or`, `ok_or`, `map`; `Result::ok`, `map`, `map_err`](#71-option-and-result-methods) | the `match` std writes | `option_methods_equivalence.rs`, `parse_equivalence.rs` |
 | [match guards](#72-match-guards) | an `if` at the leaf of the decision tree | `guards_equivalence.rs` |
 | [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`; `for` over `.enumerate()` | `Iter.<method>`, the loop std runs | `consumers_equivalence.rs` |
 | [`bool` patterns](#74-bool-patterns) | an `if` chain, the last named arm the `else` | `bool_patterns_equivalence.rs` |
@@ -209,9 +219,11 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
-### 7.1 `Option` methods
+### 7.1 `Option` and `Result` methods
 
 The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`.
+
+On a `Result`, `ok()` is `Some` of the `Ok` value or `None`; `map(f)` runs `f` only on `Ok`, `map_err(f)` only on `Err`. `f` is a closure of one parameter without `?` or `return`, a function name, or a one-field tuple variant (`PreId::Numeric`), as for `Option::map`. `r.map_err(f)?` is `match r { Ok(v) => v, Err(e) => return Err(f(e)) }`: the mapped `Result` is not built.
 
 ### 7.2 Match guards
 

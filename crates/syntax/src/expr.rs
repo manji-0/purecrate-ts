@@ -1,5 +1,5 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Reason, Ty, UnOp,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim, Reason, Ty, UnOp,
     VariantBind, Wrapper,
     NEWTYPE_FIELD,
 };
@@ -137,15 +137,19 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         )
         .detail(path_text(&m.mac.path))),
         // `xs.iter().sum::<T>()`, `s.split(c).collect::<T>()`: the type
-        // argument annotates the result.
+        // argument annotates the result. `s.parse::<T>()` is a
+        // `Result<T, ParseIntError>`.
         SynExpr::MethodCall(m)
-            if (m.method == "sum" || m.method == "collect") && m.args.is_empty() && m.turbofish.as_ref().is_some_and(|t| t.args.len() == 1) =>
+            if (m.method == "sum" || m.method == "collect" || m.method == "parse")
+                && m.args.is_empty()
+                && m.turbofish.as_ref().is_some_and(|t| t.args.len() == 1) =>
         {
             let method = m.method.to_string();
             let Some(syn::GenericArgument::Type(ty)) = m.turbofish.as_ref().and_then(|t| t.args.first()) else {
                 return Err(ParseError::new(Reason::MethodCall, format!("`{method}::<T>()` takes a type")));
             };
             let ty = lower_type(ty)?;
+            let ty = if method == "parse" { Ty::result(ty, Ty::Prim(Prim::ParseIntError)) } else { ty };
             let name = cx.fresh(&method);
             let call = at(
                 m.method.span(),

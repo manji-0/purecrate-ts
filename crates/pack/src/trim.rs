@@ -1,9 +1,11 @@
 //! A package's copy of the runtime keeps what the package uses. The runtime
 //! marks its parts: `// #region <uses>` .. `// #endregion`, and a trailing
 //! `// #needs <uses>` on one line, each kept when any listed use is found in
-//! the package's other files. A use is `bits.<ty>` or `methods.<ty>` for an
-//! integer type's operators or methods, `str.<member>`, `slice.<member>`,
-//! `ord.<member>`, `iter.<member>`, `char.is` or `char`, `uuid`, `json`, or `parseJson`.
+//! the package's other files. A use is `bits.<ty>`, `methods.<ty>`, or
+//! `parse.<ty>` for an integer type's operators, methods, or `str::parse`;
+//! `str.<member>`, `slice.<member>`, `ord.<member>`, `iter.<member>`,
+//! `char.is` or `char`, `uuid`, `json`, `parseJson`, or `parseIntError` (the
+//! type, named anywhere).
 
 use std::collections::BTreeSet;
 
@@ -32,7 +34,7 @@ pub fn exported(index: &str) -> BTreeSet<String> {
 }
 
 /// The runtime parts `sources` read: what they name after `Int.<ty>.`,
-/// `Str.`, `Char.`, `Uuid.`, `Json.`, and `parseJson`.
+/// `Str.`, `Char.`, `Uuid.`, `Json.`, and `parseJson` and `ParseIntError`.
 pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for source in sources {
@@ -45,6 +47,8 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
             let op = rest[ty.len()..].strip_prefix('.').map(ident).unwrap_or("");
             if matches!(op, "and" | "or" | "xor" | "not" | "shl" | "shr") {
                 out.insert(format!("bits.{ty}"));
+            } else if op == "parse" {
+                out.insert(format!("parse.{ty}"));
             } else if IntMethod::ALL.iter().any(|m| m.ts_name() == op) {
                 out.insert(format!("methods.{ty}"));
             }
@@ -62,8 +66,10 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 });
             }
         }
-        if source.match_indices("parseJson").any(|(at, _)| starts_word(source, at)) {
-            out.insert("parseJson".to_string());
+        for (word, used) in [("parseJson", "parseJson"), ("ParseIntError", "parseIntError")] {
+            if source.match_indices(word).any(|(at, _)| starts_word(source, at)) {
+                out.insert(used.to_string());
+            }
         }
     }
     out
@@ -190,6 +196,8 @@ mod tests {
             "methods.i8", "methods.i16", "methods.i32", "methods.u8", "methods.u16", "methods.u32",
             "methods.usize", "methods.i64", "methods.u64", "str.bytes", "str.len", "str.slice",
             "str.stripPrefix", "str.stripSuffix", "str.splitOnce", "str.cmp", "slice.at", "slice.range", "ord.cmp", "ord.cmpStr", "ord.then", "iter.all", "iter.any", "iter.position", "iter.count", "iter.sum", "iter.tryCollect", "char", "char.is", "uuid", "json", "parseJson",
+            "parseIntError", "parse.i8", "parse.i16", "parse.i32", "parse.u8", "parse.u16", "parse.u32", "parse.usize",
+            "parse.i64", "parse.u64",
         ]);
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
@@ -226,7 +234,7 @@ mod tests {
     fn no_use_keeps_the_types_and_the_base_operators() {
         let none = trim(RUNTIME, &BTreeSet::new());
         assert!(none.contains("export type Usize") && none.contains("export const Int = {") && none.contains("...small<I8>"));
-        for gone in ["methods(", "bits32<", "Grapheme", "parseStr", "ryu", "INTEGER_LITERAL", "digitValue", "/** `str::", "xs[i] as T", "xs.slice("] {
+        for gone in ["methods(", "bits32<", "Grapheme", "parseStr", "parser(", "ParseIntError", "ryu", "INTEGER_LITERAL", "digitValue", "/** `str::", "xs[i] as T", "xs.slice("] {
             assert!(!none.contains(gone), "{gone} is kept");
         }
         for empty in ["export const Str", "export const Ord", "export const Iter", "export const Slice", "export const Char ="] {

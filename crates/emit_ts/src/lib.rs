@@ -191,6 +191,9 @@ fn emit_index(krate: &Crate) -> String {
     if surface_holds(krate, Prim::Uuid) || surface_holds(krate, Prim::UuidError) {
         runtime.extend(["Uuid", "type UuidError"]);
     }
+    if surface_holds(krate, Prim::ParseIntError) {
+        runtime.push("type ParseIntError");
+    }
     out.push_str(&format!("export {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
     let mut types: Vec<&str> = IntTy::ALL
         .into_iter()

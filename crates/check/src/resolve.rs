@@ -257,10 +257,10 @@ impl<'a> Cx<'_, 'a> {
             Expr::MethodCall { receiver, name, args } => {
                 self.expr(receiver);
                 for a in args {
-                    // `opt.map(f)`, `it.all(f)`, and `ord.then_with(f)` name a
+                    // `opt.map(f)`, `r.map_err(f)`, `it.all(f)`, and `ord.then_with(f)` name a
                     // function; `types` checks the receiver.
                     let calls_with = if name.as_str() == "then_with" { 0 } else { 1 };
-                    let takes_fn = matches!(name.as_str(), "map" | "all" | "any" | "position" | "then_with");
+                    let takes_fn = matches!(name.as_str(), "map" | "map_err" | "all" | "any" | "position" | "then_with");
                     let fn_name = match a.unpositioned() {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
@@ -438,6 +438,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::Char(m) => self.arity(&format!("`char::{}`", m.name()), 1 + m.args(), argc),
             Callee::UuidParse => self.arity("`Uuid::parse_str`", 1, argc),
             Callee::UuidNil => self.arity("`Uuid::nil`", 0, argc),
+            Callee::StrParse(_) => self.arity("`str::parse`", 1, argc),
             Callee::Discriminant { .. } => self.arity("`as`", 1, argc),
         }
     }

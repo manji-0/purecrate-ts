@@ -140,14 +140,6 @@ fn all_digits(s: &str) -> bool {
     s.bytes().all(|b| matches!(b, b'0'..=b'9'))
 }
 
-/// Digits only, already checked non-empty. `None` on overflow.
-fn digits_to_u64(s: &str) -> Option<u64> {
-    let mut acc: u64 = 0;
-    for b in s.bytes() {
-        acc = acc.checked_mul(10)?.checked_add(u64::from(b - b'0'))?;
-    }
-    Some(acc)
-}
 
 fn has_leading_zero(s: &str) -> bool {
     s.len() > 1 && s.starts_with("0")
@@ -158,7 +150,7 @@ fn parse_core_number(s: &str, part: CorePart) -> Result<u64, SemverError> {
         "" => Err(SemverError::EmptyNumber(part)),
         _ if !all_digits(s) => Err(SemverError::NotANumber(part)),
         _ if has_leading_zero(s) => Err(SemverError::LeadingZero(part)),
-        _ => digits_to_u64(s).ok_or(SemverError::NumberTooLarge(part)),
+        _ => s.parse::<u64>().map_err(|_| SemverError::NumberTooLarge(part)),
     }
 }
 
@@ -168,7 +160,10 @@ fn parse_pre_id(s: &str) -> Result<PreId, SemverError> {
         _ if !s.bytes().all(is_ident_char) => Err(SemverError::InvalidPreReleaseChar),
         _ if !all_digits(s) => Ok(PreId::Alpha(String::from(s))),
         _ if has_leading_zero(s) => Err(SemverError::PreReleaseLeadingZero),
-        _ => digits_to_u64(s).map(PreId::Numeric).ok_or(SemverError::PreReleaseTooLarge),
+        _ => s
+            .parse::<u64>()
+            .map(PreId::Numeric)
+            .map_err(|_| SemverError::PreReleaseTooLarge),
     }
 }
 

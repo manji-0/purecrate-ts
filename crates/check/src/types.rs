@@ -523,6 +523,7 @@ pub(crate) fn show(ty: &Ty) -> String {
             Prim::Char => "char".into(),
             Prim::Uuid => "Uuid".into(),
             Prim::UuidError => "uuid::Error".into(),
+            Prim::ParseIntError => "ParseIntError".into(),
             Prim::Unit => "()".into(),
             Prim::F32 => "f32".into(),
             Prim::F64 => "f64".into(),

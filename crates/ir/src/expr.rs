@@ -562,6 +562,10 @@ pub enum Callee {
     UuidParse,
     /// `Uuid::nil()`.
     UuidNil,
+    /// `s.parse::<T>()` into an integer type: Rust's `from_str_radix(s, 10)`
+    /// (an optional `+`, a `-` for a signed type, then ASCII digits, in
+    /// range). Prints as `Int.<t>.parse(s)`.
+    StrParse(IntTy),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

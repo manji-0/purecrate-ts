@@ -45,6 +45,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return typed;
             }
         }
+        if let Some(Ty::Result { ok, err }) = rt.as_ref().map(|t| self.norm(t)) {
+            if let Some(typed) = self.result_method(recv.clone(), &ok, &err, name.as_str(), args, want) {
+                return typed;
+            }
+        }
         if let Some(rt) = &rt {
             if name.as_str() == "cmp" {
                 if let Some(typed) = self.cmp_method(recv.clone(), rt, args, want) {
@@ -54,6 +59,13 @@ impl<'d, 'a> Typer<'d, 'a> {
             if self.is_ordering(rt) {
                 if let Some(typed) = self.ordering_method(recv.clone(), name.as_str(), args, want) {
                     return typed;
+                }
+            }
+        }
+        if name.as_str() == "parse" && args.is_empty() {
+            if let Some(rt) = &rt {
+                if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
+                    return self.parse(recv, want);
                 }
             }
         }
@@ -583,6 +595,155 @@ impl<'d, 'a> Typer<'d, 'a> {
         Some((e, t))
     }
 
+    /// The `f` of `Result::map(f)` or `map_err(f)` as an arm's pattern and
+    /// body: a closure of one parameter (`|_| ..` binds nothing), a function
+    /// name, or a one-field tuple variant. `None` after reporting anything
+    /// else.
+    pub(super) fn arm_fn(&mut self, method: &str, f: &Expr) -> Option<(Pattern, Expr)> {
+        match f.unpositioned() {
+            Expr::Closure { params, body, .. } if params.len() == 1 => {
+                if leaves(body) {
+                    self.error(Reason::Closure, format!("a closure passed to `Result::{method}` may not use `?` or `return` in v0; write the `match`"));
+                    return None;
+                }
+                let p = &params[0];
+                let pattern = if p.name.as_str() == "_" { Pattern::Wildcard } else { Pattern::Var(p.name.clone()) };
+                Some((pattern, (**body).clone()))
+            }
+            Expr::Var(g) => {
+                let x = self.fresh_name("x");
+                Some((Pattern::Var(x.clone()), Expr::Call { callee: Callee::Fn(g.clone()), args: vec![Expr::Var(x)] }))
+            }
+            e if self.variant_fn(e).is_some() => {
+                let build = self.variant_fn(e)?;
+                let x = self.fresh_name("x");
+                Some((Pattern::Var(x.clone()), build(Expr::Var(x))))
+            }
+            _ => {
+                self.error(Reason::Closure, format!("`Result::{method}` takes a closure `|x| ..`, a function name, or a one-field tuple variant in v0"));
+                None
+            }
+        }
+    }
+
+    /// `ok()`, `map(f)`, and `map_err(f)` on a `Result`, as the `match` std
+    /// writes them; `f` runs only on `Ok` or only on `Err`. The receiver is bound to a fresh name
+    /// first. `None` when `name` is neither.
+    pub(super) fn result_method(&mut self, recv: Expr, ok: &Ty, err: &Ty, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+        let r = self.fresh_name("result");
+        let value = self.fresh_name("value");
+        let v = |n: &Name| Expr::Var(n.clone());
+        let two = |ok_body: Expr, err_pat: Pattern, err_body: Expr| Expr::Match {
+            scrutinee: Box::new(Expr::Var(r.clone())),
+            arms: vec![
+                Arm { guard: None, pattern: Pattern::ResultOk(Box::new(Pattern::Var(value.clone()))), body: ok_body },
+                Arm { guard: None, pattern: Pattern::ResultErr(Box::new(err_pat)), body: err_body },
+            ],
+        };
+        let (rest, want) = match (name, args) {
+            ("ok", []) => (
+                two(
+                    Expr::Call { callee: Callee::OptionSome, args: vec![v(&value)] },
+                    Pattern::Wildcard,
+                    Expr::Call { callee: Callee::OptionNone, args: vec![] },
+                ),
+                want.cloned().or_else(|| Some(Ty::option(ok.clone()))),
+            ),
+            ("map" | "map_err", [f]) => {
+                let (pattern, body) = self.arm_fn(name, f)?;
+                let on_ok = name == "map";
+                // With no type from the context, the new type is the body's:
+                // typed once on its own here, its reports dropped.
+                let want = want.cloned().or_else(|| {
+                    let before = self.out.len();
+                    let depth = self.scopes.len();
+                    self.bind(&pattern, Some(if on_ok { ok } else { err }));
+                    let (_, t) = self.expr(&body, None);
+                    self.scopes.truncate(depth);
+                    self.out.truncate(before);
+                    t.map(|t| if on_ok { Ty::result(t, err.clone()) } else { Ty::result(ok.clone(), t) })
+                });
+                let rest = if on_ok {
+                    let e = self.fresh_name("error");
+                    Expr::Match {
+                        scrutinee: Box::new(Expr::Var(r.clone())),
+                        arms: vec![
+                            Arm { guard: None, pattern: Pattern::ResultOk(Box::new(pattern)), body: Expr::Call { callee: Callee::ResultOk, args: vec![body] } },
+                            Arm {
+                                guard: None,
+                                pattern: Pattern::ResultErr(Box::new(Pattern::Var(e.clone()))),
+                                body: Expr::Call { callee: Callee::ResultErr, args: vec![v(&e)] },
+                            },
+                        ],
+                    }
+                } else {
+                    two(
+                        Expr::Call { callee: Callee::ResultOk, args: vec![v(&value)] },
+                        pattern,
+                        Expr::Call { callee: Callee::ResultErr, args: vec![body] },
+                    )
+                };
+                (rest, want)
+            }
+            _ => return None,
+        };
+        let rt = Ty::result(ok.clone(), err.clone());
+        self.scopes.push((r.as_str().to_string(), Some(rt.clone())));
+        let (typed, t) = self.expr(&rest, want.as_ref());
+        self.scopes.pop();
+        // `Result.ok(v)` alone leaves TS to infer the error type, which it
+        // cannot; an annotated binding names it.
+        let typed = match (&t, name) {
+            (Some(ty), "map" | "map_err") => {
+                let res = self.fresh_name("mapped");
+                Expr::Let {
+                    name: res.clone(),
+                    mutable: false,
+                    ty: Some(ty.clone()),
+                    value: Box::new(typed),
+                    then: Box::new(Expr::Var(res)),
+                }
+            }
+            _ => typed,
+        };
+        let e = Expr::Let {
+            name: r,
+            mutable: false,
+            ty: Some(rt),
+            value: Box::new(recv),
+            then: Box::new(typed),
+        };
+        Some((e, t))
+    }
+
+    /// `s.parse()` into the `Result<T, ParseIntError>` the context names, `T`
+    /// an integer type. Floats, `bool`, `char`, and the crate's `FromStr`
+    /// impls are refused: their grammars are larger than the reason to
+    /// carry them.
+    fn parse(&mut self, recv: Expr, want: Option<&Ty>) -> Typed {
+        let failed = (Expr::Lit(Lit::Unit), None);
+        let it = match want.map(|t| self.norm(t)) {
+            Some(Ty::Result { ok, err }) => match (self.norm(&ok), self.norm(&err)) {
+                (Ty::Prim(p), Ty::Prim(Prim::ParseIntError)) if p.int().is_some() => p.int(),
+                (ok, _) => {
+                    self.error(Reason::MethodCall, format!(
+                        "`parse` reads an integer type in v0 (`s.parse::<u64>()`), not `{}`",
+                        show(&ok)
+                    ));
+                    return failed;
+                }
+            },
+            Some(Ty::Never) => return failed,
+            _ => {
+                self.error(Reason::NeedsAnnotation, "`parse` needs its target: `s.parse::<u64>()`, or a typed `let` of `Result<u64, ParseIntError>`".to_string());
+                return failed;
+            }
+        };
+        let Some(it) = it else { return failed };
+        let e = Expr::Call { callee: Callee::StrParse(it), args: vec![recv] };
+        (e, want.cloned())
+    }
+
     /// `c.m(args)` for an allow-listed `char` method.
     /// `x.min(y)`, `x.checked_add(y)`, `x.pow(e)`, ...: a `Callee::Int` on
     /// the receiver's type, the receiver first.
@@ -754,17 +915,18 @@ pub(super) fn leaves(expr: &Expr) -> bool {
 pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "slicing `s[a..b]`"]).collect(),
+        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "parse", "slicing `s[a..b]`"]).collect(),
         Ty::Prim(Prim::Str) => StrMethod::ALL
             .iter()
             .filter(|m| **m != StrMethod::AsStr)
             .map(|m| m.name())
-            .chain(["as_bytes", "cmp", "slicing `s[a..b]`"])
+            .chain(["as_bytes", "cmp", "parse", "slicing `s[a..b]`"])
             .collect(),
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp"]).collect(),
         Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp"],
         Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`", "slicing `xs[a..b]`"],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
+        Ty::Result { .. } => vec!["ok", "map", "map_err"],
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()
             .filter(|m| **m != IntMethod::Abs || p.int().is_some_and(IntTy::is_signed))

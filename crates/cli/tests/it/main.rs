@@ -40,6 +40,7 @@ mod order_equivalence;
 mod order_of_eval_equivalence;
 mod ordering_equivalence;
 mod package;
+mod parse_equivalence;
 mod payment_equivalence;
 mod rest_equivalence;
 mod scoped_names;
