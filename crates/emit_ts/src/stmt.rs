@@ -167,6 +167,24 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 && !peel_identity(value).needs_statements()
             {
                 emit_stmts(peel_identity(value), indent, sink, out);
+            } else if let Some((slots, rest)) = (!*mutable && name.as_str().starts_with('$'))
+                .then(|| destructured(name, then))
+                .flatten()
+                .filter(|_| value_expr(value, indent).is_some())
+            {
+                // `let (a, b) = v`: the tuple is only taken apart.
+                let (prelude, s) = value_expr(value, indent).expect("checked above");
+                let pattern = slots.iter().map(|n| n.map_or("", |n| n.as_str())).collect::<Vec<_>>().join(", ");
+                // The pattern types an array literal as a tuple; only an
+                // object literal would widen (`kind: string`) without one.
+                let annotation = ty
+                    .as_ref()
+                    .filter(|t| holds_object(t))
+                    .map(|t| format!(": {}", emit_ty(t)))
+                    .unwrap_or_default();
+                out.push_str(&prelude);
+                out.push_str(&format!("{pad}const [{pattern}]{annotation} = {};\n", crate::tidy::strip_outer(&s)));
+                emit_stmts(rest, indent, sink, out);
             } else if !*mutable && name.as_str().starts_with('$') && value.is_inlinable() {
                 // `$opt = x` / `$optOr = d` around `unwrap_or` / `ok_or`: the
                 // names and variant literals cannot panic, so the uses read
@@ -347,10 +365,10 @@ pub(crate) fn emit_let(
                 emit_expr(v, indent)
             ));
         }
-        v if let Some(s) = as_expr(v, indent) => out.push_str(&format!(
-            "{pad}{keyword} {name}{annotation} = {};\n",
-            crate::tidy::strip_outer(&s)
-        )),
+        v if let Some((prelude, s)) = value_expr(v, indent) => {
+            out.push_str(&prelude);
+            out.push_str(&format!("{pad}{keyword} {name}{annotation} = {};\n", crate::tidy::strip_outer(&s)));
+        }
         v if v.needs_statements() => {
             out.push_str(&format!("{pad}let {name}{annotation};\n"));
             if matches!(v, Expr::Let { .. } | Expr::Seq { .. }) {
@@ -489,6 +507,84 @@ pub(crate) fn emit_switch(
     }
 }
 
+/// `const tmp = scrutinee;` before a `match` on a value that is not a place.
+fn bind_scrutinee(tmp: &str, scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let value = emit_expr(scrutinee, indent);
+    // An annotated literal initializer narrows the union and makes the
+    // other cases unreachable; a cast keeps the full union.
+    let decl = match (scrutinee_ty(arms), peel(scrutinee)) {
+        (Some(ty), Expr::Construct { .. }) => format!("{tmp} = {value} as {}", ty.as_str()),
+        (Some(ty), _) => format!("{tmp}: {} = {value}", ty.as_str()),
+        (None, _) => format!("{tmp} = {}", crate::tidy::strip_outer(&value)),
+    };
+    out.push_str(&format!("{pad}const {decl};\n"));
+}
+
+/// `value` as one expression, after the statements (`prelude`) that bind
+/// what it reads once: a `match` on a value that is not a place, each arm an
+/// expression, binds the value and is a `?:` on that binding.
+pub(crate) fn value_expr(value: &Expr, indent: usize) -> Option<(String, String)> {
+    let value = peel_identity(value);
+    if let Some(s) = as_expr(value, indent) {
+        return Some((String::new(), s));
+    }
+    let Expr::Match { scrutinee, arms } = value else { return None };
+    if is_place(scrutinee) {
+        return None;
+    }
+    let tmp = match_temp(arms, indent);
+    let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
+    let s = as_expr(&on_tmp, indent)?;
+    let mut prelude = String::new();
+    bind_scrutinee(&tmp, scrutinee, arms, indent, &mut prelude);
+    Some((prelude, s))
+}
+
+/// `let t = v; let a = t[0]; let b = t[1]; ..` where nothing else reads
+/// `t`: the names by element (`None` for one no name takes), and the rest.
+fn destructured<'e>(t: &Name, mut then: &'e Expr) -> Option<(Vec<Option<&'e Name>>, &'e Expr)> {
+    let mut slots: Vec<Option<&Name>> = Vec::new();
+    while let Expr::Let { name, mutable: false, value, then: rest, .. } = then {
+        let Expr::Field { base, name: field } = value.as_ref() else { break };
+        let Some(i) = field.as_str().strip_prefix('[').and_then(|f| f.strip_suffix(']')).and_then(|f| f.parse::<usize>().ok())
+        else {
+            break;
+        };
+        if !matches!(base.as_ref(), Expr::Var(n) if n == t) {
+            break;
+        }
+        if slots.len() <= i {
+            slots.resize(i + 1, None);
+        }
+        if slots[i].is_some() {
+            break;
+        }
+        slots[i] = Some(name);
+        then = rest;
+    }
+    (slots.iter().filter(|s| s.is_some()).count() >= 2 && !mentions(then, t)).then_some((slots, then))
+}
+
+/// A type whose values may be object literals: a crate type or a `Result`.
+fn holds_object(ty: &Ty) -> bool {
+    match ty {
+        Ty::Named(_) | Ty::Result { .. } | Ty::Fn { .. } => true,
+        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => holds_object(t),
+        Ty::Tuple(ts) => ts.iter().any(holds_object),
+        Ty::Prim(_) | Ty::Never => false,
+    }
+}
+
+/// Whether `name` is read or assigned anywhere in `expr`.
+fn mentions(expr: &Expr, name: &Name) -> bool {
+    match expr {
+        Expr::Var(n) | Expr::Assign { name: n, .. } if n == name => true,
+        Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name => true,
+        other => other.children().into_iter().any(|c| mentions(c, name)),
+    }
+}
+
 pub(crate) fn emit_switch_in(
     scrutinee: &Expr,
     arms: &[purecrate_ir::Arm],
@@ -506,15 +602,7 @@ pub(crate) fn emit_switch_in(
         emit_expr(scrutinee, indent)
     } else {
         let tmp = match_temp(arms, indent);
-        let value = emit_expr(scrutinee, indent);
-        // An annotated literal initializer narrows the union and makes the
-        // other cases unreachable; a cast keeps the full union.
-        let decl = match (scrutinee_ty(arms), peel(scrutinee)) {
-            (Some(ty), Expr::Construct { .. }) => format!("{tmp} = {value} as {}", ty.as_str()),
-            (Some(ty), _) => format!("{tmp}: {} = {value}", ty.as_str()),
-            (None, _) => format!("{tmp} = {value}"),
-        };
-        out.push_str(&format!("{pad}const {decl};\n"));
+        bind_scrutinee(&tmp, scrutinee, arms, indent, out);
         tmp
     };
     if let [a, b] = arms {

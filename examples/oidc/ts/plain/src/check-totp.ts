@@ -43,9 +43,9 @@ export const checkTotp = (
   for (const c of candidates) {
     if (c.step >= Int.i64.sub(current, 1n as I64) && c.step <= Int.i64.add(current, 1n as I64)) {
       if ((() => {
-        const option2 = truncateMac(c.mac, enrollment.digits);
-        if (option2 !== null) {
-          const value = option2;
+        const option = truncateMac(c.mac, enrollment.digits);
+        if (option !== null) {
+          const value = option;
           return value === submitted;
         }
         return false;

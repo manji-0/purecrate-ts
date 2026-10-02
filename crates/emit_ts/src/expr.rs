@@ -460,7 +460,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if let purecrate_ir::Callee::Str(m) = callee {
                 let s = emit_expr(&args[0], indent);
-                let needle = || emit_item(&args[1], indent);
+                let needle = || bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
                 return match m {
                     purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
                     purecrate_ir::StrMethod::IsEmpty => format!("({s}.length === 0)"),
