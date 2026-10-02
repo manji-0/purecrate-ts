@@ -67,8 +67,31 @@ fn local_name(spec: &str) -> &str {
 /// after a `.` (a property name is not a reference to a binding). The
 /// `${..}` of a template literal is code.
 fn code_idents(src: &str) -> BTreeSet<String> {
+    ident_spans(src)
+        .into_iter()
+        .filter(|(_, _, after_dot)| !after_dot)
+        .map(|(start, end, _)| src[start..end].to_string())
+        .collect()
+}
+
+/// Each identifier in the code of `src`, outside comments and string
+/// literals, as its byte range and whether it follows a `.`.
+pub(crate) fn ident_spans(src: &str) -> Vec<(usize, usize, bool)> {
+    scan(src).0
+}
+
+/// The byte ranges of the `{ .. }` pairs in the code of `src`, braces
+/// included; a template's `${ .. }` is not one.
+pub(crate) fn brace_spans(src: &str) -> Vec<(usize, usize)> {
+    scan(src).1
+}
+
+fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
     let chars: Vec<char> = src.chars().collect();
-    let mut out = BTreeSet::new();
+    let offsets: Vec<usize> = src.char_indices().map(|(at, _)| at).chain([src.len()]).collect();
+    let mut out = Vec::new();
+    let mut open: Vec<usize> = Vec::new();
+    let mut blocks = Vec::new();
     // Open template literals, each with the brace depth of the code in its
     // current `${..}`.
     let mut templates: Vec<usize> = Vec::new();
@@ -111,22 +134,34 @@ fn code_idents(src: &str) -> BTreeSet<String> {
                 after_dot = false;
                 continue;
             }
-            '{' => depth += 1,
+            '{' => {
+                depth += 1;
+                open.push(offsets[i]);
+            }
             '}' if depth == 0 && !templates.is_empty() => {
                 i = skip_template_text(&chars, i + 1, &mut templates, &mut depth);
                 after_dot = false;
                 continue;
             }
-            '}' => depth = depth.saturating_sub(1),
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if let Some(start) = open.pop() {
+                    blocks.push((start, offsets[i + 1]));
+                }
+            }
             _ if c.is_ascii_alphabetic() || c == '_' || c == '$' => {
                 let start = i;
                 while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$') {
                     i += 1;
                 }
-                if !after_dot {
-                    out.insert(chars[start..i].iter().collect());
-                }
+                out.push((offsets[start], offsets[i.min(chars.len())], after_dot));
                 after_dot = false;
+                continue;
+            }
+            // A spread (`...x`) reads a binding.
+            '.' if chars.get(i + 1) == Some(&'.') && chars.get(i + 2) == Some(&'.') => {
+                after_dot = false;
+                i += 3;
                 continue;
             }
             '.' => {
@@ -143,7 +178,7 @@ fn code_idents(src: &str) -> BTreeSet<String> {
         after_dot = false;
         i += 1;
     }
-    out
+    (out, blocks)
 }
 
 /// From inside a template literal's text, to just after the `${` that opens

@@ -17,11 +17,11 @@ export const sessionIsUsable = (
   if (request.prompt.login || request.prompt.select_account) return false;
   let fresh: boolean;
   {
-    const $opt: boolean | null = request.max_age !== null ? Int.i64.sub(
+    const opt: boolean | null = request.max_age !== null ? Int.i64.sub(
       now,
       session.auth_time,
     ) <= request.max_age : null;
-    fresh = !($opt !== null) || $opt;
+    fresh = !(opt !== null) || opt;
   }
   const strongEnough: boolean = !request.wants_mfa || (session.strength.kind === "PasswordAndTotp");
   return fresh && strongEnough;

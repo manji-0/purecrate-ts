@@ -16,8 +16,8 @@ export const parseCoreNumber = (s: string, part: CorePart): Result<U64, SemverEr
       if (hasLeadingZero(s)) {
         return Result.err({ kind: "LeadingZero", value: part });
       } else {
-        const $result: Result<U64, ParseIntError> = Int.u64.parse(s);
-        return $result.kind === "Ok" ? Result.ok($result.value) : Result.err({
+        const result: Result<U64, ParseIntError> = Int.u64.parse(s);
+        return result.kind === "Ok" ? Result.ok(result.value) : Result.err({
           kind: "NumberTooLarge",
           value: part,
         });

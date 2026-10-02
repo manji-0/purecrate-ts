@@ -8,8 +8,8 @@ import type { PreId } from "./pre-id.ts";
 /** Identifiers left to right; a longer list with an equal prefix is greater. */
 export const comparePreIds = (a: ReadonlyArray<PreId>, b: ReadonlyArray<PreId>): Ordering => {
   for (
-    let i = (0 as Usize), $e_1 = Int.usize.min(((a.length) as Usize), ((b.length) as Usize));
-    i < $e_1;
+    let i = (0 as Usize), end = Int.usize.min(((a.length) as Usize), ((b.length) as Usize));
+    i < end;
     i = (i + 1) as Usize
   ) {
     const o: Ordering = comparePreId(Slice.at(a, i), Slice.at(b, i));

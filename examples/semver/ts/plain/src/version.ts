@@ -30,72 +30,72 @@ export const Version$of = (fields: Readonly<{
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
     if (s.length === 0) return Result.err({ kind: "Empty" });
-    let $t: readonly [string, string | null];
+    let tuple: readonly [string, string | null];
     {
-      const $m_3_$t = Str.splitOnce(s, ("+" as Char));
-      if ($m_3_$t !== null) {
-        const x = $m_3_$t[0];
-        const y = $m_3_$t[1];
-        $t = [x, y];
+      const option = Str.splitOnce(s, ("+" as Char));
+      if (option !== null) {
+        const x = option[0];
+        const y = option[1];
+        tuple = [x, y];
       } else {
-        $t = [s, null];
+        tuple = [s, null];
       }
     }
-    const rest: string = $t[0];
-    const build: string | null = $t[1];
-    let $t$1: readonly [string, string | null];
+    const rest: string = tuple[0];
+    const build: string | null = tuple[1];
+    let tuple2: readonly [string, string | null];
     {
-      const $m_3_$t$1 = Str.splitOnce(rest, ("-" as Char));
-      if ($m_3_$t$1 !== null) {
-        const x = $m_3_$t$1[0];
-        const y = $m_3_$t$1[1];
-        $t$1 = [x, y];
+      const option = Str.splitOnce(rest, ("-" as Char));
+      if (option !== null) {
+        const x = option[0];
+        const y = option[1];
+        tuple2 = [x, y];
       } else {
-        $t$1 = [rest, null];
+        tuple2 = [rest, null];
       }
     }
-    const core: string = $t$1[0];
-    const pre: string | null = $t$1[1];
+    const core: string = tuple2[0];
+    const pre: string | null = tuple2[1];
     const parts: ReadonlyArray<string> = core.split(("." as Char));
-    const $v_major = parseCoreNumber(Slice.at(parts, (0 as Usize)), { kind: "Major" });
-    if ($v_major.kind === "Err") return $v_major;
-    const major: U64 = $v_major.value;
+    const majorResult = parseCoreNumber(Slice.at(parts, (0 as Usize)), { kind: "Major" });
+    if (majorResult.kind === "Err") return majorResult;
+    const major: U64 = majorResult.value;
     if (((parts.length) as Usize) < (2 as Usize))
       return Result.err({ kind: "MissingPart", value: { kind: "Minor" } });
-    const $v_minor = parseCoreNumber(Slice.at(parts, (1 as Usize)), { kind: "Minor" });
-    if ($v_minor.kind === "Err") return $v_minor;
-    const minor: U64 = $v_minor.value;
+    const minorResult = parseCoreNumber(Slice.at(parts, (1 as Usize)), { kind: "Minor" });
+    if (minorResult.kind === "Err") return minorResult;
+    const minor: U64 = minorResult.value;
     if (((parts.length) as Usize) < (3 as Usize))
       return Result.err({ kind: "MissingPart", value: { kind: "Patch" } });
-    const $v_patch = parseCoreNumber(Slice.at(parts, (2 as Usize)), { kind: "Patch" });
-    if ($v_patch.kind === "Err") return $v_patch;
-    const patch: U64 = $v_patch.value;
+    const patchResult = parseCoreNumber(Slice.at(parts, (2 as Usize)), { kind: "Patch" });
+    if (patchResult.kind === "Err") return patchResult;
+    const patch: U64 = patchResult.value;
     if (((parts.length) as Usize) > (3 as Usize)) return Result.err({ kind: "ExtraCorePart" });
-    let pre$1: ReadonlyArray<PreId>;
+    let pre2: ReadonlyArray<PreId>;
     if (pre !== null) {
       const p = pre;
-      const $q = Iter.tryCollect(
+      const result = Iter.tryCollect(
         p.split(("." as Char)),
-        (($x: string): Result<PreId, SemverError> => parsePreId($x)),
+        ((x2: string): Result<PreId, SemverError> => parsePreId(x2)),
       );
-      if ($q.kind === "Err") return $q;
-      pre$1 = $q.value;
+      if (result.kind === "Err") return result;
+      pre2 = result.value;
     } else {
-      pre$1 = [];
+      pre2 = [];
     }
-    let build$1: ReadonlyArray<string>;
+    let build2: ReadonlyArray<string>;
     if (build !== null) {
       const b = build;
-      const $q2 = Iter.tryCollect(
+      const result2 = Iter.tryCollect(
         b.split(("." as Char)),
-        (($x: string): Result<string, SemverError> => parseBuildId($x)),
+        ((x2: string): Result<string, SemverError> => parseBuildId(x2)),
       );
-      if ($q2.kind === "Err") return $q2;
-      build$1 = $q2.value;
+      if (result2.kind === "Err") return result2;
+      build2 = result2.value;
     } else {
-      build$1 = [];
+      build2 = [];
     }
-    return Result.ok(Version$of({ major, minor, patch, pre: pre$1, build: build$1 }));
+    return Result.ok(Version$of({ major, minor, patch, pre: pre2, build: build2 }));
   },
   major: (self: Version): U64 => self.major,
   minor: (self: Version): U64 => self.minor,

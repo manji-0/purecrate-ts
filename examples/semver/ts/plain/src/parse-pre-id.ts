@@ -19,7 +19,7 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
   if (s === "") {
     return Result.err({ kind: "EmptyPreRelease" });
   } else {
-    if (!Iter.all(Str.bytes(s), (($x: U8): boolean => isIdentChar($x)))) {
+    if (!Iter.all(Str.bytes(s), ((x: U8): boolean => isIdentChar(x)))) {
       return Result.err({ kind: "InvalidPreReleaseChar" });
     } else {
       if (!allDigits(s)) {
@@ -28,16 +28,16 @@ export const parsePreId = (s: string): Result<PreId, SemverError> => {
         if (hasLeadingZero(s)) {
           return Result.err({ kind: "PreReleaseLeadingZero" });
         } else {
-          let $result: Result<PreId, ParseIntError>;
+          let result: Result<PreId, ParseIntError>;
           {
-            const $result$1: Result<U64, ParseIntError> = Int.u64.parse(s);
-            $result = $result$1.kind === "Ok" ? Result.ok({
+            const result2: Result<U64, ParseIntError> = Int.u64.parse(s);
+            result = result2.kind === "Ok" ? Result.ok({
               kind: "Numeric",
-              value: $result$1.value,
-            }) : Result.err($result$1.error);
+              value: result2.value,
+            }) : Result.err(result2.error);
           }
-          return $result.kind === "Ok"
-            ? Result.ok($result.value)
+          return result.kind === "Ok"
+            ? Result.ok(result.value)
             : Result.err({ kind: "PreReleaseTooLarge" });
         }
       }

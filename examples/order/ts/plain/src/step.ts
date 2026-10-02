@@ -16,13 +16,13 @@ export const step = (order: Order, cmd: Command): Result<Order, OrderError> => {
     }
     case "Placed": {
       const lines = order.lines;
-      const total$1 = order.total;
-      return placed(lines, total$1, cmd);
+      const total2 = order.total;
+      return placed(lines, total2, cmd);
     }
     case "Paid": {
       const lines = order.lines;
-      const total$1 = order.total;
-      return paid(lines, total$1, cmd);
+      const total2 = order.total;
+      return paid(lines, total2, cmd);
     }
     default:
       return Result.err({ kind: "InvalidTransition" });

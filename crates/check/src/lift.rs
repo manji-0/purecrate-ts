@@ -132,11 +132,14 @@ impl Lifter {
         Lifter { taken }
     }
 
-    /// `$<f>` for `f(..)?`, `$q` otherwise, kept apart from every name taken.
-    fn fresh(&mut self, inner: &Expr) -> Name {
+    /// `$<f><What>` for `f(..)` (`$removeSkuResult`), `$<what>` otherwise,
+    /// kept apart from every name taken. The printer drops the `$`.
+    fn fresh(&mut self, inner: &Expr, what: &str) -> Name {
         let base = match inner {
-            Expr::Call { callee: Callee::Fn(f) | Callee::Method { name: f, .. }, .. } => format!("${}", f.as_str()),
-            _ => "$q".to_string(),
+            Expr::Call { callee: Callee::Fn(f) | Callee::Method { name: f, .. }, .. } => {
+                format!("${}{what}", purecrate_ir::to_camel(f.as_str()))
+            }
+            _ => format!("${}", what.to_ascii_lowercase()),
         };
         let name = (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}{i}") }).find(|n| !self.taken.contains(n)).expect("a free name");
         self.taken.insert(name.clone());
@@ -305,7 +308,7 @@ impl Lifter {
         match expr {
             Expr::Try { expr, on } => {
                 let inner = self.boxed(expr, out);
-                let name = self.fresh(&inner);
+                let name = self.fresh(&inner, if on == Some(TryOn::Option) { "Opt" } else { "Result" });
                 // The hoisted value is the `Result` itself, tested in place
                 // (see `wrap`), and read here as its payload. A `None` is
                 // `null`, so an `Option` is its own payload; so is the guard
@@ -458,7 +461,7 @@ impl Lifter {
                 expr: Box::new(self.spill(*expr, out)),
             },
             other => {
-                let name = self.fresh(&other);
+                let name = self.fresh(&other, "Value");
                 out.push((name.clone(), other, None));
                 Expr::Var(name)
             }

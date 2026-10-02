@@ -15,10 +15,10 @@ export const removeSku = (lines: Lines, sku: Sku): Result<Lines, OrderError> => 
       if (head.sku === sku) {
         return Result.ok(rest);
       } else {
-        const $v_rest$1 = removeSku(rest, sku);
-        if ($v_rest$1.kind === "Err") return $v_rest$1;
-        const rest$1: Lines = $v_rest$1.value;
-        return Result.ok({ kind: "Cons", content: [head, rest$1] });
+        const rest2Result = removeSku(rest, sku);
+        if (rest2Result.kind === "Err") return rest2Result;
+        const rest2: Lines = rest2Result.value;
+        return Result.ok({ kind: "Cons", content: [head, rest2] });
       }
     }
     default:

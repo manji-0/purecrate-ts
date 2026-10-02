@@ -161,7 +161,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 
 #### 3.3.1 Tuple match
 
-A `match` on a tuple is split into nested `match`es, one element at a time (`check::tuple`). At each level it chooses the first element that the first remaining arm tests. A `match` with guards, or with a pattern nested in a case, is split the same way, a single value as a tuple of one; a field some arm tests inside (`verified: false`) becomes one more element where its case was chosen, read into `$<field>` (`$f` / `$v` for a positional field or a payload).
+A `match` on a tuple is split into nested `match`es, one element at a time (`check::tuple`). At each level it chooses the first element that the first remaining arm tests. A `match` with guards, or with a pattern nested in a case, is split the same way, a single value as a tuple of one; a field some arm tests inside (`verified: false`) becomes one more element where its case was chosen, read into a name for the field (`verified`; `field` / `value` / `error` for a positional field or a payload).
 
 ```ts
 switch (event.kind) {
@@ -175,8 +175,8 @@ switch (event.kind) {
 
 - Every enum, `Option`, and `Result` element is matched with every case named, so TS checks exhaustiveness.
 - Integer, `char`, `bool`, and string elements are `if`/`else` on one arm's pattern at a time; a `bool` test prints as `x` or `!x`.
-- Elements that are not places go into `const`s first, in order (`$e1`, `$e2`).
-- A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A fresh `$f`/`$v` name remains only where no arm names the value.
+- Elements that are not places go into `const`s first, in order (`elem`, `elem2`).
+- A field or payload an arm binds is read once, into the arm's own name (`const conversion = method.conversion;`); a guard, and another arm reaching the same case, read that name (`check::binds`). A made name (`field`, `value`) remains only where no arm names the value.
 - A body that several cases reach is copied into each. Cases with the same code and no bindings share a `case` list. A `_` (or the remaining variants of a tuple element) prints as `default:`; `assertNever` is only the `default` of a `switch` that names every variant. Hoisting an arm that ignores an earlier element (`(_, Event::Cancel)`) is a candidate.
 - A binding of a place with an enum, `Option`, or `Result` type prints `const s = state as State`. An annotation would keep the narrowing of an enclosing `switch`.
 
@@ -185,8 +185,8 @@ switch (event.kind) {
 - A `match` with guards prints as a tuple `match` does (§3.3.1), a single value as a tuple of one. Where an arm's pattern has matched, `if (guard) { body } else { .. }`, the `else` holding the arms after it that can still match. The guard reads the arm's bindings from their places.
 - `unwrap_or`, `ok_or`, and `map` become the `match` that std writes. The receiver and an eager argument are bound first when they may panic or have an effect; a name, a literal, or a field is read in the arm (`x ?? d`, `if (x === null) return Result.err(e)`).
 - `let x = o.ok_or(e)?` is a guard instead: `if (o === null) return Result.err(e);` and `const x = o` when `o` and `e` cannot panic. Otherwise the receiver and `e` are bound first, then the same test. The `match` would build a `Result` only for `?` to take it apart.
-- A `?` inside an expression is hoisted in front of its statement: `const $f = f(x);`, `if ($f.kind === "Err") return $f;` (`=== null` for an `Option`), and the expression reads `$f.value` (`$f`). `let x = e?` binds the payload to `x` instead. A `?` on a name is the test on that name.
-- A name the generator makes starts with `$`, which no Rust name can, and says what it holds where it can: `$f` for the value of a call to `f`, `$o` and `$oOr` for the receiver and argument of `o.unwrap_or(..)` / `o.ok_or(..)`; a second one of a name gets a number (`$f2`, `$o$1`).
+- A `?` inside an expression is hoisted in front of its statement: `const fResult = f(x);`, `if (fResult.kind === "Err") return fResult;` (`=== null` for an `Option`, held in `fOpt`), and the expression reads `fResult.value` (`fOpt`). `let x = e?` holds `e` in `xResult` and binds the payload to `x`. A `?` on a name is the test on that name.
+- A name the generator makes says what it holds: `fResult` for the `Result` of a call to `f`, `o` and `oOr` for the receiver and argument of `o.unwrap_or(..)` / `o.ok_or(..)`, the matched value of a `match` on a call after its enum (`otpCheck`), or `result`, `option`, `value`; a loop's end is `end`, its label `loop`. No `$` is printed (§3.3.5).
 - `if c { return v; }` as a statement prints on one line, `if (c) return v;`, when `c` and `v` each fit on one.
 
 #### 3.3.3 Loop labels
@@ -200,7 +200,8 @@ A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `
 
 #### 3.3.5 Renaming
 
-- Bindings are numbered (`x$1`) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
+- Bindings are numbered (`x2`, counting the first as one) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
+- A name the generator makes is printed plain (`emit_ts::plain`): while the code is built it starts with `$`, which no Rust identifier has, and last it takes its plain spelling unless an identifier read or declared in the innermost block holding its uses has it, or another made name of an overlapping block took it; then the next number (`result2`). So it never captures or hides a source name. Until 0.8.0 the `$` was printed (`$v_major`, `$m_3_$t`, `x$1`).
 - A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block.
 
 ### 3.4 Closures

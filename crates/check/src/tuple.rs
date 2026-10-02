@@ -66,7 +66,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
             let mut subjects = Vec::new();
             let mut lets = Vec::new();
             for (x, t) in xs.into_iter().zip(&tys) {
-                let n = lw.name("e");
+                let n = lw.name("elem");
                 subjects.push(Expr::Var(n.clone()));
                 lets.push((n, t.clone(), x));
             }
@@ -79,7 +79,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
             let (base, lets) = if is_place(&other) {
                 (other, Vec::new())
             } else {
-                let whole = lw.name("t");
+                let whole = lw.name("tuple");
                 let lets = vec![(whole.clone(), Ty::Tuple(tys.clone()), other)];
                 (Expr::Var(whole), lets)
             };
@@ -137,7 +137,8 @@ impl Lowering<'_, '_, '_> {
         t
     }
 
-    /// Not a Rust identifier, so no source name is shadowed or captured.
+    /// Not a Rust identifier, so no source name is shadowed or captured;
+    /// the printer drops the `$` (`emit_ts::plain`).
     fn name(&mut self, what: &str) -> Name {
         *self.fresh += 1;
         Name::new(format!("${what}{}", self.fresh))
@@ -172,7 +173,7 @@ impl Lowering<'_, '_, '_> {
             Ty::Named(n) if self.defs.enums.contains_key(n.as_str()) => self.enum_column(subjects, col, n, rows),
             Ty::Tuple(elems) => self.tuple_column(subjects, col, elems, rows),
             Ty::Option(inner) => {
-                let some = self.name("v");
+                let some = self.name("value");
                 let arms = vec![
                     (Pattern::OptionSome(Box::new(Pattern::Var(some.clone()))), Some((some, (**inner).clone()))),
                     (Pattern::OptionNone, None),
@@ -180,7 +181,7 @@ impl Lowering<'_, '_, '_> {
                 self.two_way(subjects, col, subject, arms, rows)
             }
             Ty::Result { ok, err } => {
-                let (o, e) = (self.name("v"), self.name("v"));
+                let (o, e) = (self.name("value"), self.name("error"));
                 let arms = vec![
                     (Pattern::ResultOk(Box::new(Pattern::Var(o.clone()))), Some((o, (**ok).clone()))),
                     (Pattern::ResultErr(Box::new(Pattern::Var(e.clone()))), Some((e, (**err).clone()))),
@@ -208,7 +209,7 @@ impl Lowering<'_, '_, '_> {
             // Named after the field where it has one (`$verified`).
             let fresh: Vec<Name> = (0..tys.len()).map(|i| match named.get(i) {
                 Some(f) => self.name(f.as_str()),
-                None => self.name("f"),
+                None => self.name("field"),
             }).collect();
             let fields_of = |bind: VariantBind| -> Vec<(usize, Pattern)> {
                 match bind {

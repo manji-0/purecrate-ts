@@ -25,9 +25,9 @@ export const begin = (
   consentOnFile: boolean,
   now: I64,
 ): Result<Flow, AuthorizationError> => {
-  const $v_request = validateRequest(params, client);
-  if ($v_request.kind === "Err") return $v_request;
-  const request: AuthorizationRequest = $v_request.value;
+  const requestResult = validateRequest(params, client);
+  if (requestResult.kind === "Err") return requestResult;
+  const request: AuthorizationRequest = requestResult.value;
   const reusable: Authentication | null = session !== null ? (sessionIsUsable(
     request,
     session,

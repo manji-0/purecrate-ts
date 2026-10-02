@@ -21,9 +21,9 @@ export const checkTotp = (
 ): OtpCheck => {
   let current: I64;
   {
-    const $m_2_current = totpStep(now, enrollment.t0, enrollment.period);
-    if ($m_2_current !== null) {
-      const t = $m_2_current;
+    const option = totpStep(now, enrollment.t0, enrollment.period);
+    if (option !== null) {
+      const t = option;
       current = t;
     } else {
       return { kind: "ClockBeforeEpoch" };
@@ -31,9 +31,9 @@ export const checkTotp = (
   }
   let submitted: U32;
   {
-    const $m_2_submitted = parseOtp(code, enrollment.digits);
-    if ($m_2_submitted !== null) {
-      const v = $m_2_submitted;
+    const option = parseOtp(code, enrollment.digits);
+    if (option !== null) {
+      const v = option;
       submitted = v;
     } else {
       return { kind: "Malformed" };
@@ -45,9 +45,9 @@ export const checkTotp = (
       c.step >= Int.i64.sub(current, (1n as I64)) && c.step <= Int.i64.add(current, (1n as I64))
     ) {
       if ((() => {
-        const $m_4 = truncateMac(c.mac, enrollment.digits);
-        if ($m_4 !== null) {
-          const value = $m_4;
+        const option2 = truncateMac(c.mac, enrollment.digits);
+        if (option2 !== null) {
+          const value = option2;
           return value === submitted;
         } else {
           return false;
@@ -55,10 +55,10 @@ export const checkTotp = (
       })()) {
         let fresh: boolean;
         {
-          const $opt: boolean | null = enrollment.last_used_step !== null
+          const opt: boolean | null = enrollment.last_used_step !== null
             ? c.step > enrollment.last_used_step
             : null;
-          fresh = !($opt !== null) || $opt;
+          fresh = !(opt !== null) || opt;
         }
         if (fresh) return { kind: "Accepted", value: c.step };
         replayed = true;

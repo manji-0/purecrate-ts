@@ -20,28 +20,28 @@ export const Signup$of = (fields: Readonly<{
 
 export const Signup = {
   parse: (email: string, password: string): Result<Signup, SignupError> => {
-    let email$1: Email;
+    let email2: Email;
     {
-      const $m_3_email$1 = Email.parse(email);
-      if ($m_3_email$1.kind === "Ok") {
-        const e = $m_3_email$1.value;
-        email$1 = e;
+      const result = Email.parse(email);
+      if (result.kind === "Ok") {
+        const e = result.value;
+        email2 = e;
       } else {
-        const e = $m_3_email$1.error;
+        const e = result.error;
         return Result.err({ kind: "Email", value: e });
       }
     }
-    let password$1: Password;
+    let password2: Password;
     {
-      const $m_3_password$1 = Password.parse(password);
-      if ($m_3_password$1.kind === "Ok") {
-        const p = $m_3_password$1.value;
-        password$1 = p;
+      const result = Password.parse(password);
+      if (result.kind === "Ok") {
+        const p = result.value;
+        password2 = p;
       } else {
-        const e = $m_3_password$1.error;
+        const e = result.error;
         return Result.err({ kind: "Password", value: e });
       }
     }
-    return Result.ok(Signup$of({ email: email$1, password: password$1 }));
+    return Result.ok(Signup$of({ email: email2, password: password2 }));
   },
 } as const;

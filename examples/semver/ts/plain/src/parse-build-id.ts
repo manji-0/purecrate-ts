@@ -10,7 +10,7 @@ export const parseBuildId = (s: string): Result<string, SemverError> => {
   } else {
     return !Iter.all(
       Str.bytes(s),
-      (($x: U8): boolean => isIdentChar($x)),
+      ((x: U8): boolean => isIdentChar(x)),
     ) ? Result.err({ kind: "InvalidBuildChar" }) : Result.ok(s);
   }
 };

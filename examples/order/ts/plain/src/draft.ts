@@ -19,9 +19,9 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
     }
     case "RemoveSku": {
       const sku = cmd.value;
-      const $removeSku = removeSku(lines, sku);
-      if ($removeSku.kind === "Err") return $removeSku;
-      return Result.ok({ kind: "Draft", lines: $removeSku.value });
+      const removeSkuResult = removeSku(lines, sku);
+      if (removeSkuResult.kind === "Err") return removeSkuResult;
+      return Result.ok({ kind: "Draft", lines: removeSkuResult.value });
     }
     case "Place":
       switch (lines.kind) {
@@ -30,9 +30,9 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
         case "Cons": {
           const head = lines.content[0];
           const rest = lines.content[1];
-          const lines$1: Lines = { kind: "Cons", content: [head, rest] };
-          const total$1: Yen = total(lines$1);
-          return Result.ok({ kind: "Placed", lines: lines$1, total: total$1 });
+          const lines2: Lines = { kind: "Cons", content: [head, rest] };
+          const total2: Yen = total(lines2);
+          return Result.ok({ kind: "Placed", lines: lines2, total: total2 });
         }
         default:
           return assertNever(lines);

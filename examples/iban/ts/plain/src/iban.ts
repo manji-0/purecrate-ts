@@ -18,18 +18,18 @@ export const Iban = {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     if (((b.length) as Usize) < (15 as Usize) || ((b.length) as Usize) > (34 as Usize))
       return Result.err({ kind: "Length" });
-    for (let i = (0 as Usize), $e_2 = (2 as Usize); i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (0 as Usize); i < (2 as Usize); i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i))) return Result.err({ kind: "Country" });
     }
-    for (let i = (2 as Usize), $e_2 = (4 as Usize); i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (2 as Usize); i < (4 as Usize); i = (i + 1) as Usize) {
       if (!isDigit(Slice.at(b, i))) return Result.err({ kind: "CheckDigits" });
     }
     let acc: U32 = 0 as U32;
-    for (let i = (4 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (4 as Usize), end = ((b.length) as Usize); i < end; i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i)) && !isDigit(Slice.at(b, i))) return Result.err({ kind: "Bban" });
       acc = push(acc, Slice.at(b, i));
     }
-    for (let i = (0 as Usize), $e_2 = (4 as Usize); i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (0 as Usize); i < (4 as Usize); i = (i + 1) as Usize) {
       acc = push(acc, Slice.at(b, i));
     }
     if (acc !== (1 as U32)) return Result.err({ kind: "Checksum" });

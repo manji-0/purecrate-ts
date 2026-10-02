@@ -373,7 +373,7 @@ The following may change in a **patch** (formatting of generated files included)
 | Unstable | Examples |
 | --- | --- |
 | Formatting | line wrapping, parentheses that precedence does not need, import grouping, JSDoc layout |
-| Internal helpers | `$of`, `$unchecked`, temps (`$method`, `$majorOr`), names of locals |
+| Internal helpers | `$of`, `$unchecked`, temps (`majorResult`, `majorOr`), names of locals |
 | Local names | a binding that is not an export; numbering when a name is shadowed |
 | Trimmed runtime shape | empty namespaces dropped, which `Int` methods a copy keeps |
 

@@ -7,24 +7,24 @@ import type { Version } from "./version.ts";
 
 /** Precedence per SemVer 2.0.0 §11. Build metadata is ignored. */
 export const compare = (a: Version, b: Version): Ordering => {
-  const $ord: Ordering = Ord.then(
+  const ord: Ordering = Ord.then(
     Ord.then(Ord.cmp(a.major, b.major), Ord.cmp(a.minor, b.minor)),
     Ord.cmp(a.patch, b.patch),
   );
-  switch ($ord.kind) {
+  switch (ord.kind) {
     case "Less":
       return { kind: "Less" };
     case "Equal": {
-      const $e: boolean = a.pre.length === 0;
-      const $e$1: boolean = b.pre.length === 0;
-      if ($e) {
-        if ($e$1) {
+      const elem: boolean = a.pre.length === 0;
+      const elem2: boolean = b.pre.length === 0;
+      if (elem) {
+        if (elem2) {
           return { kind: "Equal" };
         } else {
           return { kind: "Greater" };
         }
       } else {
-        if ($e$1) {
+        if (elem2) {
           return { kind: "Less" };
         } else {
           return comparePreIds(a.pre, b.pre);
@@ -34,6 +34,6 @@ export const compare = (a: Version, b: Version): Ordering => {
     case "Greater":
       return { kind: "Greater" };
     default:
-      return assertNever($ord);
+      return assertNever(ord);
   }
 };

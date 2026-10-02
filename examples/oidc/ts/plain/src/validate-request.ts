@@ -29,16 +29,16 @@ export const validateRequest = (
   params: AuthorizationParams,
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
-  let client$1: Client;
+  let client2: Client;
   if (client !== null) {
     const c = client;
-    client$1 = c;
+    client2 = c;
   } else {
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   }
   if (params.client_id !== null) {
     const id = params.client_id;
-    if (id === client$1.client_id) {
+    if (id === client2.client_id) {
     } else {
       return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
     }
@@ -52,7 +52,7 @@ export const validateRequest = (
   } else {
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   }
-  if (!redirectUriRegistered(client$1, redirectUri))
+  if (!redirectUriRegistered(client2, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null = params.state !== null
     ? (stateIsValid(params.state) ? params.state : null)
@@ -104,30 +104,30 @@ export const validateRequest = (
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
       const method: string | null = params.code_challenge_method;
-      let method$1: PkceMethod;
+      let method2: PkceMethod;
       if (method !== null) {
         const m = method;
         if (m === "S256") {
-          method$1 = { kind: "S256" };
+          method2 = { kind: "S256" };
         } else {
           if (m === "plain") {
-            method$1 = { kind: "Plain" };
+            method2 = { kind: "Plain" };
           } else {
             return Result.err(fail({ kind: "InvalidRequest" }));
           }
         }
       } else {
-        method$1 = { kind: "Plain" };
+        method2 = { kind: "Plain" };
       }
-      if ((method$1.kind === "Plain") && !client$1.allow_plain_pkce)
+      if ((method2.kind === "Plain") && !client2.allow_plain_pkce)
         return Result.err(fail({ kind: "InvalidRequest" }));
-      pkce = { challenge, method: method$1 };
+      pkce = { challenge, method: method2 };
     }
   } else {
     if (params.code_challenge_method !== null) {
       return Result.err(fail({ kind: "InvalidRequest" }));
     } else {
-      if (client$1.require_pkce) {
+      if (client2.require_pkce) {
         return Result.err(fail({ kind: "InvalidRequest" }));
       } else {
         pkce = null;
@@ -137,26 +137,26 @@ export const validateRequest = (
   let prompt: Prompt;
   if (params.prompt !== null) {
     const p = params.prompt;
-    const $opt: Prompt | null = parsePrompt(p);
-    const $optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if ($opt === null) return Result.err($optOr);
-    prompt = $opt;
+    const opt: Prompt | null = parsePrompt(p);
+    const optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if (opt === null) return Result.err(optOr);
+    prompt = opt;
   } else {
     prompt = { no_interaction: false, login: false, consent: false, select_account: false };
   }
   let maxAge: I64 | null;
   if (params.max_age !== null) {
     const m = params.max_age;
-    const $opt: I64 | null = parseSeconds(m);
-    const $optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
-    if ($opt === null) return Result.err($optOr);
-    maxAge = $opt;
+    const opt: I64 | null = parseSeconds(m);
+    const optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    if (opt === null) return Result.err(optOr);
+    maxAge = opt;
   } else {
     maxAge = null;
   }
   const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
   return Result.ok(AuthorizationRequest$of({
-    client_id: client$1.client_id,
+    client_id: client2.client_id,
     redirect_uri: redirectUri,
     scope,
     state,

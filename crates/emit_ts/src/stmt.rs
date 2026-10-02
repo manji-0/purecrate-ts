@@ -20,7 +20,7 @@ pub(crate) fn jumps_out(expr: &Expr) -> bool {
 /// `match` prints as would leave the `switch`, not the loop.
 pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
-    let label = jumps_out(body).then(|| format!("$l{indent}"));
+    let label = jumps_out(body).then(|| temp("loop", indent));
     let prefix = label.as_ref().map(|l| format!("{l}: ")).unwrap_or_default();
     out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
@@ -87,13 +87,28 @@ impl Sink<'_> {
         }
     }
 
-    /// Unique per nesting level, so an inner temporary never shadows one an
-    /// arm prelude still reads.
-    pub(crate) fn temp(self, indent: usize) -> String {
-        match self {
-            Sink::Return | Sink::Effect => format!("{MATCH_TEMP}{indent}"),
-            Sink::Assign(target) => format!("{MATCH_TEMP}{indent}_{target}"),
-        }
+}
+
+/// The matched value of a `match` on something that is not a place, named
+/// for what the arms test: the enum (`otpCheck`), `result`, `option`, or
+/// `value`.
+pub(crate) fn match_temp(arms: &[purecrate_ir::Arm], indent: usize) -> String {
+    let base = match scrutinee_ty(arms) {
+        Some(ty) => purecrate_ir::to_camel(&lower_first(ty.as_str())),
+        None => match arms.iter().map(|a| &a.pattern).find(|p| !matches!(p, Pattern::Wildcard)) {
+            Some(Pattern::ResultOk(_) | Pattern::ResultErr(_)) => "result".to_string(),
+            Some(Pattern::OptionSome(_) | Pattern::OptionNone) => "option".to_string(),
+            _ => "value".to_string(),
+        },
+    };
+    temp(&base, indent)
+}
+
+fn lower_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_lowercase().chain(c).collect(),
+        None => String::new(),
     }
 }
 
@@ -111,13 +126,23 @@ pub(crate) fn emit_for(
     out: &mut String,
 ) {
     let one = if ty.is_big() { "1n" } else { "1" };
-    let bound = format!("{FOR_END}{indent}");
-    let head = format!(
-        "for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {})",
-        emit_expr(start, indent),
-        emit_expr(end, indent),
-        ty.ts_name()
-    );
+    // A literal end is the same value however often it is read.
+    let head = if matches!(peel(end), Expr::Lit(_)) {
+        format!(
+            "for (let {var} = {}; {var} < {}; {var} = ({var} + {one}) as {})",
+            emit_expr(start, indent),
+            emit_expr(end, indent),
+            ty.ts_name()
+        )
+    } else {
+        let bound = temp("end", indent);
+        format!(
+            "for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {})",
+            emit_expr(start, indent),
+            emit_expr(end, indent),
+            ty.ts_name()
+        )
+    };
     emit_loop(&head, body, indent, out);
 }
 
@@ -266,16 +291,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             emit_try_test(&emit_expr(inner, indent), *on, indent, out);
         }
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
-            emit_try_exit(
-                &format!("{TRY_LET_TEMP}{TRY_TEMP}{indent}"),
-                inner,
-                *on,
-                indent,
-                out,
-            );
+            emit_try_exit(&try_temp(None, *on, indent), inner, *on, indent, out);
         }
         Expr::Try { .. } => {
-            let tmp = format!("{TRY_TEMP}{indent}");
+            let tmp = temp("value", indent);
             emit_let(&tmp, false, None, expr, indent, out);
             sink.finish(&tmp, &pad, out);
         }
@@ -312,7 +331,7 @@ pub(crate) fn emit_let(
     match value {
         Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
-            let tmp = format!("{TRY_LET_TEMP}{name}");
+            let tmp = try_temp(Some(name), *on, indent);
             emit_try_exit(&tmp, expr, *on, indent, out);
             let payload = match on {
                 Some(TryOn::Option) => tmp,
@@ -348,6 +367,26 @@ pub(crate) fn emit_let(
             "{pad}{keyword} {name}{annotation} = {};\n",
             crate::tidy::strip_outer(&emit_expr(v, indent))
         )),
+    }
+}
+
+/// What `x?` is held in before its test: `<name>Result` or `<name>Option`
+/// for `let name = x?`, else `result` or `option`.
+fn try_temp(name: Option<&str>, on: Option<TryOn>, indent: usize) -> String {
+    let what = if on == Some(TryOn::Option) { "option" } else { "result" };
+    // A temporary's own name (`$value_2`) says nothing; its `_<depth>` is kept.
+    match name.filter(|n| !n.starts_with('$')) {
+        Some(n) => {
+            // A shadow `n$1` prints as `n2`: its temporary is `n2Result`.
+            let n = match n.rsplit_once('$') {
+                Some((b, k)) if k.bytes().all(|c| c.is_ascii_digit()) => {
+                    format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1))
+                }
+                _ => n.to_string(),
+            };
+            format!("${n}{}{}", what[..1].to_uppercase(), &what[1..])
+        }
+        None => temp(what, indent),
     }
 }
 
@@ -467,7 +506,7 @@ pub(crate) fn emit_switch_in(
     let subject = if is_place(scrutinee) {
         emit_expr(scrutinee, indent)
     } else {
-        let tmp = sink.temp(indent);
+        let tmp = match_temp(arms, indent);
         let value = emit_expr(scrutinee, indent);
         // An annotated literal initializer narrows the union and makes the
         // other cases unreachable; a cast keeps the full union.

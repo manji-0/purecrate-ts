@@ -24,8 +24,8 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           const method = event.method;
           const outcome = event.outcome;
           if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
-          const method$1: PaymentMethod = method as PaymentMethod;
-          status = attempt(terms, method$1, outcome);
+          const method2: PaymentMethod = method as PaymentMethod;
+          status = attempt(terms, method2, outcome);
           break;
         }
         case "Cancel": {

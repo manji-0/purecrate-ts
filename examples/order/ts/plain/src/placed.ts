@@ -7,13 +7,13 @@ import type { Order } from "./order.ts";
 import type { OrderError } from "./order-error.ts";
 import type { Yen } from "./yen.ts";
 
-export const placed = (lines: Lines, total$1: Yen, cmd: Command): Result<Order, OrderError> => {
+export const placed = (lines: Lines, total2: Yen, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
     case "Pay": {
       const amount = cmd.value;
-      if (amount !== total$1)
-        return Result.err({ kind: "AmountMismatch", expected: total$1, got: amount });
-      return Result.ok({ kind: "Paid", lines, total: total$1 });
+      if (amount !== total2)
+        return Result.err({ kind: "AmountMismatch", expected: total2, got: amount });
+      return Result.ok({ kind: "Paid", lines, total: total2 });
     }
     case "Cancel": {
       const reason = cmd.value;

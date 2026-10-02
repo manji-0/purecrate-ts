@@ -49,8 +49,8 @@ fn sequential_lets_in_one_function_are_numbered() {
         "chain",
     );
     assert!(chain.contains("const n: I32 = "), "{chain}");
-    assert!(chain.contains("const n$1: I32 = "), "{chain}");
-    assert!(chain.contains("const n$2: I32 = "), "{chain}");
+    assert!(chain.contains("const n2: I32 = n2Result.value"), "{chain}");
+    assert!(chain.contains("const n3: I32 = n3Result.value"), "{chain}");
     let decls: Vec<_> = chain
         .lines()
         .filter(|l| {
@@ -78,9 +78,9 @@ fn a_shadow_in_one_arm_does_not_renumber_the_next() {
          }\n",
         "step",
     );
-    assert!(step.contains("const n$1 = event.value"), "{step}");
+    assert!(step.contains("const n2 = event.value"), "{step}");
     assert!(step.contains("const k = event.value"), "{step}");
-    assert!(!step.contains("k$"), "{step}");
+    assert!(!step.contains("k2"), "{step}");
 }
 
 #[test]
@@ -97,6 +97,6 @@ fn a_let_from_match_does_not_collide_with_the_arm_binding() {
         "first-or-bail",
     );
     assert!(src.contains("let v:"), "{src}");
-    assert!(src.contains("const v$1 = "), "{src}");
-    assert!(src.contains("v = v$1"), "{src}");
+    assert!(src.contains("const v2 = "), "{src}");
+    assert!(src.contains("v = v2"), "{src}");
 }

@@ -20,16 +20,16 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       switch (event.kind) {
         case "PasswordChecked": {
           const subject = event.subject;
-          const $verified = event.verified;
+          const verified = event.verified;
           const secondFactor = event.second_factor;
           const now = event.now;
-          if (!$verified) {
-            const failures$1: U32 = Int.u32.add(failures, (1 as U32));
-            if (failures$1 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
+          if (!verified) {
+            const failures2: U32 = Int.u32.add(failures, (1 as U32));
+            if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
             return Result.ok({
               kind: "AwaitingPassword",
               request,
-              failures: failures$1,
+              failures: failures2,
               notice: { kind: "WrongPassword" },
             });
           } else {
@@ -75,15 +75,15 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const candidates = event.candidates;
           let notice: Notice;
           {
-            const $m_6_notice: OtpCheck = checkTotp(code, now, enrollment, candidates);
-            switch ($m_6_notice.kind) {
+            const otpCheck: OtpCheck = checkTotp(code, now, enrollment, candidates);
+            switch (otpCheck.kind) {
               case "Accepted": {
-                const step$1 = $m_6_notice.value;
+                const step2 = otpCheck.value;
                 const auth: Authentication = {
                   subject,
                   auth_time: now,
                   strength: { kind: "PasswordAndTotp" },
-                  totp_step: step$1,
+                  totp_step: step2,
                 };
                 return Result.ok({ kind: "AwaitingConsent", request, auth });
               }
@@ -98,14 +98,14 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
                 break;
             }
           }
-          const failures$1: U32 = Int.u32.add(failures, (1 as U32));
-          if (failures$1 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
+          const failures2: U32 = Int.u32.add(failures, (1 as U32));
+          if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
           return Result.ok({
             kind: "AwaitingOtp",
             request,
             subject,
             enrollment,
-            failures: failures$1,
+            failures: failures2,
             notice,
           });
         }

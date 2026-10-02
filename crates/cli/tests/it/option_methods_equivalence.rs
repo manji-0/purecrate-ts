@@ -83,7 +83,7 @@ fn ok_or_then_try_is_a_guard() {
 }
 
 /// A `?` inside an expression is hoisted to one binding, tested in place,
-/// and read as its payload: `$half.value` for a `Result`, `$a` for an
+/// and read as its payload: `halfResult.value` for a `Result`, `a` for an
 /// `Option`; no second binding for the payload. A call's hoisted value is
 /// named after the function, apart from the next one.
 #[test]
@@ -104,10 +104,10 @@ fn a_hoisted_try_binds_once() {
             .clone()
     };
     let quarter = file("quarter");
-    assert!(quarter.contains("const $half = half(n);\n  if ($half.kind === \"Err\") return $half;\n  const $half2 = half($half.value);"), "{quarter}");
-    assert!(!quarter.contains("$v_"), "{quarter}");
+    assert!(quarter.contains("const halfResult = half(n);\n  if (halfResult.kind === \"Err\") return halfResult;\n  const halfResult2 = half(halfResult.value);"), "{quarter}");
+    assert!(!quarter.contains('$'), "{quarter}");
     let add = file("add");
     assert!(add.contains("if (a === null) return null;"), "{add}");
-    assert!(add.contains("const $q2 = Int.u8.checkedAdd(a, b);"), "{add}");
-    assert!(!add.contains("$v_") && !add.contains(".value"), "{add}");
+    assert!(add.contains("const opt2 = Int.u8.checkedAdd(a, b);"), "{add}");
+    assert!(!add.contains('$') && !add.contains(".value"), "{add}");
 }

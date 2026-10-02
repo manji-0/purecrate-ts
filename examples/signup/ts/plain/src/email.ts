@@ -16,14 +16,14 @@ export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
     let at: Usize = (b.length) as Usize;
-    for (let i = (0 as Usize), $e_2 = ((b.length) as Usize); i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (0 as Usize), end = ((b.length) as Usize); i < end; i = (i + 1) as Usize) {
       if (Slice.at(b, i) === (64 as U8) && at === ((b.length) as Usize)) {
         at = i;
       }
     }
     if (at === ((b.length) as Usize)) return Result.err({ kind: "MissingAt" });
     if (at === (0 as Usize)) return Result.err({ kind: "BadLocal" });
-    for (let i = (0 as Usize), $e_2 = at; i < $e_2; i = (i + 1) as Usize) {
+    for (let i = (0 as Usize), end = at; i < end; i = (i + 1) as Usize) {
       if (!isLocal(Slice.at(b, i))) return Result.err({ kind: "BadLocal" });
     }
     let start: Usize = Int.usize.add(at, (1 as Usize));
@@ -31,8 +31,8 @@ export const Email = {
       let i = Int.usize.add(
         at,
         (1 as Usize),
-      ), $e_2 = Int.usize.add(((b.length) as Usize), (1 as Usize));
-      i < $e_2;
+      ), end = Int.usize.add(((b.length) as Usize), (1 as Usize));
+      i < end;
       i = (i + 1) as Usize
     ) {
       if (i === ((b.length) as Usize) || Slice.at(b, i) === (46 as U8)) {
