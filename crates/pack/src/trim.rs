@@ -345,7 +345,7 @@ mod tests {
             "bits.i8", "bits.i16", "bits.i32", "bits.u8", "bits.u16", "bits.u32", "bits.i64", "bits.u64",
             "methods.i8", "methods.i16", "methods.i32", "methods.u8", "methods.u16", "methods.u32",
             "methods.usize", "methods.i64", "methods.u64", "str.bytes", "str.len", "str.slice",
-            "str.stripPrefix", "str.stripSuffix", "str.splitOnce", "str.cmp", "slice.at", "slice.range", "ord.cmp", "ord.cmpStr", "ord.cmpList", "ord.then", "iter.all", "iter.any", "iter.position", "iter.count", "iter.sum", "iter.tryCollect", "char", "char.is", "uuid", "json", "parseJson",
+            "str.stripPrefix", "str.stripSuffix", "str.splitOnce", "str.cmp", "slice.at", "slice.range", "ord.cmp", "ord.cmpStr", "ord.cmpList", "ord.then", "iter.all", "iter.any", "iter.position", "iter.count", "iter.sum", "iter.map", "iter.filter", "iter.tryCollect", "char", "char.is", "uuid", "json", "parseJson",
             "parseIntError", "parse.i8", "parse.i16", "parse.i32", "parse.u8", "parse.u16", "parse.u32", "parse.usize",
             "parse.i64", "parse.u64", "Result", "Char", "Uuid", "UuidError", "panic", "small", "big", "op.add", "op.sub",
             "op.mul", "op.div", "op.rem", "op.neg", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32",

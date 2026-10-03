@@ -426,6 +426,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity(&format!("`{}`", method.ts_name()), takes, argc)
             }
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
+            Callee::IterMap { .. } | Callee::IterFilter { .. } => self.arity("an iterator stage", 2, argc),
             Callee::Collect { .. } => {
                 if !(1..=2).contains(&argc) {
                     self.arity("`collect`", 2, argc);

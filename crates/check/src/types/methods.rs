@@ -253,42 +253,16 @@ impl<'d, 'a> Typer<'d, 'a> {
             "count" | "sum" => 0,
             _ => return None,
         };
-        let Expr::MethodCall { receiver: source, name: adaptor, args: adaptor_args } = receiver.unpositioned() else {
-            return None;
-        };
-        let (over, source) = match (adaptor.as_str(), adaptor_args.as_slice()) {
-            ("chars", []) => (Over::Chars, (**source).clone()),
-            ("bytes", []) => (Over::Bytes, (**source).clone()),
-            ("iter" | "into_iter", []) => (Over::Items, (**source).clone()),
-            // `s.split(c)` as a `for` gives it: the pieces, a `char` apart.
-            ("split", [sep]) => (
-                Over::Items,
-                Expr::Call { callee: Callee::StrSplit, args: vec![(**source).clone(), sep.clone()] },
-            ),
-            _ => return None,
-        };
         let failed = (Expr::Lit(Lit::Unit), None);
+        if !is_sequence(receiver) {
+            return None;
+        }
         if args.len() != takes {
             self.error(Reason::ConstructShape, format!("`{name}` takes {takes} argument(s), got {}", args.len()));
             return Some(failed);
         }
-        let before = self.out.len();
-        let (source, st) = self.expr(&source, None);
-        let item = match (over, st.as_ref().map(|t| self.norm(t))) {
-            (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
-            (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),
-            (Over::Items, Some(Ty::Vec(t))) => *t,
-            (_, found) => {
-                if self.out.len() == before {
-                    let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
-                    self.error(Reason::TypeMismatch, format!(
-                        "`.{}().{name}()` takes a {}, found `{found}`",
-                        adaptor.as_str(),
-                        if over == Over::Items { "`Vec` or slice" } else { "`String` or `&str`" }
-                    ));
-                }
-                return Some(failed);
-            }
+        let Some((source, over, item)) = self.sequence(receiver, name) else {
+            return Some(failed);
         };
         let pred = match args.first() {
             None => None,
@@ -402,21 +376,19 @@ impl<'d, 'a> Typer<'d, 'a> {
             self.error(Reason::ConstructShape, format!("`collect` takes no arguments, got {}", args.len()));
             return Some(failed);
         }
+        // The last `map(f)` stays apart: into a `Result`, `f` is what may fail.
         let (pieces, map) = match receiver.unpositioned() {
-            Expr::MethodCall { receiver: inner, name: m, args: map_args } if m.as_str() == "map" && map_args.len() == 1 => {
+            Expr::MethodCall { receiver: inner, name: m, args: map_args }
+                if m.as_str() == "map" && map_args.len() == 1 && is_sequence(inner) =>
+            {
                 (inner.unpositioned(), Some(&map_args[0]))
             }
             other => (other, None),
         };
-        let source = match pieces {
-            Expr::MethodCall { receiver: s, name: m, args: sep } if m.as_str() == "split" && sep.len() == 1 => {
-                Expr::Call { callee: Callee::StrSplit, args: vec![(**s).clone(), sep[0].clone()] }
-            }
-            _ => {
-                self.error(Reason::MethodCall, "`collect` builds a `Vec` only from `s.split(c)` or `s.split(c).map(f)` in v0: a list read once from text. A sequence that grows with the state is a recursive enum (design/02 §3)".to_string());
-                return Some(failed);
-            }
-        };
+        if !is_sequence(pieces) {
+            self.error(Reason::MethodCall, "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, or `s.split(c)`, through any `map(f)` and `filter(p)`, in v0".to_string());
+            return Some(failed);
+        }
         let target = want.map(|t| self.norm(t));
         let (result, elem, err) = match target {
             Some(Ty::Vec(t)) => (false, *t, None),
@@ -434,16 +406,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some(failed);
             }
         };
-        let (source, _) = self.expr(&source, None);
-        let item = Ty::Prim(Prim::Str);
+        let Some((source, over, item)) = self.sequence(pieces, "collect") else {
+            return Some(failed);
+        };
         let hole = |t: &Ty| matches!(t, Ty::Named(n) if n.as_str() == "_");
         let Some(map) = map else {
             if err.as_ref().is_some_and(|e| hole(e)) || result {
                 self.error(Reason::TypeMismatch, "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string());
                 return Some(failed);
             }
-            let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source] };
-            // The pieces are `&str`, whatever the target says.
+            let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source] };
+            // The items are what the sequence gives, whatever the target says.
             let pieces = Ty::Vec(Box::new(item));
             return Some((e, self.expect(want.filter(|t| !super::has_hole(t)), Some(pieces))));
         };
@@ -452,7 +425,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         if let Some(written) = &written {
             if self.norm(written) != item {
-                self.error(Reason::TypeMismatch, format!("`map`'s closure takes `{}`, the pieces are `&str`", show(written)));
+                self.error(Reason::TypeMismatch, format!("`map`'s closure takes `{}`, the items are `{}`", show(written), show(&item)));
                 return Some(failed);
             }
         }
@@ -484,9 +457,71 @@ impl<'d, 'a> Typer<'d, 'a> {
             body: Box::new(body),
         };
         let (closure, _) = self.expr(&closure, None);
-        let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source, closure] };
+        let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source, closure] };
         let filled = if result { Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) } } else { Ty::Vec(Box::new(elem)) };
         Some((e, Some(filled)))
+    }
+
+    /// What a consumer or `collect` walks: `s.chars()`, `s.bytes()`,
+    /// `xs.iter()` / `xs.into_iter()`, or `s.split(c)`, through any
+    /// `.map(f)`, `.filter(p)`, `.copied()`, and `.cloned()` (design/01
+    /// §7.13). Typed: the source, what it walks, and its items. `None` after
+    /// an error; `expr` is one by `is_sequence`.
+    fn sequence(&mut self, expr: &Expr, consumer: &str) -> Option<(Expr, Over, Ty)> {
+        let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { unreachable!("is_sequence") };
+        match (name.as_str(), args.as_slice()) {
+            ("copied" | "cloned", []) => self.sequence(receiver, consumer),
+            (stage @ ("map" | "filter"), [f]) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let (param, written, body) = self.one_param_fn(stage, f)?;
+                if let Some(written) = &written {
+                    if self.norm(written) != self.norm(&item) {
+                        self.error(Reason::TypeMismatch, format!("`{stage}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)));
+                        return None;
+                    }
+                }
+                let ret = if stage == "map" { self.returns_of(&body, &param, &item)? } else { Ty::bool() };
+                let closure = Expr::Closure {
+                    params: vec![ClosureParam { name: param, ty: Some(item.clone()) }],
+                    ret: Some(ret.clone()),
+                    body: Box::new(body),
+                };
+                let (closure, _) = self.expr(&closure, None);
+                let (callee, out) = if stage == "map" { (Callee::IterMap { over }, ret) } else { (Callee::IterFilter { over }, item) };
+                Some((Expr::Call { callee, args: vec![source, closure] }, Over::Items, out))
+            }
+            (adaptor, _) => {
+                let (over, source) = match (adaptor, args.as_slice()) {
+                    ("chars", []) => (Over::Chars, (**receiver).clone()),
+                    ("bytes", []) => (Over::Bytes, (**receiver).clone()),
+                    ("iter" | "into_iter", []) => (Over::Items, (**receiver).clone()),
+                    // `s.split(c)` as a `for` gives it: the pieces, a `char` apart.
+                    ("split", [sep]) => (
+                        Over::Items,
+                        Expr::Call { callee: Callee::StrSplit, args: vec![(**receiver).clone(), sep.clone()] },
+                    ),
+                    _ => unreachable!("is_sequence"),
+                };
+                let before = self.out.len();
+                let (source, st) = self.expr(&source, None);
+                let item = match (over, st.as_ref().map(|t| self.norm(t))) {
+                    (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
+                    (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),
+                    (Over::Items, Some(Ty::Vec(t))) => *t,
+                    (_, found) => {
+                        if self.out.len() == before {
+                            let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
+                            self.error(Reason::TypeMismatch, format!(
+                                "`.{adaptor}().{consumer}()` takes a {}, found `{found}`",
+                                if over == Over::Items { "`Vec` or slice" } else { "`String` or `&str`" }
+                            ));
+                        }
+                        return None;
+                    }
+                };
+                Some((source, over, item))
+            }
+        }
     }
 
     /// The type `body` has with `param` bound to `item`, for a hole that
@@ -1051,4 +1086,15 @@ pub(super) fn char_sig(m: CharMethod) -> (Vec<Ty>, Ty) {
 /// `Option<(&str, &str)>`, what `str::split_once` returns.
 pub(super) fn split_once_ty() -> Ty {
     Ty::option(Ty::Tuple(vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]))
+}
+
+/// Whether `expr` is a sequence `TypeCx::sequence` types: a source, then
+/// any `map`, `filter`, `copied`, and `cloned`.
+fn is_sequence(expr: &Expr) -> bool {
+    let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
+    match (name.as_str(), args.len()) {
+        ("copied" | "cloned", 0) | ("map" | "filter", 1) => is_sequence(receiver),
+        ("chars" | "bytes" | "iter" | "into_iter", 0) | ("split", 1) => true,
+        _ => false,
+    }
 }

@@ -524,16 +524,30 @@ pub enum Callee {
         method: Consume,
         over: Over,
     },
-    /// `s.split(c).collect()` or `s.split(c).map(f).collect()`: a `Vec`
-    /// built once from text, its length the input's (design/02 §3). The
-    /// arguments are the pieces (a `StrSplit`), then `f` if mapped, a closure
-    /// of one parameter. With `result`, the target is `Result<Vec<T>, E>`
-    /// and `f` returns `Result<T, E>`: `f` runs on the pieces in order and
-    /// stops at the first `Err`, which is the result, as std's
-    /// `FromIterator` for `Result` does. Prints as the array, its `map`, or
-    /// `Iter.tryCollect`.
+    /// `collect()` of what `over` walks (a `StrSplit`'s pieces, a `Vec`'s
+    /// items, a string's chars or bytes, or the stages `IterMap` and
+    /// `IterFilter` over one of those), then `f` if the last stage is
+    /// `map(f)`, a closure of one parameter. With `result`, the target is
+    /// `Result<Vec<T>, E>` and `f` returns `Result<T, E>`: `f` runs on the
+    /// items in order and stops at the first `Err`, which is the result, as
+    /// std's `FromIterator` for `Result` does. Always a new array (design/01
+    /// §7.14). Prints as the array method where one stage runs, else
+    /// `Array.from` or `Iter.tryCollect`.
     Collect {
         result: bool,
+        over: Over,
+    },
+    /// `.map(f)` on what `over` walks: lazy, each item through `f` when the
+    /// consumer asks for it (design/01 §7.13). The arguments are the source
+    /// and `f`. Typed as a `Vec` of `f`'s results; only a consumer or
+    /// another stage reads it. Prints as `Iter.map`.
+    IterMap {
+        over: Over,
+    },
+    /// `.filter(p)` on what `over` walks, lazy as `IterMap`. Prints as
+    /// `Iter.filter`.
+    IterFilter {
+        over: Over,
     },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,

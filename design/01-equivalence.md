@@ -304,6 +304,16 @@ Into a `Vec<T>`, the pieces (or `f`'s results) are the array. Into a `Result<Vec
 
 Tested with empty pieces, a non-ASCII separator, a function name and a closure, a turbofish and a typed `let`, an empty needle to `split_once`, and a `"boom"` after `"bad"` that panics only when the `Err` does not come first.
 
+### 7.13 `map` and `filter` over a sequence
+
+<!-- constrained-by ./02-authoring.md#31-state-is-a-value-sequences-are-recursive-enums -->
+
+`xs.iter()` (or `into_iter()`, `chars()`, `bytes()`, `s.split(c)`) through any `.map(f)` and `.filter(p)`, then a consumer (`collect`, `sum`, `count`, `all`, `any`, `position`). Rust's adaptors are lazy: for each item, every stage runs, then the consumer, before the next item. `Iter.map` and `Iter.filter` are generators, so the TS runs in that order too, and a panic in a stage or in `sum`'s addition comes at the same item as in Rust. One stage before `collect` prints as the array method (`xs.map(f)`, `xs.filter(p)`): with nothing else running between the calls, the order of `f`'s calls is the same. `filter`'s predicate takes `&T`; it reads the item, as everything here does.
+
+### 7.14 Growing a `Vec`
+
+`let mut v: Vec<T>` is the one array the output writes, by `v.push(x)`. It is bound to an array of its own: `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make one; any other value is copied when bound or assigned (`[...xs]`), because a TS caller may still hold the array a parameter, a field, or a returned value is. No closure captures it, and nothing pushes to a field, an element, or a parameter. So every other array is never written after it is made, and sharing one is unobservable, as before: `clone` of a `Vec` copies its elements (`[...xs]`, shallow, since the elements are not written either), and `clone` of anything else is the value.
+
 ## 8. Verification
 
 | Check | Mechanism |

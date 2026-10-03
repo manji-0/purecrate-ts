@@ -25,13 +25,15 @@ fn split_collects_into_the_named_vec_or_result() {
 
 #[test]
 fn collect_refuses_a_list_that_is_not_read_from_text() {
+    // `xs.iter().map(f).collect()` and `s.chars().collect()` are taken
+    // (adapters_equivalence.rs); what is not a sequence is not.
     assert_rejects(
-        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().map(|x| *x).collect() }",
-        "`collect` builds a `Vec` only from `s.split(c)`",
+        "pub fn f(o: Option<u8>) -> Vec<u8> { o.map(|x| x + 1).collect() }",
+        "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, or `s.split(c)`",
     );
     assert_rejects(
-        "pub fn f(s: &str) -> Vec<char> { s.chars().collect() }",
-        "`collect` builds a `Vec` only from `s.split(c)`",
+        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }",
+        "`collect` builds a `Vec` from",
     );
     assert_rejects(
         "pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }",

@@ -323,6 +323,9 @@ fn lone_import(line: &str) -> bool {
 }
 
 fn wrap_line(line: &str, width: usize, out: &mut String) {
+    if !is_comment(line) && wrap_composition(line, width, out) {
+        return;
+    }
     if cols(line) <= width || is_comment(line) || lone_import(line) {
         emit_raw(line, out);
         return;
@@ -396,6 +399,100 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
 /// body), where both fit; else every argument opens, as oxfmt does. oxfmt
 /// keeps the head only for a body it can expand (a call, a `?:`, an `as`);
 /// a body such as `a || b` opens every argument.
+/// The top-level arguments of the call whose `(` is at `open` in `s`, and
+/// the position of its `)`.
+fn call_args(s: &str, open: usize) -> Option<(Vec<&str>, usize)> {
+    let d = depths(s);
+    let base = d[open]?;
+    let shut = match s.as_bytes()[open] {
+        b'(' => b')',
+        b'[' => b']',
+        _ => b'}',
+    };
+    let close = (open + 1..s.len()).find(|&j| s.as_bytes()[j] == shut && d[j] == Some(base))?;
+    let mut items = Vec::new();
+    let mut start = open + 1;
+    for j in open + 1..close {
+        if s.as_bytes()[j] == b',' && d[j] == Some(base + 1) {
+            items.push(s[start..j].trim());
+            start = j + 1;
+        }
+    }
+    let last = s[start..close].trim();
+    if !last.is_empty() {
+        items.push(last);
+    }
+    Some((items, close))
+}
+
+/// Whether `arg` is a call one of whose arguments is an arrow.
+fn calls_with_arrow(arg: &str) -> bool {
+    let bytes = arg.as_bytes();
+    let callee = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.');
+    match arg.find('(') {
+        Some(open) if open > 0 && arg.ends_with(')') && bytes[..open].iter().all(|&b| callee(b)) => {
+            call_args(arg, open).is_some_and(|(items, close)| close == arg.len() - 1 && items.iter().any(|a| {
+                let d = depths(a);
+                a.match_indices(" => ").any(|(i, _)| d[i] == Some(0))
+            }))
+        }
+        _ => false,
+    }
+}
+
+/// A call of two or more arguments, one of them a call taking an arrow
+/// (`Iter.sum(Iter.map(xs, (x) => ..), add, 0)`), opens every argument,
+/// each on its line, however short: oxfmt reads it as function composition.
+/// As an arrow's body, it goes to the next line first.
+fn wrap_composition(line: &str, width: usize, out: &mut String) -> bool {
+    let d = depths(line);
+    let bytes = line.as_bytes();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$');
+    let pad = &line[..line.len() - line.trim_start().len()];
+    // The outermost such call.
+    let found = (1..line.len())
+        .filter(|&i| bytes[i] == b'(' && ident(bytes[i - 1]) && d[i].is_some())
+        .filter_map(|i| call_args(line, i).map(|(items, close)| (i, items, close)))
+        .filter(|(_, items, _)| items.len() >= 2 && items.iter().any(|a| calls_with_arrow(a)))
+        .min_by_key(|(i, _, _)| (d[*i], *i));
+    let Some((open, items, close)) = found else { return false };
+    // Inside other brackets, those open first: a break inside breaks them.
+    if d[open] != Some(0) {
+        let Some(outer) = (0..open).rev().find(|&j| matches!(bytes[j], b'(' | b'[' | b'{') && d[j] == Some(0)) else {
+            return false;
+        };
+        let Some((outer_items, outer_close)) = call_args(line, outer) else { return false };
+        let start = (0..outer).rev().find(|&j| !(ident(bytes[j]) || bytes[j] == b'.')).map_or(0, |j| j + 1);
+        if line[..start].ends_with(" => ") && start > pad.len() + 4 {
+            out.push_str(&line[..start - 1]);
+            out.push('\n');
+            wrap_line(&format!("{pad}  {}", &line[start..]), width, out);
+            return true;
+        }
+        out.push_str(&line[..=outer]);
+        out.push('\n');
+        for item in &outer_items {
+            wrap_line(&format!("{pad}  {item},"), width, out);
+        }
+        wrap_line(&format!("{pad}{}", &line[outer_close..]), width, out);
+        return true;
+    }
+    let start = (0..open).rev().find(|&j| !(ident(bytes[j]) || bytes[j] == b'.')).map_or(0, |j| j + 1);
+    if line[..start].ends_with(" => ") && d[start] == Some(0) && start > pad.len() + 4 {
+        out.push_str(&line[..start - 1]);
+        out.push('\n');
+        wrap_line(&format!("{pad}  {}", &line[start..]), width, out);
+        return true;
+    }
+    out.push_str(&line[..=open]);
+    out.push('\n');
+    for item in &items {
+        wrap_line(&format!("{pad}  {item},"), width, out);
+    }
+    wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+    true
+}
+
 /// An arrow body oxfmt may print after a hugged head: a call, a `?:`, or an
 /// `as` at its top level.
 fn expandable(body: &str) -> bool {

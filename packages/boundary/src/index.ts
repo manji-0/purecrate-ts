@@ -485,6 +485,18 @@ export const Iter = {
     return total;
   },
   // #endregion
+  // #region iter.map
+  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
+  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
+    for (const x of xs) yield f(x);
+  },
+  // #endregion
+  // #region iter.filter
+  /** `.filter(p)`: lazy, as `map`. */
+  filter: function* <T>(xs: Iterable<T>, p: (x: T) => boolean): Generator<T, void, undefined> {
+    for (const x of xs) if (p(x)) yield x;
+  },
+  // #endregion
   // #region iter.tryCollect
   /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
   tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {

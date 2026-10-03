@@ -3,6 +3,16 @@
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
+    /// The items `over` walks in a value of type `ty`.
+    pub(super) fn walked(&self, over: purecrate_ir::Over, ty: &Ty) -> Option<Ty> {
+        match (over, self.norm(ty)) {
+            (purecrate_ir::Over::Chars, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::Char)),
+            (purecrate_ir::Over::Bytes, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::U8)),
+            (purecrate_ir::Over::Items, Ty::Vec(t)) => Some(*t),
+            _ => None,
+        }
+    }
+
     /// Rust's `?` also converts the error with `From`; v0 has no traits, so
     /// the error type must already be the function's.
     pub(super) fn try_(&mut self, inner: &Expr, want: Option<&Ty>) -> Typed {
@@ -296,6 +306,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                 typed_args(self, vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]),
                 Some(Ty::Prim(Prim::I32)),
             ),
+            // Written only by `sequence`, typed: a `Vec` of what the stage gives.
+            Callee::IterMap { .. } | Callee::IterFilter { .. } => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let item = match (callee, typed.get(1).and_then(|(_, t)| t.clone())) {
+                    (Callee::IterMap { .. }, Some(Ty::Fn { ret, .. })) => Some(*ret),
+                    (Callee::IterFilter { over }, _) => typed[0].1.as_ref().and_then(|t| self.walked(*over, t)),
+                    _ => None,
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), item.map(|t| Ty::Vec(Box::new(t))))
+            }
             // Written only by `consume`, typed.
             Callee::Consume { method, .. } => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
@@ -306,12 +326,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                     purecrate_ir::Consume::Sum(int) => Ty::Prim(Prim::from(*int)),
                 }),
             ),
-            // Written only by `collect`, typed: the pieces, then `f` if mapped.
-            Callee::Collect { result } => {
+            // Written only by `collect`, typed: the source, then `f` if mapped.
+            Callee::Collect { result, over } => {
                 let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
                 let item = match typed.get(1).and_then(|(_, t)| t.clone()) {
                     Some(Ty::Fn { ret, .. }) => Some(*ret),
-                    _ if typed.len() == 1 => Some(Ty::Prim(Prim::Str)),
+                    _ if typed.len() == 1 => typed[0].1.as_ref().and_then(|t| self.walked(*over, t)),
                     _ => None,
                 };
                 let t = match (item, *result) {

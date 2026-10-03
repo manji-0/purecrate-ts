@@ -145,7 +145,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
-| Growing a `Vec` in a function body (`let mut v = Vec::new(); v.push(x)`), and `iter().map(f).collect()` over a `Vec` | any domain that accumulates a list (line items, audit trail, retries) writes a cons list today: O(n) access, recursion depth, awkward interop for TS callers who expect arrays, and a large part of the line-count gap | the value semantics of `let mut` already exist; a body that only builds a fresh array is the same as `vec![a, b]` with a runtime length. Not scheduled until §1 is met |
+| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost listed in §7 were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done after 0.8.2 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
@@ -170,7 +170,7 @@ Waits for an example that cannot be written without it.
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Iterator `map` / `filter` / `collect` over a `Vec` or a state, and every other way of growing a `Vec`: they are how state sequences grow as arrays. Consumers that yield a scalar are one exception (§8.4). A `Vec` read once from text is the other: `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>` (§8.8). `filter`, collecting a `Vec` or anything but `split(c)`, and `split` on a `&str` stay out. Building a list with `let mut v = Vec::new(); v.push(x)` (or `iter().map(f).collect()` over a `Vec`) is a candidate (§3), not scheduled.
+- Mutating a `Vec` other than a local's `push`: through a field, an element, a parameter, or `pop` / `insert` / `remove` / `extend`. `split` on a `&str`.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.
@@ -182,7 +182,6 @@ Waits for an example that cannot be written without it.
 - Should output typing come from rustc's type information instead of the in-house inference ([05 §3](./05-architecture.md#3-rustc-as-the-final-gate))?
 - Hermes support for `JSON.parse` source text ([04 §7](./04-wire.md#7-open-questions)).
 - A shared error type with field paths for validation ([01 §4](./01-equivalence.md#4-closed-types)).
-- Growing a `Vec` only through recursive enums is costly on both sides (O(n) access, recursion depth, TS callers who expect arrays); `let mut v; v.push` is a candidate (§3).
 - Demand: see [06 §5](./06-strategy.md#5-validating-demand-next).
 
 ## 8. Releases

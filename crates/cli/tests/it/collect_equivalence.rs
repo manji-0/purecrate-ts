@@ -111,8 +111,8 @@ fn collect_off_a_split_is_refused() {
         );
     };
     refuse(
-        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.into_iter().collect() }\n",
-        "only from `s.split(c)`",
+        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }\n",
+        "`collect` builds a `Vec` from",
     );
     refuse(
         "pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }\n",

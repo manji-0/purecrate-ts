@@ -425,6 +425,8 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::StrBytes
                 | purecrate_ir::Callee::StrSplit
                 | purecrate_ir::Callee::Collect { .. }
+                | purecrate_ir::Callee::IterMap { .. }
+                | purecrate_ir::Callee::IterFilter { .. }
                 | purecrate_ir::Callee::StringFrom
                 | purecrate_ir::Callee::Slice { .. }
                 | purecrate_ir::Callee::Str(_)
@@ -492,15 +494,13 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                     bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
                 );
             }
-            if let purecrate_ir::Callee::Collect { result } = callee {
-                let pieces = emit_expr(&args[0], indent);
-                return match (args.get(1), result) {
-                    (None, _) => pieces,
-                    (Some(f), false) => format!("{pieces}.map({})", emit_item(f, indent)),
-                    (Some(f), true) => {
-                        format!("Iter.tryCollect({pieces}, {})", emit_item(f, indent))
-                    }
-                };
+            if let purecrate_ir::Callee::IterMap { over } | purecrate_ir::Callee::IterFilter { over } = callee {
+                let stage = if matches!(callee, purecrate_ir::Callee::IterMap { .. }) { "map" } else { "filter" };
+                let source = iterable(*over, emit_expr(&args[0], indent));
+                return format!("Iter.{stage}({source}, {})", emit_item(&args[1], indent));
+            }
+            if let purecrate_ir::Callee::Collect { result, over } = callee {
+                return emit_collect(*result, *over, args, indent);
             }
             if let purecrate_ir::Callee::Str(m) = callee {
                 let s = emit_expr(&args[0], indent);
@@ -777,6 +777,38 @@ pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
         }
         e if !e.needs_statements() => Some(emit_expr(e, indent)),
         _ => None,
+    }
+}
+
+/// `collect()`, always a new array (design/01 §7.14): the pieces of a split
+/// as they are; a `Vec`'s items copied (`[...xs]`); one `map` or `filter`
+/// over an array as the array's method, which calls `f` in the same order;
+/// anything longer, or over a string's chars or bytes, through the lazy
+/// `Iter` stages and `Array.from`, so each item runs every stage before the
+/// next, as in Rust.
+fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: usize) -> String {
+    use purecrate_ir::Callee;
+    let stage = |e: &Expr| matches!(e, Expr::Call { callee: Callee::IterMap { .. } | Callee::IterFilter { .. }, .. });
+    let split = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, .. });
+    let source = &args[0];
+    let array = over == purecrate_ir::Over::Items && !stage(source);
+    let f = args.get(1).map(|f| emit_item(f, indent));
+    if result {
+        let f = f.expect("a `Result` is collected through `map(f)`");
+        return format!("Iter.tryCollect({}, {f})", iterable(over, emit_expr(source, indent)));
+    }
+    match (f, source) {
+        (None, s) if split(s) => emit_expr(s, indent),
+        (None, s) if array => format!("[...{}]", emit_expr(s, indent)),
+        // One `filter` over an array.
+        (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
+            if !stage(&inner[0]) =>
+        {
+            format!("{}.filter({})", emit_expr(&inner[0], indent), emit_item(&inner[1], indent))
+        }
+        (None, s) => format!("Array.from({})", iterable(over, emit_expr(s, indent))),
+        (Some(f), s) if array => format!("{}.map({f})", emit_expr(s, indent)),
+        (Some(f), s) => format!("Array.from(Iter.map({}, {f}))", iterable(over, emit_expr(s, indent))),
     }
 }
 

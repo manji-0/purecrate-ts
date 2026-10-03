@@ -45,8 +45,8 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Integer ranges | `for i in a..b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, end = b; i < end; …)`; a literal end is read in place (`i < 4`) |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
 | Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
-| Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, and `sum` (integers only) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow |
-| Text lists | `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()` (where `_` stands for what `f` returns: `collect::<Result<Vec<_>, _>>()`), a typed `let`, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str`. Nothing else collects | the array from `s.split(c)`, its `.map`, or `Iter.tryCollect`; `Str.splitOnce` |
+| Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, and `sum` (integers only) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`, through any `map(f)`, `filter(p)`, `copied()`, `cloned()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow. A stage is `Iter.map` / `Iter.filter`, lazy, so each item runs every stage before the next, as in Rust ([01 §7.13](./01-equivalence.md#713-map-and-filter-over-a-sequence)) |
+| Lists | `collect()` of any sequence a consumer takes (above), into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()` (where `_` stands for what `f` returns: `collect::<Result<Vec<_>, _>>()`), a typed `let`, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str` | a new array: the pieces of `s.split(c)`, `[...xs]`, the array's own `.map(f)` / `.filter(p)` for one stage, else `Array.from` of the lazy stages, or `Iter.tryCollect`; `Str.splitOnce` |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
@@ -64,8 +64,8 @@ Why `&self` can be a value: the output never mutates arguments, and interior mut
 
 1. A transition takes the state and returns the next one. No `&mut`, no field assignment, no `mut` parameters.
 2. Past events are not accumulated in state. The caller keeps them.
-3. Sequences that grow or shrink are recursive enums, returned as new values.
-4. A `Vec` is read, never grown.
+3. A sequence that grows or shrinks with the state is a `Vec` built anew by the transition, or a recursive enum, returned as a new value.
+4. A `Vec` in a state, a field, or a parameter is read, never grown. A function body grows its own: a local `let mut v: Vec<T>`, by `v.push(x)` ([Building a `Vec`](#building-a-vec)).
 5. `Rc`, `Cell`, `RefCell`, and `Mutex` are rejected.
 
 #### History and logs
@@ -105,7 +105,11 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 
 - The crate builds a `Vec` as a list of its elements: `vec![a, b]`, or `vec![]` where the type is known. Its length is fixed in the source. Use it for a list the caller expects as an array, such as a JSON claim.
 - It also builds one from text, once: `s.split(c).collect()` or `s.split(c).map(f).collect()`, into the `Vec<T>` or `Result<Vec<T>, E>` the context names. `c` is a `char`. The length is the input's, so this is not a sequence that grows with the state. A `Result` stops at the first `Err`.
-- It never grows otherwise. Rejected: `vec![x; n]`, `Vec::new` / `from`, `push`, `to_vec`, `filter`, and `map` / `collect` on anything but that `split`.
+- From a `Vec`, a string's `chars()` / `bytes()`, or `s.split(c)`, through any `map(f)` and `filter(p)`, with `collect()`; and `v.clone()`.
+- A local grows: `let mut v: Vec<T> = Vec::new();` (or `vec![..]`, or any `Vec`), then `v.push(x)`. Only a local declared `let mut` is pushed to; a field (`s.items.push(x)`), an element (`v[i] = x`), and a parameter are not, and no closure captures such a local.
+- Rejected: `vec![x; n]`, `Vec::from`, `to_vec`, `extend`, `insert`, `pop`, `remove`, and the other mutating methods.
+
+Why the rest of the output stays immutable: a local that is pushed to is bound to an array of its own. `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make a new array; any other value (a parameter, a field, what a function returns) is copied when bound (`let v: T[] = [...xs]`), since in TS the caller may still hold it. So the arrays in states, fields, and parameters are never written, and `clone` of anything but a `Vec` is the value itself ([01 §7.14](./01-equivalence.md#714-growing-a-vec)).
 - `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
 - A sequence that grows or shrinks with the state is a recursive enum (above).
 
