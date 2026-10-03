@@ -3,8 +3,10 @@
 //! to that: `const $f1 = m.conversion; .. const conversion = $f1 as T;`.
 //! Where such a `let` exists, the pattern binds the row's name directly, the
 //! `let` goes, and every other read of the fresh name (a guard's, another
-//! row's `let`) reads the row's name. `rename` has made every name in a
-//! function unique, so binding it a little earlier shadows nothing; the
+//! row's `let`) reads the row's name. `rename` numbers a name that shadows a
+//! live one, but sibling scopes (two rows, a guard's two sides) may reuse
+//! one: the row's name is taken only where neither the pattern nor the rest
+//! of the arm binds it, so binding it a little earlier shadows nothing; the
 //! value is the same, as the pattern reads it once either way.
 
 use purecrate_ir::{Crate, Expr, Fn, Item, Name, Pattern, VariantBind};
@@ -29,14 +31,32 @@ fn merge_in(expr: &mut Expr) {
         for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
             let fresh: Vec<Name> = arm.pattern.bindings().into_iter().filter(|n| n.as_str().starts_with('$')).cloned().collect();
             for from in fresh {
-                if let Some(to) = take_copy(&mut arm.body, &from) {
-                    rename_binding(&mut arm.pattern, &from, &to);
-                    rename_reads(&mut arm.body, &from, &to);
+                let mut body = arm.body.clone();
+                let Some(to) = take_copy(&mut body, &from) else { continue };
+                if arm.pattern.bindings().contains(&&to) || binds(&body, &to, &from) {
+                    continue;
                 }
+                arm.body = body;
+                rename_binding(&mut arm.pattern, &from, &to);
+                rename_reads(&mut arm.body, &from, &to);
             }
         }
     }
     expr.children_mut().into_iter().for_each(merge_in);
+}
+
+/// Whether `expr` binds `name` anywhere: a `let`, an arm, a loop variable,
+/// or a closure parameter. Another row's `let name = from` is the same
+/// value under the same name, which the printer leaves out once merged.
+fn binds(expr: &Expr, name: &Name, from: &Name) -> bool {
+    let here = match expr {
+        Expr::Let { name: n, value, .. } => n == name && !matches!(&**value, Expr::Var(v) if v == from),
+        Expr::For { var, .. } | Expr::ForEach { var, .. } => var == name,
+        Expr::Match { arms, .. } => arms.iter().any(|a| a.pattern.bindings().contains(&name)),
+        Expr::Closure { params, .. } => params.iter().any(|p| &p.name == name),
+        _ => false,
+    };
+    here || expr.children().into_iter().any(|c| binds(c, name, from))
 }
 
 fn rename_reads(expr: &mut Expr, from: &Name, to: &Name) {

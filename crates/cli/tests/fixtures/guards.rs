@@ -140,3 +140,30 @@ pub fn only_in_guard(x: Option<u32>) -> u32 {
         None => 3,
     }
 }
+
+/// Two rows that bind one name to different fields, or a row whose name
+/// another row declares later: each reads its own field.
+#[derive(Debug, Clone, Copy)]
+pub enum Pair {
+    P(i32, i32),
+    Q,
+}
+
+pub fn pick(p: Pair, first: bool) -> i32 {
+    match p {
+        Pair::P(x, _) if first => x,
+        Pair::P(_, x) => x,
+        Pair::Q => 0,
+    }
+}
+
+pub fn shadowed_later(p: Pair, c: bool) -> i32 {
+    match p {
+        Pair::P(x, _) if c => x,
+        Pair::P(y, _) => {
+            let x = 1i32;
+            y - x
+        }
+        Pair::Q => 0,
+    }
+}

@@ -252,12 +252,13 @@ impl Lifter {
                     body: Box::new(wrap(hoisted, Expr::Seq { first: Box::new(exit), then: Box::new(body) })),
                 }
             }
-            // The bounds run once before the loop; a `?` in the body leaves
-            // from inside it.
+            // The bounds run once before the loop, in order: a start that
+            // may panic is bound before a `?` in the end. A `?` in the body
+            // leaves from inside it.
             Expr::For { var, ty, start, end, body } => {
                 let mut hoisted = Vec::new();
-                let start = self.extract_into(*start, &mut hoisted);
-                let end = self.extract_into(*end, &mut hoisted);
+                let [start, end]: [Expr; 2] =
+                    self.in_order(vec![*start, *end], &mut hoisted).try_into().expect("two bounds in, two out");
                 let body = self.stmt(*body);
                 wrap(
                     hoisted,
@@ -293,8 +294,23 @@ impl Lifter {
 
     /// Rewrites in place, reusing the allocation.
     fn boxed(&mut self, mut e: Box<Expr>, out: &mut Hoisted) -> Box<Expr> {
-        *e = self.extract_into(std::mem::replace(&mut *e, Expr::Unreachable), out);
+        *e = self.operand(std::mem::replace(&mut *e, Expr::Unreachable), out);
         e
+    }
+
+    /// An operand, an argument, or an element. A `let` / `match` / `if` that
+    /// leaves the function (what typing makes of `r.map_err(f)?` or
+    /// `o.unwrap_or(s.parse()?)`) runs before the statement, bound to a
+    /// fresh name: printed in place it would be an inline function, and its
+    /// `return` would leave only that.
+    fn operand(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
+        if matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. }) && leaves(&expr) {
+            let name = self.fresh(&expr, "Value");
+            let value = self.stmt(expr);
+            out.push((name.clone(), value, None));
+            return Expr::Var(name);
+        }
+        self.extract_into(expr, out)
     }
 
     /// Replaces each `?` in a strict position with a fresh variable.
@@ -420,7 +436,7 @@ impl Lifter {
         let mut done: Vec<Expr> = Vec::with_capacity(xs.len());
         for x in xs {
             let mut own = Vec::new();
-            let x = self.extract_into(x, &mut own);
+            let x = self.operand(x, &mut own);
             if !own.is_empty() {
                 done = std::mem::take(&mut done).into_iter().map(|d| self.spill(d, out)).collect();
             }
@@ -491,6 +507,16 @@ fn pure(expr: &Expr) -> bool {
 /// `let name = inner; name?; body` for a hoisted `?`: the test is on the
 /// binding itself, and the use reads its payload (`extract_into`). The
 /// guard `ok_or` becomes keeps `let name = inner?`, which binds the payload.
+/// Whether `expr` leaves the function: a `return` or a `?` outside a
+/// closure.
+fn leaves(expr: &Expr) -> bool {
+    match expr {
+        Expr::Return(_) | Expr::Try { .. } => true,
+        Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(leaves),
+    }
+}
+
 fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
     hoisted.into_iter().rev().fold(body, |then, (name, inner, on)| {
         let (value, then) = match on {

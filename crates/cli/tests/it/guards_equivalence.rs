@@ -72,6 +72,12 @@ fn generated_guards_match_rust() {
         for s in ["", "a", "ab", "abc", "abcdefghi", "éé"] {
             cases.push(case!(guards::classify(s)));
         }
+        for c in [false, true] {
+            for p in [guards::Pair::P(3, 4), guards::Pair::Q] {
+                cases.push(case!(guards::pick(p, c)));
+                cases.push(case!(guards::shadowed_later(p, c)));
+            }
+        }
         cases
     });
     support::assert_equivalent("guards", SOURCE, &cases);

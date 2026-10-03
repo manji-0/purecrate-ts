@@ -22,6 +22,15 @@ fn generated_evaluation_order_matches_rust() {
                 }
                 cases.push(case!(order_of_eval::update_field_first(a, z)));
             }
+            for fail in [false, true] {
+                cases.push(case!(order_of_eval::mapped_try_operand(a, 3i32, fail)));
+                cases.push(case!(order_of_eval::try_in_default(None::<i32>, a, fail)));
+                cases.push(case!(order_of_eval::try_in_default(Some(a), 3i32, fail)));
+                cases.push(case!(order_of_eval::try_in_range_end(a, 3i32, fail)));
+            }
+        }
+        for x in [None, Some(0u32), Some(9)] {
+            cases.push(case!(order_of_eval::reassigned_scrutinee(x)));
         }
         for i in [0usize, 1, 5] {
             for none in [false, true] {

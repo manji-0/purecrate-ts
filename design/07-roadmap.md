@@ -390,7 +390,7 @@ Why: reading the generator for rules written to the examples' shapes, with each 
 | `??` beside `?:`, `\|\|`, `&&` parenthesized; a commented operand keeps its grouping; a tuple read in part not taken for the whole | `precedence_equivalence.rs` |
 | An empty arm under a returned value returns; no `return` after what never falls through | `empty_arm_equivalence.rs` |
 
-- **Still open**, each reproduced: a `?` in a `for` range's end runs before a start that can panic; a `?` inside `map_err(..)?` or an `unwrap_or` argument in an operand position stays inside an inline function; two arms binding one name to different fields declare it twice; a `match` arm that reassigns its scrutinee reads the new value. tsc rejects all but the first.
+- **Open at release**, each reproduced and fixed after it ([CHANGELOG](../CHANGELOG.md), Unreleased): a `?` in a `for` range's end ran before a start that can panic; a `?` inside `map_err(..)?` or an `unwrap_or` argument in an operand position stayed inside an inline function; two arms binding one name to different fields declared it twice; a `match` arm that reassigns its scrutinee read the new value. tsc rejected all but the first.
 - **Layout.** `tidy::wrap` is a chain of line rules fitted to the examples; outside them its breaks often differ from oxfmt's, and it measures width in bytes.
 
 ## 9. Generated API stability

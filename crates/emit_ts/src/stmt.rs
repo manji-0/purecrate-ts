@@ -1228,6 +1228,15 @@ fn let_else(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
         }
         Expr::Match { scrutinee, arms } => {
             let Some((exit, keep)) = exit_arms(arms) else { return false };
+            // The payload is read from the place where it is used: not where
+            // an arm assigns or rebinds the place first.
+            let mut root = &**scrutinee;
+            while let Expr::Field { base, .. } = root {
+                root = base;
+            }
+            if matches!(root, Expr::Var(var) if touches(&keep.body, var) || touches(&exit.body, var)) {
+                return false;
+            }
             let subject = emit_expr(scrutinee, indent);
             let test = two_way_test(&exit.pattern, &subject).expect("exit_arms checked");
             let read = match &keep.pattern {
