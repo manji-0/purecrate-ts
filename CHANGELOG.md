@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **A copied `Some` is `??`.** `match s.split_once('+') { Some((x, y)) => (x, Some(y)), None => (s, None) }` is `Str.splitOnce(s, "+") ?? [s, null]`, with no temporary; a `None` arm of `None` drops the `?? null`.
 - **`map(f).unwrap_or(d)` is one test.** With a name or literal `d`, `o.map(|x| ..).unwrap_or(d)` no longer holds the mapped `Option` in a temporary: oidc's `const opt = ..; const fresh = opt === null || opt;` is `const fresh = enrollment.last_used_step === null || c.step > enrollment.last_used_step;`.
 - **A byte literal names its character.** `b'.'` prints as `/* '.' */ 46` rather than a bare `46`, so `isLocal` and `Email.parse` say which characters they test.
 - **Bodies read in paragraphs.** A statement over several lines (an `if` or `for` with a block, a `switch`, `let x: T;` and what assigns it) has a blank line before and after it, and a comment a blank line before it; statements of one line run on. The `const` a block's first line reads stays with it. The examples' output gains 92 blank lines.

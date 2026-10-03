@@ -39,6 +39,12 @@ fn generated_option_methods_match_rust() {
                 cases.push(case!(option_methods::doubled_less(x, d)));
             }
         }
+        for x in [None, Some((0u8, false)), Some((5, true))] {
+            cases.push(case!(option_methods::pair_or(x)));
+        }
+        for n in [0u8, 1, 2, 4, 255] {
+            cases.push(case!(option_methods::split_or(n)));
+        }
         for x in [None, Some(false), Some(true)] {
             cases.push(case!(option_methods::falsy(x)));
         }
@@ -152,4 +158,18 @@ fn map_then_unwrap_or_is_one_test() {
     let bumped = file("bumped");
     assert!(bumped.contains("x !== null ? Int.u8.add(x, 1 as U8) : d"), "{bumped}");
     assert!(!bumped.contains("opt"), "{bumped}");
+}
+
+/// `Some((a, b)) => (a, Some(b)), None => d` is `x ?? d`; on a call, the
+/// call is read in place rather than bound.
+#[test]
+fn a_copied_tuple_is_coalesced() {
+    let krate = purecrate_syntax::parse_source("coalesced", SOURCE).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let pair_or = file("pair-or");
+    assert!(pair_or.contains("x ?? [0 as U8, null]"), "{pair_or}");
+    let split_or = file("split-or");
+    assert!(split_or.contains("split(n) ?? [n, null]"), "{split_or}");
 }

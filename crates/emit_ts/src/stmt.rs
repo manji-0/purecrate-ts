@@ -388,6 +388,11 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 None => emit_switch(scrutinee, arms, indent, sink, tail, out),
             }
         }
+        // A `match` on a call that is one `call ?? d` needs no binding.
+        Expr::Match { .. } if !matches!(sink, Sink::Effect) && coalesced(expr, indent).is_some() => {
+            let value = coalesced(expr, indent).expect("matched above");
+            sink.finish(&value, &pad, out);
+        }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, tail, out),
         Expr::For {
             var,
@@ -729,12 +734,45 @@ pub(crate) fn value_expr(value: &Expr, indent: usize) -> Option<(String, String)
     if is_place(scrutinee) {
         return None;
     }
+    if let Some(s) = coalesced(value, indent) {
+        return Some((String::new(), s));
+    }
     let tmp = match_temp(arms, indent);
     let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
     let s = as_expr(&on_tmp, indent)?;
     let mut prelude = String::new();
     bind_scrutinee(&tmp, scrutinee, arms, indent, &mut prelude);
     Some((prelude, s))
+}
+
+/// A `match` on a call that reads the value once, `call ?? d` or the call
+/// itself, so it needs no binding: the arms copy what `Some` holds.
+fn coalesced(value: &Expr, indent: usize) -> Option<String> {
+    let Expr::Match { scrutinee, arms } = peel_identity(value) else { return None };
+    if is_place(scrutinee) {
+        return None;
+    }
+    let tmp = match_temp(arms, indent);
+    let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
+    let s = as_expr(&on_tmp, indent)?;
+    let rest = if s == tmp { None } else { Some(s.strip_prefix(&format!("{tmp} ?? "))?) };
+    let call = emit_expr(scrutinee, indent);
+    let call = crate::tidy::strip_outer(&call);
+    if crate::tidy::top_prec(call) != crate::tidy::PREC_ATOMIC || rest.is_some_and(|r| mentions_word(r, &tmp)) {
+        return None;
+    }
+    Some(match rest {
+        Some(rest) => format!("{call} ?? {rest}"),
+        None => call.to_string(),
+    })
+}
+
+/// Whether `text` holds `word` as an identifier of its own.
+fn mentions_word(text: &str, word: &str) -> bool {
+    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    text.match_indices(word).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(part) && !text[at + word.len()..].chars().next().is_some_and(part)
+    })
 }
 
 /// `let t = v; let a = t[0]; let b = t[1]; ..` where nothing else reads
