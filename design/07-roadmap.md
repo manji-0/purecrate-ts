@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-02, after 0.7.0)
+Status: current (2026-10-03, after 0.8.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -38,7 +38,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (semver remeasured in 0.7.0; the other rows are unchanged since 0.4.1):
+**Now** (semver remeasured in 0.8.0; the other rows are unchanged since 0.4.1):
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
 | oidc | 327 | 423 | 1.3× | 1.65× as written from the skill alone |
 | payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 75 | 138 | 1.8× | 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
+| semver | 75 | 132 | 1.8× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
 signup is counted by hand, as its test has no idiomatic module. The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 
@@ -356,6 +356,28 @@ Why: after `Ordering`, semver was still the example over 2×, and what remained 
 - **Nested patterns** go through the decision tree that tuple `match`es and guards already use ([03 §3.3.1](./03-output.md#331-tuple-match)): where a case is chosen, a field some arm tests becomes one more element, matched further in. rustc checks exhaustiveness, so `check` no longer counts cases for such a `match`; every `switch` the tree prints still names every case. oidc's lockout arm reads `PasswordChecked { verified: false, .. }` as its idiomatic code does, which changes no line count: a guard `if !verified` was one line too, and moving `second_factor: SecondFactor::Totp(..)` into the tuple arm would repeat the arm's head. The evidence for them was readability, not the threshold. A `bool` arm now prints as `x` / `!x`, not `x === true`.
 - **`str::parse` stays out.** Rust's `u64` parse accepts a leading `+`. Matching that, and the cases it rejects, is not what brings semver under the threshold.
 - **Measurement.** semver rewritten with them: 166 → 138 lines, 2.2× → 1.8× (§2.2). Pre-release and build identifiers are `Vec`s. The generated `parse` prints `split` as the array, `Iter.tryCollect` for a `Result`, and `Str.splitOnce`; the turbofish is not a second binding. `Some((x, y))` reads the two strings as `[0]` and `[1]`.
+
+### 8.9 0.8.0: generated TypeScript that reads like the source (2026-10-03)
+
+<!-- derived-from #88-070-lists-from-text-2026-10-02 -->
+
+Why: the four patterns 0.7.0 still refused, and an exception to taking language capabilities first, as in 0.6.0 (§8.7): reading the generated packages beside their Rust, what a reviewer tripped on was the machine in the output (`$`-names, `else` chains, temporaries a combinator left), what the source said and the output dropped (`//` comments, `b'@'` printed as `64`), and a runtime copy of 36 KB whatever the package used. The naming changes reach the stable surface (§9), so this is a minor.
+
+| Item | Verified by |
+| --- | --- |
+| `A \| B(1)`, `Some((1, b))`, a tuple nested in a case or a tuple | `tuple_match_equivalence.rs`, `nested_patterns_equivalence.rs` |
+| `.map(PreId::Numeric)`; `s.parse::<T>()` into an integer; `Result::ok`, `map`, `map_err` | `semver_equivalence.rs`, `parse_equivalence.rs`, `option_methods_equivalence.rs` |
+| A one-field tuple variant as `{ kind, value }`, with serde's JSON unchanged | `wire.rs`, `wire_write.rs`, the differential tests |
+| No `$` in local or internal names | `scoped_names.rs` |
+| Guards instead of `else`; fewer temporaries (`map(f).unwrap_or(d)`, a copied `Some` as `??`) | the differential tests, unchanged; `option_methods_equivalence.rs` |
+| `//` comments kept; bodies in paragraphs; byte literals named | `comments.rs`; `paragraph.rs` and `expr.rs` in `emit_ts` |
+| A runtime copy of what the package uses | `trim.rs` in `pack` |
+| Every generated file laid out and linted as oxfmt and oxlint want, fixtures included | `scripts/verify.sh` |
+
+- **Comments are a barrier.** A `// ..` above a statement is a node between it and the one before, so a rewrite that joins two statements stops at it (`const c = ..;` `// ..` `return c;`). Comments above a `match` arm, after code on a line, or before a block's `}` are still dropped.
+- **Paragraphs are counted on the printed TS**, not the Rust statements, so a paragraph can split what one Rust statement became where the TS takes several lines. Blank lines in the source are not carried over: they would be a barrier like comments, at every one of them.
+- **Measurement.** All eight examples' generated domain code 3372 → 3225 lines, the comments and 92 blank lines it gains included; semver 414 → 343, oidc 1441 → 1368. Runtime copies 1882 → 1161 lines: counter 175 → 84, payment 261 → 119, semver 351 → 239.
+- **Breaking** for callers: `.content[0]` on a one-field variant is `.value`, and the index exports `Int` only when the public surface holds a number ([CHANGELOG](../CHANGELOG.md)).
 
 ## 9. Generated API stability
 
