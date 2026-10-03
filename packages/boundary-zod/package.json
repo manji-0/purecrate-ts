@@ -1,6 +1,6 @@
 {
   "name": "purecrate-zod",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -27,7 +27,7 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "purecrate": "^0.8.2",
+    "purecrate": "^0.9.0",
     "zod": "^4.6.0"
   },
   "devDependencies": {

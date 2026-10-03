@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-10-04
+
+Lists built in a function, iterator stages, struct patterns, and `clone`; the examples checked against their specifications, with the generator bugs that rewriting them found. The accepted subset grows ([roadmap §8.12](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#812-090-lists-built-in-a-function-and-the-examples-against-their-specifications-2026-10-04)).
 
 ### Changed
 

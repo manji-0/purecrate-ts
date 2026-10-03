@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.8.2)
+Status: current (2026-10-04, after 0.9.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -145,7 +145,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
-| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost listed in §7 were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done after 0.8.2 |
+| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost listed in §7 were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
@@ -407,6 +407,28 @@ Why: the four defects 0.8.1 left open (§8.10), readability items found reading 
 
 - **The layout check has an oracle outside the examples now.** `fixtures/layout.rs` gives every construct a name long enough to break it; the shapes it found differing from oxfmt were the ones fixed here. `tidy::wrap` is still a chain of line rules, not oxfmt's printer (oxc's formatter is not published as a crate), so a shape the fixture lacks may still differ; the fixture is where to add it.
 - **A block in an argument is lifted** before its statement (`let value;` then `if`), which also removes an inline function from the output; the lifted `let` has no annotation, which TS infers from its assignments.
+
+### 8.12 0.9.0: lists built in a function, and the examples against their specifications (2026-10-04)
+
+<!-- derived-from #811-082-the-rest-of-the-audit-and-layout-2026-10-04 -->
+
+Why: a review of the examples against their specifications (RFC 4226/6238, ISO 13616, SemVer 2.0.0, Stripe's PaymentIntent) found defects, and rewriting them found generator bugs; the authoring gaps it listed (a `Vec` grown in a function, adaptors, struct patterns, `clone`) were taken without §1's threshold being met (§3).
+
+| Item | Verified by |
+| --- | --- |
+| A helper with one caller's file printed in it; locals renamed apart from the whole file's imports | `readability_equivalence.rs`, `build.rs`; the emitter's homes asserted equal to rename's |
+| `?` inside what `ok_or(e)?` takes; two `ok_or(e)?` or `map_err(f)?` in a body | `order_of_eval_equivalence.rs` |
+| Temporaries named after their local; literal `matches!` as `includes`; no block around a `?` in `unwrap_or`'s value | `readability_equivalence.rs` |
+| `_` in `collect`'s target | `collect_equivalence.rs` |
+| Struct patterns | `struct_patterns_equivalence.rs` |
+| `cmp` on `Vec`s | `ordering_equivalence.rs` |
+| `map` / `filter` over sequences, lazy | `adapters_equivalence.rs`, with an eager `Iter.map` failing it |
+| `push` on a local, `clone`, `as_ref`, `as_deref` | `grow_equivalence.rs`: the caller's arrays come back unchanged |
+| More `//` comments | `comments.rs` |
+| iban's check digits, oidc's lockout and consent, order's overflow and prices, semver's unbounded pre-release numbers | each example's equivalence test and its idiomatic reference |
+
+- **The output writes one kind of array.** A local `let mut v: Vec<T>` is `Array<T>` and is pushed to; it is bound to an array of its own, copied unless new. Every other array stays `ReadonlyArray`, so the earlier argument that sharing is unobservable still holds (01 §7.14).
+- **Exhaustiveness and struct patterns.** A struct pattern is lowered to a guard, so a `match` whose struct patterns cover a field still needs `_`; that refuses code rustc takes, never the reverse.
 
 ## 9. Generated API stability
 

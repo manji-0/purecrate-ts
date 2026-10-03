@@ -1,6 +1,6 @@
 # Overview
 
-Status: current (2026-10-04, release 0.8.2). Replaces the old `00-foundations.md` as the entry point.
+Status: current (2026-10-04, release 0.9.0). Replaces the old `00-foundations.md` as the entry point.
 
 ## 1. Claim
 
