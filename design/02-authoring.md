@@ -201,6 +201,12 @@ Each arm names what it takes. The accepted patterns depend on what is matched. A
 | `&str` | a string literal, or several joined by `\|` (`"card" \| "credit_card" =>`). A `String` is matched through `s.as_str()`, as rustc requires | required |
 | tuple | see [Tuple matches](#tuple-matches) | not required where the arms cover every case |
 
+#### Struct patterns
+
+A field of a variant, or an element of a tuple arm, may be a struct pattern, nested as deep as the types are: `Status::Processing { method: PaymentMethod { kind: MethodKind::BankDebit, .. } }`. Each of its fields is `_`, a name, another struct pattern, or a pattern that binds nothing (`K::B`, `0..=9`, `"x"`); `..` leaves the rest. Also in `matches!`; not in `if let`.
+
+The arm is the same arm with the struct bound to a name (printed after the struct: `paymentMethod`), a test of each refutable field before its own guard, and a `const` of each bound field at the head of its body. Why: the decision tree, exhaustiveness, and printing stay as they are. Cost: as a guarded arm, it does not count toward exhaustiveness, so a `match` that covers a field's every value by struct patterns still needs a last `_` (rustc would not). A field pattern that binds inside a refutable one (`M { kind: K::A(x) }`) is refused.
+
 #### The `_` arm
 
 - `_` is the last arm. It takes every case no other arm names.

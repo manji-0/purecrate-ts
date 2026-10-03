@@ -9,6 +9,7 @@
 - **Fewer machine-made names and inline functions.** `let sum = a.checked_add(b).ok_or(e)?` holds the option in `sumOpt`, not `opt`; `let email = Email::parse(s).map_err(f)?` holds the result in `emailResult`, not `result`. `matches!(&s[0..2], "00" | "01")` beside `||` is `["00", "01"].includes(Str.slice(s, 0, 2))` instead of an inline function.
 - **No block around a value whose `?` sits in what `unwrap_or` takes.** `let s = n.checked_add(f(n)?).unwrap_or(0)` printed `let s; { if (..) return ..; s = .. }`; the `?` now leaves before the statement, and `s` is a `const`.
 - **`_` in the target of `collect`.** `s.split(c).map(f).collect::<Result<Vec<_>, _>>()` takes `T` and `E` from `f`'s `Result<T, E>`; `collect::<Vec<_>>()` keeps what `f` returns, a `Result` included, as Rust does.
+- **Struct patterns in `match` arms and `matches!`.** `Status::Processing { method: PaymentMethod { kind: MethodKind::BankDebit, .. } }` tests `kind` before the arm's guard and binds the named fields at the head of its body. A field pattern binds a whole field or nothing. payment uses it; its TS is unchanged.
 - **A local is renamed apart from what its whole file imports.** With helpers sharing their caller's file, a parameter `total` beside a function that calls `total` would hide the import, so it is `total2`; a local never takes the name of a function the package does not export.
 
 ### Fixed

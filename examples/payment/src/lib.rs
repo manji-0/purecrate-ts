@@ -279,11 +279,12 @@ pub fn step(intent: PaymentIntent, event: Event) -> Result<PaymentIntent, Paymen
                 application_fee: application_fee.map(|fee| fee.min(received)),
             }
         }
-        (Status::Processing { method }, Event::Cancel(reason))
-            if matches!(method.kind, MethodKind::BankDebit) =>
-        {
-            Status::Canceled { reason }
-        }
+        (
+            Status::Processing {
+                method: PaymentMethod { kind: MethodKind::BankDebit, .. },
+            },
+            Event::Cancel(reason),
+        ) => Status::Canceled { reason },
         (
             Status::Processing { .. } | Status::Succeeded { .. } | Status::Canceled { .. },
             Event::Cancel(_),

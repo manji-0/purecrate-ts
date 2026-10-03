@@ -82,7 +82,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 else_: Box::new(else_),
             })
         }
-        SynExpr::Match(m) if m.arms.iter().any(|a| a.guard.is_some()) => lower_guarded(cx, &m.expr, &m.arms),
+        SynExpr::Match(m) if m.arms.iter().any(|a| a.guard.is_some() || pattern::has_struct_pat(cx, &a.pat)) => {
+            lower_guarded(cx, &m.expr, &m.arms)
+        }
         SynExpr::Match(m) => {
             let mut arms = Vec::new();
             for arm in &m.arms {

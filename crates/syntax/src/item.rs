@@ -98,6 +98,16 @@ pub struct Cx {
     /// `const` items of the blocks being lowered, innermost last: a name
     /// here compares in a pattern, which the IR cannot express.
     local_consts: std::cell::RefCell<Vec<String>>,
+    /// Struct patterns of the pattern being lowered: each stands in as a
+    /// fresh name, with the patterns of its fields (`StructPats`).
+    struct_pats: std::cell::RefCell<Vec<StructPat>>,
+}
+
+/// A struct pattern `S { f: p, .. }` lowered as a binding of `name`, its
+/// fields tested in the arm's guard and bound in its body.
+pub struct StructPat {
+    pub name: purecrate_ir::Name,
+    pub fields: Vec<(purecrate_ir::Name, purecrate_ir::Pattern)>,
 }
 
 impl Cx {
@@ -133,7 +143,19 @@ impl Cx {
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
+            struct_pats: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    pub fn push_struct_pat(&self, pat: StructPat) {
+        self.struct_pats.borrow_mut().push(pat);
+    }
+
+    /// The struct patterns lowered since the last call, outermost first.
+    pub fn take_struct_pats(&self) -> Vec<StructPat> {
+        let mut pats = std::mem::take(&mut *self.struct_pats.borrow_mut());
+        pats.reverse();
+        pats
     }
 
     /// Makes `Ordering` name std's enum (`std_ordering`). Its variants are
