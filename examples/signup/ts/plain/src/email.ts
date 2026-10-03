@@ -31,6 +31,8 @@ export const Email = {
     for (let i = 0 as Usize, end = at; i < end; i = (i + 1) as Usize) {
       if (!isLocal(Slice.at(b, i))) return Result.err({ kind: "BadLocal" });
     }
+    // Labels of 1 to 63 letters, digits and hyphens, with a letter or
+    // digit at both ends, separated by `.`. `i == b.len()` ends the last.
     let start: Usize = Int.usize.add(at, 1 as Usize);
     for (
       let i = Int.usize.add(at, 1 as Usize), end = Int.usize.add(b.length as Usize, 1 as Usize);

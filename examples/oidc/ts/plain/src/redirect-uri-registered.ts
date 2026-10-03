@@ -3,5 +3,7 @@
 import { Iter } from "./purecrate-runtime.ts";
 import type { Client } from "./client.ts";
 
-export const redirectUriRegistered = (client: Client, uri: string): boolean =>
-  Iter.any(client.redirect_uris, (registered: string): boolean => registered === uri);
+export const redirectUriRegistered = (client: Client, uri: string): boolean => {
+  // OIDC Core §3.1.2.1: exact match using simple string comparison.
+  return Iter.any(client.redirect_uris, (registered: string): boolean => registered === uri);
+};

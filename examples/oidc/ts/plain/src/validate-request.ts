@@ -34,19 +34,25 @@ export const validateRequest = (
   if (client === null) return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   if (params.client_id === null || params.client_id !== client.client_id)
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
+  // redirect_uri is REQUIRED in OIDC (§3.1.2.1), unlike RFC 6749 §4.1.1.
   if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   const redirectUri = params.redirect_uri;
   if (!redirectUriRegistered(client, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
+  // From here on the redirect target is trusted. Echo state only if it
+  // is well formed; a malformed state is not reflected.
   const echoed: string | null =
     params.state !== null && stateIsValid(params.state) ? params.state : null;
   const fail = (error: ErrorCode): AuthorizationError => redirectError(redirectUri, error, echoed);
   if (params.response_type === null) return Result.err(fail({ kind: "InvalidRequest" }));
   if (params.response_type !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
+  // §3.1.2.1: scope MUST contain openid; without it this is not an OIDC
+  // request, and this OP serves only OIDC.
   if (params.scope === null || !hasToken(params.scope, "openid"))
     return Result.err(fail({ kind: "InvalidScope" }));
   const scope = params.scope;
+  // RFC 6749 §10.12: this OP requires state from every client.
   if (echoed === null) return Result.err(fail({ kind: "InvalidRequest" }));
   const state = echoed;
   let nonce: string | null;
@@ -62,6 +68,7 @@ export const validateRequest = (
     const challenge = params.code_challenge;
     if (!pkceStringIsValid(challenge)) return Result.err(fail({ kind: "InvalidRequest" }));
     const method: string | null = params.code_challenge_method;
+    // RFC 7636 §4.3: absent method means plain.
     let method2: PkceMethod;
     if (method !== null) {
       if (method === "S256") {

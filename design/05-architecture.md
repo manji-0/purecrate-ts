@@ -81,7 +81,7 @@ Item = Struct | Enum | Alias | Fn
 VariantFields = Unit | Tuple([Ty]) | Struct([Field])
 Fn   = { name, owner: Option<Name>, vis: Pub | Internal, params, ret, body: Expr }
 Expr = Lit | Var | Let | Assign | If | Match | Call | MethodCall | Construct
-     | Field | Tuple | Array | Return | Unreachable | …
+     | Field | Tuple | Array | Return | Unreachable | Comment | …
 ```
 
 - Names are already flattened. `Vis::Pub` is the public surface, `Vis::Internal` what it reaches.

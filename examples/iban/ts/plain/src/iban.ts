@@ -28,6 +28,7 @@ export const Iban = {
     for (let i = 2 as Usize; i < 4; i = (i + 1) as Usize) {
       if (!isDigit(Slice.at(b, i))) return Result.err({ kind: "CheckDigits" });
     }
+    // The first four characters count last.
     let acc = 0 as U32;
     for (let i = 4 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i)) && !isDigit(Slice.at(b, i))) return Result.err({ kind: "Bban" });

@@ -15,6 +15,7 @@ mod casts;
 mod chars_equivalence;
 mod closed_equivalence;
 mod closures_equivalence;
+mod comments;
 mod collect_equivalence;
 mod consumers_equivalence;
 mod control_equivalence;

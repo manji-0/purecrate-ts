@@ -207,6 +207,15 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
     let pad = "  ".repeat(indent);
     let tail = crate::TAIL.with(|t| t.replace(false));
     match expr {
+        Expr::Comment(lines) => {
+            for line in lines {
+                match line.as_str() {
+                    "" => out.push_str(&format!("{pad}//\n")),
+                    line => out.push_str(&format!("{pad}// {line}\n")),
+                }
+            }
+            sink.finish("undefined", &pad, out);
+        }
         Expr::Let {
             name,
             mutable,

@@ -457,6 +457,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Try { expr: inner, .. } => self.try_(inner, want),
             Expr::Unreachable => (Expr::Unreachable, Some(Ty::Never)),
+            Expr::Comment(lines) => (Expr::Comment(lines.clone()), Some(Ty::Prim(Prim::Unit))),
         }
     }
 

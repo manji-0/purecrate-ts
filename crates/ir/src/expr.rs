@@ -952,6 +952,11 @@ pub enum Expr {
         expr: Box<Expr>,
     },
     Unreachable,
+    /// The `//` lines written directly above a statement or a block's tail,
+    /// one string per line without the `//`. It stands as `first` of a
+    /// `Seq` whose `then` is that statement; of type `()` and no effect.
+    /// Emit prints it where `then` is printed as a statement.
+    Comment(Vec<String>),
     /// Where `expr` starts in the source: a statement, a block's tail, or a
     /// `match` arm. Only the parser's spanned output has it, for diagnostics;
     /// `check::accept` removes it, so later passes never see it.
@@ -1010,6 +1015,7 @@ impl Expr {
             | Expr::Break
             | Expr::Continue
             | Expr::Unreachable
+            | Expr::Comment(_)
             | Expr::Ignored { .. }
             | Expr::At { .. } => Vec::new(),
         }
@@ -1018,7 +1024,7 @@ impl Expr {
     /// Direct subexpressions in evaluation order.
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break | Expr::Continue => {
                 Vec::new()
             }
             Expr::Let { value, then, .. } => vec![value, then],
@@ -1072,7 +1078,7 @@ impl Expr {
     /// `children`, mutably and in the same order.
     pub fn children_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Break | Expr::Continue => {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break | Expr::Continue => {
                 Vec::new()
             }
             Expr::Let { value, then, .. } => vec![value, then],
@@ -1157,6 +1163,9 @@ impl Expr {
     /// Printed as JS statements rather than a JS expression.
     pub fn needs_statements(&self) -> bool {
         match self {
+            // A comment above a value is left out where the value is printed
+            // as an expression.
+            Expr::Seq { first, then } if matches!(**first, Expr::Comment(_)) => then.needs_statements(),
             Expr::Match { .. }
             | Expr::Let { .. }
             | Expr::Return(_)

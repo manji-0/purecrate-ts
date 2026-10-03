@@ -3,8 +3,8 @@
 //! `a !== b`, parentheses by operator precedence, and long lines broken at
 //! a comma-separated bracket, an `if (cond) return`, a long `&&` / `||` /
 //! `?:`, or an arrow body. Each reads the text with strings, templates, and
-//! `/* */` comments skipped, so a bracket, comma, or operator inside one is
-//! never taken for code.
+//! comments skipped, so a bracket, comma, or operator inside one is never
+//! taken for code.
 
 /// The byte ranges of `s` outside string and template literals, with the
 /// parenthesis depth at each byte (`None` inside a literal).
@@ -36,6 +36,13 @@ fn depths(s: &str) -> Vec<Option<usize>> {
                 // A `/* .. */` comment reads as a literal.
                 b'/' if bytes.get(i + 1) == Some(&b'*') => {
                     let end = s[i + 2..].find("*/").map_or(bytes.len(), |e| i + 2 + e + 2);
+                    out.extend(std::iter::repeat_n(None, end - i));
+                    i = end;
+                    continue;
+                }
+                // So does a `//` comment, to the end of its line.
+                b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                    let end = s[i..].find('\n').map_or(bytes.len(), |e| i + e);
                     out.extend(std::iter::repeat_n(None, end - i));
                     i = end;
                     continue;
@@ -1073,6 +1080,14 @@ mod tests {
             wrap("// a, very, long, comment, line, here", 10),
             "// a, very, long, comment, line, here\n"
         );
+    }
+
+    #[test]
+    fn line_comment_is_not_code() {
+        // An apostrophe or a lone `(` in a comment opens nothing.
+        let d = depths("// don't (\nf(x)");
+        assert_eq!(d[9], None);
+        assert_eq!(d[10..], [Some(0), Some(0), Some(0), Some(1), Some(0)]);
     }
 
     #[test]

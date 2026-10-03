@@ -196,7 +196,7 @@ impl<'a> Cx<'_, 'a> {
                 self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", n.as_str()))
             }
             Expr::Var(n) if self.captures_mutable(n.as_str()) => self.capture_error(n.as_str()),
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable => {}
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) => {}
             Expr::Closure { params, ret, body } => {
                 params.iter().filter_map(|p| p.ty.as_ref()).for_each(|t| self.ty(t));
                 if let Some(t) = ret {

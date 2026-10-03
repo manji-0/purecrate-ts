@@ -454,15 +454,18 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
         }
     }
     let mut tail: Option<Expr> = None;
+    let comments = Comments::of(block);
     let last = block.stmts.len().saturating_sub(1);
     for (i, stmt) in block.stmts.iter().enumerate() {
         let span = stmt.span();
         let lowered = match stmt {
             syn::Stmt::Local(local) => lower_local(cx, local).map(|l| stmts.push((span, l))),
-            syn::Stmt::Expr(e, None) if i == last => lower_expr(cx, e).map(|e| tail = Some(at(span, e))),
+            syn::Stmt::Expr(e, None) if i == last => {
+                lower_expr(cx, e).map(|e| tail = Some(comments.above(span, at(span, e))))
+            }
             // `return x;` ends the block with the same meaning as `return x`.
             syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
-                lower_expr(cx, e).map(|e| tail = Some(at(span, e)))
+                lower_expr(cx, e).map(|e| tail = Some(comments.above(span, at(span, e))))
             }
             syn::Stmt::Expr(e, _) => lower_expr(cx, e).map(|e| stmts.push((span, Stmt::Effect(e)))),
             syn::Stmt::Item(SynItem::Const(_)) => Ok(()),
@@ -514,8 +517,49 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
                 then: Box::new(then),
             },
         };
-        at(span, node)
+        comments.above(span, at(span, node))
     }))
+}
+
+/// The source lines of a block, to find the `//` comments above each of
+/// its statements; syn keeps no comments.
+struct Comments {
+    lines: Vec<String>,
+    first: usize,
+}
+
+impl Comments {
+    fn of(block: &syn::Block) -> Self {
+        let span = block.span();
+        Self {
+            lines: span.source_text().unwrap_or_default().lines().map(String::from).collect(),
+            first: span.start().line,
+        }
+    }
+
+    /// `node` after the `//` lines directly above `span`, if any. A blank
+    /// line, code, `///`, `//!`, or `/* */` ends them.
+    fn above(&self, span: proc_macro2::Span, node: Expr) -> Expr {
+        let mut text = Vec::new();
+        // The block's own first line holds its `{`.
+        for i in (1..span.start().line.saturating_sub(self.first)).rev() {
+            let line = self.lines.get(i).map_or("", |l| l.trim());
+            match line.strip_prefix("//") {
+                Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
+                    text.push(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string());
+                }
+                _ => break,
+            }
+        }
+        if text.is_empty() {
+            return node;
+        }
+        text.reverse();
+        Expr::Seq {
+            first: Box::new(Expr::Comment(text)),
+            then: Box::new(node),
+        }
+    }
 }
 
 fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {

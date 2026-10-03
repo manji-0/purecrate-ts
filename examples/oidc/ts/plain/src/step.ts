@@ -44,6 +44,8 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           });
         }
         case "NotEnrolled": {
+          // acr_values is a voluntary claim (§3.1.2.1): proceed and
+          // report the weaker acr rather than fail.
           const auth: Authentication = {
             subject,
             auth_time: now,
@@ -88,6 +90,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           notice = { kind: "WrongOtp" };
           break;
       }
+      // RFC 4226 §7.3: every rejected value counts toward the limit.
       const failures2 = Int.u32.add(failures, 1 as U32);
       if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
       return Result.ok({

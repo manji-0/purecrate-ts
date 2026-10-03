@@ -44,7 +44,9 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
         } if args[0].needs_statements() => &args[0],
         other => other,
     };
-    if body.needs_statements() {
+    // A comment above the body's value opens a block to stand in.
+    let commented = matches!(body, Expr::Seq { first, .. } if matches!(**first, Expr::Comment(_)));
+    if body.needs_statements() || commented {
         let mut out = String::new();
         emit_stmts(body, indent + 1, Sink::Return, &mut out);
         // A body that is one `return` on one line is the arrow's expression.
@@ -178,6 +180,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             unreachable!("emit takes `check::accept` output, which has no positions")
         }
         Expr::Ignored { expr, .. } => emit_expr(expr, indent),
+        // An expression has no line of its own to carry a comment.
+        Expr::Seq { first, then } if matches!(**first, Expr::Comment(_)) => emit_expr(then, indent),
+        Expr::Comment(_) => unreachable!("a comment stands only as `first` of a `Seq`"),
         Expr::Lit(lit) => emit_lit(lit),
         Expr::Var(n) => n.as_str().to_string(),
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),

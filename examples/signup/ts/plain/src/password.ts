@@ -18,6 +18,7 @@ export const unsafeMakePassword = (value: string): Password => value as Password
 
 export const Password = {
   parse: (raw: string): Result<Password, PasswordError> => {
+    // Code points: every byte but a UTF-8 continuation byte (0x80..=0xBF).
     const b = Str.bytes(raw);
     let n = 0 as Usize;
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {

@@ -428,7 +428,7 @@ impl Renamer {
                 wrapper,
                 expr: self.boxed(expr, cx),
             },
-            other @ (Expr::Lit(_) | Expr::Unreachable) => other,
+            other @ (Expr::Lit(_) | Expr::Unreachable | Expr::Comment(_)) => other,
         }
     }
 }
