@@ -140,3 +140,8 @@ pub fn advance_the_processing_state(state: ProcessingStateOfTheRequest, submitte
 pub fn first_or_fallback_value(maybe_first_value: Option<u32>, fallback_value_when_missing: u32) -> u32 {
     maybe_first_value.map(|value_present| value_present * 2 + fallback_value_when_missing).unwrap_or(fallback_value_when_missing)
 }
+
+/// A last-argument arrow whose body is `||`: oxfmt opens every argument.
+pub fn is_known_prompt_value_list(prompt_value_list: &str) -> bool {
+    prompt_value_list.split(' ').all(|t| t == "" || t == "none" || t == "login" || t == "consent" || t == "select_account")
+}

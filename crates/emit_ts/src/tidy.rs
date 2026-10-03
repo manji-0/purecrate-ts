@@ -393,7 +393,27 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
 /// A call whose last argument is an arrow with an expression body, the
 /// other arguments plain: the arrow's head stays on the call's line and its
 /// body goes one indent in (`Iter.all(xs, (b: U8): boolean =>` then the
-/// body), where both fit; else every argument opens, as oxfmt does.
+/// body), where both fit; else every argument opens, as oxfmt does. oxfmt
+/// keeps the head only for a body it can expand (a call, a `?:`, an `as`);
+/// a body such as `a || b` opens every argument.
+/// An arrow body oxfmt may print after a hugged head: a call, a `?:`, or an
+/// `as` at its top level.
+fn expandable(body: &str) -> bool {
+    let d = depths(body);
+    let top = |pat: &str| body.match_indices(pat).any(|(i, _)| d[i] == Some(0));
+    if top(" ? ") || top(" as ") {
+        return true;
+    }
+    let bytes = body.as_bytes();
+    let callee = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.');
+    match body.find('(') {
+        Some(open) if open > 0 && body.ends_with(')') => {
+            bytes[..open].iter().all(|&b| callee(b)) && (open + 1..body.len() - 1).all(|j| d[j] != Some(0))
+        }
+        _ => false,
+    }
+}
+
 fn wrap_last_arrow(line: &str, width: usize, out: &mut String) -> bool {
     let (core, end) = match line.strip_suffix([';', ',']) {
         Some(c) => (c, &line[c.len()..]),
@@ -427,7 +447,7 @@ fn wrap_last_arrow(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     };
     let body = &last[arrow + 4..];
-    if body.starts_with(['{', '(', '[']) || rest.iter().any(|a| a.contains(" => ")) {
+    if body.starts_with(['{', '(', '[']) || rest.iter().any(|a| a.contains(" => ")) || !expandable(body) {
         return false;
     }
     let mut head = core[..=open].to_string();
