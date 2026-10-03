@@ -38,7 +38,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn lit(&mut self, lit: &Lit, negated: bool, want: Option<&Ty>) -> Typed {
         let wanted = want.and_then(|w| self.num(w));
         match lit {
-            Lit::Int { value, ty } => {
+            Lit::Int { value, ty, byte } => {
                 let value = if negated { -value } else { *value };
                 let shown = value.to_string();
                 let ty = match (ty, wanted) {
@@ -65,7 +65,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 if value < lo || value > hi {
                     self.error(Reason::TypeMismatch, format!("literal `{shown}` does not fit in `{}`", t.as_str()));
                 }
-                let e = Expr::Lit(Lit::Int { value, ty: Some(t) });
+                let e = Expr::Lit(Lit::Int { value, ty: Some(t), byte: *byte });
                 (e, self.expect(want, Some(Ty::Prim(t.into()))))
             }
             Lit::Float { digits, ty } => {
@@ -193,7 +193,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 if ordered && matches!(norm, Some(Ty::Prim(Prim::String | Prim::Str))) {
                     let cmp = Expr::Call { callee: Callee::StrCmp, args: vec![l, r] };
-                    let zero = Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::I32) });
+                    let zero = Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::I32), byte: false });
                     return (rebuild(op, cmp, zero), self.expect(want, Some(Ty::bool())));
                 }
                 // An `Ordering` is an object: its variant is what compares. A

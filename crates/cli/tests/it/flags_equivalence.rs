@@ -92,7 +92,7 @@ fn folded_values_are_rusts() {
             })
             .unwrap_or_else(|| panic!("no const {name}"))
     };
-    let int = |value: i128, ty| purecrate_ir::Expr::Lit(purecrate_ir::Lit::Int { value, ty: Some(ty) });
+    let int = |value: i128, ty| purecrate_ir::Expr::Lit(purecrate_ir::Lit::Int { value, ty: Some(ty), byte: false });
     use purecrate_ir::IntTy;
     assert_eq!(folded("DEFAULT_PERMISSIONS"), int(0b11_0000_0000_0000_0000_0111, IntTy::U64));
     assert_eq!(folded("ALL_BITS"), int(u64::MAX.into(), IntTy::U64));

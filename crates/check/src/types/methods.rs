@@ -213,7 +213,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                             _ => None,
                         };
                         let folded = match known {
-                            Some(value) => Expr::Lit(Lit::Int { value, ty: Some(it) }),
+                            Some(value) => Expr::Lit(Lit::Int { value, ty: Some(it), byte: false }),
                             None => Expr::Call {
                                 callee: Callee::Discriminant { to: it, table, of: en.name.clone() },
                                 args: vec![e],

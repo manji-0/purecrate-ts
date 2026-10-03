@@ -310,7 +310,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
                     value: Box::new(Expr::Binary {
                         op: BinOp::Add,
                         left: Box::new(Expr::Var(i.clone())),
-                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::Usize) })),
+                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::Usize), byte: false })),
                     }),
                 };
                 let body = Expr::Seq { first: Box::new(advance), then: Box::new(body) };
@@ -325,7 +325,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             name: i.clone(),
             mutable: true,
             ty: Some(Ty::Prim(purecrate_ir::Prim::Usize)),
-            value: Box::new(Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::Usize) })),
+            value: Box::new(Expr::Lit(Lit::Int { value: 0, ty: Some(IntTy::Usize), byte: false })),
             then: Box::new(each),
         },
         None => each,
@@ -964,7 +964,7 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
             let value = i
                 .base10_parse::<i128>()
                 .map_err(|e| ParseError::new(Reason::UnsupportedLiteral, e.to_string()))?;
-            Ok(Lit::Int { value, ty })
+            Ok(Lit::Int { value, ty, byte: false })
         }
         syn::Lit::Float(f) => match float_suffix(f.suffix()) {
             Some(ty) => Ok(Lit::Float {
@@ -982,6 +982,7 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
         syn::Lit::Byte(b) => Ok(Lit::Int {
             value: i128::from(b.value()),
             ty: Some(IntTy::U8),
+            byte: true,
         }),
         _ => Err(ParseError::new(Reason::UnsupportedLiteral, "unsupported literal")),
     }

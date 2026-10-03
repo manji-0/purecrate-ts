@@ -3,4 +3,7 @@
 import type { U8 } from "./purecrate-runtime.ts";
 
 export const isIdentChar = (c: U8): boolean =>
-  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 45;
+  (c >= /* '0' */ 48 && c <= /* '9' */ 57) ||
+  (c >= /* 'A' */ 65 && c <= /* 'Z' */ 90) ||
+  (c >= /* 'a' */ 97 && c <= /* 'z' */ 122) ||
+  c === /* '-' */ 45;

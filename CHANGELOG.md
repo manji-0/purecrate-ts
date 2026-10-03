@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **A byte literal names its character.** `b'.'` prints as `/* '.' */ 46` rather than a bare `46`, so `isLocal` and `Email.parse` say which characters they test.
 - **Bodies read in paragraphs.** A statement over several lines (an `if` or `for` with a block, a `switch`, `let x: T;` and what assigns it) has a blank line before and after it, and a comment a blank line before it; statements of one line run on. The `const` a block's first line reads stays with it. The examples' output gains 92 blank lines.
 - **Comments in a function body are kept.** The `//` lines directly above a statement or a block's tail are printed above what that statement becomes, so a guard keeps the reason written for it (`// RFC 6749 §10.12: this OP requires state from every client.`). A comment after code on its line, before a block's `}`, above a block-level `const`, or above a `match` arm is still left out. The examples' output gains 18 comment lines.
 - **A smaller runtime copy.** The copy keeps each `Int` width, operator, and method the package uses, the brand and helper types its code names, and what those read in turn; nothing else. Against 0.7.0, counter's copy is 175 → 84 lines, payment's 261 → 119, semver's 351 → 239; all eight examples 1882 → 1162.

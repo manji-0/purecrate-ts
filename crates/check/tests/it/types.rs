@@ -23,7 +23,7 @@ fn integer_arithmetic_becomes_checked_calls() {
         panic!("expected a call, got {body:?}")
     };
     assert_eq!(callee, Callee::Int { ty: IntTy::I32, op: IntOp::Div });
-    assert_eq!(args[1], Expr::Lit(Lit::Int { value: 2, ty: Some(IntTy::I32) }));
+    assert_eq!(args[1], Expr::Lit(Lit::Int { value: 2, ty: Some(IntTy::I32), byte: false }));
 }
 
 #[test]
@@ -33,13 +33,13 @@ fn literals_take_the_type_through_an_alias() {
         panic!("expected a call, got {body:?}")
     };
     assert_eq!(callee, Callee::Int { ty: IntTy::I64, op: IntOp::Add });
-    assert_eq!(args[1], Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::I64) }));
+    assert_eq!(args[1], Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::I64), byte: false }));
 }
 
 #[test]
 fn negative_literal_folds_at_the_minimum() {
     let body = body_of("pub fn m() -> i8 { -128 }", "m");
-    assert_eq!(body, Expr::Lit(Lit::Int { value: -128, ty: Some(IntTy::I8) }));
+    assert_eq!(body, Expr::Lit(Lit::Int { value: -128, ty: Some(IntTy::I8), byte: false }));
 }
 
 #[test]

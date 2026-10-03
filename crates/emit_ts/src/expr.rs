@@ -351,7 +351,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                             v.as_str(),
                             crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                                 value: *d,
-                                ty: Some(*to)
+                                ty: Some(*to), byte: false
                             }))
                         )
                     })
@@ -370,7 +370,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                         int.as_str(),
                         crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                             value: 0,
-                            ty: Some(*int)
+                            ty: Some(*int), byte: false
                         }))
                     ),
                     m => format!(
@@ -1030,9 +1030,9 @@ pub(crate) fn emit_iife(expr: &Expr, indent: usize) -> String {
 pub(crate) fn emit_lit(lit: &Lit) -> String {
     match lit {
         Lit::Bool(b) => if *b { "true" } else { "false" }.into(),
-        Lit::Int { value, ty } => match ty {
+        Lit::Int { value, ty, byte } => match ty {
             Some(t) if t.is_big() => format!("({value}n as {})", t.ts_name()),
-            Some(t) => format!("({value} as {})", t.ts_name()),
+            Some(t) => format!("({}{value} as {})", byte_note(*value, *byte), t.ts_name()),
             None => value.to_string(),
         },
         Lit::Float { digits, ty } => match ty {
@@ -1044,6 +1044,16 @@ pub(crate) fn emit_lit(lit: &Lit) -> String {
         Lit::Char(c) => format!("({} as Char)", js_string(&c.to_string())),
         Lit::Unit => "undefined".into(),
         Lit::Null => "null".into(),
+    }
+}
+
+/// The character a byte literal wrote, before its number: `b'.'` is
+/// `/* '.' */ 46`, escaped as Rust escapes it (`b'\n'`, `b'\''`). Before,
+/// as oxfmt leaves a comment there; one after moves past a `)` or `;`.
+fn byte_note(value: i128, byte: bool) -> String {
+    match u8::try_from(value) {
+        Ok(b) if byte => format!("/* '{}' */ ", b.escape_ascii()),
+        _ => String::new(),
     }
 }
 
@@ -1245,9 +1255,26 @@ fn bare(expr: &Expr, indent: usize) -> Option<String> {
 /// brand (`48`, `2n`, `"a"`); anything else as `emit_lit` prints it.
 pub(crate) fn bare_lit(lit: &Lit) -> String {
     match lit {
-        Lit::Int { value, ty: Some(t) } if t.is_big() => format!("{value}n"),
-        Lit::Int { value, .. } => value.to_string(),
+        Lit::Int { value, ty: Some(t), .. } if t.is_big() => format!("{value}n"),
+        Lit::Int { value, byte, .. } => format!("{}{value}", byte_note(*value, *byte)),
         Lit::Char(c) => js_string(&c.to_string()),
         other => emit_lit(other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_byte_literal_names_its_character() {
+        let byte = |value| Lit::Int { value, ty: Some(purecrate_ir::IntTy::U8), byte: true };
+        assert_eq!(bare_lit(&byte(46)), "/* '.' */ 46");
+        assert_eq!(bare_lit(&byte(39)), r"/* '\'' */ 39");
+        assert_eq!(bare_lit(&byte(10)), r"/* '\n' */ 10");
+        assert_eq!(bare_lit(&byte(32)), "/* ' ' */ 32");
+        assert_eq!(emit_lit(&byte(48)), "(/* '0' */ 48 as U8)");
+        let plain = Lit::Int { value: 48, ty: Some(purecrate_ir::IntTy::U8), byte: false };
+        assert_eq!(bare_lit(&plain), "48");
     }
 }

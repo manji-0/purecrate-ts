@@ -118,7 +118,7 @@ impl Enum {
         let variant = |name: &str, d: i128| Variant {
             name: Name::new(name),
             fields: VariantFields::Unit,
-            discriminant: Some(Expr::Lit(crate::expr::Lit::Int { value: d, ty: None })),
+            discriminant: Some(Expr::Lit(crate::expr::Lit::Int { value: d, ty: None, byte: false })),
             doc: None,
         };
         Enum {

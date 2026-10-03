@@ -23,7 +23,7 @@ export const Email = {
     let at = b.length as Usize;
 
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
-      if (Slice.at(b, i) === 64 && at === b.length) {
+      if (Slice.at(b, i) === /* '@' */ 64 && at === b.length) {
         at = i;
       }
     }
@@ -44,17 +44,17 @@ export const Email = {
       i < end;
       i = (i + 1) as Usize
     ) {
-      if (i === b.length || Slice.at(b, i) === 46) {
+      if (i === b.length || Slice.at(b, i) === /* '.' */ 46) {
         const n = Int.usize.sub(i, start);
         if (
           n === 0 ||
           n > 63 ||
-          Slice.at(b, start) === 45 ||
-          Slice.at(b, Int.usize.sub(i, 1 as Usize)) === 45
+          Slice.at(b, start) === /* '-' */ 45 ||
+          Slice.at(b, Int.usize.sub(i, 1 as Usize)) === /* '-' */ 45
         )
           return Result.err({ kind: "BadDomain" });
         start = Int.usize.add(i, 1 as Usize);
-      } else if (!isAlnum(Slice.at(b, i)) && Slice.at(b, i) !== 45) {
+      } else if (!isAlnum(Slice.at(b, i)) && Slice.at(b, i) !== /* '-' */ 45) {
         return Result.err({ kind: "BadDomain" });
       }
     }

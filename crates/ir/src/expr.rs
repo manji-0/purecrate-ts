@@ -7,7 +7,9 @@ use crate::ty::{FloatTy, IntTy, Ty, Wrapper};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Lit {
     Bool(bool),
-    Int { value: i128, ty: Option<IntTy> },
+    /// `byte` when the source wrote it as a byte literal (`b'@'`), which
+    /// emit notes beside the number.
+    Int { value: i128, ty: Option<IntTy>, byte: bool },
     Float { digits: String, ty: Option<FloatTy> },
     Str(String),
     Char(char),
@@ -1235,6 +1237,7 @@ impl Expr {
         Expr::Lit(Lit::Int {
             value: n.into(),
             ty: None,
+    byte: false,
         })
     }
 }

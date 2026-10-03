@@ -3,4 +3,6 @@
 import type { U8 } from "./purecrate-runtime.ts";
 
 export const isAlnum = (b: U8): boolean =>
-  (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122);
+  (b >= /* '0' */ 48 && b <= /* '9' */ 57) ||
+  (b >= /* 'A' */ 65 && b <= /* 'Z' */ 90) ||
+  (b >= /* 'a' */ 97 && b <= /* 'z' */ 122);
