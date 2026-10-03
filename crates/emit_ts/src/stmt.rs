@@ -15,13 +15,27 @@ pub(crate) fn jumps_out(expr: &Expr) -> bool {
     }
 }
 
+/// Whether a jump of this loop is inside a `match`, which may print as a
+/// `switch`.
+fn jumps_from_match(expr: &Expr, in_match: bool) -> bool {
+    match expr {
+        Expr::Break | Expr::Continue => in_match,
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
+        Expr::Match { scrutinee, arms } => {
+            jumps_from_match(scrutinee, in_match) || arms.iter().any(|a| jumps_from_match(&a.body, true))
+        }
+        other => other.children().into_iter().any(|c| jumps_from_match(c, in_match)),
+    }
+}
+
 /// Prints a loop's head (after its `label: `, if it needs one) and body.
-/// Every jump names its loop: a bare JS `break` inside the `switch` a
-/// `match` prints as would leave the `switch`, not the loop.
+/// A jump inside a `match` names its loop: a bare JS `break` inside the
+/// `switch` a `match` prints as would leave the `switch`, not the loop.
+/// Elsewhere it is bare.
 pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
-    let label = jumps_out(body).then(|| temp("loop", indent));
-    let prefix = label.as_ref().map(|l| format!("{l}: ")).unwrap_or_default();
+    let label = jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop", indent) } else { String::new() });
+    let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
     out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
     emit_stmts(body, indent + 1, Sink::Effect, out);
@@ -43,6 +57,20 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
         Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends_in_jump(&a.body)),
         _ => false,
     }
+}
+
+/// A jump that is all of a block (`{ break; }` is the jump then `()`).
+fn lone_jump(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Seq { first, then } if **then == Expr::Lit(Lit::Unit) && matches!(**first, Expr::Break | Expr::Continue | Expr::Return(_)) => first,
+        other => other,
+    }
+}
+
+/// ` label` of the innermost loop, or nothing when its jumps are bare.
+fn jump_label() -> String {
+    let l = innermost_loop();
+    if l.is_empty() { l } else { format!(" {l}") }
 }
 
 pub(crate) fn innermost_loop() -> String {
@@ -230,21 +258,20 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 emit_tail(then, indent, sink, out, tail);
             }
         }
-        // A guard: `if (c) return v;` on one line, when both fit on one.
+        // A guard: `if (c) return v;` on one line, when both fit on one, and
+        // `if (c) break;` / `continue;`.
         Expr::If { cond, then, else_ }
             if matches!(sink, Sink::Effect)
                 && **else_ == Expr::Lit(Lit::Unit)
-                && matches!(&**then, Expr::Return(v) if !v.needs_statements())
+                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements()) | matches!(lone_jump(then), Expr::Break | Expr::Continue)
                 && !emit_expr(cond, indent).contains('\n') =>
         {
-            let Expr::Return(v) = &**then else {
-                unreachable!("matched above")
+            let jump = match lone_jump(then) {
+                Expr::Return(v) => format!("return {}", crate::tidy::strip_outer(&emit_expr(v, indent))),
+                Expr::Break => format!("break{}", jump_label()),
+                _ => format!("continue{}", jump_label()),
             };
-            out.push_str(&format!(
-                "{pad}if ({}) return {};\n",
-                crate::tidy::strip_outer(&emit_expr(cond, indent)),
-                crate::tidy::strip_outer(&emit_expr(v, indent))
-            ));
+            out.push_str(&format!("{pad}if ({}) {jump};\n", crate::tidy::strip_outer(&emit_expr(cond, indent))));
         }
         // `if matches!(f(x), p) ..` (or `!matches!`): the matched value is
         // the first thing the condition evaluates, so it is bound before the
@@ -391,8 +418,8 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             );
             sink.finish("undefined", &pad, out);
         }
-        Expr::Break => out.push_str(&format!("{pad}break {};\n", innermost_loop())),
-        Expr::Continue => out.push_str(&format!("{pad}continue {};\n", innermost_loop())),
+        Expr::Break => out.push_str(&format!("{pad}break{};\n", jump_label())),
+        Expr::Continue => out.push_str(&format!("{pad}continue{};\n", jump_label())),
         // `return match ..`: the `match` returns from each arm.
         Expr::Return(value) if value.needs_statements() && as_expr(value, indent).is_none() => {
             emit_stmts(value, indent, Sink::Return, out)

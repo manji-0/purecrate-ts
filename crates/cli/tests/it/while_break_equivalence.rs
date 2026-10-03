@@ -46,3 +46,28 @@ fn generated_loops_with_jumps_match_rust() {
     });
     support::assert_equivalent("while_break", SOURCE, &cases);
 }
+
+/// A loop whose jumps are not inside a `match` has no label, and a jump that
+/// is all of its `if` sits on the `if`'s line; one inside a `match` names
+/// its loop.
+#[test]
+fn a_label_only_where_a_switch_would_take_the_jump() {
+    let source = "pub fn first_zero(xs: &[u32]) -> u32 {\n\
+                      let mut n = 0u32;\n\
+                      for x in xs { if *x == 0 { break; } n += 1; }\n\
+                      n\n\
+                  }\n\
+                  pub enum K { A, B }\n\
+                  pub fn until_b(ks: &[K]) -> u32 {\n\
+                      let mut n = 0u32;\n\
+                      for k in ks { match k { K::A => n += 1, K::B => break } }\n\
+                      n\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("labels", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let first = file("first-zero");
+    assert!(!first.contains("loop") && first.contains("if (x === 0) break;"), "{first}");
+    assert!(file("until-b").contains("loop: for") && file("until-b").contains("break loop;"), "{}", file("until-b"));
+}
