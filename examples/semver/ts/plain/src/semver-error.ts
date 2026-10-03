@@ -13,7 +13,6 @@ export type SemverError =
   | Readonly<{ kind: "EmptyPreRelease" }>
   | Readonly<{ kind: "InvalidPreReleaseChar" }>
   | Readonly<{ kind: "PreReleaseLeadingZero" }>
-  | Readonly<{ kind: "PreReleaseTooLarge" }>
   | Readonly<{ kind: "EmptyBuild" }>
   | Readonly<{ kind: "InvalidBuildChar" }>;
 
@@ -38,8 +37,6 @@ export const SemverError = {
   InvalidPreReleaseChar: (): SemverError => ({ kind: "InvalidPreReleaseChar" }),
   /** A numeric pre-release identifier has a leading zero (`1.0.0-01`). */
   PreReleaseLeadingZero: (): SemverError => ({ kind: "PreReleaseLeadingZero" }),
-  /** A numeric pre-release identifier does not fit in u64. */
-  PreReleaseTooLarge: (): SemverError => ({ kind: "PreReleaseTooLarge" }),
   /** `+` is followed by nothing, or a build identifier is empty. */
   EmptyBuild: (): SemverError => ({ kind: "EmptyBuild" }),
   /** A build identifier contains a character outside `[0-9A-Za-z-]`. */

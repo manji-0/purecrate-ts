@@ -34,14 +34,13 @@ mod idiomatic {
         EmptyPreRelease,
         InvalidPreReleaseChar,
         PreReleaseLeadingZero,
-        PreReleaseTooLarge,
         EmptyBuild,
         InvalidBuildChar,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum PreId {
-        Numeric(u64),
+        Numeric(String),
         Alpha(String),
     }
 
@@ -83,7 +82,7 @@ mod idiomatic {
             _ if !is_ident(s) => Err(InvalidPreReleaseChar),
             _ if !is_numeric(s) => Ok(PreId::Alpha(s.to_owned())),
             _ if has_leading_zero(s) => Err(PreReleaseLeadingZero),
-            _ => s.parse().map(PreId::Numeric).map_err(|_| PreReleaseTooLarge),
+            _ => Ok(PreId::Numeric(s.to_owned())),
         }
     }
 
@@ -129,7 +128,7 @@ mod idiomatic {
     impl Ord for PreId {
         fn cmp(&self, other: &Self) -> Ordering {
             match (self, other) {
-                (PreId::Numeric(x), PreId::Numeric(y)) => x.cmp(y),
+                (PreId::Numeric(x), PreId::Numeric(y)) => x.len().cmp(&y.len()).then_with(|| x.cmp(y)),
                 (PreId::Numeric(_), PreId::Alpha(_)) => Ordering::Less,
                 (PreId::Alpha(_), PreId::Numeric(_)) => Ordering::Greater,
                 (PreId::Alpha(x), PreId::Alpha(y)) => x.cmp(y),
@@ -153,7 +152,10 @@ mod idiomatic {
 }
 
 /// §11's chain, strictly increasing.
-const CHAIN: [&str; 11] = [
+const CHAIN: [&str; 14] = [
+    "1.0.0-9",
+    "1.0.0-10",
+    "1.0.0-99999999999999999999",
     "1.0.0-alpha",
     "1.0.0-alpha.1",
     "1.0.0-alpha.beta",
@@ -168,7 +170,7 @@ const CHAIN: [&str; 11] = [
 ];
 
 /// Valid versions from §9–§10 and around the edges.
-const VALID: [&str; 18] = [
+const VALID: [&str; 20] = [
     "0.0.0",
     "1.9.0",
     "1.10.0",
@@ -187,9 +189,11 @@ const VALID: [&str; 18] = [
     "0.18446744073709551615.0",
     "0.0.18446744073709551615",
     "1.0.0-18446744073709551615",
+    "1.0.0-18446744073709551616",
+    "1.0.0-99999999999999999999999.1",
 ];
 
-const INVALID: [&str; 22] = [
+const INVALID: [&str; 21] = [
     "",
     "1",
     "1.2",
@@ -210,7 +214,6 @@ const INVALID: [&str; 22] = [
     "1.2.3+é",
     "1.2.3-a+b+c",
     "18446744073709551616.0.0",
-    "1.0.0-18446744073709551616",
     " 1.2.3",
 ];
 

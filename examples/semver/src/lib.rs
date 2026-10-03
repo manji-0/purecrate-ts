@@ -1,5 +1,11 @@
 // Semantic Versioning 2.0.0 (https://semver.org/spec/v2.0.0.html):
 // parsing `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]` and precedence (§11).
+//
+// The grammar puts no bound on a number. A numeric pre-release identifier
+// is kept as its digits, so any length is accepted and compared exactly;
+// the three core numbers are `u64`, as the `semver` crate keeps them, and a
+// larger one is refused (`NumberTooLarge`). `==` on `Version` compares the
+// build metadata too; precedence, which ignores it, is `compare`.
 
 use std::cmp::Ordering;
 
@@ -33,18 +39,17 @@ pub enum SemverError {
     InvalidPreReleaseChar,
     /// A numeric pre-release identifier has a leading zero (`1.0.0-01`).
     PreReleaseLeadingZero,
-    /// A numeric pre-release identifier does not fit in u64.
-    PreReleaseTooLarge,
     /// `+` is followed by nothing, or a build identifier is empty.
     EmptyBuild,
     /// A build identifier contains a character outside `[0-9A-Za-z-]`.
     InvalidBuildChar,
 }
 
-/// One pre-release identifier.
+/// One pre-release identifier. A numeric one is its digits, without a
+/// leading zero.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreId {
-    Numeric(u64),
+    Numeric(String),
     Alpha(String),
 }
 
@@ -140,7 +145,6 @@ fn all_digits(s: &str) -> bool {
     s.bytes().all(|b| matches!(b, b'0'..=b'9'))
 }
 
-
 fn has_leading_zero(s: &str) -> bool {
     s.len() > 1 && s.starts_with("0")
 }
@@ -160,10 +164,7 @@ fn parse_pre_id(s: &str) -> Result<PreId, SemverError> {
         _ if !s.bytes().all(is_ident_char) => Err(SemverError::InvalidPreReleaseChar),
         _ if !all_digits(s) => Ok(PreId::Alpha(String::from(s))),
         _ if has_leading_zero(s) => Err(SemverError::PreReleaseLeadingZero),
-        _ => s
-            .parse::<u64>()
-            .map(PreId::Numeric)
-            .map_err(|_| SemverError::PreReleaseTooLarge),
+        _ => Ok(PreId::Numeric(String::from(s))),
     }
 }
 
@@ -177,7 +178,8 @@ fn parse_build_id(s: &str) -> Result<String, SemverError> {
 
 fn compare_pre_id(a: &PreId, b: &PreId) -> Ordering {
     match (a, b) {
-        (PreId::Numeric(x), PreId::Numeric(y)) => x.cmp(y),
+        // Without leading zeros, the longer number is the larger.
+        (PreId::Numeric(x), PreId::Numeric(y)) => x.len().cmp(&y.len()).then(x.cmp(y)),
         (PreId::Numeric(_), PreId::Alpha(_)) => Ordering::Less,
         (PreId::Alpha(_), PreId::Numeric(_)) => Ordering::Greater,
         (PreId::Alpha(x), PreId::Alpha(y)) => x.cmp(y),
