@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-03, after 0.8.0)
+Status: current (2026-10-03, after 0.8.1)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -378,6 +378,20 @@ Why: the four patterns 0.7.0 still refused, and an exception to taking language 
 - **Paragraphs are counted on the printed TS**, not the Rust statements, so a paragraph can split what one Rust statement became where the TS takes several lines. Blank lines in the source are not carried over: they would be a barrier like comments, at every one of them.
 - **Measurement.** All eight examples' generated domain code 3372 → 3225 lines, the comments and 92 blank lines it gains included; semver 414 → 343, oidc 1441 → 1368. Runtime copies 1882 → 1161 lines: counter 175 → 84, payment 261 → 119, semver 351 → 239.
 - **Breaking** for callers: `.content[0]` on a one-field variant is `.value`, and the index exports `Int` only when the public surface holds a number ([CHANGELOG](../CHANGELOG.md)).
+
+### 8.10 0.8.1: fixes from an audit (2026-10-03)
+
+<!-- derived-from #89-080-generated-typescript-that-reads-like-the-source-2026-10-03 -->
+
+Why: reading the generator for rules written to the examples' shapes, with each suspected input built and run. No change to what is accepted.
+
+| Item | Verified by |
+| --- | --- |
+| `??` beside `?:`, `\|\|`, `&&` parenthesized; a commented operand keeps its grouping; a tuple read in part not taken for the whole | `precedence_equivalence.rs` |
+| An empty arm under a returned value returns; no `return` after what never falls through | `empty_arm_equivalence.rs` |
+
+- **Still open**, each reproduced: a `?` in a `for` range's end runs before a start that can panic; a `?` inside `map_err(..)?` or an `unwrap_or` argument in an operand position stays inside an inline function; two arms binding one name to different fields declare it twice; a `match` arm that reassigns its scrutinee reads the new value. tsc rejects all but the first.
+- **Layout.** `tidy::wrap` is a chain of line rules fitted to the examples; outside them its breaks often differ from oxfmt's, and it measures width in bytes.
 
 ## 9. Generated API stability
 

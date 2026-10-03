@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.1 — 2026-10-03
+
+An audit of the generator for rules fitted to the examples' shapes found output that Rust does not mean; this release fixes those that 0.8.0 printed for inputs outside the examples. No change to what is accepted ([roadmap §8.10](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#810-081-fixes-from-an-audit-2026-10-03)).
 
 ### Fixed
 
