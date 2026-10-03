@@ -41,18 +41,18 @@ export const Version = {
     const [rest, build] = option !== null ? [option[0], option[1]] : [s, null];
     const option2 = Str.splitOnce(rest, "-");
     const [core, pre] = option2 !== null ? [option2[0], option2[1]] : [rest, null];
-    const parts: ReadonlyArray<string> = core.split(".");
+    const parts = core.split(".");
     const majorResult = parseCoreNumber(Slice.at(parts, 0), { kind: "Major" });
     if (majorResult.kind === "Err") return majorResult;
-    const major: U64 = majorResult.value;
+    const major = majorResult.value;
     if (parts.length < 2) return Result.err({ kind: "MissingPart", value: { kind: "Minor" } });
     const minorResult = parseCoreNumber(Slice.at(parts, 1), { kind: "Minor" });
     if (minorResult.kind === "Err") return minorResult;
-    const minor: U64 = minorResult.value;
+    const minor = minorResult.value;
     if (parts.length < 3) return Result.err({ kind: "MissingPart", value: { kind: "Patch" } });
     const patchResult = parseCoreNumber(Slice.at(parts, 2), { kind: "Patch" });
     if (patchResult.kind === "Err") return patchResult;
-    const patch: U64 = patchResult.value;
+    const patch = patchResult.value;
     if (parts.length > 3) return Result.err({ kind: "ExtraCorePart" });
     let pre2: ReadonlyArray<PreId>;
     if (pre !== null) {

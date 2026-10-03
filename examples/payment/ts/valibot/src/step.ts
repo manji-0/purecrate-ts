@@ -6,10 +6,9 @@ import type { Event } from "./event.ts";
 import type { PaymentError } from "./payment-error.ts";
 import type { PaymentIntent } from "./payment-intent.ts";
 import type { Status } from "./status.ts";
-import type { Terms } from "./terms.ts";
 
 export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent, PaymentError> => {
-  const terms: Terms = intent.terms;
+  const terms = intent.terms;
   let status: Status;
   switch (intent.status.kind) {
     case "RequiresPaymentMethod":

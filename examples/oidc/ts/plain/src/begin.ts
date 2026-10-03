@@ -4,7 +4,6 @@ import { Result, type I64, type U32 } from "./purecrate-runtime.ts";
 import type { Authentication } from "./authentication.ts";
 import type { AuthorizationError } from "./authorization-error.ts";
 import type { AuthorizationParams } from "./authorization-params.ts";
-import type { AuthorizationRequest } from "./authorization-request.ts";
 import type { Client } from "./client.ts";
 import type { ErrorCode } from "./error-code.ts";
 import type { Flow } from "./flow.ts";
@@ -27,7 +26,7 @@ export const begin = (
 ): Result<Flow, AuthorizationError> => {
   const requestResult = validateRequest(params, client);
   if (requestResult.kind === "Err") return requestResult;
-  const request: AuthorizationRequest = requestResult.value;
+  const request = requestResult.value;
   const reusable: Authentication | null =
     session !== null && sessionIsUsable(request, session, now)
       ? {
@@ -37,7 +36,7 @@ export const begin = (
           totp_step: null,
         }
       : null;
-  const needsConsent: boolean = request.prompt.consent || !consentOnFile;
+  const needsConsent = request.prompt.consent || !consentOnFile;
   const state: string | null = request.state;
   const refuse = (error: ErrorCode): AuthorizationError =>
     redirectError(request.redirect_uri, error, state);
@@ -45,7 +44,7 @@ export const begin = (
     if (request.prompt.no_interaction && needsConsent)
       return Result.err(refuse({ kind: "ConsentRequired" }));
     if (!needsConsent) return Result.ok(issue(request, reusable));
-    const auth: Authentication = reusable;
+    const auth = reusable;
     return Result.ok({ kind: "AwaitingConsent", request, auth });
   }
   return request.prompt.no_interaction

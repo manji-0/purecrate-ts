@@ -22,8 +22,8 @@ export const checkRedemption = (
     const pkce = grant.pkce;
     if (codeVerifier !== null) {
       if (!pkceStringIsValid(codeVerifier)) return Result.err({ kind: "InvalidRequest" });
-      const verifier: string = codeVerifier;
-      const matches: boolean =
+      const verifier = codeVerifier;
+      const matches =
         pkce.method.kind === "Plain"
           ? verifier === pkce.challenge
           : verifierS256 !== null && verifierS256 === pkce.challenge;

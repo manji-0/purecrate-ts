@@ -8,7 +8,6 @@ import type { OrderError } from "./order-error.ts";
 import type { Order } from "./order.ts";
 import { removeSku } from "./remove-sku.ts";
 import { total } from "./total.ts";
-import type { Yen } from "./yen.ts";
 
 export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => {
   switch (cmd.kind) {
@@ -31,7 +30,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
           const head = lines.content[0];
           const rest = lines.content[1];
           const lines2: Lines = { kind: "Cons", content: [head, rest] };
-          const total2: Yen = total(lines2);
+          const total2 = total(lines2);
           return Result.ok({ kind: "Placed", lines: lines2, total: total2 });
         }
         default:

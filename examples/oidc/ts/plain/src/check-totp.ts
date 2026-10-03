@@ -30,7 +30,7 @@ export const checkTotp = (
       if (option !== null && option === submitted) {
         const opt: boolean | null =
           enrollment.last_used_step !== null ? c.step > enrollment.last_used_step : null;
-        const fresh: boolean = opt === null || opt;
+        const fresh = opt === null || opt;
         if (fresh) return { kind: "Accepted", value: c.step };
         replayed = true;
       }

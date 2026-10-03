@@ -8,7 +8,6 @@ import type { FlowError } from "./flow-error.ts";
 import type { Flow } from "./flow.ts";
 import { issue } from "./issue.ts";
 import type { Notice } from "./notice.ts";
-import type { OtpCheck } from "./otp-check.ts";
 import type { Policy } from "./policy.ts";
 
 /** One transition of the login flow. */
@@ -24,7 +23,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const secondFactor = event.second_factor;
           const now = event.now;
           if (!verified) {
-            const failures2: U32 = Int.u32.add(failures, 1 as U32);
+            const failures2 = Int.u32.add(failures, 1 as U32);
             if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
             return Result.ok({
               kind: "AwaitingPassword",
@@ -73,7 +72,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const now = event.now;
           const candidates = event.candidates;
           let notice: Notice;
-          const otpCheck: OtpCheck = checkTotp(code, now, enrollment, candidates);
+          const otpCheck = checkTotp(code, now, enrollment, candidates);
           switch (otpCheck.kind) {
             case "Accepted": {
               const step2 = otpCheck.value;
@@ -95,7 +94,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
               notice = { kind: "WrongOtp" };
               break;
           }
-          const failures2: U32 = Int.u32.add(failures, 1 as U32);
+          const failures2 = Int.u32.add(failures, 1 as U32);
           if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
           return Result.ok({
             kind: "AwaitingOtp",

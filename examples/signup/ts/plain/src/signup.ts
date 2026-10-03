@@ -25,10 +25,10 @@ export const Signup = {
   parse: (email: string, password: string): Result<Signup, SignupError> => {
     const result = Email.parse(email);
     if (result.kind === "Err") return Result.err({ kind: "Email", value: result.error });
-    const email2: Email = result.value;
+    const email2 = result.value;
     const result2 = Password.parse(password);
     if (result2.kind === "Err") return Result.err({ kind: "Password", value: result2.error });
-    const password2: Password = result2.value;
+    const password2 = result2.value;
     return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
 } as const;

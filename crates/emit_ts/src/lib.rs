@@ -586,7 +586,7 @@ export const step = (state: State, event: Event): State => {
         let pkg = emit(&cmd_crate(cmd_match(call)));
         let run = file(&pkg, "run");
         // Named for its enum, numbered past the parameter of that name.
-        assert!(run.contains("const cmd2: Cmd = next(cmd);\n  switch (cmd2.kind)"), "{run}");
+        assert!(run.contains("const cmd2 = next(cmd);\n  switch (cmd2.kind)"), "{run}");
         assert!(run.contains("const a = cmd2.content[0];"), "{run}");
     }
 

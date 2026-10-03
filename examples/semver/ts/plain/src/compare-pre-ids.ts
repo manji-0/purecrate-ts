@@ -12,7 +12,7 @@ export const comparePreIds = (a: ReadonlyArray<PreId>, b: ReadonlyArray<PreId>):
     i < end;
     i = (i + 1) as Usize
   ) {
-    const o: Ordering = comparePreId(Slice.at(a, i), Slice.at(b, i));
+    const o = comparePreId(Slice.at(a, i), Slice.at(b, i));
     if (o.kind !== "Equal") return o;
   }
   return Ord.cmp(a.length as Usize, b.length as Usize);

@@ -45,15 +45,12 @@ fn generated_parse_matches_rust() {
 /// that builds `Result.ok` / `Result.err` imports the value.
 #[test]
 fn result_as_a_type_only_is_a_type_import() {
-    let source = "pub fn as_i32(s: &str) -> Option<i32> {\n\
-                      let r: Result<i32, std::num::ParseIntError> = s.parse::<i32>();\n\
-                      r.ok()\n\
-                  }\n\
+    let source = "pub fn as_i32(r: Result<i32, i32>) -> Option<i32> { r.ok() }\n\
                   pub fn wrap(n: i32) -> Result<i32, i32> { Ok(n) }\n";
     let krate = purecrate_syntax::parse_source("results", source).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
-    assert!(file("as-i32").contains("type Result,") || file("as-i32").contains("type Result }"), "{}", file("as-i32"));
+    assert!(file("as-i32").contains("import type { I32, Result }"), "{}", file("as-i32"));
     assert!(file("wrap").contains("import { Result, type I32 }"), "{}", file("wrap"));
 }

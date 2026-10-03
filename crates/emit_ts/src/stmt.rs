@@ -484,6 +484,7 @@ pub(crate) fn emit_let(
     // `boolean` without one.
     let inferred = matches!(value, Expr::Closure { .. })
         || (mutable && matches!(value, Expr::Lit(Lit::Bool(_))) && matches!(ty, Some(t) if *t == Ty::bool()));
+    let inferred = inferred || (!mutable && ty.is_some_and(|t| infers_as(value, t)));
     let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
     // A value cast to the type already states it (`let n = 0 as Usize`).
     let stated = |value: &str| match ty {
@@ -546,6 +547,36 @@ pub(crate) fn emit_let(
             out.push_str(&format!("{pad}{keyword} {name}{} = {s};\n", stated(s)));
         }
     }
+}
+
+/// Whether TS gives a `const` of `value` the type `ty` without being told:
+/// a call of something that declares what it returns, a test, or a place
+/// that is no union (a narrowed union is cast back, a `null` held would
+/// stay). A literal, a variant, and a `?:` of them would infer their own.
+fn infers_as(value: &Expr, ty: &Ty) -> bool {
+    match peel(value) {
+        // The annotation carries the wrapper's comment (`/* Box */ P`).
+        _ if matches!(ty, Ty::Ignored { .. }) => false,
+        Expr::Lit(_) => false,
+        v if declares_return(v) => true,
+        // `x?` is read where its test has narrowed it to the payload.
+        Expr::Try { .. } => true,
+        _ if *ty == Ty::bool() => true,
+        v if is_place(v) => match ty {
+            Ty::Prim(_) | Ty::Vec(_) => true,
+            Ty::Named(n) => crate::is_struct(n.as_str()),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// A call of something that declares what it returns: not a variant,
+/// `Ok` / `Err`, or `Some` / `None`, whose literal infers its own type.
+fn declares_return(value: &Expr) -> bool {
+    use purecrate_ir::Callee as C;
+    matches!(peel(value), Expr::Call { callee, .. }
+        if !matches!(callee, C::Variant { .. } | C::ResultOk | C::ResultErr | C::OptionSome | C::OptionNone))
 }
 
 /// What `x?` is held in before its test: `<name>Result` or `<name>Option`
@@ -670,8 +701,9 @@ fn bind_scrutinee(tmp: &str, scrutinee: &Expr, arms: &[purecrate_ir::Arm], inden
     // other cases unreachable; a cast keeps the full union.
     let decl = match (scrutinee_ty(arms), peel(scrutinee)) {
         (Some(ty), Expr::Construct { .. }) => format!("{tmp} = {value} as {}", ty.as_str()),
-        (Some(ty), _) => format!("{tmp}: {} = {value}", ty.as_str()),
-        (None, _) => format!("{tmp} = {}", crate::tidy::strip_outer(&value)),
+        // A call says its type already.
+        (Some(ty), v) if !declares_return(v) => format!("{tmp}: {} = {value}", ty.as_str()),
+        _ => format!("{tmp} = {}", crate::tidy::strip_outer(&value)),
     };
     out.push_str(&format!("{pad}const {decl};\n"));
 }

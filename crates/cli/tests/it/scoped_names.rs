@@ -48,9 +48,9 @@ fn sequential_lets_in_one_function_are_numbered() {
          }\n",
         "chain",
     );
-    assert!(chain.contains("const n: I32 = "), "{chain}");
-    assert!(chain.contains("const n2: I32 = n2Result.value"), "{chain}");
-    assert!(chain.contains("const n3: I32 = n3Result.value"), "{chain}");
+    assert!(chain.contains("const n = "), "{chain}");
+    assert!(chain.contains("const n2 = n2Result.value"), "{chain}");
+    assert!(chain.contains("const n3 = n3Result.value"), "{chain}");
     let decls: Vec<_> = chain
         .lines()
         .filter(|l| {
@@ -98,7 +98,7 @@ fn a_let_from_match_does_not_collide_with_the_arm_binding() {
     );
     // The exit first, then `v` read from `x`: the arm's `v` is not bound.
     assert!(src.contains("if (x === null) return -1 as I32;"), "{src}");
-    assert!(src.contains("const v: I32 = x;"), "{src}");
+    assert!(src.contains("const v = x;"), "{src}");
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn a_local_takes_the_name_of_a_function_its_body_does_not_read() {
     assert!(!keep.contains("total2"), "{keep}");
     // A call reads the import, so the local beside it is numbered.
     let calls = file("names", source, "calls");
-    assert!(calls.contains("const total2: I32 = total(n);"), "{calls}");
+    assert!(calls.contains("const total2 = total(n);"), "{calls}");
 }
 
 #[test]
@@ -127,4 +127,27 @@ fn an_option_unwrapped_into_its_own_name_is_read_narrowed() {
     // No `const n2 = n`: past the exit, TS has narrowed `n`.
     assert!(src.contains("if (n === null) return 0 as I32;"), "{src}");
     assert!(src.contains("Int.i32.mul(n, 2 as I32)") && !src.contains("n2"), "{src}");
+}
+
+/// A `const` of a call, a test, or a place that is no union states no type;
+/// a literal, a variant, and a `let mut` keep theirs.
+#[test]
+fn a_const_states_no_type_its_value_already_has() {
+    let source = "pub enum Light { Red, Green }\n\
+                  pub struct P { pub a: u32 }\n\
+                  fn light_of(n: u32) -> Light { if n == 0 { Light::Red } else { Light::Green } }\n\
+                  pub fn run(p: P) -> u32 {\n\
+                      let a = p.a;\n\
+                      let l = light_of(a);\n\
+                      let red = matches!(l, Light::Red);\n\
+                      let g = Light::Green;\n\
+                      let mut n = a + 1;\n\
+                      if red && matches!(g, Light::Green) { n += 1; }\n\
+                      n\n\
+                  }\n";
+    let run = file("consts", source, "run");
+    for line in ["const a = p.a;", "const l = lightOf(a);", "const red = l.kind === \"Red\";", "let n: U32 = Int.u32.add("] {
+        assert!(run.contains(line), "{line}:\n{run}");
+    }
+    assert!(run.contains("const g: Light = { kind: \"Green\" };"), "{run}");
 }

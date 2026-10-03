@@ -36,7 +36,7 @@ export const validateRequest = (
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
-  const redirectUri: string = params.redirect_uri;
+  const redirectUri = params.redirect_uri;
   if (!redirectUriRegistered(client, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
   const echoed: string | null =
@@ -46,9 +46,9 @@ export const validateRequest = (
   if (params.response_type !== "code") return Result.err(fail({ kind: "UnsupportedResponseType" }));
   if (params.scope === null || !hasToken(params.scope, "openid"))
     return Result.err(fail({ kind: "InvalidScope" }));
-  const scope: string = params.scope;
+  const scope = params.scope;
   if (echoed === null) return Result.err(fail({ kind: "InvalidRequest" }));
-  const state: string = echoed;
+  const state = echoed;
   let nonce: string | null;
   if (params.nonce !== null) {
     const n = params.nonce;
@@ -85,8 +85,8 @@ export const validateRequest = (
   let prompt: Prompt;
   if (params.prompt !== null) {
     const p = params.prompt;
-    const opt: Prompt | null = parsePrompt(p);
-    const optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    const opt = parsePrompt(p);
+    const optOr = fail({ kind: "InvalidRequest" });
     if (opt === null) return Result.err(optOr);
     prompt = opt;
   } else {
@@ -95,14 +95,14 @@ export const validateRequest = (
   let maxAge: I64 | null;
   if (params.max_age !== null) {
     const m = params.max_age;
-    const opt: I64 | null = parseSeconds(m);
-    const optOr: AuthorizationError = fail({ kind: "InvalidRequest" });
+    const opt = parseSeconds(m);
+    const optOr = fail({ kind: "InvalidRequest" });
     if (opt === null) return Result.err(optOr);
     maxAge = opt;
   } else {
     maxAge = null;
   }
-  const wantsMfa: boolean = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
+  const wantsMfa = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
   return Result.ok(
     unsafeMakeAuthorizationRequest({
       client_id: client.client_id,

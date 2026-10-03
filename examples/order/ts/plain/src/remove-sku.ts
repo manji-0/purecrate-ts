@@ -15,7 +15,7 @@ export const removeSku = (lines: Lines, sku: Sku): Result<Lines, OrderError> => 
       if (head.sku === sku) return Result.ok(rest);
       const rest2Result = removeSku(rest, sku);
       if (rest2Result.kind === "Err") return rest2Result;
-      const rest2: Lines = rest2Result.value;
+      const rest2 = rest2Result.value;
       return Result.ok({ kind: "Cons", content: [head, rest2] });
     }
     default:

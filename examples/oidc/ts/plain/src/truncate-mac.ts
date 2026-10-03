@@ -17,7 +17,7 @@ export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | nu
     Slice.at(mac, Int.usize.sub(n, 1 as Usize)),
     15 as U8,
   ) as number as Usize;
-  const bin: U32 = Int.u32.or(
+  const bin = Int.u32.or(
     Int.u32.or(
       Int.u32.or(
         Int.u32.shl(Int.u8.and(Slice.at(mac, offset), 127 as U8) as number as U32, 24),

@@ -39,6 +39,7 @@
 - **The test fixtures' output is linted too.** `scripts/verify.sh` runs the examples' oxlint over every fixture's output, less what a fixture writes on purpose (`scripts/fixtures.oxlintrc.json`, each exception with its reason).
 - **No annotation a cast already states.** `export const MAX_STATE_LEN = 512 as Usize;` and `let n = 0 as U32;`, were `MAX_STATE_LEN: Usize = 512 as Usize` and `n: U32 = 0 as U32`; the declared type is the same. A narrowed union given back its type reads `const s = state as State`.
 - **An unwrapped `Option` is held in its binding.** `let current = match totp_step(..) { Some(t) => t, None => return .. }` is `const current = totpStep(..);` `if (current === null) return ..;`, was `const option = ..` and then `const current: I64 = option;`. A `let mut` keeps the temporary, since its type would hold the `null`.
+- **No annotation a `const`'s value already has.** A `const` of a call (`const otpCheck = checkTotp(..)`, `const failures2 = Int.u32.add(..)`), of a test (`const fresh = opt === null || opt`), of `x?`, or of a place that is no union (`const terms = intent.terms`) states no type, as TS infers the same one; a literal, a variant, a `?:`, a `let`, and a type with a wrapper's comment (`/* Box */ P`) keep it. A `match` on a call binds it the same way.
 - **`Result` as a type only is a type import.** A file that annotates `Result<..>` but builds none imports `type Result`.
 - **`Ordering` compares with its variant's name.** `o != Ordering::Equal` is `o.kind !== "Equal"`, not `o.kind !== { kind: "Equal" }.kind`.
 
