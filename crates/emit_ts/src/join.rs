@@ -26,6 +26,24 @@ fn join(expr: &mut Expr) {
     if let Some(joined) = join_match(expr) {
         *expr = joined;
     }
+    // A statement with no effect is left out: a value that reads and builds
+    // only (`Box::new(P { a, b: a });`), `x = x`, and an `if` whose sides do
+    // nothing (what a write never read leaves).
+    match expr {
+        Expr::Seq { first, then } if pure(first) => *expr = (**then).clone(),
+        Expr::Assign { name, value } if reads_only(value, name) => *expr = Expr::Lit(Lit::Unit),
+        Expr::If { cond, then, else_ } if pure(cond) && **then == Expr::Lit(Lit::Unit) && **else_ == Expr::Lit(Lit::Unit) => {
+            *expr = Expr::Lit(Lit::Unit)
+        }
+        _ => {}
+    }
+    // A `let mut` that is no longer written (its only write was `x = x`) is
+    // a `const`.
+    if let Expr::Let { name, mutable, then, .. } = expr {
+        if *mutable && !assigns(then, name) {
+            *mutable = false;
+        }
+    }
     // `if true { a } else { b }` is `a`: the test reads nothing. Not where
     // the side declares names, which its block kept apart from the rest.
     if let Expr::If { cond, then, else_ } = expr {
@@ -36,6 +54,38 @@ fn join(expr: &mut Expr) {
             }
         }
     }
+}
+
+/// Whether evaluating `expr` can neither panic nor change anything: it reads
+/// names and fields, compares, and builds values. Integer arithmetic is a
+/// call by now (it may overflow), as is everything else that may panic.
+fn pure(expr: &Expr) -> bool {
+    let here = matches!(
+        expr,
+        Expr::Lit(_)
+            | Expr::Var(_)
+            | Expr::Field { .. }
+            | Expr::Construct { .. }
+            | Expr::Tuple(_)
+            | Expr::Array(_)
+            | Expr::Ignored { .. }
+            | Expr::Unary { .. }
+            | Expr::Binary { .. }
+    );
+    here && expr.children().into_iter().all(pure)
+}
+
+/// `name` itself, or a copy of it (`String::from(&t)`, printed as `t`).
+fn reads_only(value: &Expr, name: &Name) -> bool {
+    match value {
+        Expr::Var(v) => v == name,
+        Expr::Call { callee: purecrate_ir::Callee::StringFrom, args } => matches!(args.as_slice(), [a] if reads_only(a, name)),
+        _ => false,
+    }
+}
+
+fn assigns(expr: &Expr, name: &Name) -> bool {
+    matches!(expr, Expr::Assign { name: n, .. } if n == name) || expr.children().into_iter().any(|c| assigns(c, name))
 }
 
 /// Whether printing `expr` as statements declares a name in its block.
