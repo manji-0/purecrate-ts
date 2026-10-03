@@ -94,8 +94,7 @@ fn collect_and_split_once_are_runtime_calls() {
     assert!(nums.contains("Iter.tryCollect("), "{nums}");
     assert!(!nums.contains("$collect"), "{nums}");
     let cut = file("cut");
-    // `Some((a, b)) => Some((a, b))` is the pair itself.
-    assert!(cut.contains("=> Str.splitOnce(s, \"+\");"), "{cut}");
+    assert!(cut.contains("Str.splitOnce(") && cut.contains("[0]") && cut.contains("[1]"), "{cut}");
 }
 
 #[test]

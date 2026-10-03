@@ -37,8 +37,10 @@ export const unsafeMakeVersion = (
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
     if (s.length === 0) return Result.err({ kind: "Empty" });
-    const [rest, build] = Str.splitOnce(s, "+") ?? [s, null];
-    const [core, pre] = Str.splitOnce(rest, "-") ?? [rest, null];
+    const option = Str.splitOnce(s, "+");
+    const [rest, build] = option !== null ? [option[0], option[1]] : [s, null];
+    const option2 = Str.splitOnce(rest, "-");
+    const [core, pre] = option2 !== null ? [option2[0], option2[1]] : [rest, null];
     const parts = core.split(".");
     const majorResult = parseCoreNumber(Slice.at(parts, 0), { kind: "Major" });
     if (majorResult.kind === "Err") return majorResult;

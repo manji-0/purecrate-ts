@@ -811,16 +811,7 @@ fn fold(
         _ => {
             let t = crate::tidy::strip_outer(&then);
             // `unwrap_or` of a name, literal, or field: `x ?? d` is the test
-            // `x !== null` with the same `x` in the Some arm (`??` keeps 0/false),
-            // or a copy of the tuple `x` (`[x[0], x[1]]`, what
-            // `Some((a, b)) => (a, Some(b))` prints): a tuple is never changed.
-            let copies = |x: &str| {
-                (2..=12).any(|n| t == format!("[{}]", (0..n).map(|i| format!("{x}[{i}]")).collect::<Vec<_>>().join(", ")))
-            };
-            let t = match test.strip_suffix(" !== null") {
-                Some(x) if copies(x) => x,
-                _ => t,
-            };
+            // `x !== null` with the same `x` in the Some arm (`??` keeps 0/false).
             if test == format!("{t} !== null") {
                 // A cast beside `??` is parenthesized, as oxfmt prints it.
                 let d = crate::tidy::strip_outer(&else_);
@@ -828,11 +819,12 @@ fn fold(
                 if d == "null" {
                     return t.to_string();
                 }
-                if crate::tidy::has_top_as(d) { format!("{t} ?? ({d})") } else { format!("{t} ?? {d}") }
+                let d = group(d, crate::tidy::PREC_COALESCE, Assoc::Left, Side::Right);
+                if crate::tidy::has_top_as(&d) { format!("{t} ?? ({d})") } else { format!("{t} ?? {d}") }
             } else {
                 // A cast in a branch, and a `??` anywhere in it, is
                 // parenthesized, as oxfmt prints it.
-                let coalesces = |g: &str| crate::tidy::top_prec(g) == PREC_OR && g.contains(" ?? ");
+                let coalesces = |g: &str| crate::tidy::top_prec(g) == crate::tidy::PREC_COALESCE;
                 let branch = |s: &str, side| {
                     let g = group(s, PREC_TERNARY, Assoc::Right, side);
                     if crate::tidy::has_top_as(&g) || coalesces(&g) { format!("({g})") } else { g }

@@ -54,8 +54,7 @@ pub fn doubled_less(x: u32, d: u32) -> u32 {
     x.checked_sub(1).map(|v| v * 2).unwrap_or(d)
 }
 
-/// `Some((a, b)) => (a, Some(b))` copies the tuple: `x ?? (0, None)`, with
-/// falsy elements still `Some`.
+/// `Some((a, b)) => (a, Some(b))`, with falsy elements still `Some`.
 pub fn pair_or(x: Option<(u8, bool)>) -> (u8, Option<bool>) {
     match x {
         Some((a, b)) => (a, Some(b)),

@@ -160,7 +160,10 @@ pub(crate) const PREC_REL: u8 = 11;
 pub(crate) const PREC_EQ: u8 = 10;
 pub(crate) const PREC_AND: u8 = 6;
 pub(crate) const PREC_OR: u8 = 5;
-pub(crate) const PREC_TERNARY: u8 = 4;
+/// `??` binds looser than `||` but may not stand beside `||` or `&&`
+/// without parentheses: JS rejects `a ?? b || c` (`needs_paren`).
+pub(crate) const PREC_COALESCE: u8 = 4;
+pub(crate) const PREC_TERNARY: u8 = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Side {
@@ -181,6 +184,11 @@ pub(crate) enum Assoc {
 pub(crate) fn needs_paren(child: u8, parent: u8, assoc: Assoc, side: Side) -> bool {
     // `a && b || c` reads as `(a && b) || c`, as oxfmt writes it.
     if child == PREC_AND && parent == PREC_OR {
+        return true;
+    }
+    // `??` beside `||` or `&&` is a syntax error without them.
+    let logical = |p| p == PREC_AND || p == PREC_OR;
+    if child == PREC_COALESCE && logical(parent) || logical(child) && parent == PREC_COALESCE {
         return true;
     }
     if child > parent || child == PREC_ATOMIC {
@@ -214,7 +222,7 @@ pub(crate) fn top_prec(s: &str) -> u8 {
         let hit = [
             (" !== ", PREC_EQ),
             (" === ", PREC_EQ),
-            (" ?? ", PREC_OR),
+            (" ?? ", PREC_COALESCE),
             (" || ", PREC_OR),
             (" && ", PREC_AND),
             (" <= ", PREC_REL),

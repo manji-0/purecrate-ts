@@ -18,9 +18,66 @@ use crate::stmt::{is_place, touches};
 /// `expr` with every such `match` joined, innermost first.
 pub(crate) fn joined(expr: &Expr) -> Expr {
     let mut out = expr.clone();
+    unstated(&mut out, true);
     narrow(&mut out, &mut Vec::new());
     join(&mut out);
     out
+}
+
+/// `expr` without the comments that are not above a statement: one above
+/// an operand, an argument, or a `let`'s value has no line of its own, and
+/// the printer reads such a value's precedence from its node, which a
+/// comment would hide (`c && { // .. \n a || b }` is `c && (a || b)`).
+/// `block` is whether `expr` stands where a statement may.
+fn unstated(expr: &mut Expr, block: bool) {
+    if !block {
+        while let Expr::Seq { first, then } = expr {
+            if !matches!(**first, Expr::Comment(_)) {
+                break;
+            }
+            *expr = std::mem::replace(&mut **then, Expr::Unreachable);
+        }
+    }
+    match expr {
+        Expr::Seq { first, then } => {
+            unstated(first, true);
+            unstated(then, true);
+        }
+        Expr::Let { value, then, .. } => {
+            unstated(value, false);
+            unstated(then, true);
+        }
+        Expr::If { cond, then, else_ } => {
+            unstated(cond, false);
+            unstated(then, true);
+            unstated(else_, true);
+        }
+        Expr::Match { scrutinee, arms } => {
+            unstated(scrutinee, false);
+            for arm in arms {
+                if let Some(guard) = &mut arm.guard {
+                    unstated(guard, false);
+                }
+                unstated(&mut arm.body, true);
+            }
+        }
+        Expr::For { start, end, body, .. } => {
+            unstated(start, false);
+            unstated(end, false);
+            unstated(body, true);
+        }
+        Expr::ForEach { source, body, .. } => {
+            unstated(source, false);
+            unstated(body, true);
+        }
+        Expr::While { cond, body } => {
+            unstated(cond, false);
+            unstated(body, true);
+        }
+        Expr::Closure { body, .. } => unstated(body, true),
+        Expr::Ignored { expr: inner, .. } => unstated(inner, block),
+        other => other.children_mut().into_iter().for_each(|c| unstated(c, false)),
+    }
 }
 
 /// A place and the variants an enclosing arm has narrowed it to.

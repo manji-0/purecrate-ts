@@ -159,17 +159,3 @@ fn map_then_unwrap_or_is_one_test() {
     assert!(bumped.contains("x !== null ? Int.u8.add(x, 1 as U8) : d"), "{bumped}");
     assert!(!bumped.contains("opt"), "{bumped}");
 }
-
-/// `Some((a, b)) => (a, Some(b)), None => d` is `x ?? d`; on a call, the
-/// call is read in place rather than bound.
-#[test]
-fn a_copied_tuple_is_coalesced() {
-    let krate = purecrate_syntax::parse_source("coalesced", SOURCE).expect("parse");
-    let typed = purecrate_check::accept(&krate).expect("accept");
-    let pkg = purecrate_pack::assemble(&typed);
-    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
-    let pair_or = file("pair-or");
-    assert!(pair_or.contains("x ?? [0 as U8, null]"), "{pair_or}");
-    let split_or = file("split-or");
-    assert!(split_or.contains("split(n) ?? [n, null]"), "{split_or}");
-}

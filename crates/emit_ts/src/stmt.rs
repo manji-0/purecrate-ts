@@ -55,7 +55,18 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
         // Printed as a `switch` whose `default` returns, or an `if` chain
         // ending in `else`: it jumps when every arm does.
         Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends_in_jump(&a.body)),
+        // `for (;;)` that no `break` leaves.
+        Expr::While { cond, body } => **cond == Expr::Lit(Lit::Bool(true)) && !breaks(body),
         _ => false,
+    }
+}
+
+/// Whether a `break` in `expr` leaves the loop `expr` is the body of.
+fn breaks(expr: &Expr) -> bool {
+    match expr {
+        Expr::Break => true,
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(breaks),
     }
 }
 
@@ -369,7 +380,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::Seq { first, then } => {
             emit_stmts(first, indent, Sink::Effect, out);
-            let dead = matches!(**first, Expr::Return(_)) && **then == Expr::Lit(Lit::Unit);
+            let dead = ends_in_jump(first) && **then == Expr::Lit(Lit::Unit);
             if !dead {
                 emit_tail(then, indent, sink, out, tail);
             }
@@ -433,7 +444,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 indent,
                 out,
             );
-            sink.finish("undefined", &pad, out);
+            // Nothing follows a `for (;;)` that no `break` leaves.
+            if !ends_in_jump(expr) {
+                sink.finish("undefined", &pad, out);
+            }
         }
         Expr::Break => out.push_str(&format!("{pad}break{};\n", jump_label())),
         Expr::Continue => out.push_str(&format!("{pad}continue{};\n", jump_label())),
@@ -1103,8 +1117,10 @@ pub(crate) struct Branch<'e> {
 /// only when it declares nothing they could meet.
 pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail: bool, out: &mut String) {
     // `else if (a) {} else { x }` (an arm that does nothing, `"" => {}`)
-    // is `else if (!a) { x }`.
-    if let [.., empty, last] = branches {
+    // is `else if (!a) { x }`, where nothing is handed on: where the value
+    // is returned, the empty arm still returns, and a `case` would
+    // otherwise run into the next one.
+    if let ([.., empty, last], Sink::Effect) = (branches, sink) {
         if let (Some(test), None, Expr::Lit(Lit::Unit), true) =
             (&empty.test, &last.test, empty.body, empty.prelude.is_empty() && last.prelude.is_empty())
         {

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`??` beside `?:`, `||`, or `&&` is parenthesized.** `match o { Some(v) => v, None => if c { 1 } else { 2 } }` printed `o ?? c ? 1 : 2`, which JS reads as `(o ?? c) ? 1 : 2`: `Some(5)` gave `1`. `o ?? a || b` and `c || o ?? d` were syntax errors. `??` now has its own precedence, below `||` and parenthesized beside it.
+- **A comment above an operand no longer drops its parentheses.** Since 0.8.0, `c && { // .. \n a || b }` printed `c && a || b`. A comment that is not above a statement is left out before printing.
+- **An empty arm where the value is returned returns.** `M::A => match s { "" => {}, _ => .. }` in a unit function merged the empty arm into the next test, and `case "A"` ran into `case "B"`: a panic Rust does not have. The merge is kept only where nothing is handed on.
+- **No `return` after a statement that never falls through.** A `match` whose arms all return, then `;`, and a `while true` no `break` leaves, were followed by `return undefined;`, which the generated tsconfig rejects as unreachable.
+- **A tuple read in part is not taken for the whole.** 0.8.0's `Some((a, b)) => (a, Some(b))` → `x ?? d` matched the printed text, so `Some((a, b, _)) => (a, b)` became `x ?? [0, 0]`, the three-element tuple. The rewrite is withdrawn; semver's `parse` binds `option` again.
+
 ## 0.8.0 — 2026-10-03
 
 Generated TypeScript that reads closer to the Rust it came from: no `$` in any name, flat guards instead of `else` chains, the source's `//` comments kept, bodies in paragraphs, byte literals that name their character, and fewer temporaries; a runtime copy that keeps only what the package uses; and the last four patterns 0.7.0 refused (`A | B(1)`, `Some((1, b))`, `.map(PreId::Numeric)`, `str::parse` into an integer). Packages generated with 0.7.0 must be regenerated, and callers that read a one-field tuple variant updated (Breaking, below) ([roadmap §8.9](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#89-080-generated-typescript-that-reads-like-the-source-2026-10-03)).
