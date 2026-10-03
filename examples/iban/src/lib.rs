@@ -2,7 +2,10 @@
 // the country, two check digits, then 11 to 30 capital letters and digits
 // (15 to 34 in all). It is valid when, with the first four characters moved
 // to the end and each letter read as 10 to 35, the number is 1 mod 97
-// (ISO 7064 MOD 97-10). The country-by-country lengths are not checked.
+// (ISO 7064 MOD 97-10). The check digits are 02 to 98: 00, 01, and 99 leave
+// the same remainder as 97, 98, and 02, and are never issued. The
+// country-by-country lengths, and whether the country is in the registry,
+// are not checked.
 //
 // `Iban` is a closed type: the value comes only from `parse`.
 
@@ -39,15 +42,15 @@ impl Iban {
         if b.len() < 15 || b.len() > 34 {
             return Err(IbanError::Length);
         }
-        for i in 0..2usize {
-            if !is_upper(b[i]) {
-                return Err(IbanError::Country);
-            }
+        if !is_upper(b[0]) || !is_upper(b[1]) {
+            return Err(IbanError::Country);
         }
-        for i in 2..4usize {
-            if !is_digit(b[i]) {
-                return Err(IbanError::CheckDigits);
-            }
+        if !is_digit(b[2]) || !is_digit(b[3]) {
+            return Err(IbanError::CheckDigits);
+        }
+        let check = (b[2] - b'0') * 10 + (b[3] - b'0');
+        if check < 2 || check > 98 {
+            return Err(IbanError::CheckDigits);
         }
         // The first four characters count last.
         let mut acc = 0u32;

@@ -37,16 +37,8 @@ const parseSeconds = (s: string): I64 | null => {
     !Iter.all(Str.bytes(s), (b: U8): boolean => b >= /* '0' */ 48 && b <= /* '9' */ 57)
   )
     return null;
-  let value = 0n as I64;
-
-  for (const b of Str.bytes(s)) {
-    value = Int.i64.add(
-      Int.i64.mul(value, 10n as I64),
-      globalThis.BigInt(Int.u8.sub(b, /* '0' */ 48 as U8)) as I64,
-    );
-  }
-
-  return value;
+  const result = Int.i64.parse(s);
+  return result.kind === "Ok" ? result.value : null;
 };
 
 /**
@@ -54,27 +46,23 @@ const parseSeconds = (s: string): I64 | null => {
  * are invalid_request (OIDC Core §3.1.2.1).
  */
 const parsePrompt = (s: string): Prompt | null => {
-  let noInteraction = false;
-  let login = false;
-  let consent = false;
-  let selectAccount = false;
-
-  for (const token of s.split(" ")) {
-    if (token === "none") {
-      noInteraction = true;
-    } else if (token === "login") {
-      login = true;
-    } else if (token === "consent") {
-      consent = true;
-    } else if (token === "select_account") {
-      selectAccount = true;
-    } else if (token !== "") {
-      return null;
-    }
-  }
-
-  if (noInteraction && (login || consent || selectAccount)) return null;
-  return { no_interaction: noInteraction, login, consent, select_account: selectAccount };
+  if (
+    !Iter.all(
+      s.split(" "),
+      (t: string): boolean =>
+        t === "" || t === "none" || t === "login" || t === "consent" || t === "select_account",
+    )
+  )
+    return null;
+  const prompt: Prompt = {
+    no_interaction: hasToken(s, "none"),
+    login: hasToken(s, "login"),
+    consent: hasToken(s, "consent"),
+    select_account: hasToken(s, "select_account"),
+  };
+  if (prompt.no_interaction && (prompt.login || prompt.consent || prompt.select_account))
+    return null;
+  return prompt;
 };
 
 const redirectUriRegistered = (client: Client, uri: string): boolean => {
@@ -92,15 +80,15 @@ export const validateRequest = (
   params: AuthorizationParams,
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
-  if (client === null) return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
-  if (params.client_id === null || params.client_id !== client.client_id)
+  if (client === null || params.client_id === null || params.client_id !== client.client_id)
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
+  const client2 = client;
 
   // redirect_uri is REQUIRED in OIDC (§3.1.2.1), unlike RFC 6749 §4.1.1.
   if (params.redirect_uri === null)
     return Result.err({ kind: "Display", value: { kind: "MissingRedirectUri" } });
   const redirectUri = params.redirect_uri;
-  if (!redirectUriRegistered(client, redirectUri))
+  if (!redirectUriRegistered(client2, redirectUri))
     return Result.err({ kind: "Display", value: { kind: "UnregisteredRedirectUri" } });
 
   // From here on the redirect target is trusted. Echo state only if it
@@ -150,12 +138,12 @@ export const validateRequest = (
       method2 = { kind: "Plain" };
     }
 
-    if (method2.kind === "Plain" && !client.allow_plain_pkce)
+    if (method2.kind === "Plain" && !client2.allow_plain_pkce)
       return Result.err(fail({ kind: "InvalidRequest" }));
     pkce = { challenge, method: method2 };
   } else {
     if (params.code_challenge_method !== null) return Result.err(fail({ kind: "InvalidRequest" }));
-    if (client.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
+    if (client2.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
     pkce = null;
   }
 
@@ -184,7 +172,7 @@ export const validateRequest = (
   const wantsMfa = params.acr_values !== null && hasToken(params.acr_values, ACR_MFA);
   return Result.ok(
     unsafeMakeAuthorizationRequest({
-      client_id: client.client_id,
+      client_id: client2.client_id,
       redirect_uri: redirectUri,
       scope,
       state,

@@ -137,8 +137,8 @@ fn reads(f: &Fn, items: &[(String, bool)]) -> HashSet<String> {
 /// Top-level names are taken up front: a TS `const` shadows an import for the
 /// whole block, including uses before it that Rust resolves to the item. A
 /// function no function of the file reads is not imported into it, so a
-/// local may have its name (`paid(lines, total, cmd)` keeps `total` where
-/// nothing beside it calls `total`). A helper's name is always taken, so
+/// local may have its name (a parameter `total` keeps it where nothing in
+/// the file calls `total`). A helper's name is always taken, so
 /// that, once renamed, a read of the name is a read of the helper.
 fn rename_fn(f: Fn, items: &[(String, bool)], read: &HashSet<String>, helpers: &HashSet<String>) -> Fn {
     let mut r = Renamer::default();

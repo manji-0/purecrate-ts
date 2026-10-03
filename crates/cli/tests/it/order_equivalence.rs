@@ -27,6 +27,9 @@ fn generated_order_lifecycle_matches_rust() {
         for code in 0u8..3 {
             cases.push(case!(order::open_with(code)));
         }
+        for code in 0u8..4 {
+            cases.push(case!(order::edge(code)));
+        }
         cases
     });
     for reached in [
@@ -43,6 +46,8 @@ fn generated_order_lifecycle_matches_rust() {
         "Err(OrderError::EmptySku)",
         "Err(OrderError::NegativeAmount)",
         "Ok(1000300)",
+        "Err(OrderError::PriceMismatch)",
+        "Err(OrderError::Overflow)",
     ] {
         assert!(cases.iter().any(|c| c.rust.starts_with(reached)), "no run reaches {reached}");
     }

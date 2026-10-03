@@ -5,7 +5,14 @@
 ### Changed
 
 - **A helper with one caller's file is printed in that file.** A function the package does not export, called only from one other file, is a `const` of that file, unexported, instead of a file of its own that the caller imports: `isDigit` and `isUpper` are in `iban.ts`, `parseSeconds` and `parsePrompt` in `validate-request.ts`. A helper of a helper follows it. The examples' plain outputs have 113 files instead of 143 (oidc 51 → 43, semver 16 → 8). Declarations that share a file are a blank line apart.
+- **Examples follow their specifications more closely.** iban refuses check digits 00, 01, and 99, which MOD 97 cannot tell from 97, 98, and 02. oidc keeps the OTP failure count in the stored enrollment, so a new flow does not reset it (RFC 4226 §7.3), names the subject in `Locked`, does not count a clock before T0 against the End-User, and issues the code without the consent screen when consent is on file. order returns `Overflow` instead of panicking on a large quantity or total, and refuses a SKU added again at another price. Each example's header names what it leaves out (payment: `automatic_async`, fees at creation, currencies; invoice: the registration number). signup and order are shorter (`split_once`, `chars().count()`, `map_err(..)?`; one `match (order, cmd)`).
 - **A local is renamed apart from what its whole file imports.** With helpers sharing their caller's file, a parameter `total` beside a function that calls `total` would hide the import, so it is `total2`; a local never takes the name of a function the package does not export.
+
+### Fixed
+
+- **A `?` inside what `ok_or(e)?` takes leaves the function.** `x.checked_add(g()?).ok_or(e)?` printed `g()?` inside an inline function, whose `return` left only itself.
+- **Two `ok_or(e)?` or `map_err(f)?` in one body keep their values apart.** Each declared `const opt` (or `result`) in the same block.
+- **A last-argument arrow whose body is not a call, `?:`, or `as` opens every argument**, as oxfmt prints it, instead of keeping its head on the call's line.
 
 ## 0.8.2 — 2026-10-04
 

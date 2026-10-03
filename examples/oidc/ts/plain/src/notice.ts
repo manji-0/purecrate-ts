@@ -6,7 +6,8 @@ export type Notice =
   | Readonly<{ kind: "WrongPassword" }>
   | Readonly<{ kind: "WrongOtp" }>
   | Readonly<{ kind: "OtpReplayed" }>
-  | Readonly<{ kind: "MalformedOtp" }>;
+  | Readonly<{ kind: "MalformedOtp" }>
+  | Readonly<{ kind: "OtpUnavailable" }>;
 
 export const Notice = {
   Clear: (): Notice => ({ kind: "Clear" }),
@@ -14,4 +15,9 @@ export const Notice = {
   WrongOtp: (): Notice => ({ kind: "WrongOtp" }),
   OtpReplayed: (): Notice => ({ kind: "OtpReplayed" }),
   MalformedOtp: (): Notice => ({ kind: "MalformedOtp" }),
+  /**
+   * The server's clock is before the enrollment's T0: not the End-User's
+   * failure, so not counted.
+   */
+  OtpUnavailable: (): Notice => ({ kind: "OtpUnavailable" }),
 } as const;

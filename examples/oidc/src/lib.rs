@@ -16,7 +16,21 @@
 // session, verifies the password hash, computes HMAC-SHA-1 over each
 // candidate time step, computes BASE64URL(SHA-256(code_verifier)), supplies
 // `now` (seconds since the Unix epoch), generates the code, and stores the
-// returned values (lockout counters, last used TOTP step, the code grant).
+// returned values: the code grant, and per subject the TOTP enrollment's
+// `failures` and `last_used_step` (from `AwaitingOtp`, and from the
+// `Authentication` once accepted, when `failures` goes back to 0), and the
+// lock a `Locked` flow names. A new flow reads them back, so opening the
+// request again does not grant more OTP attempts (RFC 4226 §7.3).
+//
+// Policy choices, not the specifications':
+// - `state` is required, and `state` and `nonce` are each 1 to 512 VSCHAR
+//   (RFC 6749 Appendix A.5); OIDC puts no limit on `nonce`;
+// - a session is reused only when it already meets `acr_values=mfa`;
+//   otherwise the End-User logs in again with both factors. A fresh login
+//   without a TOTP enrollment still succeeds with the weaker acr, since
+//   acr_values is voluntary (§3.1.2.1);
+// - the password attempt limit counts within one flow; throttling password
+//   checks per account (NIST SP 800-63B-4 §3.2.2) is the caller's.
 //
 // Left out on purpose:
 // - response types other than `code` (implicit, hybrid), `response_mode`;
@@ -29,7 +43,9 @@
 //   the login form);
 // - HOTP counter-based resynchronisation (RFC 4226 §7.4) and TOTP drift
 //   tracking (RFC 6238 §6); only the ±1 step window is accepted;
-// - the ID token itself, token endpoint client authentication, code expiry.
+// - the ID token itself, token endpoint client authentication, code expiry,
+//   and refusing a code used twice (RFC 6749 §4.1.2): the caller deletes the
+//   grant when it is redeemed.
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -253,39 +269,25 @@ fn parse_seconds(s: &String) -> Option<i64> {
     if s.is_empty() || s.len() > MAX_SECONDS_DIGITS || !s.bytes().all(|b| matches!(b, b'0'..=b'9')) {
         return None;
     }
-    let mut value: i64 = 0;
-    for b in s.bytes() {
-        value = value * 10 + i64::from(b - b'0');
-    }
-    Some(value)
+    s.parse::<i64>().ok()
 }
 
 /// Parses `prompt`. Unknown values and `none` combined with anything else
 /// are invalid_request (OIDC Core §3.1.2.1).
 fn parse_prompt(s: &String) -> Option<Prompt> {
-    let mut no_interaction = false;
-    let mut login = false;
-    let mut consent = false;
-    let mut select_account = false;
-    for token in s.split(' ') {
-        match token {
-            "none" => no_interaction = true,
-            "login" => login = true,
-            "consent" => consent = true,
-            "select_account" => select_account = true,
-            "" => {}
-            _ => return None,
-        }
-    }
-    if no_interaction && (login || consent || select_account) {
+    if !s.split(' ').all(|t| matches!(t, "" | "none" | "login" | "consent" | "select_account")) {
         return None;
     }
-    Some(Prompt {
-        no_interaction,
-        login,
-        consent,
-        select_account,
-    })
+    let prompt = Prompt {
+        no_interaction: has_token(s, "none"),
+        login: has_token(s, "login"),
+        consent: has_token(s, "consent"),
+        select_account: has_token(s, "select_account"),
+    };
+    if prompt.no_interaction && (prompt.login || prompt.consent || prompt.select_account) {
+        return None;
+    }
+    Some(prompt)
 }
 
 // ---------------------------------------------------------------------------
@@ -322,14 +324,10 @@ pub fn validate_request(
     params: &AuthorizationParams,
     client: &Option<Client>,
 ) -> Result<AuthorizationRequest, AuthorizationError> {
-    let client = match client {
-        Some(c) => c,
-        None => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
-    };
-    match &params.client_id {
-        Some(id) if *id == client.client_id => {}
+    let client = match (client, &params.client_id) {
+        (Some(c), Some(id)) if *id == c.client_id => c,
         _ => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
-    }
+    };
     // redirect_uri is REQUIRED in OIDC (§3.1.2.1), unlike RFC 6749 §4.1.1.
     let redirect_uri = match &params.redirect_uri {
         Some(u) => u,
@@ -403,10 +401,7 @@ pub fn validate_request(
         Some(m) => Some(parse_seconds(m).ok_or(fail(ErrorCode::InvalidRequest))?),
         None => None,
     };
-    let wants_mfa = match &params.acr_values {
-        Some(a) => has_token(a, ACR_MFA),
-        None => false,
-    };
+    let wants_mfa = matches!(&params.acr_values, Some(a) if has_token(a, ACR_MFA));
     Ok(AuthorizationRequest {
         client_id: String::from(&client.client_id),
         redirect_uri: String::from(redirect_uri),
@@ -452,6 +447,9 @@ pub struct TotpEnrollment {
     pub digits: OtpDigits,
     /// The step of the last accepted OTP (RFC 6238 §5.2 replay rule).
     pub last_used_step: Option<i64>,
+    /// OTPs rejected since the last accepted one, across flows
+    /// (RFC 4226 §7.3).
+    pub failures: u32,
 }
 
 /// T = floor((now - T0) / X) (RFC 6238 §4.2). None before T0 or with a
@@ -494,11 +492,7 @@ fn parse_otp(code: &String, digits: OtpDigits) -> Option<u32> {
     if code.len() != digit_count(digits) || !code.bytes().all(|b| matches!(b, b'0'..=b'9')) {
         return None;
     }
-    let mut value: u32 = 0;
-    for b in code.bytes() {
-        value = value * 10 + u32::from(b - b'0');
-    }
-    Some(value)
+    code.parse::<u32>().ok()
 }
 
 /// Result of checking a submitted OTP against the candidate MACs.
@@ -554,6 +548,9 @@ pub enum Notice {
     WrongOtp,
     OtpReplayed,
     MalformedOtp,
+    /// The server's clock is before the enrollment's T0: not the End-User's
+    /// failure, so not counted.
+    OtpUnavailable,
 }
 
 /// A completed authentication.
@@ -585,16 +582,20 @@ pub struct CodeGrant {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Flow {
+    /// `needs_consent`: no consent on file, or `prompt=consent`; without it
+    /// the code is issued as soon as the End-User is authenticated.
     AwaitingPassword {
         request: AuthorizationRequest,
+        needs_consent: bool,
         failures: u32,
         notice: Notice,
     },
+    /// The caller stores `enrollment.failures` after each attempt.
     AwaitingOtp {
         request: AuthorizationRequest,
+        needs_consent: bool,
         subject: String,
         enrollment: TotpEnrollment,
-        failures: u32,
         notice: Notice,
     },
     AwaitingConsent {
@@ -605,7 +606,8 @@ pub enum Flow {
     /// Terminal: redirect to the client with an error (e.g. consent denied).
     Rejected(ErrorRedirect),
     /// Terminal: too many failures; shown to the End-User, not redirected.
-    Locked,
+    /// The caller locks `subject`.
+    Locked { subject: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -649,6 +651,25 @@ pub fn acr_value(strength: AuthStrength) -> String {
     match strength {
         AuthStrength::PasswordOnly => String::from(ACR_PASSWORD),
         AuthStrength::PasswordAndTotp => String::from(ACR_MFA),
+    }
+}
+
+/// Asks for consent, or issues the code where consent is on file.
+fn authenticated(request: AuthorizationRequest, needs_consent: bool, auth: Authentication) -> Flow {
+    if needs_consent {
+        Flow::AwaitingConsent { request, auth }
+    } else {
+        issue(request, auth)
+    }
+}
+
+/// One more failure, or `None` at the limit.
+fn counted(failures: u32, limit: u32) -> Option<u32> {
+    let failures = failures + 1;
+    if failures >= limit {
+        None
+    } else {
+        Some(failures)
     }
 }
 
@@ -708,10 +729,10 @@ pub fn begin(
     match reusable {
         None if request.prompt.no_interaction => Err(refuse(ErrorCode::LoginRequired)),
         Some(_) if request.prompt.no_interaction && needs_consent => Err(refuse(ErrorCode::ConsentRequired)),
-        Some(auth) if !needs_consent => Ok(issue(request, auth)),
-        Some(auth) => Ok(Flow::AwaitingConsent { request, auth }),
+        Some(auth) => Ok(authenticated(request, needs_consent, auth)),
         None => Ok(Flow::AwaitingPassword {
             request,
+            needs_consent,
             failures: 0,
             notice: Notice::Clear,
         }),
@@ -721,19 +742,29 @@ pub fn begin(
 /// One transition of the login flow.
 pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError> {
     match (flow, event) {
-        (Flow::AwaitingPassword { request, failures, .. }, Event::PasswordChecked { verified: false, .. }) => {
-            let failures = failures + 1;
-            if failures >= policy.max_password_failures {
-                return Ok(Flow::Locked);
-            }
-            Ok(Flow::AwaitingPassword {
+        (
+            Flow::AwaitingPassword {
                 request,
+                needs_consent,
+                failures,
+                ..
+            },
+            Event::PasswordChecked {
+                subject, verified: false, ..
+            },
+        ) => match counted(failures, policy.max_password_failures) {
+            Some(failures) => Ok(Flow::AwaitingPassword {
+                request,
+                needs_consent,
                 failures,
                 notice: Notice::WrongPassword,
-            })
-        }
+            }),
+            None => Ok(Flow::Locked { subject }),
+        },
         (
-            Flow::AwaitingPassword { request, .. },
+            Flow::AwaitingPassword {
+                request, needs_consent, ..
+            },
             Event::PasswordChecked {
                 subject,
                 second_factor,
@@ -741,11 +772,15 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                 ..
             },
         ) => match second_factor {
+            // Failures stored from earlier flows count here too.
+            SecondFactor::Totp(enrollment) if enrollment.failures >= policy.max_otp_failures => {
+                Ok(Flow::Locked { subject })
+            }
             SecondFactor::Totp(enrollment) => Ok(Flow::AwaitingOtp {
                 request,
+                needs_consent,
                 subject,
                 enrollment,
-                failures: 0,
                 notice: Notice::Clear,
             }),
             SecondFactor::NotEnrolled => {
@@ -757,15 +792,15 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                     strength: AuthStrength::PasswordOnly,
                     totp_step: None,
                 };
-                Ok(Flow::AwaitingConsent { request, auth })
+                Ok(authenticated(request, needs_consent, auth))
             }
         },
         (
             Flow::AwaitingOtp {
                 request,
+                needs_consent,
                 subject,
                 enrollment,
-                failures,
                 ..
             },
             Event::OtpSubmitted { code, now, candidates },
@@ -778,24 +813,32 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                         strength: AuthStrength::PasswordAndTotp,
                         totp_step: Some(step),
                     };
-                    return Ok(Flow::AwaitingConsent { request, auth });
+                    return Ok(authenticated(request, needs_consent, auth));
+                }
+                OtpCheck::ClockBeforeEpoch => {
+                    return Ok(Flow::AwaitingOtp {
+                        request,
+                        needs_consent,
+                        subject,
+                        enrollment,
+                        notice: Notice::OtpUnavailable,
+                    });
                 }
                 OtpCheck::Replayed => Notice::OtpReplayed,
                 OtpCheck::Malformed => Notice::MalformedOtp,
-                OtpCheck::Mismatch | OtpCheck::ClockBeforeEpoch => Notice::WrongOtp,
+                OtpCheck::Mismatch => Notice::WrongOtp,
             };
             // RFC 4226 §7.3: every rejected value counts toward the limit.
-            let failures = failures + 1;
-            if failures >= policy.max_otp_failures {
-                return Ok(Flow::Locked);
+            match counted(enrollment.failures, policy.max_otp_failures) {
+                Some(failures) => Ok(Flow::AwaitingOtp {
+                    request,
+                    needs_consent,
+                    subject,
+                    enrollment: TotpEnrollment { failures, ..enrollment },
+                    notice,
+                }),
+                None => Ok(Flow::Locked { subject }),
             }
-            Ok(Flow::AwaitingOtp {
-                request,
-                subject,
-                enrollment,
-                failures,
-                notice,
-            })
         }
         (Flow::AwaitingConsent { request, auth }, Event::ConsentGranted) => Ok(issue(request, auth)),
         (Flow::AwaitingConsent { request, .. }, Event::ConsentDenied) => Ok(Flow::Rejected(ErrorRedirect {

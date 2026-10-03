@@ -21,9 +21,17 @@
 // - `amount` is a positive integer in the smallest currency unit, at least
 //   50 ($0.50) and at most eight digits.
 //
-// Not modeled: Stripe-internal cancellation reasons, multicapture, capture
-// that goes to `processing`, updating the method during `requires_action`,
-// and the currency-specific minimums other than USD's.
+// Not modeled: Stripe-internal cancellation reasons, among them the
+// transition to `canceled` after too many failed confirmations and the
+// expiry of an uncaptured authorization; multicapture; capture that goes to
+// `processing`; updating the method during `requires_action`; creating with
+// a method or confirming at once (`create` always starts in
+// `requires_payment_method`); `capture_method=automatic_async`, Stripe's
+// default, whose states are those of `automatic`; an
+// `application_fee_amount` set at creation (a fee is given at capture
+// only, so an automatic capture has none); and currencies: amounts are
+// USD cents, with USD's minimum. A capture of 0 is refused, though Stripe
+// states only the upper bound.
 //
 // The same types are the server's wire format: serde derives with no
 // attributes, except that `Amount` and `PaymentMethodId` are read through

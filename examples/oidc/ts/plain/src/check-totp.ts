@@ -27,16 +27,8 @@ const parseOtp = (code: string, digits: OtpDigits): U32 | null => {
     !Iter.all(Str.bytes(code), (b: U8): boolean => b >= /* '0' */ 48 && b <= /* '9' */ 57)
   )
     return null;
-  let value = 0 as U32;
-
-  for (const b of Str.bytes(code)) {
-    value = Int.u32.add(
-      Int.u32.mul(value, 10 as U32),
-      Int.u8.sub(b, /* '0' */ 48 as U8) as number as U32,
-    );
-  }
-
-  return value;
+  const result = Int.u32.parse(code);
+  return result.kind === "Ok" ? result.value : null;
 };
 
 /**

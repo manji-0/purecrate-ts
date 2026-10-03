@@ -86,7 +86,6 @@ const small = <T extends number>(min: number, max: number) => {
     of,
     add: (a: T, b: T): T => fit(a + b, "add"),
     sub: (a: T, b: T): T => fit(a - b, "subtract"),
-    mul: (a: T, b: T): T => fit(a * b, "multiply"),
     div: (a: T, b: T): T =>
       b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
     rem: (a: T, b: T): T =>
@@ -104,7 +103,6 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
     of: (value: bigint): T => fit(value, "convert"),
     add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
     sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"),
-    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
     div: (a: T, b: T): T =>
       n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
     rem: (a: T, b: T): T =>
@@ -133,6 +131,25 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
     pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
   } as const;
 };
+
+/** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
+export type ParseIntError = { readonly "purecrate.ParseIntError": true };
+
+const PARSE_INT_ERROR = Object.freeze({}) as ParseIntError;
+
+/**
+ * `s.parse::<T>()` into an integer: Rust's `from_str_radix(s, 10)`. An
+ * optional `+`, or `-` for a signed type, then one or more ASCII digits,
+ * in `lo..=hi`; `to` makes the runtime value. Anything else is `Err`.
+ */
+const parser =
+  <T>(lo: bigint, hi: bigint, signed: boolean, to: (n: bigint) => T) =>
+  (s: string): Result<T, ParseIntError> => {
+    const digits = s.startsWith("+") || (signed && s.startsWith("-")) ? s.slice(1) : s;
+    if (!/^[0-9]+$/.test(digits)) return { kind: "Err", error: PARSE_INT_ERROR };
+    const n = s.startsWith("-") ? -BigInt(digits) : BigInt(digits);
+    return n < lo || n > hi ? { kind: "Err", error: PARSE_INT_ERROR } : { kind: "Ok", value: to(n) };
+  };
 
 /**
  * The amount of a shift, of any integer type. A debug build panics unless it
@@ -234,6 +251,7 @@ export const Int = {
     ...small<U32>(0, 4294967295),
     ...bits32<U32>(32, false),
     ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }),
+    parse: parser(0n, 4294967295n, false, (n) => Number(n) as U32),
   },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
@@ -242,6 +260,7 @@ export const Int = {
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64),
   },
 } as const;
 

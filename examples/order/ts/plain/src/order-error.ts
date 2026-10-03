@@ -10,7 +10,9 @@ export type OrderError =
   | Readonly<{ kind: "EmptyTracking" }>
   | Readonly<{ kind: "InvalidTransition" }>
   | Readonly<{ kind: "NegativeAmount" }>
-  | Readonly<{ kind: "EmptySku" }>;
+  | Readonly<{ kind: "EmptySku" }>
+  | Readonly<{ kind: "PriceMismatch" }>
+  | Readonly<{ kind: "Overflow" }>;
 
 export const OrderError = {
   QtyZero: (): OrderError => ({ kind: "QtyZero" }),
@@ -25,4 +27,8 @@ export const OrderError = {
   InvalidTransition: (): OrderError => ({ kind: "InvalidTransition" }),
   NegativeAmount: (): OrderError => ({ kind: "NegativeAmount" }),
   EmptySku: (): OrderError => ({ kind: "EmptySku" }),
+  /** The same SKU added again at another unit price. */
+  PriceMismatch: (): OrderError => ({ kind: "PriceMismatch" }),
+  /** A quantity or a total past what its integer holds. */
+  Overflow: (): OrderError => ({ kind: "Overflow" }),
 } as const;

@@ -8,6 +8,10 @@ impl Yen {
             Ok(Yen(amount))
         }
     }
+
+    pub fn value(&self) -> i64 {
+        self.0
+    }
 }
 
 pub struct Sku(String);
@@ -64,18 +68,26 @@ pub enum OrderError {
     InvalidTransition,
     NegativeAmount,
     EmptySku,
+    /// The same SKU added again at another unit price.
+    PriceMismatch,
+    /// A quantity or a total past what its integer holds.
+    Overflow,
 }
 
-pub fn add_line(lines: Lines, line: Line) -> Lines {
+/// Adds `line`, or adds its quantity to the line of the same SKU, which
+/// must have the same unit price.
+pub fn add_line(lines: Lines, line: Line) -> Result<Lines, OrderError> {
     match lines {
-        Lines::Nil => Lines::Cons(line, Box::new(Lines::Nil)),
+        Lines::Nil => Ok(Lines::Cons(line, Box::new(Lines::Nil))),
         Lines::Cons(head, rest) => {
-            if head.sku.0 == line.sku.0 {
-                let merged = Line { qty: head.qty + line.qty, ..head };
-                Lines::Cons(merged, rest)
-            } else {
-                Lines::Cons(head, Box::new(add_line(*rest, line)))
+            if head.sku.0 != line.sku.0 {
+                return Ok(Lines::Cons(head, Box::new(add_line(*rest, line)?)));
             }
+            if head.unit_price.0 != line.unit_price.0 {
+                return Err(OrderError::PriceMismatch);
+            }
+            let qty = head.qty.checked_add(line.qty).ok_or(OrderError::Overflow)?;
+            Ok(Lines::Cons(Line { qty, ..head }, rest))
         }
     }
 }
@@ -94,65 +106,34 @@ pub fn remove_sku(lines: Lines, sku: &Sku) -> Result<Lines, OrderError> {
     }
 }
 
-pub fn total(lines: &Lines) -> Yen {
+pub fn total(lines: &Lines) -> Result<Yen, OrderError> {
     match lines {
-        Lines::Nil => Yen(0),
-        Lines::Cons(line, rest) => Yen(line.unit_price.0 * i64::from(line.qty) + total(rest).0),
+        Lines::Nil => Ok(Yen(0)),
+        Lines::Cons(line, rest) => {
+            let amount = line.unit_price.0.checked_mul(i64::from(line.qty)).ok_or(OrderError::Overflow)?;
+            let sum = amount.checked_add(total(rest)?.0).ok_or(OrderError::Overflow)?;
+            Ok(Yen(sum))
+        }
     }
 }
 
 pub fn step(order: Order, cmd: Command) -> Result<Order, OrderError> {
-    match order {
-        Order::Draft { lines } => draft(lines, cmd),
-        Order::Placed { lines, total } => placed(lines, total, cmd),
-        Order::Paid { lines, total } => paid(lines, total, cmd),
-        Order::Shipped { .. } | Order::Cancelled { .. } => Err(OrderError::InvalidTransition),
-    }
-}
-
-fn draft(lines: Lines, cmd: Command) -> Result<Order, OrderError> {
-    match cmd {
-        Command::AddLine(line) => {
-            if line.qty == 0 {
-                return Err(OrderError::QtyZero);
-            }
-            Ok(Order::Draft { lines: add_line(lines, line) })
+    match (order, cmd) {
+        (Order::Draft { .. }, Command::AddLine(line)) if line.qty == 0 => Err(OrderError::QtyZero),
+        (Order::Draft { lines }, Command::AddLine(line)) => Ok(Order::Draft { lines: add_line(lines, line)? }),
+        (Order::Draft { lines }, Command::RemoveSku(sku)) => Ok(Order::Draft { lines: remove_sku(lines, &sku)? }),
+        (Order::Draft { lines }, Command::Place) if matches!(lines, Lines::Nil) => Err(OrderError::Empty),
+        (Order::Draft { lines }, Command::Place) => {
+            let total = total(&lines)?;
+            Ok(Order::Placed { lines, total })
         }
-        Command::RemoveSku(sku) => Ok(Order::Draft { lines: remove_sku(lines, &sku)? }),
-        Command::Place => match lines {
-            Lines::Nil => Err(OrderError::Empty),
-            Lines::Cons(head, rest) => {
-                let lines = Lines::Cons(head, rest);
-                let total = total(&lines);
-                Ok(Order::Placed { lines, total })
-            }
-        },
-        Command::Cancel(reason) => Ok(Order::Cancelled { reason }),
-        _ => Err(OrderError::InvalidTransition),
-    }
-}
-
-fn placed(lines: Lines, total: Yen, cmd: Command) -> Result<Order, OrderError> {
-    match cmd {
-        Command::Pay(amount) => {
-            if amount.0 != total.0 {
-                return Err(OrderError::AmountMismatch { expected: total, got: amount });
-            }
-            Ok(Order::Paid { lines, total })
+        (Order::Placed { total, .. }, Command::Pay(amount)) if amount.0 != total.0 => {
+            Err(OrderError::AmountMismatch { expected: total, got: amount })
         }
-        Command::Cancel(reason) => Ok(Order::Cancelled { reason }),
-        _ => Err(OrderError::InvalidTransition),
-    }
-}
-
-fn paid(lines: Lines, total: Yen, cmd: Command) -> Result<Order, OrderError> {
-    match cmd {
-        Command::Ship(tracking) => {
-            if tracking.is_empty() {
-                return Err(OrderError::EmptyTracking);
-            }
-            Ok(Order::Shipped { lines, total, tracking })
-        }
+        (Order::Placed { lines, total }, Command::Pay(_)) => Ok(Order::Paid { lines, total }),
+        (Order::Paid { .. }, Command::Ship(tracking)) if tracking.is_empty() => Err(OrderError::EmptyTracking),
+        (Order::Paid { lines, total }, Command::Ship(tracking)) => Ok(Order::Shipped { lines, total, tracking }),
+        (Order::Draft { .. } | Order::Placed { .. }, Command::Cancel(reason)) => Ok(Order::Cancelled { reason }),
         _ => Err(OrderError::InvalidTransition),
     }
 }

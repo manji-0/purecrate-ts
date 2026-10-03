@@ -38,7 +38,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (semver remeasured in 0.8.0; the other rows are unchanged since 0.4.1):
+**Now** (semver remeasured in 0.8.0, oidc after its lockout and consent fixes on 2026-10-04, when both sides grew; the other rows are unchanged since 0.4.1):
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
@@ -46,7 +46,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | signup: password (NIST) | 17 | 24 | 1.4× | 1.6×; 1.4× |
 | iban | 24 | 44 | 1.8× | 2.4× with recursion only; 1.9× with range `for` |
 | invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
-| oidc | 327 | 423 | 1.3× | 1.65× as written from the skill alone |
+| oidc | 369 | 439 | 1.2× | 1.65× as written from the skill alone |
 | payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
 | semver | 75 | 132 | 1.8× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 

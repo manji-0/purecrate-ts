@@ -19,14 +19,15 @@ export const Iban = {
   parse: (raw: string): Result<Iban, IbanError> => {
     const b = Str.bytes(raw);
     if (b.length < 15 || b.length > 34) return Result.err({ kind: "Length" });
-
-    for (let i = 0 as Usize; i < 2; i = (i + 1) as Usize) {
-      if (!isUpper(Slice.at(b, i))) return Result.err({ kind: "Country" });
-    }
-
-    for (let i = 2 as Usize; i < 4; i = (i + 1) as Usize) {
-      if (!isDigit(Slice.at(b, i))) return Result.err({ kind: "CheckDigits" });
-    }
+    if (!isUpper(Slice.at(b, 0)) || !isUpper(Slice.at(b, 1)))
+      return Result.err({ kind: "Country" });
+    if (!isDigit(Slice.at(b, 2)) || !isDigit(Slice.at(b, 3)))
+      return Result.err({ kind: "CheckDigits" });
+    const check = Int.u8.add(
+      Int.u8.mul(Int.u8.sub(Slice.at(b, 2), /* '0' */ 48 as U8), 10 as U8),
+      Int.u8.sub(Slice.at(b, 3), /* '0' */ 48 as U8),
+    );
+    if (check < 2 || check > 98) return Result.err({ kind: "CheckDigits" });
 
     // The first four characters count last.
     let acc = 0 as U32;

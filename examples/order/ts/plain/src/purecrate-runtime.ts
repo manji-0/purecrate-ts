@@ -82,19 +82,31 @@ const small = <T extends number>(min: number, max: number) => {
   };
   return {
     of,
-    add: (a: T, b: T): T => fit(a + b, "add"),
-    mul: (a: T, b: T): T => fit(a * b, "multiply"),
   } as const;
 };
 
 const big = <T extends bigint>(min: bigint, max: bigint) => {
   const fit = (n: bigint, what: string): T =>
     (n < min || n > max ? panic(`${what} with overflow`) : n) as T;
-  const n = (x: T): bigint => x as bigint;
   return {
     of: (value: bigint): T => fit(value, "convert"),
-    add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
-    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
+  } as const;
+};
+
+/**
+ * The integer methods, from the exact result: `x.checked_add(y)` is it or
+ * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
+ * low `bits`, and the others panic outside the range as a debug build does.
+ * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
+ * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
+ */
+const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: number; signed: boolean; to: (n: bigint) => T }) => {
+  const v = (x: T): bigint => BigInt(x);
+  const inRange = (n: bigint): boolean => n >= r.lo && n <= r.hi;
+  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? r.to(n) : null);
+  return {
+    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
+    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
   } as const;
 };
 
@@ -102,9 +114,11 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
 export const Int = {
   u32: {
     ...small<U32>(0, 4294967295),
+    ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }),
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }),
   },
 } as const;
 

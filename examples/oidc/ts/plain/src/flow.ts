@@ -12,36 +12,49 @@ export type Flow =
   | Readonly<{
       kind: "AwaitingPassword";
       request: AuthorizationRequest;
+      needs_consent: boolean;
       failures: U32;
       notice: Notice;
     }>
   | Readonly<{
       kind: "AwaitingOtp";
       request: AuthorizationRequest;
+      needs_consent: boolean;
       subject: string;
       enrollment: TotpEnrollment;
-      failures: U32;
       notice: Notice;
     }>
   | Readonly<{ kind: "AwaitingConsent"; request: AuthorizationRequest; auth: Authentication }>
   | Readonly<{ kind: "CodeIssued"; value: CodeGrant }>
   | Readonly<{ kind: "Rejected"; value: ErrorRedirect }>
-  | Readonly<{ kind: "Locked" }>;
+  | Readonly<{ kind: "Locked"; subject: string }>;
 
 export const Flow = {
-  AwaitingPassword: (request: AuthorizationRequest, failures: U32, notice: Notice): Flow => ({
-    kind: "AwaitingPassword",
-    request,
-    failures,
-    notice,
-  }),
-  AwaitingOtp: (
+  /**
+   * `needs_consent`: no consent on file, or `prompt=consent`; without it
+   * the code is issued as soon as the End-User is authenticated.
+   */
+  AwaitingPassword: (
     request: AuthorizationRequest,
-    subject: string,
-    enrollment: TotpEnrollment,
+    needsConsent: boolean,
     failures: U32,
     notice: Notice,
-  ): Flow => ({ kind: "AwaitingOtp", request, subject, enrollment, failures, notice }),
+  ): Flow => ({ kind: "AwaitingPassword", request, needs_consent: needsConsent, failures, notice }),
+  /** The caller stores `enrollment.failures` after each attempt. */
+  AwaitingOtp: (
+    request: AuthorizationRequest,
+    needsConsent: boolean,
+    subject: string,
+    enrollment: TotpEnrollment,
+    notice: Notice,
+  ): Flow => ({
+    kind: "AwaitingOtp",
+    request,
+    needs_consent: needsConsent,
+    subject,
+    enrollment,
+    notice,
+  }),
   AwaitingConsent: (request: AuthorizationRequest, auth: Authentication): Flow => ({
     kind: "AwaitingConsent",
     request,
@@ -50,6 +63,9 @@ export const Flow = {
   CodeIssued: (value: CodeGrant): Flow => ({ kind: "CodeIssued", value }),
   /** Terminal: redirect to the client with an error (e.g. consent denied). */
   Rejected: (value: ErrorRedirect): Flow => ({ kind: "Rejected", value }),
-  /** Terminal: too many failures; shown to the End-User, not redirected. */
-  Locked: (): Flow => ({ kind: "Locked" }),
+  /**
+   * Terminal: too many failures; shown to the End-User, not redirected.
+   * The caller locks `subject`.
+   */
+  Locked: (subject: string): Flow => ({ kind: "Locked", subject }),
 } as const;

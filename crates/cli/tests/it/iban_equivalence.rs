@@ -30,7 +30,7 @@ mod idiomatic {
         if !b[..2].iter().all(u8::is_ascii_uppercase) {
             return Err(IbanError::Country);
         }
-        if !b[2..4].iter().all(u8::is_ascii_digit) {
+        if !b[2..4].iter().all(u8::is_ascii_digit) || matches!(&s[2..4], "00" | "01" | "99") {
             return Err(IbanError::CheckDigits);
         }
         if !b[4..].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
@@ -76,7 +76,8 @@ fn inputs() -> Vec<String> {
         out.push(format!("{} {}", &v[..4], &v[4..]));
     }
     out.extend(
-        ["", "GB82", "GB82WEST1234569876543", "1B82WEST12345698765432", "GBX2WEST12345698765432", "GB82WEST1234569876543é"]
+        // A MOD 97 remainder of 1 with check digits never issued.
+        ["DE01100000000000000010", "DE00100000000000000028", "DE99100000000000000089", "", "GB82", "GB82WEST1234569876543", "1B82WEST12345698765432", "GBX2WEST12345698765432", "GB82WEST1234569876543é"]
             .iter()
             .map(|s| s.to_string()),
     );

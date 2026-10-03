@@ -68,24 +68,8 @@ export const assertNever = (_x: never): never => {
 
 export type U8 = number & { readonly "purecrate.U8": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
-
-const panic = (what: string): never => {
-  throw new Panic(`attempt to ${what}`);
-};
-
-const small = <T extends number>(min: number, max: number) => {
-  const fit = (n: number, what: string): T =>
-    (n < min || n > max ? panic(`${what} with overflow`) : n + 0) as T;
-  const of = (value: number): T => {
-    if (!Number.isInteger(value)) panic("convert a non-integer");
-    return fit(value, "convert");
-  };
-  return {
-    of,
-    add: (a: T, b: T): T => fit(a + b, "add"),
-    sub: (a: T, b: T): T => fit(a - b, "subtract"),
-  } as const;
-};
+/** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
+export type Char = string & { readonly "purecrate.Char": true };
 
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
@@ -106,25 +90,44 @@ export const Str = {
     }
     return out as unknown as ReadonlyArray<U8>;
   },
+  /** `str::len`: the number of UTF-8 bytes. */
+  len: (s: string): Usize => utf8Len(s),
+  /** `str::split_once` with a `char` or a `&str`: the text around the first match. */
+  splitOnce: (s: string, p: string): readonly [string, string] | null => {
+    const i = s.indexOf(p);
+    return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
+  },
 } as const;
 
-/** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
-export const Slice = {
-  /** `xs[i]`. */
-  at: <T>(xs: ReadonlyArray<T>, i: number): T => {
-    if (!Number.isInteger(i) || i < 0 || i >= xs.length) {
-      throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  all: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (!f(x)) return false;
+    return true;
+  },
+  count: (xs: Iterable<unknown>): Usize => {
+    let n = 0;
+    for (const x of xs) {
+      void x;
+      n++;
     }
-    return xs[i] as T;
+    return n as Usize;
   },
 } as const;
 
-/** Integer and float widths. Domain packages and schema adapters share these brands. */
-export const Int = {
-  // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
-  // methods work in Rust's 64 bits and throw on a result above 2^53−1.
-  usize: {
-    ...small<Usize>(0, 9007199254740991),
-  },
-} as const;
+const utf8Len = (s: string): Usize => {
+  let n = 0;
+  for (const c of s) n += utf8Width(c);
+  return n as Usize;
+};
+
+const utf8Width = (c: string): number => {
+  const p = c.codePointAt(0) as number;
+  return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+};
 

@@ -18,4 +18,5 @@ export const unsafeMakeYen = (value: I64): Yen => value as Yen;
 export const Yen = {
   new: (amount: I64): Result<Yen, OrderError> =>
     amount < 0n ? Result.err({ kind: "NegativeAmount" }) : Result.ok(unsafeMakeYen(amount)),
+  value: (self: Yen): I64 => self,
 } as const;

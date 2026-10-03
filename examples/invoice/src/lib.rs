@@ -16,6 +16,10 @@
 //   the inclusive lines are totalled and taxed apart (method 2).
 //
 // Amounts are yen, an integer; there is no decimal.
+//
+// Not modeled: the invoice's other required items (the issuer's
+// registration number, T and 13 digits, the date, the parties), and lines
+// that are exempt, non-taxable, or zero-rated.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

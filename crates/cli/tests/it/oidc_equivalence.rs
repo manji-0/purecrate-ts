@@ -144,7 +144,7 @@ mod idiomatic {
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum OtpDigits { Six, Seven, Eight }
     #[derive(Debug, Clone, PartialEq)]
-    pub struct TotpEnrollment { pub t0: i64, pub period: i64, pub digits: OtpDigits, pub last_used_step: Option<i64> }
+    pub struct TotpEnrollment { pub t0: i64, pub period: i64, pub digits: OtpDigits, pub last_used_step: Option<i64>, pub failures: u32 }
     #[derive(Debug, Clone, PartialEq)]
     pub struct StepMac { pub step: i64, pub mac: Vec<u8> }
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -189,7 +189,7 @@ mod idiomatic {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum Notice { Clear, WrongPassword, WrongOtp, OtpReplayed, MalformedOtp }
+    pub enum Notice { Clear, WrongPassword, WrongOtp, OtpReplayed, MalformedOtp, OtpUnavailable }
     #[derive(Debug, Clone, PartialEq)]
     pub struct Authentication { pub subject: String, pub auth_time: i64, pub strength: AuthStrength, pub totp_step: Option<i64> }
     #[derive(Debug, Clone, PartialEq)]
@@ -199,12 +199,12 @@ mod idiomatic {
     }
     #[derive(Debug, Clone, PartialEq)]
     pub enum Flow {
-        AwaitingPassword { request: AuthorizationRequest, failures: u32, notice: Notice },
-        AwaitingOtp { request: AuthorizationRequest, subject: String, enrollment: TotpEnrollment, failures: u32, notice: Notice },
+        AwaitingPassword { request: AuthorizationRequest, needs_consent: bool, failures: u32, notice: Notice },
+        AwaitingOtp { request: AuthorizationRequest, needs_consent: bool, subject: String, enrollment: TotpEnrollment, notice: Notice },
         AwaitingConsent { request: AuthorizationRequest, auth: Authentication },
         CodeIssued(CodeGrant),
         Rejected(ErrorRedirect),
-        Locked,
+        Locked { subject: String },
     }
     pub enum SecondFactor { Totp(TotpEnrollment), NotEnrolled }
     pub enum Event {
@@ -215,6 +215,10 @@ mod idiomatic {
     }
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum FlowError { InvalidTransition }
+
+    fn authenticated(request: AuthorizationRequest, needs_consent: bool, auth: Authentication) -> Flow {
+        if needs_consent { Flow::AwaitingConsent { request, auth } } else { issue(request, auth) }
+    }
 
     fn issue(request: AuthorizationRequest, auth: Authentication) -> Flow {
         let (amr, acr): (&[&str], _) = match auth.strength {
@@ -245,9 +249,8 @@ mod idiomatic {
         match (request.prompt.no_interaction, reusable, needs_consent) {
             (true, None, _) => Err(redirect(ErrorCode::LoginRequired)),
             (true, Some(_), true) => Err(redirect(ErrorCode::ConsentRequired)),
-            (_, Some(auth), false) => Ok(issue(request, auth)),
-            (false, Some(auth), true) => Ok(Flow::AwaitingConsent { request, auth }),
-            (false, None, _) => Ok(Flow::AwaitingPassword { request, failures: 0, notice: Notice::Clear }),
+            (_, Some(auth), _) => Ok(authenticated(request, needs_consent, auth)),
+            (false, None, _) => Ok(Flow::AwaitingPassword { request, needs_consent, failures: 0, notice: Notice::Clear }),
         }
     }
 
@@ -255,31 +258,37 @@ mod idiomatic {
         use Event::*;
         use Flow::*;
         Ok(match (flow, event) {
-            (AwaitingPassword { failures, .. }, PasswordChecked { verified: false, .. }) if failures + 1 >= policy.max_password_failures => Locked,
-            (AwaitingPassword { request, failures, .. }, PasswordChecked { verified: false, .. }) => {
-                AwaitingPassword { request, failures: failures + 1, notice: Notice::WrongPassword }
+            (AwaitingPassword { failures, .. }, PasswordChecked { subject, verified: false, .. }) if failures + 1 >= policy.max_password_failures => Locked { subject },
+            (AwaitingPassword { request, needs_consent, failures, .. }, PasswordChecked { verified: false, .. }) => {
+                AwaitingPassword { request, needs_consent, failures: failures + 1, notice: Notice::WrongPassword }
             }
-            (AwaitingPassword { request, .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), .. }) => {
-                AwaitingOtp { request, subject, enrollment, failures: 0, notice: Notice::Clear }
+            (AwaitingPassword { .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(e), .. }) if e.failures >= policy.max_otp_failures => Locked { subject },
+            (AwaitingPassword { request, needs_consent, .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), .. }) => {
+                AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::Clear }
             }
-            (AwaitingPassword { request, .. }, PasswordChecked { subject, second_factor: SecondFactor::NotEnrolled, now, .. }) => AwaitingConsent {
+            (AwaitingPassword { request, needs_consent, .. }, PasswordChecked { subject, second_factor: SecondFactor::NotEnrolled, now, .. }) => authenticated(
                 request,
-                auth: Authentication { subject, auth_time: now, strength: AuthStrength::PasswordOnly, totp_step: None },
-            },
-            (AwaitingOtp { request, subject, enrollment, failures, .. }, OtpSubmitted { code, now, candidates }) => {
+                needs_consent,
+                Authentication { subject, auth_time: now, strength: AuthStrength::PasswordOnly, totp_step: None },
+            ),
+            (AwaitingOtp { request, needs_consent, subject, enrollment, .. }, OtpSubmitted { code, now, candidates }) => {
                 let notice = match check_totp(&code, now, &enrollment, &candidates) {
                     OtpCheck::Accepted(step) => {
                         let auth = Authentication { subject, auth_time: now, strength: AuthStrength::PasswordAndTotp, totp_step: Some(step) };
-                        return Ok(AwaitingConsent { request, auth });
+                        return Ok(authenticated(request, needs_consent, auth));
+                    }
+                    OtpCheck::ClockBeforeEpoch => {
+                        return Ok(AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::OtpUnavailable });
                     }
                     OtpCheck::Replayed => Notice::OtpReplayed,
                     OtpCheck::Malformed => Notice::MalformedOtp,
-                    OtpCheck::Mismatch | OtpCheck::ClockBeforeEpoch => Notice::WrongOtp,
+                    OtpCheck::Mismatch => Notice::WrongOtp,
                 };
-                if failures + 1 >= policy.max_otp_failures {
-                    Locked
+                let failures = enrollment.failures + 1;
+                if failures >= policy.max_otp_failures {
+                    Locked { subject }
                 } else {
-                    AwaitingOtp { request, subject, enrollment, failures: failures + 1, notice }
+                    AwaitingOtp { request, needs_consent, subject, enrollment: TotpEnrollment { failures, ..enrollment }, notice }
                 }
             }
             (AwaitingConsent { request, auth }, ConsentGranted) => issue(request, auth),
@@ -404,7 +413,7 @@ fn mac_for_step(step: i64) -> Vec<u8> {
 use oidc::{OtpCheck, OtpDigits, StepMac, TotpEnrollment};
 
 fn enrollment(digits: OtpDigits, last_used_step: Option<i64>) -> TotpEnrollment {
-    TotpEnrollment { t0: 0, period: 30, digits, last_used_step }
+    TotpEnrollment { t0: 0, period: 30, digits, last_used_step, failures: 0 }
 }
 
 fn candidates(steps: std::ops::RangeInclusive<i64>) -> Vec<StepMac> {
@@ -760,7 +769,8 @@ fn setup(client: &Option<Client>, params: AuthorizationParams, start: Start) -> 
         Start::Tight => (params, None, policy(1, 2)),
         Start::Reused => (AuthorizationParams { prompt: some("consent"), ..params }, session(30, AuthStrength::PasswordAndTotp), policy(3, 3)),
     };
-    Setup { params, client: client.clone(), session, consent_on_file: true, now: 40, policy }
+    // No consent on file, so each login ends at the consent screen.
+    Setup { params, client: client.clone(), session, consent_on_file: false, now: 40, policy }
 }
 
 fn trace(s: &Setup, codes: &[u8]) -> Result<oidc::Flow, oidc::RunError> {
@@ -801,21 +811,37 @@ fn logins_run_as_the_rfcs_say() {
     assert_eq!(accepted(&[1, 6]), Some(2), "T+1 is in the window");
     assert_eq!(accepted(&[2, 6]), Some(2), "a step after the last used one");
     let notice = |codes: &[u8]| match trace(&fresh, codes) {
-        Ok(Flow::AwaitingOtp { notice, failures, .. }) => (notice, failures),
+        Ok(Flow::AwaitingOtp { notice, enrollment, .. }) => (notice, enrollment.failures),
         other => panic!("{other:?}"),
     };
     assert_eq!(notice(&[1, 7]), (Notice::WrongOtp, 1), "T+2 is outside, though its MAC was supplied");
     assert_eq!(notice(&[2, 4]), (Notice::OtpReplayed, 1), "step 1 was used already");
     assert_eq!(notice(&[2, 5]), (Notice::OtpReplayed, 1), "step 0 is before the last used");
     assert_eq!(notice(&[1, 8]), (Notice::MalformedOtp, 1));
-    assert_eq!(notice(&[1, 9]), (Notice::WrongOtp, 1), "before T0");
+    assert_eq!(notice(&[1, 9]), (Notice::OtpUnavailable, 0), "before T0: the server's clock, not counted");
     // Attempt limits (RFC 4226 §7.3), then nothing more is accepted.
-    assert!(matches!(run(&[1, 7, 8]), Ok(Flow::AwaitingOtp { failures: 2, .. })));
-    assert_eq!(run(&[1, 7, 8, 7]), Ok(Flow::Locked));
+    let locked = Ok(Flow::Locked { subject: "alice".into() });
+    assert!(matches!(run(&[1, 7, 8]), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));
+    assert_eq!(run(&[1, 7, 8, 7]), locked);
     assert_eq!(run(&[1, 7, 8, 7, 4]), Err(RunError::Step { index: 4, error: oidc::FlowError::InvalidTransition }));
-    assert_eq!(run(&[0, 0, 0]), Ok(Flow::Locked));
+    assert_eq!(run(&[0, 0, 0]), locked);
     assert!(matches!(run(&[0, 0, 1]), Ok(Flow::AwaitingOtp { .. })), "failures below the limit do not lock");
-    assert_eq!(trace(&setup(&strict(), base(), Start::Tight), &[0]), Ok(Flow::Locked));
+    assert_eq!(trace(&setup(&strict(), base(), Start::Tight), &[0]), locked);
+    // Failures stored from an earlier flow count: a new flow does not reset them.
+    let stored = |failures, wrong_code: bool| {
+        let e = TotpEnrollment { failures, ..enrollment(OtpDigits::Six, None) };
+        let then = |ev, rest| oidc::Script::Then(ev, Box::new(rest));
+        let rest = if wrong_code { then(event(7), oidc::Script::End) } else { oidc::Script::End };
+        let s = setup(&strict(), base(), Start::Fresh);
+        oidc::trace(&s.params, &s.client, &s.session, false, s.now, &s.policy, then(password(true, SecondFactor::Totp(e)), rest))
+    };
+    let stored = |failures| stored(failures, failures < 3);
+    assert_eq!(stored(3), locked, "at the limit already, before any code");
+    assert_eq!(stored(2), locked, "one short, then a wrong code");
+    assert!(matches!(stored(1), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));
+    // Consent on file: the code is issued as soon as both factors pass.
+    let on_file = Setup { consent_on_file: true, ..setup(&strict(), base(), Start::Fresh) };
+    assert!(matches!(trace(&on_file, &[1, 4]), Ok(Flow::CodeIssued(_))));
     // Without a second factor: password-only acr and amr, even when MFA was asked for.
     let mut asks_mfa = base();
     asks_mfa.acr_values = some("urn:example:acr:mfa");
@@ -928,7 +954,7 @@ fn to_enrollment(e: &TotpEnrollment) -> idiomatic::TotpEnrollment {
         OtpDigits::Seven => idiomatic::OtpDigits::Seven,
         OtpDigits::Eight => idiomatic::OtpDigits::Eight,
     };
-    idiomatic::TotpEnrollment { t0: e.t0, period: e.period, digits, last_used_step: e.last_used_step }
+    idiomatic::TotpEnrollment { t0: e.t0, period: e.period, digits, last_used_step: e.last_used_step, failures: e.failures }
 }
 
 fn to_event(e: Event) -> idiomatic::Event {
@@ -1149,7 +1175,7 @@ fn generated_oidc_matches_rust() {
         r#"amr: ["pwd", "otp", "mfa"]"#,
         r#"amr: ["pwd"]"#,
         "Ok(Flow::Rejected(",
-        "Ok(Flow::Locked)",
+        "Ok(Flow::Locked {",
         "Err(RunError::Step { index: 4, error: FlowError::InvalidTransition })",
         "Err(AuthorizationError::Display(DisplayError::UnknownClient))",
         "Err(AuthorizationError::Display(DisplayError::MissingRedirectUri))",
