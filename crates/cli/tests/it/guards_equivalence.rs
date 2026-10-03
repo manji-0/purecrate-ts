@@ -232,3 +232,20 @@ fn arms_that_do_the_same_share_cases() {
     let code = &pkg.files.iter().find(|f| f.stem == "code").expect("code").source;
     assert!(code.contains("case \"A\":\n    case \"C\":\n      return 1 as I32;"), "{code}");
 }
+
+/// A case is a block only where its statements declare a name.
+#[test]
+fn a_case_is_a_block_only_where_it_declares() {
+    let source = "pub enum S { A(i32), B(i32), C }\n\
+                  pub fn code(s: S, k: i32) -> i32 {\n\
+                      let mut n = 0i32;\n\
+                      match s { S::A(a) => { let d = a * 2; n = d + k; } S::B(_) => { n = k; } S::C => {} }\n\
+                      n\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("blocks", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let code = &pkg.files.iter().find(|f| f.stem == "code").expect("code").source;
+    assert!(code.contains("case \"A\": {\n"), "{code}");
+    assert!(code.contains("case \"B\":\n      n = k;\n      break;\n    case"), "{code}");
+}

@@ -115,7 +115,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       switch (event.kind) {
         case "ConsentGranted":
           return Result.ok(issue(request, auth));
-        case "ConsentDenied": {
+        case "ConsentDenied":
           return Result.ok({
             kind: "Rejected",
             value: {
@@ -124,7 +124,6 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
               state: request.state,
             },
           });
-        }
         default:
           return Result.err({ kind: "InvalidTransition" });
       }

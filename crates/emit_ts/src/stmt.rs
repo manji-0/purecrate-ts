@@ -894,38 +894,42 @@ pub(crate) fn emit_switch_in(
             let prelude = bind
                 .map(|bind| bind_prelude(bind, &subject, &"  ".repeat(indent + 2)))
                 .unwrap_or_default();
-            let braced = !prelude.is_empty() || declares_at_top(&arm.body);
-            out.push_str(if braced { " {\n" } else { "\n" });
-            out.push_str(&prelude);
-            emit_stmts(&arm.body, indent + 2, sink, out);
-            if !matches!(sink, Sink::Return) && !ends_in_jump(&arm.body) {
-                out.push_str(&format!("{pad1}  break;\n"));
-            }
-            if braced {
-                out.push_str(&format!("{pad1}}}\n"));
-            }
+            out.push_str(&case_body(&prelude, &arm.body, indent, sink));
         }
     }
     if let Some(arm) = remainder {
-        let braced = declares_at_top(&arm.body);
-        if braced {
-            out.push_str(&format!("{pad1}default: {{\n"));
-        } else {
-            out.push_str(&format!("{pad1}default:\n"));
-        }
-        emit_stmts(&arm.body, indent + 2, sink, out);
-        if !matches!(sink, Sink::Return) && !ends_in_jump(&arm.body) {
-            out.push_str(&format!("{pad1}  break;\n"));
-        }
-        if braced {
-            out.push_str(&format!("{pad1}}}\n"));
-        }
+        out.push_str(&format!("{pad1}default:{}", case_body("", &arm.body, indent, sink)));
         out.push_str(&format!("{pad}}}\n"));
     } else {
         out.push_str(&format!(
             "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
         ));
     }
+}
+
+/// What follows a `case ..:` of a `switch` at `indent`: the arm's
+/// statements and its `break`, in a block only where they declare a name,
+/// which would otherwise be seen by the other cases.
+fn case_body(prelude: &str, body: &Expr, indent: usize, sink: Sink) -> String {
+    let pad1 = "  ".repeat(indent + 1);
+    let mut stmts = prelude.to_string();
+    emit_stmts(body, indent + 2, sink, &mut stmts);
+    if !matches!(sink, Sink::Return) && !ends_in_jump(body) {
+        stmts.push_str(&format!("{pad1}  break;\n"));
+    }
+    if declares(&stmts, &"  ".repeat(indent + 2)) {
+        format!(" {{\n{stmts}{pad1}}}\n")
+    } else {
+        format!("\n{stmts}")
+    }
+}
+
+/// Whether printed statements at `pad` declare a name at their top.
+fn declares(stmts: &str, pad: &str) -> bool {
+    stmts.lines().any(|l| {
+        let l = l.strip_prefix(pad).unwrap_or(l);
+        l.starts_with("const ") || l.starts_with("let ")
+    })
 }
 
 /// The first arm's body with its payload read from `scrutinee`, where the
@@ -1023,10 +1027,7 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     let flat_last = last.and_then(|last| {
         let mut body = String::new();
         emit_tail(last.body, indent, sink, &mut body, tail);
-        let declares = body.lines().any(|l| {
-            let l = l.strip_prefix(pad.as_str()).unwrap_or(l);
-            l.starts_with("const ") || l.starts_with("let ")
-        });
+        let declares = declares(&body, &pad);
         let prelude: String =
             last.prelude.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
         (matches!(sink, Sink::Return) || tail || !declares).then(|| format!("{prelude}{body}"))
