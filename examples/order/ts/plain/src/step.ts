@@ -28,7 +28,7 @@ export const step = (order: Order, cmd: Command): Result<Order, OrderError> => {
           return Result.ok({ kind: "Draft", lines: removeSkuResult.value });
         }
         case "Place": {
-          if (lines.kind === "Nil") return Result.err({ kind: "Empty" });
+          if (lines.length === 0) return Result.err({ kind: "Empty" });
           const total2Result = total(lines);
           if (total2Result.kind === "Err") return total2Result;
           const total2 = total2Result.value;

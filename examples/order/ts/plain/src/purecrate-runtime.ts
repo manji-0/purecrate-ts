@@ -110,6 +110,19 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
   } as const;
 };
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  any: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (f(x)) return true;
+    return false;
+  },
+} as const;
+
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
   u32: {

@@ -71,7 +71,7 @@ Reading: **the adjacent market is large; direct demand is unverified.** Because 
 | Use case | Demand (est.) | Writable | Author's cost |
 | --- | --- | --- | --- |
 | Workflows, state machines | medium | **high** (order, payment) | payment at 1.6× idiomatic lines |
-| Optimistic UI, offline-first | medium–high | high | sequences as recursive enums |
+| Optimistic UI, offline-first | medium–high | high | sequences rebuilt per transition (`Vec` or recursive enums) |
 | Turn-based game rules | medium | medium | loops as recursion; recursion-depth limit |
 | **Input validation** | **high** | **medium** (signup, iban) | bytes via `as_bytes`, classes via `matches!`; no regex; ≈1.4–1.8× lines |
 | Pricing, fees, tax | medium | high (invoice) | integer newtypes, no decimal; rounding written as integer division; ≈1.4× lines |

@@ -5,7 +5,6 @@ export type { I64, U32 } from "./purecrate-runtime.ts";
 export { Yen } from "./yen.ts";
 export { Sku } from "./sku.ts";
 export { Line } from "./line.ts";
-export { Lines } from "./lines.ts";
 export { CancelReason } from "./cancel-reason.ts";
 export { Order } from "./order.ts";
 export { Command } from "./command.ts";

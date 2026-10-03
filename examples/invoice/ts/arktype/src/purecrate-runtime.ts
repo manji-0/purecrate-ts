@@ -136,6 +136,24 @@ export const parseJson = (text: string): unknown =>
       : value,
   );
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  sum: <T>(xs: Iterable<T>, add: (a: T, b: T) => T, zero: T): T => {
+    let total = zero;
+    for (const x of xs) total = add(total, x);
+    return total;
+  },
+  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
+  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
+    for (const x of xs) yield f(x);
+  },
+} as const;
+
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
 const upper = (c: Char): boolean => within(c, 0x41, 0x5a);

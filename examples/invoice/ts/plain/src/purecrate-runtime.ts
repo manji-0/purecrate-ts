@@ -86,6 +86,24 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  sum: <T>(xs: Iterable<T>, add: (a: T, b: T) => T, zero: T): T => {
+    let total = zero;
+    for (const x of xs) total = add(total, x);
+    return total;
+  },
+  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
+  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
+    for (const x of xs) yield f(x);
+  },
+} as const;
+
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
   i64: {

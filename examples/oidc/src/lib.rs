@@ -296,19 +296,10 @@ fn parse_prompt(s: &String) -> Option<Prompt> {
 
 fn redirect_error(redirect_uri: &String, error: ErrorCode, state: &Option<String>) -> AuthorizationError {
     AuthorizationError::Redirect(ErrorRedirect {
-        redirect_uri: String::from(redirect_uri),
+        redirect_uri: redirect_uri.clone(),
         error,
-        state: copy_optional(state),
+        state: state.clone(),
     })
-}
-
-/// Rust's `clone` is outside the subset; strings are rebuilt with
-/// `String::from`.
-fn copy_optional(s: &Option<String>) -> Option<String> {
-    match s {
-        Some(v) => Some(String::from(v)),
-        None => None,
-    }
 }
 
 fn redirect_uri_registered(client: &Client, uri: &String) -> bool {
@@ -339,7 +330,7 @@ pub fn validate_request(
     // From here on the redirect target is trusted. Echo state only if it
     // is well formed; a malformed state is not reflected.
     let echoed = match &params.state {
-        Some(s) if state_is_valid(s) => Some(String::from(s)),
+        Some(s) if state_is_valid(s) => Some(s.clone()),
         _ => None,
     };
     let fail = |error: ErrorCode| redirect_error(redirect_uri, error, &echoed);
@@ -355,15 +346,11 @@ pub fn validate_request(
         _ => return Err(fail(ErrorCode::InvalidScope)),
     };
     // RFC 6749 §10.12: this OP requires state from every client.
-    let state = match &echoed {
-        Some(s) => String::from(s),
-        None => return Err(fail(ErrorCode::InvalidRequest)),
-    };
-    let nonce = match &params.nonce {
-        Some(n) if !state_is_valid(n) => return Err(fail(ErrorCode::InvalidRequest)),
-        Some(n) => Some(String::from(n)),
-        None => None,
-    };
+    let state = echoed.clone().ok_or(fail(ErrorCode::InvalidRequest))?;
+    if matches!(&params.nonce, Some(n) if !state_is_valid(n)) {
+        return Err(fail(ErrorCode::InvalidRequest));
+    }
+    let nonce = params.nonce.clone();
     let pkce = match (&params.code_challenge, &params.code_challenge_method) {
         (Some(challenge), _) if !pkce_string_is_valid(challenge) => return Err(fail(ErrorCode::InvalidRequest)),
         (Some(challenge), method) => {
@@ -378,7 +365,7 @@ pub fn validate_request(
                 return Err(fail(ErrorCode::InvalidRequest));
             }
             Some(Pkce {
-                challenge: String::from(challenge),
+                challenge: challenge.clone(),
                 method,
             })
         }
@@ -403,9 +390,9 @@ pub fn validate_request(
     };
     let wants_mfa = matches!(&params.acr_values, Some(a) if has_token(a, ACR_MFA));
     Ok(AuthorizationRequest {
-        client_id: String::from(&client.client_id),
-        redirect_uri: String::from(redirect_uri),
-        scope: String::from(scope),
+        client_id: client.client_id.clone(),
+        redirect_uri: redirect_uri.clone(),
+        scope: scope.clone(),
         state,
         nonce,
         pkce,
@@ -715,7 +702,7 @@ pub fn begin(
     let request = validate_request(params, client)?;
     let reusable = match session {
         Some(s) if session_is_usable(&request, s, now) => Some(Authentication {
-            subject: String::from(&s.subject),
+            subject: s.subject.clone(),
             auth_time: s.auth_time,
             strength: s.strength,
             totp_step: None,
@@ -724,7 +711,7 @@ pub fn begin(
     };
     let needs_consent = request.prompt.consent || !consent_on_file;
     // OIDC Core §3.1.2.1 prompt=none and §3.1.2.6 error codes.
-    let state = Some(String::from(&request.state));
+    let state = Some(request.state.clone());
     let refuse = |error: ErrorCode| redirect_error(&request.redirect_uri, error, &state);
     match reusable {
         None if request.prompt.no_interaction => Err(refuse(ErrorCode::LoginRequired)),

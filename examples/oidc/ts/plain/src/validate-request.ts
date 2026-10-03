@@ -106,17 +106,12 @@ export const validateRequest = (
   const scope = params.scope;
 
   // RFC 6749 §10.12: this OP requires state from every client.
-  if (echoed === null) return Result.err(fail({ kind: "InvalidRequest" }));
+  const echoedOr = fail({ kind: "InvalidRequest" });
+  if (echoed === null) return Result.err(echoedOr);
   const state = echoed;
-
-  let nonce: string | null;
-  if (params.nonce !== null) {
-    const n = params.nonce;
-    if (!stateIsValid(n)) return Result.err(fail({ kind: "InvalidRequest" }));
-    nonce = n;
-  } else {
-    nonce = null;
-  }
+  if (params.nonce !== null && !stateIsValid(params.nonce))
+    return Result.err(fail({ kind: "InvalidRequest" }));
+  const nonce: string | null = params.nonce;
 
   let pkce: Pkce | null;
   if (params.code_challenge !== null) {

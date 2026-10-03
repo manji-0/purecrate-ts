@@ -88,7 +88,12 @@ In TS this is `Result<readonly [Order, OrderEvent], OrderError>`.
 
 #### Sequences that grow or shrink
 
-Write them as recursive enums returned as new values. This is the counterpart of kamae's `[...lines, line]`.
+Return the new sequence from the transition: a `Vec` the function builds (a local grown by `push`, or `collect`), which is the counterpart of kamae's `[...lines, line]`, or a recursive enum. `examples/order` adds a line with `push`:
+
+```rust
+let mut out: Vec<Line> = Vec::new();
+for l in lines { /* .. */ out.push(l); }
+```
 
 ```rust
 pub enum Lines { Empty, Cons(Line, Box<Lines>) }

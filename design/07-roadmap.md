@@ -38,17 +38,17 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (semver remeasured in 0.8.0 and again after its unbounded pre-release numbers on 2026-10-04, oidc after its lockout and consent fixes on 2026-10-04, when both sides grew; the other rows are unchanged since 0.4.1):
+**Now** (invoice, oidc, payment, and semver remeasured on 2026-10-04, after `clone`, `map` / `sum` over a `Vec`, struct patterns, and `_` in `collect`; oidc's idiomatic side grew with its lockout and consent fixes; payment's struct pattern is longer as rustfmt lays it out; iban is unchanged since 0.4.1):
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
 | signup: email (WHATWG) | 28 | 42 | 1.5× | 2.8× with recursion only; 1.9× with range `for` |
 | signup: password (NIST) | 17 | 24 | 1.4× | 1.6×; 1.4× |
 | iban | 24 | 44 | 1.8× | 2.4× with recursion only; 1.9× with range `for` |
-| invoice | 48 | 75 | 1.6× | 2.2× first draft; 1.4× restructured |
-| oidc | 369 | 439 | 1.2× | 1.65× as written from the skill alone |
-| payment | 61 | 96 | 1.6× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 75 | 129 | 1.7× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
+| invoice | 48 | 76 | 1.6× | 2.2× first draft; 1.4× restructured |
+| oidc | 369 | 429 | 1.2× | 1.65× as written from the skill alone |
+| payment | 61 | 103 | 1.7× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
+| semver | 75 | 123 | 1.6× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
 signup is counted by hand, as its test has no idiomatic module. The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 

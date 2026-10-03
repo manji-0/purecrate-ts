@@ -39,7 +39,7 @@ fn new_line(sku: &str, price: i64, qty: u32) -> Command {
 /// Runs that reach the limits: a second price for one SKU, and a quantity,
 /// a line amount, and a total past their integers.
 pub fn edge(code: u8) -> Result<i64, OrderError> {
-    let order = Order::Draft { lines: Lines::Nil };
+    let order = Order::Draft { lines: vec![] };
     let order = if code == 0 {
         let order = step(order, new_line("a", 100i64, 2u32))?;
         step(order, new_line("a", 120i64, 1u32))?
@@ -58,7 +58,7 @@ pub fn edge(code: u8) -> Result<i64, OrderError> {
 }
 
 pub fn run4(a: u8, b: u8, c: u8, d: u8) -> Result<i64, OrderError> {
-    let order = Order::Draft { lines: Lines::Nil };
+    let order = Order::Draft { lines: vec![] };
     let order = step(order, decode(a))?;
     let order = step(order, decode(b))?;
     let order = step(order, decode(c))?;
@@ -70,12 +70,12 @@ pub fn open_with(code: u8) -> Result<i64, OrderError> {
     let sku = if code == 0 { Sku::new(String::from(""))? } else { Sku::new(String::from("a"))? };
     let unit_price = if code == 1 { Yen::new(-1i64)? } else { Yen::new(100i64)? };
     let line = Line { sku, unit_price, qty: 3u32 };
-    let order = step(Order::Draft { lines: Lines::Nil }, Command::AddLine(line))?;
+    let order = step(Order::Draft { lines: vec![] }, Command::AddLine(line))?;
     summary(&order)
 }
 
 pub fn trace4(a: u8, b: u8, c: u8, d: u8) -> Result<Order, OrderError> {
-    let order = Order::Draft { lines: Lines::Nil };
+    let order = Order::Draft { lines: vec![] };
     let order = step(order, decode(a))?;
     let order = step(order, decode(b))?;
     let order = step(order, decode(c))?;

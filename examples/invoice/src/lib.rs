@@ -157,10 +157,7 @@ fn share(line: &Line, rate: &Rate, apart: bool, method: &Method) -> i64 {
 
 /// One group's total and its tax, rounded once (消令70の10).
 fn taxed(invoice: &Invoice, rate: Rate, apart: bool) -> Group {
-    let mut base = 0i64;
-    for line in &invoice.lines {
-        base += share(line, &rate, apart, &invoice.method);
-    }
+    let base: i64 = invoice.lines.iter().map(|line| share(line, &rate, apart, &invoice.method)).sum();
     let p = percent(&rate);
     let d = if apart { 100 + p } else { 100 };
     Group { base: Yen(base), tax: Yen(divide(base * p, d, &invoice.rounding)) }

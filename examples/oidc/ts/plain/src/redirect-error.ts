@@ -7,13 +7,4 @@ export const redirectError = (
   redirectUri: string,
   error: ErrorCode,
   state: string | null,
-): AuthorizationError => ({
-  kind: "Redirect",
-  value: { redirect_uri: redirectUri, error, state: copyOptional(state) },
-});
-
-/**
- * Rust's `clone` is outside the subset; strings are rebuilt with
- * `String::from`.
- */
-const copyOptional = (s: string | null): string | null => s;
+): AuthorizationError => ({ kind: "Redirect", value: { redirect_uri: redirectUri, error, state } });

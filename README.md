@@ -48,17 +48,17 @@ purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 ## What you can write
 
-- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing, a last `_`, and guards `p if c`), `match (state, event)` on tuples, and `true` / `false` arms
+- structs, enums (`kind` discriminated unions), newtypes, `Option`, `Result`, `?`, `if let`, exhaustive `match` (with `A | B` arms binding nothing, a last `_`, guards `p if c`, and struct patterns `P { method: M { kind: K::B, .. } }`), `match (state, event)` on tuples, and `true` / `false` arms
 - byte literals `b'@'`, integer literal and range patterns in `match` (ending in `_`) and `matches!(b, b'0'..=b'9')`
 - local `let mut` (updates return new values), local closures, struct update `S { a, ..base }`, `for i in a..b`, `const` items in function bodies, tuple patterns in `let (a, b) = t;`, `|(a, b)|`, and `for (k, v) in &pairs`
 - `for x in &xs` over a `Vec` or slice, `for c in s.chars()`, `for b in s.bytes()`, `for t in s.split(c)`, and `.enumerate()` of any of them; `while` with `break` and `continue`
-- `all`, `any`, `position`, `count`, and integer `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()`
+- `map`, `filter`, `copied`, and `cloned` over `xs.iter()`, `s.chars()`, `s.bytes()`, and `s.split(c)`, lazy as in Rust, then `collect` (into `Vec<T>` or `Result<Vec<T>, E>`, `_` allowed in the turbofish), `all`, `any`, `position`, `count`, or integer `sum`
 - `Option` read with `is_some`, `is_none`, `unwrap_or`, `ok_or`, and `map`; `Result` with `ok`, `map`, and `map_err`; integers read from text with `s.parse::<T>()`
 - integer arithmetic with debug-build semantics (overflow and division by zero throw); `i64`/`u64` as `bigint`; bitwise operators and shifts; widening with `i64::from(x)`; `min`, `max`, `abs`, `pow`, and `checked_*` / `saturating_*` / `wrapping_*`. A `--release` server matches this only with `[profile.release] overflow-checks = true`
 - crate-level `const` items, folded into `consts.ts`; enum discriminants (`#[repr(u64)] enum Perm { View = 1 << 0, .. }`) read with `p as u64`
-- growing sequences as recursive enums; `Vec` read by index, `len`, and slices `&xs[a..b]`, built as a fixed list `vec![a, b]`
+- `Vec` read by index, `len`, slices `&xs[a..b]`, and `cmp`; built as `vec![a, b]`, by `collect`, by `clone`, or grown in a function by `let mut v: Vec<T> = Vec::new(); v.push(x)` (only a local; the caller's arrays are never written); recursive enums for sequences too
 - `char` as a branded one-code-point string: literals, ranges in `match` / `matches!`, ordering by code point, `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`, the ASCII methods
-- `String::from("…")`, string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a string needle, slices `&s[a..b]` at byte positions, string contents through `s.as_bytes()`
+- `String::from("…")`, `clone` (and `as_ref` / `as_deref` on an `Option`), string `==`, `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a string needle, slices `&s[a..b]` at byte positions, string contents through `s.as_bytes()`
 - structs with private fields stay closed: TS gets values only from your public constructors
 - modules, inline or in files: flattened, with exports following Rust's public surface
 - `#[derive(Serialize, Deserialize)]` on the same types, so the server uses them as its wire format; `#[serde(try_from = "T")]` with `impl TryFrom<T>` reads a closed type through its constructor on both sides; `impl Error` is allowed and not translated, and an `impl Display` writing a fixed text becomes `to_string` (`toString` in TS)

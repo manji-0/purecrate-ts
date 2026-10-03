@@ -59,7 +59,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 | Area | What works |
 | --- | --- |
-| Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; growing sequences as recursive enums (`Box` erased) |
+| Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; sequences as `Vec`s a function builds (a local grown by `push`, `collect`) or recursive enums (`Box` erased) |
 | Closed types | structs with private fields keep their invariants (no public `of`) |
 | Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, `bool`, range and string literal patterns, `matches!`; tuple patterns in `let`, closure parameters, and `for` |
 | Bindings | local `let mut`, local `const`, local closures over immutable bindings, struct update `S { a, ..base }` |
