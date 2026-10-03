@@ -249,3 +249,21 @@ fn a_case_is_a_block_only_where_it_declares() {
     assert!(code.contains("case \"A\": {\n"), "{code}");
     assert!(code.contains("case \"B\":\n      n = k;\n      break;\n    case"), "{code}");
 }
+
+/// A `match` of one variant and the rest is an `if`: the rest first where
+/// it is one exit and the variant's side takes statements, and a test where
+/// the sides are `true` and `false`.
+#[test]
+fn one_variant_and_the_rest_is_an_if() {
+    let source = "pub enum S { A(i32), B, C }\n\
+                  pub fn code(s: S, k: i32) -> i32 { match s { S::A(n) => { let d = n * 2; d + k } _ => 0 } }\n\
+                  pub fn last(s: S) -> i32 { match s { S::A(_) | S::B => 1, S::C => 2 } }\n\
+                  pub fn is_b(s: S) -> bool { match s { S::B => true, _ => false } }\n";
+    let krate = purecrate_syntax::parse_source("one", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    assert!(file("code").contains("  if (s.kind !== \"A\") return 0 as I32;\n  const n = s.value;\n"), "{}", file("code"));
+    assert!(file("last").contains("  if (s.kind === \"C\") return 2 as I32;\n  return 1 as I32;\n"), "{}", file("last"));
+    assert!(file("is-b").contains("=> s.kind === \"B\""), "{}", file("is-b"));
+}

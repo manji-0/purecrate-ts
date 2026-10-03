@@ -8,13 +8,8 @@ import type { Order } from "./order.ts";
 import type { Yen } from "./yen.ts";
 
 export const paid = (lines: Lines, total: Yen, cmd: Command): Result<Order, OrderError> => {
-  switch (cmd.kind) {
-    case "Ship": {
-      const tracking = cmd.value;
-      if (tracking.length === 0) return Result.err({ kind: "EmptyTracking" });
-      return Result.ok({ kind: "Shipped", lines, total, tracking });
-    }
-    default:
-      return Result.err({ kind: "InvalidTransition" });
-  }
+  if (cmd.kind !== "Ship") return Result.err({ kind: "InvalidTransition" });
+  const tracking = cmd.value;
+  if (tracking.length === 0) return Result.err({ kind: "EmptyTracking" });
+  return Result.ok({ kind: "Shipped", lines, total, tracking });
 };

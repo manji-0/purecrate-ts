@@ -855,6 +855,40 @@ pub(crate) fn emit_switch_in(
             return;
         }
     }
+    // One variant and the rest (`_`, or the others the decision tree lists):
+    // an `if` on the variant, then the rest.
+    if let Some((a, b)) = one_and_rest(arms) {
+        if let Pattern::Variant { variant, bind, .. } = &a.pattern {
+            let kind = format!("{subject}.kind");
+            let lit = format!("\"{}\"", variant.as_str());
+            let prelude = bind_prelude(bind, &subject, &pad1);
+            // The rest one exit and the variant's arm statements: the exit
+            // first, as a guard, then the arm where TS has narrowed it.
+            let exits = (matches!(sink, Sink::Return) || ends_in_jump(&b.body)) && !b.body.needs_statements();
+            // `true` on one side and `false` on the other is the test.
+            if let (Expr::Lit(Lit::Bool(x)), Expr::Lit(Lit::Bool(y)), true, false) =
+                (&a.body, &b.body, prelude.is_empty(), matches!(sink, Sink::Effect))
+            {
+                if x != y {
+                    let op = if *x { "===" } else { "!==" };
+                    return sink.finish(&format!("{kind} {op} {lit}"), &pad, out);
+                }
+            }
+            let branches = if exits && (a.body.needs_statements() || !prelude.is_empty()) {
+                vec![
+                    Branch { test: Some(format!("{kind} !== {lit}")), prelude: String::new(), body: &b.body },
+                    Branch { test: None, prelude, body: &a.body },
+                ]
+            } else {
+                vec![
+                    Branch { test: Some(format!("{kind} === {lit}")), prelude, body: &a.body },
+                    Branch { test: None, prelude: String::new(), body: &b.body },
+                ]
+            };
+            emit_branches(&branches, indent, sink, tail, out);
+            return;
+        }
+    }
     out.push_str(&format!("{pad}switch ({subject}.kind) {{\n"));
     let remainder = remainder_arm(arms);
     // `A | B` binds nothing: its cases share one body, as do the cases of
@@ -963,6 +997,22 @@ fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr) ->
 /// The one `A | B | …` (or `_`) that binds nothing, when other arms name
 /// variants: it is the Rust `_`, printed as `default` instead of listing
 /// every remaining case and `assertNever`.
+/// The arm of one variant and the arm of the rest that binds nothing, of a
+/// two-arm `match` on an enum. The rest may come first where it is the
+/// other variants, which the one does not meet.
+fn one_and_rest(arms: &[purecrate_ir::Arm]) -> Option<(&purecrate_ir::Arm, &purecrate_ir::Arm)> {
+    let [a, b] = arms else { return None };
+    let others = |rest: &Pattern, one: &Name| match rest {
+        Pattern::Or(alts) => alts.iter().all(|p| matches!(p, Pattern::Variant { variant, .. } if variant != one)),
+        _ => false,
+    };
+    match (&a.pattern, &b.pattern) {
+        (Pattern::Variant { .. }, Pattern::Wildcard | Pattern::Or(_)) if b.pattern.bindings().is_empty() => Some((a, b)),
+        (rest, Pattern::Variant { variant, .. }) if others(rest, variant) && rest.bindings().is_empty() => Some((b, a)),
+        _ => None,
+    }
+}
+
 fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
     let named = arms
         .iter()

@@ -16,49 +16,44 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
     case "AwaitingPassword": {
       const request = flow.request;
       const failures = flow.failures;
-      switch (event.kind) {
-        case "PasswordChecked": {
-          const subject = event.subject;
-          const verified = event.verified;
-          const secondFactor = event.second_factor;
-          const now = event.now;
-          if (!verified) {
-            const failures2 = Int.u32.add(failures, 1 as U32);
-            if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
-            return Result.ok({
-              kind: "AwaitingPassword",
-              request,
-              failures: failures2,
-              notice: { kind: "WrongPassword" },
-            });
-          }
-          switch (secondFactor.kind) {
-            case "Totp": {
-              const enrollment = secondFactor.value;
-              return Result.ok({
-                kind: "AwaitingOtp",
-                request,
-                subject,
-                enrollment,
-                failures: 0 as U32,
-                notice: { kind: "Clear" },
-              });
-            }
-            case "NotEnrolled": {
-              const auth: Authentication = {
-                subject,
-                auth_time: now,
-                strength: { kind: "PasswordOnly" },
-                totp_step: null,
-              };
-              return Result.ok({ kind: "AwaitingConsent", request, auth });
-            }
-            default:
-              return assertNever(secondFactor);
-          }
+      if (event.kind !== "PasswordChecked") return Result.err({ kind: "InvalidTransition" });
+      const subject = event.subject;
+      const verified = event.verified;
+      const secondFactor = event.second_factor;
+      const now = event.now;
+      if (!verified) {
+        const failures2 = Int.u32.add(failures, 1 as U32);
+        if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
+        return Result.ok({
+          kind: "AwaitingPassword",
+          request,
+          failures: failures2,
+          notice: { kind: "WrongPassword" },
+        });
+      }
+      switch (secondFactor.kind) {
+        case "Totp": {
+          const enrollment = secondFactor.value;
+          return Result.ok({
+            kind: "AwaitingOtp",
+            request,
+            subject,
+            enrollment,
+            failures: 0 as U32,
+            notice: { kind: "Clear" },
+          });
+        }
+        case "NotEnrolled": {
+          const auth: Authentication = {
+            subject,
+            auth_time: now,
+            strength: { kind: "PasswordOnly" },
+            totp_step: null,
+          };
+          return Result.ok({ kind: "AwaitingConsent", request, auth });
         }
         default:
-          return Result.err({ kind: "InvalidTransition" });
+          return assertNever(secondFactor);
       }
     }
     case "AwaitingOtp": {
@@ -66,48 +61,43 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       const subject = flow.subject;
       const enrollment = flow.enrollment;
       const failures = flow.failures;
-      switch (event.kind) {
-        case "OtpSubmitted": {
-          const code = event.code;
-          const now = event.now;
-          const candidates = event.candidates;
-          let notice: Notice;
-          const otpCheck = checkTotp(code, now, enrollment, candidates);
-          switch (otpCheck.kind) {
-            case "Accepted": {
-              const step2 = otpCheck.value;
-              const auth: Authentication = {
-                subject,
-                auth_time: now,
-                strength: { kind: "PasswordAndTotp" },
-                totp_step: step2,
-              };
-              return Result.ok({ kind: "AwaitingConsent", request, auth });
-            }
-            case "Replayed":
-              notice = { kind: "OtpReplayed" };
-              break;
-            case "Malformed":
-              notice = { kind: "MalformedOtp" };
-              break;
-            default:
-              notice = { kind: "WrongOtp" };
-              break;
-          }
-          const failures2 = Int.u32.add(failures, 1 as U32);
-          if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
-          return Result.ok({
-            kind: "AwaitingOtp",
-            request,
+      if (event.kind !== "OtpSubmitted") return Result.err({ kind: "InvalidTransition" });
+      const code = event.code;
+      const now = event.now;
+      const candidates = event.candidates;
+      let notice: Notice;
+      const otpCheck = checkTotp(code, now, enrollment, candidates);
+      switch (otpCheck.kind) {
+        case "Accepted": {
+          const step2 = otpCheck.value;
+          const auth: Authentication = {
             subject,
-            enrollment,
-            failures: failures2,
-            notice,
-          });
+            auth_time: now,
+            strength: { kind: "PasswordAndTotp" },
+            totp_step: step2,
+          };
+          return Result.ok({ kind: "AwaitingConsent", request, auth });
         }
+        case "Replayed":
+          notice = { kind: "OtpReplayed" };
+          break;
+        case "Malformed":
+          notice = { kind: "MalformedOtp" };
+          break;
         default:
-          return Result.err({ kind: "InvalidTransition" });
+          notice = { kind: "WrongOtp" };
+          break;
       }
+      const failures2 = Int.u32.add(failures, 1 as U32);
+      if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
+      return Result.ok({
+        kind: "AwaitingOtp",
+        request,
+        subject,
+        enrollment,
+        failures: failures2,
+        notice,
+      });
     }
     case "AwaitingConsent": {
       const request = flow.request;
