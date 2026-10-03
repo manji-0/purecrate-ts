@@ -100,3 +100,11 @@ pub fn mapped_try_operand(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
 pub fn try_in_default(x: Option<i32>, v: i32, fail: bool) -> Result<i32, i32> {
     Ok(x.unwrap_or(given(v, fail)?) + 0)
 }
+
+/// A `?` inside what `ok_or(e)?` takes leaves the function; two `ok_or(e)?`
+/// in one body keep their values apart.
+pub fn try_in_ok_or(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
+    let s = a.checked_add(given(v, fail)?).ok_or(-1i32)?;
+    let t = s.checked_mul(2i32).ok_or(-2i32)?;
+    Ok(t)
+}

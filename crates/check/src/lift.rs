@@ -24,7 +24,7 @@ pub fn lift(krate: Crate) -> Crate {
 fn lift_body(mut body: Expr) -> Expr {
     lift_closures(&mut body);
     let mut body = Lifter::for_body(&body).stmt(body);
-    guard_ok_or(&mut body);
+    guard_ok_or(&mut body, &mut 0);
     body
 }
 
@@ -37,9 +37,18 @@ fn lift_body(mut body: Expr) -> Expr {
 /// if $opt.is_none() { return Err($arg) }
 /// let x = $opt;
 /// ```
-fn guard_ok_or(expr: &mut Expr) {
+///
+/// `rename` saw `$opt` and `$arg` inside the `?`, each in a scope of its
+/// own, so two of them may have one name; here they share the function's
+/// block, so each gets a made name (`$opt_1`) that `plain_names` keeps apart.
+fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
     if let Expr::Let { name, mutable, ty, value, then } = expr {
         if let Some((opt, opt_ty, recv, arg, arg_ty, e)) = ok_or_try(value) {
+            let mut fresh = |n: &Name| {
+                *made += 1;
+                Name::new(format!("${}_{made}", n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit())))
+            };
+            let (opt, arg) = (fresh(&opt), fresh(&arg));
             let then = std::mem::replace(&mut **then, Expr::Unreachable);
             let guard = Expr::If {
                 cond: Box::new(Expr::Call { callee: Callee::OptionIsNone, args: vec![Expr::Var(opt.clone())] }),
@@ -62,7 +71,7 @@ fn guard_ok_or(expr: &mut Expr) {
             };
         }
     }
-    expr.children_mut().into_iter().for_each(guard_ok_or);
+    expr.children_mut().into_iter().for_each(|c| guard_ok_or(c, made));
 }
 
 /// The pieces of `Try` on what `option_method` builds for `ok_or`:
@@ -388,6 +397,15 @@ impl Lifter {
             }
             Expr::Tuple(xs) => Expr::Tuple(self.in_order(xs, out)),
             Expr::Array(xs) => Expr::Array(self.in_order(xs, out)),
+            // A block's first value runs first, so its `?` may go before the
+            // statement: what `ok_or(e)?` takes (`x.checked_add(g()?)`).
+            Expr::Let { name, mutable, ty, value, then } => Expr::Let {
+                name,
+                mutable,
+                ty,
+                value: self.boxed(value, out),
+                then,
+            },
             Expr::Field { base, name } => Expr::Field {
                 base: self.boxed(base, out),
                 name,

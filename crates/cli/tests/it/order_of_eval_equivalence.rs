@@ -24,6 +24,8 @@ fn generated_evaluation_order_matches_rust() {
             }
             for fail in [false, true] {
                 cases.push(case!(order_of_eval::mapped_try_operand(a, 3i32, fail)));
+                cases.push(case!(order_of_eval::try_in_ok_or(a, 3i32, fail)));
+                cases.push(case!(order_of_eval::try_in_ok_or(a, -a, fail)));
                 cases.push(case!(order_of_eval::try_in_default(None::<i32>, a, fail)));
                 cases.push(case!(order_of_eval::try_in_default(Some(a), 3i32, fail)));
                 cases.push(case!(order_of_eval::try_in_range_end(a, 3i32, fail)));
