@@ -13,6 +13,7 @@ import type { OtpDigits } from "./otp-digits.ts";
 export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
   const n = mac.length as Usize;
   if (n < SHA1_LEN) return null;
+
   // As RFC 4226 §5.4 writes it; the top bit is masked off.
   const offset = Int.u8.and(
     Slice.at(mac, Int.usize.sub(n, 1 as Usize)),

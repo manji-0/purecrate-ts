@@ -54,6 +54,7 @@ export const Version = {
     if (patchResult.kind === "Err") return patchResult;
     const patch = patchResult.value;
     if (parts.length > 3) return Result.err({ kind: "ExtraCorePart" });
+
     let pre2: ReadonlyArray<PreId>;
     if (pre !== null) {
       const result = Iter.tryCollect(pre.split("."), parsePreId);
@@ -62,6 +63,7 @@ export const Version = {
     } else {
       pre2 = [];
     }
+
     let build2: ReadonlyArray<string>;
     if (build !== null) {
       const result2 = Iter.tryCollect(build.split("."), parseBuildId);
@@ -70,6 +72,7 @@ export const Version = {
     } else {
       build2 = [];
     }
+
     return Result.ok(unsafeMakeVersion({ major, minor, patch, pre: pre2, build: build2 }));
   },
   major: (self: Version): U64 => self.major,

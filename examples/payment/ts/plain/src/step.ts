@@ -9,6 +9,7 @@ import type { Status } from "./status.ts";
 
 export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent, PaymentError> => {
   const terms = intent.terms;
+
   let status: Status;
   switch (intent.status.kind) {
     case "RequiresPaymentMethod":
@@ -36,6 +37,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       break;
     case "RequiresConfirmation": {
       const current = intent.status.method;
+
       switch (event.kind) {
         case "AttachMethod": {
           const method = event.value;
@@ -60,6 +62,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
     }
     case "RequiresAction": {
       const method = intent.status.method;
+
       switch (event.kind) {
         case "ActionHandled": {
           const outcome = event.value;
@@ -82,6 +85,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
     }
     case "Processing": {
       const method = intent.status.method;
+
       switch (event.kind) {
         case "ProcessingSucceeded":
           status = attempt(terms, method, { kind: "Authorized" });
@@ -104,6 +108,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
     }
     case "RequiresCapture": {
       const capturable = intent.status.capturable;
+
       switch (event.kind) {
         case "Capture": {
           const amountToCapture = event.amount_to_capture;
@@ -137,5 +142,6 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
     default:
       return assertNever(intent.status);
   }
+
   return Result.ok({ terms, status });
 };

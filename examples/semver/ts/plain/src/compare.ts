@@ -17,10 +17,12 @@ export const compare = (a: Version, b: Version): Ordering => {
     case "Equal": {
       const elem = a.pre.length === 0;
       const elem2 = b.pre.length === 0;
+
       if (elem) {
         if (elem2) return { kind: "Equal" };
         return { kind: "Greater" };
       }
+
       if (elem2) return { kind: "Less" };
       return comparePreIds(a.pre, b.pre);
     }

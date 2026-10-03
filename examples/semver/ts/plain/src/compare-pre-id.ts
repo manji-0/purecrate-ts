@@ -8,6 +8,7 @@ export const comparePreId = (a: PreId, b: PreId): Ordering => {
   switch (a.kind) {
     case "Numeric": {
       const x = a.value;
+
       switch (b.kind) {
         case "Numeric": {
           const y = b.value;
@@ -21,6 +22,7 @@ export const comparePreId = (a: PreId, b: PreId): Ordering => {
     }
     case "Alpha": {
       const x = a.value;
+
       switch (b.kind) {
         case "Numeric":
           return { kind: "Greater" };

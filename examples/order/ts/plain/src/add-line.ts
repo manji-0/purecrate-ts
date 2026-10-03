@@ -11,10 +11,12 @@ export const addLine = (lines: Lines, line: Line): Lines => {
     case "Cons": {
       const head = lines.content[0];
       const rest = lines.content[1];
+
       if (head.sku === line.sku) {
         const merged: Line = { ...head, qty: Int.u32.add(head.qty, line.qty) };
         return { kind: "Cons", content: [merged, rest] };
       }
+
       return { kind: "Cons", content: [head, addLine(rest, line)] };
     }
     default:

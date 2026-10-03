@@ -21,6 +21,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       const verified = event.verified;
       const secondFactor = event.second_factor;
       const now = event.now;
+
       if (!verified) {
         const failures2 = Int.u32.add(failures, 1 as U32);
         if (failures2 >= policy.max_password_failures) return Result.ok({ kind: "Locked" });
@@ -31,6 +32,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           notice: { kind: "WrongPassword" },
         });
       }
+
       switch (secondFactor.kind) {
         case "Totp": {
           const enrollment = secondFactor.value;
@@ -67,6 +69,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       const code = event.code;
       const now = event.now;
       const candidates = event.candidates;
+
       let notice: Notice;
       const otpCheck = checkTotp(code, now, enrollment, candidates);
       switch (otpCheck.kind) {
@@ -90,6 +93,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           notice = { kind: "WrongOtp" };
           break;
       }
+
       // RFC 4226 §7.3: every rejected value counts toward the limit.
       const failures2 = Int.u32.add(failures, 1 as U32);
       if (failures2 >= policy.max_otp_failures) return Result.ok({ kind: "Locked" });
@@ -105,6 +109,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
     case "AwaitingConsent": {
       const request = flow.request;
       const auth = flow.auth;
+
       switch (event.kind) {
         case "ConsentGranted":
           return Result.ok(issue(request, auth));

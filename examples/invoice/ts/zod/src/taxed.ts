@@ -12,9 +12,11 @@ import { unsafeMakeYen } from "./yen.ts";
 /** One group's total and its tax, rounded once (消令70の10). */
 export const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
   let base = 0n as I64;
+
   for (const line of invoice.lines) {
     base = Int.i64.add(base, share(line, rate, apart, invoice.method));
   }
+
   const p = percent(rate);
   const d: I64 = apart ? Int.i64.add(100n as I64, p) : (100n as I64);
   return {

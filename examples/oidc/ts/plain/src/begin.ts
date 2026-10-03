@@ -37,10 +37,12 @@ export const begin = (
         }
       : null;
   const needsConsent = request.prompt.consent || !consentOnFile;
+
   // OIDC Core §3.1.2.1 prompt=none and §3.1.2.6 error codes.
   const state: string | null = request.state;
   const refuse = (error: ErrorCode): AuthorizationError =>
     redirectError(request.redirect_uri, error, state);
+
   if (reusable !== null) {
     if (request.prompt.no_interaction && needsConsent)
       return Result.err(refuse({ kind: "ConsentRequired" }));
@@ -48,6 +50,7 @@ export const begin = (
     const auth = reusable;
     return Result.ok({ kind: "AwaitingConsent", request, auth });
   }
+
   return request.prompt.no_interaction
     ? Result.err(refuse({ kind: "LoginRequired" }))
     : Result.ok({

@@ -22,21 +22,27 @@ export const Iban = {
   parse: (raw: string): Result<Iban, IbanError> => {
     const b = Str.bytes(raw);
     if (b.length < 15 || b.length > 34) return Result.err({ kind: "Length" });
+
     for (let i = 0 as Usize; i < 2; i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i))) return Result.err({ kind: "Country" });
     }
+
     for (let i = 2 as Usize; i < 4; i = (i + 1) as Usize) {
       if (!isDigit(Slice.at(b, i))) return Result.err({ kind: "CheckDigits" });
     }
+
     // The first four characters count last.
     let acc = 0 as U32;
+
     for (let i = 4 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       if (!isUpper(Slice.at(b, i)) && !isDigit(Slice.at(b, i))) return Result.err({ kind: "Bban" });
       acc = push(acc, Slice.at(b, i));
     }
+
     for (let i = 0 as Usize; i < 4; i = (i + 1) as Usize) {
       acc = push(acc, Slice.at(b, i));
     }
+
     if (acc !== 1) return Result.err({ kind: "Checksum" });
     return Result.ok(unsafeMakeIban(raw));
   },

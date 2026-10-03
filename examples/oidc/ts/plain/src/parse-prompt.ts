@@ -11,6 +11,7 @@ export const parsePrompt = (s: string): Prompt | null => {
   let login = false;
   let consent = false;
   let selectAccount = false;
+
   for (const token of s.split(" ")) {
     if (token === "none") {
       noInteraction = true;
@@ -24,6 +25,7 @@ export const parsePrompt = (s: string): Prompt | null => {
       return null;
     }
   }
+
   if (noInteraction && (login || consent || selectAccount)) return null;
   return { no_interaction: noInteraction, login, consent, select_account: selectAccount };
 };

@@ -21,12 +21,14 @@ export const Password = {
     // Code points: every byte but a UTF-8 continuation byte (0x80..=0xBF).
     const b = Str.bytes(raw);
     let n = 0 as Usize;
+
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       const value = Slice.at(b, i);
       if (!(value >= 128 && value <= 191)) {
         n = Int.usize.add(n, 1 as Usize);
       }
     }
+
     if (n < 15) return Result.err({ kind: "TooShort" });
     if (n > 64) return Result.err({ kind: "TooLong" });
     if (blocked(raw)) return Result.err({ kind: "Blocked" });

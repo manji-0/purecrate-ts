@@ -15,5 +15,6 @@ export const comparePreIds = (a: ReadonlyArray<PreId>, b: ReadonlyArray<PreId>):
     const o = comparePreId(Slice.at(a, i), Slice.at(b, i));
     if (o.kind !== "Equal") return o;
   }
+
   return Ord.cmp(a.length as Usize, b.length as Usize);
 };

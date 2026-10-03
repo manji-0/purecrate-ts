@@ -24,6 +24,7 @@ export const checkTotp = (
   const submitted = parseOtp(code, enrollment.digits);
   if (submitted === null) return { kind: "Malformed" };
   let replayed = false;
+
   for (const c of candidates) {
     if (c.step >= Int.i64.sub(current, 1n as I64) && c.step <= Int.i64.add(current, 1n as I64)) {
       const option = truncateMac(c.mac, enrollment.digits);
@@ -36,5 +37,6 @@ export const checkTotp = (
       }
     }
   }
+
   return replayed ? { kind: "Replayed" } : { kind: "Mismatch" };
 };

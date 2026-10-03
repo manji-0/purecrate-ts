@@ -13,6 +13,7 @@ import type { Rate } from "./rate.ts";
  */
 export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I64 => {
   if (percent(line.rate) !== percent(rate)) return 0n as I64;
+
   switch (line.pricing.kind) {
     case "Exclusive":
       return !apart ? line.amount : (0n as I64);

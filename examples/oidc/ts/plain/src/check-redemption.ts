@@ -18,8 +18,10 @@ export const checkRedemption = (
 ): Result<undefined, TokenError> => {
   if (grant.client_id !== clientId || grant.redirect_uri !== redirectUri)
     return Result.err({ kind: "InvalidGrant" });
+
   if (grant.pkce !== null) {
     const pkce = grant.pkce;
+
     if (codeVerifier !== null) {
       if (!pkceStringIsValid(codeVerifier)) return Result.err({ kind: "InvalidRequest" });
       const verifier = codeVerifier;
@@ -29,7 +31,9 @@ export const checkRedemption = (
           : verifierS256 !== null && verifierS256 === pkce.challenge;
       return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
     }
+
     return Result.err({ kind: "InvalidRequest" });
   }
+
   return codeVerifier !== null ? Result.err({ kind: "InvalidRequest" }) : Result.ok(undefined);
 };

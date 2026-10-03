@@ -15,11 +15,13 @@ export const parseSeconds = (s: string): I64 | null => {
   )
     return null;
   let value = 0n as I64;
+
   for (const b of Str.bytes(s)) {
     value = Int.i64.add(
       Int.i64.mul(value, 10n as I64),
       globalThis.BigInt(Int.u8.sub(b, 48 as U8)) as I64,
     );
   }
+
   return value;
 };

@@ -6,6 +6,7 @@ mod imports;
 mod items;
 mod join;
 mod js;
+mod paragraph;
 mod plain;
 mod tidy;
 mod schema;
@@ -376,7 +377,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out.push_str(&body);
     // A companion with nothing in it is `{}`, as oxfmt prints it.
     let out = out.replace(" = {\n} as const;", " = {} as const;");
-    tidy::wrap(&plain::plain_names(&imports::prune_unused(&out)), WIDTH)
+    tidy::wrap(&paragraph::paragraphs(&plain::plain_names(&imports::prune_unused(&out))), WIDTH)
 }
 
 /// The width past which `tidy::wrap` breaks a line.
