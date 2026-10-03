@@ -2,8 +2,17 @@
 
 import { Int, Slice, type U32, type U8, type Usize } from "./purecrate-runtime.ts";
 import { SHA1_LEN } from "./consts.ts";
-import { digitModulus } from "./digit-modulus.ts";
 import type { OtpDigits } from "./otp-digits.ts";
+
+/** Each `OtpDigits` variant's discriminant. */
+const otpDigitsDiscriminants = {
+  Six: 6,
+  Seven: 7,
+  Eight: 8,
+} satisfies Record<OtpDigits["kind"], number>;
+
+const digitModulus = (d: OtpDigits): U32 =>
+  Int.u32.pow(10 as U32, otpDigitsDiscriminants[d.kind] as U32);
 
 /**
  * Dynamic truncation and reduction (RFC 4226 §5.3):

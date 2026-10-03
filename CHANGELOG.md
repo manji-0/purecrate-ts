@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A helper with one caller's file is printed in that file.** A function the package does not export, called only from one other file, is a `const` of that file, unexported, instead of a file of its own that the caller imports: `isDigit` and `isUpper` are in `iban.ts`, `parseSeconds` and `parsePrompt` in `validate-request.ts`. A helper of a helper follows it. The examples' plain outputs have 113 files instead of 143 (oidc 51 → 43, semver 16 → 8). Declarations that share a file are a blank line apart.
+- **A local is renamed apart from what its whole file imports.** With helpers sharing their caller's file, a parameter `total` beside a function that calls `total` would hide the import, so it is `total2`; a local never takes the name of a function the package does not export.
+
 ## 0.8.2 — 2026-10-04
 
 The rest of the audit's fixes, output that reads more as written by hand, and a layout that matches oxfmt for long names outside the examples. No change to what is accepted ([roadmap §8.11](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#811-082-the-rest-of-the-audit-and-layout-2026-10-04)).

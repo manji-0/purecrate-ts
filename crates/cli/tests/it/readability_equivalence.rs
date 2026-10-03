@@ -1,7 +1,8 @@
 //! Rewrites that only change how the output reads keep its meaning, and
 //! print as intended: `c ? b : a` for `!c ? a : b`, `const { w, h } = s`,
 //! the place for an arm that returns the variant it matched, and for a
-//! variant built again from all its own fields in order.
+//! variant built again from all its own fields in order. A helper called
+//! from one file is printed in it.
 
 use crate::support;
 
@@ -16,6 +17,9 @@ fn generated_readability_matches_rust() {
         let mut cases = Vec::new();
         for c in [false, true] {
             cases.push(case!(readability::flipped(c, 7)));
+        }
+        for v in [0, 20] {
+            cases.push(case!(readability::bumped_twice(v)));
         }
         let shapes = [Shape::Rect { w: 3, h: 4 }, Shape::Pair(5, 6), Shape::Empty, Shape::Pair(i32::MAX, 1)];
         for s in shapes {
@@ -38,15 +42,27 @@ fn readability_rewrites_print_as_intended() {
     let krate = purecrate_syntax::parse_source("readability", SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
-    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    // The file a function is printed in: its own, or its one caller's.
+    let file = |stem: &str| {
+        let name = purecrate_ir::to_camel(&stem.replace('-', "_"));
+        let decl = format!("const {name} = ");
+        pkg.files.iter().find(|f| f.source.contains(&decl)).expect(stem).source.clone()
+    };
     let flipped = file("flipped");
     assert!(flipped.contains("c ? (0 as I32) : a"), "{flipped}");
     let area = file("area");
     assert!(area.contains("const { w, h } = s;"), "{area}");
+    // `tie`, its helper, shares the file; only `thenBy` itself is checked.
     let then_by = file("then-by");
+    let then_by = then_by[then_by.find("export const thenBy").expect("thenBy")..].to_string();
     assert!(then_by.contains("return d;") && !then_by.contains("kind: \"Less\"") && !then_by.contains("switch"), "{then_by}");
     let same_again = file("same-again");
     assert!(!same_again.contains("kind: \"Pair\"") && !same_again.contains("kind: \"Rect\""), "{same_again}");
+    // A helper with one caller is printed in its file, its names apart
+    // from what that file imports.
+    assert!(!pkg.files.iter().any(|f| f.stem == "doubled"));
+    let twice = file("bumped-twice");
+    assert!(twice.contains("import { bump } from") && twice.contains("const doubled = (bump2: I32)"), "{twice}");
     let swapped = file("swapped");
     assert!(swapped.contains("kind: \"Pair\""), "{swapped}");
 }

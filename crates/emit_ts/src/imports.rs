@@ -557,7 +557,7 @@ pub(crate) fn is_free_fn(krate: &Crate, name: &str) -> bool {
         .any(|item| matches!(item, Item::Fn(f) if f.owner.is_none() && f.name.as_str() == name))
 }
 
-pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
+fn refs_of(krate: &Crate, items: &[&Item]) -> Refs {
     let mut refs = Refs::default();
     for item in items {
         match item {
@@ -588,11 +588,18 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
             Item::Fn(_) => {}
         }
     }
+    refs
+}
 
-    // A const lives in `consts.ts`, not in a file named after it.
+pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String {
+    let refs = refs_of(krate, items);
+    // A const lives in `consts.ts`, not in a file named after it; a helper
+    // with one user file lives in that file (`Crate::homes`).
     let file_of = |name: &String| {
         if is_const(krate, name) {
             purecrate_ir::CONSTS_STEM.to_string()
+        } else if let Some(host) = crate::hosted_in(name) {
+            host
         } else {
             Name::new(name.clone()).file_stem()
         }

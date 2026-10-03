@@ -408,9 +408,12 @@ fn module_trees_are_flattened() {
     for name in ["total", "Yen", "half", "apply", "shown"] {
         assert!(index.contains(&format!("export {{ {name} }}")), "{name} not exported:\n{index}");
     }
-    for name in ["helper", "hidden"] {
+    // A helper called from one file is printed in it, unexported.
+    for (name, user) in [("helper", "apply"), ("hidden", "shown")] {
         assert!(!index.contains(&format!("export {{ {name} }}")), "{name} exported:\n{index}");
-        assert!(out.join(format!("src/{name}.ts")).exists(), "{name} not generated");
+        assert!(!out.join(format!("src/{name}.ts")).exists(), "{name} has a file of its own");
+        let host = fs::read_to_string(out.join(format!("src/{user}.ts"))).expect("user file");
+        assert!(host.contains(&format!("\nconst {name} = ")), "{name} not in {user}.ts:\n{host}");
     }
 
     // A rejection inside a module file names that file.

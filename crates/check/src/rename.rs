@@ -7,11 +7,11 @@
 //! local whose spelling meets another's is told apart like a shadowed one.
 //! Fields, types, and variants keep their names: a field is the JSON key.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use purecrate_ir::{
     to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern,
-    VariantBind,
+    VariantBind, Vis,
 };
 
 fn camel(n: &Name) -> Name {
@@ -28,12 +28,14 @@ pub fn rename(krate: Crate) -> Crate {
         .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
         .map(|item| (to_camel(item.name().as_str()), matches!(item, Item::Fn(_))))
         .collect();
+    let file_reads = file_reads(&krate, &items);
     let renamed = krate
         .items
         .into_iter()
         .map(|item| match item {
             Item::Fn(f) => {
-                let f = rename_fn(f, &items);
+                let home = file_of(&f, &file_reads.homes);
+                let f = rename_fn(f, &items, &file_reads.reads[&home], &file_reads.helpers);
                 Item::Fn(Fn {
                     name: camel(&f.name),
                     ..f
@@ -49,13 +51,74 @@ pub fn rename(krate: Crate) -> Crate {
     Crate::new(krate.name.as_str(), renamed)
 }
 
-/// Top-level names are taken up front: a TS `const` shadows an import for the
-/// whole block, including uses before it that Rust resolves to the item. A
-/// function the body does not read is not imported into its file,
-/// so a local may have its name (`paid(lines, total, cmd)` keeps `total`).
-/// What the body reads is what a first pass finds no binding for, and what
-/// it calls; a binding resolves the same whatever names are taken.
-fn rename_fn(f: Fn, items: &[(String, bool)]) -> Fn {
+/// What each file's functions read, and where each helper is printed.
+struct FileReads {
+    /// `Crate::homes`, from what each function reads.
+    homes: BTreeMap<String, String>,
+    /// File stem to the functions its functions read or declare, camelCased.
+    reads: HashMap<String, HashSet<String>>,
+    /// The helpers a file may hold (functions the package does not export),
+    /// camelCased.
+    helpers: HashSet<String>,
+}
+
+fn file_of(f: &Fn, homes: &BTreeMap<String, String>) -> String {
+    match &f.owner {
+        Some(owner) => owner.file_stem(),
+        None => homes.get(f.name.as_str()).cloned().unwrap_or_else(|| f.name.file_stem()),
+    }
+}
+
+/// A file imports or declares every function one of its functions reads,
+/// so a local in any of them must not take one of those names. Where a
+/// helper is printed follows from what the functions read, worked out here
+/// once, from the bindings as Rust resolves them.
+fn file_reads(krate: &Crate, items: &[(String, bool)]) -> FileReads {
+    let free: HashMap<String, String> = krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) if f.owner.is_none() => Some((to_camel(f.name.as_str()), f.name.as_str().to_string())),
+            _ => None,
+        })
+        .collect();
+    let read: HashMap<(Option<String>, String), HashSet<String>> = krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) => Some(((f.owner.as_ref().map(|o| o.as_str().to_string()), f.name.as_str().to_string()), reads(f, items))),
+            _ => None,
+        })
+        .collect();
+    let homes = krate.homes(|item| match item {
+        Item::Fn(f) => read[&(f.owner.as_ref().map(|o| o.as_str().to_string()), f.name.as_str().to_string())]
+            .iter()
+            .filter_map(|n| free.get(n).cloned())
+            .collect(),
+        other => krate.fns_named(other),
+    });
+    let mut reads: HashMap<String, HashSet<String>> = HashMap::new();
+    for item in &krate.items {
+        if let Item::Fn(f) = item {
+            let names = &read[&(f.owner.as_ref().map(|o| o.as_str().to_string()), f.name.as_str().to_string())];
+            reads.entry(file_of(f, &homes)).or_default().extend(names.iter().cloned());
+        }
+    }
+    let helpers = krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) if f.owner.is_none() && f.vis != Vis::Pub => Some(to_camel(f.name.as_str())),
+            _ => None,
+        })
+        .collect();
+    FileReads { homes, reads, helpers }
+}
+
+/// What a function reads: what a first pass finds no binding for, and what
+/// it calls; a binding resolves the same whatever names are taken. A local
+/// named like the function itself would hide it in its body.
+fn reads(f: &Fn, items: &[(String, bool)]) -> HashSet<String> {
     let mut first = Renamer::default();
     let mut cx = Cx { env: HashMap::new(), taken: items.iter().map(|(n, _)| n.clone()).collect() };
     for p in &f.params {
@@ -64,15 +127,23 @@ fn rename_fn(f: Fn, items: &[(String, bool)]) -> Fn {
     first.stmt_binds(f.body.clone(), &mut cx);
     let mut read = first.free;
     calls(&f.body, &mut read);
-    // A local named like the function itself would hide it in its body.
     read.insert(to_camel(f.name.as_str()));
+    read
+}
 
+/// Top-level names are taken up front: a TS `const` shadows an import for the
+/// whole block, including uses before it that Rust resolves to the item. A
+/// function no function of the file reads is not imported into it, so a
+/// local may have its name (`paid(lines, total, cmd)` keeps `total` where
+/// nothing beside it calls `total`). A helper's name is always taken, so
+/// that, once renamed, a read of the name is a read of the helper.
+fn rename_fn(f: Fn, items: &[(String, bool)], read: &HashSet<String>, helpers: &HashSet<String>) -> Fn {
     let mut r = Renamer::default();
     let mut cx = Cx {
         env: HashMap::new(),
         taken: items
             .iter()
-            .filter(|(name, value)| !value || read.contains(name))
+            .filter(|(name, value)| !value || read.contains(name) || helpers.contains(name))
             .map(|(name, _)| name.clone())
             .collect(),
     };

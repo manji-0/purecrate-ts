@@ -58,6 +58,8 @@ thread_local! {
     static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
     static PRIVATE: RefCell<BTreeSet<(String, String)>> = const { RefCell::new(BTreeSet::new()) };
+    /// Helpers printed in another item's file (`Crate::homes`), likewise.
+    static HOSTED: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Whether the statement `stmt::emit_stmts` prints next is the last of
     /// its JS block, so nothing after it could meet a name it declares.
     static TAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -208,17 +210,24 @@ pub fn emit(krate: &Crate) -> Package {
         _ => None,
     });
     let previous_structs = STRUCTS.with(|c| c.replace(structs.collect()));
+    let previous_hosted = HOSTED.with(|h| h.replace(krate.homes(|item| krate.fns_named(item))));
     let package = with_internal_names(krate, || emit_package(krate));
+    HOSTED.with(|h| h.replace(previous_hosted));
     STRUCTS.with(|c| c.replace(previous_structs));
     CLOSED.with(|c| c.replace(previous));
     PRIVATE.with(|p| p.replace(previous_private));
     package
 }
 
+/// The file a helper is printed in, when not its own (`homes`).
+pub(crate) fn hosted_in(name: &str) -> Option<String> {
+    HOSTED.with(|h| h.borrow().get(name).cloned())
+}
+
 fn emit_package(krate: &Crate) -> Package {
     let mut buckets: BTreeMap<String, Vec<&Item>> = BTreeMap::new();
     for item in &krate.items {
-        buckets.entry(item.file_stem()).or_default().push(item);
+        buckets.entry(HOSTED.with(|h| Crate::home(item, &h.borrow()))).or_default().push(item);
     }
 
     let mut files = Vec::new();
@@ -346,7 +355,16 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     TABLES.with(|t| t.borrow_mut().clear());
     let mut body = String::new();
     let out_ = &mut body;
+    let mut previous: Option<&Item> = None;
     for item in items {
+        // A blank line between declarations; a run of consts stays together.
+        let printed = !matches!(item, Item::Fn(f) if f.owner.is_some());
+        if printed {
+            if previous.is_some_and(|p| !(matches!(p, Item::Const(_)) && matches!(item, Item::Const(_)))) {
+                out_.push('\n');
+            }
+            previous = Some(item);
+        }
         match item {
             Item::Enum(en) => out_.push_str(&emit_enum(krate, en)),
             Item::Struct(st) => out_.push_str(&emit_struct(krate, st)),
@@ -357,6 +375,10 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
                     name = al.name.as_str(),
                     ty = emit_ty(&al.ty)
                 ));
+            }
+            // A hosted helper is the file's own; nothing else imports it.
+            Item::Fn(f) if f.owner.is_none() && hosted_in(f.name.as_str()).is_some() => {
+                out_.push_str(&emit_free_fn(f).replacen("export const ", "const ", 1))
             }
             Item::Fn(f) if f.owner.is_none() => out_.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
@@ -628,14 +650,49 @@ export const step = (state: State, event: Event): State => {
     }
 
     #[test]
+    fn a_helper_with_one_user_file_is_printed_there() {
+        use purecrate_ir::{Param, Vis};
+        let helper = |name: &str, body: Expr| {
+            Item::Fn(Fn {
+                vis: Vis::Internal,
+                name: Name::new(name),
+                owner: None,
+                params: vec![Param { name: Name::new("cmd"), ty: Ty::named("Cmd") }],
+                ret: Ty::named("Cmd"),
+                body,
+                doc: None,
+            })
+        };
+        let call = |f: &str| Expr::Call { callee: Callee::Fn(Name::new(f)), args: vec![Expr::var("cmd")] };
+        let mut krate = cmd_crate(cmd_match(call("next")));
+        // `next` calls `inner`; both land in `run.ts`, `inner` by following `next`.
+        krate.items.push(helper("next", call("inner")));
+        krate.items.push(helper("inner", Expr::var("cmd")));
+        let pkg = emit(&krate);
+        assert!(pkg.files.iter().all(|f| f.stem != "next" && f.stem != "inner"));
+        let run = file(&pkg, "run");
+        assert!(run.contains("\nconst next = (cmd: Cmd): Cmd => inner(cmd);\n"), "{run}");
+        assert!(run.contains("\nconst inner = (cmd: Cmd): Cmd => cmd;\n"), "{run}");
+        assert!(!run.contains("import { next }") && !run.contains("import { inner }"), "{run}");
+
+        // Called from two files, it keeps its own and is exported from it.
+        let mut krate = cmd_crate(cmd_match(call("next")));
+        krate.items.push(helper("next", Expr::var("cmd")));
+        krate.items.push(helper("again", call("next")));
+        let pkg = emit(&krate);
+        assert!(file(&pkg, "next").contains("export const next = "));
+    }
+
+    #[test]
     fn imports_follow_body_and_nested_types() {
         use purecrate_ir::{Param, Vis};
         let mut krate = cmd_crate(cmd_match(Expr::Call {
             callee: Callee::Fn(Name::new("next")),
             args: vec![Expr::var("cmd")],
         }));
+        // `pub`, so it keeps its file (`homes`).
         krate.items.push(Item::Fn(Fn {
-            vis: Vis::Internal,
+            vis: Vis::Pub,
             name: Name::new("next"),
             owner: None,
             params: vec![Param {

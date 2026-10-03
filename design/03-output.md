@@ -15,7 +15,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | `Readonly<{…}>`, `ReadonlyArray`, `readonly [..]` | no reassignment through types |
 | Same-named companion | `export type T` + `export const T = { … } as const` |
 | Function properties, `export const f = (…) =>` | no classes, no method syntax, no `this`, no `export function` |
-| One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports |
+| One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports. A function the package does not export, whose callers all sit in one other file, is printed in that file, unexported, after a blank line: a helper of a helper follows it (`Crate::homes`). Why: a 5-line `is-digit.ts` sent a reader of its one caller to another file; where a helper lands depends only on the source, never on how many files there are, and files stay flat, as the modules are ([02 §3.3](./02-authoring.md#33-names-are-unique-across-the-crate)) |
 | Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
 | Time and IDs are arguments | the domain never generates them |
 | `return` ends a branch | where a value is returned, a branch that returns is an `if` the next one follows, not an `else` (`if (s === "") return ..;` then the rest); a branch of one `return` sits on its `if`'s line. A function name passed as a function (`.map(f)`, `Iter.all(xs, f)`) is `f`, not an arrow around it |
@@ -216,7 +216,7 @@ A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `
 
 - Bindings are numbered (`x2`, counting the first as one) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
 - A name the generator makes is printed plain (`emit_ts::plain`): while the code is built it starts with `$`, which no Rust identifier has, and last it takes its plain spelling unless an identifier read or declared in the innermost block holding its uses has it, or another made name of an overlapping block took it; then the next number (`result2`). So it never captures or hides a source name. Until 0.8.0 the `$` was printed (`$v_major`, `$m_3_$t`, `x$1`).
-- A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block: a type or `const` always, a function only where the function calls or reads it, since only then does its file import it (`paid(lines, total, cmd)` keeps `total`; `let total = total(&lines)` is `total2`).
+- A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block: a type or `const` always, a function only where a function of the same file calls or reads it, since only then does the file import it (`paid(lines, total, cmd)` keeps `total` where nothing beside it calls `total`; `let total = total(&lines)` is `total2`); a function the package does not export always, so that a name read after renaming is the helper when it is a helper's.
 
 ### 3.4 Closures
 

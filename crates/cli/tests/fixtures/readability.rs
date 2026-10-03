@@ -69,3 +69,17 @@ pub fn swapped(s: Shape) -> i32 {
         _ => 0,
     }
 }
+
+pub fn bump(v: i32) -> i32 {
+    v + 1
+}
+
+/// Printed in `bumped_twice.ts`, its one caller's file, which imports `bump`:
+/// its parameter is renamed there, or it would hide that import.
+fn doubled(bump: i32) -> i32 {
+    bump * 2
+}
+
+pub fn bumped_twice(v: i32) -> i32 {
+    doubled(v) + bump(v)
+}
