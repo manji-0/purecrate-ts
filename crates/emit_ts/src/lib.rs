@@ -360,12 +360,12 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Fn(_) => {}
             Item::Const(c) => {
                 out_.push_str(&jsdoc(&c.doc, ""));
-                out_.push_str(&format!(
-                    "export const {name}: {ty} = {value};\n",
-                    name = c.name.as_str(),
-                    ty = emit_ty(&c.ty),
-                    value = crate::tidy::strip_outer(&emit_expr(&c.value, 0))
-                ));
+                let value = emit_expr(&c.value, 0);
+                let value = crate::tidy::strip_outer(&value);
+                let ty = emit_ty(&c.ty);
+                // A value cast to the type already states it.
+                let annotation = if crate::tidy::cast_type(value) == Some(ty.as_str()) { String::new() } else { format!(": {ty}") };
+                out_.push_str(&format!("export const {name}{annotation} = {value};\n", name = c.name.as_str()));
             }
         }
     }

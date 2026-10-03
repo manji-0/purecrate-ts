@@ -19,7 +19,7 @@ export const unsafeMakePassword = (value: string): Password => value as Password
 export const Password = {
   parse: (raw: string): Result<Password, PasswordError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    let n: Usize = 0 as Usize;
+    let n = 0 as Usize;
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       const value = Slice.at(b, i);
       if (!(value >= 128 && value <= 191)) {

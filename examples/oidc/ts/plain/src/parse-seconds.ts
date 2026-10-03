@@ -14,7 +14,7 @@ export const parseSeconds = (s: string): I64 | null => {
     !Iter.all(Str.bytes(s), (b: U8): boolean => b >= 48 && b <= 57)
   )
     return null;
-  let value: I64 = 0n as I64;
+  let value = 0n as I64;
   for (const b of Str.bytes(s)) {
     value = Int.i64.add(
       Int.i64.mul(value, 10n as I64),

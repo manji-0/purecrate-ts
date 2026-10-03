@@ -20,7 +20,7 @@ export const unsafeMakeEmail = (value: string): Email => value as Email;
 export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
     const b: ReadonlyArray<U8> = Str.bytes(raw);
-    let at: Usize = b.length as Usize;
+    let at = b.length as Usize;
     for (let i = 0 as Usize, end = b.length as Usize; i < end; i = (i + 1) as Usize) {
       if (Slice.at(b, i) === 64 && at === b.length) {
         at = i;

@@ -485,6 +485,11 @@ pub(crate) fn emit_let(
     let inferred = matches!(value, Expr::Closure { .. })
         || (mutable && matches!(value, Expr::Lit(Lit::Bool(_))) && matches!(ty, Some(t) if *t == Ty::bool()));
     let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
+    // A value cast to the type already states it (`let n = 0 as Usize`).
+    let stated = |value: &str| match ty {
+        Some(t) if crate::tidy::cast_type(value) == Some(emit_ty(t).as_str()) => String::new(),
+        _ => annotation.clone(),
+    };
     match value {
         Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
@@ -502,10 +507,7 @@ pub(crate) fn emit_let(
         // annotation already says.
         v if is_place(v) && matches!(ty, Some(Ty::Named(n)) if !crate::is_struct(n.as_str())) => {
             let t = emit_ty(ty.unwrap());
-            out.push_str(&format!(
-                "{pad}{keyword} {name}{annotation} = {} as {t};\n",
-                emit_expr(v, indent)
-            ));
+            out.push_str(&format!("{pad}{keyword} {name} = {} as {t};\n", emit_expr(v, indent)));
         }
         v if v.needs_statements() && let_else(name, mutable, ty, v, indent, out) => {}
         // A temporary bound for the value alone (`$r = s.parse(); match $r`)
@@ -524,7 +526,8 @@ pub(crate) fn emit_let(
         }
         v if let Some((prelude, s)) = value_expr(v, indent) => {
             out.push_str(&prelude);
-            out.push_str(&format!("{pad}{keyword} {name}{annotation} = {};\n", crate::tidy::strip_outer(&s)));
+            let s = crate::tidy::strip_outer(&s);
+            out.push_str(&format!("{pad}{keyword} {name}{} = {s};\n", stated(s)));
         }
         v if v.needs_statements() => {
             out.push_str(&format!("{pad}let {name}{annotation};\n"));
@@ -537,10 +540,11 @@ pub(crate) fn emit_let(
                 emit_stmts(v, indent, Sink::Assign(name), out);
             }
         }
-        v => out.push_str(&format!(
-            "{pad}{keyword} {name}{annotation} = {};\n",
-            crate::tidy::strip_outer(&emit_expr(v, indent))
-        )),
+        v => {
+            let s = emit_expr(v, indent);
+            let s = crate::tidy::strip_outer(&s);
+            out.push_str(&format!("{pad}{keyword} {name}{} = {s};\n", stated(s)));
+        }
     }
 }
 

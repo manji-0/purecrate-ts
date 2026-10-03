@@ -11,9 +11,9 @@ import type { OtpDigits } from "./otp-digits.ts";
  * then mod 10^digits. None for a MAC shorter than SHA-1's 20 bytes.
  */
 export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | null => {
-  const n: Usize = mac.length as Usize;
+  const n = mac.length as Usize;
   if (n < SHA1_LEN) return null;
-  const offset: Usize = Int.u8.and(
+  const offset = Int.u8.and(
     Slice.at(mac, Int.usize.sub(n, 1 as Usize)),
     15 as U8,
   ) as number as Usize;

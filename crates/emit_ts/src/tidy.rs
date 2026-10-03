@@ -237,6 +237,15 @@ pub(crate) fn top_prec(s: &str) -> u8 {
     }
 }
 
+/// `T` where `s` is one operand cast to it (`512 as Usize`, `b.length as
+/// Usize`, `x as number as U8`): the type the declaration of `s` has.
+pub(crate) fn cast_type(s: &str) -> Option<&str> {
+    let s = strip_outer(s);
+    let d = depths(s);
+    let at = (0..s.len()).rev().find(|&i| d[i] == Some(0) && s[i..].starts_with(" as "))?;
+    (top_prec(&s[..at]) == PREC_ATOMIC).then(|| s[at + 4..].trim())
+}
+
 /// Whether `s` is a cast at its top level (`1 as I32`, `x as number as U8`).
 pub(crate) fn has_top_as(s: &str) -> bool {
     let d = depths(s);
@@ -1162,5 +1171,15 @@ mod tests {
         assert_eq!(negate("f(a === b)"), None);
         assert_eq!(negate("s === \" === \""), Some("s !== \" === \"".into()));
         assert_eq!(negate("a === b === c"), None);
+    }
+
+    #[test]
+    fn a_cast_states_its_type() {
+        assert_eq!(cast_type("512 as Usize"), Some("Usize"));
+        assert_eq!(cast_type("Int.u8.and(x, 15 as U8) as number as Usize"), Some("Usize"));
+        assert_eq!(cast_type("(b.length as Usize)"), Some("Usize"));
+        assert_eq!(cast_type("a + b as I32"), None);
+        assert_eq!(cast_type("c ? (1 as I32) : (2 as I32)"), None);
+        assert_eq!(cast_type("f(1 as I32)"), None);
     }
 }

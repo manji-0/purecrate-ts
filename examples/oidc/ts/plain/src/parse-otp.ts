@@ -14,7 +14,7 @@ export const parseOtp = (code: string, digits: OtpDigits): U32 | null => {
     !Iter.all(Str.bytes(code), (b: U8): boolean => b >= 48 && b <= 57)
   )
     return null;
-  let value: U32 = 0 as U32;
+  let value = 0 as U32;
   for (const b of Str.bytes(code)) {
     value = Int.u32.add(Int.u32.mul(value, 10 as U32), Int.u8.sub(b, 48 as U8) as number as U32);
   }

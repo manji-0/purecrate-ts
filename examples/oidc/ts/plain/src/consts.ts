@@ -7,14 +7,14 @@ export const ACR_MFA: string = "urn:example:acr:mfa";
 /** The acr value this OP asserts for password-only logins. */
 export const ACR_PASSWORD: string = "urn:example:acr:pwd";
 /** The OP bounds `state` so it cannot be used to bloat redirects. */
-export const MAX_STATE_LEN: Usize = 512 as Usize;
+export const MAX_STATE_LEN = 512 as Usize;
 /**
  * RFC 7636 §4.1: a code verifier (and a plain challenge) is 43..=128
  * characters.
  */
-export const PKCE_MIN_LEN: Usize = 43 as Usize;
-export const PKCE_MAX_LEN: Usize = 128 as Usize;
+export const PKCE_MIN_LEN = 43 as Usize;
+export const PKCE_MAX_LEN = 128 as Usize;
 /** Decimal digits that always fit in i64. */
-export const MAX_SECONDS_DIGITS: Usize = 18 as Usize;
+export const MAX_SECONDS_DIGITS = 18 as Usize;
 /** An HMAC-SHA-1 output, the shortest MAC RFC 4226 truncates. */
-export const SHA1_LEN: Usize = 20 as Usize;
+export const SHA1_LEN = 20 as Usize;
