@@ -190,10 +190,15 @@ struct Cx {
 #[derive(Default)]
 struct Renamer {
     free: HashSet<String>,
+    /// Every made name given in the function. A made name stays a `$` name
+    /// until `plain_names` prints it, which tells two apart by spelling
+    /// alone; the printer may flatten a `?` into its statement's block, so
+    /// two in different scopes here can share one there.
+    made: HashSet<String>,
 }
 
 impl Renamer {
-    fn pick(&self, name: &Name, taken: &HashSet<String>) -> Name {
+    fn pick(&mut self, name: &Name, taken: &HashSet<String>) -> Name {
         // A name `check` made (`$major9`) drops the counter that kept it
         // apart while typing: claiming it here keeps it apart again.
         let source = name.as_str();
@@ -205,6 +210,14 @@ impl Renamer {
             _ => source,
         };
         let want = to_camel(source);
+        if want.starts_with('$') {
+            let printed = (0..)
+                .map(|n| if n == 0 { want.clone() } else { format!("{want}_{n}") })
+                .find(|c| !taken.contains(c.as_str()) && !self.made.contains(c.as_str()))
+                .expect("a free name");
+            self.made.insert(printed.clone());
+            return Name::new(printed);
+        }
         if !taken.contains(want.as_str()) {
             Name::new(want)
         } else {

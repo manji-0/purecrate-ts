@@ -108,3 +108,10 @@ pub fn try_in_ok_or(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
     let t = s.checked_mul(2i32).ok_or(-2i32)?;
     Ok(t)
 }
+
+/// Two `map_err(f)?` in one body keep their results apart.
+pub fn two_mapped_tries(v: i32, fail_first: bool, fail_second: bool) -> Result<i32, i32> {
+    let a = given(v, fail_first).map_err(|e| e + 1)?;
+    let b = given(v + 1, fail_second).map_err(|e| e + 2)?;
+    Ok(a * 10 + b)
+}
