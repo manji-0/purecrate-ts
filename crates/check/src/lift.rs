@@ -298,13 +298,15 @@ impl Lifter {
         e
     }
 
-    /// An operand, an argument, or an element. A `let` / `match` / `if` that
-    /// leaves the function (what typing makes of `r.map_err(f)?` or
-    /// `o.unwrap_or(s.parse()?)`) runs before the statement, bound to a
-    /// fresh name: printed in place it would be an inline function, and its
-    /// `return` would leave only that.
+    /// An operand, an argument, or an element, each always evaluated. A
+    /// `let` / `match` / `if` that leaves the function (what typing makes of
+    /// `r.map_err(f)?` or `o.unwrap_or(s.parse()?)`), or that holds
+    /// statements, runs before the statement, bound to a fresh name: printed
+    /// in place it would be an inline function, whose `return` would leave
+    /// only itself, and whose lines would sit inside a one-line expression.
     fn operand(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
-        if matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. }) && leaves(&expr) {
+        let block = matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. });
+        if block && (leaves(&expr) || holds_statements(&expr)) {
             let name = self.fresh(&expr, "Value");
             let value = self.stmt(expr);
             out.push((name.clone(), value, None));
@@ -323,7 +325,8 @@ impl Lifter {
     fn extract_into(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
         match expr {
             Expr::Try { expr, on } => {
-                let inner = self.boxed(expr, out);
+                // What `?` takes is bound before the statement already.
+                let inner = Box::new(self.extract_into(*expr, out));
                 let name = self.fresh(&inner, if on == Some(TryOn::Option) { "Opt" } else { "Result" });
                 // The hoisted value is the `Result` itself, tested in place
                 // (see `wrap`), and read here as its payload. A `None` is
@@ -507,6 +510,19 @@ fn pure(expr: &Expr) -> bool {
 /// `let name = inner; name?; body` for a hoisted `?`: the test is on the
 /// binding itself, and the use reads its payload (`extract_into`). The
 /// guard `ok_or` becomes keeps `let name = inner?`, which binds the payload.
+/// Whether `expr` is a block whose value comes after statements: a `let`
+/// of a value that is not a name or a literal, a `;`, an assignment, or a
+/// loop, itself or in a side of its `if` / `match`.
+fn holds_statements(expr: &Expr) -> bool {
+    match expr {
+        Expr::Let { value, then, .. } => !value.is_inlinable() || holds_statements(then),
+        Expr::Seq { .. } | Expr::Assign { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } => true,
+        Expr::If { then, else_, .. } => holds_statements(then) || holds_statements(else_),
+        Expr::Match { arms, .. } => arms.iter().any(|a| holds_statements(&a.body)),
+        _ => false,
+    }
+}
+
 /// Whether `expr` leaves the function: a `return` or a `?` outside a
 /// closure.
 fn leaves(expr: &Expr) -> bool {

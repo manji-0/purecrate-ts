@@ -329,9 +329,20 @@ impl Stmt {
 
 /// `const name: ty = value;`, exported or not.
 pub(crate) fn decl(export: bool, name: &str, ty: Option<&str>, value: &Js) -> Doc {
-    let ty = ty.map(|t| format!(": {t}")).unwrap_or_default();
     let export = if export { "export " } else { "" };
-    concat(vec![assign(text(format!("{export}const {name}{ty} =")), value.doc()), text(";")])
+    let head = format!("{export}const {name}");
+    // A generic type's arguments break one per line, with no trailing comma
+    // (`v.GenericSchema<` .. `> =`), where the line does not fit.
+    let lhs = match ty.and_then(|t| t.strip_suffix('>')).and_then(|t| t.split_once('<')) {
+        Some((generic, args)) if args.contains(',') && !args.contains(['<', '{']) => group(concat(vec![
+            text(format!("{head}: {generic}<")),
+            indent(concat(vec![Doc::SoftLine, join(concat(vec![text(","), Doc::Line]), args.split(',').map(|a| text(a.trim())).collect())])),
+            Doc::SoftLine,
+            text("> ="),
+        ])),
+        _ => text(format!("{head}{} =", ty.map(|t| format!(": {t}")).unwrap_or_default())),
+    };
+    concat(vec![assign(lhs, value.doc()), text(";")])
 }
 
 /// A link of a member chain: `.name` or a call's arguments.

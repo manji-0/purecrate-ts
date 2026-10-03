@@ -384,6 +384,12 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
 /// The width past which `tidy::wrap` breaks a line.
 pub const WIDTH: usize = 100;
 
+/// The columns a line takes, as oxfmt counts them against [`WIDTH`]: a wide
+/// East Asian character takes two.
+pub fn columns(line: &str) -> usize {
+    tidy::cols(line)
+}
+
 /// Break generated source so no code line exceeds [`WIDTH`].
 pub fn wrap_source(src: &str) -> String {
     tidy::wrap(src, WIDTH)

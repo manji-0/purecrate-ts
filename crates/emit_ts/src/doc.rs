@@ -179,9 +179,24 @@ fn run(width: usize, out: &mut String, col: &mut usize, cmds: Vec<Cmd>) {
                 // its first possible break; else on the next, one indent in.
                 // Flat, it stays on the line.
                 let head = [(level, mode, &**lhs), (level, Mode::Flat, &LINE), (level, Mode::Break, &**rhs)];
+                let lhs_breaks = !fits(&[(level, Mode::Flat, &**lhs)], &[], width.saturating_sub(*col));
                 if (mode == Mode::Flat && !remeasure) || fits(&head, &stack, width.saturating_sub(*col)) {
                     stack.push((level, mode, rhs));
                     stack.push((level, Mode::Flat, &LINE));
+                } else if lhs_breaks {
+                    // A left side that breaks (`v.GenericSchema<` .. `> =`)
+                    // is printed first; the value is placed from where it
+                    // ends, as Prettier's fluid layout does.
+                    run(width, out, col, vec![(level, mode, &**lhs)]);
+                    let tail = [(level, Mode::Flat, &LINE), (level, Mode::Break, &**rhs)];
+                    if fits(&tail, &stack, width.saturating_sub(*col)) {
+                        stack.push((level, mode, rhs));
+                        stack.push((level, Mode::Flat, &LINE));
+                    } else {
+                        stack.push((level + 1, mode, rhs));
+                        stack.push((level + 1, Mode::Break, &HARD));
+                    }
+                    continue;
                 } else {
                     stack.push((level + 1, mode, rhs));
                     stack.push((level + 1, Mode::Break, &HARD));

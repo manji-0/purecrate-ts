@@ -299,8 +299,31 @@ fn is_comment(line: &str) -> bool {
     t.starts_with("//") || t.starts_with("/*") || t.starts_with('*')
 }
 
+/// The columns `s` takes, as oxfmt counts them: a wide East Asian character
+/// takes two (`金` is two, `a` one).
+pub(crate) fn cols(s: &str) -> usize {
+    s.chars().map(|c| if wide(c) { 2 } else { 1 }).sum()
+}
+
+/// East Asian Wide and Fullwidth: Hangul Jamo, CJK and its punctuation,
+/// Hiragana, Katakana, Hangul syllables, compatibility ideographs, vertical
+/// and fullwidth forms, and the supplementary ideographic planes.
+fn wide(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0x303E | 0x3041..=0x33FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF
+        | 0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60
+        | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
+}
+
+/// `import { a as b } from "m";` with one name, which oxfmt keeps on its
+/// line however long.
+fn lone_import(line: &str) -> bool {
+    line.starts_with("import ")
+        && line.split_once('{').and_then(|(_, rest)| rest.split_once('}')).is_some_and(|(names, _)| !names.contains(','))
+}
+
 fn wrap_line(line: &str, width: usize, out: &mut String) {
-    if line.len() <= width || is_comment(line) {
+    if cols(line) <= width || is_comment(line) || lone_import(line) {
         emit_raw(line, out);
         return;
     }
@@ -324,6 +347,12 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     }
     // A top-level `?:` splits before a bracket in one of its branches opens.
     if wrap_ternary(line, width, out) {
+        return;
+    }
+    if wrap_after_assign(line, width, out) {
+        return;
+    }
+    if wrap_last_arrow(line, width, out) {
         return;
     }
     if wrap_sole_item(line, width, out) {
@@ -361,6 +390,96 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     emit_raw(line, out);
 }
 
+/// A call whose last argument is an arrow with an expression body, the
+/// other arguments plain: the arrow's head stays on the call's line and its
+/// body goes one indent in (`Iter.all(xs, (b: U8): boolean =>` then the
+/// body), where both fit; else every argument opens, as oxfmt does.
+fn wrap_last_arrow(line: &str, width: usize, out: &mut String) -> bool {
+    let (core, end) = match line.strip_suffix([';', ',']) {
+        Some(c) => (c, &line[c.len()..]),
+        None => (line, ""),
+    };
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let d = depths(core);
+    let bytes = core.as_bytes();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    let Some(open) = (1..core.len()).find(|&i| bytes[i] == b'(' && d[i] == Some(0) && ident(bytes[i - 1])) else {
+        return false;
+    };
+    // The call is the rest of the line.
+    if !core.ends_with(')') || (open + 1..core.len() - 1).any(|j| d[j] == Some(0)) {
+        return false;
+    }
+    let inner = &core[open + 1..core.len() - 1];
+    let di = depths(inner);
+    let mut items = Vec::new();
+    let mut start = 0;
+    for j in 0..inner.len() {
+        if inner.as_bytes()[j] == b',' && di[j] == Some(0) {
+            items.push(inner[start..j].trim());
+            start = j + 1;
+        }
+    }
+    items.push(inner[start..].trim());
+    let Some((last, rest)) = items.split_last() else { return false };
+    let dl = depths(last);
+    let Some(arrow) = (0..last.len()).find(|&i| dl[i] == Some(0) && last[i..].starts_with(" => ")) else {
+        return false;
+    };
+    let body = &last[arrow + 4..];
+    if body.starts_with(['{', '(', '[']) || rest.iter().any(|a| a.contains(" => ")) {
+        return false;
+    }
+    let mut head = core[..=open].to_string();
+    for a in rest {
+        head.push_str(a);
+        head.push_str(", ");
+    }
+    head.push_str(&last[..arrow]);
+    head.push_str(" =>");
+    let below = format!("{pad}  {body},");
+    if cols(&head) > width || cols(&below) > width {
+        return false;
+    }
+    emit_raw(&head, out);
+    emit_raw(&below, out);
+    emit_raw(&format!("{pad}){end}"), out);
+    true
+}
+
+/// `const x = a.b(c);` whose value is a call oxfmt finds poorly breakable,
+/// a name or a chain of fields called with nothing or one short operand (a
+/// name, a field chain, or a literal of at most a quarter of the width):
+/// broken after `=`, the value one indent in, where it then fits.
+fn wrap_after_assign(line: &str, width: usize, out: &mut String) -> bool {
+    let trimmed = line.trim_start();
+    let pad = &line[..line.len() - trimmed.len()];
+    if !(trimmed.starts_with("const ") || trimmed.starts_with("let ")) {
+        return false;
+    }
+    let d = depths(line);
+    let Some(eq) = (0..line.len()).find(|&i| d[i] == Some(0) && line[i..].starts_with(" = ")) else {
+        return false;
+    };
+    let Some(value) = line[eq + 3..].strip_suffix(';') else { return false };
+    let path = |s: &str| !s.is_empty() && s.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$'));
+    let short = |s: &str| {
+        let s = s.trim();
+        s.is_empty() || (cols(s) <= width / 4 && (path(s) || s.chars().all(|c| c.is_ascii_digit()) || (s.starts_with('"') && s.ends_with('"'))))
+    };
+    let poor = match value.strip_suffix(')').and_then(|v| v.split_once('(')) {
+        Some((callee, arg)) => path(callee) && !arg.contains(',') && !arg.contains('(') && short(arg),
+        None => path(value),
+    };
+    let below = format!("{pad}  {value};");
+    if !poor || cols(&below) > width {
+        return false;
+    }
+    emit_raw(&line[..eq + 2], out);
+    emit_raw(&below, out);
+    true
+}
+
 /// `if (cond) return value;` when it does not fit: the condition on its
 /// own `if` line when that fits, else opened, then `return` one indent in.
 fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool {
@@ -368,7 +487,7 @@ fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     };
     let header = format!("{pad}if ({cond})");
-    if header.len() <= width {
+    if cols(&header) <= width {
         wrap_line(&header, width, out);
     } else {
         wrap_line(&format!("{pad}if ("), width, out);
@@ -681,8 +800,12 @@ fn wrap_logical(line: &str, width: usize, out: &mut String) -> bool {
     };
     let pad_len = line.len() - line.trim_start().len();
     let pad = &line[..pad_len];
-    for part in parts {
-        wrap_line(format!("{pad}{part}").trim_end(), width, out);
+    // A `?:` branch's test (`: a &&`) goes on four past its `:`, as oxfmt
+    // lays out a chain of `?:`.
+    let branch = line.trim_start().starts_with("? ") || line.trim_start().starts_with(": ");
+    for (i, part) in parts.into_iter().enumerate() {
+        let more = if branch && i > 0 { "    " } else { "" };
+        wrap_line(format!("{pad}{more}{part}").trim_end(), width, out);
     }
     true
 }
@@ -1017,7 +1140,10 @@ fn split_point(
         };
         let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
         let long_enough = excess.is_none_or(|e| close - i > e);
-        if top(b',') && !top(b';') && long_enough && best.is_none_or(|(_, _, l)| level < l) {
+        // An arrow's object body opens with one field too (`=> ({` then
+        // `kind: "A",`), as oxfmt prints it.
+        let body_object = from > 0 && b == b'{' && (i == from || i == from + 1) && close > i + 2;
+        if (top(b',') || body_object) && !top(b';') && long_enough && best.is_none_or(|(_, _, l)| level < l) {
             best = Some((i, close, level));
         }
     }

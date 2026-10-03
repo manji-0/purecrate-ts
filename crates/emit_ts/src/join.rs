@@ -95,7 +95,8 @@ fn rebuilt(expr: &mut Expr) {
         root = base;
     }
     let Expr::Var(root) = root.clone() else { return };
-    for arm in arms.iter_mut() {
+    // Not under a guard, which may read a name the arm then drops.
+    for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
         let Pattern::Variant { ty, variant, bind } = &mut arm.pattern else { continue };
         let names: Vec<(Option<Name>, Name)> = match bind {
             VariantBind::Tuple(ps) => ps.iter().map(|p| match p { Pattern::Var(n) => Some((None, n.clone())), _ => None }).collect::<Option<_>>(),
