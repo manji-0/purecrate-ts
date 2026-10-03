@@ -55,7 +55,8 @@ fn cmp_is_refused_where_js_has_no_order_to_follow() {
     assert_rejects("pub fn f(a: f64, b: f64) -> bool { a.partial_cmp(&b).is_some() }", "`.partial_cmp()` on `f64` is not in v0");
     assert_rejects("pub fn f(a: i32, b: i32) -> bool { a.partial_cmp(&b).is_some() }", "`.partial_cmp()` on `i32` is not in v0");
     assert_rejects("pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `(i32, i32)` is not in v0");
-    assert_rejects("pub fn f(a: Vec<u8>, b: Vec<u8>) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `Vec<u8>` is not in v0");
+    assert_rejects("pub fn f(a: Vec<f64>, b: Vec<f64>) -> bool { a.cmp(&b).is_lt() }", "floats are not `Ord`");
+    assert_rejects("pub fn f(a: Vec<(u8, u8)>, b: Vec<(u8, u8)>) -> bool { a.cmp(&b).is_lt() }", "not of `(u8, u8)`");
     assert_rejects("pub fn f(a: Option<u8>, b: Option<u8>) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `Option<u8>` is not in v0");
     assert_rejects(
         "#[derive(PartialEq, Eq, PartialOrd, Ord)]\npub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a.cmp(&b).is_lt() }",

@@ -24,6 +24,22 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn cmp_method(&mut self, recv: Expr, rt: &Ty, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let failed = || Some((Expr::Lit(Lit::Unit), None));
         let norm = self.norm(rt);
+        // A `Vec` of what `cmp` orders, compared element by element.
+        let list = match &norm {
+            Ty::Vec(t) => Some(self.norm(t)),
+            _ => None,
+        };
+        let norm = match &list {
+            Some(t @ Ty::Prim(_)) => t.clone(),
+            Some(other) => {
+                self.error(Reason::MethodCall, format!(
+                    "`.cmp()` on a `Vec` orders `Vec`s of integers, `char`, `bool`, `String`/`&str`, or `Uuid` in v0, not of `{}`",
+                    show(other)
+                ));
+                return failed();
+            }
+            None => norm,
+        };
         match &norm {
             Ty::Named(_) => return None,
             Ty::Prim(p) if p.int().is_some() => {}
@@ -52,12 +68,13 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         // `s.cmp(t)` takes a `&str` or a `String` for a string receiver.
         let hint = match &norm {
-            Ty::Prim(Prim::String) => Ty::Prim(Prim::Str),
+            Ty::Prim(Prim::String) if list.is_none() => Ty::Prim(Prim::Str),
             _ => rt.clone(),
         };
         let (arg, _) = self.expr(arg, Some(&hint));
         let text = matches!(norm, Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid));
-        let call = Expr::Call { callee: Callee::OrdCmp { text }, args: vec![recv, arg] };
+        let callee = if list.is_some() { Callee::OrdCmpList { text } } else { Callee::OrdCmp { text } };
+        let call = Expr::Call { callee, args: vec![recv, arg] };
         Some((call, self.expect(want, Some(Ty::named(ORDERING)))))
     }
 

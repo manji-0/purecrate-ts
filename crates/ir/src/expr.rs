@@ -508,6 +508,12 @@ pub enum Callee {
     OrdCmp {
         text: bool,
     },
+    /// `a.cmp(&b)` on two `Vec`s of what `OrdCmp` orders (`text` as
+    /// there): element by element, then the shorter first, as std's
+    /// lexicographic order. Prints as `Ord.cmpList(a, b, Ord.cmp)`.
+    OrdCmpList {
+        text: bool,
+    },
     /// `o.then(p)`: `p` when `o` is `Equal`, else `o`; both evaluated, `o`
     /// first, as Rust evaluates a call's arguments. Prints as `Ord.then`.
     OrdThen,

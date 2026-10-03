@@ -419,7 +419,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
             Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
-            Callee::OrdCmp { .. } => self.arity("`cmp`", 2, argc),
+            Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
             Callee::Consume { method, .. } => {
                 let takes = if matches!(method, purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_)) { 1 } else { 2 };

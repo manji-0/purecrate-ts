@@ -440,8 +440,13 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
                 purecrate_ir::Callee::OrdThen => "Ord.then".into(),
+                purecrate_ir::Callee::OrdCmpList { .. } => "Ord.cmpList".into(),
                 purecrate_ir::Callee::Consume { .. } => unreachable!("printed above"),
             };
+            if let purecrate_ir::Callee::OrdCmpList { text } = callee {
+                let by = if *text { "Ord.cmpStr" } else { "Ord.cmp" };
+                return format!("Ord.cmpList({}, {}, {by})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
+            }
             if let purecrate_ir::Callee::CharCode(to) = callee {
                 let code = format!("Char.code({})", emit_expr(&args[0], indent));
                 return if to.is_big() {

@@ -400,12 +400,12 @@ export const Str = {
   // #endregion
 } as const;
 
-// #region ord.cmp ord.cmpStr ord.then
+// #region ord.cmp ord.cmpStr ord.then ord.cmpList
 /** std's `Ordering`, as the crate's `Ordering` declares it. */
 type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
 // #endregion
 
-// #region ord.cmp ord.cmpStr
+// #region ord.cmp ord.cmpStr ord.cmpList
 const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { kind: "Equal" }, { kind: "Greater" }];
 // #endregion
 
@@ -418,6 +418,20 @@ export const Ord = {
   // #region ord.cmpStr
   /** `a.cmp(&b)` on a `char`, a string, or a `Uuid`: by code point. */
   cmpStr: (a: string, b: string): Ordering => ORDERINGS[Str.cmp(a, b) + 1],
+  // #endregion
+  // #region ord.cmpList
+  /**
+   * `a.cmp(&b)` on two `Vec`s: the first pair of elements `by` does not find
+   * equal decides, else the shorter is less, as std orders slices.
+   */
+  cmpList: <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>, by: (x: T, y: T) => Ordering): Ordering => {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const o = by(a[i] as T, b[i] as T);
+      if (o.kind !== "Equal") return o;
+    }
+    return ORDERINGS[a.length < b.length ? 0 : a.length === b.length ? 1 : 2];
+  },
   // #endregion
   // #region ord.then
   /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */

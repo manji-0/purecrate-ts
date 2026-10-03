@@ -424,7 +424,7 @@ impl Refs {
                         self.values.insert(ty.as_str().to_string());
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result_value = true,
-                    Callee::OrdCmp { .. } | Callee::OrdThen => self.ord = true,
+                    Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => self.ord = true,
                     Callee::Collect { result: true } => self.iter = true,
                     Callee::Consume { method, over } => {
                         self.iter = true;

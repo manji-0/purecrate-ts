@@ -322,7 +322,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed.into_iter().map(|(e, _)| e).collect(), t)
             }
             // Written only by `cmp_method` and `ordering_method`, typed.
-            Callee::OrdCmp { .. } | Callee::OrdThen => (
+            Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => (
                 args.iter().map(|a| self.expr(a, None).0).collect(),
                 Some(Ty::named(purecrate_ir::ORDERING)),
             ),

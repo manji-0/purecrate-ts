@@ -178,3 +178,12 @@ pub fn size_of(s: Size) -> u8 {
 pub fn orderings(a: u32, b: u32) -> Vec<Ordering> {
     vec![a.cmp(&b), b.cmp(&a), a.cmp(&a)]
 }
+
+/// Two `Vec`s, element by element, then the shorter first.
+pub fn cmp_vec_u64(a: Vec<u64>, b: Vec<u64>) -> Ordering {
+    a.cmp(&b)
+}
+
+pub fn cmp_vec_string(a: Vec<String>, b: Vec<String>) -> Ordering {
+    a.cmp(&b)
+}

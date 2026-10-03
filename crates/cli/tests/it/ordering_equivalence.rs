@@ -70,6 +70,11 @@ fn generated_ordering_matches_rust() {
         }
         for (a, b) in [("", ""), ("\u{e000}", "\u{10000}"), ("\u{ffff}", "\u{10000}"), ("é", "e\u{301}"), ("ab", "a")] {
             cases.push(case!(ordering::cmp_string(a.to_string(), b.to_string())));
+            // Each side as a list of its characters' strings, and of their code points.
+            let list = |s: &str| s.chars().map(|c| c.to_string()).collect::<Vec<String>>();
+            let codes = |s: &str| s.chars().map(|c| u64::from(u32::from(c))).collect::<Vec<u64>>();
+            cases.push(case!(ordering::cmp_vec_string(list(a), list(b))));
+            cases.push(case!(ordering::cmp_vec_u64(codes(a), codes(b))));
             cases.push(case!(ordering::ops_string(a.to_string(), b)));
         }
         let mut rng = support::Rng::new(0x0bde_c0de);
