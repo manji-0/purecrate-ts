@@ -116,6 +116,15 @@ fn ok_or_try(value: &Expr) -> Option<(Name, Option<purecrate_ir::Ty>, Expr, Name
         .then(|| (opt.clone(), opt_ty.clone(), (**recv).clone(), arg.clone(), arg_ty.clone(), (**e).clone()))
 }
 
+/// Whether `expr` holds a `?` outside a closure, which has its own.
+fn has_try(expr: &Expr) -> bool {
+    match expr {
+        Expr::Try { .. } => true,
+        Expr::Closure { .. } => false,
+        e => e.children().into_iter().any(has_try),
+    }
+}
+
 fn lift_closures(expr: &mut Expr) {
     if let Expr::Closure { body, .. } = expr {
         let inner = std::mem::replace(&mut **body, Expr::Unreachable);
@@ -173,6 +182,22 @@ impl Lifter {
 
     fn stmt(&mut self, expr: Expr) -> Expr {
         match expr {
+            // `let x = { let $t = a; b }` is `let $t = a; let x = b`: a made
+            // name meets no other, and `a` runs first either way. A `?` in
+            // `a` then leaves from the statement, not from a block in `x`'s
+            // value (`let s = o.unwrap_or(..)` over `f(g()?)`).
+            Expr::Let { name, mutable, ty, value, then }
+                if matches!(&*value, Expr::Let { name: t, value: tv, .. } if t.as_str().starts_with('$') && has_try(tv)) =>
+            {
+                let Expr::Let { name: t, mutable: tm, ty: tt, value: tv, then: tthen } = *value else { unreachable!() };
+                self.stmt(Expr::Let {
+                    name: t,
+                    mutable: tm,
+                    ty: tt,
+                    value: tv,
+                    then: Box::new(Expr::Let { name, mutable, ty, value: tthen, then }),
+                })
+            }
             Expr::Let {
                 name,
                 mutable,

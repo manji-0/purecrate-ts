@@ -103,3 +103,10 @@ pub fn named_temporaries(n: i32) -> Result<i32, i32> {
     let sum = half.checked_add(1i32).ok_or(-1i32)?;
     Ok(sum)
 }
+
+/// A `?` inside what `unwrap_or` takes leaves from the statement, with no
+/// block around the value.
+pub fn added_or_zero(n: i32) -> Result<i32, i32> {
+    let s = n.checked_add(halve(n)?).unwrap_or(0i32);
+    Ok(s)
+}

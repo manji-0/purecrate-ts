@@ -29,6 +29,7 @@ fn generated_readability_matches_rust() {
             }
         }
         for n in [3, 8, i32::MAX - 1] {
+            cases.push(case!(readability::added_or_zero(n)));
             cases.push(case!(readability::named_temporaries(n)));
         }
         let shapes = [Shape::Rect { w: 3, h: 4 }, Shape::Pair(5, 6), Shape::Empty, Shape::Pair(i32::MAX, 1)];
@@ -77,6 +78,8 @@ fn readability_rewrites_print_as_intended() {
     assert!(pair.contains("open || [\"00\", \"01\", \"99\"].includes(") && !pair.contains("=> {"), "{pair}");
     let named = file("named-temporaries");
     assert!(named.contains("const halfResult = ") && named.contains("const sumOpt = "), "{named}");
+    let added = file("added-or-zero");
+    assert!(added.contains("const s: I32 = ") && !added.contains("let s"), "{added}");
     let swapped = file("swapped");
     assert!(swapped.contains("kind: \"Pair\""), "{swapped}");
 }
