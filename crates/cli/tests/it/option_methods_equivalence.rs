@@ -111,3 +111,23 @@ fn a_hoisted_try_binds_once() {
     assert!(add.contains("const opt2 = Int.u8.checkedAdd(a, b);"), "{add}");
     assert!(!add.contains('$') && !add.contains(".value"), "{add}");
 }
+
+/// `let t = match f() { Some(t) => t, None => return .. }` holds the
+/// `Option` in `t` itself, which the exit narrows: no temporary and copy.
+#[test]
+fn an_unwrapped_option_is_held_in_its_binding() {
+    let source = "fn half(n: u32) -> Option<u32> { if n % 2 == 0 { Some(n / 2) } else { None } }\n\
+                  pub fn quarter(n: u32) -> u32 {\n\
+                      let h = match half(n) { Some(h) => h, None => return 0 };\n\
+                      let mut q = match half(h) { Some(q) => q, None => return 1 };\n\
+                      q += 1;\n\
+                      q\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("unwrapped", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let quarter = &pkg.files.iter().find(|f| f.stem == "quarter").expect("quarter").source;
+    assert!(quarter.contains("const h = half(n);\n") && quarter.contains("if (h === null) return 0 as U32;"), "{quarter}");
+    // A `let mut` keeps its own type, which a held `null` would widen.
+    assert!(quarter.contains("let q: U32 = option;"), "{quarter}");
+}

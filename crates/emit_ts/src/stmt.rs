@@ -1070,10 +1070,12 @@ fn let_else(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
         // the call is bound first, as Rust evaluates it first, and the
         // binding goes round as a place.
         Expr::Match { scrutinee, arms } if !is_place(scrutinee) => {
-            if exit_arms(arms).is_none() {
-                return false;
-            }
-            let tmp = match_temp(arms, indent);
+            let Some((_, keep)) = exit_arms(arms) else { return false };
+            // `let t = match f() { Some(t) => t, None => return .. }`: the
+            // `Option` is held in `t` itself, which the exit narrows.
+            let unwraps = matches!((&keep.pattern, &keep.body),
+                (Pattern::OptionSome(p), Expr::Var(read)) if matches!(&**p, Pattern::Var(n) if n == read));
+            let tmp = if unwraps && !mutable && !name.starts_with('$') { name.to_string() } else { match_temp(arms, indent) };
             bind_scrutinee(&tmp, scrutinee, arms, indent, out);
             let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp))), arms: arms.clone() };
             return let_else(name, mutable, ty, &on_tmp, indent, out);

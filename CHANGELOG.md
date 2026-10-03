@@ -38,6 +38,7 @@
 - **`loop` is `for (;;)`.** A loop with no test (`loop`, and a `while` whose test runs in its body) is `for (;;)`, was `while (true)`, which typescript-eslint's `no-unnecessary-condition` flags.
 - **The test fixtures' output is linted too.** `scripts/verify.sh` runs the examples' oxlint over every fixture's output, less what a fixture writes on purpose (`scripts/fixtures.oxlintrc.json`, each exception with its reason).
 - **No annotation a cast already states.** `export const MAX_STATE_LEN = 512 as Usize;` and `let n = 0 as U32;`, were `MAX_STATE_LEN: Usize = 512 as Usize` and `n: U32 = 0 as U32`; the declared type is the same. A narrowed union given back its type reads `const s = state as State`.
+- **An unwrapped `Option` is held in its binding.** `let current = match totp_step(..) { Some(t) => t, None => return .. }` is `const current = totpStep(..);` `if (current === null) return ..;`, was `const option = ..` and then `const current: I64 = option;`. A `let mut` keeps the temporary, since its type would hold the `null`.
 - **`Result` as a type only is a type import.** A file that annotates `Result<..>` but builds none imports `type Result`.
 - **`Ordering` compares with its variant's name.** `o != Ordering::Equal` is `o.kind !== "Equal"`, not `o.kind !== { kind: "Equal" }.kind`.
 
