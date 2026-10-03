@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-03, after 0.8.1)
+Status: current (2026-10-04, after 0.8.2)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -392,6 +392,22 @@ Why: reading the generator for rules written to the examples' shapes, with each 
 
 - **Open at release**, each reproduced and fixed after it ([CHANGELOG](../CHANGELOG.md), Unreleased): a `?` in a `for` range's end ran before a start that can panic; a `?` inside `map_err(..)?` or an `unwrap_or` argument in an operand position stayed inside an inline function; two arms binding one name to different fields declared it twice; a `match` arm that reassigns its scrutinee read the new value. tsc rejected all but the first.
 - **Layout.** `tidy::wrap` is a chain of line rules fitted to the examples; outside them its breaks often differ from oxfmt's, and it measures width in bytes.
+
+### 8.11 0.8.2: the rest of the audit, and layout (2026-10-04)
+
+<!-- derived-from #810-081-fixes-from-an-audit-2026-10-03 -->
+
+Why: the four defects 0.8.1 left open (§8.10), readability items found reading the output beside its Rust, and the audit's finding that the layout rules were fitted to the examples' lines. No change to what is accepted.
+
+| Item | Verified by |
+| --- | --- |
+| A `for` range's bounds in order; an operand `?` that typing made a `match` leaves the function; a reassigned scrutinee read before the assignment | `order_of_eval_equivalence.rs` |
+| Two arms binding one name to different fields | `guards_equivalence.rs` |
+| Destructured fields, a flipped negated test, the matched place returned, a variant rebuilt from its fields as the place | `readability_equivalence.rs` |
+| Layout: width in columns, a lone import, a break after `=`, an arrow's one-field object, a `?:` chain's test, a hugged last arrow, the wire module's generic type | `fixtures/layout.rs` through `oxfmt --check` in `scripts/verify.sh`; `line_width.rs` |
+
+- **The layout check has an oracle outside the examples now.** `fixtures/layout.rs` gives every construct a name long enough to break it; the shapes it found differing from oxfmt were the ones fixed here. `tidy::wrap` is still a chain of line rules, not oxfmt's printer (oxc's formatter is not published as a crate), so a shape the fixture lacks may still differ; the fixture is where to add it.
+- **A block in an argument is lifted** before its statement (`let value;` then `if`), which also removes an inline function from the output; the lifted `let` has no annotation, which TS infers from its assignments.
 
 ## 9. Generated API stability
 

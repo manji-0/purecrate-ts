@@ -1,6 +1,6 @@
 {
   "name": "purecrate-arktype",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -27,7 +27,7 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "purecrate": "^0.8.1",
+    "purecrate": "^0.8.2",
     "arktype": "^2.1.22"
   },
   "devDependencies": {

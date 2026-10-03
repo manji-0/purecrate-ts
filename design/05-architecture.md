@@ -1,6 +1,6 @@
 # Architecture
 
-Status: current (2026-10-03, 0.8.1)
+Status: current (2026-10-04, 0.8.2)
 
 <!-- derived-from ./00-overview.md#3-how-it-holds-together -->
 

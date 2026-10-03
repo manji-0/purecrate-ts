@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.2 — 2026-10-04
+
+The rest of the audit's fixes, output that reads more as written by hand, and a layout that matches oxfmt for long names outside the examples. No change to what is accepted ([roadmap §8.11](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#811-082-the-rest-of-the-audit-and-layout-2026-10-04)).
 
 ### Changed
 
@@ -15,7 +17,7 @@
 
 - **A `for` range's start runs before a `?` in its end.** `for i in (n + 1)..s.parse()?` returned the parse error where Rust panics on `n + 1` first.
 - **A `?` that typing turns into a `match` leaves the function from an operand.** `Ok(s.parse().map_err(f)? + 1)` and `o.unwrap_or(s.parse()?)` in an argument printed an inline function whose `return` left only itself; the `match` now runs before the statement, bound to a name, after the operands before it.
-- **Two arms that bind one name to different fields keep both.** `P(x, _) if c => x, P(_, x) => x` declared `const x` twice; a row's name is bound in the pattern only where nothing else in the arm binds it.
+- **Two arms that bind one name to different fields keep both.** `P(x, _) if c => x, P(_, x) => x` declared `const x` twice; a row's name is bound in the pattern only where nothing else in the arm binds it. Such an arm reads the field under a made name (`field`, `field2`) and binds each row's own name from it.
 - **A payload is read before its arm assigns the place.** `let v = match o { Some(v) => { o = None; v } .. }` read `o` after the assignment.
 
 ## 0.8.1 — 2026-10-03
