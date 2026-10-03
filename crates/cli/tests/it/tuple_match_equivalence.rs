@@ -80,3 +80,24 @@ fn every_enum_element_ends_in_assert_never() {
         assert!(step.contains(&format!("case \"{v}\":")), "{v} missing:\n{step}");
     }
 }
+
+/// A `match` on a value a case has already narrowed is the arm it takes:
+/// `(s, _) => if matches!(s, S::B) ..` under `case "A"` is its `else`, and
+/// a case of `A | B` whose sides then differ is a case each.
+#[test]
+fn a_match_on_a_narrowed_value_is_the_arm_it_takes() {
+    let source = "pub enum S { A, B, C }\n\
+                  pub enum E { X, Y }\n\
+                  pub fn step(s: S, e: E) -> i32 {\n\
+                      match (s, e) {\n\
+                          (S::C, E::X) => 0,\n\
+                          (s, _) => if matches!(s, S::B) { 1 } else { 2 },\n\
+                      }\n\
+                  }\n";
+    let krate = purecrate_syntax::parse_source("narrowed", source).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let step = &pkg.files.iter().find(|f| f.stem == "step").expect("step").source;
+    assert!(!step.contains("as S") && !step.contains("=== \"B\""), "{step}");
+    assert!(step.contains("case \"A\":\n      return 2 as I32;\n    case \"B\":\n      return 1 as I32;"), "{step}");
+}

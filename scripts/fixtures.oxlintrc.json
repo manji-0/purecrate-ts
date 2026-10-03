@@ -19,12 +19,6 @@
   },
   "overrides": [
     {
-      // `(s, _) =>` widens a narrowed `state` back to `State` (`as State`),
-      // which its `s.kind === "Done"` needs to type-check.
-      "files": ["tuple_match/src/step.ts"],
-      "rules": { "typescript/no-unnecessary-type-assertion": "off" }
-    },
-    {
       // Conditions the Rust states that are always true there: a guard
       // tested where an earlier arm already failed it, `match Some(n)`, and
       // a `matches!` that names every variant.

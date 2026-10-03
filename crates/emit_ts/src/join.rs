@@ -7,6 +7,9 @@
 //! payload read where the test has narrowed it. An inner two-way `match`
 //! whose other arm is `b` joins the same way (`Some(n) => match n { 0 => a,
 //! _ => b }, None => b`), so a chain of them is one `&&` and one `b`.
+//!
+//! The tree also copies an arm under each case of a value, where a `match`
+//! in it on that value can take one arm only; it is that arm (`narrow`).
 
 use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, VariantBind};
 
@@ -15,8 +18,130 @@ use crate::stmt::{is_place, touches};
 /// `expr` with every such `match` joined, innermost first.
 pub(crate) fn joined(expr: &Expr) -> Expr {
     let mut out = expr.clone();
+    narrow(&mut out, &mut Vec::new());
     join(&mut out);
     out
+}
+
+/// A place and the variants an enclosing arm has narrowed it to.
+type Known = Vec<(Expr, Vec<Name>)>;
+
+/// A `match` on a place an enclosing arm has narrowed, as the arm every
+/// one of those variants takes: the decision tree copies `(s, _) => if
+/// matches!(s, Done) { a } else { b }` under each case of `s`, where only
+/// one side is reachable. A `let` of the place that nothing reads then is
+/// left out.
+fn narrow(expr: &mut Expr, known: &mut Known) {
+    if let Some(taken) = taken_arm(expr, known) {
+        *expr = taken;
+        return narrow(expr, known);
+    }
+    match expr {
+        // An arm of `A | B` is narrowed for each variant; where the bodies
+        // differ, it is one arm per variant (the printer shares the cases of
+        // those that still do the same).
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
+            let mut split = Vec::with_capacity(arms.len());
+            for mut arm in std::mem::take(arms) {
+                let variants = variants_of(&arm.pattern);
+                if variants.is_empty() || touches(&arm.body, root(scrutinee)) {
+                    narrow(&mut arm.body, known);
+                    split.push(arm);
+                    continue;
+                }
+                let bodies: Vec<Expr> = variants
+                    .into_iter()
+                    .map(|v| {
+                        let mut body = arm.body.clone();
+                        known.push(((**scrutinee).clone(), vec![v]));
+                        narrow(&mut body, known);
+                        known.pop();
+                        body
+                    })
+                    .collect();
+                match &arm.pattern {
+                    Pattern::Or(alts) if bodies.iter().any(|b| *b != bodies[0]) => {
+                        split.extend(alts.iter().zip(bodies).map(|(alt, body)| Arm { pattern: alt.clone(), guard: arm.guard.clone(), body }));
+                    }
+                    _ => {
+                        arm.body = bodies.into_iter().next().expect("a variant");
+                        split.push(arm);
+                    }
+                }
+            }
+            *arms = split;
+        }
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
+            let alias = known.iter().find(|(p, _)| p == &**value).map(|(_, vs)| vs.clone());
+            if let Some(vs) = &alias {
+                known.push((Expr::Var(name.clone()), vs.clone()));
+            }
+            narrow(then, known);
+            if alias.is_some() {
+                known.pop();
+                if !mentions(then, name) {
+                    *expr = (**then).clone();
+                }
+            }
+        }
+        // A closure may run where the narrowing no longer holds.
+        Expr::Closure { body, .. } => narrow(body, &mut Vec::new()),
+        _ => {
+            for child in expr.children_mut() {
+                narrow(child, known);
+            }
+        }
+    }
+}
+
+/// The body of the one arm a `match` on a narrowed place takes for every
+/// variant it may hold, where that arm binds nothing.
+fn taken_arm(expr: &Expr, known: &Known) -> Option<Expr> {
+    let Expr::Match { scrutinee, arms } = expr else { return None };
+    let (_, variants) = known.iter().rev().find(|(p, _)| p == &**scrutinee)?;
+    let pick = |v: &Name| arms.iter().position(|a| admits(&a.pattern, v));
+    let first = pick(&variants[0])?;
+    let arm = &arms[first];
+    (arm.guard.is_none() && arm.pattern.bindings().is_empty() && variants.iter().all(|v| pick(v) == Some(first)))
+        .then(|| arm.body.clone())
+}
+
+/// The variants a pattern on an enum admits; none for any other pattern.
+fn variants_of(pattern: &Pattern) -> Vec<Name> {
+    match pattern {
+        Pattern::Variant { variant, .. } => vec![variant.clone()],
+        Pattern::Or(alts) => {
+            let vs: Vec<Name> = alts.iter().flat_map(variants_of).collect();
+            if vs.len() == alts.len() { vs } else { Vec::new() }
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn admits(pattern: &Pattern, variant: &Name) -> bool {
+    match pattern {
+        Pattern::Wildcard | Pattern::Var(_) => true,
+        Pattern::Variant { variant: v, bind, .. } => v == variant && bind_admits_all(bind),
+        Pattern::Or(alts) => alts.iter().any(|p| admits(p, variant)),
+        _ => false,
+    }
+}
+
+/// Whether a variant's payload patterns take any payload.
+fn bind_admits_all(bind: &VariantBind) -> bool {
+    let any = |p: &Pattern| matches!(p, Pattern::Wildcard | Pattern::Var(_));
+    match bind {
+        VariantBind::Unit => true,
+        VariantBind::Tuple(ps) => ps.iter().all(any),
+        VariantBind::Struct(ps) => ps.iter().all(|(_, p)| any(p)),
+    }
+}
+
+fn mentions(expr: &Expr, name: &Name) -> bool {
+    match expr {
+        Expr::Var(n) | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name => true,
+        other => other.children().into_iter().any(|c| mentions(c, name)),
+    }
 }
 
 fn join(expr: &mut Expr) {
