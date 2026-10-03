@@ -407,11 +407,14 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish("undefined", &pad, out);
         }
         Expr::While { cond, body } => {
+            // `loop` (and a `while` whose test runs in the body) is `for (;;)`,
+            // which no lint takes for a constant condition.
+            let head = match **cond {
+                Expr::Lit(Lit::Bool(true)) => "for (;;)".to_string(),
+                _ => format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))),
+            };
             emit_loop(
-                &format!(
-                    "while ({})",
-                    crate::tidy::strip_outer(&emit_expr(cond, indent))
-                ),
+                &head,
                 body,
                 indent,
                 out,

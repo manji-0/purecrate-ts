@@ -5,7 +5,7 @@
 # over the runtime and adapter sources that every package copies, under each
 # supported TypeScript major (see TS_MAJORS in
 # crates/cli/tests/it/support/mod.rs), then oxlint and `oxfmt --check` over
-# the generated output.
+# the generated output, the test fixtures' included.
 # `npm ci` in examples/ installs the schema libraries, oxlint, and oxfmt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -100,4 +100,12 @@ done
 grep -v '"\$schema"' examples/.oxfmtrc.json > "$fx/out/.oxfmtrc.json"
 (cd "$fx/out" && node "$OLDPWD/examples/node_modules/oxfmt/bin/oxfmt" --check '*/src/**/*.ts') \
   || { echo "verify: oxfmt would reformat a fixture's output" >&2; exit 1; }
+# ..and passes the examples' oxlint, less what a fixture writes on purpose
+# (scripts/fixtures.oxlintrc.json). Type-aware lint finds oxlint-tsgolint
+# from examples/, and the schema libraries through a link.
+grep -v '"\$schema"' examples/.oxlintrc.json > "$fx/out/examples.oxlintrc.json"
+cp scripts/fixtures.oxlintrc.json "$fx/out/.oxlintrc.json"
+ln -s "$PWD/examples/node_modules" "$fx/out/node_modules"
+(cd examples && npx --no-install oxlint --type-aware --deny-warnings -c "$fx/out/.oxlintrc.json" "$fx/out") \
+  || { echo "verify: oxlint rejects a fixture's output" >&2; exit 1; }
 echo "verify: ok"

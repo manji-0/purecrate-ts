@@ -35,6 +35,8 @@
 - **Arms that do the same share their cases.** In a `switch`, arms that bind nothing and have the same body list their cases together (payment's `case "Succeeded":` `case "Canceled":`, was the inner `switch` twice).
 - **No statement without an effect.** An `if` whose sides do nothing (what a write never read leaves), a value only built (`Box::new(P { a });`), and `t = String::from(&t)` are left out, and a `let mut` no longer written is a `const`.
 - **A loop label only where a `switch` would take the jump.** A loop whose `break` / `continue` is not inside a `match` has no label (`for (..) {` and `break;`, was `loop: for` and `break loop;`), and a jump that is all of its `if` sits on its line (`if (k === 0) break;`).
+- **`loop` is `for (;;)`.** A loop with no test (`loop`, and a `while` whose test runs in its body) is `for (;;)`, was `while (true)`, which typescript-eslint's `no-unnecessary-condition` flags.
+- **The test fixtures' output is linted too.** `scripts/verify.sh` runs the examples' oxlint over every fixture's output, less what a fixture writes on purpose (`scripts/fixtures.oxlintrc.json`, each exception with its reason).
 - **`Result` as a type only is a type import.** A file that annotates `Result<..>` but builds none imports `type Result`.
 - **`Ordering` compares with its variant's name.** `o != Ordering::Equal` is `o.kind !== "Equal"`, not `o.kind !== { kind: "Equal" }.kind`.
 

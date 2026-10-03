@@ -1,0 +1,35 @@
+{
+  // The lint the test fixtures' output passes (scripts/verify.sh): the
+  // examples' (copied beside this as examples.oxlintrc.json), less what a
+  // fixture writes on purpose to reach a shape of the output.
+  "extends": ["./examples.oxlintrc.json"],
+  // `extends` does not carry these.
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/purecrate-runtime.ts",
+    "**/purecrate-zod.ts",
+    "**/purecrate-valibot.ts",
+    "**/purecrate-arktype.ts"
+  ],
+  "rules": {
+    // A closure that captures nothing, kept to test closures.
+    "unicorn/consistent-function-scoping": "off",
+    // `for _ in 0..n` binds `_i`.
+    "eslint/no-underscore-dangle": "off"
+  },
+  "overrides": [
+    {
+      // `(s, _) =>` widens a narrowed `state` back to `State` (`as State`),
+      // which its `s.kind === "Done"` needs to type-check.
+      "files": ["tuple_match/src/step.ts"],
+      "rules": { "typescript/no-unnecessary-type-assertion": "off" }
+    },
+    {
+      // Conditions the Rust states that are always true there: a guard
+      // tested where an earlier arm already failed it, `match Some(n)`, and
+      // a `matches!` that names every variant.
+      "files": ["guards/src/overlap.ts", "control/src/shadowed.ts", "rest/src/matched.ts"],
+      "rules": { "typescript/no-unnecessary-condition": "off", "eslint/no-constant-condition": "off" }
+    }
+  ]
+}
