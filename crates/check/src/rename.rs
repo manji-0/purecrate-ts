@@ -18,7 +18,9 @@ fn camel(n: &Name) -> Name {
     Name::new(to_camel(n.as_str()))
 }
 
-pub fn rename(krate: Crate) -> Crate {
+/// Also returns where each helper is printed (`Crate::homes`), keyed by its
+/// renamed name.
+pub fn rename(krate: Crate) -> (Crate, BTreeMap<String, String>) {
     // Each top-level name, and whether it is a function, which only a call
     // or a read brings into a file. A `const` stays taken: the file imports
     // a crate `const` by name, even where a local `const` has it.
@@ -48,7 +50,8 @@ pub fn rename(krate: Crate) -> Crate {
             other => other,
         })
         .collect();
-    Crate::new(krate.name.as_str(), renamed)
+    let homes = file_reads.homes.into_iter().map(|(name, stem)| (to_camel(&name), stem)).collect();
+    (Crate::new(krate.name.as_str(), renamed), homes)
 }
 
 /// What each file's functions read, and where each helper is printed.

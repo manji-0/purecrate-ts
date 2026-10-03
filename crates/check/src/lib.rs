@@ -89,7 +89,13 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
                 match complete::check(&typed) {
-                    missing if missing.is_empty() => return Ok(unused::drop_unused(binds::merge(lift::lift(rename::rename(rest::expand(typed)))))),
+                    missing if missing.is_empty() => {
+                        let (renamed, homes) = rename::rename(rest::expand(typed));
+                        let done = unused::drop_unused(binds::merge(lift::lift(renamed)));
+                        // The emitter finds the same homes by name alone.
+                        debug_assert_eq!(done.homes(|item| done.fns_named(item)), homes, "helper homes differ after renaming");
+                        return Ok(done);
+                    }
                     missing => out = missing,
                 }
             }
