@@ -142,7 +142,12 @@ export const validateRequest = (
       return Result.err(fail({ kind: "InvalidRequest" }));
     pkce = { challenge, method: method2 };
   } else {
-    if (params.code_challenge_method !== null) return Result.err(fail({ kind: "InvalidRequest" }));
+    if (params.code_challenge_method !== null) {
+      // RFC 7636 §4.4.1: a required challenge that is missing, or a method
+      // without a challenge.
+      return Result.err(fail({ kind: "InvalidRequest" }));
+    }
+
     if (client2.require_pkce) return Result.err(fail({ kind: "InvalidRequest" }));
     pkce = null;
   }

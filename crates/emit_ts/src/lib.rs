@@ -363,7 +363,9 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
         // A blank line between declarations; a run of consts stays together.
         let printed = !matches!(item, Item::Fn(f) if f.owner.is_some());
         if printed {
-            if previous.is_some_and(|p| !(matches!(p, Item::Const(_)) && matches!(item, Item::Const(_)))) {
+            // A const with a `//` above it opens a paragraph of its own.
+            let commented = matches!(item, Item::Const(c) if !c.comment.is_empty());
+            if previous.is_some_and(|p| commented || !(matches!(p, Item::Const(_)) && matches!(item, Item::Const(_)))) {
                 out_.push('\n');
             }
             previous = Some(item);
@@ -386,6 +388,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Fn(f) if f.owner.is_none() => out_.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
             Item::Const(c) => {
+                c.comment.iter().for_each(|l| out_.push_str(&if l.is_empty() { "//\n".to_string() } else { format!("// {l}\n") }));
                 out_.push_str(&jsdoc(&c.doc, ""));
                 let value = emit_expr(&c.value, 0);
                 let value = crate::tidy::strip_outer(&value);

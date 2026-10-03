@@ -76,6 +76,7 @@ pub fn parse_files_spanned(
     let mut items = Vec::new();
     let mut spans = Vec::new();
     for (file, syn_item) in flat {
+        cx.set_source(sources[file].text);
         for (item, at) in item::lower_item(&mut cx, syn_item).map_err(|e| (file, e))? {
             items.push(item);
             spans.push((file, at));

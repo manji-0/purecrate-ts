@@ -147,6 +147,9 @@ pub struct Const {
     pub value: Expr,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
+    /// The `//` lines directly above the item, each without its slashes,
+    /// printed above it as `//` lines.
+    pub comment: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

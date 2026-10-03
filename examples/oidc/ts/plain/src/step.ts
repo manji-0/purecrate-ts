@@ -48,8 +48,11 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       switch (secondFactor.kind) {
         case "Totp": {
           const enrollment = secondFactor.value;
-          if (enrollment.failures >= policy.max_otp_failures)
+          if (enrollment.failures >= policy.max_otp_failures) {
+            // Failures stored from earlier flows count here too.
             return Result.ok({ kind: "Locked", subject });
+          }
+
           return Result.ok({
             kind: "AwaitingOtp",
             request,

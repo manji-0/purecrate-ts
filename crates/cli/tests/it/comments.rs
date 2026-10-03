@@ -1,5 +1,6 @@
-//! `//` lines directly above a statement or a block's tail are printed above
-//! what that statement becomes (design/03 §1).
+//! `//` lines above a statement, a block's tail, a `match` arm, or a crate
+//! `const`, after the code on a statement's last line, and before a block's
+//! `}`, are printed where that code goes (design/03 §1).
 
 use purecrate_check::accept;
 use purecrate_pack::assemble_with;
@@ -25,9 +26,9 @@ fn comments_above_statements_are_kept() {
     // Then one more.
     let b = a * 2;
 
-    // Not this one: a blank line ends it.
+    // Across a blank line, for the next statement.
 
-    let c = b + 1; // nor a comment after code
+    let c = b + 1; // and one after its code
     // The result.
     c
 }
@@ -38,8 +39,47 @@ fn comments_above_statements_are_kept() {
         src.contains("  // Twice, so it is even.\n  //\n  // Then one more.\n  const b = "),
         "{src}"
     );
+    assert!(src.contains("  // Across a blank line, for the next statement.\n  // and one after its code\n  const c = "), "{src}");
     assert!(src.contains("  // The result.\n  return c;\n"), "{src}");
-    assert!(!src.contains("Not this one") && !src.contains("nor a comment"), "{src}");
+}
+
+#[test]
+fn comments_on_arms_before_a_closing_brace_and_on_consts() {
+    let src = emitted(
+        "pub enum K { A, B }
+pub fn f(k: K) -> Result<i32, i32> {
+    match k {
+        // A is fine.
+        K::A => Ok(1),
+        K::B => Err(2), // B is not
+    }
+}
+",
+        "f",
+    );
+    assert!(src.contains("case \"A\":\n      // A is fine.\n      return Result.ok("), "{src}");
+    assert!(src.contains("case \"B\":\n      // B is not\n      return Result.err("), "{src}");
+    let src = emitted(
+        "pub fn f(xs: Vec<u8>) -> u8 {
+    let mut t = 0u8;
+    for x in &xs {
+        t += *x;
+        // Nothing else per item.
+    }
+    t
+}
+",
+        "f",
+    );
+    assert!(src.contains("t = Int.u8.add(t, x);\n\n    // Nothing else per item.\n  }"), "{src}");
+    let src = emitted(
+        "// The longest state accepted.
+pub const MAX_STATE: u32 = 512;
+pub fn f() -> u32 { MAX_STATE }
+",
+        "consts",
+    );
+    assert!(src.contains("// The longest state accepted.\nexport const MAX_STATE"), "{src}");
 }
 
 #[test]

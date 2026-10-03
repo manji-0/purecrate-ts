@@ -13,6 +13,8 @@ const comparePreId = (a: PreId, b: PreId): Ordering => {
       switch (b.kind) {
         case "Numeric": {
           const y = b.value;
+
+          // Without leading zeros, the longer number is the larger.
           return Ord.then(Ord.cmp(Str.len(x), Str.len(y)), Ord.cmpStr(x, y));
         }
         case "Alpha":
@@ -66,6 +68,8 @@ export const compare = (a: Version, b: Version): Ordering => {
 
   if (elem) {
     if (elem2) return { kind: "Equal" };
+
+    // A version without pre-release has higher precedence.
     return { kind: "Greater" };
   }
 

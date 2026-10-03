@@ -101,6 +101,9 @@ pub struct Cx {
     /// Struct patterns of the pattern being lowered: each stands in as a
     /// fresh name, with the patterns of its fields (`StructPats`).
     struct_pats: std::cell::RefCell<Vec<StructPat>>,
+    /// The lines of the file whose items are being lowered, to find the
+    /// `//` lines above an item.
+    source: std::cell::RefCell<Vec<String>>,
 }
 
 /// A struct pattern `S { f: p, .. }` lowered as a binding of `name`, its
@@ -144,7 +147,29 @@ impl Cx {
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
             struct_pats: std::cell::RefCell::new(Vec::new()),
+            source: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// The file whose items are lowered next.
+    pub fn set_source(&self, text: &str) {
+        *self.source.borrow_mut() = text.lines().map(String::from).collect();
+    }
+
+    /// The `//` lines directly above line `line` (1-based) of the file.
+    pub fn comment_above(&self, line: usize) -> Vec<String> {
+        let lines = self.source.borrow();
+        let mut out = Vec::new();
+        for i in (0..line.saturating_sub(1)).rev() {
+            match lines.get(i).and_then(|l| l.trim().strip_prefix("//")) {
+                Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
+                    out.push(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string());
+                }
+                _ => break,
+            }
+        }
+        out.reverse();
+        out
     }
 
     pub fn push_struct_pat(&self, pat: StructPat) {
@@ -426,6 +451,7 @@ fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
         ty: lower_type(&c.ty)?,
         value: lower_expr(cx, &c.expr)?,
         doc: doc(&c.attrs),
+        comment: cx.comment_above(c.span().start().line),
     })
 }
 

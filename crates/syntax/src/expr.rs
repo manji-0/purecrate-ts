@@ -83,16 +83,18 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             })
         }
         SynExpr::Match(m) if m.arms.iter().any(|a| a.guard.is_some() || pattern::has_struct_pat(cx, &a.pat)) => {
-            lower_guarded(cx, &m.expr, &m.arms)
+            lower_guarded(cx, &m.expr, &m.arms, &Comments::of_span(m.span()))
         }
         SynExpr::Match(m) => {
+            // A `//` above an arm opens its body.
+            let comments = Comments::of_span(m.span());
             let mut arms = Vec::new();
             for arm in &m.arms {
                 arms.push(Arm {
                     guard: None,
                     pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
                         .map_err(|e| e.or_at(arm.pat.span()))?,
-                    body: at(arm.body.span(), lower_expr(cx, &arm.body)?),
+                    body: comments.above(arm.span(), at(arm.body.span(), lower_expr(cx, &arm.body)?)),
                 });
             }
             Ok(Expr::Match {
@@ -497,7 +499,10 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
             }
         }
     }
+    // A comment before the `}` of a block that ends in a statement ends it.
+    let closing = if tail.is_none() { comments.closing(block.stmts.last().map(|s| s.span())) } else { Vec::new() };
     let acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
+    let acc = if closing.is_empty() { acc } else { Expr::Seq { first: Box::new(Expr::Comment(closing)), then: Box::new(acc) } };
     Ok(stmts.into_iter().rev().fold(acc, |then, (span, stmt)| {
         let node = match stmt {
             Stmt::Let {
@@ -531,44 +536,99 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
     }))
 }
 
-/// The source lines of a block, to find the `//` comments above each of
-/// its statements; syn keeps no comments.
-struct Comments {
+/// The source lines of a block or a `match`, to find the `//` comments
+/// around each of its statements or arms; syn keeps no comments.
+pub(super) struct Comments {
     lines: Vec<String>,
     first: usize,
 }
 
+/// The text of a `//` comment line, or `None` for code, a blank line,
+/// `///`, `//!`, or `/* */`.
+fn comment_text(line: &str) -> Option<String> {
+    match line.trim().strip_prefix("//") {
+        Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
+            Some(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Where a `//` comment starts in `line` after code: outside a string, a
+/// `char`, and a lifetime-free byte literal.
+fn line_end_comment(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(_) if b == b'\\' => i += 1,
+            Some(q) if b == q => quote = None,
+            Some(_) => {}
+            // A `'` opens a `char` only where one ends two or three bytes on.
+            None if b == b'\'' && (bytes.get(i + 2) == Some(&b'\'') || (bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\''))) => quote = Some(b'\''),
+            None if b == b'"' => quote = Some(b'"'),
+            None if b == b'/' && bytes.get(i + 1) == Some(&b'/') => return Some(i),
+            None => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 impl Comments {
     fn of(block: &syn::Block) -> Self {
-        let span = block.span();
+        Self::of_span(block.span())
+    }
+
+    pub(super) fn of_span(span: proc_macro2::Span) -> Self {
         Self {
             lines: span.source_text().unwrap_or_default().lines().map(String::from).collect(),
             first: span.start().line,
         }
     }
 
-    /// `node` after the `//` lines directly above `span`, if any. A blank
-    /// line, code, `///`, `//!`, or `/* */` ends them.
-    fn above(&self, span: proc_macro2::Span, node: Expr) -> Expr {
+    /// `node` after the `//` lines above `span`: the nearest run of them,
+    /// across blank lines between it and `span`, and a `//` after the code
+    /// on `span`'s last line, moved above it. Code, `///`, `//!`, or
+    /// `/* */` ends the run.
+    pub(super) fn above(&self, span: proc_macro2::Span, node: Expr) -> Expr {
         let mut text = Vec::new();
-        // The block's own first line holds its `{`.
+        // The first line holds the block's `{` or the `match`.
         for i in (1..span.start().line.saturating_sub(self.first)).rev() {
-            let line = self.lines.get(i).map_or("", |l| l.trim());
-            match line.strip_prefix("//") {
-                Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
-                    text.push(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string());
+            let line = self.lines.get(i).map_or("", |l| l.as_str());
+            match comment_text(line) {
+                Some(t) => text.push(t),
+                None if line.trim().is_empty() && text.is_empty() => {}
+                None => break,
+            }
+        }
+        text.reverse();
+        // The first line starts at the block's `{`, not at column 0.
+        let last = span.end().line.saturating_sub(self.first);
+        if let Some(line) = self.lines.get(last).filter(|_| last > 0) {
+            let tail = line.get(span.end().column..).unwrap_or("");
+            if let Some(at) = line_end_comment(tail) {
+                if let Some(t) = comment_text(&tail[at..]) {
+                    text.push(t);
                 }
-                _ => break,
             }
         }
         if text.is_empty() {
             return node;
         }
-        text.reverse();
         Expr::Seq {
             first: Box::new(Expr::Comment(text)),
             then: Box::new(node),
         }
+    }
+
+    /// The `//` lines after the last statement of the block, before its `}`.
+    fn closing(&self, after: Option<proc_macro2::Span>) -> Vec<String> {
+        let from = after.map_or(1, |s| s.end().line.saturating_sub(self.first) + 1);
+        let to = self.lines.len().saturating_sub(1);
+        (from..to).filter_map(|i| comment_text(&self.lines[i])).collect()
     }
 }
 

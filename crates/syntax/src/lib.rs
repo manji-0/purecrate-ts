@@ -46,6 +46,7 @@ pub fn parse_source_spanned(
     ordering.rewrite(0, &mut file.items, &Default::default())?;
     let injected = ordering.injected().map_err(|(_, e)| e)?;
     let mut cx = item::Cx::scan(&file);
+    cx.set_source(source);
     if injected.is_some() {
         cx.add_std_ordering();
     }

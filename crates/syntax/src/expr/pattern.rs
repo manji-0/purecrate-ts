@@ -7,7 +7,7 @@ use super::*;
 /// bindings in scope, and `check::accept` lowers the arms into a decision
 /// tree that tries a guard only where its pattern matched. `n if n > 3 =>`
 /// binds `n` to the scrutinee (not in a tuple `match`).
-pub(super) fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm]) -> Result<Expr, ParseError> {
+pub(super) fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm], comments: &super::Comments) -> Result<Expr, ParseError> {
     let tuple = matches!(scrutinee, SynExpr::Tuple(t) if !t.elems.is_empty());
     let mut lowered = Vec::new();
     for arm in arms {
@@ -25,7 +25,7 @@ pub(super) fn lower_guarded(cx: &Cx, scrutinee: &SynExpr, arms: &[syn::Arm]) -> 
         lowered.push(Arm {
             pattern,
             guard,
-            body: wrap(at(arm.body.span(), lower_expr(cx, &arm.body)?)),
+            body: comments.above(arm.span(), wrap(at(arm.body.span(), lower_expr(cx, &arm.body)?))),
         });
     }
     Ok(Expr::Match {

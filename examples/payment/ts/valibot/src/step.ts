@@ -67,6 +67,8 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
         case "ActionHandled": {
           const outcome = event.value;
           if (terms.confirmation.kind === "Manual" && outcome.kind !== "Declined") {
+            // With manual confirmation the server confirms again; a decline
+            // still returns the intent to `requires_payment_method`.
             status = { kind: "RequiresConfirmation", method };
           } else {
             status = attempt(terms, method, outcome);
