@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **`map(f).unwrap_or(d)` is one test.** With a name or literal `d`, `o.map(|x| ..).unwrap_or(d)` no longer holds the mapped `Option` in a temporary: oidc's `const opt = ..; const fresh = opt === null || opt;` is `const fresh = enrollment.last_used_step === null || c.step > enrollment.last_used_step;`.
 - **A byte literal names its character.** `b'.'` prints as `/* '.' */ 46` rather than a bare `46`, so `isLocal` and `Email.parse` say which characters they test.
 - **Bodies read in paragraphs.** A statement over several lines (an `if` or `for` with a block, a `switch`, `let x: T;` and what assigns it) has a blank line before and after it, and a comment a blank line before it; statements of one line run on. The `const` a block's first line reads stays with it. The examples' output gains 92 blank lines.
 - **Comments in a function body are kept.** The `//` lines directly above a statement or a block's tail are printed above what that statement becomes, so a guard keeps the reason written for it (`// RFC 6749 §10.12: this OP requires state from every client.`). A comment after code on its line, before a block's `}`, above a block-level `const`, or above a `match` arm is still left out. The examples' output gains 18 comment lines.

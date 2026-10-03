@@ -42,3 +42,14 @@ pub fn total(a: Option<i64>, b: Option<i64>) -> Result<i64, Missing> {
 pub fn falsy(x: Option<bool>) -> bool {
     x.map(|b| !b).unwrap_or(false)
 }
+
+/// `map(f).unwrap_or(d)` with a name for `d`: one `match`. `v + 1`
+/// overflows only on `Some`.
+pub fn bumped(x: Option<u8>, d: u8) -> u8 {
+    x.map(|v| v + 1).unwrap_or(d)
+}
+
+/// The receiver is a call, evaluated once.
+pub fn doubled_less(x: u32, d: u32) -> u32 {
+    x.checked_sub(1).map(|v| v * 2).unwrap_or(d)
+}

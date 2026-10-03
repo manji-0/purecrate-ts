@@ -15,6 +15,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         if let Some(typed) = self.collect(receiver, name.as_str(), args, want) {
             return typed;
         }
+        if let Some(typed) = self.map_unwrap_or(receiver, name.as_str(), args, want) {
+            return typed;
+        }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
         if name.as_str() == "len" && args.is_empty() {
@@ -467,6 +470,49 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn fresh_name(&mut self, what: &str) -> Name {
         self.fresh += 1;
         Name::new(format!("${what}{}", self.fresh))
+    }
+
+    /// `o.map(f).unwrap_or(d)` as one `match o { Some(x) => f(x), None => d }`,
+    /// with no `Option` in between, where `d` is a name or a literal: it has
+    /// no effect, so running it only on `None` keeps Rust's behavior.
+    fn map_unwrap_or(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+        let [default] = args else { return None };
+        if name != "unwrap_or" || !default.is_inlinable() {
+            return None;
+        }
+        let Expr::MethodCall { receiver: option, name: map, args: map_args } = receiver.unpositioned() else {
+            return None;
+        };
+        let [f] = map_args.as_slice() else { return None };
+        if map.as_str() != "map" {
+            return None;
+        }
+        let (pattern, body) = match f.unpositioned() {
+            Expr::Closure { params, body, .. } if params.len() == 1 && !leaves(body) => {
+                (Pattern::Var(params[0].name.clone()), (**body).clone())
+            }
+            Expr::Var(f) => {
+                let some = self.fresh_name("some");
+                let call = Expr::Call { callee: Callee::Fn(f.clone()), args: vec![Expr::Var(some.clone())] };
+                (Pattern::Var(some), call)
+            }
+            _ => return None,
+        };
+        // Only on an `Option`: a `Result` has a `map` and an `unwrap_or` too.
+        let before = self.out.len();
+        let (_, ty) = self.expr(option, None);
+        self.out.truncate(before);
+        if !matches!(ty.map(|t| self.norm(&t)), Some(Ty::Option(_))) {
+            return None;
+        }
+        let fused = Expr::Match {
+            scrutinee: option.clone(),
+            arms: vec![
+                Arm { guard: None, pattern: Pattern::OptionSome(Box::new(pattern)), body },
+                Arm { guard: None, pattern: Pattern::OptionNone, body: default.clone() },
+            ],
+        };
+        Some(self.expr(&fused, want))
     }
 
     /// `unwrap_or`, `ok_or`, and `map` on an `Option`, as the `match` std

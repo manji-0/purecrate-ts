@@ -221,7 +221,7 @@ A closure that is inlined (`map`, the consumers) may not use `?` or `return`, wh
 
 ### 7.1 `Option` and `Result` methods
 
-The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`.
+The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`. `o.map(f).unwrap_or(d)` is one `match o { Some(x) => f(x), None => d }` when `d` is a name or a literal: it has no effect and cannot panic, so whether it runs before `f` or only on `None` is not observable.
 
 On a `Result`, `ok()` is `Some` of the `Ok` value or `None`; `map(f)` runs `f` only on `Ok`, `map_err(f)` only on `Err`. `f` is a closure of one parameter without `?` or `return`, a function name, or a one-field tuple variant (`PreId::Numeric`), as for `Option::map`. `r.map_err(f)?` is `match r { Ok(v) => v, Err(e) => return Err(f(e)) }`: the mapped `Result` is not built.
 

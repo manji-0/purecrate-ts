@@ -1,6 +1,7 @@
 //! `Option::unwrap_or`, `ok_or`, and `map`: an argument that overflows is
 //! evaluated even on `Some` (as Rust evaluates it), `map` calls its closure
-//! only on `Some`, chains, `?` on `ok_or`, and falsy payloads.
+//! only on `Some`, chains, `?` on `ok_or`, falsy payloads, and `map(f)`
+//! then `unwrap_or(d)` as one test.
 
 use crate::support;
 
@@ -16,6 +17,7 @@ fn generated_option_methods_match_rust() {
             for d in [0u8, 254, 255] {
                 cases.push(case!(option_methods::or_default(x, d)));
                 cases.push(case!(option_methods::eager(x, d)));
+                cases.push(case!(option_methods::bumped(x, d)));
             }
         }
         for x in [None, Some(0i64), Some(-5), Some(i64::MAX)] {
@@ -31,6 +33,11 @@ fn generated_option_methods_match_rust() {
         }
         for x in [None, Some(0u32), Some(9), Some(u32::MAX)] {
             cases.push(case!(option_methods::chain(x)));
+        }
+        for x in [0u32, 1, 9, u32::MAX] {
+            for d in [0u32, 7] {
+                cases.push(case!(option_methods::doubled_less(x, d)));
+            }
         }
         for x in [None, Some(false), Some(true)] {
             cases.push(case!(option_methods::falsy(x)));
@@ -130,4 +137,19 @@ fn an_unwrapped_option_is_held_in_its_binding() {
     assert!(quarter.contains("const h = half(n);\n") && quarter.contains("if (h === null) return 0 as U32;"), "{quarter}");
     // A `let mut` keeps its own type, which a held `null` would widen.
     assert!(quarter.contains("let q: U32 = option;"), "{quarter}");
+}
+
+/// `o.map(f).unwrap_or(d)` with a name or literal `d` is one test: no
+/// `Option` held between them.
+#[test]
+fn map_then_unwrap_or_is_one_test() {
+    let krate = purecrate_syntax::parse_source("fused", SOURCE).expect("parse");
+    let typed = purecrate_check::accept(&krate).expect("accept");
+    let pkg = purecrate_pack::assemble(&typed);
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
+    let falsy = file("falsy");
+    assert!(falsy.contains("=> x !== null && !x;") || falsy.contains("x === null ? false"), "{falsy}");
+    let bumped = file("bumped");
+    assert!(bumped.contains("x !== null ? Int.u8.add(x, 1 as U8) : d"), "{bumped}");
+    assert!(!bumped.contains("opt"), "{bumped}");
 }

@@ -29,9 +29,7 @@ export const checkTotp = (
     if (c.step >= Int.i64.sub(current, 1n as I64) && c.step <= Int.i64.add(current, 1n as I64)) {
       const option = truncateMac(c.mac, enrollment.digits);
       if (option !== null && option === submitted) {
-        const opt: boolean | null =
-          enrollment.last_used_step !== null ? c.step > enrollment.last_used_step : null;
-        const fresh = opt === null || opt;
+        const fresh = enrollment.last_used_step === null || c.step > enrollment.last_used_step;
         if (fresh) return { kind: "Accepted", value: c.step };
         replayed = true;
       }
