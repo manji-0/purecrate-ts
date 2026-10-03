@@ -12,14 +12,14 @@ export const total = (lines: Lines): Result<Yen, OrderError> => {
     case "Cons": {
       const line = lines.content[0];
       const rest = lines.content[1];
-      const opt = Int.i64.checkedMul(line.unit_price, globalThis.BigInt(line.qty) as I64);
-      if (opt === null) return Result.err({ kind: "Overflow" });
-      const amount = opt;
+      const amountOpt = Int.i64.checkedMul(line.unit_price, globalThis.BigInt(line.qty) as I64);
+      if (amountOpt === null) return Result.err({ kind: "Overflow" });
+      const amount = amountOpt;
       const totalResult = total(rest);
       if (totalResult.kind === "Err") return totalResult;
-      const opt2 = Int.i64.checkedAdd(amount, totalResult.value);
-      if (opt2 === null) return Result.err({ kind: "Overflow" });
-      const sum = opt2;
+      const sumOpt = Int.i64.checkedAdd(amount, totalResult.value);
+      if (sumOpt === null) return Result.err({ kind: "Overflow" });
+      const sum = sumOpt;
       return Result.ok(unsafeMakeYen(sum));
     }
     default:

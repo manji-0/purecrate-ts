@@ -757,6 +757,11 @@ pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
             match_expr(scrutinee, arms, indent)
         }
+        Expr::Match { scrutinee, arms } if one_of(arms).is_some() => {
+            let (lits, yes) = one_of(arms)?;
+            let test = format!("[{lits}].includes({})", crate::tidy::strip_outer(&emit_expr(scrutinee, indent)));
+            Some(if yes { test } else { format!("!{test}") })
+        }
         Expr::If { cond, then, else_ } => {
             let (t, e) = (as_expr(then, indent)?, as_expr(else_, indent)?);
             Some(fold(
@@ -768,6 +773,29 @@ pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
         e if !e.needs_statements() => Some(emit_expr(e, indent)),
         _ => None,
     }
+}
+
+/// `matches!(e, "a" | "b")` of literals, as the literals and whether the
+/// match is `true` for them: `["a", "b"].includes(e)` reads `e` once, where
+/// a scrutinee that is not a place would otherwise need an inline function.
+fn one_of(arms: &[purecrate_ir::Arm]) -> Option<(String, bool)> {
+    let [a, b] = arms else { return None };
+    if a.guard.is_some() || b.guard.is_some() || b.pattern != Pattern::Wildcard {
+        return None;
+    }
+    let (Some(yes), Some(no)) = (bool_lit(&a.body), bool_lit(&b.body)) else { return None };
+    if yes == no {
+        return None;
+    }
+    let lit = |p: &Pattern| match p {
+        Pattern::Lit(l) if !matches!(l, Lit::Bool(_)) => Some(bare_lit(l)),
+        _ => None,
+    };
+    let lits = match &a.pattern {
+        Pattern::Or(alts) => alts.iter().map(lit).collect::<Option<Vec<_>>>()?,
+        p => vec![lit(p)?],
+    };
+    Some((lits.join(", "), yes))
 }
 
 fn bool_lit(e: &Expr) -> Option<bool> {

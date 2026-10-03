@@ -44,9 +44,25 @@ fn lift_body(mut body: Expr) -> Expr {
 fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
     if let Expr::Let { name, mutable, ty, value, then } = expr {
         if let Some((opt, opt_ty, recv, arg, arg_ty, e)) = ok_or_try(value) {
+            // An option typing could not name (`$opt`, the receiver a call)
+            // is named after the local it is for: `qtyOpt`, `qtyOr`.
+            // A shadow `x$1` prints as `x2`, so its option is `x2Opt`.
+            let local = match name.as_str().rsplit_once('$') {
+                Some((b, k)) if !b.is_empty() && k.bytes().all(|c| c.is_ascii_digit()) => {
+                    format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1))
+                }
+                Some(_) => String::new(),
+                None => name.as_str().to_string(),
+            };
             let mut fresh = |n: &Name| {
                 *made += 1;
-                Name::new(format!("${}_{made}", n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit())))
+                let base = n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+                let base = match base {
+                    "opt" if !local.is_empty() => format!("{local}Opt"),
+                    "optOr" if !local.is_empty() => format!("{local}Or"),
+                    b => b.to_string(),
+                };
+                Name::new(format!("${base}_{made}"))
             };
             let (opt, arg) = (fresh(&opt), fresh(&arg));
             let then = std::mem::replace(&mut **then, Expr::Unreachable);

@@ -21,6 +21,16 @@ fn generated_readability_matches_rust() {
         for v in [0, 20] {
             cases.push(case!(readability::bumped_twice(v)));
         }
+        for s in ["00x", "01", "02", "99", "9"] {
+            if s.len() >= 2 {
+                for open in [false, true] {
+                    cases.push(case!(readability::reserved_pair(s, open)));
+                }
+            }
+        }
+        for n in [3, 8, i32::MAX - 1] {
+            cases.push(case!(readability::named_temporaries(n)));
+        }
         let shapes = [Shape::Rect { w: 3, h: 4 }, Shape::Pair(5, 6), Shape::Empty, Shape::Pair(i32::MAX, 1)];
         for s in shapes {
             cases.push(case!(readability::area(s)));
@@ -63,6 +73,10 @@ fn readability_rewrites_print_as_intended() {
     assert!(!pkg.files.iter().any(|f| f.stem == "doubled"));
     let twice = file("bumped-twice");
     assert!(twice.contains("import { bump } from") && twice.contains("const doubled = (bump2: I32)"), "{twice}");
+    let pair = file("reserved-pair");
+    assert!(pair.contains("open || [\"00\", \"01\", \"99\"].includes(") && !pair.contains("=> {"), "{pair}");
+    let named = file("named-temporaries");
+    assert!(named.contains("const halfResult = ") && named.contains("const sumOpt = "), "{named}");
     let swapped = file("swapped");
     assert!(swapped.contains("kind: \"Pair\""), "{swapped}");
 }

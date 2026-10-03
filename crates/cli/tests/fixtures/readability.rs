@@ -83,3 +83,23 @@ fn doubled(bump: i32) -> i32 {
 pub fn bumped_twice(v: i32) -> i32 {
     doubled(v) + bump(v)
 }
+
+/// `matches!` of literals on a value that is not a place reads it once.
+pub fn reserved_pair(s: &str, open: bool) -> bool {
+    open || matches!(&s[0..2], "00" | "01" | "99")
+}
+
+pub fn halve(n: i32) -> Result<i32, i32> {
+    if n % 2 == 0 {
+        Ok(n / 2)
+    } else {
+        Err(n)
+    }
+}
+
+/// Temporaries are named after the local they are for.
+pub fn named_temporaries(n: i32) -> Result<i32, i32> {
+    let half = halve(n).map_err(|e| e + 100)?;
+    let sum = half.checked_add(1i32).ok_or(-1i32)?;
+    Ok(sum)
+}

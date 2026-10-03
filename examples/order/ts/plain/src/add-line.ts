@@ -24,9 +24,9 @@ export const addLine = (lines: Lines, line: Line): Result<Lines, OrderError> => 
       }
 
       if (head.unit_price !== line.unit_price) return Result.err({ kind: "PriceMismatch" });
-      const opt = Int.u32.checkedAdd(head.qty, line.qty);
-      if (opt === null) return Result.err({ kind: "Overflow" });
-      const qty = opt;
+      const qtyOpt = Int.u32.checkedAdd(head.qty, line.qty);
+      if (qtyOpt === null) return Result.err({ kind: "Overflow" });
+      const qty = qtyOpt;
       return Result.ok({ kind: "Cons", content: [{ ...head, qty }, rest] });
     }
     default:

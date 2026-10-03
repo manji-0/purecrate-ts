@@ -546,6 +546,18 @@ pub(crate) fn emit_let(
         Expr::Let { name: inner, mutable: false, ty: inner_ty, value: inner_value, then }
             if inner.as_str().starts_with('$') =>
         {
+            // A `Result` that typing named `$result` (`map_err(f)?`) is
+            // named after the local it is for: `emailResult`.
+            let made = inner.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+            if made == "result" && !inner_value.is_inlinable() {
+                if let Some(renamed) = named_after(name, "result") {
+                    let renamed = Name::new(renamed);
+                    let then = subst(then, inner, &Expr::Var(renamed.clone()));
+                    emit_let(renamed.as_str(), false, inner_ty.as_ref(), inner_value, indent, out);
+                    emit_let(name, mutable, ty, &then, indent, out);
+                    return;
+                }
+            }
             if inner_value.is_inlinable() {
                 emit_let(name, mutable, ty, &subst(then, inner, inner_value), indent, out);
             } else {
@@ -612,19 +624,21 @@ fn declares_return(value: &Expr) -> bool {
 fn try_temp(name: Option<&str>, on: Option<TryOn>, indent: usize) -> String {
     let what = if on == Some(TryOn::Option) { "option" } else { "result" };
     // A temporary's own name (`$value_2`) says nothing; its `_<depth>` is kept.
-    match name.filter(|n| !n.starts_with('$')) {
-        Some(n) => {
-            // A shadow `n$1` prints as `n2`: its temporary is `n2Result`.
-            let n = match n.rsplit_once('$') {
-                Some((b, k)) if k.bytes().all(|c| c.is_ascii_digit()) => {
-                    format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1))
-                }
-                _ => n.to_string(),
-            };
-            format!("${n}{}{}", what[..1].to_uppercase(), &what[1..])
-        }
-        None => temp(what, indent),
+    name.and_then(|n| named_after(n, what)).unwrap_or_else(|| temp(what, indent))
+}
+
+/// A temporary named after the local it is for (`$nResult` for `n`), or
+/// `None` for a made local. A shadow `n$1` prints as `n2`: its temporary is
+/// `n2Result`, so the two read as a pair.
+fn named_after(name: &str, what: &str) -> Option<String> {
+    if name.starts_with('$') {
+        return None;
     }
+    let n = match name.rsplit_once('$') {
+        Some((b, k)) if k.bytes().all(|c| c.is_ascii_digit()) => format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1)),
+        _ => name.to_string(),
+    };
+    Some(format!("${n}{}{}", what[..1].to_uppercase(), &what[1..]))
 }
 
 /// `const tmp = expr;` and the early return of `expr?` when it holds `None`

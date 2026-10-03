@@ -23,12 +23,14 @@ export const unsafeMakeSignup = (fields: Readonly<{ email: Email; password: Pass
 
 export const Signup = {
   parse: (email: string, password: string): Result<Signup, SignupError> => {
-    const result = Email.parse(email);
-    if (result.kind === "Err") return Result.err({ kind: "Email", value: result.error });
-    const email2 = result.value;
-    const result2 = Password.parse(password);
-    if (result2.kind === "Err") return Result.err({ kind: "Password", value: result2.error });
-    const password2 = result2.value;
+    const email2Result = Email.parse(email);
+    if (email2Result.kind === "Err")
+      return Result.err({ kind: "Email", value: email2Result.error });
+    const email2 = email2Result.value;
+    const password2Result = Password.parse(password);
+    if (password2Result.kind === "Err")
+      return Result.err({ kind: "Password", value: password2Result.error });
+    const password2 = password2Result.value;
     return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
 } as const;
