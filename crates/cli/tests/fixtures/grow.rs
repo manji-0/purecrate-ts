@@ -57,3 +57,11 @@ pub fn copied_name(s: &Option<String>) -> Option<String> {
 pub fn name_len(s: &Option<String>) -> usize {
     s.as_deref().map(|t| t.len()).unwrap_or(0)
 }
+
+/// A choice of arrays, one of them the caller's through a function: the
+/// whole value is copied before it grows.
+pub fn chosen(xs: Vec<u32>, fresh: bool) -> (Vec<u32>, Vec<u32>) {
+    let mut v = if fresh { vec![] } else { same(xs.clone()) };
+    v.push(5);
+    (xs, v)
+}

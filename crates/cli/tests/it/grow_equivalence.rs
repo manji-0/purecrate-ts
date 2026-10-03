@@ -20,6 +20,7 @@ fn grown_vecs_match_rust() {
             cases.push(case!(grow::through(xs.clone())));
             for again in [false, true] {
                 cases.push(case!(grow::restarted(xs.clone(), again)));
+                cases.push(case!(grow::chosen(xs.clone(), again)));
             }
         }
         for xs in [vec![], vec![1u8, 2, 3], vec![200, 50, 10]] {

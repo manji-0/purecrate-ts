@@ -818,7 +818,12 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
     }
     match (f, source) {
         (None, s) if split(s) => emit_expr(s, indent),
-        (None, s) if array => format!("[...{}]", emit_expr(s, indent)),
+        // A choice or an operator under `...` is parenthesized, as oxfmt prints it.
+        (None, s) if array => {
+            let s = emit_expr(s, indent);
+            let s = crate::tidy::strip_outer(&s);
+            if crate::tidy::top_prec(s) < crate::tidy::PREC_UNARY { format!("[...({s})]") } else { format!("[...{s}]") }
+        }
         // One `filter` over an array.
         (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
             if !stage(&inner[0]) =>

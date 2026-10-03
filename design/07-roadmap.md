@@ -158,7 +158,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors; byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors other than `map`, `filter`, `copied`, and `cloned` (`rev`, `zip`, `enumerate` before a consumer, `take`, `skip`); byte string literals; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
 
 ## 5. v1: when type expressiveness runs out
 
