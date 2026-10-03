@@ -138,7 +138,7 @@ fn a_lowered_match_binds_the_arms_names() {
         assert!(!src.contains("$f") && !src.contains("$v"), "{src}");
     }
     let area = &pkg.files.iter().find(|f| f.stem == "area").expect("area").source;
-    assert!(area.contains("const r = s.value;") && area.contains("const w = s.w;"), "{area}");
+    assert!(area.contains("const r = s.value;") && area.contains("const { w, h } = s;"), "{area}");
 }
 
 /// A `match` or `matches!` on a place, in an expression, prints as `?:` or

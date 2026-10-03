@@ -1,5 +1,6 @@
 //! Print a `Crate` into kamae-ts files. No I/O.
 
+mod destructure;
 mod doc;
 mod expr;
 mod imports;
@@ -377,7 +378,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out.push_str(&body);
     // A companion with nothing in it is `{}`, as oxfmt prints it.
     let out = out.replace(" = {\n} as const;", " = {} as const;");
-    tidy::wrap(&paragraph::paragraphs(&plain::plain_names(&imports::prune_unused(&out))), WIDTH)
+    tidy::wrap(&paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out)))), WIDTH)
 }
 
 /// The width past which `tidy::wrap` breaks a line.

@@ -14,11 +14,9 @@ import type { Policy } from "./policy.ts";
 export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, FlowError> => {
   switch (flow.kind) {
     case "AwaitingPassword": {
-      const request = flow.request;
-      const failures = flow.failures;
+      const { request, failures } = flow;
       if (event.kind !== "PasswordChecked") return Result.err({ kind: "InvalidTransition" });
-      const subject = event.subject;
-      const verified = event.verified;
+      const { subject, verified } = event;
       const secondFactor = event.second_factor;
       const now = event.now;
 
@@ -61,14 +59,9 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       }
     }
     case "AwaitingOtp": {
-      const request = flow.request;
-      const subject = flow.subject;
-      const enrollment = flow.enrollment;
-      const failures = flow.failures;
+      const { request, subject, enrollment, failures } = flow;
       if (event.kind !== "OtpSubmitted") return Result.err({ kind: "InvalidTransition" });
-      const code = event.code;
-      const now = event.now;
-      const candidates = event.candidates;
+      const { code, now, candidates } = event;
 
       let notice: Notice;
       const otpCheck = checkTotp(code, now, enrollment, candidates);
@@ -107,8 +100,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       });
     }
     case "AwaitingConsent": {
-      const request = flow.request;
-      const auth = flow.auth;
+      const { request, auth } = flow;
 
       switch (event.kind) {
         case "ConsentGranted":

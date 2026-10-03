@@ -16,20 +16,20 @@ export const share = (line: Line, rate: Rate, apart: boolean, method: Method): I
 
   switch (line.pricing.kind) {
     case "Exclusive":
-      return !apart ? line.amount : (0n as I64);
+      return apart ? (0n as I64) : line.amount;
     case "Inclusive":
       switch (method.kind) {
         case "Separate":
           return apart ? line.amount : (0n as I64);
         case "ToExclusive": {
           const conversion = method.conversion;
-          return !apart
-            ? divide(
+          return apart
+            ? (0n as I64)
+            : divide(
                 Int.i64.mul(line.amount, 100n as I64),
                 Int.i64.add(100n as I64, percent(rate)),
                 conversion,
-              )
-            : (0n as I64);
+              );
         }
         default:
           return assertNever(method);

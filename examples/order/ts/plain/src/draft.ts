@@ -27,9 +27,7 @@ export const draft = (lines: Lines, cmd: Command): Result<Order, OrderError> => 
         case "Nil":
           return Result.err({ kind: "Empty" });
         case "Cons": {
-          const head = lines.content[0];
-          const rest = lines.content[1];
-          const lines2: Lines = { kind: "Cons", content: [head, rest] };
+          const lines2 = lines as Lines;
           const total2 = total(lines2);
           return Result.ok({ kind: "Placed", lines: lines2, total: total2 });
         }

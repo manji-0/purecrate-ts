@@ -45,6 +45,7 @@ mod package;
 mod parse_equivalence;
 mod payment_equivalence;
 mod precedence_equivalence;
+mod readability_equivalence;
 mod rest_equivalence;
 mod scoped_names;
 mod semver_equivalence;

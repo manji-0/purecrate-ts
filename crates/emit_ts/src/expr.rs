@@ -307,6 +307,15 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Break | Expr::Continue => {
             unreachable!("`check::accept` keeps `break` and `continue` in statement position")
         }
+        // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that would move
+        // into the middle.
+        Expr::If { cond, then, else_ }
+            if !matches!(peel_identity(else_), Expr::If { .. } | Expr::Match { .. })
+                && matches!(peel_identity(cond), Expr::Unary { op: purecrate_ir::UnOp::Not, .. }) =>
+        {
+            let Expr::Unary { expr: positive, .. } = peel_identity(cond) else { unreachable!("matched above") };
+            emit_expr(&Expr::If { cond: positive.clone(), then: else_.clone(), else_: then.clone() }, indent)
+        }
         Expr::If { cond, then, else_ } => format!(
             "{} ? {} : {}",
             grouped(
@@ -828,6 +837,15 @@ fn fold(
                 let branch = |s: &str, side| {
                     let g = group(s, PREC_TERNARY, Assoc::Right, side);
                     if crate::tidy::has_top_as(&g) || coalesces(&g) { format!("({g})") } else { g }
+                };
+                // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that
+                // would move into the middle.
+                let bare = crate::tidy::strip_outer(&test);
+                let (test, then, else_) = match bare.strip_prefix('!') {
+                    Some(c) if crate::tidy::top_prec(bare) == crate::tidy::PREC_UNARY && !crate::tidy::is_ternary(&else_) => {
+                        (crate::tidy::strip_outer(c).to_string(), else_, then)
+                    }
+                    _ => (test, then, else_),
                 };
                 let test = group(&test, PREC_TERNARY, Assoc::Right, Side::Left);
                 let test = if coalesces(&test) { format!("({test})") } else { test };

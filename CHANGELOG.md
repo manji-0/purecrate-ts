@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- **Same-named fields are destructured.** `const request = flow.request;` `const failures = flow.failures;` is `const { request, failures } = flow;`. A local whose name differs from its field (`secondFactor` for `second_factor`) stays a line of its own.
+- **A negated test is flipped.** `if !apart { a } else { b }` as a value is `apart ? b : a`, unless `b` is itself a choice.
+- **An arm that returns the variant it matched returns the place.** `Ordering::Less => Ordering::Less, Equal => .., Greater => Ordering::Greater` is `if (ord.kind !== "Equal") return ord;` and the `Equal` arm after it: arms of unit variants that do the same share one arm.
+- **A variant built again from all its own fields is the place.** `Lines::Cons(head, rest) => { let lines = Lines::Cons(head, rest); .. }` reads `lines`, without the copy of each field.
+
 ### Fixed
 
 - **A `for` range's start runs before a `?` in its end.** `for i in (n + 1)..s.parse()?` returned the parse error where Rust panics on `n + 1` first.

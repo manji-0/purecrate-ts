@@ -15,13 +15,11 @@ export const step = (order: Order, cmd: Command): Result<Order, OrderError> => {
       return draft(lines, cmd);
     }
     case "Placed": {
-      const lines = order.lines;
-      const total = order.total;
+      const { lines, total } = order;
       return placed(lines, total, cmd);
     }
     case "Paid": {
-      const lines = order.lines;
-      const total = order.total;
+      const { lines, total } = order;
       return paid(lines, total, cmd);
     }
     default:

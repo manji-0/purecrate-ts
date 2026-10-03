@@ -80,6 +80,124 @@ fn unstated(expr: &mut Expr, block: bool) {
     }
 }
 
+/// In an arm of a `match` on a place that binds every field of its variant
+/// to a name, the variant built again from those names in order
+/// (`Lines::Cons(head, rest) => { let lines = Lines::Cons(head, rest); .. }`,
+/// what moving a value out of a `match` costs in Rust) is the place: a value
+/// is never changed. A name nothing reads then is `_`.
+fn rebuilt(expr: &mut Expr) {
+    let Expr::Match { scrutinee, arms } = expr else { return };
+    if !is_place(scrutinee) {
+        return;
+    }
+    let mut root = &**scrutinee;
+    while let Expr::Field { base, .. } = root {
+        root = base;
+    }
+    let Expr::Var(root) = root.clone() else { return };
+    for arm in arms.iter_mut() {
+        let Pattern::Variant { ty, variant, bind } = &mut arm.pattern else { continue };
+        let names: Vec<(Option<Name>, Name)> = match bind {
+            VariantBind::Tuple(ps) => ps.iter().map(|p| match p { Pattern::Var(n) => Some((None, n.clone())), _ => None }).collect::<Option<_>>(),
+            VariantBind::Struct(ps) => ps.iter().map(|(f, p)| match p { Pattern::Var(n) => Some((Some(f.clone()), n.clone())), _ => None }).collect::<Option<_>>(),
+            VariantBind::Unit => None,
+        }
+        .unwrap_or_default();
+        if names.is_empty() || touches(&arm.body, &root) || names.iter().any(|(_, n)| touches(&arm.body, n)) {
+            continue;
+        }
+        let is_copy = |e: &Expr| match e {
+            Expr::Construct { ty: t, variant: Some(v), fields, base: None } if t == ty && v == variant => match fields {
+                purecrate_ir::Fields::Positional(xs) => {
+                    xs.len() == names.len() && xs.iter().zip(&names).all(|(x, (_, n))| matches!(x, Expr::Var(v) if v == n))
+                }
+                purecrate_ir::Fields::Named(xs) => {
+                    xs.len() == names.len()
+                        && names.iter().all(|(f, n)| xs.iter().any(|(g, x)| Some(g) == f.as_ref() && matches!(x, Expr::Var(v) if v == n)))
+                }
+                purecrate_ir::Fields::Unit => false,
+            },
+            _ => false,
+        };
+        fn replace(e: &mut Expr, is_copy: &dyn Fn(&Expr) -> bool, with: &Expr) -> bool {
+            if is_copy(e) {
+                *e = with.clone();
+                return true;
+            }
+            let mut any = false;
+            for c in e.children_mut() {
+                any |= replace(c, is_copy, with);
+            }
+            any
+        }
+        if !replace(&mut arm.body, &is_copy, scrutinee) {
+            continue;
+        }
+        let unread = |n: &Name| !mentions(&arm.body, n);
+        match bind {
+            VariantBind::Tuple(ps) => ps.iter_mut().for_each(|p| {
+                if matches!(p, Pattern::Var(n) if unread(n)) {
+                    *p = Pattern::Wildcard;
+                }
+            }),
+            VariantBind::Struct(ps) => ps.iter_mut().for_each(|(_, p)| {
+                if matches!(p, Pattern::Var(n) if unread(n)) {
+                    *p = Pattern::Wildcard;
+                }
+            }),
+            VariantBind::Unit => {}
+        }
+    }
+}
+
+/// An arm of a `match` on a place that builds the unit variant it matched
+/// (`Ordering::Less => Ordering::Less`) is the place itself: a value is
+/// never changed, so the two are equal. Arms that read it then share
+/// their cases.
+fn same_variant(expr: &mut Expr) {
+    let Expr::Match { scrutinee, arms } = expr else { return };
+    if !is_place(scrutinee) {
+        return;
+    }
+    for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
+        let Pattern::Variant { ty, variant, bind: VariantBind::Unit } = &arm.pattern else { continue };
+        if matches!(&arm.body, Expr::Construct { ty: t, variant: Some(v), fields: purecrate_ir::Fields::Unit, base: None }
+            if t == ty && v == variant)
+        {
+            arm.body = (**scrutinee).clone();
+        }
+    }
+    // Arms of variants that bind nothing and do the same are one `A | B`
+    // arm, where the first of them stood: the variants are apart, so the
+    // order of the arms does not choose.
+    let plain = |p: &Pattern| match p {
+        Pattern::Variant { bind: VariantBind::Unit, .. } => true,
+        Pattern::Or(alts) => alts.iter().all(|a| matches!(a, Pattern::Variant { bind: VariantBind::Unit, .. })),
+        _ => false,
+    };
+    if arms.iter().any(|a| a.guard.is_some() || !plain(&a.pattern)) {
+        return;
+    }
+    let mut merged: Vec<Arm> = Vec::with_capacity(arms.len());
+    for arm in arms.drain(..) {
+        match merged.iter_mut().find(|m| m.body == arm.body) {
+            Some(m) => {
+                let mut alts = match std::mem::replace(&mut m.pattern, Pattern::Wildcard) {
+                    Pattern::Or(alts) => alts,
+                    one => vec![one],
+                };
+                match arm.pattern {
+                    Pattern::Or(more) => alts.extend(more),
+                    one => alts.push(one),
+                }
+                m.pattern = Pattern::Or(alts);
+            }
+            None => merged.push(arm),
+        }
+    }
+    *arms = merged;
+}
+
 /// A place and the variants an enclosing arm has narrowed it to.
 type Known = Vec<(Expr, Vec<Name>)>;
 
@@ -205,6 +323,8 @@ fn join(expr: &mut Expr) {
     for child in expr.children_mut() {
         join(child);
     }
+    rebuilt(expr);
+    same_variant(expr);
     if let Some(joined) = join_match(expr) {
         *expr = joined;
     }

@@ -90,7 +90,7 @@ fn mark(lines: &[&str], open: usize, blank_before: &mut [bool]) {
         // The binding this statement's first line reads stays with it.
         let reads_prev = !here.commented
             && prev.end - prev.main == 1
-            && bound(lines[prev.main]).is_some_and(|name| reads(lines[here.code], name));
+            && bound(lines[prev.main]).into_iter().any(|name| reads(lines[here.code], name));
         if apart && !reads_prev && !jumps(lines[here.code]) {
             blank_before[here.start] = true;
         }
@@ -117,12 +117,20 @@ fn jumps(line: &str) -> bool {
     matches!(line.trim(), "break;" | "continue;")
 }
 
-/// The name a one-line `const x = ..;` or `let x = ..;` binds.
-fn bound(line: &str) -> Option<&str> {
+/// The names a one-line `const x = ..;`, `let x = ..;`, or a destructuring
+/// `const { a, b } = ..;` / `const [a, b] = ..;` binds.
+fn bound(line: &str) -> Vec<&str> {
     let t = line.trim();
-    let rest = t.strip_prefix("const ").or_else(|| t.strip_prefix("let "))?;
-    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))?;
-    t.ends_with(';').then_some(&rest[..end])
+    let Some(rest) = t.strip_prefix("const ").or_else(|| t.strip_prefix("let ")).filter(|_| t.ends_with(';')) else {
+        return Vec::new();
+    };
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    // `const { a, b } = ..` and `const [a, b] = ..` bind each name.
+    let names = match rest.strip_prefix(['{', '[']) {
+        Some(inner) => inner.split_once(['}', ']']).map_or("", |(names, _)| names),
+        None => rest.split(|c: char| !word(c)).next().unwrap_or(""),
+    };
+    names.split(',').map(str::trim).filter(|n| !n.is_empty() && n.chars().all(word)).collect()
 }
 
 /// Whether `line` reads `name` as a whole word, not as a property.

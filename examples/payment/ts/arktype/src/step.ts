@@ -20,8 +20,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Confirm": {
-          const method = event.method;
-          const outcome = event.outcome;
+          const { method, outcome } = event;
           if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
           status = attempt(terms, method, outcome);
           break;
@@ -45,8 +44,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
           break;
         }
         case "Confirm": {
-          const method = event.method;
-          const outcome = event.outcome;
+          const { method, outcome } = event;
           status = attempt(terms, method ?? current, outcome);
           break;
         }
