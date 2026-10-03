@@ -513,7 +513,12 @@ pub(crate) fn emit_let(
     let inferred = matches!(value, Expr::Closure { .. })
         || (mutable && matches!(value, Expr::Lit(Lit::Bool(_))) && matches!(ty, Some(t) if *t == Ty::bool()));
     let inferred = inferred || (!mutable && ty.is_some_and(|t| infers_as(value, t)));
-    let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
+    let grown = crate::PUSHED.with(|p| p.borrow().contains(name));
+    let shown = |t: &Ty| match t {
+        Ty::Vec(item) if grown => format!("Array<{}>", emit_ty(item)),
+        t => emit_ty(t),
+    };
+    let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", shown(t))).unwrap_or_default();
     // A value cast to the type already states it (`let n = 0 as Usize`).
     let stated = |value: &str| match ty {
         Some(t) if crate::tidy::cast_type(value) == Some(emit_ty(t).as_str()) => String::new(),

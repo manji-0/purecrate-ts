@@ -10,7 +10,22 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         .map(|p| format!("{}: {}", p.name.as_str(), emit_ty(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    arrow(&params, &emit_ty(&f.ret), &f.body, indent)
+    let mut pushed = BTreeSet::new();
+    pushes(&f.body, &mut pushed);
+    let previous = crate::PUSHED.with(|p| p.replace(pushed));
+    let out = arrow(&params, &emit_ty(&f.ret), &f.body, indent);
+    crate::PUSHED.with(|p| p.replace(previous));
+    out
+}
+
+/// The locals `v.push(x)` grows, which print as `Array<T>`.
+fn pushes(expr: &Expr, out: &mut BTreeSet<String>) {
+    if let Expr::Call { callee: purecrate_ir::Callee::VecPush, args } = expr {
+        if let Some(Expr::Var(n)) = args.first() {
+            out.insert(n.as_str().to_string());
+        }
+    }
+    expr.children().into_iter().for_each(|c| pushes(c, out));
 }
 
 pub(crate) fn closure_arrow(
@@ -419,6 +434,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::VecLen
+                | purecrate_ir::Callee::VecPush
                 | purecrate_ir::Callee::VecIsEmpty
                 | purecrate_ir::Callee::OptionIsSome
                 | purecrate_ir::Callee::OptionIsNone
@@ -525,6 +541,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
                 return format!("({}.length as Usize)", emit_expr(&args[0], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecPush) {
+                return format!("{}.push({})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
             }
             match callee {
                 purecrate_ir::Callee::VecIsEmpty => {

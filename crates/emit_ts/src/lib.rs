@@ -58,6 +58,9 @@ thread_local! {
     static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
     static PRIVATE: RefCell<BTreeSet<(String, String)>> = const { RefCell::new(BTreeSet::new()) };
+    /// The locals of the function being printed that `push` grows: the one
+    /// array the output writes, typed `Array<T>` (design/01 §7.14).
+    static PUSHED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     /// Helpers printed in another item's file (`Crate::homes`), likewise.
     static HOSTED: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Whether the statement `stmt::emit_stmts` prints next is the last of

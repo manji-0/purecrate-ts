@@ -103,6 +103,14 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::Struct(s) => lower_struct_expr(cx, s),
         // Calls carry their own position, so a diagnostic about one points
         // at it rather than at the statement around it.
+        // `Vec::new()` is `vec![]`: an empty array whose type the context gives.
+        SynExpr::Call(c)
+            if c.args.is_empty()
+                && matches!(&*c.func, SynExpr::Path(p) if p.qself.is_none() && p.path.segments.len() == 2
+                    && p.path.segments[0].ident == "Vec" && p.path.segments[1].ident == "new") =>
+        {
+            Ok(at(c.span(), Expr::Array(Vec::new())))
+        }
         SynExpr::Call(c) => Ok(at(c.span(), lower_call(cx, &c.func, c.args.iter().collect())?)),
         // `()` is the unit value, not an empty tuple: its type is `()` and
         // it prints as `undefined`.

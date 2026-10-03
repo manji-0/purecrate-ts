@@ -46,6 +46,7 @@ mod parse_equivalence;
 mod payment_equivalence;
 mod precedence_equivalence;
 mod adapters_equivalence;
+mod grow_equivalence;
 mod readability_equivalence;
 mod struct_patterns_equivalence;
 mod rest_equivalence;

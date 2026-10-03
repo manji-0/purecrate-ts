@@ -7,6 +7,7 @@ mod complete;
 mod consts;
 mod defs;
 mod exhaustive;
+mod grow;
 mod lift;
 mod names;
 mod position;
@@ -91,6 +92,10 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                 match complete::check(&typed) {
                     missing if missing.is_empty() => {
                         let (renamed, homes) = rename::rename(rest::expand(typed));
+                        let renamed = match grow::grow(renamed) {
+                            Ok(k) => k,
+                            Err(e) => return Err(e),
+                        };
                         let done = unused::drop_unused(binds::merge(lift::lift(renamed)));
                         // The emitter finds the same homes by name alone.
                         debug_assert_eq!(done.homes(|item| done.fns_named(item)), homes, "helper homes differ after renaming");

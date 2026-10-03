@@ -33,7 +33,8 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?` | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result` |
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
-| Local update | `let mut`, assignment and `+=` on locals | new values |
+| Local update | `let mut`, assignment and `+=` on locals; `v.push(x)` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-recursive-enums)) |
+| Copies | `clone()` on any type, `as_ref()` on an `Option`, `as_deref()` on an `Option<String>` | `[...xs]` for a `Vec`, else the value itself |
 | Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest | one `const` per element; a `mut` element a `let` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Integer methods | `min`, `max`, `abs` (signed), `pow(e: u32)`, and `checked_*`, `saturating_*`, `wrapping_*` of `add`, `sub`, `mul`, `pow`, and (`checked_`, `wrapping_`) `div`, `rem`, `neg`, on every integer type | `Int.<ty>.checkedAdd(a, b)` etc., from the exact result |
@@ -275,7 +276,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 - A string literal is `&str` and cannot stand where `String` is expected. Write `String::from("a")`.
 - `.to_string()`, `.to_owned()`, and `.into()` are rejected, to keep one spelling.
-- There is no `clone`, so build it again. `String::from(&s)` copies a `String`. An `Option<String>` is copied with a `match`.
+- `s.clone()` or `String::from(&s)` copies a `String`, `o.clone()` an `Option<String>`; `o.as_ref()` and `o.as_deref()` read an `Option` in place. In TS each is the value itself: nothing writes a string.
 
 #### Methods
 

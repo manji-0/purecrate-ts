@@ -483,6 +483,9 @@ pub enum Callee {
     VecLen,
     /// `Vec::is_empty`. Prints as `.length === 0`.
     VecIsEmpty,
+    /// `v.push(x)` on a local `let mut v: Vec<T>`, of type `()`: the one
+    /// write to an array (design/01 §7.14). Prints as `v.push(x)`.
+    VecPush,
     /// `Option::is_some` / `is_none`. `Option<T>` is `T | null` (no nested
     /// `Option`), so each is one comparison with `null`.
     OptionIsSome,

@@ -20,6 +20,40 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
+        // `clone` is a new array for a `Vec`, which a local may push to, and
+        // the value itself for anything else, which nothing writes; `as_ref`
+        // and `as_deref` on an `Option` are the option (design/01 §7.14).
+        if args.is_empty() && matches!(name.as_str(), "clone" | "as_ref" | "as_deref") {
+            if let Some(rt) = &rt {
+                match (name.as_str(), self.norm(rt)) {
+                    ("clone", Ty::Vec(_)) => {
+                        let e = Expr::Call { callee: Callee::Collect { result: false, over: Over::Items }, args: vec![recv] };
+                        return (e, self.expect(want, Some(rt.clone())));
+                    }
+                    ("clone", _) | ("as_ref", Ty::Option(_)) => return (recv, self.expect(want, Some(rt.clone()))),
+                    ("as_deref", Ty::Option(inner)) if matches!(self.norm(&inner), Ty::Prim(Prim::String)) => {
+                        return (recv, self.expect(want, Some(Ty::option(Ty::Prim(Prim::Str)))));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if name.as_str() == "push" {
+            if let Some(Ty::Vec(item)) = rt.as_ref().map(|t| self.norm(t)) {
+                let failed = (Expr::Lit(Lit::Unit), None);
+                let [arg] = args else {
+                    self.error(Reason::ConstructShape, format!("`push` takes 1 argument, got {}", args.len()));
+                    return failed;
+                };
+                if !matches!(recv.unpositioned(), Expr::Var(_)) {
+                    self.error(Reason::MethodCall, "`push` grows a local `let mut v: Vec<T>` in v0, not a field or an element: build the new `Vec` and put it in a new value (design/02 §3.1)".to_string());
+                    return failed;
+                }
+                let (arg, _) = self.expr(arg, Some(&item));
+                let e = Expr::Call { callee: Callee::VecPush, args: vec![recv, arg] };
+                return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
+            }
+        }
         if name.as_str() == "len" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Vec(_)) {
