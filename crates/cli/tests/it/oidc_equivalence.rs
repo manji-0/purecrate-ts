@@ -818,7 +818,7 @@ fn logins_run_as_the_rfcs_say() {
     assert_eq!(notice(&[2, 4]), (Notice::OtpReplayed, 1), "step 1 was used already");
     assert_eq!(notice(&[2, 5]), (Notice::OtpReplayed, 1), "step 0 is before the last used");
     assert_eq!(notice(&[1, 8]), (Notice::MalformedOtp, 1));
-    assert_eq!(notice(&[1, 9]), (Notice::OtpUnavailable, 0), "before T0: the server's clock, not counted");
+    assert_eq!(notice(&[1, 9]), (Notice::OtpUnavailable, 0), "before T0: the server's clock, not the End-User, so not counted");
     // Attempt limits (RFC 4226 §7.3), then nothing more is accepted.
     let locked = Ok(Flow::Locked { subject: "alice".into() });
     assert!(matches!(run(&[1, 7, 8]), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));

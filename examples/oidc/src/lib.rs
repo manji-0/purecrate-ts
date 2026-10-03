@@ -548,8 +548,8 @@ pub enum Notice {
     WrongOtp,
     OtpReplayed,
     MalformedOtp,
-    /// The server's clock is before the enrollment's T0: not the End-User's
-    /// failure, so not counted.
+    /// The server's clock is before the enrollment's T0, or its period is
+    /// not positive: not the End-User's failure, so not counted.
     OtpUnavailable,
 }
 
