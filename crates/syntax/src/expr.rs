@@ -148,7 +148,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let Some(syn::GenericArgument::Type(ty)) = m.turbofish.as_ref().and_then(|t| t.args.first()) else {
                 return Err(ParseError::new(Reason::MethodCall, format!("`{method}::<T>()` takes a type")));
             };
-            let ty = lower_type(ty)?;
+            let ty = if method == "collect" { crate::ty::lower_type_with_holes(ty)? } else { lower_type(ty)? };
             let ty = if method == "parse" { Ty::result(ty, Ty::Prim(Prim::ParseIntError)) } else { ty };
             let name = cx.fresh(&method);
             let call = at(

@@ -93,14 +93,14 @@ impl Version {
             Some(p) => p
                 .split('.')
                 .map(parse_pre_id)
-                .collect::<Result<Vec<PreId>, SemverError>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             None => vec![],
         };
         let build = match build {
             Some(b) => b
                 .split('.')
                 .map(parse_build_id)
-                .collect::<Result<Vec<String>, SemverError>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             None => vec![],
         };
         Ok(Version {

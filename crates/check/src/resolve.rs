@@ -89,6 +89,8 @@ impl<'a> Cx<'_, 'a> {
 
     fn ty(&mut self, ty: &Ty) {
         match ty {
+            // A hole of `collect::<Vec<_>>()`, filled when typing.
+            Ty::Named(n) if n.as_str() == "_" => {}
             Ty::Named(n) if !self.defs.is_type(n.as_str()) => {
                 self.error_about(
                     Reason::UndefinedType,

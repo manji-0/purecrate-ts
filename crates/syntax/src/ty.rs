@@ -8,6 +8,22 @@ pub fn lower_type(ty: &Type) -> Result<Ty, ParseError> {
     lower_type_node(ty).map_err(|e| e.or_at(ty.span()))
 }
 
+/// The name a hole `_` lowers to inside [`lower_type_with_holes`].
+pub const HOLE: &str = "_";
+
+thread_local! {
+    static HOLES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `ty` where `_` may stand for a part the checker fills in
+/// (`collect::<Result<Vec<_>, _>>()`), as `Ty::Named("_")`.
+pub fn lower_type_with_holes(ty: &Type) -> Result<Ty, ParseError> {
+    let before = HOLES.with(|h| h.replace(true));
+    let out = lower_type(ty);
+    HOLES.with(|h| h.set(before));
+    out
+}
+
 fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
     match ty {
         Type::Path(p) if p.qself.is_none() => lower_path(&p.path),
@@ -32,6 +48,7 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
             elem => lower_type(elem),
         },
         Type::Paren(p) => lower_type(&p.elem),
+        Type::Infer(_) if HOLES.with(|h| h.get()) => Ok(Ty::Named(Name::new(HOLE))),
         Type::BareFn(_) | Type::ImplTrait(_) | Type::TraitObject(_) => Err(ParseError::new(
             Reason::FnType,
             format!("function and trait types are not in v0: {}", snippet(ty)),

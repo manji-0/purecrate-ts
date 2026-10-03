@@ -36,6 +36,9 @@ fn collected_lists_match_rust() {
             cases.push(case!(lists::dotted(s)));
             cases.push(case!(lists::commas(String::from(s))));
             cases.push(case!(lists::tokens(s)));
+            cases.push(case!(lists::tokens_inferred(s)));
+            cases.push(case!(lists::each_token(s)));
+            cases.push(case!(lists::pieces(s)));
         }
         for s in ["boom", "bad,boom", "ok,boom", "boom,bad"] {
             cases.push(case!(lists::tokens(s)));

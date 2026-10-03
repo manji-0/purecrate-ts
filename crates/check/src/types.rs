@@ -224,6 +224,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             } => {
                 let before = self.out.len();
                 let (value, vt) = self.expr(value, ty.as_ref());
+                // A type with holes (`collect::<Vec<_>>()`) is what the value
+                // filled them with.
+                let ty = &ty.clone().filter(|t| !has_hole(t));
                 let bound = ty.clone().or(vt);
                 if bound.is_none() && self.out.len() == before {
                     let (kw, first) = if *mutable { ("let mut", " from its first value") } else { ("let", "") };
@@ -474,6 +477,18 @@ impl<'d, 'a> Typer<'d, 'a> {
 }
 
 /// Expressions whose numeric type comes only from their surroundings.
+/// Whether `ty` has a `_` for the checker to fill.
+pub(crate) fn has_hole(ty: &Ty) -> bool {
+    match ty {
+        Ty::Named(n) => n.as_str() == "_",
+        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => has_hole(t),
+        Ty::Result { ok, err } => has_hole(ok) || has_hole(err),
+        Ty::Tuple(ts) => ts.iter().any(has_hole),
+        Ty::Fn { params, ret } => params.iter().any(has_hole) || has_hole(ret),
+        Ty::Prim(_) | Ty::Never => false,
+    }
+}
+
 fn needs_context(expr: &Expr) -> bool {
     match expr {
         Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }) => true,

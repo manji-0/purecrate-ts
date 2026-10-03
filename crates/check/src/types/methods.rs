@@ -436,13 +436,16 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (source, _) = self.expr(&source, None);
         let item = Ty::Prim(Prim::Str);
+        let hole = |t: &Ty| matches!(t, Ty::Named(n) if n.as_str() == "_");
         let Some(map) = map else {
-            if result {
+            if err.as_ref().is_some_and(|e| hole(e)) || result {
                 self.error(Reason::TypeMismatch, "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string());
                 return Some(failed);
             }
             let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source] };
-            return Some((e, self.expect(want, Some(Ty::Vec(Box::new(item))))));
+            // The pieces are `&str`, whatever the target says.
+            let pieces = Ty::Vec(Box::new(item));
+            return Some((e, self.expect(want.filter(|t| !super::has_hole(t)), Some(pieces))));
         };
         let Some((param, written, body)) = self.one_param_fn("map", map) else {
             return Some(failed);
@@ -453,6 +456,24 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some(failed);
             }
         }
+        // A hole is what `f` returns: its `Ok` and `Err` for a `Result`.
+        let (elem, err) = if hole(&elem) || err.as_ref().is_some_and(|e| hole(e)) {
+            let returned = self.returns_of(&body, &param, &item)?;
+            match (&err, self.norm(&returned)) {
+                (Some(e), Ty::Result { ok, err: re }) => {
+                    let ok = if hole(&elem) { *ok } else { elem };
+                    let e = if hole(e) { *re } else { e.clone() };
+                    (ok, Some(e))
+                }
+                (Some(_), other) => {
+                    self.error(Reason::TypeMismatch, format!("collecting into a `Result` takes `.map(f)` with `f` returning a `Result`, not `{}`", show(&other)));
+                    return Some(failed);
+                }
+                (None, other) => (other, None),
+            }
+        } else {
+            (elem, err)
+        };
         let ret = match &err {
             Some(err) => Ty::Result { ok: Box::new(elem.clone()), err: Box::new(err.clone()) },
             None => elem.clone(),
@@ -464,7 +485,22 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (closure, _) = self.expr(&closure, None);
         let e = Expr::Call { callee: Callee::Collect { result }, args: vec![source, closure] };
-        Some((e, want.cloned()))
+        let filled = if result { Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) } } else { Ty::Vec(Box::new(elem)) };
+        Some((e, Some(filled)))
+    }
+
+    /// The type `body` has with `param` bound to `item`, for a hole that
+    /// `map(f)` fills; its diagnostics are left to the typing that follows.
+    fn returns_of(&mut self, body: &Expr, param: &Name, item: &Ty) -> Option<Ty> {
+        let before = self.out.len();
+        self.scopes.push((param.as_str().to_string(), Some(item.clone())));
+        let (_, ty) = self.expr(body, None);
+        self.scopes.pop();
+        self.out.truncate(before);
+        if ty.is_none() {
+            self.error(Reason::NeedsAnnotation, "the `_` in `collect::<..>()` is not known from `map`'s function; name the type".to_string());
+        }
+        ty
     }
 
     pub(super) fn fresh_name(&mut self, what: &str) -> Name {

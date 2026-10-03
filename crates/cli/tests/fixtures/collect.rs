@@ -76,3 +76,19 @@ pub fn once_head(s: &str) -> bool {
 pub fn once_owned(s: String, p: String) -> Option<(String, String)> {
     halves(s.as_str(), p.as_str())
 }
+
+/// `_` in the target: filled from what `map`'s function returns.
+pub fn tokens_inferred(s: &str) -> Result<usize, bool> {
+    let v = s.split(',').map(token).collect::<Result<Vec<_>, _>>()?;
+    Ok(v.len())
+}
+
+/// `Vec<_>` over a function returning a `Result` keeps each `Result`.
+pub fn each_token(s: &str) -> Vec<Result<u8, bool>> {
+    s.split(',').map(token).collect::<Vec<_>>()
+}
+
+pub fn pieces(s: &str) -> usize {
+    let v = s.split('.').collect::<Vec<_>>();
+    v.len()
+}
