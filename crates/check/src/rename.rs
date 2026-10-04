@@ -9,9 +9,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use purecrate_ir::{
-    to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, VariantBind, Vis,
-};
+use purecrate_ir::{to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, Vis};
 
 fn camel(n: &Name) -> Name {
     Name::new(to_camel(n.as_str()))
@@ -237,26 +235,15 @@ impl Renamer {
         (printed, value)
     }
 
-    fn pattern(&mut self, p: Pattern, cx: &mut Cx) -> Pattern {
+    fn pattern(&mut self, mut p: Pattern, cx: &mut Cx) -> Pattern {
+        self.pattern_in_place(&mut p, cx);
+        p
+    }
+
+    fn pattern_in_place(&mut self, p: &mut Pattern, cx: &mut Cx) {
         match p {
-            Pattern::Var(n) => Pattern::Var(self.bind(&n, cx)),
-            Pattern::Variant { ty, variant, bind } => Pattern::Variant {
-                ty,
-                variant,
-                bind: match bind {
-                    VariantBind::Unit => VariantBind::Unit,
-                    VariantBind::Tuple(ps) => VariantBind::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
-                    VariantBind::Struct(ps) => {
-                        VariantBind::Struct(ps.into_iter().map(|(f, p)| (f, self.pattern(p, cx))).collect())
-                    }
-                },
-            },
-            Pattern::OptionSome(p) => Pattern::OptionSome(Box::new(self.pattern(*p, cx))),
-            Pattern::ResultOk(p) => Pattern::ResultOk(Box::new(self.pattern(*p, cx))),
-            Pattern::ResultErr(p) => Pattern::ResultErr(Box::new(self.pattern(*p, cx))),
-            Pattern::Or(ps) => Pattern::Or(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
-            Pattern::Tuple(ps) => Pattern::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
-            other @ (Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone) => other,
+            Pattern::Var(n) => *n = self.bind(n, cx),
+            p => p.children_mut().into_iter().for_each(|p| self.pattern_in_place(p, cx)),
         }
     }
 

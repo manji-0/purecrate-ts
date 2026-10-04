@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fn, Item, Name, Param, Pattern, VariantBind};
+use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fn, Item, Name, Param, Pattern};
 
 pub fn drop_unused(krate: Crate) -> Crate {
     let items: HashSet<String> = krate.items.iter().map(|item| item.name().as_str().to_string()).collect();
@@ -169,27 +169,15 @@ impl Cx {
     }
 }
 
-fn drop_pattern(p: Pattern, used: impl std::ops::Fn(&str) -> bool + Copy) -> Pattern {
-    match p {
-        Pattern::Var(n) if !used(n.as_str()) => Pattern::Wildcard,
-        Pattern::Variant { ty, variant, bind } => Pattern::Variant {
-            ty,
-            variant,
-            bind: match bind {
-                VariantBind::Unit => VariantBind::Unit,
-                VariantBind::Tuple(ps) => VariantBind::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
-                VariantBind::Struct(fs) => {
-                    VariantBind::Struct(fs.into_iter().map(|(f, p)| (f, drop_pattern(p, used))).collect())
-                }
-            },
-        },
-        Pattern::OptionSome(p) => Pattern::OptionSome(Box::new(drop_pattern(*p, used))),
-        Pattern::ResultOk(p) => Pattern::ResultOk(Box::new(drop_pattern(*p, used))),
-        Pattern::ResultErr(p) => Pattern::ResultErr(Box::new(drop_pattern(*p, used))),
-        Pattern::Or(ps) => Pattern::Or(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
-        Pattern::Tuple(ps) => Pattern::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
-        other => other,
+fn drop_pattern(mut p: Pattern, used: impl std::ops::Fn(&str) -> bool + Copy) -> Pattern {
+    fn go(p: &mut Pattern, used: &dyn std::ops::Fn(&str) -> bool) {
+        match p {
+            Pattern::Var(n) if !used(n.as_str()) => *p = Pattern::Wildcard,
+            p => p.children_mut().into_iter().for_each(|p| go(p, used)),
+        }
     }
+    go(&mut p, &used);
+    p
 }
 
 /// Whether `name` is read in `expr`, stopping at a nested binder of that name.

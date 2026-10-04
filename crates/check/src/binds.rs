@@ -9,7 +9,7 @@
 //! of the arm binds it, so binding it a little earlier shadows nothing; the
 //! value is the same, as the pattern reads it once either way.
 
-use purecrate_ir::{Crate, Expr, Fn, Item, Name, Pattern, VariantBind};
+use purecrate_ir::{Crate, Expr, Fn, Item, Name, Pattern};
 
 pub fn merge(krate: Crate) -> Crate {
     let items = krate
@@ -80,13 +80,6 @@ fn take_copy(expr: &mut Expr, from: &Name) -> Option<Name> {
 fn rename_binding(pattern: &mut Pattern, from: &Name, to: &Name) {
     match pattern {
         Pattern::Var(n) if n == from => *n = to.clone(),
-        Pattern::Variant { bind, .. } => match bind {
-            VariantBind::Unit => {}
-            VariantBind::Tuple(ps) => ps.iter_mut().for_each(|p| rename_binding(p, from, to)),
-            VariantBind::Struct(ps) => ps.iter_mut().for_each(|(_, p)| rename_binding(p, from, to)),
-        },
-        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => rename_binding(p, from, to),
-        Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter_mut().for_each(|p| rename_binding(p, from, to)),
-        _ => {}
+        p => p.children_mut().into_iter().for_each(|p| rename_binding(p, from, to)),
     }
 }

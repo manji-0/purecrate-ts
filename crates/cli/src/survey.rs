@@ -349,9 +349,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
 fn pattern_refs(p: &Pattern, out: &mut Vec<Ref>) {
     match p {
         Pattern::Variant { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
-        Pattern::OptionSome(inner) | Pattern::ResultOk(inner) | Pattern::ResultErr(inner) => pattern_refs(inner, out),
-        Pattern::Or(alts) | Pattern::Tuple(alts) => alts.iter().for_each(|alt| pattern_refs(alt, out)),
-        _ => {}
+        p => p.children().into_iter().for_each(|p| pattern_refs(p, out)),
     }
 }
 

@@ -753,14 +753,41 @@ impl Pattern {
     fn collect_bindings<'a>(&'a self, out: &mut Vec<&'a Name>) {
         match self {
             Pattern::Var(n) => out.push(n),
-            Pattern::Variant { bind, .. } => match bind {
-                VariantBind::Unit => {}
-                VariantBind::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
-                VariantBind::Struct(ps) => ps.iter().for_each(|(_, p)| p.collect_bindings(out)),
-            },
-            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => p.collect_bindings(out),
-            Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
-            Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
+            p => p.children().into_iter().for_each(|p| p.collect_bindings(out)),
+        }
+    }
+
+    /// The patterns directly inside this one, left to right.
+    pub fn children(&self) -> Vec<&Pattern> {
+        match self {
+            Pattern::Variant { bind: VariantBind::Tuple(ps), .. } | Pattern::Or(ps) | Pattern::Tuple(ps) => {
+                ps.iter().collect()
+            }
+            Pattern::Variant { bind: VariantBind::Struct(ps), .. } => ps.iter().map(|(_, p)| p).collect(),
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![p],
+            Pattern::Variant { bind: VariantBind::Unit, .. }
+            | Pattern::Wildcard
+            | Pattern::Var(_)
+            | Pattern::Lit(_)
+            | Pattern::Range { .. }
+            | Pattern::OptionNone => Vec::new(),
+        }
+    }
+
+    /// `children`, mutably and in the same order.
+    pub fn children_mut(&mut self) -> Vec<&mut Pattern> {
+        match self {
+            Pattern::Variant { bind: VariantBind::Tuple(ps), .. } | Pattern::Or(ps) | Pattern::Tuple(ps) => {
+                ps.iter_mut().collect()
+            }
+            Pattern::Variant { bind: VariantBind::Struct(ps), .. } => ps.iter_mut().map(|(_, p)| p).collect(),
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![p],
+            Pattern::Variant { bind: VariantBind::Unit, .. }
+            | Pattern::Wildcard
+            | Pattern::Var(_)
+            | Pattern::Lit(_)
+            | Pattern::Range { .. }
+            | Pattern::OptionNone => Vec::new(),
         }
     }
 }

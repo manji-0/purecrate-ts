@@ -591,25 +591,15 @@ fn decide_on(expr: &mut Expr, name: &Name, value: &Expr) {
 }
 
 /// `pattern` with each name `read` says is unread made `_`.
-fn unbind(pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pattern {
-    let inner = |p: Pattern| Box::new(unbind(p, read));
-    match pattern {
-        Pattern::Var(n) if !read(&n) => Pattern::Wildcard,
-        Pattern::OptionSome(p) => Pattern::OptionSome(inner(*p)),
-        Pattern::ResultOk(p) => Pattern::ResultOk(inner(*p)),
-        Pattern::ResultErr(p) => Pattern::ResultErr(inner(*p)),
-        Pattern::Variant { ty, variant, bind: VariantBind::Tuple(ps) } => Pattern::Variant {
-            ty,
-            variant,
-            bind: VariantBind::Tuple(ps.into_iter().map(|p| unbind(p, read)).collect()),
-        },
-        Pattern::Variant { ty, variant, bind: VariantBind::Struct(ps) } => Pattern::Variant {
-            ty,
-            variant,
-            bind: VariantBind::Struct(ps.into_iter().map(|(f, p)| (f, unbind(p, read))).collect()),
-        },
-        other => other,
+fn unbind(mut pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pattern {
+    fn go(p: &mut Pattern, read: &dyn Fn(&Name) -> bool) {
+        match p {
+            Pattern::Var(n) if !read(n) => *p = Pattern::Wildcard,
+            p => p.children_mut().into_iter().for_each(|p| go(p, read)),
+        }
     }
+    go(&mut pattern, read);
+    pattern
 }
 
 /// `1 == 65535` as `false`: TS refuses comparing two literals it knows
