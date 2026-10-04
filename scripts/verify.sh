@@ -43,6 +43,12 @@ done
 
 TS_MAJORS=(6 7)
 
+# Format and lints. CI runs them in a job of their own (verify.yml, lint)
+# and sets PURECRATE_SKIP_LINT here.
+if [ -z "${PURECRATE_SKIP_LINT:-}" ]; then
+  cargo fmt --all -- --check
+  cargo clippy --offline -q --all-targets -- -D warnings
+fi
 cargo test --offline -q
 # Every example's committed output (scripts/examples.sh regenerates them).
 examples=()
