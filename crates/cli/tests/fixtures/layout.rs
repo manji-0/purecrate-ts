@@ -145,3 +145,46 @@ pub fn first_or_fallback_value(maybe_first_value: Option<u32>, fallback_value_wh
 pub fn is_known_prompt_value_list(prompt_value_list: &str) -> bool {
     prompt_value_list.split(' ').all(|t| t == "" || t == "none" || t == "login" || t == "consent" || t == "select_account")
 }
+
+/// A long `&&` chain bound by `let`: broken after `=`, one operand a line.
+pub fn limits_bound_together(config: &VeryLongConfigurationRecord, extra_allowance: u32) -> u32 {
+    let within_every_limit = config.maximum_number_of_password_attempts > extra_allowance
+        && config.maximum_number_of_one_time_code_attempts > extra_allowance
+        && config.minimum_length_of_the_generated_identifier < extra_allowance;
+    if within_every_limit {
+        return 1;
+    }
+    count_the_limits_that_hold(within_every_limit)
+}
+
+fn count_the_limits_that_hold(every_limit_holds: bool) -> u32 {
+    if every_limit_holds {
+        1
+    } else {
+        0
+    }
+}
+
+/// A long `&&` chain as a call's one argument: its operands after the first
+/// one indent in.
+pub fn both_limits_exceed(config: &VeryLongConfigurationRecord, extra_allowance: u32) -> u32 {
+    count_the_limits_that_hold(
+        config.maximum_number_of_password_attempts > extra_allowance
+            && config.maximum_number_of_one_time_code_attempts > extra_allowance,
+    )
+}
+
+fn split_the_configuration_record(
+    config: &VeryLongConfigurationRecord,
+) -> (VeryLongConfigurationRecord, AuthorizationFailureReason) {
+    (config.clone(), AuthorizationFailureReason::AuthorizationCodeAlreadyRedeemedByAnotherClient)
+}
+
+/// A tuple from a call taken apart needs no annotation, so the line fits.
+pub fn reason_after_the_split(config: &VeryLongConfigurationRecord) -> AuthorizationFailureReason {
+    let (unchanged_configuration_record, failure_reason) = split_the_configuration_record(config);
+    if unchanged_configuration_record.maximum_number_of_password_attempts == 0 {
+        return AuthorizationFailureReason::RedirectLocationDoesNotMatchTheRegistration;
+    }
+    failure_reason
+}

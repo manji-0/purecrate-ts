@@ -68,6 +68,7 @@ const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
     wrap_condition,
     wrap_arrow_first,
     wrap_assign_ternary,
+    wrap_assign_logical,
     // A top-level `?:` splits before a bracket in one of its branches
     // opens, and before the `&&` / `||` in its operands, which bind tighter.
     wrap_ternary,

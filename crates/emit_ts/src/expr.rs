@@ -773,6 +773,20 @@ fn match_tx(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Opti
     if arms.iter().any(|a| a.guard.is_some()) {
         return None;
     }
+    // The other variants first, then one (`A | C => false, B { f } => f`):
+    // tested as the one, `s.kind === "B" && s.f`, not `!(A || C) && s.f`.
+    let swapped;
+    let arms = match arms {
+        [rest, one]
+            if matches!(one.pattern, Pattern::Variant { .. })
+                && matches!(&rest.pattern, Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { .. })))
+                && rest.pattern.bindings().is_empty() =>
+        {
+            swapped = [one.clone(), rest.clone()];
+            &swapped[..]
+        }
+        _ => arms,
+    };
     let subject = emit_expr(scrutinee, indent);
     let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
     let mut parts: Vec<(Option<Tx>, Tx, Option<bool>)> = Vec::new();

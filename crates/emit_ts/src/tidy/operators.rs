@@ -127,6 +127,69 @@ pub(super) fn wrap_assign_ternary(line: &str, width: usize, out: &mut String) ->
     true
 }
 
+/// `const x = a && b;` that does not fit: broken after `=`, the value one
+/// indent in on a line of its own where it fits there, else one operand of
+/// its top-level `||` (else `&&`) per line, as oxfmt lays out a logical
+/// initializer.
+pub(super) fn wrap_assign_logical(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    if !(rest.starts_with("const ") || rest.starts_with("let ")) {
+        return false;
+    }
+    let Some(eq) = top_assign(rest) else { return false };
+    let Some(value) = rest[eq + 3..].strip_suffix(';') else { return false };
+    let d = depths(value);
+    let arrow = (0..value.len()).any(|i| d[i] == Some(0) && value[i..].starts_with(" => "));
+    if arrow || find_ternary(value).is_some() {
+        return false;
+    }
+    let Some(parts) = split_at_op(value, " || ", 0).or_else(|| split_at_op(value, " && ", 0)) else {
+        return false;
+    };
+    wrap_line(&format!("{pad}{} =", &rest[..eq]), width, out);
+    let whole = format!("{pad}  {value};");
+    if cols(&whole) <= width {
+        emit_raw(&whole, out);
+        return true;
+    }
+    let last = parts.len() - 1;
+    for (i, part) in parts.into_iter().enumerate() {
+        let end = if i == last { ";" } else { "" };
+        wrap_line(&format!("{pad}  {}{end}", part.trim_end()), width, out);
+    }
+    true
+}
+
+/// An item of a bracket that `wrap_bracket`, `wrap_fat_group`, or
+/// `wrap_sole_item` opened, `a && b,`: where it does not fit, one operand of
+/// its top-level `||` (else `&&`) per line, the ones after the first one
+/// indent in, as oxfmt lays out a logical argument or element.
+pub(super) fn wrap_item(line: &str, width: usize, out: &mut String) {
+    if cols(line) <= width || !wrap_logical_item(line, width, out) {
+        wrap_line(line, width, out);
+    }
+}
+
+fn wrap_logical_item(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let Some(item) = line.trim_start().strip_suffix(',') else { return false };
+    let d = depths(item);
+    let top = |s: &str| (0..item.len()).any(|i| d[i] == Some(0) && item[i..].starts_with(s));
+    if top(": ") || top(" => ") || find_ternary(item).is_some() || top_assign(item).is_some() {
+        return false;
+    }
+    let Some(parts) = split_at_op(item, " || ", 0).or_else(|| split_at_op(item, " && ", 0)) else {
+        return false;
+    };
+    let last = parts.len() - 1;
+    for (i, part) in parts.into_iter().enumerate() {
+        let (more, end) = (if i == 0 { "" } else { "  " }, if i == last { "," } else { "" });
+        wrap_line(&format!("{pad}{more}{}{end}", part.trim_end()), width, out);
+    }
+    true
+}
+
 /// `test ? then : else` with `?` / `:` on their own continuation lines.
 pub(super) fn wrap_ternary(line: &str, width: usize, out: &mut String) -> bool {
     let Some((first, then_line, else_line)) = split_ternary(line) else {

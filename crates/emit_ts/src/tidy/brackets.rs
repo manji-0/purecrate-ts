@@ -59,7 +59,7 @@ pub(super) fn wrap_bracket(line: &str, width: usize, require_excess: bool, out: 
     let n = items.len();
     for (i, item) in items.into_iter().enumerate() {
         let comma = if generic && i + 1 == n { "" } else { "," };
-        wrap_line(&format!("{pad}  {item}{comma}"), width, out);
+        wrap_item(&format!("{pad}  {item}{comma}"), width, out);
     }
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
     true
@@ -99,7 +99,7 @@ pub(super) fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool
     wrap_line(&line[..=open], width, out);
     let call = is_call(line[..open].trim_end());
     let trail = if line.as_bytes()[open] == b'{' || call { "," } else { "" };
-    wrap_line(&format!("{pad}  {inner}{trail}"), width, out);
+    wrap_item(&format!("{pad}  {inner}{trail}"), width, out);
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
     true
 }
@@ -132,7 +132,7 @@ pub(super) fn wrap_sole_item(line: &str, width: usize, out: &mut String) -> bool
     }
     let pad = &line[..line.len() - line.trim_start().len()];
     wrap_line(&line[..=open], width, out);
-    wrap_line(&format!("{pad}  {item},"), width, out);
+    wrap_item(&format!("{pad}  {item},"), width, out);
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
     true
 }
