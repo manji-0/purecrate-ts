@@ -2,18 +2,21 @@
 
 ## Unreleased
 
-Function bodies generated from seeds, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-unreleased-generated-function-bodies)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+Tests generated across the subset, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-unreleased-the-generator-across-the-subset)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 
 - **`match o.ok_or(x.ok_or(e)?)` returned the wrong value.** The inner `?` sat in an inline function, so its `return` left only that function and the `Err` arm ran: Rust gave `Err(e)`, TS `Ok(..)`. It now runs before the `match`, as Rust evaluates the argument first. Also in an `if` or `while` test, a range's end, and an operand.
+- **`if let Some(0) = o { .. } else { .. }` threw for `Some(5)`.** The `else` stood for `None` only, so a `Some` the payload did not match reached no arm ("unexpected variant"); where the payload may fail to match, the `else` takes every other value, as in Rust. Likewise `Ok(..)` and `Err(..)` with a literal or range inside.
+- **`check` and `build` overflowed their stack** on `E::V(Some(_)) if g => .., E::V(v) => ..`: the printer followed the `let v = v` the decision tree binds as an alias, forever.
+- **A long `=> (a ? b : c)` broke to `(..,)`**, a syntax error; a group takes no trailing comma.
 - **Two temporaries named after one local** (`let x = r.ok()`, then `x.ok_or(e)` matched) were both `xResult` in one block.
-- **Output tsc refused under the generated tsconfig**, none of it a wrong value: an `unwrap_or` default left `const optOr` and an empty `if {} else {}` where the value was unread; a test folding decided left unreachable code (`while (false)`, code after a `return`); `r?` on a known `Err`, a place past a `match` whose other arms `break`, and a `bool` an enclosing `if` decided were compared as TS knew they could not be.
+- **Output tsc refused under the generated tsconfig**, none of it a wrong value: an `unwrap_or` default left `const optOr` and an empty `if {} else {}` where the value was unread; a test folding decided left unreachable code (`while (false)`, code after a `return`); `r?` on a known `Err`, a place past a `match` whose other arms `break`, and a `bool` an enclosing `if` decided were compared as TS knew they could not be; a parameter read only by an unread `t.as_str()` kept its name.
 - A decided side that declares a name keeps its block, so a later `let` of the same name is not a redeclaration.
 
 ### Added
 
-- `generated_statements_equivalence.rs`: `let`, assignment, `if` / `match` statements, `for`, `while`, `break`, `continue`, `return`, and `?` around generated expressions. Seeds 1 to 120 agree on every value; 60 type-check (roadmap §3 has the rest).
+- Four generated tests beside the expressions of 0.10.0: function bodies (`generated_statements_equivalence.rs`), transitions over a crate's types with nested patterns and guards (`generated_patterns_equivalence.rs`), integer widths (`generated_widths_equivalence.rs`), and strings and `Vec` (`generated_text_equivalence.rs`). Seeds 1 to 120 of each agree on every value; how many type-check is in the roadmap.
 
 ## 0.10.0 — 2026-10-04
 

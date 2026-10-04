@@ -144,7 +144,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc, 47 of them only for narrowing (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds |
+| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc, 47 of them only for narrowing (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds; generated transitions (2 of 120) and text (1 of 120) stop at it too |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -466,22 +466,34 @@ Why: an evaluation of 0.9.1 found that every audit since 0.8.1 turned up output 
 - **06 §4.3 reads the generator, not only the examples.** The row on silent wrong values now names the audits' findings and the generated test's count.
 - **Open:** line breaking (`tidy::wrap`) still reads printed lines, as a layout pass; oxc's formatter is not published as a crate.
 
-### 8.15 Unreleased: generated function bodies
+### 8.15 Unreleased: the generator across the subset
 
 <!-- derived-from #814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04 -->
 
-Why: the generator of 0.10.0 drew expressions only, over four types. Two of the four disagreements the audits found were in statements and crate types, outside it. This adds statements around those expressions; crate types, patterns on them, strings, and `Vec` are still outside.
+Why: the generator of 0.10.0 drew expressions only, over `i32`, `bool`, `Option<i32>`, and `Result<i32, i32>`. Two of the four disagreements the audits found were in statements and crate types, outside it. Four generators now cover the rest of the subset; each runs eight seeds on every `cargo test`, and seeds 1 to 120 were swept.
 
-| Item | Verified by |
-| --- | --- |
-| Function bodies generated from seeds: `let` / `let mut`, assignment and `op=`, `if` and `match` as statements, range `for` and `while`, `break`, `continue`, early `return`, `?` in a range's ends and a loop's test | `generated_statements_equivalence.rs`: seeds 1 to 8 on every run; 1 to 120 agree on every value (4,800 functions, 57,600 calls), 60 of them type-check |
-| `match o.ok_or(x.ok_or(e)?)` leaves the function (it returned from an inline function and took the `Err` arm: Rust `Err(e)`, TS `Ok(..)`) | `order_of_eval_equivalence.rs`, failing on values before the fix |
-| A temporary named after a local is numbered (two `xResult` in one block) | `order_of_eval_equivalence.rs` |
-| What folding leaves type-checks: a value nothing reads runs only what it does; a decided test keeps the side taken (`if (true) { .. }` where it declares); what follows a jump goes; `r?` on a known `Err` is the `return` | `narrowing_equivalence.rs`, each refused by tsc before |
-| Narrowing past a statement `match` with jumping arms, past an `if` that always leaves, and of `bool`s an `if` decided; `if c { p } else { p }` and `{ let t = p; t }` are `p` | `narrowing_equivalence.rs` |
-| A sweep compares values even where tsc refuses (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check | `support::assert_values_equivalent` |
+| Generator | What it draws | Seeds 1 to 120 |
+| --- | --- | --- |
+| `generated_equivalence.rs` (0.10.0) | expressions over four types | values agree; 120 type-check (7,200 functions) |
+| `generated_statements_equivalence.rs` | bodies: `let` / `let mut`, assignment and `op=`, `if` / `match` statements, range `for`, `while`, `break`, `continue`, early `return`, `?` in a range's ends and a loop's test | values agree; 60 type-check (4,800 functions) |
+| `generated_patterns_equivalence.rs` | transitions over a crate's `State` / `Event` / `Acc`: `match` on a pair or one value, `if let` on an `Option`, `matches!`; variants, tuple and struct fields, nested `Option`s, literals, ranges, `\|`, names that hide parameters, guards | values agree; 118 type-check |
+| `generated_widths_equivalence.rs` | `u8`, `i16`, `u32`, `i64`, `u64`: operators, shifts past the width, checked / wrapping / saturating forms, `pow`, `abs`, `T::from`, comparisons | values agree; 120 type-check |
+| `generated_text_equivalence.rs` | `&str`, `String`, `Vec<i32>`: the allowed methods, slices off char boundaries, `split`, `parse`, adaptors into consumers and `collect`, `push` | values agree; 119 type-check |
 
-- **Open:** the 60 seeds tsc refuses: 47 only for narrowing (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022, wanting an annotation), or an unread one (TS6133). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`.
+What they found, each with a fixture that fails before its fix:
+
+| Found | Kind | Fixture |
+| --- | --- | --- |
+| `match o.ok_or(x.ok_or(e)?)` returned from an inline function only and took the `Err` arm (Rust `Err(e)`, TS `Ok(..)`) | wrong value, in 0.10.0 | `order_of_eval.rs` |
+| `if let Some(0) = o { .. } else { .. }` threw "unexpected variant" for `Some(5)`, where Rust takes the `else` | wrong result, in 0.10.0 | `control.rs` |
+| `Set(Some(_)) if g => .., Set(v) => ..` overflowed the printer's stack (`let v = v` followed as an alias forever), in `check` and `build` | crash, in 0.10.0 | `guards.rs` |
+| A group broken inside (`=> (c ? .. : ..)`) ended with `,` (`(x,)`) | syntax error | `tidy.rs` unit test |
+| Two temporaries named after one local (`xResult` twice in a block) | syntax error | `order_of_eval.rs` |
+| A payload's `match` (`matches!(o.unwrap_or(3), 0..=9)` under `Some(_)`) decided by the option being `Some` | wrong value, a regression of this work before release | `narrowing.rs` |
+| What folding leaves: unread values (`const optOr`, empty `if {} else {}`), unreachable code, `r?` on a known `Err`, places past jumping arms and leaving `if`s, decided `bool`s, `c ? r : r`, a parameter read only by an unread `as_str` | refused by tsc | `narrowing.rs` |
+
+- A sweep compares values where tsc refuses the package (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check (`support::assert_values_equivalent`).
+- **Open:** the seeds tsc refuses. Bodies: 47 of 60 only for narrowing TS does where control flow joins or loops (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022), or an unread one (TS6133). Patterns 2 and text 1, narrowing too (TS2322, TS2339, TS2367). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`. `if let` takes `Option` and `Result` only (`[pattern/if-let-variant]`).
 - **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
 
 ## 9. Generated API stability
