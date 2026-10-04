@@ -30,6 +30,11 @@ fn struct_patterns_match_rust() {
                 cases.push(case!(pats::step(s, go)));
             }
         }
+        for xs in [vec![], vec![1u32], vec![5]] {
+            for b in [1u32, 20] {
+                cases.push(case!(pats::shadowed(pats::Bag { a: 2, xs: xs.clone() }, b)));
+            }
+        }
         cases
     });
     support::assert_equivalent("struct_patterns", SOURCE, &cases);

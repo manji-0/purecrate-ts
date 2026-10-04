@@ -530,12 +530,67 @@ pub(super) fn struct_arm(structs: Vec<crate::item::StructPat>, guard: Option<Exp
     Ok((guard, wrap))
 }
 
-/// `expr` with each read of a name in `places` replaced by its place.
+/// `expr` with each read of a name in `places` replaced by its place,
+/// except where a binding inside `expr` (a closure's parameter, a `let`, a
+/// `match` arm's pattern, a `for` variable) hides the name.
 fn read_places(mut expr: Expr, places: &[(Name, Expr)]) -> Expr {
-    if let Expr::Var(n) = &expr {
-        if let Some((_, p)) = places.iter().find(|(m, _)| m == n) {
-            return p.clone();
+    let without = |hidden: &[&Name]| -> Vec<(Name, Expr)> {
+        places.iter().filter(|(n, _)| !hidden.contains(&n)).cloned().collect()
+    };
+    match &mut expr {
+        Expr::Var(n) => {
+            if let Some((_, p)) = places.iter().find(|(m, _)| m == n) {
+                return p.clone();
+            }
+            return expr;
         }
+        Expr::Closure { params, body, .. } => {
+            let inner = without(&params.iter().map(|p| &p.name).collect::<Vec<_>>());
+            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
+            **body = read_places(b, &inner);
+            return expr;
+        }
+        Expr::Let { name, value, then, .. } => {
+            let v = std::mem::replace(&mut **value, Expr::Lit(Lit::Unit));
+            **value = read_places(v, places);
+            let inner = without(&[&*name]);
+            let t = std::mem::replace(&mut **then, Expr::Lit(Lit::Unit));
+            **then = read_places(t, &inner);
+            return expr;
+        }
+        Expr::Match { scrutinee, arms } => {
+            let sc = std::mem::replace(&mut **scrutinee, Expr::Lit(Lit::Unit));
+            **scrutinee = read_places(sc, places);
+            for arm in arms.iter_mut() {
+                let bound = arm.pattern.bindings();
+                let inner = without(&bound.iter().copied().collect::<Vec<_>>());
+                if let Some(g) = arm.guard.take() {
+                    arm.guard = Some(read_places(g, &inner));
+                }
+                let b = std::mem::replace(&mut arm.body, Expr::Lit(Lit::Unit));
+                arm.body = read_places(b, &inner);
+            }
+            return expr;
+        }
+        Expr::For { var, start, end, body, .. } => {
+            let st = std::mem::replace(&mut **start, Expr::Lit(Lit::Unit));
+            **start = read_places(st, places);
+            let en = std::mem::replace(&mut **end, Expr::Lit(Lit::Unit));
+            **end = read_places(en, places);
+            let inner = without(&[&*var]);
+            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
+            **body = read_places(b, &inner);
+            return expr;
+        }
+        Expr::ForEach { var, source, body, .. } => {
+            let src = std::mem::replace(&mut **source, Expr::Lit(Lit::Unit));
+            **source = read_places(src, places);
+            let inner = without(&[&*var]);
+            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
+            **body = read_places(b, &inner);
+            return expr;
+        }
+        _ => {}
     }
     for c in expr.children_mut() {
         let e = std::mem::replace(c, Expr::Lit(Lit::Unit));

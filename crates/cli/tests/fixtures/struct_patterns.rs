@@ -55,3 +55,19 @@ pub fn step(s: Status, go: bool) -> u32 {
         _ => 2,
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bag {
+    pub a: u32,
+    pub xs: Vec<u32>,
+}
+
+/// A guard whose closure and inner `match` bind the field's name again:
+/// there it is theirs, not the field.
+pub fn shadowed(bag: Bag, b: u32) -> u32 {
+    match bag {
+        Bag { a, xs } if xs.iter().any(|a| *a > 3) => a,
+        Bag { a, .. } if match b { a if a > 10 => true, _ => false } => a + 100,
+        _ => 0,
+    }
+}
