@@ -160,17 +160,14 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
             out
         }
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => tests(expr, !holds),
-        // `if c { true } else { b }` and `if c { a } else { false }` as a
-        // test print as `c || b` and `c && a`, which TS narrows by (not by
-        // `?:`; narrowing folds a side to the literal first).
-        Expr::If { cond, then, else_ } => {
-            if **then == Expr::Lit(Lit::Bool(true)) {
-                tests(&Expr::Binary { op: BinOp::Or, left: cond.clone(), right: else_.clone() }, holds)
-            } else if **else_ == Expr::Lit(Lit::Bool(false)) {
-                tests(&Expr::Binary { op: BinOp::And, left: cond.clone(), right: then.clone() }, holds)
-            } else {
-                Vec::new()
-            }
+        // `if c { true } else { b }` as a test prints as `c || b`
+        // (`expr::fold`), which TS narrows by. Not where `c` is a `!`, which
+        // the printer may turn round into a `?:`.
+        Expr::If { cond, then, else_ }
+            if **then == Expr::Lit(Lit::Bool(true))
+                && !matches!(**cond, Expr::Unary { op: purecrate_ir::UnOp::Not, .. }) =>
+        {
+            tests(&Expr::Binary { op: BinOp::Or, left: cond.clone(), right: else_.clone() }, holds)
         }
         // `t == ","` holding: TS has `t` as the literal `","` (a string, a
         // number, or a char is no union, so failing it narrows nothing).
@@ -395,7 +392,13 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             join_all(outs)
         }
         Expr::Seq { first, then } => {
-            let mut s = flow(first, st.clone(), cx)?;
+            // What follows a statement the state says always leaves is still
+            // printed where TS may not know it, and checked: it runs from
+            // the state before, and nothing past it is reached.
+            let Some(mut s) = flow(first, st.clone(), cx) else {
+                flow(then, st, cx);
+                return None;
+            };
             // `p?;` as a statement tests `p` itself (a `let` of `p?` tests a
             // copy, `xOption`, which TS narrows instead).
             if let Expr::Try { expr: inner, on: Some(on) } = &mut **first {

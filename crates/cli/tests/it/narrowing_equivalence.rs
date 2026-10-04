@@ -125,6 +125,9 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::built_from_field(r, c)));
                 cases.push(case!(narrowing::never_taken_side(r, c, 5i32)));
                 cases.push(case!(narrowing::if_test_as_or(r, c)));
+                for n in [0i32, 2, 3] {
+                    cases.push(case!(narrowing::past_leaving_if(r, c, 6i32, n)));
+                }
                 cases.push(case!(narrowing::none_scrutinee(r, 7i32)));
             }
             for o in [None, Some(5i32)] {

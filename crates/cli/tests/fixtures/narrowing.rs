@@ -607,3 +607,26 @@ pub fn if_test_as_or(r: Result<i32, i32>, c: bool) -> Option<i32> {
     }
     r.ok()
 }
+
+/// `if !c || c { break }` always leaves to this model, not to TS (it prints
+/// `c ? c : true`): what follows is still checked, with `r` known `Ok` in
+/// its arm, so its `r.map_err(f)?` is folded.
+#[allow(unused_assignments, clippy::nonminimal_bool, clippy::overly_complex_bool_expr)]
+pub fn past_leaving_if(r: Result<i32, i32>, c: bool, b: i32, n: i32) -> Result<i32, i32> {
+    let mut k: i32 = 0;
+    while k < n % 4 {
+        k += 1;
+        match r {
+            Ok(v) => {
+                if !c || c {
+                    break;
+                }
+                let mut w: i32 = b;
+                w &= v.max(r.map_err(|_| 100i32)?);
+                k += w;
+            }
+            Err(_) => continue,
+        }
+    }
+    Ok(k)
+}

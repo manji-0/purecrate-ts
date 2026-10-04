@@ -29,11 +29,13 @@
       // Tests the Rust states that narrowing has already decided, kept to
       // reach the folds: `o.ok_or(e).ok().is_some()` past `o?`, both sides
       // of an `if` building `None`, and `v.unwrap_or(b)` the decision tree
-      // copies under `v`'s `None` after a guard on its `Some`, and `c && !c`.
+      // copies under `v`'s `None` after a guard on its `Some`, `c && !c`, and
+      // `!c || c`.
       "files": [
         "narrowing/src/decided-declaring.ts",
         "narrowing/src/equal-constructors.ts",
         "narrowing/src/never-taken-side.ts",
+        "narrowing/src/past-leaving-if.ts",
         "guards/src/guarded-field.ts"
       ],
       "rules": { "typescript/no-unnecessary-condition": "off", "oxc/const-comparisons": "off" }
