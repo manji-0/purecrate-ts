@@ -42,5 +42,10 @@ fn nested_option_is_rejected() {
     assert_rejects(
         "pub type Maybe = Option<i32>;\npub struct S { pub m: Option<Maybe> }",
         "`Option<Option<_>>` is not in v0",
+    );    // `ok()` of a `Result` whose `Ok` holds an `Option`: `Ok(None)` and
+    // `Err(_)` would both be `null`.
+    assert_rejects(
+        "pub fn f(r: Result<Option<i32>, i32>) -> bool { r.ok().is_some() }",
+        "`ok()` of `Result<Option<i32>, _>` is `Option<Option<_>>`",
     );
 }

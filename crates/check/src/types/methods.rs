@@ -791,6 +791,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Arm { guard: None, pattern: Pattern::ResultErr(Box::new(err_pat)), body: err_body },
             ],
         };
+        // `Ok(None)` and `Err(_)` would both be `null`.
+        if name == "ok" && args.is_empty() && matches!(self.norm(ok), Ty::Option(_)) {
+            self.error(Reason::NestedOption, format!(
+                "`ok()` of `Result<{}, _>` is `Option<Option<_>>`, and both `None`s are `null` in TS; `match` the `Result`",
+                show(ok)
+            ));
+            return Some((Expr::Lit(Lit::Unit), None));
+        }
         let (rest, want) = match (name, args) {
             ("ok", []) => (
                 two(
