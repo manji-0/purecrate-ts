@@ -204,7 +204,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Field { base, name } if name.as_str().starts_with('[') => {
             format!("{}{}", emit_expr(base, indent), name.as_str())
         }
-        Expr::Field { base, name } => format!("{}.{n}", emit_expr(base, indent), n = name.as_str()),
+        Expr::Field { base, name } => format!("{}.{n}", receiver(emit_expr(base, indent)), n = name.as_str()),
         // `Slice.at` takes a plain `number`: a literal index needs no brand.
         Expr::Index { base, index } => format!(
             "Slice.at({}, {})",
@@ -506,7 +506,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 // JS `split` takes a string; the `char` needs no brand.
                 return format!(
                     "{}.split({})",
-                    emit_expr(&args[0], indent),
+                    receiver(emit_expr(&args[0], indent)),
                     bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
                 );
             }
@@ -519,7 +519,9 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 return emit_collect(*result, *over, args, indent);
             }
             if let purecrate_ir::Callee::Str(m) = callee {
-                let s = emit_expr(&args[0], indent);
+                // The object of `.startsWith` and the other members; a call
+                // argument (`Str.len(s)`) takes it as it is.
+                let s = receiver(emit_expr(&args[0], indent));
                 let needle = || bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
                 return match m {
                     purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
@@ -540,20 +542,20 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
-                return format!("({}.length as Usize)", emit_expr(&args[0], indent));
+                return format!("({}.length as Usize)", receiver(emit_expr(&args[0], indent)));
             }
             if matches!(callee, purecrate_ir::Callee::VecPush) {
-                return format!("{}.push({})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+                return format!("{}.push({})", receiver(emit_expr(&args[0], indent)), emit_item(&args[1], indent));
             }
             match callee {
                 purecrate_ir::Callee::VecIsEmpty => {
-                    return format!("{}.length === 0", emit_expr(&args[0], indent))
+                    return format!("{}.length === 0", receiver(emit_expr(&args[0], indent)))
                 }
                 purecrate_ir::Callee::OptionIsSome => {
-                    return format!("{} !== null", emit_expr(&args[0], indent))
+                    return format!("{} !== null", equality_operand(emit_expr(&args[0], indent)))
                 }
                 purecrate_ir::Callee::OptionIsNone => {
-                    return format!("{} === null", emit_expr(&args[0], indent))
+                    return format!("{} === null", equality_operand(emit_expr(&args[0], indent)))
                 }
                 _ => {}
             }
@@ -799,6 +801,20 @@ pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
     }
 }
 
+/// `s` as the object of `.member`: parenthesized unless it binds tighter
+/// than any operator (`(c ? a : b).length`).
+fn receiver(s: String) -> String {
+    let t = crate::tidy::strip_outer(&s);
+    if crate::tidy::top_prec(t) < crate::tidy::PREC_ATOMIC { format!("({t})") } else { t.to_string() }
+}
+
+/// `s` as the left side of `===` / `!==`: a `?:`, `&&`, `||`, or `??` is
+/// parenthesized, as JS would bind the comparison inside it.
+fn equality_operand(s: String) -> String {
+    use crate::tidy::{group, Assoc, Side, PREC_EQ};
+    group(&s, PREC_EQ, Assoc::Left, Side::Left)
+}
+
 /// `collect()`, always a new array (design/01 §7.14): the pieces of a split
 /// as they are; a `Vec`'s items copied (`[...xs]`); one `map` or `filter`
 /// over an array as the array's method, which calls `f` in the same order;
@@ -828,10 +844,10 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
         (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
             if !stage(&inner[0]) =>
         {
-            format!("{}.filter({})", emit_expr(&inner[0], indent), emit_item(&inner[1], indent))
+            format!("{}.filter({})", receiver(emit_expr(&inner[0], indent)), emit_item(&inner[1], indent))
         }
         (None, s) => format!("Array.from({})", iterable(over, emit_expr(s, indent))),
-        (Some(f), s) if array => format!("{}.map({f})", emit_expr(s, indent)),
+        (Some(f), s) if array => format!("{}.map({f})", receiver(emit_expr(s, indent))),
         (Some(f), s) => format!("Array.from(Iter.map({}, {f}))", iterable(over, emit_expr(s, indent))),
     }
 }
@@ -1357,7 +1373,7 @@ fn bare(expr: &Expr, indent: usize) -> Option<String> {
         Expr::Ignored { expr, .. } => bare(expr, indent),
         Expr::Lit(lit @ (Lit::Int { ty: Some(_), .. } | Lit::Char(_))) => Some(bare_lit(lit)),
         Expr::Call { callee: purecrate_ir::Callee::VecLen, args } => {
-            Some(format!("{}.length", emit_expr(&args[0], indent)))
+            Some(format!("{}.length", receiver(emit_expr(&args[0], indent))))
         }
         _ => None,
     }
