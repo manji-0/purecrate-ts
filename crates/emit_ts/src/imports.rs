@@ -376,17 +376,7 @@ impl Refs {
             Ty::Named(n) => {
                 self.types.insert(n.as_str().to_string());
             }
-            Ty::Result { ok, err } => {
-                self.result_type = true;
-                self.ty(ok);
-                self.ty(err);
-            }
-            Ty::Option(inner) | Ty::Vec(inner) | Ty::Ignored { inner, .. } => self.ty(inner),
-            Ty::Tuple(elems) => elems.iter().for_each(|t| self.ty(t)),
-            Ty::Fn { params, ret } => {
-                params.iter().for_each(|t| self.ty(t));
-                self.ty(ret);
-            }
+            Ty::Result { .. } => self.result_type = true,
             Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
             Ty::Prim(purecrate_ir::Prim::Uuid) => self.uuid_type = true,
             Ty::Prim(purecrate_ir::Prim::UuidError) => self.uuid_error = true,
@@ -396,8 +386,9 @@ impl Refs {
                     self.nums.insert(name.to_string());
                 }
             }
-            Ty::Never => {}
+            Ty::Option(_) | Ty::Vec(_) | Ty::Ignored { .. } | Ty::Tuple(_) | Ty::Fn { .. } | Ty::Never => {}
         }
+        ty.children().into_iter().for_each(|t| self.ty(t));
     }
 
     /// The integer brands and `Char` that literal and range patterns print.

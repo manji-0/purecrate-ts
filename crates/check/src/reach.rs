@@ -117,18 +117,7 @@ impl Refs {
     fn ty(&mut self, ty: &Ty) {
         match ty {
             Ty::Named(n) => self.name(n),
-            Ty::Option(t) | Ty::Vec(t) => self.ty(t),
-            Ty::Result { ok, err } => {
-                self.ty(ok);
-                self.ty(err);
-            }
-            Ty::Tuple(ts) => ts.iter().for_each(|t| self.ty(t)),
-            Ty::Fn { params, ret } => {
-                params.iter().for_each(|t| self.ty(t));
-                self.ty(ret);
-            }
-            Ty::Ignored { inner, .. } => self.ty(inner),
-            Ty::Prim(_) | Ty::Never => {}
+            ty => ty.children().into_iter().for_each(|t| self.ty(t)),
         }
     }
 

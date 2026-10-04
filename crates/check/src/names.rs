@@ -300,11 +300,5 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
 }
 
 fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
-    match expr {
-        Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => f(name),
-        Expr::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
-        Expr::Closure { params, .. } => params.iter().for_each(|p| f(&p.name)),
-        _ => {}
-    }
-    expr.children().into_iter().for_each(|c| for_each_binding(c, f));
+    expr.walk(|e| e.own_bindings().into_iter().for_each(&mut *f));
 }

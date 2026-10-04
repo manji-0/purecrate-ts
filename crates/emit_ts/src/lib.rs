@@ -115,17 +115,9 @@ fn internal_name(key: &Internal) -> String {
 }
 
 fn internal_base(key: &Internal) -> String {
-    let upper = |s: &str| {
-        let mut c = s.chars();
-        c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
-    };
     match key {
         Internal::Ctor(ty) => format!("unsafeMake{ty}"),
-        Internal::Method(ty, m) => {
-            let mut c = ty.chars();
-            let lower: String = c.next().map(|f| f.to_lowercase().chain(c).collect()).unwrap_or_default();
-            format!("{lower}{}", upper(m))
-        }
+        Internal::Method(ty, m) => format!("{}{}", purecrate_ir::lower_first(ty), purecrate_ir::upper_first(m)),
     }
 }
 
@@ -248,28 +240,16 @@ fn emit_package(krate: &Crate) -> Package {
 
 /// Some public type, field, or signature satisfies `pred`.
 fn surface_ty(krate: &Crate, pred: impl std::ops::Fn(&Ty) -> bool) -> bool {
-    fn walk(ty: &Ty, pred: &impl std::ops::Fn(&Ty) -> bool) -> bool {
-        if pred(ty) {
-            return true;
-        }
-        match ty {
-            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => walk(t, pred),
-            Ty::Result { ok, err } => walk(ok, pred) || walk(err, pred),
-            Ty::Tuple(ts) => ts.iter().any(|t| walk(t, pred)),
-            Ty::Fn { params, ret } => params.iter().any(|t| walk(t, pred)) || walk(ret, pred),
-            Ty::Prim(_) | Ty::Named(_) | Ty::Never => false,
-        }
-    }
     krate.items.iter().filter(|i| i.vis() == Vis::Pub).any(|item| match item {
-        Item::Struct(s) => s.fields.iter().any(|f| walk(&f.ty, &pred)),
+        Item::Struct(s) => s.fields.iter().any(|f| f.ty.any(&pred)),
         Item::Enum(e) => e.variants.iter().any(|v| match &v.fields {
             VariantFields::Unit => false,
-            VariantFields::Tuple(ts) => ts.iter().any(|t| walk(t, &pred)),
-            VariantFields::Struct(fs) => fs.iter().any(|f| walk(&f.ty, &pred)),
+            VariantFields::Tuple(ts) => ts.iter().any(|t| t.any(&pred)),
+            VariantFields::Struct(fs) => fs.iter().any(|f| f.ty.any(&pred)),
         }),
-        Item::Alias(a) => walk(&a.ty, &pred),
-        Item::Const(c) => walk(&c.ty, &pred),
-        Item::Fn(f) => f.params.iter().any(|p| walk(&p.ty, &pred)) || walk(&f.ret, &pred),
+        Item::Alias(a) => a.ty.any(&pred),
+        Item::Const(c) => c.ty.any(&pred),
+        Item::Fn(f) => f.params.iter().any(|p| p.ty.any(&pred)) || f.ret.any(&pred),
     })
 }
 

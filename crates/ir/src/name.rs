@@ -45,6 +45,18 @@ pub fn to_camel(s: &str) -> String {
     out
 }
 
+/// `s` with its first letter lowercased: `Yen` → `yen`.
+pub fn lower_first(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_lowercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// `s` with its first letter uppercased: `yen` → `Yen`.
+pub fn upper_first(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
 pub fn to_kebab(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::new();

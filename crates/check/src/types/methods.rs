@@ -374,7 +374,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
         match arg.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
-                if leaves(body) {
+                if body.exits() {
                     self.error(
                         Reason::Closure,
                         format!("a closure passed to `{method}` may not use `?` or `return` in v0; write the loop"),
@@ -623,7 +623,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             return None;
         }
         let (pattern, body) = match f.unpositioned() {
-            Expr::Closure { params, body, .. } if params.len() == 1 && !leaves(body) => {
+            Expr::Closure { params, body, .. } if params.len() == 1 && !body.exits() => {
                 (Pattern::Var(params[0].name.clone()), (**body).clone())
             }
             Expr::Var(f) => {
@@ -715,7 +715,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             "map" => {
                 let (pattern, body) = match arg.unpositioned() {
                     Expr::Closure { params, body, .. } if params.len() == 1 => {
-                        if leaves(body) {
+                        if body.exits() {
                             self.error(Reason::Closure, "a closure passed to `Option::map` may not use `?` or `return` in v0; write the `match`".into());
                             return Some((recv, None));
                         }
@@ -783,7 +783,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn arm_fn(&mut self, method: &str, f: &Expr) -> Option<(Pattern, Expr)> {
         match f.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
-                if leaves(body) {
+                if body.exits() {
                     self.error(Reason::Closure, format!("a closure passed to `Result::{method}` may not use `?` or `return` in v0; write the `match`"));
                     return None;
                 }
@@ -1095,15 +1095,6 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: Callee::IntFrom { from, to }, args: typed.into_iter().map(|(e, _)| e).collect() };
         (e, self.expect(want, Some(Ty::Prim(to.into()))))
-    }
-}
-
-/// A `?` or `return` that would leave a closure (not one nested in it).
-pub(super) fn leaves(expr: &Expr) -> bool {
-    match expr {
-        Expr::Try { .. } | Expr::Return(_) => true,
-        Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(leaves),
     }
 }
 

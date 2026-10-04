@@ -191,13 +191,9 @@ fn named_in(item: &Item) -> Vec<String> {
     fn walk(ty: &Ty, out: &mut Vec<String>) {
         match ty {
             Ty::Named(n) => out.push(n.as_str().to_string()),
-            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => walk(t, out),
-            Ty::Tuple(ts) => ts.iter().for_each(|t| walk(t, out)),
-            Ty::Result { ok, err } => {
-                walk(ok, out);
-                walk(err, out);
-            }
-            Ty::Fn { .. } | Ty::Prim(_) | Ty::Never => {}
+            // A function is not on the wire.
+            Ty::Fn { .. } => {}
+            ty => ty.children().into_iter().for_each(|t| walk(t, out)),
         }
     }
     let mut out = Vec::new();

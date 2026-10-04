@@ -83,10 +83,7 @@ pub(crate) fn wire_name_map(src: &str) -> BTreeMap<String, String> {
         .filter(|(_, _, after_dot)| !after_dot)
         .map(|(start, end, _)| (start, end))
         .collect();
-    let lower = |s: &str| {
-        let mut c = s.chars();
-        c.next().map(|f| f.to_lowercase().chain(c).collect::<String>()).unwrap_or_default()
-    };
+    let lower = purecrate_ir::lower_first;
     let wire_base = |word: &str| -> Option<String> {
         let (ty, rest) = word.split_once('$')?;
         if !ty.starts_with(|c: char| c.is_ascii_uppercase()) {

@@ -132,7 +132,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => {
                 let call = match args[0].unpositioned() {
                     Expr::Closure { params, body, .. } if params.is_empty() => {
-                        if leaves(body) {
+                        if body.exits() {
                             self.error(Reason::Closure, "a closure passed to `Ordering::then_with` may not use `?` or `return` in v0; write the `match`".into());
                             return failed();
                         }

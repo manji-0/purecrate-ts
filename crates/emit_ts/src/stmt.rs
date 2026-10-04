@@ -7,11 +7,21 @@ use crate::tx::{Op, Tx};
 /// Whether a `break` or `continue` of this loop (not of a loop inside it)
 /// is in `expr`.
 pub(crate) fn jumps_out(expr: &Expr) -> bool {
-    match expr {
-        Expr::Break | Expr::Continue => true,
-        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(jumps_out),
-    }
+    jumps(expr, |e| matches!(e, Expr::Break | Expr::Continue))
+}
+
+/// Whether a `break` in `expr` leaves the loop `expr` is the body of.
+pub(crate) fn breaks(expr: &Expr) -> bool {
+    jumps(expr, |e| matches!(e, Expr::Break))
+}
+
+/// Whether `expr` holds a jump `jump` picks out, of this loop (not of a
+/// loop inside it, nor of a closure).
+fn jumps(expr: &Expr, jump: fn(&Expr) -> bool) -> bool {
+    expr.search(|e| match e {
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => Some(false),
+        e => jump(e).then_some(true),
+    })
 }
 
 /// Whether a jump of this loop is inside a `match`, which may print as a
@@ -56,15 +66,6 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
         // `for (;;)` that no `break` leaves.
         Expr::While { cond, body } => **cond == Expr::Lit(Lit::Bool(true)) && !breaks(body),
         _ => false,
-    }
-}
-
-/// Whether a `break` in `expr` leaves the loop `expr` is the body of.
-fn breaks(expr: &Expr) -> bool {
-    match expr {
-        Expr::Break => true,
-        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(breaks),
     }
 }
 
@@ -149,7 +150,7 @@ impl Sink<'_> {
 /// `value`.
 pub(crate) fn match_temp(arms: &[purecrate_ir::Arm], indent: usize) -> String {
     let base = match scrutinee_ty(arms) {
-        Some(ty) => purecrate_ir::to_camel(&lower_first(ty.as_str())),
+        Some(ty) => purecrate_ir::to_camel(&purecrate_ir::lower_first(ty.as_str())),
         None => match arms.iter().map(|a| &a.pattern).find(|p| !matches!(p, Pattern::Wildcard)) {
             Some(Pattern::ResultOk(_) | Pattern::ResultErr(_)) => "result".to_string(),
             Some(Pattern::OptionSome(_) | Pattern::OptionNone) => "option".to_string(),
@@ -157,14 +158,6 @@ pub(crate) fn match_temp(arms: &[purecrate_ir::Arm], indent: usize) -> String {
         },
     };
     temp(&base, indent)
-}
-
-fn lower_first(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_lowercase().chain(c).collect(),
-        None => String::new(),
-    }
 }
 
 /// `for (let i = start, $e = end; i < $e; i = i + 1)`: the bounds are
@@ -858,21 +851,14 @@ fn hoistable_test(cond: &Expr) -> Option<(&Expr, &[purecrate_ir::Arm], bool)> {
 
 /// A type whose values may be object literals: a crate type or a `Result`.
 fn holds_object(ty: &Ty) -> bool {
-    match ty {
-        Ty::Named(_) | Ty::Result { .. } | Ty::Fn { .. } => true,
-        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => holds_object(t),
-        Ty::Tuple(ts) => ts.iter().any(holds_object),
-        Ty::Prim(_) | Ty::Never => false,
-    }
+    ty.any(&|t| matches!(t, Ty::Named(_) | Ty::Result { .. } | Ty::Fn { .. }))
 }
 
 /// Whether `name` is read or assigned anywhere in `expr`.
 fn mentions(expr: &Expr, name: &Name) -> bool {
-    match expr {
-        Expr::Var(n) | Expr::Assign { name: n, .. } if n == name => true,
-        Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name => true,
-        other => other.children().into_iter().any(|c| mentions(c, name)),
-    }
+    expr.any(|e| {
+        matches!(e, Expr::Var(n) | Expr::Assign { name: n, .. } | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name)
+    })
 }
 
 pub(crate) fn emit_switch_in(
@@ -1471,18 +1457,11 @@ fn read_in_place(pattern: &Pattern, scrutinee: &Expr, body: &Expr, subject: &str
 
 /// Whether `expr` binds or assigns `name`, or holds a closure that reads it.
 pub(crate) fn touches(expr: &Expr, name: &Name) -> bool {
-    let here = match expr {
-        Expr::Let { name: n, .. } | Expr::Assign { name: n, .. } => n == name,
-        Expr::For { var, .. } | Expr::ForEach { var, .. } => var == name,
-        Expr::Match { arms, .. } => arms.iter().any(|a| a.pattern.bindings().contains(&name)),
-        Expr::Closure { body, .. } => reads(body, name),
-        _ => false,
-    };
-    here || expr.children().into_iter().any(|c| touches(c, name))
-}
-
-fn reads(expr: &Expr, name: &Name) -> bool {
-    matches!(expr, Expr::Var(n) if n == name) || expr.children().into_iter().any(|c| reads(c, name))
+    expr.any(|e| match e {
+        Expr::Assign { name: n, .. } => n == name,
+        Expr::Closure { body, .. } => body.reads(name),
+        e => e.own_bindings().contains(&name),
+    })
 }
 
 pub(crate) fn two_way_prelude(pattern: &Pattern, subject: &str, pad: &str) -> String {

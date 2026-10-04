@@ -120,15 +120,6 @@ fn named_in<'a>(krate: &'a Crate, ty: &'a Ty, depth: usize, out: &mut Vec<&'a Na
             Some(_) => {}
             None => out.push(n),
         },
-        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => named_in(krate, t, depth, out),
-        Ty::Result { ok, err } => {
-            named_in(krate, ok, depth, out);
-            named_in(krate, err, depth, out);
-        }
-        Ty::Tuple(ts) => ts.iter().for_each(|t| named_in(krate, t, depth, out)),
-        Ty::Fn { params, ret } => {
-            params.iter().chain(std::iter::once(&**ret)).for_each(|t| named_in(krate, t, depth, out))
-        }
-        Ty::Prim(_) | Ty::Never => {}
+        ty => ty.children().into_iter().for_each(|t| named_in(krate, t, depth, out)),
     }
 }

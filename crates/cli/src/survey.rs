@@ -302,17 +302,7 @@ fn references(item: &Item) -> Vec<Ref> {
 fn ty_refs(ty: &Ty, out: &mut Vec<Ref>) {
     match ty {
         Ty::Named(n) => out.push(Ref::Type(n.as_str().to_string())),
-        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => ty_refs(t, out),
-        Ty::Result { ok, err } => {
-            ty_refs(ok, out);
-            ty_refs(err, out);
-        }
-        Ty::Tuple(ts) => ts.iter().for_each(|t| ty_refs(t, out)),
-        Ty::Fn { params, ret } => {
-            params.iter().for_each(|t| ty_refs(t, out));
-            ty_refs(ret, out);
-        }
-        Ty::Prim(_) | Ty::Never => {}
+        ty => ty.children().into_iter().for_each(|t| ty_refs(t, out)),
     }
 }
 

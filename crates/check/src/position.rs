@@ -34,20 +34,11 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
 }
 
 /// `at` is the innermost `Expr::At` around `expr`.
-/// A `?` or `return` in `expr` that is not inside a closure.
-fn exits(expr: &Expr) -> bool {
-    match expr {
-        Expr::Try { .. } | Expr::Return(_) => true,
-        Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(exits),
-    }
-}
-
 fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String, Option<Pos>)) {
     // A guard is tested inside the decision tree; a `?` there would have to
     // leave from the middle of it.
     if let Expr::Match { arms, .. } = expr {
-        if arms.iter().filter_map(|a| a.guard.as_ref()).any(exits) {
+        if arms.iter().filter_map(|a| a.guard.as_ref()).any(Expr::exits) {
             report(
                 "`?` or `return` inside a match guard is not in v0; bind the value with `let` before the `match`"
                     .into(),

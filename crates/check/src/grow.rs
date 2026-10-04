@@ -19,7 +19,7 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
     for (i, item) in krate.items.iter_mut().enumerate() {
         let Item::Fn(f) = item else { continue };
         let mut pushed = HashSet::new();
-        pushes(&f.body, &mut pushed);
+        f.body.walk(|e| pushed.extend(e.grown().cloned()));
         if pushed.is_empty() {
             continue;
         }
@@ -41,16 +41,6 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
     } else {
         Err(out)
     }
-}
-
-/// The locals `v.push(x)` grows.
-fn pushes(expr: &Expr, out: &mut HashSet<Name>) {
-    if let Expr::Call { callee: Callee::VecPush, args } = expr {
-        if let Some(Expr::Var(n)) = args.first() {
-            out.insert(n.clone());
-        }
-    }
-    expr.children().into_iter().for_each(|c| pushes(c, out));
 }
 
 /// A grown local a closure reads.

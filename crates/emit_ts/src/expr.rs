@@ -24,21 +24,11 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     let params =
         f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
-    pushes(&f.body, &mut pushed);
+    f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
     let previous = crate::PUSHED.with(|p| p.replace(pushed));
     let out = arrow(&params, &emit_ty(&f.ret), &f.body, indent);
     crate::PUSHED.with(|p| p.replace(previous));
     out
-}
-
-/// The locals `v.push(x)` grows, which print as `Array<T>`.
-fn pushes(expr: &Expr, out: &mut BTreeSet<String>) {
-    if let Expr::Call { callee: purecrate_ir::Callee::VecPush, args } = expr {
-        if let Some(Expr::Var(n)) = args.first() {
-            out.insert(n.as_str().to_string());
-        }
-    }
-    expr.children().into_iter().for_each(|c| pushes(c, out));
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
@@ -541,7 +531,7 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
         if let Some((_, name, _)) = t.iter().find(|(k, ..)| *k == key) {
             return name.clone();
         }
-        let base = format!("{}Discriminants{}", lower_initial(of.as_str()), if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" });
+        let base = format!("{}Discriminants{}", purecrate_ir::lower_first(of.as_str()), if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" });
         let name = temp(&base, 0);
         let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
         let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
@@ -553,11 +543,6 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
         name
     });
     Some(format!("{name}[{}.kind]", emit_expr(subject, indent)))
-}
-
-fn lower_initial(s: &str) -> String {
-    let mut c = s.chars();
-    c.next().map(|f| f.to_lowercase().chain(c).collect()).unwrap_or_default()
 }
 
 /// `{ ...base, a: e1 }`. `?` in the fields and the base is hoisted before this

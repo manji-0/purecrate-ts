@@ -13,7 +13,7 @@
 
 use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, TryOn, VariantBind};
 
-use crate::stmt::{is_place, touches};
+use crate::stmt::{breaks, is_place, touches};
 
 mod flow;
 
@@ -246,18 +246,8 @@ fn ends(expr: &Expr) -> bool {
         Expr::At { expr, .. } => ends(expr),
         // `while true` nothing breaks out of (what a `?` in a loop's test
         // leaves when the test is decided): only a `return` leaves it.
-        Expr::While { cond, body } => matches!(**cond, Expr::Lit(Lit::Bool(true))) && !breaks_out(body),
+        Expr::While { cond, body } => matches!(**cond, Expr::Lit(Lit::Bool(true))) && !breaks(body),
         _ => false,
-    }
-}
-
-/// Whether a `break` in `body` leaves the loop `body` belongs to (not one
-/// nested in it, nor a closure).
-fn breaks_out(body: &Expr) -> bool {
-    match body {
-        Expr::Break => true,
-        Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(breaks_out),
     }
 }
 
@@ -942,10 +932,7 @@ fn bind_admits_all(bind: &VariantBind) -> bool {
 }
 
 pub(crate) fn mentions(expr: &Expr, name: &Name) -> bool {
-    match expr {
-        Expr::Var(n) | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name => true,
-        other => other.children().into_iter().any(|c| mentions(c, name)),
-    }
+    expr.any(|e| matches!(e, Expr::Var(n) | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name))
 }
 
 fn join(expr: &mut Expr) {
@@ -973,7 +960,7 @@ fn join(expr: &mut Expr) {
     // A `let mut` that is no longer written (its only write was `x = x`) is
     // a `const`.
     if let Expr::Let { name, mutable, then, .. } = expr {
-        if *mutable && !assigns(then, name) {
+        if *mutable && !then.assigns(name) {
             *mutable = false;
         }
     }
@@ -1050,10 +1037,6 @@ fn reads_only(value: &Expr, name: &Name) -> bool {
         }
         _ => false,
     }
-}
-
-fn assigns(expr: &Expr, name: &Name) -> bool {
-    matches!(expr, Expr::Assign { name: n, .. } if n == name) || expr.children().into_iter().any(|c| assigns(c, name))
 }
 
 /// Whether printing `expr` as statements declares a name in its block.

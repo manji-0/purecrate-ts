@@ -54,7 +54,7 @@ fn guard_ok_or(expr: &mut Expr, taken: &mut HashSet<String>) -> bool {
     if let Expr::Let { name, mutable, ty, value, then } = expr {
         if let Some((opt, opt_ty, recv, arg, arg_ty, e)) = ok_or_try(value) {
             // `map_err(f)?` is a `match` that returns by now, not a `Try`.
-            tries |= leaves(&e);
+            tries |= e.exits();
             // An option typing could not name (`$opt`, the receiver a call)
             // is named after the local it is for: `qtyOpt`, `qtyOr`.
             // A shadow `x$1` prints as `x2`, so its option is `x2Opt`.
@@ -155,11 +155,11 @@ fn ok_or_try(value: &Expr) -> Option<(Name, Option<purecrate_ir::Ty>, Expr, Name
 
 /// Whether `expr` holds a `?` outside a closure, which has its own.
 fn has_try(expr: &Expr) -> bool {
-    match expr {
-        Expr::Try { .. } => true,
-        Expr::Closure { .. } => false,
-        e => e.children().into_iter().any(has_try),
-    }
+    expr.search(|e| match e {
+        Expr::Try { .. } => Some(true),
+        Expr::Closure { .. } => Some(false),
+        _ => None,
+    })
 }
 
 fn lift_closures(expr: &mut Expr) {
@@ -174,23 +174,8 @@ fn lift_closures(expr: &mut Expr) {
 /// Every name `body` binds: `let`, loop variables, patterns, and closure
 /// parameters.
 fn bound_names(body: &Expr) -> HashSet<String> {
-    fn walk(e: &Expr, out: &mut HashSet<String>) {
-        match e {
-            Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => {
-                out.insert(name.as_str().to_string());
-            }
-            Expr::Match { arms, .. } => {
-                for a in arms {
-                    out.extend(a.pattern.bindings().into_iter().map(|n| n.as_str().to_string()));
-                }
-            }
-            Expr::Closure { params, .. } => out.extend(params.iter().map(|p| p.name.as_str().to_string())),
-            _ => {}
-        }
-        e.children().into_iter().for_each(|c| walk(c, out));
-    }
     let mut taken = HashSet::new();
-    walk(body, &mut taken);
+    body.walk(|e| taken.extend(e.own_bindings().into_iter().map(|n| n.as_str().to_string())));
     taken
 }
 
@@ -346,7 +331,7 @@ impl Lifter {
     /// only itself, and whose lines would sit inside a one-line expression.
     fn operand(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
         let block = matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. });
-        if block && (leaves(&expr) || holds_statements(&expr)) {
+        if block && (expr.exits() || holds_statements(&expr)) {
             let name = self.fresh(&expr, "Value");
             let value = self.stmt(expr);
             out.push((name.clone(), value, None, None));
@@ -421,7 +406,7 @@ impl Lifter {
             // front of it, renamed apart from every other binding there. Left
             // in place, in a scrutinee or an operand, the `?` would sit in an
             // inline function whose `return` leaves only itself.
-            Expr::Let { name, mutable: false, ty, value, then } if name.as_str().starts_with('$') && leaves(&then) => {
+            Expr::Let { name, mutable: false, ty, value, then } if name.as_str().starts_with('$') && then.exits() => {
                 let value = self.operand(*value, out);
                 let fresh = self.fresh_like(&name);
                 let then = renamed(*then, &name, &fresh);
@@ -527,16 +512,6 @@ fn holds_statements(expr: &Expr) -> bool {
         Expr::If { then, else_, .. } => holds_statements(then) || holds_statements(else_),
         Expr::Match { arms, .. } => arms.iter().any(|a| holds_statements(&a.body)),
         _ => false,
-    }
-}
-
-/// Whether `expr` leaves the function: a `return` or a `?` outside a
-/// closure.
-fn leaves(expr: &Expr) -> bool {
-    match expr {
-        Expr::Return(_) | Expr::Try { .. } => true,
-        Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(leaves),
     }
 }
 

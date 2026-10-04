@@ -404,14 +404,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 /// Expressions whose numeric type comes only from their surroundings.
 /// Whether `ty` has a `_` for the checker to fill.
 pub(crate) fn has_hole(ty: &Ty) -> bool {
-    match ty {
-        Ty::Named(n) => n.as_str() == "_",
-        Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => has_hole(t),
-        Ty::Result { ok, err } => has_hole(ok) || has_hole(err),
-        Ty::Tuple(ts) => ts.iter().any(has_hole),
-        Ty::Fn { params, ret } => params.iter().any(has_hole) || has_hole(ret),
-        Ty::Prim(_) | Ty::Never => false,
-    }
+    ty.any(&|t| matches!(t, Ty::Named(n) if n.as_str() == "_"))
 }
 
 fn needs_context(expr: &Expr) -> bool {

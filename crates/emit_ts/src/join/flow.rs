@@ -111,15 +111,11 @@ pub(super) fn flow_fn(body: &mut Expr) {
 }
 
 fn collect_written(expr: &Expr, out: &mut HashSet<String>) {
-    match expr {
-        Expr::Assign { name, .. } | Expr::Let { name, mutable: true, .. } => {
+    expr.walk(|e| {
+        if let Expr::Assign { name, .. } | Expr::Let { name, mutable: true, .. } = e {
             out.insert(name.as_str().to_string());
         }
-        _ => {}
-    }
-    for c in expr.children() {
-        collect_written(c, out);
-    }
+    });
 }
 
 /// The cases each side of `cond` leaves the places it tests in; `None` for
@@ -505,7 +501,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
             // `const v = r.kind === "Ok"`: a test TS narrows by through `v`,
             // where nothing writes `v` or what the test reads.
-            let alias = !mutable || !join_assigns(then, &name);
+            let alias = !mutable || !then.assigns(&name);
             let tested = |e: &Expr| reads_of(e).iter().all(|n| !cx.written.contains(n.as_str()));
             let cond = (alias && !tests(value, true).is_empty() && tested(value)).then(|| (**value).clone());
             if let Some(c) = &cond {
@@ -824,28 +820,23 @@ fn known_test(cond: &Expr, st: &State) -> Option<(Expr, bool)> {
     }
 }
 
-/// Whether `expr` writes `name`.
-fn join_assigns(expr: &Expr, name: &Name) -> bool {
-    matches!(expr, Expr::Assign { name: n, .. } if n == name)
-        || expr.children().into_iter().any(|c| join_assigns(c, name))
-}
-
 /// Whether `expr` reads `name` as the argument of `is_some()` /
 /// `is_none()`.
 fn tested_once(expr: &Expr, name: &Name) -> bool {
     use purecrate_ir::Callee;
-    match expr {
+    expr.search(|e| match e {
         Expr::Call { callee: Callee::OptionIsSome | Callee::OptionIsNone, args } => {
-            matches!(args.as_slice(), [Expr::Var(n)] if n == name)
+            Some(matches!(args.as_slice(), [Expr::Var(n)] if n == name))
         }
-        other => other.children().into_iter().any(|c| tested_once(c, name)),
-    }
+        _ => None,
+    })
 }
 
 /// How many times `expr` reads `name`.
 fn uses(expr: &Expr, name: &Name) -> usize {
-    let here = usize::from(matches!(expr, Expr::Var(n) if n == name));
-    here + expr.children().into_iter().map(|c| uses(c, name)).sum::<usize>()
+    let mut count = 0;
+    expr.walk(|e| count += usize::from(matches!(e, Expr::Var(n) if n == name)));
+    count
 }
 
 /// Whether evaluating `expr` reaches its read of `name` before anything
@@ -871,12 +862,12 @@ fn reached_clean(expr: &Expr, name: &Name, reads: &[Name]) -> Result<bool, ()> {
                 return Ok(true);
             }
             if n == name || reads.contains(n) {
-                return if uses(then, name) > 0 { Err(()) } else { Ok(false) };
+                return if then.reads(name) { Err(()) } else { Ok(false) };
             }
             reached_clean(then, name, reads)
         }
         Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::Closure { .. } => {
-            if uses(expr, name) == 0 {
+            if !expr.reads(name) {
                 if writes(expr) {
                     Err(())
                 } else {
@@ -907,17 +898,13 @@ fn reached_clean(expr: &Expr, name: &Name, reads: &[Name]) -> Result<bool, ()> {
 /// The names `expr` reads.
 fn reads_of(expr: &Expr) -> Vec<Name> {
     let mut out = Vec::new();
-    fn walk(e: &Expr, out: &mut Vec<Name>) {
+    expr.walk(|e| {
         if let Expr::Var(n) = e {
             if !out.contains(n) {
                 out.push(n.clone());
             }
         }
-        for c in e.children() {
-            walk(c, out);
-        }
-    }
-    walk(expr, &mut out);
+    });
     out
 }
 

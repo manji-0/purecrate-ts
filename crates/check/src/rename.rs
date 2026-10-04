@@ -151,10 +151,11 @@ fn rename_fn(f: Fn, items: &[(String, bool)], read: &HashSet<String>, helpers: &
 
 /// The functions `expr` calls, camelCased.
 fn calls(expr: &Expr, out: &mut HashSet<String>) {
-    if let Expr::Call { callee: Callee::Fn(n), .. } = expr {
-        out.insert(to_camel(n.as_str()));
-    }
-    expr.children().into_iter().for_each(|c| calls(c, out));
+    expr.walk(|e| {
+        if let Expr::Call { callee: Callee::Fn(n), .. } = e {
+            out.insert(to_camel(n.as_str()));
+        }
+    });
 }
 
 /// Source name to the name it prints as, for the bindings in scope.

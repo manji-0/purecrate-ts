@@ -19,7 +19,7 @@ pub use item::{
     NEWTYPE_FIELD, ORDERING,
 };
 pub use krate::Crate;
-pub use name::{to_camel, to_kebab, Name};
+pub use name::{lower_first, to_camel, to_kebab, upper_first, Name};
 pub use reason::Reason;
 pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 

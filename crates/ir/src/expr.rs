@@ -1117,6 +1117,71 @@ impl Expr {
         }
     }
 
+    /// Searches this expression in preorder: `f` answers for a node
+    /// (`Some`) or leaves it to the node's children (`None`), and the search
+    /// is true when some answer is.
+    pub fn search(&self, mut f: impl FnMut(&Expr) -> Option<bool>) -> bool {
+        fn go(e: &Expr, f: &mut dyn FnMut(&Expr) -> Option<bool>) -> bool {
+            f(e).unwrap_or_else(|| e.children().into_iter().any(|c| go(c, f)))
+        }
+        go(self, &mut f)
+    }
+
+    /// Whether `f` holds for this expression or one inside it.
+    pub fn any(&self, mut f: impl FnMut(&Expr) -> bool) -> bool {
+        self.search(|e| f(e).then_some(true))
+    }
+
+    /// Calls `f` on this expression and every one inside it, in preorder.
+    pub fn walk(&self, mut f: impl FnMut(&Expr)) {
+        self.search(|e| {
+            f(e);
+            None
+        });
+    }
+
+    /// Contains a `?` or `return` that leaves the function or closure this
+    /// is the body of (not one nested in it).
+    pub fn exits(&self) -> bool {
+        self.search(|e| match e {
+            Expr::Try { .. } | Expr::Return(_) => Some(true),
+            Expr::Closure { .. } => Some(false),
+            _ => None,
+        })
+    }
+
+    /// Whether this expression or one inside it reads `name`.
+    pub fn reads(&self, name: &Name) -> bool {
+        self.any(|e| matches!(e, Expr::Var(n) if n == name))
+    }
+
+    /// Whether this expression or one inside it assigns `name`.
+    pub fn assigns(&self, name: &Name) -> bool {
+        self.any(|e| matches!(e, Expr::Assign { name: n, .. } if n == name))
+    }
+
+    /// Names this node itself binds, not its subexpressions: a `let`, a
+    /// loop variable, an arm's pattern, a closure's parameters.
+    pub fn own_bindings(&self) -> Vec<&Name> {
+        match self {
+            Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => vec![name],
+            Expr::Match { arms, .. } => arms.iter().flat_map(|a| a.pattern.bindings()).collect(),
+            Expr::Closure { params, .. } => params.iter().map(|p| &p.name).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The local a `v.push(x)` grows.
+    pub fn grown(&self) -> Option<&Name> {
+        match self {
+            Expr::Call { callee: Callee::VecPush, args } => match args.first() {
+                Some(Expr::Var(n)) => Some(n),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Subexpressions evaluated every time this one is, before it produces a
     /// value: a `?` there can be hoisted in front without changing meaning.
     /// Excludes branches and the right side of `&&`/`||`.

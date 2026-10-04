@@ -235,6 +235,22 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// The types written inside this one, in source order.
+    pub fn children(&self) -> Vec<&Ty> {
+        match self {
+            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => vec![t],
+            Ty::Result { ok, err } => vec![ok, err],
+            Ty::Tuple(ts) => ts.iter().collect(),
+            Ty::Fn { params, ret } => params.iter().chain(std::iter::once(&**ret)).collect(),
+            Ty::Prim(_) | Ty::Named(_) | Ty::Never => Vec::new(),
+        }
+    }
+
+    /// Whether `f` holds for this type or one written inside it.
+    pub fn any(&self, f: &impl Fn(&Ty) -> bool) -> bool {
+        f(self) || self.children().into_iter().any(|t| t.any(f))
+    }
+
     pub fn bool() -> Self {
         Ty::Prim(Prim::Bool)
     }

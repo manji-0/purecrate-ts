@@ -50,14 +50,10 @@ fn merge_in(expr: &mut Expr) {
 /// or a closure parameter. Another row's `let name = from` is the same
 /// value under the same name, which the printer leaves out once merged.
 fn binds(expr: &Expr, name: &Name, from: &Name) -> bool {
-    let here = match expr {
+    expr.any(|e| match e {
         Expr::Let { name: n, value, .. } => n == name && !matches!(&**value, Expr::Var(v) if v == from),
-        Expr::For { var, .. } | Expr::ForEach { var, .. } => var == name,
-        Expr::Match { arms, .. } => arms.iter().any(|a| a.pattern.bindings().contains(&name)),
-        Expr::Closure { params, .. } => params.iter().any(|p| &p.name == name),
-        _ => false,
-    };
-    here || expr.children().into_iter().any(|c| binds(c, name, from))
+        e => e.own_bindings().contains(&name),
+    })
 }
 
 fn rename_reads(expr: &mut Expr, from: &Name, to: &Name) {

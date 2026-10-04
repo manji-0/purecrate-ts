@@ -129,7 +129,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
         }
         let ret = ret.cloned().or_else(|| expected.map(|(_, r)| r));
-        if ret.is_none() && exits(body) {
+        if ret.is_none() && body.exits() {
             self.error(
                 Reason::NeedsAnnotation,
                 "a closure with `?` or `return` needs its return type; write `|..| -> T { .. }`".to_string(),
@@ -470,13 +470,4 @@ impl<'d, 'a> Typer<'d, 'a> {
 
 pub(super) fn sig(f: &Fn) -> (Vec<Ty>, Option<Ty>) {
     (f.params.iter().map(|p| p.ty.clone()).collect(), Some(f.ret.clone()))
-}
-
-/// Contains a `?` or `return` that leaves this closure body.
-pub(super) fn exits(body: &Expr) -> bool {
-    match body {
-        Expr::Try { .. } | Expr::Return(_) => true,
-        Expr::Closure { .. } => false,
-        other => other.children().into_iter().any(exits),
-    }
 }
