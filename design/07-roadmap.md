@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.9.0)
+Status: current (2026-10-04, after 0.9.1)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -429,6 +429,23 @@ Why: a review of the examples against their specifications (RFC 4226/6238, ISO 1
 
 - **The output writes one kind of array.** A local `let mut v: Vec<T>` is `Array<T>` and is pushed to; it is bound to an array of its own, copied unless new. Every other array stays `ReadonlyArray`, so the earlier argument that sharing is unobservable still holds (01 §7.14).
 - **Exhaustiveness and struct patterns.** A struct pattern is lowered to a guard, so a `match` whose struct patterns cover a field still needs `_`; that refuses code rustc takes, never the reverse.
+
+### 8.13 0.9.1: fixes from an audit of 0.9.0 (2026-10-04)
+
+<!-- derived-from #812-090-lists-built-in-a-function-and-the-examples-against-their-specifications-2026-10-04 -->
+
+Why: four audits after 0.9.0 (its new features, the older generator, the output's readability, the documents) found output that disagreed with Rust; each case reached only through shapes the fixtures lacked.
+
+| Item | Verified by |
+| --- | --- |
+| A choice under `!== null`, `=== null`, or a member parenthesized | `precedence_equivalence.rs`, failing before the fix |
+| `ok()` of `Result<Option<T>, E>` refused | `check/tests/it/option_result.rs` |
+| A struct pattern's guard and shadowing | `struct_patterns_equivalence.rs`, failing before the fix |
+| Line terminators in carried comments | `comments.rs` |
+| `else if`, no `c ? true : false`, nested equality | `readability_equivalence.rs`, and oxlint / oxfmt over the fixtures |
+
+- **Where precedence was decided.** The printer grouped an operand by its IR node, and a call (`is_some`) or a `match` printed as an operator slipped past; `grouped` now takes the looser of the node's and the printed text's precedence, and the object of a member is parenthesized unless atomic.
+- **Open:** the readability findings (needless copies after `?` and `ok_or`, numbered shadows, scattered destructuring, hex literals, comments outside bodies) and some over-rejections (`i32::MIN` in an expression, a hosted helper named like a type) wait for the next minor.
 
 ## 9. Generated API stability
 

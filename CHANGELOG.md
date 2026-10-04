@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1 — 2026-10-04
+
+Fixes from an audit of 0.9.0: four outputs that disagreed with Rust, two shapes oxlint refused, and documents that lagged the subset. No change to what is accepted, but `ok()` of a `Result` holding an `Option`, which is now refused ([roadmap §8.13](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#813-091-fixes-from-an-audit-of-090-2026-10-04)).
+
+### Fixed
+
+- **A choice under `is_some`, `===`, or a member is parenthesized.** `r.ok().is_some()` printed `r.kind === "Ok" ? r.value : null !== null ? ..`, which JS reads with the comparison inside the else branch: `Ok(0)` gave 0 where Rust gives 1. Likewise `o.map(f).is_none()`, `!o.map(f).is_some()`, `o.is_some() == p.map(f).is_some()`, and `o.unwrap_or(vec![]).len()`.
+- **`ok()` of a `Result<Option<T>, E>` is refused** (`[check/nested-option]`): both `Ok(None)` and `Err(_)` were `null`.
+- **A struct pattern's guard leaves names its own bindings hide.** `Q { a, xs } if xs.iter().any(|a| *a > 3)` tested `q.a > 3` inside the closure.
+- **A `//` comment stays one line in JS.** A lone CR, U+2028, or U+2029 in a carried comment ended the line for JS, and the rest ran as code; each is a space now.
+- **`else if` for an `else` that is one `if`** (oxlint's `no-lonely-if`), **and no `c ? true : false`** (`no-unneeded-ternary`). An equality inside an equality is parenthesized, as oxfmt prints it.
+- **Documents:** the skill and 02's tables no longer call `cmp` on `Vec`s, `map` / `filter`, or chained `chars()` unavailable; 01, the overview, and 03's counter sample match the output; a refused method's message lists the 0.9.0 methods.
+
 ## 0.9.0 — 2026-10-04
 
 Lists built in a function, iterator stages, struct patterns, and `clone`; the examples checked against their specifications, with the generator bugs that rewriting them found. The accepted subset grows ([roadmap §8.12](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#812-090-lists-built-in-a-function-and-the-examples-against-their-specifications-2026-10-04)).

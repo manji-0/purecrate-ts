@@ -1,6 +1,6 @@
 # Wire boundary
 
-Status: current (2026-10-04, 0.9.0)
+Status: current (2026-10-04, 0.9.1)
 
 <!-- constrained-by ./01-equivalence.md -->
 
