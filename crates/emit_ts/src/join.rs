@@ -756,6 +756,23 @@ fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
     match expr {
         Expr::Lit(Lit::Bool(b)) => Some(*b),
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_bool(expr, known).map(|b| !b),
+        // `o.is_some()` of a place whose case is known.
+        Expr::Call {
+            callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
+            args,
+        } => {
+            let [p] = args.as_slice() else { return None };
+            if !is_place(p) {
+                return None;
+            }
+            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
+            let some = match vs.as_slice() {
+                [v] if v.as_str() == SOME => true,
+                [v] if v.as_str() == NONE => false,
+                _ => return None,
+            };
+            Some(some == (*callee == purecrate_ir::Callee::OptionIsSome))
+        }
         // A `match` of `bool`s (`matches!(o, Some(_) if c)`, printed `o !==
         // null && c`): the value every arm that may run gives, an arm whose
         // guard is decided `false` never running.
@@ -776,6 +793,29 @@ fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 }
             }
             value
+        }
+        // `if c { a } else { b }` of `bool`s: the side `c` takes, or the
+        // value both give.
+        Expr::If { cond, then, else_ } if effectless(expr) => match known_bool(cond, known) {
+            Some(c) => known_bool(if c { then } else { else_ }, known),
+            None => {
+                let (a, b) = (known_bool(then, known)?, known_bool(else_, known)?);
+                (a == b).then_some(a)
+            }
+        },
+        // `t == ","` where `t` is known to be some literal.
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } => {
+            let (p, l) = match (&**left, &**right) {
+                (p, Expr::Lit(l)) | (Expr::Lit(l), p) if is_place(p) => (p, l),
+                _ => return None,
+            };
+            let case = flow::literal_case(l)?;
+            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
+            let [v] = vs.as_slice() else { return None };
+            if !v.as_str().starts_with("$=") {
+                return None;
+            }
+            Some((*v == case) == (*op == BinOp::Eq))
         }
         // TS types `x && c` as `false` once `c` is, and `true` once both are.
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } if effectless(expr) => {

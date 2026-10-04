@@ -25,6 +25,11 @@ fn generated_narrowing_matches_rust() {
         }
         for o in [None, Some(2i32), Some(i32::MAX)] {
             cases.push(case!(narrowing::past_try(o, 5i32)));
+            for t in ["", ",", "x"] {
+                for s in ["", "a"] {
+                    cases.push(case!(narrowing::decided_string(String::from(t), s)));
+                }
+            }
             for c in [false, true] {
                 cases.push(case!(narrowing::decided_guard(o, c)));
             }
@@ -101,6 +106,12 @@ fn generated_narrowing_matches_rust() {
             for a in [0i32, 7] {
                 cases.push(case!(narrowing::decided_and_runs_left(c, a)));
             }
+            for o in [None, Some(2i32)] {
+                cases.push(case!(narrowing::decided_after_returns(o, c)));
+                cases.push(case!(narrowing::decided_matches(o, c, 7i32)));
+            }
+            cases.push(case!(narrowing::decided_or(c, 9i32)));
+            cases.push(case!(narrowing::decided_literal_binding(c, 4i32)));
         }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {

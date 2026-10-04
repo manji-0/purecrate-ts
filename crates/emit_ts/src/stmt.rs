@@ -119,6 +119,23 @@ impl Sink<'_> {
 
     pub(crate) fn finish_expr(self, expr: &Expr, indent: usize, out: &mut String) {
         let pad = "  ".repeat(indent);
+        // An `if` run for what one side does (what an unread `a && f()` or
+        // a decided loop test leaves) is a statement: as `c ? undefined :
+        // f()`, lint refuses an expression nothing reads.
+        if let (Sink::Effect, Expr::If { cond, then, else_ }) = (self, expr) {
+            let unit = Expr::Lit(Lit::Unit);
+            if (**then == unit) != (**else_ == unit) {
+                let (test, side) = if **else_ == unit {
+                    (emit_tx(cond, indent).print(), then)
+                } else {
+                    (emit_tx(cond, indent).not_all().print(), else_)
+                };
+                out.push_str(&format!("{pad}if ({}) {{\n", crate::tidy::strip_outer(&test)));
+                Sink::Effect.finish_expr(side, indent + 1, out);
+                out.push_str(&format!("{pad}}}\n"));
+                return;
+            }
+        }
         let value = emit_expr(expr, indent);
         match self {
             Sink::Effect if leads_with_brace(expr) => out.push_str(&format!("{pad}({value});\n")),

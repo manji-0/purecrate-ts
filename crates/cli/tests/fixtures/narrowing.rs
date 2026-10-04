@@ -410,3 +410,56 @@ pub fn decided_and_runs_left(c: bool, a: i32) -> i32 {
     }
     3
 }
+
+/// Past `if c { return }` and `if o.is_some() { return }`, `o.is_none()`
+/// and `c && c` are decided.
+pub fn decided_after_returns(o: Option<i32>, c: bool) -> bool {
+    if c {
+        return o.is_some();
+    }
+    if o.is_some() {
+        return !c;
+    }
+    o.is_none() != (c && c)
+}
+
+/// Inside `if c || c`, `c` is `true`.
+#[allow(clippy::nonminimal_bool)]
+pub fn decided_or(c: bool, a: i32) -> i32 {
+    if c || c {
+        if (c && c) == !c {
+            return a;
+        }
+    }
+    0
+}
+
+/// Inside `if matches!(o, Some(_) if !c)`, `o` is `Some` and `c` is
+/// `false`.
+pub fn decided_matches(o: Option<i32>, c: bool, n: i32) -> i32 {
+    let mut k: i32 = 0;
+    if matches!(o, Some(_) if !c) {
+        while k < n % 5 && (matches!(o, Some(_) if c) != !c) {
+            k += 1;
+        }
+    }
+    k
+}
+
+/// `let v = true;` is `true` to TS, and `v == c` is decided where `c` is.
+#[allow(clippy::eq_op)]
+pub fn decided_literal_binding(c: bool, n: i32) -> i32 {
+    let mut k: i32 = 0;
+    if !c {
+        let v: bool = true;
+        while k < n % 5 && ((v == v) == (v == c)) {
+            k += 1;
+        }
+    }
+    k
+}
+
+/// `t == ","` holding, `t` is `","`: `t == ""` is decided.
+pub fn decided_string(t: String, s: &str) -> bool {
+    (t == "," && t == "") && s.is_empty()
+}

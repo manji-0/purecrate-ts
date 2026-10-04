@@ -119,14 +119,19 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
     if let Expr::Lit(Lit::Bool(b)) = cond {
         return if *b { (Some(st.clone()), None) } else { (None, Some(st.clone())) };
     }
+    // A side that needs a place to hold a case it is known not to hold is
+    // never taken (as TS has it `never`).
     let side = |holds: bool| {
         let mut s = st.clone();
         for (p, case) in tests(cond, holds) {
+            if s.get(&p).is_some_and(|known| !known.contains(&case)) {
+                return None;
+            }
             s.set_place(&p, vec![case]);
         }
-        s
+        Some(s)
     };
-    (Some(side(true)), Some(side(false)))
+    (side(true), side(false))
 }
 
 /// The places `cond` decides where it is `holds`: a `bool` place, an
@@ -137,6 +142,17 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
     match cond {
         c if is_place(c) => vec![(c.clone(), Name::new(if holds { TRUE } else { FALSE }))],
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => tests(expr, !holds),
+        // `t == ","` holding: TS has `t` as the literal `","` (a string, a
+        // number, or a char is no union, so failing it narrows nothing).
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } if holds == (*op == BinOp::Eq) => {
+            match (&**left, &**right) {
+                (p, Expr::Lit(l)) | (Expr::Lit(l), p) if is_place(p) => match literal_case(l) {
+                    Some(case) => vec![(p.clone(), case)],
+                    None => Vec::new(),
+                },
+                _ => Vec::new(),
+            }
+        }
         Expr::Binary { op: BinOp::And, left, right } if holds => {
             let mut out = tests(left, true);
             out.extend(tests(right, true));
@@ -147,6 +163,27 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
             out.extend(tests(right, false));
             out
         }
+        // `a || b` holding (or `a && b` failing): what both sides decide
+        // alike (`c || c` holds only where `c` is `true`).
+        Expr::Binary { op: BinOp::And | BinOp::Or, left, right } => {
+            let (l, r) = (tests(left, holds), tests(right, holds));
+            l.into_iter().filter(|t| r.contains(t)).collect()
+        }
+        // `matches!(p, P if g)`, as `check` leaves it (`match p { Some(_) =>
+        // g, None => false }`, the guard in the arm): holding, `p` is in an
+        // arm that may give `true`; where that is one arm, its case, and its
+        // value holds too. TS reads it printed as `p !== null && g`.
+        Expr::Match { scrutinee, arms } if holds && is_place(scrutinee) => {
+            let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(false))).collect();
+            let [arm] = may.as_slice() else { return Vec::new() };
+            let mut out: Vec<(Expr, Name)> = match variants_of(&arm.pattern).as_slice() {
+                [v] => vec![((**scrutinee).clone(), v.clone())],
+                _ => Vec::new(),
+            };
+            out.extend(arm.guard.iter().flat_map(|g| tests(g, true)));
+            out.extend(tests(&arm.body, true));
+            out
+        }
         Expr::Call { callee: callee @ (Callee::OptionIsSome | Callee::OptionIsNone), args } => match args.as_slice() {
             [p] if is_place(p) => {
                 let some = holds == (*callee == Callee::OptionIsSome);
@@ -155,6 +192,23 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
             _ => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+/// The case `p == l` narrows `p` to, for a literal TS narrows by
+/// (`"$=<l>"`): a string, an integer, or a char.
+pub(super) fn literal_case(l: &Lit) -> Option<Name> {
+    match l {
+        Lit::Str(_) | Lit::Int { .. } | Lit::Char(_) => Some(Name::new(format!("$={}", lit_key(l)))),
+        _ => None,
+    }
+}
+
+/// A literal's value alone, apart from how it is spelled.
+fn lit_key(l: &Lit) -> String {
+    match l {
+        Lit::Int { value, .. } => value.to_string(),
+        other => format!("{other:?}"),
     }
 }
 
@@ -178,6 +232,15 @@ fn remaining(known: Option<&Vec<Name>>, taken: &[Name]) -> Option<Vec<Name>> {
     };
     let left: Vec<Name> = all.into_iter().filter(|c| !taken.contains(c)).collect();
     (!left.is_empty()).then_some(left)
+}
+
+/// What TS narrows a binding to from its value: an `Option` built in
+/// place (`built_option`), or a `bool` literal.
+fn built_case(value: &Expr) -> Option<Name> {
+    match value {
+        Expr::Lit(Lit::Bool(b)) => Some(Name::new(if *b { TRUE } else { FALSE })),
+        v => built_option(v),
+    }
 }
 
 /// The constructor a value is, as TS narrows a binding to it: `null` is
@@ -350,7 +413,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 **value = e;
             }
             s.forget(&name);
-            if let Some(case) = built_option(value) {
+            if let Some(case) = built_case(value) {
                 s.set(Expr::Var(name.clone()), vec![case]);
             }
             // TS does not narrow `o` from `Result.ok(a)`, whose type is the
@@ -447,7 +510,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         Expr::Assign { name, value } => {
             let mut s = flow(value, st, cx)?;
             s.forget(name);
-            if let Some(case) = built_option(value) {
+            if let Some(case) = built_case(value) {
                 s.set(Expr::Var(name.clone()), vec![case]);
             }
             Some(s)
@@ -492,10 +555,13 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             if let Some(taken) = constructed_arm(expr) {
                 *expr = taken;
             }
-            // `a == b` where narrowing has decided both `bool`s.
+            // `a == b` where narrowing has decided both `bool`s, or `t == ","`
+            // where it has decided `t`.
             if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
                 if let (Some(l), Some(r)) = (known_bool(left, &s.0), known_bool(right, &s.0)) {
                     *expr = Expr::Lit(Lit::Bool((l == r) == (*op == BinOp::Eq)));
+                } else if let Some(b) = known_bool(expr, &s.0) {
+                    *expr = Expr::Lit(Lit::Bool(b));
                 }
             }
             literal_compare(expr);
