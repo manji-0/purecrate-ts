@@ -19,6 +19,7 @@ use crate::stmt::{is_place, touches};
 pub(crate) fn joined(expr: &Expr) -> Expr {
     let mut out = expr.clone();
     unstated(&mut out, true);
+    same_sides(&mut out);
     narrow(&mut out, &mut Vec::new());
     join(&mut out);
     unread(&mut out);
@@ -299,6 +300,22 @@ fn unstated(expr: &mut Expr, block: bool) {
     }
 }
 
+/// `if c { a } else { a }` as `a` where `c` does nothing, and `{ let t =
+/// p; t }` as the place `p`: TS types either as `p` narrowed, and a place is
+/// what `narrow` follows through the `let` that holds it.
+fn same_sides(expr: &mut Expr) {
+    for child in expr.children_mut() {
+        same_sides(child);
+    }
+    match expr {
+        Expr::If { cond, then, else_ } if then == else_ && effectless(cond) => *expr = (**then).clone(),
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && **then == Expr::Var(name.clone()) => {
+            *expr = (**value).clone()
+        }
+        _ => {}
+    }
+}
+
 /// In an arm of a `match` on a place that binds every field of its variant
 /// to a name, the variant built again from those names in order
 /// (`Lines::Cons(head, rest) => { let lines = Lines::Cons(head, rest); .. }`,
@@ -444,6 +461,23 @@ type Known = Vec<(Expr, Vec<Name>)>;
 /// one side is reachable. A `let` of the place that nothing reads then is
 /// left out.
 fn narrow(expr: &mut Expr, known: &mut Known) {
+    // A test reads a `bool` place an enclosing test has decided as that
+    // value, as TS does: its control flow then matches TS's.
+    if let Expr::If { cond, .. } | Expr::While { cond, .. } = expr {
+        decide(cond, known);
+    }
+    // Decided with nothing to run first, it is the side taken, so what reads
+    // it (`match { let t = if c { .. } else { r }; t }`) sees that side.
+    if let Expr::If { cond, then, else_ } = expr {
+        if let Some((Expr::Lit(Lit::Unit), b)) = constant(cond) {
+            let side = if b { &**then } else { &**else_ };
+            if !declares(side) {
+                *expr = side.clone();
+                same_sides(expr);
+                return narrow(expr, known);
+            }
+        }
+    }
     if let Some(taken) = taken_arm(expr, known) {
         *expr = taken;
         return narrow(expr, known);
@@ -574,6 +608,20 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
             narrow(then, known);
             known.pop();
         }
+        // `match r { Ok(v) => .., Err(_) => break }` as a statement: past it,
+        // `r` is `Ok`, as TS knows, unless what follows writes it.
+        Expr::Seq { first, then } => {
+            narrow(first, known);
+            let past: Vec<(Expr, Vec<Name>)> =
+                survives(first).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
+            for (place, cases) in &past {
+                known.push((place.clone(), cases.clone()));
+            }
+            narrow(then, known);
+            for _ in &past {
+                known.pop();
+            }
+        }
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
             let alias = known.iter().find(|(p, _)| p == &**value).map(|(_, vs)| vs.clone());
             if let Some(vs) = &alias {
@@ -596,6 +644,12 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
         // constructor: `o` is that case, and a `let` nothing reads is gone.
         Expr::Let { name, mutable: false, value, then, .. } => {
             narrow(value, known);
+            // Narrowing made the value a place (`{ let t = if c { r } else
+            // { .. }; t }` with `c` decided): a `let` of a place, as above.
+            same_sides(value);
+            if is_place(value) && !touches(then, root(value)) {
+                return narrow(expr, known);
+            }
             if let Some(e) = constructed_arm(value) {
                 **value = e;
             }
@@ -642,17 +696,49 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
                 };
             }
         }
+        // `if c { .. } else { .. }` on a `bool` place: TS has `c` as `true`
+        // on one side and `false` on the other, and refuses comparing two
+        // it knows apart (`!c === c`).
+        Expr::If { cond, then, else_ } if !bool_tests(cond, true).is_empty() || !bool_tests(cond, false).is_empty() => {
+            narrow(cond, known);
+            for (side, holds) in [(&mut **then, true), (&mut **else_, false)] {
+                let facts: Vec<(Expr, bool)> =
+                    bool_tests(cond, holds).into_iter().filter(|(p, _)| !touches(side, root(p))).collect();
+                for (place, b) in &facts {
+                    known.push((place.clone(), vec![Name::new(if *b { TRUE } else { FALSE })]));
+                }
+                narrow(side, known);
+                for _ in &facts {
+                    known.pop();
+                }
+            }
+        }
         // A closure may run where the narrowing no longer holds.
         Expr::Closure { body, .. } => narrow(body, &mut Vec::new()),
         _ => {
             for child in expr.children_mut() {
                 narrow(child, known);
             }
+            // A scrutinee narrowing has made a place (`{ let t = if false {
+            // .. } else { r }; t }` is `r`) is decided as the place.
+            if let Expr::Match { scrutinee, .. } = expr {
+                same_sides(scrutinee);
+                if let Some(taken) = taken_arm(expr, known) {
+                    *expr = taken;
+                    return narrow(expr, known);
+                }
+            }
             // A scrutinee narrowing made a constructor (`r.ok()` in `r`'s
             // `Err` arm is `None`) decides its `match` too: `null ?? d` is
             // what TS would refuse.
             if let Some(taken) = constructed_arm(expr) {
                 *expr = taken;
+            }
+            // `a == b` where narrowing has decided both `bool`s.
+            if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
+                if let (Some(l), Some(r)) = (known_bool(left, known), known_bool(right, known)) {
+                    *expr = Expr::Lit(Lit::Bool((l == r) == (*op == BinOp::Eq)));
+                }
             }
             literal_compare(expr);
             // `is_some()` of what narrowing made `None` or `Some(v)`.
@@ -798,6 +884,17 @@ fn survives(value: &Expr) -> Vec<(Expr, Vec<Name>)> {
             return out;
         }
         Expr::At { expr, .. } => return survives(expr),
+        // `if c { return .. }`: past it, `c` is `false`.
+        Expr::If { cond, then, else_ } => {
+            return match (ends(then), ends(else_)) {
+                (true, false) => bool_tests(cond, false),
+                (false, true) => bool_tests(cond, true),
+                _ => Vec::new(),
+            }
+            .into_iter()
+            .map(|(p, b)| (p, vec![Name::new(if b { TRUE } else { FALSE })]))
+            .collect();
+        }
         _ => {}
     }
     let Expr::Match { scrutinee, arms } = value else { return Vec::new() };
@@ -808,7 +905,7 @@ fn survives(value: &Expr) -> Vec<(Expr, Vec<Name>)> {
     {
         return Vec::new();
     }
-    let kept: Vec<Name> = arms.iter().filter(|a| !diverges(&a.body)).flat_map(|a| variants_of(&a.pattern)).collect();
+    let kept: Vec<Name> = arms.iter().filter(|a| !ends(&a.body)).flat_map(|a| variants_of(&a.pattern)).collect();
     if kept.is_empty() || kept.len() == arms.iter().flat_map(|a| variants_of(&a.pattern)).count() {
         return Vec::new();
     }
@@ -817,16 +914,6 @@ fn survives(value: &Expr) -> Vec<(Expr, Vec<Name>)> {
         out.push((t, kept));
     }
     out
-}
-
-/// Whether evaluating `expr` always leaves the function.
-fn diverges(expr: &Expr) -> bool {
-    match expr {
-        Expr::Return(_) => true,
-        Expr::Let { then, .. } | Expr::Seq { then, .. } => diverges(then),
-        Expr::At { expr, .. } => diverges(expr),
-        _ => false,
-    }
 }
 
 /// `1 == 65535` as `false`: TS refuses comparing two literals it knows
@@ -947,6 +1034,63 @@ fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr> {
     })))
 }
 
+/// The `bool` places `cond` decides where it is `holds`: `c` is `true`
+/// where `c` holds, both of `a && b` are, and both of `a || b` are `false`
+/// where it fails.
+fn bool_tests(cond: &Expr, holds: bool) -> Vec<(Expr, bool)> {
+    match cond {
+        c if is_place(c) => vec![(c.clone(), holds)],
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => bool_tests(expr, !holds),
+        Expr::Binary { op: BinOp::And, left, right } if holds => {
+            let mut out = bool_tests(left, true);
+            out.extend(bool_tests(right, true));
+            out
+        }
+        Expr::Binary { op: BinOp::Or, left, right } if !holds => {
+            let mut out = bool_tests(left, false);
+            out.extend(bool_tests(right, false));
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// `cond` with each `bool` place a test has decided read as its value,
+/// through `!`, `&&`, and `||`.
+fn decide(cond: &mut Expr, known: &Known) {
+    match cond {
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => decide(expr, known),
+        Expr::Binary { op: BinOp::And | BinOp::Or, left, right } => {
+            decide(left, known);
+            decide(right, known);
+        }
+        c if is_place(c) => {
+            if let Some(b) = known_bool(c, known) {
+                *c = Expr::Lit(Lit::Bool(b));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The value of a `bool` literal, of a place a test has decided, or of
+/// `!` of one.
+fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
+    match expr {
+        Expr::Lit(Lit::Bool(b)) => Some(*b),
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_bool(expr, known).map(|b| !b),
+        p if is_place(p) => {
+            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
+            match vs.as_slice() {
+                [v] if v.as_str() == TRUE => Some(true),
+                [v] if v.as_str() == FALSE => Some(false),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// What a place holds past a `?` on it.
 fn tried_case(on: TryOn) -> Name {
     Name::new(if on == TryOn::Option { SOME } else { OK })
@@ -972,6 +1116,9 @@ fn taken_arm(expr: &Expr, known: &Known) -> Option<Expr> {
     }
 }
 
+/// What a `bool` place holds where a test has decided it.
+const TRUE: &str = "$true";
+const FALSE: &str = "$false";
 /// The cases of `Result` and `Option`, as `Known` names them: no variant of
 /// a crate's enum starts with `$`.
 const OK: &str = "$Ok";
@@ -1008,6 +1155,7 @@ fn admits(pattern: &Pattern, variant: &Name) -> bool {
         Pattern::ResultErr(p) => variant.as_str() == ERR && !p.refutable(),
         Pattern::OptionSome(p) => variant.as_str() == SOME && !p.refutable(),
         Pattern::OptionNone => variant.as_str() == NONE,
+        Pattern::Lit(Lit::Bool(b)) => variant.as_str() == if *b { TRUE } else { FALSE },
         Pattern::Or(alts) => alts.iter().any(|p| admits(p, variant)),
         _ => false,
     }

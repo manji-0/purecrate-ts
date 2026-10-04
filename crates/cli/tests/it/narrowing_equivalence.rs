@@ -57,6 +57,27 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
             }
         }
+        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
+            for n in [0i32, 1, 3] {
+                cases.push(case!(narrowing::past_break(r, n)));
+            }
+            for c in [false, true] {
+                for b in [2i32, 50_000] {
+                    cases.push(case!(narrowing::same_sides(r, c, b)));
+                    cases.push(case!(narrowing::decided_scrutinee(r, c, b)));
+                    cases.push(case!(narrowing::decided_receiver(r, c, b)));
+                }
+            }
+        }
+        for c in [false, true] {
+            for d in [false, true] {
+                cases.push(case!(narrowing::decided_bools(c, d, 5i32)));
+                cases.push(case!(narrowing::decided_bools(c, d, i32::MAX)));
+            }
+            for k in [-1i32, 0, 3] {
+                cases.push(case!(narrowing::past_returning_if(c, k)));
+            }
+        }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {
                 cases.push(case!(narrowing::unread_default(r, b)));
@@ -73,6 +94,27 @@ fn generated_narrowing_matches_rust() {
         for o in [None, Some(5i32)] {
             for n in [0i32, 1, 200] {
                 cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
+            }
+        }
+        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
+            for n in [0i32, 1, 3] {
+                cases.push(case!(narrowing::past_break(r, n)));
+            }
+            for c in [false, true] {
+                for b in [2i32, 50_000] {
+                    cases.push(case!(narrowing::same_sides(r, c, b)));
+                    cases.push(case!(narrowing::decided_scrutinee(r, c, b)));
+                    cases.push(case!(narrowing::decided_receiver(r, c, b)));
+                }
+            }
+        }
+        for c in [false, true] {
+            for d in [false, true] {
+                cases.push(case!(narrowing::decided_bools(c, d, 5i32)));
+                cases.push(case!(narrowing::decided_bools(c, d, i32::MAX)));
+            }
+            for k in [-1i32, 0, 3] {
+                cases.push(case!(narrowing::past_returning_if(c, k)));
             }
         }
         cases

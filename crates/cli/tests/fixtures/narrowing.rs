@@ -152,3 +152,126 @@ pub fn known_err_try(r: Result<i32, i32>, b: i32) -> Result<i32, i32> {
         }
     }
 }
+
+/// Past `match r { .., Err(_) => break }`, `r` is `Ok`, as TS knows.
+pub fn past_break(r: Result<i32, i32>, n: i32) -> Result<i32, i32> {
+    let mut k: i32 = 0;
+    while k < n {
+        k += 1;
+        match r {
+            Ok(v) => {
+                k += v;
+            }
+            Err(_) => break,
+        }
+        let x: i32 = r.map_err(|e| e + 1)?;
+        k += x;
+    }
+    Ok(k)
+}
+
+/// `if c { r } else { r }` and `{ let t = r; t }` are `r`, narrowed.
+#[allow(unused_parens)]
+pub fn same_sides(r: Result<i32, i32>, c: bool, a: i32) -> i32 {
+    match r {
+        Ok(v) => v,
+        Err(_) => {
+            let m: Result<i32, i32> = ({
+                let t: Result<i32, i32> = (if c { r } else { r });
+                t
+            })
+            .map_err(|e| e + a);
+            match m {
+                Ok(x) => x,
+                Err(e) => e,
+            }
+        }
+    }
+}
+
+/// Inside `if c`, TS has `c` as `true`: comparing it with what it knows
+/// is `false` is folded, and a `match` on it takes its `true` arm.
+pub fn decided_bools(c: bool, d: bool, a: i32) -> i32 {
+    let mut x: i32 = a;
+    if c {
+        if !c == c {
+            x = 1;
+        }
+        if !d {
+            if c == d {
+                x += 2;
+            }
+            if c != d {
+                x += 3;
+            }
+        }
+        x += match c {
+            true => 10,
+            _ => 20,
+        };
+    } else if !(d || c) {
+        if d == c {
+            x += 4;
+        }
+    }
+    x
+}
+
+/// Past `if c { .. return .. }`, `c` is `false`: TS refuses `c == !c`.
+pub fn past_returning_if(c: bool, k: i32) -> bool {
+    if c {
+        if c && c {
+            return k > 0;
+        }
+    }
+    let mut n: i32 = 0;
+    while n < k % 5 && c == !c {
+        n += 1;
+    }
+    n > 0
+}
+
+/// A `match` on what a decided `if` gives (`r`, where `c` is `false`) is
+/// decided as `r` is.
+#[allow(unused_variables, unused_mut, unused_parens)]
+pub fn decided_scrutinee(r: Result<i32, i32>, c: bool, b: i32) -> i32 {
+    match r {
+        Ok(a) => {
+            if c {
+                a
+            } else {
+                match ({
+                    let t: Result<i32, i32> = (if c { Ok(7i32) } else { r });
+                    t
+                }) {
+                    Ok(_) => b.pow(1),
+                    Err(e) => e % a,
+                }
+            }
+        }
+        Err(e) => e,
+    }
+}
+
+/// `.ok()` of what a decided `if` gives, in a loop under `if c`.
+#[allow(unused_variables, unused_assignments, unused_parens)]
+pub fn decided_receiver(r: Result<i32, i32>, c: bool, b: i32) -> Option<i32> {
+    let mut a: Option<i32> = None;
+    if c {
+        match r {
+            Ok(_) => {}
+            Err(_) => {
+                let mut k: i32 = 0;
+                while k < (b >> 3) % 5 && matches!(a.map(|v| v), Some(_) if !c) {
+                    a = ({
+                        let t: Result<i32, i32> = (if c { r } else { Err(65535i32) });
+                        t
+                    })
+                    .ok();
+                    k += 1;
+                }
+            }
+        }
+    }
+    Some(b * if c { 100 } else { 7 })
+}
