@@ -195,8 +195,8 @@ fn bound_names(body: &Expr) -> HashSet<String> {
 }
 
 /// A binding placed in front of the statement: `let name = inner?` when the
-/// kind is set, else `let name = inner`.
-type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>)>;
+/// kind is set, else `let name = inner`, with the type the binding had.
+type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>, Option<purecrate_ir::Ty>)>;
 
 #[derive(Default)]
 struct Lifter {
@@ -224,6 +224,14 @@ impl Lifter {
             .expect("a free name");
         self.taken.insert(name.clone());
         Name::new(name)
+    }
+
+    /// A made name like `name` (`$opt` → `$opt_2`) no binding of the body has.
+    fn fresh_like(&mut self, name: &Name) -> Name {
+        let base = name.as_str().trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+        let fresh = (1..).map(|k| format!("{base}_{k}")).find(|n| !self.taken.contains(n)).expect("a free name");
+        self.taken.insert(fresh.clone());
+        Name::new(fresh)
     }
 
     fn stmt(&mut self, expr: Expr) -> Expr {
@@ -341,7 +349,7 @@ impl Lifter {
         if block && (leaves(&expr) || holds_statements(&expr)) {
             let name = self.fresh(&expr, "Value");
             let value = self.stmt(expr);
-            out.push((name.clone(), value, None));
+            out.push((name.clone(), value, None, None));
             return Expr::Var(name);
         }
         self.extract_into(expr, out)
@@ -370,7 +378,7 @@ impl Lifter {
                 } else {
                     Expr::Field { base: Box::new(Expr::Var(name.clone())), name: Name::new("value") }
                 };
-                out.push((name, *inner, Some(on)));
+                out.push((name, *inner, Some(on), None));
                 read
             }
             Expr::Call { callee, args } => Expr::Call { callee, args: self.in_order(args, out) },
@@ -407,6 +415,19 @@ impl Lifter {
             }
             Expr::Tuple(xs) => Expr::Tuple(self.in_order(xs, out)),
             Expr::Array(xs) => Expr::Array(self.in_order(xs, out)),
+            // A made binding whose rest leaves (`ok_or(e)` with a `?` in `e`
+            // lowers to `let $opt = o; let $arg = e; ..`): Rust runs `o`, then
+            // `e`, before the statement does anything else, so both go in
+            // front of it, renamed apart from every other binding there. Left
+            // in place, in a scrutinee or an operand, the `?` would sit in an
+            // inline function whose `return` leaves only itself.
+            Expr::Let { name, mutable: false, ty, value, then } if name.as_str().starts_with('$') && leaves(&then) => {
+                let value = self.operand(*value, out);
+                let fresh = self.fresh_like(&name);
+                let then = renamed(*then, &name, &fresh);
+                out.push((fresh, value, None, ty));
+                self.extract_into(then, out)
+            }
             // A block's first value runs first, so its `?` may go before the
             // statement: what `ok_or(e)?` takes (`x.checked_add(g()?)`).
             Expr::Let { name, mutable, ty, value, then } => {
@@ -470,7 +491,7 @@ impl Lifter {
             Expr::Ignored { wrapper, expr } => Expr::Ignored { wrapper, expr: Box::new(self.spill(*expr, out)) },
             other => {
                 let name = self.fresh(&other, "Value");
-                out.push((name.clone(), other, None));
+                out.push((name.clone(), other, None, None));
                 Expr::Var(name)
             }
         }
@@ -520,7 +541,7 @@ fn leaves(expr: &Expr) -> bool {
 }
 
 fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
-    hoisted.into_iter().rev().fold(body, |then, (name, inner, on)| {
+    hoisted.into_iter().rev().fold(body, |then, (name, inner, on, ty)| {
         let (value, then) = match on {
             Some(on) if ok_or_try(&Expr::Try { expr: Box::new(inner.clone()), on }).is_some() => {
                 (Expr::Try { expr: Box::new(inner), on }, then)
@@ -534,6 +555,26 @@ fn wrap(hoisted: Hoisted, body: Expr) -> Expr {
             ),
             None => (inner, then),
         };
-        Expr::Let { name, mutable: false, ty: None, value: Box::new(value), then: Box::new(then) }
+        Expr::Let { name, mutable: false, ty, value: Box::new(value), then: Box::new(then) }
     })
+}
+
+/// `expr` reading `to` wherever it read `from`, up to a binding of `from`
+/// that hides it.
+fn renamed(expr: Expr, from: &Name, to: &Name) -> Expr {
+    fn walk(e: &mut Expr, from: &Name, to: &Name) {
+        match e {
+            Expr::Var(n) if n == from => *n = to.clone(),
+            Expr::Let { name, value, then, .. } => {
+                walk(value, from, to);
+                if name != from {
+                    walk(then, from, to);
+                }
+            }
+            other => other.children_mut().into_iter().for_each(|c| walk(c, from, to)),
+        }
+    }
+    let mut expr = expr;
+    walk(&mut expr, from, to);
+    expr
 }

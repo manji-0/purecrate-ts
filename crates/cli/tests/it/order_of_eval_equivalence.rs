@@ -50,6 +50,19 @@ fn generated_evaluation_order_matches_rust() {
         for x in [None, Some(0u32), Some(9)] {
             cases.push(case!(order_of_eval::reassigned_scrutinee(x)));
         }
+        for o in [None, Some(4i32), Some(i32::MIN)] {
+            for fail in [false, true] {
+                for v in [0i32, 3, i32::MIN] {
+                    cases.push(case!(order_of_eval::try_in_ok_or_scrutinee(o, v, fail)));
+                    cases.push(case!(order_of_eval::try_in_ok_or_test(o, v, fail)));
+                }
+            }
+        }
+        for r in [Ok(1i32), Err(2i32), Ok(i32::MAX)] {
+            for c in [false, true] {
+                cases.push(case!(order_of_eval::twice_named(r, 5i32, c)));
+            }
+        }
         for i in [0usize, 1, 5] {
             for none in [false, true] {
                 cases.push(case!(order_of_eval::try_after_index(vec![10i32, 20], i, 3i32, none)));

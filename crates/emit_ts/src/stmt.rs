@@ -597,7 +597,9 @@ fn named_after(name: &str, what: &str) -> Option<String> {
         }
         _ => name.to_string(),
     };
-    Some(format!("${n}{}{}", what[..1].to_uppercase(), &what[1..]))
+    // Numbered as every temporary is: two in one block (`let x = r.ok()`,
+    // then `x.ok_or(e)` matched) would be one name, declared twice.
+    Some(crate::temp(&format!("{n}{}{}", what[..1].to_uppercase(), &what[1..]), 0))
 }
 
 /// `const tmp = expr;` and the early return of `expr?` when it holds `None`

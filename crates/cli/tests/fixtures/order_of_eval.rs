@@ -166,3 +166,40 @@ pub fn mapped_try_in_ok_or_arg(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
     let x = a.checked_add(1).ok_or(-a * given(v, fail).map_err(|e| e * 2)?)?;
     Ok(x)
 }
+
+/// `ok_or(x.ok_or(e)?)`, where nothing tests the outer `Result` with `?`:
+/// as a scrutinee, the inner `?` leaves the function before the `match` (it
+/// once left only an inline function, and the `Err` arm ran).
+pub fn try_in_ok_or_scrutinee(o: Option<i32>, v: i32, fail: bool) -> Result<i32, i32> {
+    match o.ok_or(maybe(v, fail).ok_or(-1i32)?) {
+        Ok(x) => Ok(x),
+        Err(e) => Ok(e + 1),
+    }
+}
+
+/// The same in an `if` test, a `while` test, a range's end, and an
+/// operand.
+pub fn try_in_ok_or_test(o: Option<i32>, v: i32, fail: bool) -> Result<i32, i32> {
+    let mut n: i32 = 0;
+    if o.ok_or(maybe(v, fail).ok_or(-1i32)?).ok().is_some() {
+        n += 1;
+    }
+    while o.ok_or(maybe(v, fail).ok_or(-1i32)?).ok().is_none() && n < 3 {
+        n += 1;
+    }
+    for i in 0..o.ok_or(maybe(v, fail).ok_or(-1i32)?).ok().unwrap_or(2) % 4 {
+        n += i;
+    }
+    Ok(n + o.ok_or(-maybe(v, fail).ok_or(-1i32)?).ok().unwrap_or(5))
+}
+
+/// `let x = r.ok()` and then `x.ok_or(e)` matched: two temporaries named
+/// after `x` in one block (`xResult`, declared twice).
+pub fn twice_named(r: Result<i32, i32>, b: i32, c: bool) -> Option<i32> {
+    let x: Option<i32> = (if c { Err(7i32) } else { r }).ok();
+    let y: Option<i32> = match x.ok_or(b) {
+        Ok(v) => v.checked_add(b),
+        Err(_) => None,
+    };
+    y
+}
