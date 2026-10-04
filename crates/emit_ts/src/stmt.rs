@@ -1166,6 +1166,19 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     });
     let Some(flat_last) = flat_last else {
         for (i, b) in branches.iter().enumerate() {
+            // An `else` that is one `if` chain is `else if`, as oxlint's
+            // `no-lonely-if` asks.
+            if let (true, None, true) = (i > 0, &b.test, b.prelude.is_empty()) {
+                let mut inner = String::new();
+                emit_tail(b.body, indent + 1, sink, &mut inner, true);
+                if let Some(chain) = lone_if(&inner, &pad) {
+                    out.push_str(&format!("{pad}}} else {chain}"));
+                    return;
+                }
+                out.push_str(&format!("{pad}}} else {{\n"));
+                out.push_str(&inner);
+                continue;
+            }
             let head = match (i, &b.test) {
                 (0, Some(test)) => format!("{pad}if {} {{\n", crate::expr::if_test(test, &pad)),
                 (_, Some(test)) => format!("{pad}}} else if {} {{\n", crate::expr::if_test(test, &pad)),
@@ -1184,6 +1197,35 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     }
     // The last branch: its prelude was printed one level in.
     out.push_str(&flat_last);
+}
+
+/// `text`, one level in from `pad`, as the `if` chain it is alone, one
+/// level out and without its indent on the first line: `if (a) {` .. `}`.
+/// `None` when it holds anything else, a blank line included.
+fn lone_if(text: &str, pad: &str) -> Option<String> {
+    let inner = format!("{pad}  ");
+    let lines: Vec<&str> = text.lines().collect();
+    let (first, last) = (lines.first()?, lines.last()?);
+    if !first.starts_with(&format!("{inner}if ")) || *last != format!("{inner}}}") || !first.ends_with('{') {
+        return None;
+    }
+    for line in &lines {
+        let rest = line.strip_prefix(&inner)?;
+        // A line of the chain itself, not of a block inside it.
+        if !rest.starts_with(' ') && !(rest.starts_with("if ") || rest.starts_with("} else") || rest == "}") {
+            return None;
+        }
+    }
+    if lines.iter().filter(|l| l.strip_prefix(&inner).is_some_and(|r| r.starts_with("if "))).count() != 1 {
+        return None;
+    }
+    let mut out = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        let line = &line[2..];
+        out.push_str(if i == 0 { line.trim_start() } else { line });
+        out.push('\n');
+    }
+    Some(out)
 }
 
 /// `if (test) { prelude body }`, on one line when the body is one

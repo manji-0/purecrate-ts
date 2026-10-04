@@ -28,6 +28,12 @@ fn generated_readability_matches_rust() {
                 }
             }
         }
+        for x in [0u64, 5, 11] {
+            cases.push(case!(readability::banded(x, 3u64)));
+        }
+        for b in [3u32, 30] {
+            cases.push(case!(readability::above_ten(b)));
+        }
         for n in [3, 8, i32::MAX - 1] {
             cases.push(case!(readability::added_or_zero(n)));
             cases.push(case!(readability::named_temporaries(n)));
@@ -80,6 +86,10 @@ fn readability_rewrites_print_as_intended() {
     assert!(named.contains("const halfResult = ") && named.contains("const sumOpt = "), "{named}");
     let added = file("added-or-zero");
     assert!(added.contains("const s: I32 = ") && !added.contains("let s"), "{added}");
+    let banded = file("banded");
+    assert!(banded.contains("} else if (x > 10n) {"), "{banded}");
+    let above = file("above-ten");
+    assert!(!above.contains("? true : false"), "{above}");
     let swapped = file("swapped");
     assert!(swapped.contains("kind: \"Pair\""), "{swapped}");
 }

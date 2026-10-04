@@ -331,6 +331,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             let Expr::Unary { expr: positive, .. } = peel_identity(cond) else { unreachable!("matched above") };
             emit_expr(&Expr::If { cond: positive.clone(), then: else_.clone(), else_: then.clone() }, indent)
         }
+        // `c ? true : false` is `c`, as oxlint's `no-unneeded-ternary` asks.
+        Expr::If { cond, then, else_ } if bool_lit(then).is_some() && bool_lit(else_).is_some() && bool_lit(then) != bool_lit(else_) => {
+            let c = emit_expr(cond, indent);
+            fold(c, (String::new(), bool_lit(then)), (String::new(), bool_lit(else_)))
+        }
         Expr::If { cond, then, else_ } => format!(
             "{} ? {} : {}",
             grouped(
@@ -615,7 +620,11 @@ fn grouped(
     if matches!(peel_identity(expr), Expr::If { .. } | Expr::Match { .. }) && !crate::tidy::has_top_as(&s) {
         return crate::tidy::group(&s, parent, assoc, side);
     }
-    if crate::tidy::needs_paren(expr_prec(expr), parent, assoc, side) {
+    // A call may print as an operator (`o !== null` for `is_some`): the
+    // looser of the two decides.
+    let prec = expr_prec(expr).min(crate::tidy::top_prec(&s));
+    let nested_eq = parent == crate::tidy::PREC_EQ && prec == crate::tidy::PREC_EQ;
+    if nested_eq || crate::tidy::needs_paren(prec, parent, assoc, side) {
         format!("({s})")
     } else {
         s

@@ -110,3 +110,21 @@ pub fn added_or_zero(n: i32) -> Result<i32, i32> {
     let s = n.checked_add(halve(n)?).unwrap_or(0i32);
     Ok(s)
 }
+
+/// A guarded arm after a first one: `else if`, not `else { if .. }`.
+pub fn banded(x: u64, w: u64) -> u64 {
+    let y: u64 = match x {
+        0 => 1,
+        n if n > 10 => {
+            let k = n * w;
+            k
+        }
+        _ => 2,
+    };
+    y
+}
+
+/// A `match` of `true` / `false` as a test is the test.
+pub fn above_ten(b: u32) -> u32 {
+    if match b { a if a > 10 => true, _ => false } { 1 } else { 2 }
+}

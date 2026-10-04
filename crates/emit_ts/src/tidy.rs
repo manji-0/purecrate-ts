@@ -271,7 +271,10 @@ pub(crate) fn has_top_as(s: &str) -> bool {
 /// non-associative side at the same precedence).
 pub(crate) fn group(s: &str, parent: u8, assoc: Assoc, side: Side) -> String {
     let s = strip_outer(s);
-    if needs_paren(top_prec(s), parent, assoc, side) {
+    // An equality inside an equality is parenthesized, as oxfmt prints
+    // `(a !== null) === b`.
+    let nested_eq = parent == PREC_EQ && top_prec(s) == PREC_EQ;
+    if nested_eq || needs_paren(top_prec(s), parent, assoc, side) {
         format!("({s})")
     } else {
         s.to_string()
