@@ -45,7 +45,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
-A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as oxfmt prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. A shift amount and a literal `Slice.at` index read bare too (`Int.u32.shl(x, 24)`, `Slice.at(parts, 0)`): the runtime takes them as plain `number`s. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
+A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as oxfmt prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. Since 0.10.0 the printer decides this on a tree of the operators it writes (`emit_ts::tx`), not by reading its printed text back: each operand is parenthesized where its operator binds looser than its parent's or would regroup, a `!` of a comparison turns the comparison round, and a negated `&&` chain is the `||` of each side turned round. A shift amount and a literal `Slice.at` index read bare too (`Int.u32.shl(x, 24)`, `Slice.at(parts, 0)`): the runtime takes them as plain `number`s. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
 
 A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as oxlint's `typescript/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
 
@@ -277,6 +277,10 @@ A binding the Rust leaves unused is not printed:
 | parameter or `for` variable | the name with the leading `_` that TS exempts |
 
 Imports are those the printed code mentions.
+
+A test TS has already decided by narrowing is folded, not printed, since TS refuses it (`"Err"` and `"Ok"` have no overlap, `null ?? d`, unreachable code): a `match` on a place inside an arm that matched it, or after a `?` or a `map_err(f)?` on it; a `match` on `None`, `Some(e)`, `Ok(e)`, or `Err(e)`, also through a `let`; `is_some()` of one; two literals compared. Each holds only while nothing writes the place (`let mut o` assigned in an arm or after). The bindings and `let`s that folding leaves unread go as above (`emit_ts::join`, `crates/cli/tests/fixtures/narrowing.rs`).
+
+`Result.ok(v)` is `Result<T, never>` and `Result.err(e)` is `Result<never, E>` where nothing names the other type parameter (the runtime's defaults, since 0.10.0), so a `?:` of the two, or of one and a `Result`, is the `Result` it reads as.
 
 ### 4.3 `package.json` and build
 

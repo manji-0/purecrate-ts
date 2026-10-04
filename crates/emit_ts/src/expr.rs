@@ -1,11 +1,28 @@
 //! Expressions, literals, arrows, and types, printed as TS source.
 
 use super::*;
+use crate::tx::{CondStyle, Op, Tx};
 
 /// `indent` is the nesting level of the line the arrow starts on.
 pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
+    // `check` marks the parameters the body never reads (`_a`); one read
+    // only in a side `join` folds away (`if false { a } else { 1 }`) is
+    // unread in the printed body too, and TS refuses it the same way.
+    let joined = crate::join::joined(&f.body);
+    let printed = |n: &Name| {
+        if n.as_str().starts_with('_') || crate::join::mentions(&joined, n) {
+            return n.as_str().to_string();
+        }
+        (0..)
+            .map(|k| if k == 0 { format!("_{}", n.as_str()) } else { format!("_{}{k}", n.as_str()) })
+            .find(|c| {
+                !f.params.iter().any(|p| p.name.as_str() == c)
+                    && !crate::join::mentions(&joined, &Name::new(c.as_str()))
+            })
+            .expect("a free name")
+    };
     let params =
-        f.params.iter().map(|p| format!("{}: {}", p.name.as_str(), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
+        f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     pushes(&f.body, &mut pushed);
     let previous = crate::PUSHED.with(|p| p.replace(pushed));
@@ -57,11 +74,8 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
         {
             // An object would read as a block; a `?:` is parenthesized on the
             // arrow's line, as oxfmt prints it (`tidy::wrap_arrow` drops it).
-            let value = if value.starts_with('{') || crate::tidy::is_ternary(value) {
-                format!("({value})")
-            } else {
-                value.to_string()
-            };
+            let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond());
+            let value = if value.starts_with('{') || choice { format!("({value})") } else { value.to_string() };
             return format!("({params}): {ret} => {value}");
         }
         format!("({params}): {ret} => {{\n{out}{pad}}}", pad = "  ".repeat(indent))
@@ -72,7 +86,8 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
 
 /// An arrow body starting with `{` would parse as a block.
 pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
-    let s = emit_expr(expr, indent);
+    let t = emit_tx(expr, indent);
+    let s = t.print();
     if leads_with_brace(expr) {
         format!("({s})")
     } else {
@@ -81,7 +96,7 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
         let bare = crate::tidy::strip_outer(&s);
         if bare.starts_with('{') {
             s
-        } else if crate::tidy::is_ternary(bare) {
+        } else if t.is_cond() {
             // Parenthesized on the arrow's line, as oxfmt prints it;
             // `tidy::wrap_arrow` drops the pair when the body moves down.
             format!("({bare})")
@@ -154,7 +169,75 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
 }
 
 pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
+    emit_tx(expr, indent).print()
+}
+
+/// `expr` as a tree of the operators it prints as (`crate::tx`): binary
+/// operators, `!`, `-`, `?:`, and the calls and `match`es that print as one
+/// (`o !== null`, `xs.length === 0`, `x ?? d`). Anything else is an atom.
+pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
+    use purecrate_ir::Callee;
     let expr = peel_identity(expr);
+    match expr {
+        Expr::Ignored { expr, .. } => emit_tx(expr, indent),
+        Expr::Seq { first, then } if matches!(**first, Expr::Comment(_)) => emit_tx(then, indent),
+        Expr::Binary { op, left, right } => {
+            // A comparison reads a literal or a length bare: `<` and `===`
+            // compare the values, and a brand does not change them.
+            let comparison = matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Eq | BinOp::Ne);
+            let side = |e: &Expr| match comparison.then(|| bare(e, indent)).flatten() {
+                Some(b) => Tx::atom(b),
+                None => emit_tx(e, indent),
+            };
+            Tx::bin(tx_op(*op), side(left), side(right))
+        }
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => emit_tx(expr, indent).not(),
+        Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => Tx::Neg(Box::new(emit_tx(expr, indent))),
+        Expr::Match { .. } | Expr::Let { .. } => {
+            as_tx(expr, indent).unwrap_or_else(|| Tx::atom(emit_iife(expr, indent)))
+        }
+        Expr::If { .. } if expr.needs_statements() => {
+            as_tx(expr, indent).unwrap_or_else(|| Tx::atom(emit_iife(expr, indent)))
+        }
+        // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that would move
+        // into the middle.
+        Expr::If { cond, then, else_ }
+            if !matches!(peel_identity(else_), Expr::If { .. } | Expr::Match { .. })
+                && matches!(peel_identity(cond), Expr::Unary { op: purecrate_ir::UnOp::Not, .. }) =>
+        {
+            let Expr::Unary { expr: positive, .. } = peel_identity(cond) else { unreachable!("matched above") };
+            emit_tx(&Expr::If { cond: positive.clone(), then: else_.clone(), else_: then.clone() }, indent)
+        }
+        // `c ? true : false` is `c`, as oxlint's `no-unneeded-ternary` asks.
+        Expr::If { cond, then, else_ }
+            if bool_lit(then).is_some() && bool_lit(else_).is_some() && bool_lit(then) != bool_lit(else_) =>
+        {
+            fold(emit_tx(cond, indent), (Tx::atom(""), bool_lit(then)), (Tx::atom(""), bool_lit(else_)))
+        }
+        Expr::If { cond, then, else_ } => Tx::Cond(
+            CondStyle::Plain,
+            Box::new(emit_tx(cond, indent)),
+            Box::new(emit_tx(then, indent)),
+            Box::new(emit_tx(else_, indent)),
+        ),
+        Expr::Call { callee: callee @ (Callee::OptionIsSome | Callee::OptionIsNone), args } => {
+            let op = if matches!(callee, Callee::OptionIsSome) { Op::Ne } else { Op::Eq };
+            Tx::bin(op, emit_tx(&args[0], indent), Tx::atom("null"))
+        }
+        Expr::Call { callee: Callee::VecIsEmpty | Callee::Str(purecrate_ir::StrMethod::IsEmpty), args } => {
+            Tx::bin(Op::Eq, Tx::atom(format!("{}.length", receiver(emit_tx(&args[0], indent)))), Tx::atom("0"))
+        }
+        Expr::Call { callee: Callee::OptionSome | Callee::StringFrom, args } => emit_tx(&args[0], indent),
+        Expr::Call { callee: Callee::IntFrom { from: Some(from), to }, args } if from == to => {
+            emit_tx(&args[0], indent)
+        }
+        _ => Tx::atom(emit_atom(expr, indent)),
+    }
+}
+
+/// `expr` where it binds tighter than any operator: a name, a literal, a
+/// member, a call, or what the printer parenthesizes itself.
+fn emit_atom(expr: &Expr, indent: usize) -> String {
     match expr {
         Expr::At { .. } => {
             unreachable!("emit takes `check::accept` output, which has no positions")
@@ -169,7 +252,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Field { base, name } if name.as_str().starts_with('[') => {
             format!("{}{}", emit_expr(base, indent), name.as_str())
         }
-        Expr::Field { base, name } => format!("{}.{n}", receiver(emit_expr(base, indent)), n = name.as_str()),
+        Expr::Field { base, name } => format!("{}.{n}", receiver(emit_tx(base, indent)), n = name.as_str()),
         // `Slice.at` takes a plain `number`: a literal index needs no brand.
         Expr::Index { base, index } => format!(
             "Slice.at({}, {})",
@@ -179,46 +262,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 _ => emit_item(index, indent),
             }
         ),
-        Expr::Binary { op, left, right } => {
-            let p = bin_prec(*op);
-            // A comparison reads a literal or a length bare: `<` and `===`
-            // compare the values, and a brand does not change them.
-            if matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Eq | BinOp::Ne) {
-                let (l, r) = (bare(left, indent), bare(right, indent));
-                if l.is_some() || r.is_some() {
-                    let l = l
-                        .unwrap_or_else(|| grouped(left, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Left));
-                    let r = r.unwrap_or_else(|| {
-                        grouped(right, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Right)
-                    });
-                    return format!("{l} {} {r}", bin_op(*op));
-                }
-            }
-            format!(
-                "{} {} {}",
-                grouped(left, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Left),
-                bin_op(*op),
-                grouped(right, indent, p, crate::tidy::Assoc::Left, crate::tidy::Side::Right)
-            )
-        }
-        Expr::Unary { op, expr } => {
-            let o = match op {
-                purecrate_ir::UnOp::Not => "!",
-                purecrate_ir::UnOp::Neg => "-",
-            };
-            let inner =
-                grouped(expr, indent, crate::tidy::PREC_UNARY, crate::tidy::Assoc::Right, crate::tidy::Side::Right);
-            if *op == purecrate_ir::UnOp::Not {
-                if let Some(flipped) = crate::tidy::negate(&inner) {
-                    return flipped;
-                }
-            }
-            if inner.starts_with(o) {
-                format!("{o}({inner})")
-            } else {
-                format!("{o}{inner}")
-            }
-        }
+        Expr::Binary { .. } | Expr::Unary { .. } => unreachable!("`emit_tx` prints operators"),
         // `|x| f(x)`, which a function name passed to `map` or `all` becomes,
         // is `f` itself: its parameter and return types are the arrow's.
         Expr::Closure { params, body, .. } if forwards(params, body).is_some() => {
@@ -242,8 +286,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             (None, Some(base)) => emit_struct_update(fields, base),
             (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
         },
-        Expr::Match { .. } | Expr::Let { .. } => as_expr(expr, indent).unwrap_or_else(|| emit_iife(expr, indent)),
-        Expr::If { .. } if expr.needs_statements() => as_expr(expr, indent).unwrap_or_else(|| emit_iife(expr, indent)),
+        Expr::Match { .. } | Expr::Let { .. } | Expr::If { .. } => unreachable!("`emit_tx` prints choices"),
         Expr::Try { .. }
         | Expr::Seq { .. }
         | Expr::Assign { .. }
@@ -253,28 +296,6 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         Expr::Break | Expr::Continue => {
             unreachable!("`check::accept` keeps `break` and `continue` in statement position")
         }
-        // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that would move
-        // into the middle.
-        Expr::If { cond, then, else_ }
-            if !matches!(peel_identity(else_), Expr::If { .. } | Expr::Match { .. })
-                && matches!(peel_identity(cond), Expr::Unary { op: purecrate_ir::UnOp::Not, .. }) =>
-        {
-            let Expr::Unary { expr: positive, .. } = peel_identity(cond) else { unreachable!("matched above") };
-            emit_expr(&Expr::If { cond: positive.clone(), then: else_.clone(), else_: then.clone() }, indent)
-        }
-        // `c ? true : false` is `c`, as oxlint's `no-unneeded-ternary` asks.
-        Expr::If { cond, then, else_ }
-            if bool_lit(then).is_some() && bool_lit(else_).is_some() && bool_lit(then) != bool_lit(else_) =>
-        {
-            let c = emit_expr(cond, indent);
-            fold(c, (String::new(), bool_lit(then)), (String::new(), bool_lit(else_)))
-        }
-        Expr::If { cond, then, else_ } => format!(
-            "{} ? {} : {}",
-            grouped(cond, indent, crate::tidy::PREC_TERNARY, crate::tidy::Assoc::Right, crate::tidy::Side::Left),
-            grouped(then, indent, crate::tidy::PREC_TERNARY, crate::tidy::Assoc::Right, crate::tidy::Side::Left),
-            grouped(else_, indent, crate::tidy::PREC_TERNARY, crate::tidy::Assoc::Right, crate::tidy::Side::Right)
-        ),
         // Variant names are identifiers other than `__proto__` (checked), so
         // an object literal is a plain table.
         Expr::Call { callee: purecrate_ir::Callee::Discriminant { to, table, of }, args } => {
@@ -307,7 +328,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
         }
         Expr::Call { callee, args } => {
             if let purecrate_ir::Callee::Consume { method, over } = callee {
-                let source = iterable(*over, emit_expr(&args[0], indent));
+                let source = iterable(*over, emit_tx(&args[0], indent));
                 return match method {
                     purecrate_ir::Consume::Count => format!("Iter.count({source})"),
                     purecrate_ir::Consume::Sum(int) => format!(
@@ -391,12 +412,12 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                         return format!("({lookup} as {})", to.ts_name());
                     }
                 }
-                let x = emit_expr(&args[0], indent);
+                let x = emit_tx(&args[0], indent);
                 let from = from.expect("check::accept sets the source width");
                 return match (from.is_big(), to.is_big()) {
-                    _ if from == *to => x,
-                    (false, true) => format!("(globalThis.BigInt({x}) as {})", to.ts_name()),
-                    _ => format!("({} as number as {})", cast_operand(&x), to.ts_name()),
+                    _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
+                    (false, true) => format!("(globalThis.BigInt({}) as {})", x.print(), to.ts_name()),
+                    _ => format!("({} as number as {})", cast_operand(x), to.ts_name()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
@@ -409,13 +430,13 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 // JS `split` takes a string; the `char` needs no brand.
                 return format!(
                     "{}.split({})",
-                    receiver(emit_expr(&args[0], indent)),
+                    receiver(emit_tx(&args[0], indent)),
                     bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
                 );
             }
             if let purecrate_ir::Callee::IterMap { over } | purecrate_ir::Callee::IterFilter { over } = callee {
                 let stage = if matches!(callee, purecrate_ir::Callee::IterMap { .. }) { "map" } else { "filter" };
-                let source = iterable(*over, emit_expr(&args[0], indent));
+                let source = iterable(*over, emit_tx(&args[0], indent));
                 return format!("Iter.{stage}({source}, {})", emit_item(&args[1], indent));
             }
             if let purecrate_ir::Callee::Collect { result, over } = callee {
@@ -424,11 +445,11 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
             if let purecrate_ir::Callee::Str(m) = callee {
                 // The object of `.startsWith` and the other members; a call
                 // argument (`Str.len(s)`) takes it as it is.
-                let s = receiver(emit_expr(&args[0], indent));
+                let s = receiver(emit_tx(&args[0], indent));
                 let needle = || bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
                 return match m {
                     purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
-                    purecrate_ir::StrMethod::IsEmpty => format!("{s}.length === 0"),
+                    purecrate_ir::StrMethod::IsEmpty => unreachable!("`emit_tx` prints a comparison"),
                     purecrate_ir::StrMethod::StartsWith => format!("{s}.startsWith({})", needle()),
                     purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
                     purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
@@ -445,34 +466,19 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
-                return format!("({}.length as Usize)", receiver(emit_expr(&args[0], indent)));
+                return format!("({}.length as Usize)", receiver(emit_tx(&args[0], indent)));
             }
             if matches!(callee, purecrate_ir::Callee::VecPush) {
-                return format!("{}.push({})", receiver(emit_expr(&args[0], indent)), emit_item(&args[1], indent));
-            }
-            match callee {
-                purecrate_ir::Callee::VecIsEmpty => {
-                    return format!("{}.length === 0", receiver(emit_expr(&args[0], indent)))
-                }
-                purecrate_ir::Callee::OptionIsSome => {
-                    return format!("{} !== null", equality_operand(emit_expr(&args[0], indent)))
-                }
-                purecrate_ir::Callee::OptionIsNone => {
-                    return format!("{} === null", equality_operand(emit_expr(&args[0], indent)))
-                }
-                _ => {}
+                return format!("{}.push({})", receiver(emit_tx(&args[0], indent)), emit_item(&args[1], indent));
             }
             if matches!(callee, purecrate_ir::Callee::Fround) {
                 return format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent));
             }
             if let purecrate_ir::Callee::AsFloat(ft) = callee {
-                return format!("({} as {})", cast_operand(&emit_expr(&args[0], indent)), ft.ts_name());
+                return format!("({} as {})", cast_operand(emit_tx(&args[0], indent)), ft.ts_name());
             }
             if matches!(callee, purecrate_ir::Callee::OptionNone) {
                 return "null".into();
-            }
-            if matches!(callee, purecrate_ir::Callee::OptionSome | purecrate_ir::Callee::StringFrom) {
-                return emit_expr(&args[0], indent);
             }
             // A shift amount is a plain `number` in the runtime: a literal
             // there needs no brand.
@@ -498,54 +504,24 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
     }
 }
 
-/// Print `expr` as an operand of a parent of `parent` precedence.
-fn grouped(expr: &Expr, indent: usize, parent: u8, assoc: crate::tidy::Assoc, side: crate::tidy::Side) -> String {
-    let s = emit_expr(expr, indent);
-    // A `match` or `if` may print as a test (`k.kind === "A"`): what it
-    // printed decides, as `tidy::group` reads it.
-    if matches!(peel_identity(expr), Expr::If { .. } | Expr::Match { .. }) && !crate::tidy::has_top_as(&s) {
-        return crate::tidy::group(&s, parent, assoc, side);
-    }
-    // A call may print as an operator (`o !== null` for `is_some`): the
-    // looser of the two decides.
-    let prec = expr_prec(expr).min(crate::tidy::top_prec(&s));
-    let nested_eq = parent == crate::tidy::PREC_EQ && prec == crate::tidy::PREC_EQ;
-    if nested_eq || crate::tidy::needs_paren(prec, parent, assoc, side) {
-        format!("({s})")
-    } else {
-        s
-    }
-}
-
-fn bin_prec(op: BinOp) -> u8 {
+fn tx_op(op: BinOp) -> Op {
     match op {
-        BinOp::Mul | BinOp::Div | BinOp::Rem => crate::tidy::PREC_MUL,
-        BinOp::Add | BinOp::Sub => crate::tidy::PREC_ADD,
-        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => crate::tidy::PREC_REL,
-        BinOp::Eq | BinOp::Ne => crate::tidy::PREC_EQ,
-        BinOp::And => crate::tidy::PREC_AND,
-        BinOp::Or => crate::tidy::PREC_OR,
+        BinOp::Mul => Op::Mul,
+        BinOp::Div => Op::Div,
+        BinOp::Rem => Op::Rem,
+        BinOp::Add => Op::Add,
+        BinOp::Sub => Op::Sub,
+        BinOp::Lt => Op::Lt,
+        BinOp::Le => Op::Le,
+        BinOp::Gt => Op::Gt,
+        BinOp::Ge => Op::Ge,
+        BinOp::Eq => Op::Eq,
+        BinOp::Ne => Op::Ne,
+        BinOp::And => Op::And,
+        BinOp::Or => Op::Or,
         BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
             unreachable!("`check::accept` rewrites bitwise operators into `Int` calls")
         }
-    }
-}
-
-fn expr_prec(expr: &Expr) -> u8 {
-    match peel_identity(expr) {
-        Expr::Binary { op, .. } => bin_prec(*op),
-        Expr::Unary { .. } => crate::tidy::PREC_UNARY,
-        // Printed as a comparison (`s.length === 0`, `o !== null`).
-        Expr::Call {
-            callee:
-                purecrate_ir::Callee::Str(purecrate_ir::StrMethod::IsEmpty)
-                | purecrate_ir::Callee::VecIsEmpty
-                | purecrate_ir::Callee::OptionIsSome
-                | purecrate_ir::Callee::OptionIsNone,
-            ..
-        } => crate::tidy::PREC_EQ,
-        Expr::If { .. } | Expr::Match { .. } | Expr::Let { .. } => crate::tidy::PREC_TERNARY,
-        _ => crate::tidy::PREC_ATOMIC,
     }
 }
 
@@ -653,41 +629,36 @@ pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> S
 /// nothing in one assigns. `None` otherwise: the inline function stays,
 /// which evaluates a scrutinee that is not a place once.
 pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
+    as_tx(expr, indent).map(|t| t.print())
+}
+
+pub(crate) fn as_tx(expr: &Expr, indent: usize) -> Option<Tx> {
     match expr {
         Expr::Let { name, mutable: false, value, then, .. } if value.is_inlinable() => {
-            as_expr(&subst(then, name, value), indent)
+            as_tx(&subst(then, name, value), indent)
         }
-        Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_expr(scrutinee, arms, indent),
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_tx(scrutinee, arms, indent),
         Expr::Match { scrutinee, arms } if one_of(arms).is_some() => {
             let (lits, yes) = one_of(arms)?;
-            let test = format!("[{lits}].includes({})", crate::tidy::strip_outer(&emit_expr(scrutinee, indent)));
-            Some(if yes { test } else { format!("!{test}") })
+            let test = Tx::atom(format!("[{lits}].includes({})", emit_tx(scrutinee, indent).print()));
+            Some(if yes { test } else { Tx::Not(Box::new(test)) })
         }
         Expr::If { cond, then, else_ } => {
-            let (t, e) = (as_expr(then, indent)?, as_expr(else_, indent)?);
-            Some(fold(emit_expr(cond, indent), (t, bool_lit(then)), (e, bool_lit(else_))))
+            let (t, e) = (as_tx(then, indent)?, as_tx(else_, indent)?);
+            Some(fold(emit_tx(cond, indent), (t, bool_lit(then)), (e, bool_lit(else_))))
         }
-        e if !e.needs_statements() => Some(emit_expr(e, indent)),
+        e if !e.needs_statements() => Some(emit_tx(e, indent)),
         _ => None,
     }
 }
 
-/// `s` as the object of `.member`: parenthesized unless it binds tighter
+/// `x` as the object of `.member`: parenthesized unless it binds tighter
 /// than any operator (`(c ? a : b).length`).
-fn receiver(s: String) -> String {
-    let t = crate::tidy::strip_outer(&s);
-    if crate::tidy::top_prec(t) < crate::tidy::PREC_ATOMIC {
-        format!("({t})")
-    } else {
-        t.to_string()
+fn receiver(x: Tx) -> String {
+    match x {
+        Tx::Atom(s) => s,
+        other => format!("({})", other.print()),
     }
-}
-
-/// `s` as the left side of `===` / `!==`: a `?:`, `&&`, `||`, or `??` is
-/// parenthesized, as JS would bind the comparison inside it.
-fn equality_operand(s: String) -> String {
-    use crate::tidy::{group, Assoc, Side, PREC_EQ};
-    group(&s, PREC_EQ, Assoc::Left, Side::Left)
 }
 
 /// `collect()`, always a new array (design/01 §7.14): the pieces of a split
@@ -705,29 +676,28 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
     let f = args.get(1).map(|f| emit_item(f, indent));
     if result {
         let f = f.expect("a `Result` is collected through `map(f)`");
-        return format!("Iter.tryCollect({}, {f})", iterable(over, emit_expr(source, indent)));
+        return format!("Iter.tryCollect({}, {f})", iterable(over, emit_tx(source, indent)));
     }
     match (f, source) {
         (None, s) if split(s) => emit_expr(s, indent),
         // A choice or an operator under `...` is parenthesized, as oxfmt prints it.
         (None, s) if array => {
-            let s = emit_expr(s, indent);
-            let s = crate::tidy::strip_outer(&s);
-            if crate::tidy::top_prec(s) < crate::tidy::PREC_UNARY {
-                format!("[...({s})]")
+            let s = emit_tx(s, indent);
+            if s.prec() < crate::tidy::PREC_UNARY {
+                format!("[...({})]", s.print())
             } else {
-                format!("[...{s}]")
+                format!("[...{}]", s.print())
             }
         }
         // One `filter` over an array.
         (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
             if !stage(&inner[0]) =>
         {
-            format!("{}.filter({})", receiver(emit_expr(&inner[0], indent)), emit_item(&inner[1], indent))
+            format!("{}.filter({})", receiver(emit_tx(&inner[0], indent)), emit_item(&inner[1], indent))
         }
-        (None, s) => format!("Array.from({})", iterable(over, emit_expr(s, indent))),
-        (Some(f), s) if array => format!("{}.map({f})", receiver(emit_expr(s, indent))),
-        (Some(f), s) => format!("Array.from(Iter.map({}, {f}))", iterable(over, emit_expr(s, indent))),
+        (None, s) => format!("Array.from({})", iterable(over, emit_tx(s, indent))),
+        (Some(f), s) if array => format!("{}.map({f})", receiver(emit_tx(s, indent))),
+        (Some(f), s) => format!("Array.from(Iter.map({}, {f}))", iterable(over, emit_tx(s, indent))),
     }
 }
 
@@ -761,93 +731,35 @@ fn bool_lit(e: &Expr) -> Option<bool> {
     }
 }
 
-/// `!test`, as `a !== b` for `a === b` (`opt === null || opt`).
-fn not_test(test: &str) -> String {
-    use crate::tidy::{group, Assoc, Side, PREC_UNARY};
-    crate::tidy::negate(test).unwrap_or_else(|| format!("!{}", group(test, PREC_UNARY, Assoc::Right, Side::Right)))
-}
-
 /// `test ? then : else_`, as `||` / `&&` when either side is a `bool`
-/// literal. Operands are parenthesized only when precedence requires it.
-fn fold(test: String, (then, then_lit): (String, Option<bool>), (else_, else_lit): (String, Option<bool>)) -> String {
-    use crate::tidy::{group, Assoc, Side, PREC_AND, PREC_OR, PREC_TERNARY, PREC_UNARY};
+/// literal, and as `x ?? d` for `x !== null ? x : d`. The tree sets the
+/// parentheses (`crate::tx`).
+fn fold(test: Tx, (then, then_lit): (Tx, Option<bool>), (else_, else_lit): (Tx, Option<bool>)) -> Tx {
     match (then_lit, else_lit) {
-        (Some(true), Some(false)) => crate::tidy::strip_outer(&test).to_string(),
-        (Some(false), Some(true)) => match crate::tidy::negate(&test) {
-            Some(flipped) => flipped,
-            None => format!("!{}", group(&test, PREC_UNARY, Assoc::Right, Side::Right)),
-        },
-        (Some(true), _) => format!(
-            "{} || {}",
-            group(&test, PREC_OR, Assoc::Left, Side::Left),
-            group(&else_, PREC_OR, Assoc::Left, Side::Right)
-        ),
-        (Some(false), _) => format!(
-            "{} && {}",
-            group(&not_test(&test), PREC_AND, Assoc::Left, Side::Left),
-            group(&else_, PREC_AND, Assoc::Left, Side::Right)
-        ),
-        (_, Some(false)) => format!(
-            "{} && {}",
-            group(&test, PREC_AND, Assoc::Left, Side::Left),
-            group(&then, PREC_AND, Assoc::Left, Side::Right)
-        ),
-        (_, Some(true)) => format!(
-            "{} || {}",
-            group(&not_test(&test), PREC_OR, Assoc::Left, Side::Left),
-            group(&then, PREC_OR, Assoc::Left, Side::Right)
-        ),
+        (Some(true), Some(false)) => test,
+        (Some(false), Some(true)) => test.not(),
+        (Some(true), _) => Tx::bin(Op::Or, test, else_),
+        (Some(false), _) => Tx::bin(Op::And, test.not(), else_),
+        (_, Some(false)) => Tx::bin(Op::And, test, then),
+        (_, Some(true)) => Tx::bin(Op::Or, test.not(), then),
         _ => {
-            let t = crate::tidy::strip_outer(&then);
             // `unwrap_or` of a name, literal, or field: `x ?? d` is the test
-            // `x !== null` with the same `x` in the Some arm (`??` keeps 0/false).
-            if test == format!("{t} !== null") {
-                // A cast beside `??` is parenthesized, as oxfmt prints it.
-                let d = crate::tidy::strip_outer(&else_);
-                // `x ?? null` is `x`.
-                if d == "null" {
-                    return t.to_string();
-                }
-                let d = group(d, crate::tidy::PREC_COALESCE, Assoc::Left, Side::Right);
-                if crate::tidy::has_top_as(&d) {
-                    format!("{t} ?? ({d})")
-                } else {
-                    format!("{t} ?? {d}")
-                }
-            } else {
-                // A cast in a branch, and a `??` anywhere in it, is
-                // parenthesized, as oxfmt prints it.
-                let coalesces = |g: &str| crate::tidy::top_prec(g) == crate::tidy::PREC_COALESCE;
-                let branch = |s: &str, side| {
-                    let g = group(s, PREC_TERNARY, Assoc::Right, side);
-                    if crate::tidy::has_top_as(&g) || coalesces(&g) {
-                        format!("({g})")
+            // `x !== null` with the same `x` in the Some arm (`??` keeps
+            // 0/false). `x ?? null` is `x`.
+            if let Tx::Bin(Op::Ne, x, null) = &test {
+                if **null == Tx::atom("null") && x.print() == then.print() && x.prec() > crate::tidy::PREC_EQ {
+                    return if else_.print() == "null" {
+                        (**x).clone()
                     } else {
-                        g
-                    }
-                };
-                // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that
-                // would move into the middle.
-                let bare = crate::tidy::strip_outer(&test);
-                let (test, then, else_) = match bare.strip_prefix('!') {
-                    Some(c)
-                        if crate::tidy::top_prec(bare) == crate::tidy::PREC_UNARY
-                            && !crate::tidy::is_ternary(&else_) =>
-                    {
-                        (crate::tidy::strip_outer(c).to_string(), else_, then)
-                    }
-                    _ => (test, then, else_),
-                };
-                let test = group(&test, PREC_TERNARY, Assoc::Right, Side::Left);
-                let test = if coalesces(&test) { format!("({test})") } else { test };
-                format!(
-                    "{} ? {} : {}",
-                    test,
-                    // A `?:` in the middle is parenthesized, as oxfmt prints it
-                    // on one line; `tidy::wrap` drops the pair when it splits.
-                    branch(&then, Side::Left),
-                    branch(&else_, Side::Right)
-                )
+                        Tx::bin(Op::Coalesce, (**x).clone(), else_)
+                    };
+                }
+            }
+            // `!c ? a : b` is `c ? b : a`, unless `b` is a `?:` that would
+            // move into the middle.
+            match test {
+                Tx::Not(c) if !else_.is_cond() => Tx::Cond(CondStyle::Fold, c, Box::new(else_), Box::new(then)),
+                test => Tx::Cond(CondStyle::Fold, Box::new(test), Box::new(then), Box::new(else_)),
             }
         }
     }
@@ -875,13 +787,13 @@ pub(crate) fn bind_in(p: &Pattern, read: Expr, body: &mut Expr) -> Option<()> {
 /// The arms in order, each a test on `scrutinee` and its body with the
 /// pattern's bindings read from `scrutinee`; the last is the `else`, as
 /// `check::accept` has made the `match` exhaustive.
-fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Option<String> {
+fn match_tx(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Option<Tx> {
     if arms.iter().any(|a| a.guard.is_some()) {
         return None;
     }
     let subject = emit_expr(scrutinee, indent);
     let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
-    let mut parts: Vec<(Option<String>, String, Option<bool>)> = Vec::new();
+    let mut parts: Vec<(Option<Tx>, Tx, Option<bool>)> = Vec::new();
     for (i, arm) in arms.iter().enumerate() {
         let last = i + 1 == arms.len();
         let mut body = arm.body.clone();
@@ -894,17 +806,17 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
             }
             Pattern::OptionSome(p) => {
                 bind(p, scrutinee.clone(), &mut body)?;
-                two_way_test(&arm.pattern, &subject)
+                two_way_tx(&arm.pattern, &subject)
             }
             Pattern::ResultOk(p) => {
                 bind(p, field(scrutinee, "value"), &mut body)?;
-                two_way_test(&arm.pattern, &subject)
+                two_way_tx(&arm.pattern, &subject)
             }
             Pattern::ResultErr(p) => {
                 bind(p, field(scrutinee, "error"), &mut body)?;
-                two_way_test(&arm.pattern, &subject)
+                two_way_tx(&arm.pattern, &subject)
             }
-            Pattern::OptionNone => two_way_test(&arm.pattern, &subject),
+            Pattern::OptionNone => two_way_tx(&arm.pattern, &subject),
             Pattern::Variant { variant, bind: vb, .. } => {
                 match vb {
                     VariantBind::Unit => {}
@@ -924,29 +836,24 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
                         }
                     }
                 }
-                Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
+                Some(kind_test(&subject, variant.as_str()))
             }
             // Variants that bind nothing (`Cons(_, _)` counts).
             Pattern::Or(alts)
                 if alts.iter().all(|a| matches!(a, Pattern::Variant { .. }) && a.bindings().is_empty()) =>
             {
-                Some(
-                    alts.iter()
-                        .filter_map(|a| match a {
-                            Pattern::Variant { variant, .. } => {
-                                Some(format!("{subject}.kind === \"{}\"", variant.as_str()))
-                            }
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" || "),
-                )
+                alts.iter()
+                    .filter_map(|a| match a {
+                        Pattern::Variant { variant, .. } => Some(kind_test(&subject, variant.as_str())),
+                        _ => None,
+                    })
+                    .reduce(|a, b| Tx::bin(Op::Or, a, b))
             }
-            p if p.is_lit_case() => Some(lit_test(p, &subject)?),
+            p if p.is_lit_case() => Some(lit_tx(p, &subject)?),
             _ => return None,
         };
         let lit = bool_lit(&body);
-        let text = as_expr(&body, indent)?;
+        let text = as_tx(&body, indent)?;
         parts.push((if last { None } else { test }, text, lit));
     }
     let (_, mut acc, mut acc_lit) = parts.pop()?;
@@ -956,6 +863,11 @@ fn match_expr(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Op
         acc_lit = None;
     }
     Some(acc)
+}
+
+/// `subject.kind === "V"`.
+fn kind_test(subject: &str, variant: &str) -> Tx {
+    Tx::bin(Op::Eq, Tx::atom(format!("{subject}.kind")), Tx::atom(format!("\"{variant}\"")))
 }
 
 /// `expr` with each read of `name` replaced by `with`. Nested binders of
@@ -974,7 +886,7 @@ pub(crate) fn subst(expr: &Expr, name: &Name, with: &Expr) -> Expr {
             Expr::Match { scrutinee, arms } => {
                 go(scrutinee, name, with);
                 for arm in arms {
-                    let bound = arm.pattern.bindings().iter().any(|b| *b == name);
+                    let bound = arm.pattern.bindings().contains(&name);
                     if !bound {
                         if let Some(g) = &mut arm.guard {
                             go(g, name, with);
@@ -1086,27 +998,6 @@ pub(crate) fn js_string(s: &str) -> String {
     out
 }
 
-pub(crate) fn bin_op(op: BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Rem => "%",
-        BinOp::Eq => "===",
-        BinOp::Ne => "!==",
-        BinOp::Lt => "<",
-        BinOp::Le => "<=",
-        BinOp::Gt => ">",
-        BinOp::Ge => ">=",
-        BinOp::And => "&&",
-        BinOp::Or => "||",
-        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
-            unreachable!("`check::accept` rewrites bitwise operators into `Int` calls")
-        }
-    }
-}
-
 pub(crate) fn is_ident(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
@@ -1187,13 +1078,13 @@ pub(crate) fn if_test(test: &str, pad: &str) -> String {
 }
 
 /// The operand of `as`: parenthesized where it is a binary expression or a
-/// `?:` (`(a / b) as F64`), as oxfmt prints it.
-fn cast_operand(s: &str) -> String {
-    let s = crate::tidy::strip_outer(s);
-    if crate::tidy::top_prec(s) < crate::tidy::PREC_UNARY {
-        format!("({s})")
-    } else {
-        s.to_string()
+/// `?:` (`(a / b) as F64`), as oxfmt prints it; a cast already in its own
+/// parentheses loses them (`x as number as U8`).
+fn cast_operand(x: Tx) -> String {
+    match x {
+        Tx::Atom(s) => crate::tidy::strip_outer(&s).to_string(),
+        x if x.prec() < crate::tidy::PREC_UNARY => format!("({})", x.print()),
+        x => x.print(),
     }
 }
 
@@ -1216,7 +1107,7 @@ fn bare(expr: &Expr, indent: usize) -> Option<String> {
         Expr::Ignored { expr, .. } => bare(expr, indent),
         Expr::Lit(lit @ (Lit::Int { ty: Some(_), .. } | Lit::Char(_))) => Some(bare_lit(lit)),
         Expr::Call { callee: purecrate_ir::Callee::VecLen, args } => {
-            Some(format!("{}.length", receiver(emit_expr(&args[0], indent))))
+            Some(format!("{}.length", receiver(emit_tx(&args[0], indent))))
         }
         _ => None,
     }

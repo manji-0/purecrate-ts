@@ -11,7 +11,7 @@
 //! The tree also copies an arm under each case of a value, where a `match`
 //! in it on that value can take one arm only; it is that arm (`narrow`).
 
-use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, VariantBind};
+use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, TryOn, VariantBind};
 
 use crate::stmt::{is_place, touches};
 
@@ -21,7 +21,99 @@ pub(crate) fn joined(expr: &Expr) -> Expr {
     unstated(&mut out, true);
     narrow(&mut out, &mut Vec::new());
     join(&mut out);
+    unread(&mut out);
+    decided(&mut out, false);
+    unread(&mut out);
     out
+}
+
+/// `if true { a } else { b }` as `a` where `a` declares names, which the
+/// fold in `join` leaves: safe unless a statement of the same block follows
+/// (`followed`), whose names `a`'s could meet. A value or a tail is printed
+/// in a block of its own or ends its block. TS refuses `if (true)` as
+/// unreachable code on the other side.
+fn decided(expr: &mut Expr, followed: bool) {
+    if let Expr::If { cond, then, else_ } = expr {
+        if let Expr::Lit(Lit::Bool(c)) = **cond {
+            let side = if c { &**then } else { &**else_ };
+            if !followed || !declares(side) {
+                *expr = side.clone();
+                return decided(expr, followed);
+            }
+        }
+    }
+    match expr {
+        Expr::Seq { first, then } => {
+            decided(first, true);
+            decided(then, followed);
+        }
+        Expr::Let { value, then, .. } => {
+            decided(value, false);
+            decided(then, followed);
+        }
+        other => {
+            for child in other.children_mut() {
+                decided(child, false);
+            }
+        }
+    }
+}
+
+/// What narrowing and joining folded may leave a name unread: an arm's
+/// binding goes, and a `let` runs its value as a statement (or not at all,
+/// where it only reads). TS refuses an unread `const`.
+fn unread(expr: &mut Expr) {
+    for child in expr.children_mut() {
+        unread(child);
+    }
+    literal_compare(expr);
+    match expr {
+        Expr::Match { scrutinee, arms } => {
+            for arm in arms.iter_mut() {
+                let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
+                arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
+            }
+            // Every arm the same, binding nothing (`Some(_) => false, None =>
+            // false`): the value, where the scrutinee does nothing.
+            let same =
+                arms.iter().all(|a| a.guard.is_none() && a.pattern.bindings().is_empty() && a.body == arms[0].body);
+            if same && !arms.is_empty() && effectless(scrutinee) {
+                *expr = arms[0].body.clone();
+            }
+        }
+        // A test the cleanup above decided, as `join` folds one.
+        Expr::If { cond, then, else_ } if matches!(**cond, Expr::Lit(Lit::Bool(_))) => {
+            let Expr::Lit(Lit::Bool(c)) = **cond else { unreachable!("matched") };
+            let side = if c { &**then } else { &**else_ };
+            if !declares(side) {
+                *expr = side.clone();
+            }
+        }
+        // `x && false` where `x` does nothing is `false` (TS: unreachable
+        // code); `true && x` is `x`, and the same for `||`.
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+            let unit = *op == BinOp::And; // `true && x` is `x`
+            let lit = |e: &Expr| match e {
+                Expr::Lit(Lit::Bool(b)) => Some(*b),
+                _ => None,
+            };
+            *expr = match (lit(left), lit(right)) {
+                (Some(l), _) if l == unit => (**right).clone(),
+                (Some(l), _) => Expr::Lit(Lit::Bool(l)),
+                (_, Some(r)) if r == unit => (**left).clone(),
+                (_, Some(r)) if pure(left) => Expr::Lit(Lit::Bool(r)),
+                _ => return,
+            };
+        }
+        Expr::Let { name, mutable: false, value, then, .. } if !mentions(then, name) => {
+            *expr = if effectless(value) {
+                (**then).clone()
+            } else {
+                Expr::Seq { first: value.clone(), then: then.clone() }
+            };
+        }
+        _ => {}
+    }
 }
 
 /// `expr` without the comments that are not above a statement: one above
@@ -229,6 +321,23 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
         *expr = taken;
         return narrow(expr, known);
     }
+    // `r?` where `r` is known `Ok` never leaves.
+    if let Expr::Seq { first, then } = expr {
+        if let Expr::Try { expr: place, on: Some(on) } = &**first {
+            let case = tried_case(*on);
+            let holds = |p: &Expr| {
+                known
+                    .iter()
+                    .rev()
+                    .find(|(k, _)| k == p)
+                    .is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&case))
+            };
+            if is_place(place) && (holds(place) || aliased(place).is_some_and(|t| holds(&t))) {
+                *expr = (**then).clone();
+                return narrow(expr, known);
+            }
+        }
+    }
     match expr {
         // An arm of `A | B` is narrowed for each variant; where the bodies
         // differ, it is one arm per variant (the printer shares the cases of
@@ -242,12 +351,21 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
                     split.push(arm);
                     continue;
                 }
+                // `let $t = r; match $t { .. }` (how a method's receiver is
+                // bound): an arm narrows `r` as well, unless it writes `r`.
+                let target = aliased(scrutinee).filter(|t| !touches(&arm.body, root(t)));
                 let bodies: Vec<Expr> = variants
                     .into_iter()
                     .map(|v| {
                         let mut body = arm.body.clone();
-                        known.push(((**scrutinee).clone(), vec![v]));
+                        known.push(((**scrutinee).clone(), vec![v.clone()]));
+                        if let Some(t) = &target {
+                            known.push((t.clone(), vec![v]));
+                        }
                         narrow(&mut body, known);
+                        if target.is_some() {
+                            known.pop();
+                        }
                         known.pop();
                         body
                     })
@@ -266,19 +384,114 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
                     }
                 }
             }
+            // Narrowing may have folded every read of a name an arm binds
+            // (`Err(e) => match r { Ok(_) => e, Err(_) => b }`); TS refuses
+            // the unread `const`.
+            for arm in &mut split {
+                let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
+                arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
+            }
             *arms = split;
+        }
+        // `let t = r; t?; ..` (how `?` on a place is lifted): past the `?`,
+        // `t` and `r` hold `Ok` (or `Some`), and TS has narrowed both.
+        Expr::Let { name, mutable: false, value, then, .. }
+            if is_place(value)
+                && !touches(then, root(value))
+                && tried(then).is_some_and(|(t, _)| *t == Expr::Var(name.clone())) =>
+        {
+            let case = tried_case(tried(then).expect("checked above").1);
+            // Already known to hold: the `?` never leaves.
+            if known
+                .iter()
+                .rev()
+                .find(|(k, _)| k == &**value)
+                .is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&case))
+            {
+                let Expr::Seq { then: rest, .. } = &mut **then else { unreachable!("tried") };
+                **then = std::mem::replace(&mut **rest, Expr::Lit(Lit::Unit));
+                return narrow(expr, known);
+            }
+            let Expr::Seq { then: rest, .. } = &mut **then else { unreachable!("tried") };
+            known.push(((**value).clone(), vec![case.clone()]));
+            known.push((Expr::Var(name.clone()), vec![case]));
+            narrow(rest, known);
+            known.pop();
+            known.pop();
+        }
+        Expr::Seq { first, then } if matches!(&**first, Expr::Try { expr, on: Some(_) } if is_place(expr) && !touches(then, root(expr))) =>
+        {
+            let Expr::Try { expr: place, on: Some(on) } = &**first else { unreachable!("matched") };
+            known.push(((**place).clone(), vec![tried_case(*on)]));
+            narrow(then, known);
+            known.pop();
         }
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
             let alias = known.iter().find(|(p, _)| p == &**value).map(|(_, vs)| vs.clone());
             if let Some(vs) = &alias {
                 known.push((Expr::Var(name.clone()), vs.clone()));
             }
+            ALIASES.with(|a| a.borrow_mut().push((name.clone(), (**value).clone())));
             narrow(then, known);
+            ALIASES.with(|a| a.borrow_mut().pop());
             if alias.is_some() {
                 known.pop();
-                if !mentions(then, name) {
-                    *expr = (**then).clone();
-                }
+            }
+            // Reading a place does nothing: a binding narrowing left unread
+            // (`unwrap_or(a)`'s `$optOr = a` past `o?`) goes, so `a` is not
+            // counted as read.
+            if !mentions(then, name) {
+                *expr = (**then).clone();
+            }
+        }
+        // `let o = r.ok(); match o { .. }` where narrowing made the value a
+        // constructor: `o` is that case, and a `let` nothing reads is gone.
+        Expr::Let { name, mutable: false, value, then, .. } => {
+            narrow(value, known);
+            if let Some(e) = constructed_arm(value) {
+                **value = e;
+            }
+            // `let v = match r { Ok(v) => v, Err(e) => return .. }` (how
+            // `map_err(f)?` is typed): past it, `r` is `Ok`, as TS knows.
+            // Not a place an arm or what follows writes (`o = None`).
+            let past: Vec<(Expr, Vec<Name>)> =
+                survives(value).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
+            for (place, cases) in &past {
+                known.push((place.clone(), cases.clone()));
+            }
+            narrow(then, known);
+            for _ in &past {
+                known.pop();
+            }
+            // TS does not narrow `o` from `Result.ok(a)`, whose type is the
+            // whole union: each `match o` is decided on the value itself,
+            // its payload bound by name.
+            // The payload is read again where the `match` was: only a name
+            // nothing reassigns, or a literal.
+            // `let $r = r; Some($r.value)` (a receiver bound first) is
+            // `Some(r.value)`.
+            let built = as_constructor(value);
+            let steady = built.as_ref().is_some_and(|b| {
+                b.children().iter().all(|c| match c {
+                    Expr::Lit(_) => true,
+                    c if is_place(c) => !touches(then, root(c)),
+                    _ => false,
+                })
+            });
+            if let (Some(built), true, false) = (built, steady, touches(then, name)) {
+                decide_on(then, name, &built);
+                // What that decided may leave a binding below unread.
+                narrow(then, known);
+            }
+            // A binding narrowing left unread (`unwrap_or(d)`'s eager `d`
+            // once its `None` arm is gone) still runs, as a statement; TS
+            // refuses the unread `const`.
+            if !mentions(then, name) {
+                *expr = if effectless(value) {
+                    (**then).clone()
+                } else {
+                    Expr::Seq { first: value.clone(), then: then.clone() }
+                };
             }
         }
         // A closure may run where the narrowing no longer holds.
@@ -287,26 +500,329 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
             for child in expr.children_mut() {
                 narrow(child, known);
             }
+            // A scrutinee narrowing made a constructor (`r.ok()` in `r`'s
+            // `Err` arm is `None`) decides its `match` too: `null ?? d` is
+            // what TS would refuse.
+            if let Some(taken) = constructed_arm(expr) {
+                *expr = taken;
+            }
+            literal_compare(expr);
+            // `is_some()` of what narrowing made `None` or `Some(v)`.
+            if let Expr::Call {
+                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
+                args,
+            } = expr
+            {
+                if let [arg] = args.as_slice() {
+                    let pure = arg.children().iter().all(|c| matches!(c, Expr::Var(_) | Expr::Lit(_)));
+                    let some = match constructed_case(arg).as_ref().map(Name::as_str) {
+                        Some(SOME) => Some(true),
+                        Some(NONE) => Some(false),
+                        _ => None,
+                    };
+                    if let (Some(some), true) = (some, pure) {
+                        *expr = Expr::Lit(Lit::Bool(some == (*callee == purecrate_ir::Callee::OptionIsSome)));
+                    }
+                }
+            }
         }
     }
 }
 
+/// The arm a `match` on `None`, `Some(e)`, `Ok(e)`, or `Err(e)` takes, with
+/// `e` bound to the name its pattern gives it. `None` where an arm before
+/// it may take the value, a guard decides, or the payload's pattern is
+/// neither a name nor `_` over a value that cannot do anything.
+fn constructed_arm(expr: &Expr) -> Option<Expr> {
+    use purecrate_ir::Callee;
+    let Expr::Match { scrutinee, arms } = expr else { return None };
+    let Expr::Call { callee, args } = &**scrutinee else { return None };
+    let (case, payload) = match (callee, args.as_slice()) {
+        (Callee::OptionNone, []) => (NONE, None),
+        (Callee::OptionSome, [e]) => (SOME, Some(e)),
+        (Callee::ResultOk, [e]) => (OK, Some(e)),
+        (Callee::ResultErr, [e]) => (ERR, Some(e)),
+        _ => return None,
+    };
+    let case = Name::new(case);
+    for arm in arms {
+        if admits(&arm.pattern, &case) {
+            if arm.guard.is_some() {
+                return None;
+            }
+            let inner = match &arm.pattern {
+                Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => Some(&**p),
+                _ => None,
+            };
+            return match (inner, payload) {
+                (Some(Pattern::Var(n)), Some(e)) => Some(Expr::Let {
+                    name: n.clone(),
+                    mutable: false,
+                    ty: None,
+                    value: Box::new(e.clone()),
+                    then: Box::new(arm.body.clone()),
+                }),
+                (Some(Pattern::Var(_)), None) => None,
+                (_, Some(e)) if !matches!(e, Expr::Var(_) | Expr::Lit(_)) => None,
+                _ => Some(arm.body.clone()),
+            };
+        }
+        if may_take(&arm.pattern, &case) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Each `match name { .. }` in `expr` as the arm `value`, a constructor,
+/// takes, where `constructed_arm` can tell.
+fn decide_on(expr: &mut Expr, name: &Name, value: &Expr) {
+    if let Expr::Match { scrutinee, arms } = expr {
+        if **scrutinee == Expr::Var(name.clone()) {
+            let on_value = Expr::Match { scrutinee: Box::new(value.clone()), arms: arms.clone() };
+            if let Some(taken) = constructed_arm(&on_value) {
+                *expr = taken;
+                return decide_on(expr, name, value);
+            }
+        }
+    }
+    // A binding of the same name hides it below; `let $p = p` is `p` too.
+    if let Expr::Let { name: n, value: v, then, mutable: false, .. } = expr {
+        if n == name {
+            return decide_on(v, name, value);
+        }
+        if **v == Expr::Var(name.clone()) && !touches(then, n) {
+            let n = n.clone();
+            decide_on(then, &n, value);
+        }
+    }
+    for child in expr.children_mut() {
+        decide_on(child, name, value);
+    }
+}
+
+/// `pattern` with each name `read` says is unread made `_`.
+fn unbind(pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pattern {
+    let inner = |p: Pattern| Box::new(unbind(p, read));
+    match pattern {
+        Pattern::Var(n) if !read(&n) => Pattern::Wildcard,
+        Pattern::OptionSome(p) => Pattern::OptionSome(inner(*p)),
+        Pattern::ResultOk(p) => Pattern::ResultOk(inner(*p)),
+        Pattern::ResultErr(p) => Pattern::ResultErr(inner(*p)),
+        Pattern::Variant { ty, variant, bind: VariantBind::Tuple(ps) } => Pattern::Variant {
+            ty,
+            variant,
+            bind: VariantBind::Tuple(ps.into_iter().map(|p| unbind(p, read)).collect()),
+        },
+        Pattern::Variant { ty, variant, bind: VariantBind::Struct(ps) } => Pattern::Variant {
+            ty,
+            variant,
+            bind: VariantBind::Struct(ps.into_iter().map(|(f, p)| (f, unbind(p, read))).collect()),
+        },
+        other => other,
+    }
+}
+
+/// The places a `match` that returns from some arms leaves narrowed to the
+/// cases of the others, with the place a `let` alias of it names.
+fn survives(value: &Expr) -> Vec<(Expr, Vec<Name>)> {
+    match value {
+        // What the value established, unless the rest writes it; through
+        // `let $result = r; match $result { .. }`, `r` too.
+        Expr::Let { name, value: inner, then, .. } => {
+            let mut out: Vec<_> = survives(inner).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
+            let after = survives(then);
+            if is_place(inner) && !touches(then, root(inner)) {
+                if let Some(cases) = after.iter().find(|(p, _)| *p == Expr::Var(name.clone())).map(|(_, c)| c.clone()) {
+                    out.push(((**inner).clone(), cases));
+                }
+            }
+            out.extend(after);
+            return out;
+        }
+        Expr::Seq { first, then } => {
+            let mut out: Vec<_> = match &**first {
+                Expr::Try { expr, on: Some(on) } if is_place(expr) => vec![((**expr).clone(), vec![tried_case(*on)])],
+                f => survives(f),
+            };
+            out.retain(|(p, _)| !touches(then, root(p)));
+            out.extend(survives(then));
+            return out;
+        }
+        Expr::At { expr, .. } => return survives(expr),
+        _ => {}
+    }
+    let Expr::Match { scrutinee, arms } = value else { return Vec::new() };
+    if !is_place(scrutinee)
+        || arms
+            .iter()
+            .any(|a| a.guard.is_some() || variants_of(&a.pattern).is_empty() || touches(&a.body, root(scrutinee)))
+    {
+        return Vec::new();
+    }
+    let kept: Vec<Name> = arms.iter().filter(|a| !diverges(&a.body)).flat_map(|a| variants_of(&a.pattern)).collect();
+    if kept.is_empty() || kept.len() == arms.iter().flat_map(|a| variants_of(&a.pattern)).count() {
+        return Vec::new();
+    }
+    let mut out = vec![((**scrutinee).clone(), kept.clone())];
+    if let Some(t) = aliased(scrutinee) {
+        out.push((t, kept));
+    }
+    out
+}
+
+/// Whether evaluating `expr` always leaves the function.
+fn diverges(expr: &Expr) -> bool {
+    match expr {
+        Expr::Return(_) => true,
+        Expr::Let { then, .. } | Expr::Seq { then, .. } => diverges(then),
+        Expr::At { expr, .. } => diverges(expr),
+        _ => false,
+    }
+}
+
+/// `1 == 65535` as `false`: TS refuses comparing two literals it knows
+/// apart.
+fn literal_compare(expr: &mut Expr) {
+    if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
+        let int = |e: &Expr| match e {
+            Expr::Lit(Lit::Int { value, .. }) => Some(*value),
+            Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => match &**expr {
+                Expr::Lit(Lit::Int { value, .. }) => Some(-*value),
+                _ => None,
+            },
+            _ => None,
+        };
+        // `{ let v = 7; v }` is printed as `7`.
+        let (left, right) = (crate::stmt::peel_identity(left), crate::stmt::peel_identity(right));
+        let same = match (left, right) {
+            (l, r) if int(l).is_some() && int(r).is_some() => Some(int(l) == int(r)),
+            (Expr::Lit(Lit::Str(a)), Expr::Lit(Lit::Str(b))) => Some(a == b),
+            (Expr::Lit(Lit::Char(a)), Expr::Lit(Lit::Char(b))) => Some(a == b),
+            (Expr::Lit(Lit::Bool(a)), Expr::Lit(Lit::Bool(b))) => Some(a == b),
+            _ => None,
+        };
+        if let Some(same) = same {
+            *expr = Expr::Lit(Lit::Bool(same == (*op == BinOp::Eq)));
+        }
+    }
+}
+
+/// `expr` as `None`, `Some(e)`, `Ok(e)`, or `Err(e)`, seeing through
+/// `let t = place;` around it, `t` read as the place.
+fn as_constructor(expr: &Expr) -> Option<Expr> {
+    match expr {
+        e if constructed_case(e).is_some() => Some(e.clone()),
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
+            let mut inner = as_constructor(then)?;
+            replace_var(&mut inner, name, value);
+            Some(inner)
+        }
+        _ => None,
+    }
+}
+
+fn replace_var(expr: &mut Expr, name: &Name, with: &Expr) {
+    if *expr == Expr::Var(name.clone()) {
+        *expr = with.clone();
+        return;
+    }
+    for child in expr.children_mut() {
+        replace_var(child, name, with);
+    }
+}
+
+/// The case `None`, `Some(e)`, `Ok(e)`, or `Err(e)` builds.
+fn constructed_case(expr: &Expr) -> Option<Name> {
+    use purecrate_ir::Callee;
+    let Expr::Call { callee, .. } = expr else { return None };
+    let case = match callee {
+        Callee::OptionNone => NONE,
+        Callee::OptionSome => SOME,
+        Callee::ResultOk => OK,
+        Callee::ResultErr => ERR,
+        _ => return None,
+    };
+    Some(Name::new(case))
+}
+
+/// Whether `pattern` may match a value of `case`, payload aside.
+fn may_take(pattern: &Pattern, case: &Name) -> bool {
+    match pattern {
+        Pattern::ResultOk(_) => case.as_str() == OK,
+        Pattern::ResultErr(_) => case.as_str() == ERR,
+        Pattern::OptionSome(_) => case.as_str() == SOME,
+        Pattern::OptionNone => case.as_str() == NONE,
+        Pattern::Or(alts) => alts.iter().any(|p| may_take(p, case)),
+        _ => true,
+    }
+}
+
+thread_local! {
+    /// The `let t = place` around the expression `narrow` is in, innermost
+    /// last, each with a place nothing below it writes.
+    static ALIASES: std::cell::RefCell<Vec<(Name, Expr)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The place a name `let t = place` binds holds, followed to its end.
+fn aliased(expr: &Expr) -> Option<Expr> {
+    let Expr::Var(n) = expr else { return None };
+    let target = ALIASES.with(|a| a.borrow().iter().rev().find(|(m, _)| m == n).map(|(_, p)| p.clone()))?;
+    Some(aliased(&target).unwrap_or(target))
+}
+
+/// The place a statement `p?` leaves on, when `expr` starts with one.
+fn tried(expr: &Expr) -> Option<(&Expr, TryOn)> {
+    match expr {
+        Expr::Seq { first, .. } => match &**first {
+            Expr::Try { expr, on: Some(on) } if is_place(expr) => Some((expr, *on)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// What a place holds past a `?` on it.
+fn tried_case(on: TryOn) -> Name {
+    Name::new(if on == TryOn::Option { SOME } else { OK })
+}
+
 /// The body of the one arm a `match` on a narrowed place takes for every
-/// variant it may hold, where that arm binds nothing.
+/// variant it may hold. Where that arm binds names, they are read from the
+/// place (`r.value`): TS has narrowed it too, and would refuse the test it
+/// knows the answer to (`"Err"` and `"Ok"` have no overlap).
 fn taken_arm(expr: &Expr, known: &Known) -> Option<Expr> {
     let Expr::Match { scrutinee, arms } = expr else { return None };
     let (_, variants) = known.iter().rev().find(|(p, _)| p == &**scrutinee)?;
     let pick = |v: &Name| arms.iter().position(|a| admits(&a.pattern, v));
     let first = pick(&variants[0])?;
     let arm = &arms[first];
-    (arm.guard.is_none() && arm.pattern.bindings().is_empty() && variants.iter().all(|v| pick(v) == Some(first)))
-        .then(|| arm.body.clone())
+    if arm.guard.is_some() || !variants.iter().all(|v| pick(v) == Some(first)) {
+        return None;
+    }
+    if arm.pattern.bindings().is_empty() {
+        Some(arm.body.clone())
+    } else {
+        read_in(arm, scrutinee)
+    }
 }
 
-/// The variants a pattern on an enum admits; none for any other pattern.
+/// The cases of `Result` and `Option`, as `Known` names them: no variant of
+/// a crate's enum starts with `$`.
+const OK: &str = "$Ok";
+const ERR: &str = "$Err";
+const SOME: &str = "$Some";
+const NONE: &str = "$None";
+
+/// The variants a pattern on an enum, a `Result`, or an `Option` admits;
+/// none for any other pattern.
 fn variants_of(pattern: &Pattern) -> Vec<Name> {
     match pattern {
         Pattern::Variant { variant, .. } => vec![variant.clone()],
+        Pattern::ResultOk(_) => vec![Name::new(OK)],
+        Pattern::ResultErr(_) => vec![Name::new(ERR)],
+        Pattern::OptionSome(_) => vec![Name::new(SOME)],
+        Pattern::OptionNone => vec![Name::new(NONE)],
         Pattern::Or(alts) => {
             let vs: Vec<Name> = alts.iter().flat_map(variants_of).collect();
             if vs.len() == alts.len() {
@@ -323,6 +839,10 @@ fn admits(pattern: &Pattern, variant: &Name) -> bool {
     match pattern {
         Pattern::Wildcard | Pattern::Var(_) => true,
         Pattern::Variant { variant: v, bind, .. } => v == variant && bind_admits_all(bind),
+        Pattern::ResultOk(p) => variant.as_str() == OK && !p.refutable(),
+        Pattern::ResultErr(p) => variant.as_str() == ERR && !p.refutable(),
+        Pattern::OptionSome(p) => variant.as_str() == SOME && !p.refutable(),
+        Pattern::OptionNone => variant.as_str() == NONE,
         Pattern::Or(alts) => alts.iter().any(|p| admits(p, variant)),
         _ => false,
     }
@@ -338,7 +858,7 @@ fn bind_admits_all(bind: &VariantBind) -> bool {
     }
 }
 
-fn mentions(expr: &Expr, name: &Name) -> bool {
+pub(crate) fn mentions(expr: &Expr, name: &Name) -> bool {
     match expr {
         Expr::Var(n) | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name => true,
         other => other.children().into_iter().any(|c| mentions(c, name)),
@@ -403,6 +923,30 @@ fn pure(expr: &Expr) -> bool {
             | Expr::Binary { .. }
     );
     here && expr.children().into_iter().all(pure)
+}
+
+/// Whether evaluating `expr` can neither panic nor change anything, as
+/// `pure`, through `Option` and `Result` built, tested, and matched.
+fn effectless(expr: &Expr) -> bool {
+    use purecrate_ir::Callee;
+    match expr {
+        Expr::Call {
+            callee:
+                Callee::OptionSome
+                | Callee::OptionNone
+                | Callee::ResultOk
+                | Callee::ResultErr
+                | Callee::OptionIsSome
+                | Callee::OptionIsNone,
+            args,
+        } => args.iter().all(effectless),
+        Expr::Let { value, then, .. } => effectless(value) && effectless(then),
+        Expr::Match { scrutinee, arms } => {
+            effectless(scrutinee) && arms.iter().all(|a| a.guard.is_none() && effectless(&a.body))
+        }
+        Expr::If { cond, then, else_ } => effectless(cond) && effectless(then) && effectless(else_),
+        e => pure(e),
+    }
 }
 
 /// `name` itself, or a copy of it (`String::from(&t)`, printed as `t`).

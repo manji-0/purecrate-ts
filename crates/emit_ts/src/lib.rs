@@ -12,6 +12,7 @@ mod plain;
 mod schema;
 mod stmt;
 mod tidy;
+mod tx;
 
 use expr::*;
 use imports::*;
@@ -45,6 +46,10 @@ fn temp(base: &str, _indent: usize) -> String {
     format!("${base}_{n}")
 }
 
+/// A discriminant table: its enum and whether it holds `bigint`s, then its
+/// name and declaration.
+type Table = ((String, bool), String, String);
+
 thread_local! {
     /// Temporaries made so far (`temp`).
     static TEMPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -69,7 +74,7 @@ thread_local! {
     /// The discriminant tables the file being printed reads (`expr::table`),
     /// each keyed by its enum and whether it holds `bigint`s, with its name
     /// and declaration; printed after the file's imports.
-    static TABLES: RefCell<Vec<((String, bool), String, String)>> = const { RefCell::new(Vec::new()) };
+    static TABLES: RefCell<Vec<Table>> = const { RefCell::new(Vec::new()) };
     /// The loops being printed, innermost last, each with its label when a
     /// `break` or `continue` in it leaves it.
     static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
@@ -627,7 +632,7 @@ export const step = (state: State, event: Event): State => {
             doc: None,
         }));
         let pkg = emit(&krate);
-        assert!(file(&pkg, "state").contains("zero: (self: State): State => ({ n: 0 }),"), "{}", file(&pkg, "state"));
+        assert!(file(&pkg, "state").contains("zero: (_self: State): State => ({ n: 0 }),"), "{}", file(&pkg, "state"));
     }
 
     #[test]

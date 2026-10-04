@@ -30,7 +30,22 @@ fn generated_evaluation_order_matches_rust() {
                 cases.push(case!(order_of_eval::try_in_default(None::<i32>, a, fail)));
                 cases.push(case!(order_of_eval::try_in_default(Some(a), 3i32, fail)));
                 cases.push(case!(order_of_eval::try_in_range_end(a, 3i32, fail)));
+                for v in [0i32, 3] {
+                    cases.push(case!(order_of_eval::try_in_ok_or_arg(a, v, fail)));
+                    cases.push(case!(order_of_eval::try_in_ok_or_arg_operand(a, v, fail)));
+                }
             }
+        }
+        for a in [i32::MIN, 0, 1, 9] {
+            for fail in [false, true] {
+                cases.push(case!(order_of_eval::mapped_try_in_ok_or_arg(a, 3i32, fail)));
+                cases.push(case!(order_of_eval::mapped_try_in_ok_or_arg(i32::MAX, a, fail)));
+            }
+            cases.push(case!(order_of_eval::unwrap_or_in_ok_or(a)));
+            cases.push(case!(order_of_eval::ok_or_scrutinee(Some(a), 4i32)));
+            cases.push(case!(order_of_eval::ok_or_scrutinee(None::<i32>, a)));
+            cases.push(case!(order_of_eval::annotated_scrutinee(a)));
+            cases.push(case!(order_of_eval::folded_param(a, 2i32)));
         }
         for x in [None, Some(0u32), Some(9)] {
             cases.push(case!(order_of_eval::reassigned_scrutinee(x)));

@@ -37,8 +37,8 @@ export type Result<T, E> =
   | Readonly<{ kind: "Err"; error: E }>;
 
 export const Result = {
-  ok: <T, E>(value: T): Result<T, E> => ({ kind: "Ok", value }),
-  err: <T, E>(error: E): Result<T, E> => ({ kind: "Err", error }),
+  ok: <T, E = never>(value: T): Result<T, E> => ({ kind: "Ok", value }),
+  err: <T = never, E = never>(error: E): Result<T, E> => ({ kind: "Err", error }),
   isOk: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Ok"; value: T }> => r.kind === "Ok",
   isErr: <T, E>(r: Result<T, E>): r is Readonly<{ kind: "Err"; error: E }> => r.kind === "Err",
 } as const;

@@ -552,7 +552,7 @@ fn read_places(mut expr: Expr, places: &[(Name, Expr)]) -> Expr {
             **scrutinee = read_places(sc, places);
             for arm in arms.iter_mut() {
                 let bound = arm.pattern.bindings();
-                let inner = without(&bound.iter().copied().collect::<Vec<_>>());
+                let inner = without(&bound);
                 if let Some(g) = arm.guard.take() {
                     arm.guard = Some(read_places(g, &inner));
                 }

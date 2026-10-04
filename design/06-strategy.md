@@ -1,6 +1,6 @@
 # Strategy: means, demand, and criteria
 
-Status: analysis, revised 2026-10-01
+Status: analysis, revised 2026-10-04
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
@@ -114,7 +114,7 @@ The author's own examples cannot validate the constraints: the author writes aro
 | --- | --- |
 | More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, oidc, and semver are from third-party specs; all six could be written |
 | Constrained Rust exceeds 2× | Not met. semver, the last example over 2×, is 1.8× by the script after `split_once`, `collect`, and `Some((a, b))` (0.7.0), 1.3× leaving out the closed type's accessors and counting `impl Ord` as logic. Its first draft was 2.8× ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)) |
-| Silent wrong values keep appearing | Not met. No silent wrong value appeared in any of them |
+| Silent wrong values keep appearing | Not met in the examples: none appeared in any of them. The generator is not as clean as that row once read: audits found output that disagreed with Rust on accepted input in 0.8.1 (a `?` in a `for` range's end ran before its start), 0.9.0 (a `?` inside `ok_or(..)?` left only an inline function), and 0.9.1 (`r.ok().is_some()` gave 0 for `Ok(0)`; a struct pattern's guard read a name its closure hid), each in a shape no fixture spelled. Since then `generated_equivalence.rs` builds such shapes from seeds: no value disagreed on any seed whose output reached node, and a `?` in `ok_or`'s argument, printed in an inline function, was found and fixed before it could (tsc refused its type). With the runtime's `Result` defaults and the narrowing folds of 0.10.0, seeds 1 to 120 reach node and agree (7,200 functions, 86,400 calls); one fold, wrong where an arm reassigned the place, was caught by an existing fixture before release |
 | No real use | Open. No real-world replacement yet (§5.2) |
 
 Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120 (`scripts/line-counts.py`); the history column was taken as written. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).

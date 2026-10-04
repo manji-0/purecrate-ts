@@ -151,7 +151,10 @@ pub(crate) fn brace_spans(src: &str) -> Vec<(usize, usize)> {
     scan(src).1
 }
 
-fn scan(src: &str) -> (Vec<(usize, usize, bool)>, Vec<(usize, usize)>) {
+/// Identifier spans (`ident_spans`) and brace spans (`brace_spans`).
+type Spans = (Vec<(usize, usize, bool)>, Vec<(usize, usize)>);
+
+fn scan(src: &str) -> Spans {
     let chars: Vec<char> = src.chars().collect();
     let offsets: Vec<usize> = src.char_indices().map(|(at, _)| at).chain([src.len()]).collect();
     let mut out = Vec::new();

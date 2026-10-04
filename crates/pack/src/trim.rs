@@ -275,9 +275,7 @@ fn drop_empty_namespaces(src: &str) -> String {
                     }
                 }
             }
-            for n in start..=i + 1 {
-                skip[n] = true;
-            }
+            skip[start..=i + 1].fill(true);
             i += 2;
             continue;
         }

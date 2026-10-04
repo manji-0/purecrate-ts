@@ -449,7 +449,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let hole = |t: &Ty| matches!(t, Ty::Named(n) if n.as_str() == "_");
         let Some(map) = map else {
-            if err.as_ref().is_some_and(|e| hole(e)) || result {
+            if err.as_ref().is_some_and(hole) || result {
                 self.error(
                     Reason::TypeMismatch,
                     "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string(),
@@ -474,7 +474,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
         }
         // A hole is what `f` returns: its `Ok` and `Err` for a `Result`.
-        let (elem, err) = if hole(&elem) || err.as_ref().is_some_and(|e| hole(e)) {
+        let (elem, err) = if hole(&elem) || err.as_ref().is_some_and(hole) {
             let returned = self.returns_of(&body, &param, &item)?;
             match (&err, self.norm(&returned)) {
                 (Some(e), Ty::Result { ok, err: re }) => {

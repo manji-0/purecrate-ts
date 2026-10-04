@@ -2,6 +2,8 @@
 //! the printer only meets `let x = e?` and can emit an early `return`.
 //! `position` has already rejected `?` in places this pass cannot reach.
 
+use std::collections::HashSet;
+
 use purecrate_ir::{Arm, BinOp, Callee, Crate, Expr, Fields, Fn, Item, Lit, Name, TryOn, UnOp};
 
 pub fn lift(krate: Crate) -> Crate {
@@ -21,7 +23,13 @@ pub fn lift(krate: Crate) -> Crate {
 fn lift_body(mut body: Expr) -> Expr {
     lift_closures(&mut body);
     let mut body = Lifter::for_body(&body).stmt(body);
-    guard_ok_or(&mut body, &mut 0);
+    let mut taken = bound_names(&body);
+    // The guard puts `ok_or`'s argument in a `let` of its own: a `?` in it
+    // (`o.ok_or(a / r?)?`) is lifted from there, before the test, as Rust
+    // evaluates the argument whether or not the option is `Some`.
+    if guard_ok_or(&mut body, &mut taken) {
+        body = Lifter::for_body(&body).stmt(body);
+    }
     body
 }
 
@@ -37,10 +45,16 @@ fn lift_body(mut body: Expr) -> Expr {
 ///
 /// `rename` saw `$opt` and `$arg` inside the `?`, each in a scope of its
 /// own, so two of them may have one name; here they share the function's
-/// block, so each gets a made name (`$opt_1`) that `plain_names` keeps apart.
-fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
+/// block, so each gets a made name (`$opt_1`) no other binding of the body
+/// has, which `plain_names` keeps apart. `rename` numbers its own made names
+/// the same way (`$opt`, `$opt_1`), so `taken` holds every name bound.
+/// Whether an argument it moved holds a `?`, which is still to be lifted.
+fn guard_ok_or(expr: &mut Expr, taken: &mut HashSet<String>) -> bool {
+    let mut tries = false;
     if let Expr::Let { name, mutable, ty, value, then } = expr {
         if let Some((opt, opt_ty, recv, arg, arg_ty, e)) = ok_or_try(value) {
+            // `map_err(f)?` is a `match` that returns by now, not a `Try`.
+            tries |= leaves(&e);
             // An option typing could not name (`$opt`, the receiver a call)
             // is named after the local it is for: `qtyOpt`, `qtyOr`.
             // A shadow `x$1` prints as `x2`, so its option is `x2Opt`.
@@ -52,7 +66,6 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
                 None => name.as_str().to_string(),
             };
             let mut fresh = |n: &Name| {
-                *made += 1;
                 let base =
                     n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
                 let base = match base {
@@ -60,7 +73,9 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
                     "optOr" if !local.is_empty() => format!("{local}Or"),
                     b => b.to_string(),
                 };
-                Name::new(format!("${base}_{made}"))
+                let name = (1..).map(|k| format!("${base}_{k}")).find(|n| !taken.contains(n)).expect("a free name");
+                taken.insert(name.clone());
+                Name::new(name)
             };
             let (opt, arg) = (fresh(&opt), fresh(&arg));
             // An immutable local holds the option itself: past the test, TS
@@ -106,7 +121,10 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
             };
         }
     }
-    expr.children_mut().into_iter().for_each(|c| guard_ok_or(c, made));
+    for c in expr.children_mut() {
+        tries |= guard_ok_or(c, taken);
+    }
+    tries
 }
 
 /// The pieces of `Try` on what `option_method` builds for `ok_or`:
@@ -153,6 +171,29 @@ fn lift_closures(expr: &mut Expr) {
     expr.children_mut().into_iter().for_each(lift_closures);
 }
 
+/// Every name `body` binds: `let`, loop variables, patterns, and closure
+/// parameters.
+fn bound_names(body: &Expr) -> HashSet<String> {
+    fn walk(e: &Expr, out: &mut HashSet<String>) {
+        match e {
+            Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => {
+                out.insert(name.as_str().to_string());
+            }
+            Expr::Match { arms, .. } => {
+                for a in arms {
+                    out.extend(a.pattern.bindings().into_iter().map(|n| n.as_str().to_string()));
+                }
+            }
+            Expr::Closure { params, .. } => out.extend(params.iter().map(|p| p.name.as_str().to_string())),
+            _ => {}
+        }
+        e.children().into_iter().for_each(|c| walk(c, out));
+    }
+    let mut taken = HashSet::new();
+    walk(body, &mut taken);
+    taken
+}
+
 /// A binding placed in front of the statement: `let name = inner?` when the
 /// kind is set, else `let name = inner`.
 type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>)>;
@@ -160,29 +201,12 @@ type Hoisted = Vec<(Name, Expr, Option<Option<TryOn>>)>;
 #[derive(Default)]
 struct Lifter {
     /// Every name the body binds, and those this pass has made.
-    taken: std::collections::HashSet<String>,
+    taken: HashSet<String>,
 }
 
 impl Lifter {
     fn for_body(body: &Expr) -> Self {
-        let mut taken = std::collections::HashSet::new();
-        fn walk(e: &Expr, out: &mut std::collections::HashSet<String>) {
-            match e {
-                Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => {
-                    out.insert(name.as_str().to_string());
-                }
-                Expr::Match { arms, .. } => {
-                    for a in arms {
-                        out.extend(a.pattern.bindings().into_iter().map(|n| n.as_str().to_string()));
-                    }
-                }
-                Expr::Closure { params, .. } => out.extend(params.iter().map(|p| p.name.as_str().to_string())),
-                _ => {}
-            }
-            e.children().into_iter().for_each(|c| walk(c, out));
-        }
-        walk(body, &mut taken);
-        Lifter { taken }
+        Lifter { taken: bound_names(body) }
     }
 
     /// `$<f><What>` for `f(..)` (`$removeSkuResult`), `$<what>` otherwise,

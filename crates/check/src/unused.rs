@@ -50,6 +50,20 @@ fn drop_in_fn(f: Fn, items: &HashSet<String>) -> Fn {
     }
 }
 
+/// Whether `expr` is, or ends in, `let $r: Result<..> = match ..; $r`, as
+/// `ok_or` builds it.
+fn names_result(expr: &Expr) -> bool {
+    match expr {
+        Expr::Let { name, ty: Some(purecrate_ir::Ty::Result { .. }), value, then, .. }
+            if matches!(value.as_ref(), Expr::Match { .. }) && matches!(then.as_ref(), Expr::Var(n) if n == name) =>
+        {
+            true
+        }
+        Expr::Let { then, .. } => names_result(then),
+        _ => false,
+    }
+}
+
 struct Cx {
     /// Every name in the function and the crate's item names, so a `_x`
     /// made here meets none of them.
@@ -75,17 +89,48 @@ impl Cx {
     }
 
     fn expr(&mut self, expr: Expr) -> Expr {
+        // `match { let $t = v; e } { .. }` is `let $t = v; match e { .. }`:
+        // `v` runs first either way, and a made name meets no arm's binding.
+        // Taken where the binding is the `$result` of `ok_or`'s `match` (or
+        // what leads to it), whose annotation is the only place TS learns the
+        // error type; a binding the tail collapse below would print as
+        // nothing keeps that.
+        let expr = match expr {
+            Expr::Match { scrutinee, arms } => match *scrutinee {
+                Expr::Let { name, mutable: false, ty, value, then }
+                    if name.as_str().starts_with('$')
+                        && names_result(&Expr::Let {
+                            name: name.clone(),
+                            mutable: false,
+                            ty: ty.clone(),
+                            value: value.clone(),
+                            then: then.clone(),
+                        }) =>
+                {
+                    return self.expr(Expr::Let {
+                        name,
+                        mutable: false,
+                        ty,
+                        value,
+                        then: Box::new(Expr::Match { scrutinee: then, arms }),
+                    });
+                }
+                scrutinee => Expr::Match { scrutinee: Box::new(scrutinee), arms },
+            },
+            other => other,
+        };
         let mut expr = match expr {
             // `collect::<T>()` and `sum::<T>()` are a typed `let $name = e; $name`
             // so the turbofish is the `want` during typing. The name is used once,
-            // as that tail, so the binding prints as nothing.
+            // as that tail, so the binding prints as nothing. (As a scrutinee it
+            // went before the `match` above, keeping its annotation.)
             Expr::Let { name, mutable: false, value, then, .. }
                 if name.as_str().starts_with('$') && matches!(then.as_ref(), Expr::Var(n) if n == &name) =>
             {
                 return self.expr(*value);
             }
             Expr::Let { name, value, then, .. } if !used_in(&then, name.as_str()) => {
-                let value = self.expr(*value);
+                let value = self.expr(effects(*value));
                 let then = self.expr(strip_assigns(*then, &name));
                 return if is_pure(&value) { then } else { Expr::Seq { first: Box::new(value), then: Box::new(then) } };
             }
@@ -197,6 +242,67 @@ fn strip_assigns(expr: Expr, name: &Name) -> Expr {
 
 /// Dropping it changes nothing: no call, arithmetic, or index that could
 /// panic or loop.
+/// What evaluating `expr` for its effects alone needs: its value is
+/// dropped, so a tail that only reads (an arm's `v`, a `match` on a place
+/// whose arms only read) goes, and the names bound for it with it. What
+/// may panic stays, in order. `()` when nothing is left.
+fn effects(expr: Expr) -> Expr {
+    let unit = || Expr::Lit(purecrate_ir::Lit::Unit);
+    match expr {
+        e if inert(&e) => unit(),
+        Expr::Match { scrutinee, arms } => {
+            let arms: Vec<Arm> = arms.into_iter().map(|a| Arm { body: effects(a.body), ..a }).collect();
+            if arms.iter().all(|a| is_unit(&a.body) && a.guard.as_ref().is_none_or(is_pure)) {
+                effects(*scrutinee)
+            } else {
+                Expr::Match { scrutinee, arms }
+            }
+        }
+        Expr::If { cond, then, else_ } => {
+            let (then, else_) = (effects(*then), effects(*else_));
+            if is_unit(&then) && is_unit(&else_) {
+                effects(*cond)
+            } else {
+                Expr::If { cond, then: Box::new(then), else_: Box::new(else_) }
+            }
+        }
+        Expr::Let { name, mutable, ty, value, then } => {
+            Expr::Let { name, mutable, ty, value, then: Box::new(effects(*then)) }
+        }
+        Expr::Seq { first, then } => {
+            let then = effects(*then);
+            if is_unit(&then) {
+                *first
+            } else {
+                Expr::Seq { first, then: Box::new(then) }
+            }
+        }
+        Expr::At { at, expr } => {
+            let inner = effects(*expr);
+            if is_unit(&inner) {
+                inner
+            } else {
+                Expr::At { at, expr: Box::new(inner) }
+            }
+        }
+        other => other,
+    }
+}
+
+/// A read, or a value built of reads: `Some(v)`, `Ok(v)`, `None`.
+fn inert(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { callee: Callee::OptionSome | Callee::OptionNone | Callee::ResultOk | Callee::ResultErr, args } => {
+            args.iter().all(inert)
+        }
+        e => is_pure(e),
+    }
+}
+
+fn is_unit(expr: &Expr) -> bool {
+    matches!(expr, Expr::Lit(purecrate_ir::Lit::Unit))
+}
+
 fn is_pure(expr: &Expr) -> bool {
     match expr {
         Expr::Var(_) | Expr::Lit(_) | Expr::Closure { .. } => true,

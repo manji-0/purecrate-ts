@@ -71,8 +71,8 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
         Expr::Try { expr, .. } => {
             if ctx == Ctx::Nested {
                 report(
-                    "`?` inside `&&`, `||`, or an `if`/`match` used within a larger expression \
-                     is not in v0; bind it with `let` first"
+                    "`?` inside `&&`, `||`, or an `if`, `match`, or `{ .. }` block used within a \
+                     larger expression is not in v0; bind it with `let` first"
                         .into(),
                     at,
                 );

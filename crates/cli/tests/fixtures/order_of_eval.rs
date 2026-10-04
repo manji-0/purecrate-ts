@@ -115,3 +115,54 @@ pub fn two_mapped_tries(v: i32, fail_first: bool, fail_second: bool) -> Result<i
     let b = given(v + 1, fail_second).map_err(|e| e + 2)?;
     Ok(a * 10 + b)
 }
+
+/// A `?` in what `ok_or` takes runs before the test, as Rust evaluates the
+/// argument whether or not the option is `Some`: an `Err` leaves even when
+/// `checked_add` succeeds, and the division may panic first.
+pub fn try_in_ok_or_arg(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
+    let x = a.checked_add(1).ok_or(a / given(v, fail)?)?;
+    Ok(x)
+}
+
+/// The same with `ok_or(..)?` as an operand.
+pub fn try_in_ok_or_arg_operand(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
+    Ok(a.checked_add(1).ok_or(a / given(v, fail)?)? + 1)
+}
+
+/// An `unwrap_or` inside what `ok_or(e)?` takes keeps its option apart from
+/// the guarded one (both were `opt`).
+pub fn unwrap_or_in_ok_or(a: i32) -> Result<i32, i32> {
+    Ok(7i32.checked_add(a.checked_sub(1).unwrap_or(5)).ok_or(a)? % 3)
+}
+
+/// `ok_or` as a scrutinee: TS learns the `Result`'s error type from its
+/// annotation, as it does from a user's annotated block.
+pub fn ok_or_scrutinee(o: Option<i32>, b: i32) -> i32 {
+    match o.ok_or(b) {
+        Ok(x) => x * 2,
+        Err(e) => e,
+    }
+}
+
+pub fn annotated_scrutinee(a: i32) -> i32 {
+    match {
+        let t: Result<i32, i32> = Err(a);
+        t
+    } {
+        Ok(x) => x,
+        Err(e) => e + 1,
+    }
+}
+
+/// A parameter read only where a constant test folds away is unread in TS.
+#[allow(unused_parens)]
+pub fn folded_param(a: i32, b: i32) -> i32 {
+    (if false { a } else { 1 }) + b
+}
+
+/// The same with a `map_err(f)?`, which typing has made a `match` that
+/// returns; `-a` runs before it, and may panic first.
+pub fn mapped_try_in_ok_or_arg(a: i32, v: i32, fail: bool) -> Result<i32, i32> {
+    let x = a.checked_add(1).ok_or(-a * given(v, fail).map_err(|e| e * 2)?)?;
+    Ok(x)
+}

@@ -2,10 +2,28 @@
 
 ## Unreleased
 
+A change to the runtime's signatures (`Result.ok`, `Result.err`), which the stable surface lists (design/07 §9): the next release is 0.10.0. Regenerate committed output.
+
 ### Changed
+
+- **`Result.ok` and `Result.err` default the type they cannot infer to `never`** (`ok: <T, E = never>`, `err: <T = never, E = never>`), instead of `unknown`. `c ? Result.ok(a) : r` and `r.kind === "Ok" ? Result.ok(0) : Result.err(r.error)` are the `Result` they read as; before, TS took `Result<I32, unknown>` and refused the code. Every copied runtime changes by these two lines.
+- **Parentheses come from a tree of the operators printed, not from reading the text back.** The printer builds each operator, comparison, `!`, `?:`, and `??` it writes as a node (`emit_ts::tx`) and parenthesizes by precedence there; negation turns a comparison or an `&&` chain round on the tree. The text reader it replaces missed operators a call or a `match` printed (0.9.1's `r.ok().is_some()`) and parenthesized an inline function called beside an operator (`((() => { .. })()) >= a`), which is now `(() => { .. })() >= a`. The examples' output is unchanged.
+- **What TS has narrowed is folded instead of printed.** `r.ok()` inside `r`'s own `Err` arm is `null`, a second `r.map_err(f)?` after a first never returns, `match` on `Some(a)` or on a `let` of one takes its arm, `1 == 65535` is `false`; TS refused each as a comparison with no overlap, `null ?? d`, or unreachable code, and the bindings and `let`s it left unread as unused. A place written in an arm or after (`o = None`) is not folded (`fixtures/narrowing.rs`).
 
 - **`let x = f(..).ok_or(e)?` holds the option in `x`.** `const qty = Int.u32.checkedAdd(..); if (qty === null) return ..;` instead of a `qtyOpt` copied into `qty`. A `let mut`, a made local, and a receiver that is already a place keep the old form.
 - **A hexadecimal literal stays hexadecimal**, in whole bytes: `0x0f as U8`, `b >= 0x20 && b <= 0x7e`.
+
+### Fixed
+
+Found by a new test that generates functions from seeds (`generated_equivalence.rs`) instead of spelling them; each was refused by `tsc`, none returned a wrong value. Seeds 1 to 120 now pass, eight on every run.
+
+- **A `?` in what `ok_or` takes leaves the function.** `let x = o.ok_or(a / r?)?` printed `r?` (or `r.map_err(f)?`) in an inline function whose `return` left only itself; it now runs before the test, as Rust evaluates the argument whether or not `o` is `Some`.
+- **An `unwrap_or` inside what `ok_or(e)?` takes keeps its option apart.** Both were `const opt` in one block.
+- **`match o.ok_or(e) { .. }` names the error type.** `Result.ok(o)` alone left TS with `Result<I32, unknown>`; so did a block `{ let t: Result<A, B> = Err(b); t }` as a scrutinee, whose annotation was dropped.
+- **A parameter read only in a branch that a constant test folds away** (`if false { a } else { 1 }`) prints as `_a`, as an unread one does.
+- **A long `return (a !== b) !== (..)` breaks without a trailing comma.** The layout took any `(` after a word for a call's arguments, `return (` and `typeof (` included; `(x,)` is a syntax error, and with two items the comma operator.
+- `[check/position]` names a `{ .. }` block too, which it refuses beside `&&`, `||`, `if`, and `match`.
+- **A `let` Rust leaves unused keeps only what may panic.** `let a = r.ok().unwrap_or(0);` unread printed `const opt = ..` and `if (..) {} else {}`; reads and values built of reads are left out.
 
 ## 0.9.1 — 2026-10-04
 

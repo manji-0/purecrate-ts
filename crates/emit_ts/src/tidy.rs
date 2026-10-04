@@ -94,59 +94,6 @@ pub(crate) fn strip_outer(mut s: &str) -> &str {
     }
 }
 
-/// `!(l === r)` as `l !== r` and the reverse, when `s` is one comparison
-/// at its top level: `===` binds looser than every operator but `&&`, `||`,
-/// `?:`, and assignment, so swapping it negates the whole.
-pub(crate) fn negate(s: &str) -> Option<String> {
-    let s = strip_outer(s);
-    let d = depths(s);
-    let bytes = s.as_bytes();
-    let top = |i: usize| d[i] == Some(0);
-    let mut found: Option<(usize, &str)> = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        if top(i) {
-            let rest = &s[i..];
-            for op in ["&&", "||", "?", "=>"] {
-                if rest.starts_with(op) {
-                    return None;
-                }
-            }
-            for (op, flip) in [(" === ", " !== "), (" !== ", " === ")] {
-                if rest.starts_with(op) {
-                    if found.is_some() {
-                        return None;
-                    }
-                    found = Some((i, flip));
-                    i += op.len();
-                    continue;
-                }
-            }
-        }
-        i += 1;
-    }
-    let (at, flip) = found?;
-    Some(format!("{}{flip}{}", &s[..at], &s[at + 5..]))
-}
-
-/// `s` split at each `op` at its top level (outside brackets and strings).
-pub(crate) fn split_top<'s>(s: &'s str, op: &str) -> Vec<&'s str> {
-    let d = depths(s);
-    let mut parts = Vec::new();
-    let (mut start, mut i) = (0, 0);
-    while i < s.len() {
-        if d[i] == Some(0) && s[i..].starts_with(op) {
-            parts.push(&s[start..i]);
-            i += op.len();
-            start = i;
-        } else {
-            i += 1;
-        }
-    }
-    parts.push(&s[start..]);
-    parts
-}
-
 /// JS/TS operator precedence; higher binds tighter. Used to parenthesize
 /// nested operators only when the child would parse otherwise.
 pub(crate) const PREC_ATOMIC: u8 = 20;
@@ -256,26 +203,6 @@ pub(crate) fn cast_type(s: &str) -> Option<&str> {
     let d = depths(s);
     let at = (0..s.len()).rev().find(|&i| d[i] == Some(0) && s[i..].starts_with(" as "))?;
     (top_prec(&s[..at]) == PREC_ATOMIC).then(|| s[at + 4..].trim())
-}
-
-/// Whether `s` is a cast at its top level (`1 as I32`, `x as number as U8`).
-pub(crate) fn has_top_as(s: &str) -> bool {
-    let d = depths(s);
-    (0..s.len()).any(|i| d[i] == Some(0) && s[i..].starts_with(" as "))
-}
-
-/// `s` parenthesized when it would bind looser than `parent` (or on the
-/// non-associative side at the same precedence).
-pub(crate) fn group(s: &str, parent: u8, assoc: Assoc, side: Side) -> String {
-    let s = strip_outer(s);
-    // An equality inside an equality is parenthesized, as oxfmt prints
-    // `(a !== null) === b`.
-    let nested_eq = parent == PREC_EQ && top_prec(s) == PREC_EQ;
-    if nested_eq || needs_paren(top_prec(s), parent, assoc, side) {
-        format!("({s})")
-    } else {
-        s.to_string()
-    }
 }
 
 /// `src` with each line longer than `width` broken: a comma-separated
@@ -727,7 +654,7 @@ fn wrap_bracket(line: &str, width: usize, require_excess: bool, out: &mut String
     let pad = format!("{}{branch}", &line[..line.len() - trimmed.len()]);
     let pad = pad.as_str();
     if !require_excess {
-        let first_fits = open + 1 <= width;
+        let first_fits = open < width;
         if !first_fits || items.len() < 2 {
             return false;
         }
@@ -775,10 +702,7 @@ fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool {
     let trimmed = line.trim_start();
     let pad = &line[..line.len() - trimmed.len()];
     wrap_line(&line[..=open], width, out);
-    let before = line[..open].trim_end();
-    let control =
-        before.ends_with("if") || before.ends_with("while") || before.ends_with("switch") || before.ends_with("for");
-    let call = !control && before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')'));
+    let call = is_call(line[..open].trim_end());
     let trail = if line.as_bytes()[open] == b'{' || call { "," } else { "" };
     wrap_line(&format!("{pad}  {inner}{trail}"), width, out);
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
@@ -795,15 +719,14 @@ fn wrap_sole_item(line: &str, width: usize, out: &mut String) -> bool {
     let Some(open) = (0..bytes.len()).find(|&i| bytes[i] == b'(' && d[i] == Some(0)) else { return false };
     let Some(close) = (open + 1..bytes.len()).find(|&j| bytes[j] == b')' && d[j] == Some(0)) else { return false };
     let before = line[..open].trim_end();
-    let call = before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')' | ']'));
+    let call = is_call(before);
     let after = &line[close + 1..];
     // Parameters open only where the arrow's head does not fit; else its
     // body breaks (`wrap_arrow_first`, `wrap_bracket`).
     let params = before.ends_with('=')
         && (after.starts_with(": ") || after.starts_with(" =>"))
         && arrow_split(line, width).is_none();
-    let control = ["if", "for", "while", "switch"].iter().any(|k| before.ends_with(k));
-    if !(call || params) || control || open + 1 > width {
+    if !(call || params) || open + 1 > width {
         return false;
     }
     let item = line[open + 1..close].trim();
@@ -817,6 +740,40 @@ fn wrap_sole_item(line: &str, width: usize, out: &mut String) -> bool {
     wrap_line(&format!("{pad}  {item},"), width, out);
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
     true
+}
+
+/// Whether a `(` after `before` opens a call's arguments, where a trailing
+/// comma is allowed, rather than a group (`return (`, `!== (`) or a
+/// statement's head (`if (`), where it is a syntax error, or with two items
+/// the comma operator.
+fn is_call(before: &str) -> bool {
+    if before.ends_with([')', ']']) {
+        return true;
+    }
+    let word_start =
+        before.rfind(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))).map_or(0, |i| i + 1);
+    let word = &before[word_start..];
+    const KEYWORDS: &[&str] = &[
+        "if",
+        "for",
+        "while",
+        "switch",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "delete",
+        "case",
+        "in",
+        "of",
+        "instanceof",
+        "await",
+        "yield",
+        "else",
+        "do",
+        "catch",
+    ];
+    !word.is_empty() && !word.starts_with(|c: char| c.is_ascii_digit()) && !KEYWORDS.contains(&word)
 }
 
 /// `{ kind: "X"; a: T; b: U }` in a type, split on `;`.
@@ -1407,13 +1364,16 @@ mod tests {
     }
 
     #[test]
-    fn negates_one_top_level_comparison() {
-        assert_eq!(negate("(k.kind === \"C\")").as_deref(), Some("k.kind !== \"C\""));
-        assert_eq!(negate("x !== null").as_deref(), Some("x === null"));
-        assert_eq!(negate("a === b || c"), None);
-        assert_eq!(negate("f(a === b)"), None);
-        assert_eq!(negate("s === \" === \""), Some("s !== \" === \"".into()));
-        assert_eq!(negate("a === b === c"), None);
+    fn a_group_after_a_keyword_takes_no_trailing_comma() {
+        // `(x,)` is a syntax error; with two items, the comma operator.
+        assert!(is_call("f") && is_call("Int.i32.add") && is_call("g(a)") && is_call("xs[0]"));
+        assert!(is_call("notif") && is_call("format"));
+        for before in ["return", "  return", "a !==", "if", "while", "typeof", "throw", "=", ""] {
+            assert!(!is_call(before), "{before}");
+        }
+        let line = "  return (aVeryLongLocalNameForTheValue !== 2147483647) !== (somethingElseEntirely && anotherThingToTest);";
+        let out = wrap(line, 60);
+        assert!(!out.contains(",\n"), "{out}");
     }
 
     #[test]

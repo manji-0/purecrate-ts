@@ -51,7 +51,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | --- | --- |
 | `.rev()`, `.zip()`, `.enumerate()` before a consumer, `loop`, `while let`, labelled `break` | `for x in &xs` with a counter, `while cond` with `break`, or a range `for` with early `return` |
 | `and_then`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `|` arms that bind names, `?` inside a guard or inside an `if`/`match` nested in a larger expression (`Some(i) => (&s[..i], f(x)?)`) (`[check/position]`) | split the match; bind the `?` result with `let` first (`?` as a whole arm value is fine). |
+| `|` arms that bind names, `?` inside a guard or inside an `if`/`match`/`{ .. }` block nested in a larger expression (`Some(i) => (&s[..i], f(x)?)`) (`[check/position]`) | split the match; bind the `?` result with `let` first (`?` as a whole arm value is fine). |
 | `a == b` on structs/enums/`Option` (`[check/comparison]`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method |
 | `x & 1`, `x >> 3` on `usize` | a `u32`/`u64` for bit fields |
 | `b.is_ascii_digit()` on a `u8` | `matches!(b, b'0'..=b'9')` |

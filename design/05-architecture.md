@@ -26,7 +26,7 @@ crate source (root and module files)
 | `ir` | IR data types. No dependencies, no I/O |
 | `syntax` | syn → IR; `survey` |
 | `check` | names, resolution, reachability, typing, exhaustiveness, `_` expansion, renaming (`check::accept`) |
-| `emit_ts` | IR → TS strings; wire schemas and `toJson` (`schema.rs`) |
+| `emit_ts` | IR → TS strings, operators as a tree that sets their parentheses (`tx.rs`); wire schemas and `toJson` (`schema.rs`) |
 | `pack` | package assembly |
 | `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
