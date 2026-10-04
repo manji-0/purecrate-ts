@@ -22,24 +22,22 @@ pub(crate) fn peel(expr: &Expr) -> &Expr {
 /// `let $x = e; $x` when `e` is already an expression: the binding names a
 /// type (`collect::<T>()`, `sum::<T>()`) and is not a second evaluation.
 pub(crate) fn peel_identity(expr: &Expr) -> &Expr {
-    match expr {
-        Expr::Let { name, mutable: false, value, then, .. }
-            if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() =>
-        {
-            peel_identity(value)
-        }
-        _ => expr,
-    }
+    identity_let(expr).map_or(expr, |(_, value)| peel_identity(value))
 }
 
 /// The annotation of the outermost `let x: T = e; x` that `peel_identity`
 /// takes off `expr`.
 pub(super) fn peeled_ty(expr: &Expr) -> Option<&Ty> {
+    identity_let(expr).and_then(|(ty, value)| ty.or_else(|| peeled_ty(value)))
+}
+
+/// `let x: T = e; x` as its annotation and `e`.
+fn identity_let(expr: &Expr) -> Option<(Option<&Ty>, &Expr)> {
     match expr {
         Expr::Let { name, mutable: false, ty, value, then }
             if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() =>
         {
-            ty.as_ref().or_else(|| peeled_ty(value))
+            Some((ty.as_ref(), value))
         }
         _ => None,
     }

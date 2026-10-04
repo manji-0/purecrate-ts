@@ -111,21 +111,30 @@ impl std::error::Error for Error {}
 
 /// Builds the stand-in `uuid` into `dir` and returns the rlib.
 fn uuid_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
-    let src = dir.join("uuid.rs");
-    fs::write(&src, UUID_STUB).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
+    build_stub(rustc, dir, "uuid", UUID_STUB, &["--crate-type", "rlib"], "uuid")?;
+    Ok(dir.join("libuuid.rlib"))
+}
+
+/// Builds the stand-in `serde` (and its derive crate) into `dir` and returns
+/// the rlib.
+fn serde_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
+    build_stub(rustc, dir, "serde_derive", SERDE_DERIVE_STUB, &["--crate-type", "proc-macro"], "serde")?;
+    let derive =
+        derive_artifact(dir).ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
+    let extern_derive = format!("serde_derive={}", derive.display());
+    build_stub(rustc, dir, "serde", SERDE_STUB, &["--crate-type", "rlib", "--extern", &extern_derive], "serde")?;
+    Ok(dir.join("libserde.rlib"))
+}
+
+/// Compiles the stand-in crate `name` from `source` into `dir`; `what` names
+/// the stand-in in an error.
+fn build_stub(rustc: &OsStr, dir: &Path, name: &str, source: &str, args: &[&str], what: &str) -> Result<(), Failure> {
+    let src = dir.join(format!("{name}.rs"));
+    fs::write(&src, source).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
     let output = Command::new(rustc)
-        .args([
-            "--edition",
-            "2021",
-            "--crate-name",
-            "uuid",
-            "--crate-type",
-            "rlib",
-            "--cap-lints",
-            "allow",
-            "--out-dir",
-        ])
+        .args(["--edition", "2021", "--crate-name", name, "--cap-lints", "allow", "--out-dir"])
         .arg(dir)
+        .args(args)
         .arg(&src)
         .output()
         .map_err(|e| {
@@ -134,47 +143,14 @@ fn uuid_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
                 Path::new(rustc).display()
             ))
         })?;
-    if !output.status.success() {
-        return Err(Failure::Other(format!(
-            "rustc could not build the uuid stand-in:\n{}",
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(Failure::Other(format!(
+            "rustc could not build the {what} stand-in:\n{}",
             String::from_utf8_lossy(&output.stderr).trim_end()
-        )));
+        )))
     }
-    Ok(dir.join("libuuid.rlib"))
-}
-
-/// Builds the stand-in `serde` (and its derive crate) into `dir` and returns
-/// the rlib.
-fn serde_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
-    let build = |name: &str, source: &str, args: &[&str]| -> Result<(), Failure> {
-        let src = dir.join(format!("{name}.rs"));
-        fs::write(&src, source).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
-        let output = Command::new(rustc)
-            .args(["--edition", "2021", "--crate-name", name, "--cap-lints", "allow", "--out-dir"])
-            .arg(dir)
-            .args(args)
-            .arg(&src)
-            .output()
-            .map_err(|e| {
-                Failure::Other(format!(
-                    "run {}: {e}; check needs rustc to confirm the input compiles (set RUSTC to its path)",
-                    Path::new(rustc).display()
-                ))
-            })?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(Failure::Other(format!(
-                "rustc could not build the serde stand-in:\n{}",
-                String::from_utf8_lossy(&output.stderr).trim_end()
-            )))
-        }
-    };
-    build("serde_derive", SERDE_DERIVE_STUB, &["--crate-type", "proc-macro"])?;
-    let derive =
-        derive_artifact(dir).ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
-    build("serde", SERDE_STUB, &["--crate-type", "rlib", "--extern", &format!("serde_derive={}", derive.display())])?;
-    Ok(dir.join("libserde.rlib"))
 }
 
 fn derive_artifact(dir: &Path) -> Option<PathBuf> {
