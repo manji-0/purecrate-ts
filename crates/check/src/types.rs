@@ -19,16 +19,19 @@ use purecrate_ir::{
 use crate::defs::Defs;
 
 mod calls;
+mod iter;
 mod methods;
 mod ops;
+mod option_result;
 mod ordering;
 mod patterns;
+mod prim;
 
 use crate::Diagnostic;
 use calls::*;
-use methods::*;
 use ops::*;
 use ordering::*;
+use prim::*;
 
 pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let defs = Defs::of(krate);

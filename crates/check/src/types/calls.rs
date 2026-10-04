@@ -390,7 +390,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     StrMethod::Len => Ty::Prim(Prim::Usize),
                     StrMethod::AsStr => Ty::Prim(Prim::Str),
                     StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
-                    StrMethod::SplitOnce => super::methods::split_once_ty(),
+                    StrMethod::SplitOnce => super::prim::split_once_ty(),
                     _ => Ty::bool(),
                 }),
             ),
