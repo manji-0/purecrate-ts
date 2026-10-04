@@ -130,15 +130,38 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             } else if let Some((slots, rest)) = (!*mutable && name.as_str().starts_with('$'))
                 .then(|| destructured(name, then))
                 .flatten()
-                .filter(|_| value_expr(value, indent).is_some())
+                .filter(|_| matches!(**value, Expr::Try { .. }) || value_expr(value, indent).is_some())
             {
-                // `let (a, b) = v`: the tuple is only taken apart.
-                let (prelude, s) = value_expr(value, indent).expect("checked above");
+                // `let (a, b) = v`: the tuple is only taken apart. From `v?`,
+                // the payload once the exit is past.
+                let (prelude, s) = match &**value {
+                    Expr::Try { expr, on } => {
+                        let tmp = try_temp(None, *on);
+                        let mut exit = String::new();
+                        emit_try_exit(&tmp, expr, *on, indent, &mut exit);
+                        let payload = if *on == Some(TryOn::Option) { tmp } else { format!("{tmp}.value") };
+                        (exit, payload)
+                    }
+                    _ => value_expr(value, indent).expect("checked above"),
+                };
                 let pattern = slots.iter().map(|n| n.map_or("", |n| n.as_str())).collect::<Vec<_>>().join(", ");
                 // The pattern types an array literal as a tuple; only an
-                // object literal would widen (`kind: string`) without one.
-                let annotation =
-                    ty.as_ref().filter(|t| holds_object(t)).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
+                // object literal would widen (`kind: string`) without one. A
+                // call or a place already has its type.
+                let typed = matches!(
+                    peel_identity(value),
+                    Expr::Try { .. }
+                        | Expr::Call { .. }
+                        | Expr::MethodCall { .. }
+                        | Expr::Var(_)
+                        | Expr::Field { .. }
+                        | Expr::Index { .. }
+                );
+                let annotation = ty
+                    .as_ref()
+                    .filter(|t| holds_object(t) && !typed)
+                    .map(|t| format!(": {}", emit_ty(t)))
+                    .unwrap_or_default();
                 out.push_str(&prelude);
                 out.push_str(&format!("{pad}const [{pattern}]{annotation} = {};\n", crate::tidy::strip_outer(&s)));
                 emit_tail(rest, indent, sink, out, tail);
@@ -158,6 +181,19 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 emit_tail(&subst(then, name, &Expr::Var(var.clone())), indent, sink, out, tail);
             } else {
                 emit_let(name.as_str(), *mutable, ty.as_ref(), value, indent, out);
+                // An element read right after its tuple is made: nothing has
+                // narrowed it, so it needs no `as T` to widen it back.
+                let mut then = &**then;
+                while let Expr::Let { name: n, mutable: false, value: v, then: rest, .. } = then {
+                    let fresh = name.as_str().starts_with('$')
+                        && !n.as_str().starts_with('$')
+                        && matches!(&**v, Expr::Field { base, name: f } if f.as_str().starts_with('[') && **base == Expr::Var(name.clone()));
+                    if !fresh {
+                        break;
+                    }
+                    emit_let(n.as_str(), false, None, v, indent, out);
+                    then = rest;
+                }
                 emit_tail(then, indent, sink, out, tail);
             }
         }

@@ -1,6 +1,7 @@
 //! Tuple patterns in `let`, closure parameters, and `for` variables: `mut`
 //! and `_` elements, an annotation, left-to-right evaluation with overflow,
-//! `&(a, b)` over `iter()`, and `break` / `continue` in the loop.
+//! `&(a, b)` over `iter()`, `break` / `continue` in the loop, and a tuple
+//! from `?`.
 
 use crate::support;
 
@@ -26,5 +27,6 @@ fn generated_destructuring_matches_rust() {
             cases.push(case!(destructure::sum_refs(xs.clone())));
         }
         grid!(cases, destructure::add; o in [None, Some((1, 2)), Some((u32::MAX, 1))]);
+        grid!(cases, [destructure::advanced, destructure::last_step]; x in [0, 1, 3, 4]);
     });
 }

@@ -63,3 +63,28 @@ pub fn scaled(x: u32, k: u32) -> u32 {
 fn split_u(x: u32) -> (u32, u32) {
     (x / 3, x % 3)
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Go(u32),
+    Halt,
+}
+
+fn advance(x: u32) -> Result<(u32, Step), u32> {
+    if x > 3 {
+        return Err(x);
+    }
+    Ok((x + 1, if x == 0 { Step::Halt } else { Step::Go(x) }))
+}
+
+// From `?`: the payload taken apart once the exit is past, and an enum
+// element read as it is (nothing has narrowed it).
+pub fn advanced(x: u32) -> Result<(u32, Vec<Step>), u32> {
+    let (next, step) = advance(x)?;
+    Ok((next, vec![step]))
+}
+
+pub fn last_step(x: u32) -> Result<Vec<Step>, u32> {
+    let (_, step) = advance(x)?;
+    Ok(vec![step, Step::Halt])
+}
