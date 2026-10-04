@@ -290,62 +290,8 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     if let Expr::If { cond, .. } | Expr::While { cond, .. } = expr {
         decide(cond, &st.0);
     }
-    // A test whose value narrowing decides though something in it must
-    // still run (`100 / a > 0 && c` with `c` known `false`): that part runs
-    // as a statement, then the side taken. TS would refuse the comparison.
-    if let Expr::If { cond, then, else_ } = expr {
-        if !matches!(**cond, Expr::Lit(_)) {
-            if let Some((before, b)) = known_test(cond, &st) {
-                let side =
-                    Expr::If { cond: Box::new(Expr::Lit(Lit::Bool(b))), then: then.clone(), else_: else_.clone() };
-                *expr = sequence(before, side);
-                return flow(expr, st, cx);
-            }
-        }
-    }
-    // Decided with nothing to run first, it is the side taken, so what reads
-    // it (`match { let t = if c { .. } else { r }; t }`) sees that side.
-    if let Expr::If { cond, then, else_ } = expr {
-        if let Some((Expr::Lit(Lit::Unit), b)) = constant(cond) {
-            let side = if b { &**then } else { &**else_ };
-            if !declares(side) {
-                *expr = side.clone();
-                same_sides(expr);
-                return flow(expr, st, cx);
-            }
-        }
-    }
-    if let Some(taken) = taken_arm(expr, &st.0) {
-        *expr = taken;
+    if rewritten(expr, &st) {
         return flow(expr, st, cx);
-    }
-    // `let x = r?` where `r` is known `Err` always leaves; known `Ok`, it
-    // is the payload. So is `Ok(e)?` (what a fold may leave), and `Err(e)?`
-    // always leaves.
-    if let Expr::Let { value, .. } = expr {
-        if let Expr::Try { expr: place, on: Some(on) } = &mut **value {
-            if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
-                *expr = exit;
-                return flow(expr, st, cx);
-            }
-            if let Some(payload) = known_payload(place, *on, &st) {
-                **value = payload;
-                return flow(expr, st, cx);
-            }
-        }
-    }
-    // `r?` where `r` is known `Ok` never leaves; known `Err`, always does.
-    if let Expr::Seq { first, then } = expr {
-        if let Expr::Try { expr: place, on: Some(on) } = &**first {
-            if known_payload(place, *on, &st).is_some() {
-                *expr = (**then).clone();
-                return flow(expr, st, cx);
-            }
-            if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
-                *expr = exit;
-                return flow(expr, st, cx);
-            }
-        }
     }
     match expr {
         Expr::Match { scrutinee, .. } if is_place(scrutinee) => flow_match(expr, st, cx),
@@ -671,58 +617,10 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 }
             }
             literal_compare(expr);
-            // `is_some()` of a `match` whose arms build `Some` / `None` (`o.map(f)`)
-            // is that `match` of `true` / `false`: no temporary to hold the
-            // `Option` (TS types one in a loop from itself, TS7022).
-            if let Expr::Call {
-                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
-                args,
-            } = expr
-            {
-                let some = *callee == purecrate_ir::Callee::OptionIsSome;
-                // Through the `let`s that bind the receiver (`let $o = ..;
-                // match $o { .. }`).
-                let mut built = args.first().cloned().filter(|_| args.len() == 1);
-                let mut tail = built.as_mut();
-                while let Some(Expr::Let { then, .. }) = tail {
-                    tail = Some(&mut **then);
-                }
-                if let Some(Expr::Match { scrutinee, arms }) = tail {
-                    let decided: Option<Vec<Arm>> = arms
-                        .iter()
-                        .map(|a| {
-                            let case = constructed_case(&a.body)?;
-                            if !effectless(&a.body) || a.guard.as_ref().is_some_and(|g| !effectless(g)) {
-                                return None;
-                            }
-                            let is = case.as_str() == SOME;
-                            Some(Arm { body: Expr::Lit(Lit::Bool(is == some)), ..a.clone() })
-                        })
-                        .collect();
-                    if let Some(mut arms) = decided {
-                        // The arms bind nothing they read now.
-                        for arm in arms.iter_mut() {
-                            let read = |n: &Name| arm.guard.as_ref().is_some_and(|g| mentions(g, n));
-                            arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
-                        }
-                        *tail.expect("matched") = Expr::Match { scrutinee: scrutinee.clone(), arms };
-                        let mut built = built.expect("matched");
-                        // `let $r = r; match $r { .. }`: the place itself, so a
-                        // test reads it as TS will (`r.kind === "Ok"`).
-                        while let Expr::Let { name, mutable: false, value, then, .. } = &built {
-                            if !(name.as_str().starts_with('$') && is_place(value) && !touches(then, root(value))) {
-                                break;
-                            }
-                            let (name, value) = (name.clone(), (**value).clone());
-                            let Expr::Let { then, .. } = built else { unreachable!("matched") };
-                            built = *then;
-                            replace_var(&mut built, &name, &value);
-                        }
-                        *expr = built;
-                        // The `match` it made is decided as any other.
-                        return flow(expr, s, cx);
-                    }
-                }
+            // `is_some()` of a `match` whose arms build `Some` / `None`: the
+            // `match` it made is decided as any other.
+            if is_some_of_built(expr) {
+                return flow(expr, s, cx);
             }
             // `is_some()` of a place whose case is known.
             if let Expr::Call {
@@ -758,6 +656,126 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             Some(s)
         }
     }
+}
+
+/// `expr` rewritten where the state decides it before its parts flow: a
+/// test decided with something in it still to run, a decided `if`, an arm
+/// taken, a `?` on a place known to hold its case. Whether it was.
+fn rewritten(expr: &mut Expr, st: &State) -> bool {
+    // A test whose value narrowing decides though something in it must
+    // still run (`100 / a > 0 && c` with `c` known `false`): that part runs
+    // as a statement, then the side taken. TS would refuse the comparison.
+    if let Expr::If { cond, then, else_ } = expr {
+        if !matches!(**cond, Expr::Lit(_)) {
+            if let Some((before, b)) = known_test(cond, st) {
+                let side =
+                    Expr::If { cond: Box::new(Expr::Lit(Lit::Bool(b))), then: then.clone(), else_: else_.clone() };
+                *expr = sequence(before, side);
+                return true;
+            }
+        }
+    }
+    // Decided with nothing to run first, it is the side taken, so what reads
+    // it (`match { let t = if c { .. } else { r }; t }`) sees that side.
+    if let Expr::If { cond, then, else_ } = expr {
+        if let Some((Expr::Lit(Lit::Unit), b)) = constant(cond) {
+            let side = if b { &**then } else { &**else_ };
+            if !declares(side) {
+                *expr = side.clone();
+                same_sides(expr);
+                return true;
+            }
+        }
+    }
+    if let Some(taken) = taken_arm(expr, &st.0) {
+        *expr = taken;
+        return true;
+    }
+    // `let x = r?` where `r` is known `Err` always leaves; known `Ok`, it
+    // is the payload. So is `Ok(e)?` (what a fold may leave), and `Err(e)?`
+    // always leaves.
+    if let Expr::Let { value, .. } = expr {
+        if let Expr::Try { expr: place, on: Some(on) } = &mut **value {
+            if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
+                *expr = exit;
+                return true;
+            }
+            if let Some(payload) = known_payload(place, *on, st) {
+                **value = payload;
+                return true;
+            }
+        }
+    }
+    // `r?` where `r` is known `Ok` never leaves; known `Err`, always does.
+    if let Expr::Seq { first, then } = expr {
+        if let Expr::Try { expr: place, on: Some(on) } = &**first {
+            if known_payload(place, *on, st).is_some() {
+                *expr = (**then).clone();
+                return true;
+            }
+            if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
+                *expr = exit;
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `is_some()` of a `match` whose arms build `Some` / `None` (`o.map(f)`)
+/// as that `match` of `true` / `false`: no temporary to hold the `Option`
+/// (TS types one in a loop from itself, TS7022). Whether it was.
+fn is_some_of_built(expr: &mut Expr) -> bool {
+    if let Expr::Call {
+        callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
+        args,
+    } = expr
+    {
+        let some = *callee == purecrate_ir::Callee::OptionIsSome;
+        // Through the `let`s that bind the receiver (`let $o = ..;
+        // match $o { .. }`).
+        let mut built = args.first().cloned().filter(|_| args.len() == 1);
+        let mut tail = built.as_mut();
+        while let Some(Expr::Let { then, .. }) = tail {
+            tail = Some(&mut **then);
+        }
+        if let Some(Expr::Match { scrutinee, arms }) = tail {
+            let decided: Option<Vec<Arm>> = arms
+                .iter()
+                .map(|a| {
+                    let case = constructed_case(&a.body)?;
+                    if !effectless(&a.body) || a.guard.as_ref().is_some_and(|g| !effectless(g)) {
+                        return None;
+                    }
+                    let is = case.as_str() == SOME;
+                    Some(Arm { body: Expr::Lit(Lit::Bool(is == some)), ..a.clone() })
+                })
+                .collect();
+            if let Some(mut arms) = decided {
+                // The arms bind nothing they read now.
+                for arm in arms.iter_mut() {
+                    let read = |n: &Name| arm.guard.as_ref().is_some_and(|g| mentions(g, n));
+                    arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
+                }
+                *tail.expect("matched") = Expr::Match { scrutinee: scrutinee.clone(), arms };
+                let mut built = built.expect("matched");
+                // `let $r = r; match $r { .. }`: the place itself, so a
+                // test reads it as TS will (`r.kind === "Ok"`).
+                while let Expr::Let { name, mutable: false, value, then, .. } = &built {
+                    if !(name.as_str().starts_with('$') && is_place(value) && !touches(then, root(value))) {
+                        break;
+                    }
+                    let (name, value) = (name.clone(), (**value).clone());
+                    let Expr::Let { then, .. } = built else { unreachable!("matched") };
+                    built = *then;
+                    replace_var(&mut built, &name, &value);
+                }
+                *expr = built;
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// The value of a test narrowing has decided, with what in it must still
