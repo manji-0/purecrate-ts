@@ -39,6 +39,42 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::bound_constructor(a, c)));
             }
         }
+        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
+            for b in [2i32, 50_000] {
+                cases.push(case!(narrowing::unread_default(r, b)));
+                cases.push(case!(narrowing::known_err_try(r, b)));
+            }
+            for o in [None, Some(5i32), Some(i32::MIN)] {
+                for a in [0i32, 2, i32::MIN] {
+                    for c in [false, true] {
+                        cases.push(case!(narrowing::decided_declaring(a, 3i32, o, r, c)));
+                    }
+                }
+            }
+        }
+        for o in [None, Some(5i32)] {
+            for n in [0i32, 1, 200] {
+                cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
+            }
+        }
+        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
+            for b in [2i32, 50_000] {
+                cases.push(case!(narrowing::unread_default(r, b)));
+                cases.push(case!(narrowing::known_err_try(r, b)));
+            }
+            for o in [None, Some(5i32), Some(i32::MIN)] {
+                for a in [0i32, 2, i32::MIN] {
+                    for c in [false, true] {
+                        cases.push(case!(narrowing::decided_declaring(a, 3i32, o, r, c)));
+                    }
+                }
+            }
+        }
+        for o in [None, Some(5i32)] {
+            for n in [0i32, 1, 200] {
+                cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
+            }
+        }
         cases
     });
     support::assert_equivalent("narrowing", SOURCE, &cases);

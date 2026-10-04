@@ -81,14 +81,6 @@ fn unread(expr: &mut Expr) {
                 *expr = arms[0].body.clone();
             }
         }
-        // A test the cleanup above decided, as `join` folds one.
-        Expr::If { cond, then, else_ } if matches!(**cond, Expr::Lit(Lit::Bool(_))) => {
-            let Expr::Lit(Lit::Bool(c)) = **cond else { unreachable!("matched") };
-            let side = if c { &**then } else { &**else_ };
-            if !declares(side) {
-                *expr = side.clone();
-            }
-        }
         // `x && false` where `x` does nothing is `false` (TS: unreachable
         // code); `true && x` is `x`, and the same for `||`.
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
@@ -105,15 +97,150 @@ fn unread(expr: &mut Expr) {
                 _ => return,
             };
         }
-        Expr::Let { name, mutable: false, value, then, .. } if !mentions(then, name) => {
-            *expr = if effectless(value) {
-                (**then).clone()
+        // A test the cleanup above or folding decided (`k < n &&
+        // o.map(f).is_none()` once `o` is known `Some`): what runs before the
+        // answer runs alone, and the side not taken goes. TS refuses the code
+        // it knows is unreachable.
+        Expr::If { cond, then, else_ } if constant(cond).is_some() => {
+            let (before, taken) = constant(cond).expect("checked above");
+            let side = if taken { &**then } else { &**else_ };
+            if before != Expr::Lit(Lit::Unit) || !declares(side) {
+                *expr = sequence(before, side.clone());
             } else {
-                Expr::Seq { first: value.clone(), then: then.clone() }
-            };
+                // The side declares names, which its block keeps apart from
+                // what follows (`decided`): `if (true) { .. }` alone.
+                let side = side.clone();
+                *expr = Expr::If {
+                    cond: Box::new(Expr::Lit(Lit::Bool(true))),
+                    then: Box::new(side),
+                    else_: Box::new(Expr::Lit(Lit::Unit)),
+                };
+            }
+        }
+        Expr::While { cond, .. } if matches!(constant(cond), Some((_, false))) => {
+            *expr = constant(cond).expect("checked above").0;
+        }
+        // What follows a statement that always leaves never runs.
+        Expr::Seq { first, .. } if ends(first) => *expr = (**first).clone(),
+        Expr::Let { value, .. } if ends(value) => *expr = (**value).clone(),
+        // A `let mut` nothing reads: its writes run their values alone.
+        Expr::Let { name, value, then, .. } if !mentions(then, name) => {
+            let then = unassigned((**then).clone(), name);
+            *expr = sequence(effects((**value).clone()), then);
+        }
+        // A statement's value nothing reads: only what it does is left.
+        Expr::Seq { first, then } => {
+            *expr = sequence(effects((**first).clone()), (**then).clone());
         }
         _ => {}
     }
+}
+
+/// `expr` run for what it does alone, its value unread: what does nothing
+/// goes (an `if` or `match` whose sides only read, as `unwrap_or(d)`'s
+/// leaves where its value is not kept, with `d` then run on its own), and a
+/// `let` nothing reads runs its value.
+fn effects(expr: Expr) -> Expr {
+    let unit = Expr::Lit(Lit::Unit);
+    match expr {
+        e if effectless(&e) => unit,
+        Expr::Seq { first, then } => sequence(effects(*first), effects(*then)),
+        Expr::Let { name, mutable, ty, value, then } => {
+            let then = effects(*then);
+            if mentions(&then, &name) {
+                Expr::Let { name, mutable, ty, value, then: Box::new(then) }
+            } else {
+                sequence(effects(*value), unassigned(then, &name))
+            }
+        }
+        Expr::If { cond, then, else_ } => {
+            let (then, else_) = (effects(*then), effects(*else_));
+            if then == unit && else_ == unit {
+                effects(*cond)
+            } else {
+                Expr::If { cond, then: Box::new(then), else_: Box::new(else_) }
+            }
+        }
+        Expr::Match { scrutinee, arms } => {
+            let arms: Vec<Arm> = arms.into_iter().map(|a| Arm { body: effects(a.body), ..a }).collect();
+            if arms.iter().all(|a| a.body == unit && a.guard.is_none()) {
+                effects(*scrutinee)
+            } else {
+                Expr::Match { scrutinee, arms }
+            }
+        }
+        other => other,
+    }
+}
+
+/// A test whose answer is known: what still runs before it (`()` if
+/// nothing), and the answer. `a && false` runs `a`; `false && b` runs
+/// nothing, as `b` is never evaluated.
+fn constant(cond: &Expr) -> Option<(Expr, bool)> {
+    let unit = Expr::Lit(Lit::Unit);
+    match cond {
+        Expr::Lit(Lit::Bool(b)) => Some((unit, *b)),
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => constant(expr).map(|(e, b)| (e, !b)),
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+            // `false` for `&&` and `true` for `||` decide the test alone.
+            let decides = *op == BinOp::Or;
+            match constant(left) {
+                Some((e, b)) if b == decides => Some((e, b)),
+                Some((e, _)) => {
+                    let (r, b) = constant(right)?;
+                    (r == unit).then_some((e, b))
+                }
+                None => match constant(right) {
+                    Some((r, b)) if b == decides && r == unit => Some((effects((**left).clone()), b)),
+                    _ => None,
+                },
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether running `expr` always leaves the block: a `return`, `break`, or
+/// `continue`, last or on every side.
+fn ends(expr: &Expr) -> bool {
+    match expr {
+        Expr::Return(_) | Expr::Break | Expr::Continue => true,
+        Expr::Seq { first, then } => ends(first) || ends(then),
+        Expr::Let { value, then, .. } => ends(value) || ends(then),
+        Expr::If { cond, then, else_ } => match constant(cond) {
+            Some((_, b)) => ends(if b { then } else { else_ }),
+            None => ends(then) && ends(else_),
+        },
+        Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends(&a.body)),
+        Expr::At { expr, .. } => ends(expr),
+        _ => false,
+    }
+}
+
+/// `first; then`, without a `first` that is `()`.
+fn sequence(first: Expr, then: Expr) -> Expr {
+    if first == Expr::Lit(Lit::Unit) {
+        then
+    } else {
+        Expr::Seq { first: Box::new(first), then: Box::new(then) }
+    }
+}
+
+/// `expr` with each write of `name`, which nothing reads, as its value run
+/// alone.
+fn unassigned(expr: Expr, name: &Name) -> Expr {
+    let mut expr = expr;
+    fn walk(e: &mut Expr, name: &Name) {
+        if let Expr::Assign { name: n, value } = e {
+            if n == name {
+                *e = effects(std::mem::replace(&mut **value, Expr::Lit(Lit::Unit)));
+                return walk(e, name);
+            }
+        }
+        e.children_mut().into_iter().for_each(|c| walk(c, name));
+    }
+    walk(&mut expr, name);
+    expr
 }
 
 /// `expr` without the comments that are not above a statement: one above
@@ -321,6 +448,15 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
         *expr = taken;
         return narrow(expr, known);
     }
+    // `let x = r?` where `r` is known `Err` always leaves.
+    if let Expr::Let { value, .. } = expr {
+        if let Expr::Try { expr: place, on: Some(on) } = &**value {
+            if let Some(exit) = failed_try(place, *on, known).filter(|_| is_place(place)) {
+                *expr = exit;
+                return;
+            }
+        }
+    }
     // `r?` where `r` is known `Ok` never leaves.
     if let Expr::Seq { first, then } = expr {
         if let Expr::Try { expr: place, on: Some(on) } = &**first {
@@ -335,6 +471,10 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
             if is_place(place) && (holds(place) || aliased(place).is_some_and(|t| holds(&t))) {
                 *expr = (**then).clone();
                 return narrow(expr, known);
+            }
+            if let Some(exit) = failed_try(place, *on, known).filter(|_| is_place(place)) {
+                *expr = exit;
+                return;
             }
         }
     }
@@ -400,7 +540,15 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
                 && !touches(then, root(value))
                 && tried(then).is_some_and(|(t, _)| *t == Expr::Var(name.clone())) =>
         {
-            let case = tried_case(tried(then).expect("checked above").1);
+            let on = tried(then).expect("checked above").1;
+            // Already known to fail: the `?` always leaves, and nothing past
+            // it runs (TS has the place narrowed to the failure, and refuses
+            // reading its payload).
+            if let Some(exit) = failed_try(value, on, known) {
+                *expr = exit;
+                return;
+            }
+            let case = tried_case(on);
             // Already known to hold: the `?` never leaves.
             if known
                 .iter()
@@ -780,6 +928,23 @@ fn tried(expr: &Expr) -> Option<(&Expr, TryOn)> {
         },
         _ => None,
     }
+}
+
+/// The `return` of `place?` where `place` is known to hold `None` or an
+/// `Err`, directly or through the `let` it aliases.
+fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr> {
+    let fails = Name::new(if on == TryOn::Option { NONE } else { ERR });
+    let holds = |p: &Expr| {
+        known.iter().rev().find(|(k, _)| k == p).is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&fails))
+    };
+    if !(holds(place) || aliased(place).is_some_and(|t| holds(&t))) {
+        return None;
+    }
+    Some(Expr::Return(Box::new(if on == TryOn::Option {
+        Expr::Call { callee: purecrate_ir::Callee::OptionNone, args: Vec::new() }
+    } else {
+        place.clone()
+    })))
 }
 
 /// What a place holds past a `?` on it.
