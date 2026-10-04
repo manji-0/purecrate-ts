@@ -532,7 +532,7 @@ Why: 0.10.2 left 17 of seeds 1 to 120 of generated bodies refused by tsc, none f
 
 Seeds 1 to 120 of all five generators type-check and agree with Rust on every value (26,400 functions, 316,800 calls).
 
-- **Open:** nothing tsc refuses in the sweeps. The fold mirrors how the printer prints a test; a printer change to tests needs the sweeps rerun.
+- **Open:** nothing tsc refuses in the sweeps. The fold mirrors how the printer prints a test; a printer change to tests needs the sweeps rerun (`scripts/gen-sweep.sh`, run locally; reduce a failing seed with `scripts/gen-reduce.py`; README, Generated sweeps).
 - **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
 
 ## 9. Generated API stability

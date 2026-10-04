@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`scripts/gen-sweep.sh`** runs the five generated equivalence tests over seeds 1 to 120 (or `-s`), one process per seed, in parallel, and reports per generator the seeds that agree and type-check, agree but `tsc` refuses, or fail, with the command that reruns each. Run locally, not in CI (README, Generated sweeps).
+- **`scripts/gen-reduce.py`** reduces a failing seed to a small crate: the first function `tsc` refuses or `build` crashes on, cut out and shrunk while the same refusal remains; a value mismatch's function cut out as it stands, for a fixture.
+
 ## 0.10.3 — 2026-10-04
 
 The rest of what tsc refused in generated code ([roadmap §8.17](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.

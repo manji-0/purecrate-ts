@@ -104,7 +104,31 @@ CI (`.github/workflows/verify.yml`) runs `cargo fmt --check` (`rustfmt.toml`: 12
 
 The tests of each crate are one binary (`crates/*/tests/it`, one module per file), so they link once and run in parallel. `scripts/output-snapshot.sh` prints one digest of everything `build` and `survey` write for every example and test fixture; a refactor that must not change the output keeps it.
 
+### Generated sweeps
+
+Five tests generate functions from seeds instead of spelling them (`crates/cli/tests/it/generated_*_equivalence.rs`: expressions, function bodies, transitions over a crate's types, integer widths, and text), run them through Rust and the generated TS, and compare every value; the package must also pass `tsc`. `cargo test` runs seeds 1 to 8 of each. Seeds 1 to 120 of all five are run locally, not in CI (one crate of 120 seeds takes 14 GB and 40 minutes for one generator; one process per seed takes about 25 minutes for all five on an M-series Mac):
+
+```sh
+./scripts/gen-sweep.sh                    # seeds 1-120, all five generators
+./scripts/gen-sweep.sh -s 1-30 -g statements,patterns -j 8
+```
+
+Run it when a change touches what the printer or the fold produces (`crates/emit_ts`, `crates/check`, `crates/syntax`), and before a release. It prints, per generator, the seeds that agree and type-check, those that agree but `tsc` refuses, and those that fail (a value that differs, a panic message that differs, a crash), with each failing seed's first lines, the command that reruns it, and the logs' directory; it exits non-zero on any refusal or failure (`-k`: only on a failure).
+
+A seed that fails is reduced to a small crate by
+
+```sh
+./scripts/gen-reduce.py statements 37     # the first function tsc refuses, or `build` crashes on
+./scripts/gen-reduce.py patterns 60 --fn p60_f30   # a value mismatch: the function the log names
+```
+
+which prints the crate (and leaves it in `--keep DIR`). That crate becomes a fixture under `crates/cli/tests/fixtures/` with its cases in the matching `*_equivalence.rs`, shown to fail before the fix and pass after it, as every fix here is; then the sweep runs again. The fold in `emit_ts::join` mirrors how the printer prints a test, so a change to either is the case the sweep exists for ([design/07 §8.17](design/07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04)).
+
+### Release
+
 `.github/workflows/release.yml` runs `scripts/verify.sh` first, then builds the release binaries when a `vX.Y.Z` tag is pushed (the tag must match the workspace version, and `CHANGELOG.md` must have its section, which becomes the release notes); the x86_64 macOS binary, cross-built on the arm64 runner, is smoke-tested under Rosetta. Run the workflow by hand to verify, build, and smoke-test every target without publishing.
+
+### Measurements
 
 `scripts/line-counts.py` counts each example's logic against its idiomatic reference, both formatted by rustfmt ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). `bench/payment/measure.sh` compares the generated TS with wasm-bindgen on the same source; it needs the network and a `wasm32-unknown-unknown` target ([bench/payment](bench/payment/README.md)).
 
