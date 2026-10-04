@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 — 2026-10-04
 
-Tests generated across the subset, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-unreleased-the-generator-across-the-subset)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+Tests generated across the subset, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 
@@ -12,7 +12,8 @@ Tests generated across the subset, and what they found ([roadmap §8.15](https:/
 - **A long `=> (a ? b : c)` broke to `(..,)`**, a syntax error; a group takes no trailing comma.
 - **Two temporaries named after one local** (`let x = r.ok()`, then `x.ok_or(e)` matched) were both `xResult` in one block.
 - **Output tsc refused under the generated tsconfig**, none of it a wrong value: an `unwrap_or` default left `const optOr` and an empty `if {} else {}` where the value was unread; a test folding decided left unreachable code (`while (false)`, code after a `return`); `r?` on a known `Err`, a place past a `match` whose other arms `break`, and a `bool` an enclosing `if` decided were compared as TS knew they could not be; a parameter read only by an unread `t.as_str()` kept its name.
-- A decided side that declares a name keeps its block, so a later `let` of the same name is not a redeclaration.
+- A decided side that declares a name keeps a block of its own (`{ .. }`), so a later `let` of the same name is not a redeclaration.
+- **Output lint refused**, in the shapes these folds leave: an unread comparison printed as a statement, a block around a value that declares nothing, `Result` imported as a value where only its type is read.
 
 ### Added
 

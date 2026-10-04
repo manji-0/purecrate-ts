@@ -1,6 +1,6 @@
 # Writing Rust within the constraints
 
-Status: current (2026-10-04, 0.10.0)
+Status: current (2026-10-04, 0.10.1)
 
 <!-- constrained-by ./01-equivalence.md -->
 

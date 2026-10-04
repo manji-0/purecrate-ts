@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.0; §8.15 unreleased)
+Status: current (2026-10-04, after 0.10.1)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -466,7 +466,7 @@ Why: an evaluation of 0.9.1 found that every audit since 0.8.1 turned up output 
 - **06 §4.3 reads the generator, not only the examples.** The row on silent wrong values now names the audits' findings and the generated test's count.
 - **Open:** line breaking (`tidy::wrap`) still reads printed lines, as a layout pass; oxc's formatter is not published as a crate.
 
-### 8.15 Unreleased: the generator across the subset
+### 8.15 0.10.1: the generator across the subset (2026-10-04)
 
 <!-- derived-from #814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04 -->
 
@@ -491,6 +491,7 @@ What they found, each with a fixture that fails before its fix:
 | Two temporaries named after one local (`xResult` twice in a block) | syntax error | `order_of_eval.rs` |
 | A payload's `match` (`matches!(o.unwrap_or(3), 0..=9)` under `Some(_)`) decided by the option being `Some` | wrong value, a regression of this work before release | `narrowing.rs` |
 | What folding leaves: unread values (`const optOr`, empty `if {} else {}`), unreachable code, `r?` on a known `Err`, places past jumping arms and leaving `if`s, decided `bool`s, `c ? r : r`, a parameter read only by an unread `as_str` | refused by tsc | `narrowing.rs` |
+| The same folds' leftovers lint refuses: an unread comparison as a statement, `if (true)`, a block declaring nothing, `Result` imported as a value it is not used as | refused by oxlint (`scripts/verify.sh`) | `narrowing.rs`, `order_of_eval.rs`, an `imports.rs` unit test |
 
 - A sweep compares values where tsc refuses the package (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check (`support::assert_values_equivalent`).
 - **Open:** the seeds tsc refuses. Bodies: 47 of 60 only for narrowing TS does where control flow joins or loops (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022), or an unread one (TS6133). Patterns 2 and text 1, narrowing too (TS2322, TS2339, TS2367). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`. `if let` takes `Option` and `Result` only (`[pattern/if-let-variant]`).
