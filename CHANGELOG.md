@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+The rest of what tsc refused in generated code ([roadmap §8.17](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#817-unreleased-the-rest-of-what-tsc-refused)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.
+
+### Fixed
+
+- **`null ?? a`** where a `match` on `{ let t = None; t }` or on `Ok(r.value)` was left to run; it takes its arm.
+- **Unreachable code** past a test decided in a `matches!` whose scrutinee is a call (`matches!(x.checked_mul(b), Some(_) if false)`), and past `v = x?` that always leaves.
+- **A temporary TS typed from itself in a loop** (`const value = opt !== null ? 3 : null` read by its own loop's test): `o.map(f).is_some()` is folded into the `match` it tests.
+- Narrowing follows what those print: `const v = r.kind === "Ok"` narrows `r` through `if (v)`, as TS does; a `match` used as a test narrows on both sides; code the fold thinks unreachable is still folded, as TS still checks it.
+- A file whose folds print a `switch` imports `assertNever`.
+
 ## 0.10.2 — 2026-10-04
 
 Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#816-0102-narrowing-as-ts-does-it-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.

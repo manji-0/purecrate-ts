@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.2)
+Status: current (2026-10-04, after 0.10.2; §8.17 unreleased)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -513,6 +513,26 @@ Why: 0.10.1 left 60 of seeds 1 to 120 of generated bodies refused by tsc, 47 of 
 Seeds 1 to 120, values agreeing in all five generators: bodies type-check on 103 (60 before), transitions and text on all (118 and 119 before); none is refused for narrowing alone.
 
 - **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own. A side or arm the state says is never taken is printed as it stands, while TS checks it with the place as `never`; much of the `??` class is likely there (an `unwrap_or` on a known `None` or `Some` is one fold away).
+- **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
+
+### 8.17 Unreleased: the rest of what tsc refused
+
+<!-- derived-from #816-0102-narrowing-as-ts-does-it-2026-10-04 -->
+
+Why: 0.10.2 left 17 of seeds 1 to 120 of generated bodies refused by tsc, none for narrowing (§8.16): `??` on a value TS knows is `null`, unreachable code, a temporary TS types from itself in a loop.
+
+| Item | Verified by |
+| --- | --- |
+| `match { let t = None; t } { .. }` takes its arm, as does a `match` on `Ok(r.value)` (a payload that only reads) | `none_scrutinee`, `built_from_field` |
+| A test that is a `match` every arm of which that may run gives one value runs its scrutinee and is decided; `v = x?` that always leaves ends its block | `decided_guard_runs`, `assigned_try_leaves` |
+| `o.map(f).is_some()` is that `match` of `true` / `false` (through the `let`s binding its receiver, and a made binding read once as what such a test takes): no temporary for TS to type from itself | `mapped_test_in_loop` |
+| What those print, TS narrows by, and so does the fold: a `match` used as a test on the side that fails, `const v = r.kind === "Ok"` read as the test it holds ("aliased conditions"), `if c { true } else { b }` as `c \|\| b` (not other `?:`) | `aliased_condition`, `if_test_as_or` |
+| A side or what follows a statement the state says is never reached is still printed and checked: it runs from the state before | `never_taken_side`, `past_leaving_if` |
+| `assertNever` is offered to every file's imports and pruned where unread (a fold may print a `switch` the IR did not hold) | the generated sweeps |
+
+Seeds 1 to 120 of all five generators type-check and agree with Rust on every value (26,400 functions, 316,800 calls).
+
+- **Open:** nothing tsc refuses in the sweeps. The fold mirrors how the printer prints a test; a printer change to tests needs the sweeps rerun.
 - **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
 
 ## 9. Generated API stability
