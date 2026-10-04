@@ -68,7 +68,7 @@ fn str_methods_come_from_the_allow_list() {
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
-        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `as_bytes`, `cmp`, `parse`, slicing `s[a..b]`",
+        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
     );
 }
 
@@ -78,9 +78,9 @@ fn str_methods_come_from_the_allow_list() {
 fn std_rejections_list_what_the_receiver_allows() {
     assert_rejects(
         "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
-        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`",
+        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`, `clone`, `as_ref`, `as_deref`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, indexing `xs[i]`");
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push (on a `let mut` local), indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
     assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
 }

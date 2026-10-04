@@ -126,8 +126,8 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
 | integers, `bool` | `cmp` (§6.6) | `Ord.cmp`, by JS `<` | `ordering_equivalence.rs` |
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
-| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]`; built as `vec![a, b]` or, once, from `s.split(c).collect()` / `.map(f).collect()` (§7.12) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks; the array, its `.map`, or `Iter.tryCollect` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs` |
-| `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7) | `!== null`, `=== null` | `std_methods_equivalence.rs`, `option_methods_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]`, `cmp`, `clone`, `iter()` / `into_iter()` through `map` / `filter` (§7.13); built as `vec![a, b]`, by `collect()` (§7.12, §7.13), or grown by `push` on a `let mut` local (§7.14) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks, `Ord.cmpList`, `[...xs]`; the array, its `.map` / `.filter`, `Array.from` of `Iter.map` / `Iter.filter`, or `Iter.tryCollect`; `v.push(x)` on an `Array<T>` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs`, `adapters_equivalence.rs`, `grow_equivalence.rs`, `ordering_equivalence.rs` |
+| `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7); `clone`, `as_ref`, `as_deref` (on `Option<String>`) | `!== null`, `=== null`; the value itself for the last three | `std_methods_equivalence.rs`, `option_methods_equivalence.rs`, `grow_equivalence.rs` |
 | `Result` | `ok`, `map`, `map_err` (§7.1) | the `match` std writes | `parse_equivalence.rs` |
 | `String`, `&str` into an integer | `s.parse::<T>()` for every integer `T`, into `Result<T, ParseIntError>` (§6.7) | `Int.<t>.parse(s)` | `parse_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
@@ -238,7 +238,7 @@ Tested with a guard that overflows only where its pattern matched, `_` after a g
 
 ### 7.3 Scalar consumers
 
-`all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` call the runtime's `Iter.all`, `Iter.any`, `Iter.position`, `Iter.count`, and `Iter.sum`, which run the loop std's default methods run: the source is evaluated once, the closure is passed as an arrow function (a function name as `(x) => f(x)`; neither may use `?` or `return`, which would have to leave the enclosing function), and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it.
+`all`, `any`, `position`, `count`, and `sum` on `s.chars()`, `s.bytes()`, `s.split(c)`, and `xs.iter()` call the runtime's `Iter.all`, `Iter.any`, `Iter.position`, `Iter.count`, and `Iter.sum`, which run the loop std's default methods run: the source is evaluated once, the closure is passed as an arrow function (a function name as itself; neither may use `?` or `return`, which would have to leave the enclosing function), and the loop stops where std's does (`all` at the first `false`, `any` and `position` at the first `true`), so a predicate that would overflow on a later item does not run on it.
 
 - `position` counts items (chars, not bytes, on `chars()`).
 - `sum` adds from zero left to right with the checked operator, so it panics on overflow where a debug build does; it is refused on floats, whose `Sum` starts from `-0.0`.
@@ -256,7 +256,7 @@ In `let`, a closure parameter, or a `for` variable, a tuple pattern becomes `mat
 
 ### 7.6 `vec![a, b]`
 
-Prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no `push`, no index assignment), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
+Prints as `[a, b]`, elements evaluated left to right as in Rust. The `Vec` it builds is never mutated (no index assignment, and no `push` unless it is bound to a `let mut` local, which owns an array of its own: §7.14), so sharing the element values with the array is unobservable. The element type comes from context like any literal's; `vec![x; n]` is rejected. Tested with element types from the return type and a struct field, `vec![]`, nesting, `Option` elements, and the first of several overflows reported.
 
 ### 7.7 `const` and discriminants
 
@@ -300,13 +300,13 @@ Tested with an overflowing `then` argument after a non-`Equal` receiver, an over
 
 `s.split(c).collect()` and `s.split(c).map(f).collect()` build a `Vec` whose length is the input's. `c` is a `char`, so the pieces are the ones `for t in s.split(c)` already walks, empty ones included. `f` is a closure of one `&str` parameter, or a function name, with no `?` or `return`. The target is named by `collect::<Vec<T>>()`, `collect::<Result<Vec<T>, E>>()`, a typed `let`, or the function's return type.
 
-Into a `Vec<T>`, the pieces (or `f`'s results) are the array. Into a `Result<Vec<T>, E>`, `f` returns `Result<T, E>` and `Iter.tryCollect` runs `f` in order and returns the first `Err`, which is what `FromIterator` for `Result` does, so a later piece is not evaluated. Collecting a `Vec`, `chars()`, or any receiver but `split(c)`, a `&str` separator, and a missing target type are refused.
+Into a `Vec<T>`, the pieces (or `f`'s results) are the array. Into a `Result<Vec<T>, E>`, `f` returns `Result<T, E>` and `Iter.tryCollect` runs `f` in order and returns the first `Err`, which is what `FromIterator` for `Result` does, so a later piece is not evaluated. A `&str` separator and a missing target type are refused; collecting other sequences is §7.13.
 
 Tested with empty pieces, a non-ASCII separator, a function name and a closure, a turbofish and a typed `let`, an empty needle to `split_once`, and a `"boom"` after `"bad"` that panics only when the `Err` does not come first.
 
 ### 7.13 `map` and `filter` over a sequence
 
-<!-- constrained-by ./02-authoring.md#31-state-is-a-value-sequences-are-recursive-enums -->
+<!-- constrained-by ./02-authoring.md#31-state-is-a-value-sequences-are-rebuilt -->
 
 `xs.iter()` (or `into_iter()`, `chars()`, `bytes()`, `s.split(c)`) through any `.map(f)` and `.filter(p)`, then a consumer (`collect`, `sum`, `count`, `all`, `any`, `position`). Rust's adaptors are lazy: for each item, every stage runs, then the consumer, before the next item. `Iter.map` and `Iter.filter` are generators, so the TS runs in that order too, and a panic in a stage or in `sum`'s addition comes at the same item as in Rust. One stage before `collect` prints as the array method (`xs.map(f)`, `xs.filter(p)`): with nothing else running between the calls, the order of `f`'s calls is the same. `filter`'s predicate takes `&T`; it reads the item, as everything here does.
 

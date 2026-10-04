@@ -33,7 +33,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?` | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result` |
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
-| Local update | `let mut`, assignment and `+=` on locals; `v.push(x)` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-recursive-enums)) |
+| Local update | `let mut`, assignment and `+=` on locals; `v.push(x)` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-rebuilt)) |
 | Copies | `clone()` on any type, `as_ref()` on an `Option`, `as_deref()` on an `Option<String>` | `[...xs]` for a `Vec`, else the value itself |
 | Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest | one `const` per element; a `mut` element a `let` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
@@ -59,7 +59,7 @@ Why `&self` can be a value: the output never mutates arguments, and interior mut
 
 ## 3. Rules
 
-### 3.1 State is a value; sequences are recursive enums
+### 3.1 State is a value; sequences are rebuilt
 
 <!-- constrained-by ./07-roadmap.md#6-not-doing -->
 
@@ -117,7 +117,7 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 
 Why the rest of the output stays immutable: a local that is pushed to is bound to an array of its own. `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make a new array; any other value (a parameter, a field, what a function returns) is copied when bound (`let v: T[] = [...xs]`), since in TS the caller may still hold it. So the arrays in states, fields, and parameters are never written, and `clone` of anything but a `Vec` is the value itself ([01 §7.14](./01-equivalence.md#714-growing-a-vec)).
 - `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
-- A sequence that grows or shrinks with the state is a recursive enum (above).
+- A sequence that grows or shrinks with the state is a `Vec` the function builds, or a recursive enum (above).
 
 #### Shared and interior mutability
 
@@ -287,7 +287,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 - Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
 - The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. `split_once` also takes a `char`, and its pair is `Some((a, b))`.
-- As a `for` iterable only: `s.chars()`, `s.bytes()`, and `s.split(c)` ([§2](#2-what-can-be-written)).
+- `s.chars()`, `s.bytes()`, and `s.split(c)` as a `for` iterable, or through `map` / `filter` into a consumer or `collect` ([§2](#2-what-can-be-written)).
 - Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).
 
 #### Reading contents
@@ -332,7 +332,6 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 
 | Instead of | Write |
 | --- | --- |
-| `xs.iter().map(f).collect()`, `.filter(..)` | `for x in &xs`; return new sequences as recursive enums. A list split from text is `s.split(c).map(f).collect()` |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
 | `?` inside a guard, `\|` arms that bind names | bind the `?` result with `let` first; split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
@@ -342,10 +341,10 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `static N: u32 = 3;`, `impl T { const N: u32 = 3; }` | a crate-level `const N: u32 = 3;` |
 | `x as u32` on an integer | `u32::from(x)` where std widens; `as` reads only a fieldless enum's discriminant |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
-| `a.cmp(&b)` on floats, tuples, `Vec`, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |
+| `a.cmp(&b)` on floats, tuples, a `Vec` of the crate's types, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |
 | `loop`, `while let`, labelled `break`, `break` with a value | `while cond` with `break`, or a `for` with early `return` |
 | `.rev()`, `.zip(..)`, `.skip(n)` | a range `for` over indices, or `.enumerate()` and a test on the index |
-| `s.chars().filter(p).count()`, `.nth(n)` | `for c in s.chars()` with a `let mut` counter and early `return`; `s.chars().position(p)` for the first match |
+| `.nth(n)`, `.last()`, `.find(p)` | `for c in s.chars()` with a `let mut` counter and early `return`; `.position(p)` for the first match |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
 Closures cannot capture `let mut` (a JS closure would see later reassignments; rebind with `let` first), and cannot be parameters, return values, or fields.

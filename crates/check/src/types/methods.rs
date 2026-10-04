@@ -1074,17 +1074,17 @@ pub(super) fn leaves(expr: &Expr) -> bool {
 pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "parse", "slicing `s[a..b]`"]).collect(),
+        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"]).collect(),
         Ty::Prim(Prim::Str) => StrMethod::ALL
             .iter()
             .filter(|m| **m != StrMethod::AsStr)
             .map(|m| m.name())
-            .chain(["as_bytes", "cmp", "parse", "slicing `s[a..b]`"])
+            .chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"])
             .collect(),
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp"]).collect(),
         Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp"],
-        Ty::Vec(_) => vec!["len", "is_empty", "indexing `xs[i]`", "slicing `xs[a..b]`"],
-        Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map"],
+        Ty::Vec(_) => vec!["len", "is_empty", "cmp", "clone", "iter", "into_iter", "push (on a `let mut` local)", "indexing `xs[i]`", "slicing `xs[a..b]`"],
+        Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "as_ref", "as_deref"],
         Ty::Result { .. } => vec!["ok", "map", "map_err"],
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()

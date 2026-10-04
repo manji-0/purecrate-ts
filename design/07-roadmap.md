@@ -101,7 +101,7 @@ The first gap was the scanners: iterator adaptors over tokens and bytes, written
 | `totp_step` | 3 | 6 | `bool::then` |
 | `OtpDigits` helpers | 9 | 6 | a `match` for the count (the constrained side reads the discriminant) |
 
-`filter` / `find` stay out (§6). The others each save a few lines in one function, so none is a candidate on this evidence alone.
+`find` stays out (§4); `filter` is in since 0.9.0. The others each save a few lines in one function, so none is a candidate on this evidence alone.
 
 ### 2.3 Semantic cross-checks
 
@@ -145,7 +145,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
-| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost listed in §7 were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
+| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |

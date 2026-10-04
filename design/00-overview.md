@@ -61,13 +61,13 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 | --- | --- |
 | Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; sequences as `Vec`s a function builds (a local grown by `push`, `collect`) or recursive enums (`Box` erased) |
 | Closed types | structs with private fields keep their invariants (no public `of`) |
-| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, and on tuples); byte literals, integer, `char`, `bool`, range and string literal patterns, `matches!`; tuple patterns in `let`, closure parameters, and `for` |
+| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, struct patterns, and on tuples); byte literals, integer, `char`, `bool`, range and string literal patterns, `matches!`; tuple patterns in `let`, closure parameters, and `for` |
 | Bindings | local `let mut`, local `const`, local closures over immutable bindings, struct update `S { a, ..base }` |
-| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`, with `.enumerate()`; `while` with `break` and `continue`; `all` / `any` / `position` / `count` / `sum` on them |
+| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`, with `.enumerate()`; `while` with `break` and `continue`; lazy `map` / `filter` and `all` / `any` / `position` / `count` / `sum` / `collect` on them |
 | Numbers | integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`; `min` / `max` / `abs` / `pow` and the checked, saturating, and wrapping forms |
 | Constants | crate-level `const` items folded at check time; enum discriminants read with `as` |
-| `Option` | read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map` |
-| `Vec` | read by index, `len`, and slices; built as a fixed list `vec![a, b]`, or once from text with `s.split(c).collect()` / `.map(f).collect()` |
+| `Option` | read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map` / `as_ref` / `as_deref`; `clone` |
+| `Vec` | read by index, `len`, slices, and `cmp`; built as `vec![a, b]`, by `collect`, by `clone`, or grown in a function by `push` on a `let mut` local |
 | Strings | `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` / `split_once`, slices at byte positions, string contents via `s.as_bytes()` |
 | `char` | a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods |
 | `uuid::Uuid` | a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form |
@@ -76,10 +76,11 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ### 4.1 Examples
 
-Seven examples are written within the constraints and differentially tested:
+Eight examples are written within the constraints and differentially tested:
 
 | Example | Source |
 | --- | --- |
+| [counter](../examples/counter/src/lib.rs) | author's own |
 | [order](../examples/order/src/lib.rs) | author's own |
 | [signup](../examples/signup/src/lib.rs) | third-party specification |
 | [iban](../examples/iban/src/lib.rs) | third-party specification |
