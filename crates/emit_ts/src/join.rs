@@ -15,12 +15,14 @@ use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, TryOn, VariantBind};
 
 use crate::stmt::{is_place, touches};
 
+mod flow;
+
 /// `expr` with every such `match` joined, innermost first.
 pub(crate) fn joined(expr: &Expr) -> Expr {
     let mut out = expr.clone();
     unstated(&mut out, true);
     same_sides(&mut out);
-    narrow(&mut out, &mut Vec::new());
+    flow::flow_fn(&mut out);
     join(&mut out);
     unread(&mut out);
     decided(&mut out, false);
@@ -229,7 +231,20 @@ fn ends(expr: &Expr) -> bool {
         },
         Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends(&a.body)),
         Expr::At { expr, .. } => ends(expr),
+        // `while true` nothing breaks out of (what a `?` in a loop's test
+        // leaves when the test is decided): only a `return` leaves it.
+        Expr::While { cond, body } => matches!(**cond, Expr::Lit(Lit::Bool(true))) && !breaks_out(body),
         _ => false,
+    }
+}
+
+/// Whether a `break` in `body` leaves the loop `body` belongs to (not one
+/// nested in it, nor a closure).
+fn breaks_out(body: &Expr) -> bool {
+    match body {
+        Expr::Break => true,
+        Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::Closure { .. } => false,
+        other => other.children().into_iter().any(breaks_out),
     }
 }
 
@@ -477,314 +492,6 @@ fn same_variant(expr: &mut Expr) {
 /// A place and the variants an enclosing arm has narrowed it to.
 type Known = Vec<(Expr, Vec<Name>)>;
 
-/// A `match` on a place an enclosing arm has narrowed, as the arm every
-/// one of those variants takes: the decision tree copies `(s, _) => if
-/// matches!(s, Done) { a } else { b }` under each case of `s`, where only
-/// one side is reachable. A `let` of the place that nothing reads then is
-/// left out.
-fn narrow(expr: &mut Expr, known: &mut Known) {
-    // A test reads a `bool` place an enclosing test has decided as that
-    // value, as TS does: its control flow then matches TS's.
-    if let Expr::If { cond, .. } | Expr::While { cond, .. } = expr {
-        decide(cond, known);
-    }
-    // Decided with nothing to run first, it is the side taken, so what reads
-    // it (`match { let t = if c { .. } else { r }; t }`) sees that side.
-    if let Expr::If { cond, then, else_ } = expr {
-        if let Some((Expr::Lit(Lit::Unit), b)) = constant(cond) {
-            let side = if b { &**then } else { &**else_ };
-            if !declares(side) {
-                *expr = side.clone();
-                same_sides(expr);
-                return narrow(expr, known);
-            }
-        }
-    }
-    if let Some(taken) = taken_arm(expr, known) {
-        *expr = taken;
-        return narrow(expr, known);
-    }
-    // `let x = r?` where `r` is known `Err` always leaves.
-    if let Expr::Let { value, .. } = expr {
-        if let Expr::Try { expr: place, on: Some(on) } = &**value {
-            if let Some(exit) = failed_try(place, *on, known).filter(|_| is_place(place)) {
-                *expr = exit;
-                return;
-            }
-        }
-    }
-    // `r?` where `r` is known `Ok` never leaves.
-    if let Expr::Seq { first, then } = expr {
-        if let Expr::Try { expr: place, on: Some(on) } = &**first {
-            let case = tried_case(*on);
-            let holds = |p: &Expr| {
-                known
-                    .iter()
-                    .rev()
-                    .find(|(k, _)| k == p)
-                    .is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&case))
-            };
-            if is_place(place) && (holds(place) || aliased(place).is_some_and(|t| holds(&t))) {
-                *expr = (**then).clone();
-                return narrow(expr, known);
-            }
-            if let Some(exit) = failed_try(place, *on, known).filter(|_| is_place(place)) {
-                *expr = exit;
-                return;
-            }
-        }
-    }
-    match expr {
-        // An arm of `A | B` is narrowed for each variant; where the bodies
-        // differ, it is one arm per variant (the printer shares the cases of
-        // those that still do the same).
-        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
-            let mut split = Vec::with_capacity(arms.len());
-            for mut arm in std::mem::take(arms) {
-                let variants = variants_of(&arm.pattern);
-                if variants.is_empty() || touches(&arm.body, root(scrutinee)) {
-                    narrow(&mut arm.body, known);
-                    split.push(arm);
-                    continue;
-                }
-                // `let $t = r; match $t { .. }` (how a method's receiver is
-                // bound): an arm narrows `r` as well, unless it writes `r`.
-                let target = aliased(scrutinee).filter(|t| !touches(&arm.body, root(t)));
-                let bodies: Vec<Expr> = variants
-                    .into_iter()
-                    .map(|v| {
-                        let mut body = arm.body.clone();
-                        known.push(((**scrutinee).clone(), vec![v.clone()]));
-                        if let Some(t) = &target {
-                            known.push((t.clone(), vec![v]));
-                        }
-                        narrow(&mut body, known);
-                        if target.is_some() {
-                            known.pop();
-                        }
-                        known.pop();
-                        body
-                    })
-                    .collect();
-                match &arm.pattern {
-                    Pattern::Or(alts) if bodies.iter().any(|b| *b != bodies[0]) => {
-                        split.extend(alts.iter().zip(bodies).map(|(alt, body)| Arm {
-                            pattern: alt.clone(),
-                            guard: arm.guard.clone(),
-                            body,
-                        }));
-                    }
-                    _ => {
-                        arm.body = bodies.into_iter().next().expect("a variant");
-                        split.push(arm);
-                    }
-                }
-            }
-            // Narrowing may have folded every read of a name an arm binds
-            // (`Err(e) => match r { Ok(_) => e, Err(_) => b }`); TS refuses
-            // the unread `const`.
-            for arm in &mut split {
-                let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
-                arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
-            }
-            *arms = split;
-        }
-        // `let t = r; t?; ..` (how `?` on a place is lifted): past the `?`,
-        // `t` and `r` hold `Ok` (or `Some`), and TS has narrowed both.
-        Expr::Let { name, mutable: false, value, then, .. }
-            if is_place(value)
-                && !touches(then, root(value))
-                && tried(then).is_some_and(|(t, _)| *t == Expr::Var(name.clone())) =>
-        {
-            let on = tried(then).expect("checked above").1;
-            // Already known to fail: the `?` always leaves, and nothing past
-            // it runs (TS has the place narrowed to the failure, and refuses
-            // reading its payload).
-            if let Some(exit) = failed_try(value, on, known) {
-                *expr = exit;
-                return;
-            }
-            let case = tried_case(on);
-            // Already known to hold: the `?` never leaves.
-            if known
-                .iter()
-                .rev()
-                .find(|(k, _)| k == &**value)
-                .is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&case))
-            {
-                let Expr::Seq { then: rest, .. } = &mut **then else { unreachable!("tried") };
-                **then = std::mem::replace(&mut **rest, Expr::Lit(Lit::Unit));
-                return narrow(expr, known);
-            }
-            let Expr::Seq { then: rest, .. } = &mut **then else { unreachable!("tried") };
-            known.push(((**value).clone(), vec![case.clone()]));
-            known.push((Expr::Var(name.clone()), vec![case]));
-            narrow(rest, known);
-            known.pop();
-            known.pop();
-        }
-        Expr::Seq { first, then } if matches!(&**first, Expr::Try { expr, on: Some(_) } if is_place(expr) && !touches(then, root(expr))) =>
-        {
-            let Expr::Try { expr: place, on: Some(on) } = &**first else { unreachable!("matched") };
-            known.push(((**place).clone(), vec![tried_case(*on)]));
-            narrow(then, known);
-            known.pop();
-        }
-        // `match r { Ok(v) => .., Err(_) => break }` as a statement: past it,
-        // `r` is `Ok`, as TS knows, unless what follows writes it.
-        Expr::Seq { first, then } => {
-            narrow(first, known);
-            let past: Vec<(Expr, Vec<Name>)> =
-                survives(first).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
-            for (place, cases) in &past {
-                known.push((place.clone(), cases.clone()));
-            }
-            narrow(then, known);
-            for _ in &past {
-                known.pop();
-            }
-        }
-        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
-            let alias = known.iter().find(|(p, _)| p == &**value).map(|(_, vs)| vs.clone());
-            if let Some(vs) = &alias {
-                known.push((Expr::Var(name.clone()), vs.clone()));
-            }
-            ALIASES.with(|a| a.borrow_mut().push((name.clone(), (**value).clone())));
-            narrow(then, known);
-            ALIASES.with(|a| a.borrow_mut().pop());
-            if alias.is_some() {
-                known.pop();
-            }
-            // Reading a place does nothing: a binding narrowing left unread
-            // (`unwrap_or(a)`'s `$optOr = a` past `o?`) goes, so `a` is not
-            // counted as read.
-            if !mentions(then, name) {
-                *expr = (**then).clone();
-            }
-        }
-        // `let o = r.ok(); match o { .. }` where narrowing made the value a
-        // constructor: `o` is that case, and a `let` nothing reads is gone.
-        Expr::Let { name, mutable: false, value, then, .. } => {
-            narrow(value, known);
-            // Narrowing made the value a place (`{ let t = if c { r } else
-            // { .. }; t }` with `c` decided): a `let` of a place, as above.
-            same_sides(value);
-            if is_place(value) && !touches(then, root(value)) {
-                return narrow(expr, known);
-            }
-            if let Some(e) = constructed_arm(value) {
-                **value = e;
-            }
-            // `let v = match r { Ok(v) => v, Err(e) => return .. }` (how
-            // `map_err(f)?` is typed): past it, `r` is `Ok`, as TS knows.
-            // Not a place an arm or what follows writes (`o = None`).
-            let past: Vec<(Expr, Vec<Name>)> =
-                survives(value).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
-            for (place, cases) in &past {
-                known.push((place.clone(), cases.clone()));
-            }
-            narrow(then, known);
-            for _ in &past {
-                known.pop();
-            }
-            // TS does not narrow `o` from `Result.ok(a)`, whose type is the
-            // whole union: each `match o` is decided on the value itself,
-            // its payload bound by name.
-            // The payload is read again where the `match` was: only a name
-            // nothing reassigns, or a literal.
-            // `let $r = r; Some($r.value)` (a receiver bound first) is
-            // `Some(r.value)`.
-            let built = as_constructor(value);
-            let steady = built.as_ref().is_some_and(|b| {
-                b.children().iter().all(|c| match c {
-                    Expr::Lit(_) => true,
-                    c if is_place(c) => !touches(then, root(c)),
-                    _ => false,
-                })
-            });
-            if let (Some(built), true, false) = (built, steady, touches(then, name)) {
-                decide_on(then, name, &built);
-                // What that decided may leave a binding below unread.
-                narrow(then, known);
-            }
-            // A binding narrowing left unread (`unwrap_or(d)`'s eager `d`
-            // once its `None` arm is gone) still runs, as a statement; TS
-            // refuses the unread `const`.
-            if !mentions(then, name) {
-                *expr = if effectless(value) {
-                    (**then).clone()
-                } else {
-                    Expr::Seq { first: value.clone(), then: then.clone() }
-                };
-            }
-        }
-        // `if c { .. } else { .. }` on a `bool` place: TS has `c` as `true`
-        // on one side and `false` on the other, and refuses comparing two
-        // it knows apart (`!c === c`).
-        Expr::If { cond, then, else_ } if !bool_tests(cond, true).is_empty() || !bool_tests(cond, false).is_empty() => {
-            narrow(cond, known);
-            for (side, holds) in [(&mut **then, true), (&mut **else_, false)] {
-                let facts: Vec<(Expr, bool)> =
-                    bool_tests(cond, holds).into_iter().filter(|(p, _)| !touches(side, root(p))).collect();
-                for (place, b) in &facts {
-                    known.push((place.clone(), vec![Name::new(if *b { TRUE } else { FALSE })]));
-                }
-                narrow(side, known);
-                for _ in &facts {
-                    known.pop();
-                }
-            }
-        }
-        // A closure may run where the narrowing no longer holds.
-        Expr::Closure { body, .. } => narrow(body, &mut Vec::new()),
-        _ => {
-            for child in expr.children_mut() {
-                narrow(child, known);
-            }
-            // A scrutinee narrowing has made a place (`{ let t = if false {
-            // .. } else { r }; t }` is `r`) is decided as the place.
-            if let Expr::Match { scrutinee, .. } = expr {
-                same_sides(scrutinee);
-                if let Some(taken) = taken_arm(expr, known) {
-                    *expr = taken;
-                    return narrow(expr, known);
-                }
-            }
-            // A scrutinee narrowing made a constructor (`r.ok()` in `r`'s
-            // `Err` arm is `None`) decides its `match` too: `null ?? d` is
-            // what TS would refuse.
-            if let Some(taken) = constructed_arm(expr) {
-                *expr = taken;
-            }
-            // `a == b` where narrowing has decided both `bool`s.
-            if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
-                if let (Some(l), Some(r)) = (known_bool(left, known), known_bool(right, known)) {
-                    *expr = Expr::Lit(Lit::Bool((l == r) == (*op == BinOp::Eq)));
-                }
-            }
-            literal_compare(expr);
-            // `is_some()` of what narrowing made `None` or `Some(v)`.
-            if let Expr::Call {
-                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
-                args,
-            } = expr
-            {
-                if let [arg] = args.as_slice() {
-                    let pure = arg.children().iter().all(|c| matches!(c, Expr::Var(_) | Expr::Lit(_)));
-                    let some = match constructed_case(arg).as_ref().map(Name::as_str) {
-                        Some(SOME) => Some(true),
-                        Some(NONE) => Some(false),
-                        _ => None,
-                    };
-                    if let (Some(some), true) = (some, pure) {
-                        *expr = Expr::Lit(Lit::Bool(some == (*callee == purecrate_ir::Callee::OptionIsSome)));
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// The arm a `match` on `None`, `Some(e)`, `Ok(e)`, or `Err(e)` takes, with
 /// `e` bound to the name its pattern gives it. `None` where an arm before
 /// it may take the value, a guard decides, or the payload's pattern is
@@ -877,65 +584,6 @@ fn unbind(pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pattern {
         },
         other => other,
     }
-}
-
-/// The places a `match` that returns from some arms leaves narrowed to the
-/// cases of the others, with the place a `let` alias of it names.
-fn survives(value: &Expr) -> Vec<(Expr, Vec<Name>)> {
-    match value {
-        // What the value established, unless the rest writes it; through
-        // `let $result = r; match $result { .. }`, `r` too.
-        Expr::Let { name, value: inner, then, .. } => {
-            let mut out: Vec<_> = survives(inner).into_iter().filter(|(p, _)| !touches(then, root(p))).collect();
-            let after = survives(then);
-            if is_place(inner) && !touches(then, root(inner)) {
-                if let Some(cases) = after.iter().find(|(p, _)| *p == Expr::Var(name.clone())).map(|(_, c)| c.clone()) {
-                    out.push(((**inner).clone(), cases));
-                }
-            }
-            out.extend(after);
-            return out;
-        }
-        Expr::Seq { first, then } => {
-            let mut out: Vec<_> = match &**first {
-                Expr::Try { expr, on: Some(on) } if is_place(expr) => vec![((**expr).clone(), vec![tried_case(*on)])],
-                f => survives(f),
-            };
-            out.retain(|(p, _)| !touches(then, root(p)));
-            out.extend(survives(then));
-            return out;
-        }
-        Expr::At { expr, .. } => return survives(expr),
-        // `if c { return .. }`: past it, `c` is `false`.
-        Expr::If { cond, then, else_ } => {
-            return match (ends(then), ends(else_)) {
-                (true, false) => bool_tests(cond, false),
-                (false, true) => bool_tests(cond, true),
-                _ => Vec::new(),
-            }
-            .into_iter()
-            .map(|(p, b)| (p, vec![Name::new(if b { TRUE } else { FALSE })]))
-            .collect();
-        }
-        _ => {}
-    }
-    let Expr::Match { scrutinee, arms } = value else { return Vec::new() };
-    if !is_place(scrutinee)
-        || arms
-            .iter()
-            .any(|a| a.guard.is_some() || variants_of(&a.pattern).is_empty() || touches(&a.body, root(scrutinee)))
-    {
-        return Vec::new();
-    }
-    let kept: Vec<Name> = arms.iter().filter(|a| !ends(&a.body)).flat_map(|a| variants_of(&a.pattern)).collect();
-    if kept.is_empty() || kept.len() == arms.iter().flat_map(|a| variants_of(&a.pattern)).count() {
-        return Vec::new();
-    }
-    let mut out = vec![((**scrutinee).clone(), kept.clone())];
-    if let Some(t) = aliased(scrutinee) {
-        out.push((t, kept));
-    }
-    out
 }
 
 /// `1 == 65535` as `false`: TS refuses comparing two literals it knows
@@ -1033,17 +681,6 @@ fn aliased(expr: &Expr) -> Option<Expr> {
     Some(aliased(&target).unwrap_or(target))
 }
 
-/// The place a statement `p?` leaves on, when `expr` starts with one.
-fn tried(expr: &Expr) -> Option<(&Expr, TryOn)> {
-    match expr {
-        Expr::Seq { first, .. } => match &**first {
-            Expr::Try { expr, on: Some(on) } if is_place(expr) => Some((expr, *on)),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 /// The `return` of `place?` where `place` is known to hold `None` or an
 /// `Err`, directly or through the `let` it aliases.
 fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr> {
@@ -1059,27 +696,6 @@ fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr> {
     } else {
         place.clone()
     })))
-}
-
-/// The `bool` places `cond` decides where it is `holds`: `c` is `true`
-/// where `c` holds, both of `a && b` are, and both of `a || b` are `false`
-/// where it fails.
-fn bool_tests(cond: &Expr, holds: bool) -> Vec<(Expr, bool)> {
-    match cond {
-        c if is_place(c) => vec![(c.clone(), holds)],
-        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => bool_tests(expr, !holds),
-        Expr::Binary { op: BinOp::And, left, right } if holds => {
-            let mut out = bool_tests(left, true);
-            out.extend(bool_tests(right, true));
-            out
-        }
-        Expr::Binary { op: BinOp::Or, left, right } if !holds => {
-            let mut out = bool_tests(left, false);
-            out.extend(bool_tests(right, false));
-            out
-        }
-        _ => Vec::new(),
-    }
 }
 
 /// `cond` with each `bool` place a test has decided read as its value,
