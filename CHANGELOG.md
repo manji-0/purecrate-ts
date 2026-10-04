@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-10-04
 
-A change to the runtime's signatures (`Result.ok`, `Result.err`), which the stable surface lists (design/07 §9): the next release is 0.10.0. Regenerate committed output.
+Tests generated from seeds, and what they found; parentheses decided on a tree of the printed operators; rustfmt and clippy in CI. A minor release: the runtime's `Result.ok` and `Result.err` signatures change, which the stable surface lists ([roadmap §8.14](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04)). Regenerate committed output: each copied runtime changes by two lines.
 
 ### Changed
 

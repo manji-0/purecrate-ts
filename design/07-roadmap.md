@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.9.1)
+Status: current (2026-10-04, after 0.10.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -446,6 +446,24 @@ Why: four audits after 0.9.0 (its new features, the older generator, the output'
 
 - **Where precedence was decided.** The printer grouped an operand by its IR node, and a call (`is_some`) or a `match` printed as an operator slipped past; `grouped` now takes the looser of the node's and the printed text's precedence, and the object of a member is parenthesized unless atomic.
 - **Open:** the readability findings (needless copies after `?` and `ok_or`, numbered shadows, scattered destructuring, hex literals, comments outside bodies) and some over-rejections (`i32::MIN` in an expression, a hosted helper named like a type) wait for the next minor.
+
+### 8.14 0.10.0: tests generated from seeds, and what they asked for (2026-10-04)
+
+<!-- derived-from #813-091-fixes-from-an-audit-of-090-2026-10-04 -->
+
+Why: an evaluation of 0.9.1 found that every audit since 0.8.1 turned up output that disagreed with Rust, each only in a shape no fixture spelled, and that the printer decided parentheses by reading its own text back. Hand-written cases could not keep up; generated ones can. A minor, because the runtime's signatures change (§9).
+
+| Item | Verified by |
+| --- | --- |
+| Functions generated from seeds, run through rustc and the generated TS, compared call by call | `generated_equivalence.rs`: seeds 1 to 120 agree (7,200 functions, 86,400 calls); 1 to 8 on every run |
+| A `?` (or `map_err(f)?`) in what `ok_or` takes leaves the function; `unwrap_or` and `ok_or(..)?` keep their options apart; `match o.ok_or(e)` and an annotated block as a scrutinee are typed; a parameter read only in a folded branch is `_` | `order_of_eval_equivalence.rs`, each failing before the fix |
+| `Result.ok` / `Result.err` default the type they cannot infer to `never` | the generated seeds, which stopped at `tsc` on `Result<T, unknown>` before |
+| What TS has narrowed is folded, only where nothing writes the place | `narrowing_equivalence.rs`; `reassigned_scrutinee` caught a fold that missed a `let mut` written in an arm |
+| Parentheses and negation on a tree of the printed operators (`emit_ts::tx`) | `tx.rs` tests; the examples' and fixtures' output byte for byte unchanged, 40 seeds' output only losing parentheses around inline functions |
+| rustfmt (120 columns) and clippy in CI | `verify.yml` lint job; `scripts/verify.sh` |
+
+- **06 §4.3 reads the generator, not only the examples.** The row on silent wrong values now names the audits' findings and the generated test's count.
+- **Open:** line breaking (`tidy::wrap`) still reads printed lines, as a layout pass; oxc's formatter is not published as a crate.
 
 ## 9. Generated API stability
 
