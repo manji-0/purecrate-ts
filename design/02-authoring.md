@@ -28,7 +28,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | Ordering | `use std::cmp::Ordering;`; `a.cmp(&b)` on integers, `char`, `bool`, strings, `Uuid`, and `Vec`s of these (element by element, then the shorter first); `<` `<=` `>` `>=` on strings (code points); `Ordering::Less` in patterns, `==`, `is_lt()` and the other predicates, `reverse()`, `then(o)`, `then_with(\|\| ..)` | a fieldless enum; `cmp` as `Ord.cmp`, or `Ord.cmpStr` (by code point) on `char`, strings, and `Uuid`, and `Ord.cmpList(a, b, Ord.cmp)` on `Vec`s; `then` as `Ord.then` |
 | UUIDs | `uuid::Uuid` (or `Uuid` after `use uuid::Uuid;`); `Uuid::parse_str(s)` / `try_parse(s)` returning `Result<Uuid, uuid::Error>`; `Uuid::nil()`; `==`, `<` | `Uuid` (branded canonical `string`); `Uuid.parseStr`; `===`, `<` |
-| Expected failure | `Result` / `Option`, `?`, early `return`, `if let` | values, not throws |
+| Expected failure | `Result` / `Option`, `?`, early `return`, `if let Some(x) = o` (an enum variant takes a `match`) | values, not throws |
 | Optional values | `o.is_some()`, `is_none()`, `unwrap_or(d)`, `ok_or(e)` (the argument evaluated first, as in Rust), `map(\|x\| ..)`, `map(f)`, or `map(E::V)` (a closure without `?` or `return`, a function name, or a one-field tuple variant) | the `match` std writes, the receiver bound once |
 | Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?` | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result` |
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
@@ -333,7 +333,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | Instead of | Write |
 | --- | --- |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `?` inside a guard, in `matches!`'s first argument inside a test (`if matches!(x?, p)`), or on the right of `&&` / `\|\|`; `\|` arms that bind names | bind the `?` result with `let` first; split the match |
+| `?` inside a guard, in `matches!`'s first argument inside a test (`if matches!(x?, p)`), or on the right of `&&` / `\|\|`; `?` or `return` in an arm of a `match` bound by a tuple `let` (`let (a, b) = match ..`); `\|` arms that bind names | bind the `?` result with `let` first (the tuple too, then take it apart); split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`examples/ssh`**: an SSH client from the server's identification line to the end of user authentication (RFC 4253 version exchange, §7.1 negotiation and guessed packets, OpenSSH's strict key exchange, known_hosts, RFC 4252 publickey and password, RFC 8308 server-sig-algs, re-exchange), with packet framing (§6) and the keys to derive (§7.2). Its test asserts each rule as the specifications state it, and compares the package with Rust on those runs and on every two of 18 events after each point of the handshake.
+
+### Fixed
+
+Three holes in accepted code that the example found:
+
+- **`tsc` refused a `case` narrowing had ruled out** (TS2678): a later `match` on a place a guard or a failed `matches!` had narrowed kept the excluded variant among the cases its `_` names. Narrowing now knows what an enum's `_` holds, a test may leave several cases, and an arm loses the variants the place cannot hold.
+- **oxlint refused `as T` on a tuple element** read right after `let (a, b) = f()?`. It is `const [a, b] = result.value;`, as without `?`; a tuple from a call is taken apart without an annotation.
+- **oxfmt rewrote long logical initializers and arguments**: `const x = a && b && c;` now breaks after `=`, one operand a line, and a chain as an argument puts its later operands one indent in.
+
+### Changed
+
+- A two-arm boolean `match` whose first arm is the other variants is tested as the one: `o.kind === "Equal"`, not `!(o.kind === "Less" || o.kind === "Greater")`. No example's output changes.
+- The authoring skill and 02-authoring: `if let` takes `Some(x)` only; a tuple `let` bound to a `match` takes no `?` or `return` in its arms; an `if` whose one side is a bare literal needs its binding typed.
+
 ## 0.10.4 — 2026-10-05
 
 A refactor, and the generated sweeps run locally. Nothing on the stable surface changes; the examples' output is byte for byte the same.
