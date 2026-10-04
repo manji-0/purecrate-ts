@@ -3,7 +3,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod vecs = "fixtures/vec.rs");
 
 const SOURCE: &str = vecs::SOURCE;

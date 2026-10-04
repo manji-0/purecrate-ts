@@ -30,7 +30,8 @@ fn generated(name: &str, source: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for schema in schemas {
         for f in assemble_with(&typed, schema).files {
-            let hand_written = f.stem == "purecrate-runtime" || f.stem.starts_with("purecrate-") && f.stem != "purecrate-wire";
+            let hand_written =
+                f.stem == "purecrate-runtime" || f.stem.starts_with("purecrate-") && f.stem != "purecrate-wire";
             if !hand_written && !f.stem.contains('.') {
                 out.push((format!("{name}/{schema:?}/{}", f.stem), f.source));
             }
@@ -80,7 +81,9 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("const") {
         return Some("readonly literal");
     }
-    if line.trim_start().starts_with("import ") || (value.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && target_name == format!("Domain{value}")) {
+    if line.trim_start().starts_with("import ")
+        || (value.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && target_name == format!("Domain{value}"))
+    {
         return Some("import alias");
     }
     if target.starts_with("never") && value.starts_with("ctx.error(") {
@@ -99,7 +102,10 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
         return Some("length");
     }
     // `x as number as U32`: both halves.
-    if target.starts_with("number as ") || (value == "number" && NUMERIC.contains(&target_name)) || (NUMERIC.contains(&target_name) && value.starts_with("globalThis.BigInt(")) {
+    if target.starts_with("number as ")
+        || (value == "number" && NUMERIC.contains(&target_name))
+        || (NUMERIC.contains(&target_name) && value.starts_with("globalThis.BigInt("))
+    {
         return Some("lossless widening");
     }
     // The increment stays on the `for` line, on the header's last line once
@@ -116,13 +122,22 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target_name == "F64" || (target_name == "F32" && value.starts_with("globalThis.Math.fround(")) {
         return Some("float");
     }
-    if (value == "value" || value == "fields") && (line.contains("export const unsafeMake") || line.trim_start().starts_with("of: (value")) {
+    if (value == "value" || value == "fields")
+        && (line.contains("export const unsafeMake") || line.trim_start().starts_with("of: (value"))
+    {
         return Some("the crate's constructor");
     }
     if target.split(';').next().unwrap_or("").contains(" | null") && !is_place_text(value) {
         return Some("an `Option` given back its declared type");
     }
-    if !brands.contains(target_name) && target_name.starts_with(|c: char| c.is_ascii_uppercase()) && !NUMERIC.contains(&target_name) && target_name != "Char" && target_name != "Uuid" && !target.contains('|') && (value.trim_start().starts_with('{') || is_place_text(value)) {
+    if !brands.contains(target_name)
+        && target_name.starts_with(|c: char| c.is_ascii_uppercase())
+        && !NUMERIC.contains(&target_name)
+        && target_name != "Char"
+        && target_name != "Uuid"
+        && !target.contains('|')
+        && (value.trim_start().starts_with('{') || is_place_text(value))
+    {
         return Some("union given back its declared type");
     }
     None
@@ -139,7 +154,10 @@ fn every_cast_is_of_a_sound_kind() {
     for dir in fs::read_dir(root.join("examples")).expect("examples") {
         let lib = dir.expect("entry").path().join("src/lib.rs");
         if let Ok(src) = fs::read_to_string(&lib) {
-            inputs.push((lib.parent().unwrap().parent().unwrap().file_name().unwrap().to_string_lossy().into_owned(), src));
+            inputs.push((
+                lib.parent().unwrap().parent().unwrap().file_name().unwrap().to_string_lossy().into_owned(),
+                src,
+            ));
         }
     }
     for f in fs::read_dir(root.join("crates/cli/tests/fixtures")).expect("fixtures") {
@@ -178,9 +196,14 @@ fn every_cast_is_of_a_sound_kind() {
                     let value = operand(line, at);
                     let target = &line[at + 4..];
                     if kind(line, value, target, &brands).is_none()
-                        && !(before.contains("export const unsafeMake") && kind(&joined, value, target, &brands).is_some())
+                        && !(before.contains("export const unsafeMake")
+                            && kind(&joined, value, target, &brands).is_some())
                     {
-                        unexplained.push(format!("{file}: `{value} as {}` in\n    {}", target.split([';', ',']).next().unwrap_or(""), line.trim()));
+                        unexplained.push(format!(
+                            "{file}: `{value} as {}` in\n    {}",
+                            target.split([';', ',']).next().unwrap_or(""),
+                            line.trim()
+                        ));
                     }
                     from = at + 4;
                 }

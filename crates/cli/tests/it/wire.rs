@@ -27,16 +27,12 @@ const SOURCE: &str = include_str!("../fixtures/wire_shapes.rs");
 fn parse_fns(schema: WireSchema) -> (&'static str, &'static str, &'static str) {
     match schema {
         WireSchema::Zod => ("", "(s, x) => s.parse(x)", "(s, x) => s.safeParse(x).success"),
-        WireSchema::Valibot => (
-            "import * as v from \"valibot\";\n",
-            "(s, x) => v.parse(s, x)",
-            "(s, x) => v.safeParse(s, x).success",
-        ),
-        WireSchema::Arktype => (
-            "import { type } from \"arktype\";\n",
-            "(s, x) => s.assert(x)",
-            "(s, x) => !(s(x) instanceof type.errors)",
-        ),
+        WireSchema::Valibot => {
+            ("import * as v from \"valibot\";\n", "(s, x) => v.parse(s, x)", "(s, x) => v.safeParse(s, x).success")
+        }
+        WireSchema::Arktype => {
+            ("import { type } from \"arktype\";\n", "(s, x) => s.assert(x)", "(s, x) => !(s(x) instanceof type.errors)")
+        }
     }
 }
 
@@ -245,7 +241,9 @@ fn the_derives_decide_what_is_on_the_wire() {
         .find(|f| f.stem == "purecrate-wire")
         .expect("wire module")
         .source;
-    for (name, schema, json) in [("Both", true, true), ("Out", false, true), ("In", true, false), ("Email", false, false)] {
+    for (name, schema, json) in
+        [("Both", true, true), ("Out", false, true), ("In", true, false), ("Email", false, false)]
+    {
         assert_eq!(wire.contains(&format!("export const {name}: ")), schema, "schema for {name}:\n{wire}");
         assert_eq!(wire.contains(&format!("  {name}: (x: ")), json, "toJson for {name}:\n{wire}");
     }
@@ -290,7 +288,10 @@ fn the_index_exports_the_runtime_the_surface_needs() {
     let (plain, runtime) = index("pub fn twice(n: i32) -> i32 { n * 2 }", None);
     assert!(plain.contains("export { Panic, assertNever, Int } from"), "{plain}");
     assert!(plain.contains("export type { I32 } from"), "{plain}");
-    assert!(!plain.contains("Result") && !plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"), "{plain}");
+    assert!(
+        !plain.contains("Result") && !plain.contains("Char") && !plain.contains("Uuid") && !plain.contains("parseJson"),
+        "{plain}"
+    );
     assert!(!plain.contains("I8") && !plain.contains("F64"), "{plain}");
     assert!(!runtime.contains("fromU32") && !runtime.contains("export const parseJson"), "{runtime}");
     assert!(!runtime.contains("export const Iter") && !runtime.contains("export const Slice"), "{runtime}");
@@ -299,7 +300,8 @@ fn the_index_exports_the_runtime_the_surface_needs() {
     assert!(chars.contains("export { Panic, assertNever, Char } from"), "{chars}");
     assert!(!runtime.contains("export const Int"), "{runtime}");
     assert!(runtime.contains("fromU32"), "the whole of `Char` is kept:\n{runtime}");
-    let source = "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
+    let source =
+        "use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Id { pub n: i64 }\n";
     let (wired, runtime) = index(source, Some(WireSchema::Zod));
     assert!(wired.contains("export { parseJson } from"), "{wired}");
     assert!(runtime.contains("export const parseJson"), "{runtime}");

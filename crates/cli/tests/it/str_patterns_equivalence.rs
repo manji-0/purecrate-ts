@@ -6,14 +6,27 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod pats = "fixtures/str_patterns.rs");
 
 const SOURCE: &str = pats::SOURCE;
 
 const TEXTS: [&str; 16] = [
-    "", "card", "credit_card", "card ", "Card", "bank", "wallet", "walle", "é", "e\u{301}", "日本", "日", "😀", "😁",
-    "\u{ffff}", "a\"b\\c\n",
+    "",
+    "card",
+    "credit_card",
+    "card ",
+    "Card",
+    "bank",
+    "wallet",
+    "walle",
+    "é",
+    "e\u{301}",
+    "日本",
+    "日",
+    "😀",
+    "😁",
+    "\u{ffff}",
+    "a\"b\\c\n",
 ];
 
 #[test]

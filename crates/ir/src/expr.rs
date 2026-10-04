@@ -10,8 +10,16 @@ pub enum Lit {
     /// `byte` when the source wrote it as a byte literal (`b'@'`), which
     /// emit notes beside the number; `hex` when it wrote `0x..`, which emit
     /// keeps.
-    Int { value: i128, ty: Option<IntTy>, byte: bool, hex: bool },
-    Float { digits: String, ty: Option<FloatTy> },
+    Int {
+        value: i128,
+        ty: Option<IntTy>,
+        byte: bool,
+        hex: bool,
+    },
+    Float {
+        digits: String,
+        ty: Option<FloatTy>,
+    },
     Str(String),
     Char(char),
     Unit,
@@ -212,10 +220,7 @@ impl IntMethod {
 
     /// The second argument is a `u32` exponent.
     pub fn takes_exponent(self) -> bool {
-        matches!(
-            self,
-            Self::Pow | Self::CheckedPow | Self::SaturatingPow | Self::WrappingPow
-        )
+        matches!(self, Self::Pow | Self::CheckedPow | Self::SaturatingPow | Self::WrappingPow)
     }
 
     /// The result is `Option` of the receiver's type.
@@ -669,7 +674,9 @@ impl Pattern {
             },
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => p.refutable(),
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().any(Pattern::nests),
-            Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::OptionNone | Pattern::Range { .. } => false,
+            Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::OptionNone | Pattern::Range { .. } => {
+                false
+            }
         }
     }
 
@@ -687,9 +694,7 @@ impl Pattern {
     pub fn columns(&self) -> Vec<&Pattern> {
         match self {
             Pattern::Tuple(ps) => ps.iter().collect(),
-            Pattern::Or(alts) if self.is_tuple_case() => {
-                alts.iter().flat_map(Pattern::columns).collect()
-            }
+            Pattern::Or(alts) if self.is_tuple_case() => alts.iter().flat_map(Pattern::columns).collect(),
             other => vec![other],
         }
     }
@@ -698,11 +703,7 @@ impl Pattern {
     /// an integer.
     pub fn is_int_case(&self) -> bool {
         match self {
-            Pattern::Lit(Lit::Int { .. })
-            | Pattern::Range {
-                lo: Lit::Int { .. },
-                ..
-            } => true,
+            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { lo: Lit::Int { .. }, .. } => true,
             Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
             _ => false,
         }
@@ -712,10 +713,7 @@ impl Pattern {
     /// `char`.
     pub fn is_char_case(&self) -> bool {
         match self {
-            Pattern::Lit(Lit::Char(_))
-            | Pattern::Range {
-                lo: Lit::Char(_), ..
-            } => true,
+            Pattern::Lit(Lit::Char(_)) | Pattern::Range { lo: Lit::Char(_), .. } => true,
             Pattern::Or(alts) => alts.iter().all(Pattern::is_char_case),
             _ => false,
         }
@@ -760,9 +758,7 @@ impl Pattern {
                 VariantBind::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
                 VariantBind::Struct(ps) => ps.iter().for_each(|(_, p)| p.collect_bindings(out)),
             },
-            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
-                p.collect_bindings(out)
-            }
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => p.collect_bindings(out),
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| p.collect_bindings(out)),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
         }
@@ -839,11 +835,7 @@ pub struct Arm {
 
 impl Arm {
     pub fn new(pattern: Pattern, body: Expr) -> Self {
-        Arm {
-            pattern,
-            guard: None,
-            body,
-        }
+        Arm { pattern, guard: None, body }
     }
 }
 
@@ -1012,11 +1004,7 @@ impl Expr {
     pub fn own_types(&self) -> Vec<&Ty> {
         match self {
             Expr::Let { ty, .. } => ty.iter().collect(),
-            Expr::Closure { params, ret, .. } => params
-                .iter()
-                .filter_map(|p| p.ty.as_ref())
-                .chain(ret)
-                .collect(),
+            Expr::Closure { params, ret, .. } => params.iter().filter_map(|p| p.ty.as_ref()).chain(ret).collect(),
             Expr::Cast { to, .. } => vec![to],
             Expr::Lit(_)
             | Expr::Var(_)
@@ -1056,17 +1044,10 @@ impl Expr {
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&**scrutinee)
-                .chain(
-                    arms.iter()
-                        .flat_map(|a| a.guard.iter().chain(std::iter::once(&a.body))),
-                )
+                .chain(arms.iter().flat_map(|a| a.guard.iter().chain(std::iter::once(&a.body))))
                 .collect(),
-            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
-                args.iter().collect()
-            }
-            Expr::MethodCall { receiver, args, .. } => {
-                std::iter::once(&**receiver).chain(args).collect()
-            }
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter().collect(),
+            Expr::MethodCall { receiver, args, .. } => std::iter::once(&**receiver).chain(args).collect(),
             Expr::Construct { fields, base, .. } => {
                 let mut out = match fields {
                     Fields::Unit => Vec::new(),
@@ -1087,14 +1068,8 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
-            Expr::For {
-                start, end, body, ..
-            } => vec![start, end, body],
-            Expr::ForEach {
-                source: string,
-                body,
-                ..
-            } => vec![string, body],
+            Expr::For { start, end, body, .. } => vec![start, end, body],
+            Expr::ForEach { source: string, body, .. } => vec![string, body],
             Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
@@ -1110,17 +1085,10 @@ impl Expr {
             Expr::Let { value, then, .. } => vec![value, then],
             Expr::If { cond, then, else_ } => vec![cond, then, else_],
             Expr::Match { scrutinee, arms } => std::iter::once(&mut **scrutinee)
-                .chain(
-                    arms.iter_mut()
-                        .flat_map(|a| a.guard.iter_mut().chain(std::iter::once(&mut a.body))),
-                )
+                .chain(arms.iter_mut().flat_map(|a| a.guard.iter_mut().chain(std::iter::once(&mut a.body))))
                 .collect(),
-            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => {
-                args.iter_mut().collect()
-            }
-            Expr::MethodCall { receiver, args, .. } => {
-                std::iter::once(&mut **receiver).chain(args).collect()
-            }
+            Expr::Call { args, .. } | Expr::Tuple(args) | Expr::Array(args) => args.iter_mut().collect(),
+            Expr::MethodCall { receiver, args, .. } => std::iter::once(&mut **receiver).chain(args).collect(),
             Expr::Construct { fields, base, .. } => {
                 let mut out = match fields {
                     Fields::Unit => Vec::new(),
@@ -1141,14 +1109,8 @@ impl Expr {
             Expr::Binary { left, right, .. } => vec![left, right],
             Expr::Assign { value, .. } => vec![value],
             Expr::Seq { first, then } => vec![first, then],
-            Expr::For {
-                start, end, body, ..
-            } => vec![start, end, body],
-            Expr::ForEach {
-                source: string,
-                body,
-                ..
-            } => vec![string, body],
+            Expr::For { start, end, body, .. } => vec![start, end, body],
+            Expr::ForEach { source: string, body, .. } => vec![string, body],
             Expr::While { cond, body } => vec![cond, body],
             Expr::Closure { body, .. } => vec![body],
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => vec![expr],
@@ -1160,11 +1122,7 @@ impl Expr {
     /// Excludes branches and the right side of `&&`/`||`.
     pub fn strict_children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Binary {
-                op: BinOp::And | BinOp::Or,
-                left,
-                ..
-            } => vec![left],
+            Expr::Binary { op: BinOp::And | BinOp::Or, left, .. } => vec![left],
             Expr::If { .. }
             | Expr::Match { .. }
             | Expr::Let { .. }
@@ -1203,9 +1161,7 @@ impl Expr {
             | Expr::Break
             | Expr::Continue
             | Expr::Seq { .. } => true,
-            Expr::If { then, else_, .. } => [then, else_]
-                .into_iter()
-                .any(|b| b.needs_statements() || b.lifts()),
+            Expr::If { then, else_, .. } => [then, else_].into_iter().any(|b| b.needs_statements() || b.lifts()),
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => expr.needs_statements(),
             _ => false,
         }
@@ -1222,14 +1178,10 @@ impl Expr {
             Expr::Construct { fields, base, .. } => {
                 base.as_ref().is_none_or(|b| b.is_inlinable()) && fields.is_inlinable()
             }
-            Expr::Call {
-                callee: Callee::OptionNone,
-                ..
-            } => true,
-            Expr::Call {
-                callee: Callee::OptionSome | Callee::ResultOk | Callee::ResultErr,
-                args,
-            } => args.iter().all(Self::is_inlinable),
+            Expr::Call { callee: Callee::OptionNone, .. } => true,
+            Expr::Call { callee: Callee::OptionSome | Callee::ResultOk | Callee::ResultErr, args } => {
+                args.iter().all(Self::is_inlinable)
+            }
             Expr::Cast { expr, .. } | Expr::Ignored { expr, .. } => expr.is_inlinable(),
             _ => false,
         }
@@ -1240,9 +1192,7 @@ impl Expr {
         while let Expr::At { expr, .. } = self {
             *self = std::mem::replace(&mut **expr, Expr::Unreachable);
         }
-        self.children_mut()
-            .into_iter()
-            .for_each(Expr::strip_positions);
+        self.children_mut().into_iter().for_each(Expr::strip_positions);
     }
 
     /// `At` wrappers removed from the outside of this expression only.
@@ -1258,11 +1208,6 @@ impl Expr {
     }
 
     pub fn int(n: i64) -> Self {
-        Expr::Lit(Lit::Int {
-            value: n.into(),
-            ty: None,
-            byte: false,
-            hex: false,
-        })
+        Expr::Lit(Lit::Int { value: n.into(), ty: None, byte: false, hex: false })
     }
 }

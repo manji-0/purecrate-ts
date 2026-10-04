@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod syntax_safety = "fixtures/syntax_safety.rs");
 
 const SOURCE: &str = syntax_safety::SOURCE;

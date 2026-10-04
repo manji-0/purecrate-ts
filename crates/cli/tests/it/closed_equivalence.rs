@@ -7,7 +7,6 @@
 
 use crate::support;
 
-
 use std::fs;
 
 use purecrate_check::accept;

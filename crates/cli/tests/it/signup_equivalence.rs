@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 use std::process::Command;
 
 purecrate_canon::fixture!(mod signup = "../../../examples/signup/src/lib.rs", "fixtures/signup_driver.rs");
@@ -16,9 +15,31 @@ fn emails() -> Vec<String> {
     let label63 = "a".repeat(63);
     let label64 = "a".repeat(64);
     let mut out: Vec<String> = [
-        "", "a", "@", "a@", "@b", "a@b", "a.b@c.d", "user+tag@example.co.jp",
-        "!#$%&'*+/=?^_`{|}~-@x", "a b@c", "a@b@c", "a@-b", "a@b-", "a@b-c", "a@b..c", "a@.b", "a@b.",
-        "a@b_c", "é@b", "a@é", "a@😀", ".@b", "a\"b@c", "a@1.2.3.4", "A@B",
+        "",
+        "a",
+        "@",
+        "a@",
+        "@b",
+        "a@b",
+        "a.b@c.d",
+        "user+tag@example.co.jp",
+        "!#$%&'*+/=?^_`{|}~-@x",
+        "a b@c",
+        "a@b@c",
+        "a@-b",
+        "a@b-",
+        "a@b-c",
+        "a@b..c",
+        "a@.b",
+        "a@b.",
+        "a@b_c",
+        "é@b",
+        "a@é",
+        "a@😀",
+        ".@b",
+        "a\"b@c",
+        "a@1.2.3.4",
+        "A@B",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -31,10 +52,8 @@ fn emails() -> Vec<String> {
 }
 
 fn passwords() -> Vec<String> {
-    let mut out: Vec<String> = ["", "passwordpassword", "123456789012345", "qwertyuiopasdfgh"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut out: Vec<String> =
+        ["", "passwordpassword", "123456789012345", "qwertyuiopasdfgh"].iter().map(|s| s.to_string()).collect();
     for n in [14, 15, 64, 65] {
         out.push("x".repeat(n));
         out.push("é".repeat(n));
@@ -73,18 +92,11 @@ fn email_is_the_whatwg_language() {
         return;
     }
     let inputs = emails();
-    let json = format!(
-        "[{}]",
-        inputs.iter().map(|s| support::Js::js(s.as_str())).collect::<Vec<_>>().join(", ")
-    );
+    let json = format!("[{}]", inputs.iter().map(|s| support::Js::js(s.as_str())).collect::<Vec<_>>().join(", "));
     let script = format!("const re = {WHATWG};\nconsole.log({json}.map((s) => re.test(s)).join(\"\\n\"));\n");
     let output = Command::new("node").args(["-e", &script]).output().expect("run node");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let spec: Vec<bool> = String::from_utf8(output.stdout)
-        .expect("utf8")
-        .lines()
-        .map(|l| l == "true")
-        .collect();
+    let spec: Vec<bool> = String::from_utf8(output.stdout).expect("utf8").lines().map(|l| l == "true").collect();
     let differ: Vec<String> = inputs
         .iter()
         .zip(&spec)

@@ -31,10 +31,7 @@ fn collect_refuses_a_list_that_is_not_read_from_text() {
         "pub fn f(o: Option<u8>) -> Vec<u8> { o.map(|x| x + 1).collect() }",
         "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, or `s.split(c)`",
     );
-    assert_rejects(
-        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }",
-        "`collect` builds a `Vec` from",
-    );
+    assert_rejects("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }", "`collect` builds a `Vec` from");
     assert_rejects(
         "pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }",
         "`collect` needs its target",
@@ -55,10 +52,7 @@ fn split_once_refuses_a_needle_that_is_not_text() {
         "pub fn f(s: &str) -> bool { s.split_once(1u32).is_some() }",
         "`str::split_once` takes a `&str` pattern",
     );
-    assert_rejects(
-        "pub fn f(s: &str) -> bool { s.split_once().is_some() }",
-        "takes 1 argument",
-    );
+    assert_rejects("pub fn f(s: &str) -> bool { s.split_once().is_some() }", "takes 1 argument");
 }
 
 #[test]

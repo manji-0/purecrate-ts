@@ -10,8 +10,14 @@ mod name;
 mod reason;
 mod ty;
 
-pub use expr::{Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, StrMethod, TryOn, UnOp, VariantBind};
-pub use item::{Alias, Const, CONSTS_STEM, Enum, Field, Fn, Item, Param, Serde, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD, ORDERING, tuple_field};
+pub use expr::{
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, IntMethod, IntOp, Lit, Over, Pattern, Pos,
+    SliceOf, StrMethod, TryOn, UnOp, VariantBind,
+};
+pub use item::{
+    tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Variant, VariantFields, Vis, CONSTS_STEM,
+    NEWTYPE_FIELD, ORDERING,
+};
 pub use krate::Crate;
 pub use name::{to_camel, to_kebab, Name};
 pub use reason::Reason;
@@ -33,24 +39,9 @@ pub fn counter_example() -> Crate {
         vis: Vis::Pub,
         name: Name::new("Event"),
         variants: vec![
-            Variant {
-                name: Name::new("Inc"),
-                fields: VariantFields::Unit,
-                discriminant: None,
-                doc: None,
-            },
-            Variant {
-                name: Name::new("Dec"),
-                fields: VariantFields::Unit,
-                discriminant: None,
-                doc: None,
-            },
-            Variant {
-                name: Name::new("Reset"),
-                fields: VariantFields::Unit,
-                discriminant: None,
-                doc: None,
-            },
+            Variant { name: Name::new("Inc"), fields: VariantFields::Unit, discriminant: None, doc: None },
+            Variant { name: Name::new("Dec"), fields: VariantFields::Unit, discriminant: None, doc: None },
+            Variant { name: Name::new("Reset"), fields: VariantFields::Unit, discriminant: None, doc: None },
         ],
         repr: None,
         std: false,
@@ -61,11 +52,7 @@ pub fn counter_example() -> Crate {
     let state = Item::Struct(StructItem {
         vis: Vis::Pub,
         name: Name::new("State"),
-        fields: vec![FieldItem {
-            name: Name::new("n"),
-            ty: Ty::i32(),
-            doc: None,
-        }],
+        fields: vec![FieldItem { name: Name::new("n"), ty: Ty::i32(), doc: None }],
         closed: false,
         wire_from: None,
         serde: item::Serde::default(),
@@ -74,11 +61,7 @@ pub fn counter_example() -> Crate {
 
     let arm = |variant: &str, body: Expr| Arm {
         guard: None,
-        pattern: Pattern::Variant {
-            ty: Name::new("Event"),
-            variant: Name::new(variant),
-            bind: VariantBind::Unit,
-        },
+        pattern: Pattern::Variant { ty: Name::new("Event"), variant: Name::new(variant), bind: VariantBind::Unit },
         body,
     };
 
@@ -89,24 +72,15 @@ pub fn counter_example() -> Crate {
         base: None,
     };
 
-    let n_field = Expr::Field {
-        base: Box::new(Expr::var("state")),
-        name: Name::new("n"),
-    };
+    let n_field = Expr::Field { base: Box::new(Expr::var("state")), name: Name::new("n") };
 
     let step = Item::Fn(FnItem {
         vis: Vis::Pub,
         name: Name::new("step"),
         owner: None,
         params: vec![
-            Param {
-                name: Name::new("state"),
-                ty: Ty::named("State"),
-            },
-            Param {
-                name: Name::new("event"),
-                ty: Ty::named("Event"),
-            },
+            Param { name: Name::new("state"), ty: Ty::named("State") },
+            Param { name: Name::new("event"), ty: Ty::named("Event") },
         ],
         ret: Ty::named("State"),
         body: Expr::Match {

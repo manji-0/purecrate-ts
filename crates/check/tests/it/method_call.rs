@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 const HAND: &str = "pub enum Suit { Hearts, Spades }
@@ -33,11 +32,20 @@ fn vec_len_and_index_are_accepted() {
 
 #[test]
 fn receiver_calls_elsewhere_are_rejected_with_the_method_name() {
-    assert_rejects("pub fn f(x: i32) -> i32 { x.signum() }", "`.signum()` on `i32` is not on the std allow-list; allowed: `min`, `max`, `abs`, `pow`, `checked_add`");
+    assert_rejects(
+        "pub fn f(x: i32) -> i32 { x.signum() }",
+        "`.signum()` on `i32` is not on the std allow-list; allowed: `min`, `max`, `abs`, `pow`, `checked_add`",
+    );
     assert_rejects("pub fn f(x: u32) -> u32 { x.abs() }", "`u32` has no `abs`; it is never negative");
     assert_rejects("pub fn f(x: u32) -> u32 { x.pow(2u8) }", "expected `u32`, found `u8`");
-    assert_rejects(&format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"), "`Card` has no method `missing` in the crate's own `impl` blocks");
-    assert_rejects(&format!("{HAND} pub fn f(a: Card) -> bool {{ a.beats() }}"), "takes 1 argument(s) after the receiver, got 0");
+    assert_rejects(
+        &format!("{HAND} pub fn f(c: Card) -> bool {{ c.missing() }}"),
+        "`Card` has no method `missing` in the crate's own `impl` blocks",
+    );
+    assert_rejects(
+        &format!("{HAND} pub fn f(a: Card) -> bool {{ a.beats() }}"),
+        "takes 1 argument(s) after the receiver, got 0",
+    );
     assert_rejects(&format!("{HAND} pub fn f(c: Card) -> i32 {{ c.is_face() }}"), "expected `i32`, found `bool`");
 }
 
@@ -62,9 +70,18 @@ fn long_method_chains_type_in_linear_time() {
 fn str_methods_come_from_the_allow_list() {
     assert_clean("pub fn f(s: String, t: &str) -> bool { s.starts_with(t) && t.ends_with(\"x\") && s.contains(&s) && !t.is_empty() }");
     assert_clean("pub fn f(s: &str) -> usize { s.len() }");
-    assert_rejects("pub fn f(s: &str) -> bool { s.starts_with(1u8) }", "`str::starts_with` takes a `&str` pattern in v0, found `u8`");
-    assert_rejects("pub fn f(s: &str) -> bool { s.starts_with() }", "`str::starts_with` takes 1 argument(s) after the receiver, got 0");
-    assert_rejects("pub fn f(s: &str) -> bool { s.is_empty(s) }", "`str::is_empty` takes 0 argument(s) after the receiver, got 1");
+    assert_rejects(
+        "pub fn f(s: &str) -> bool { s.starts_with(1u8) }",
+        "`str::starts_with` takes a `&str` pattern in v0, found `u8`",
+    );
+    assert_rejects(
+        "pub fn f(s: &str) -> bool { s.starts_with() }",
+        "`str::starts_with` takes 1 argument(s) after the receiver, got 0",
+    );
+    assert_rejects(
+        "pub fn f(s: &str) -> bool { s.is_empty(s) }",
+        "`str::is_empty` takes 0 argument(s) after the receiver, got 1",
+    );
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
@@ -113,6 +130,12 @@ fn option_combinators_are_checked() {
     );
     // A one-field tuple variant is a function (`.map(PreId::Numeric)`).
     assert_clean("pub enum E { A(u8), B } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }");
-    assert_rejects("pub enum E { A(u8), B } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::B) }", "`Option::map` takes a closure");
-    assert_rejects("pub enum E { A(u8, u8) } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }", "constructed with the wrong shape");
+    assert_rejects(
+        "pub enum E { A(u8), B } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::B) }",
+        "`Option::map` takes a closure",
+    );
+    assert_rejects(
+        "pub enum E { A(u8, u8) } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }",
+        "constructed with the wrong shape",
+    );
 }

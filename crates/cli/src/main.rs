@@ -41,18 +41,14 @@ fn execute(command: Command) -> Result<(), String> {
     match command {
         Command::Build { input, out, schema, publishable } => {
             let schema = parse_schema(schema)?;
-            load(&input, "nothing written", schema, access(publishable)).and_then(|pkg| write_replacing(&out, &pkg.files))
+            load(&input, "nothing written", schema, access(publishable))
+                .and_then(|pkg| write_replacing(&out, &pkg.files))
         }
         Command::Check { input, out: None, schema, publishable } => {
             let schema = parse_schema(schema)?;
             load(&input, "", schema, access(publishable)).map(|_| ())
         }
-        Command::Check {
-            input,
-            out: Some(out),
-            schema,
-            publishable,
-        } => {
+        Command::Check { input, out: Some(out), schema, publishable } => {
             let schema = parse_schema(schema)?;
             load(&input, "", schema, access(publishable)).and_then(|pkg| check_drift(&input, &out, &pkg))
         }
@@ -93,9 +89,9 @@ fn run_survey(inputs: &[Input], json: bool, all_causes: bool) -> Result<(), Stri
 fn parse_schema(schema: Option<String>) -> Result<Option<WireSchema>, String> {
     match schema {
         None => Ok(None),
-        Some(name) => WireSchema::parse(&name)
-            .map(Some)
-            .ok_or_else(|| format!("--schema {name} is not zod, valibot, or arktype")),
+        Some(name) => {
+            WireSchema::parse(&name).map(Some).ok_or_else(|| format!("--schema {name} is not zod, valibot, or arktype"))
+        }
     }
 }
 
@@ -173,16 +169,8 @@ fn summary(errors: usize, consequence: &str) -> String {
 }
 
 fn check_drift(input: &Input, out: &Path, pkg: &Package) -> Result<(), String> {
-    let expected: BTreeMap<String, String> = pkg
-        .files
-        .iter()
-        .map(|f| (disk_path(&f.stem), f.source.clone()))
-        .collect();
-    let actual = if out.is_dir() {
-        read_tree(out)?
-    } else {
-        BTreeMap::new()
-    };
+    let expected: BTreeMap<String, String> = pkg.files.iter().map(|f| (disk_path(&f.stem), f.source.clone())).collect();
+    let actual = if out.is_dir() { read_tree(out)? } else { BTreeMap::new() };
     let drifts = drift::compare(&expected, &actual);
     if drifts.is_empty() {
         return Ok(());
@@ -300,9 +288,6 @@ fn replaceable(out: &Path) -> Result<bool, String> {
 }
 
 fn sibling(out: &Path, tag: &str) -> PathBuf {
-    let name = out
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "out".to_string());
+    let name = out.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "out".to_string());
     out.with_file_name(format!(".{name}.purecrate-{tag}-{}", std::process::id()))
 }

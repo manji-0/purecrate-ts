@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod unused = "fixtures/unused.rs");
 
 const SOURCE: &str = unused::SOURCE;

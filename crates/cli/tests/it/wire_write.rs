@@ -77,12 +77,7 @@ fn run_node_with(schema: WireSchema, name: &str, source: &str, script: &str) -> 
         .current_dir(&dir)
         .output()
         .expect("node");
-    assert!(
-        output.status.success(),
-        "node in {}:\n{}",
-        dir.display(),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "node in {}:\n{}", dir.display(), String::from_utf8_lossy(&output.stderr));
     let _ = fs::remove_dir_all(&dir);
     Some(String::from_utf8(output.stdout).expect("utf8"))
 }
@@ -116,15 +111,68 @@ impl Bits {
 #[test]
 fn floats_are_written_as_serde_json_writes_them() {
     let mut f64s: Vec<f64> = vec![
-        0.0, -0.0, 1.0, -1.0, 0.1, 0.5, 1.5, 100.0, 123.456, 1e15, 9.999999999999998e15, 1e16, 1.5e16, 1e17,
-        1e21, 1e22, 1e-4, 1.5e-4, 1e-5, 1.5e-5, 1e-6, 1e-7, 1.5e-7, 5e-324, f64::MIN_POSITIVE, f64::MAX,
-        -f64::MAX, f64::EPSILON, 9007199254740993.0, 1234567890123456.7, 0.30000000000000004,
-        f64::NAN, f64::INFINITY, f64::NEG_INFINITY,
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        0.1,
+        0.5,
+        1.5,
+        100.0,
+        123.456,
+        1e15,
+        9.999999999999998e15,
+        1e16,
+        1.5e16,
+        1e17,
+        1e21,
+        1e22,
+        1e-4,
+        1.5e-4,
+        1e-5,
+        1.5e-5,
+        1e-6,
+        1e-7,
+        1.5e-7,
+        5e-324,
+        f64::MIN_POSITIVE,
+        f64::MAX,
+        -f64::MAX,
+        f64::EPSILON,
+        9007199254740993.0,
+        1234567890123456.7,
+        0.30000000000000004,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
     ];
     let mut f32s: Vec<f32> = vec![
-        0.0, -0.0, 1.0, 0.1, 0.2, 0.3, 1.5, 16777216.0, 16777217.0, 1e12, 9.999999e12, 1e13, 1.5e13, 1e14,
-        1e-5, 1e-6, 1.5e-6, 1e-7, f32::MIN_POSITIVE, 1e-45, f32::MAX, -f32::MAX, f32::EPSILON, 3.4028235e38,
-        f32::NAN, f32::INFINITY,
+        0.0,
+        -0.0,
+        1.0,
+        0.1,
+        0.2,
+        0.3,
+        1.5,
+        16777216.0,
+        16777217.0,
+        1e12,
+        9.999999e12,
+        1e13,
+        1.5e13,
+        1e14,
+        1e-5,
+        1e-6,
+        1.5e-6,
+        1e-7,
+        f32::MIN_POSITIVE,
+        1e-45,
+        f32::MAX,
+        -f32::MAX,
+        f32::EPSILON,
+        3.4028235e38,
+        f32::NAN,
+        f32::INFINITY,
     ];
     let mut bits = Bits(0x9e37_79b9_7f4a_7c15);
     for _ in 0..20_000 {
@@ -210,8 +258,12 @@ fn shape_values() -> Vec<(&'static str, String)> {
         ("Label", serde_json::to_string(&label_of("l".into())).unwrap()),
         (
             "Letters",
-            serde_json::to_string(&Letters { one: '"', maybe: Some('😀'), many: vec!['\\', '\n', '\u{7f}', '\u{2028}', '\u{10ffff}'] })
-                .unwrap(),
+            serde_json::to_string(&Letters {
+                one: '"',
+                maybe: Some('😀'),
+                many: vec!['\\', '\n', '\u{7f}', '\u{2028}', '\u{10ffff}'],
+            })
+            .unwrap(),
         ),
         ("Letters", serde_json::to_string(&Letters { one: '\0', maybe: None, many: vec![] }).unwrap()),
         (
@@ -232,10 +284,7 @@ fn shapes_read_from_serde_json_are_written_back_byte_for_byte() {
     let values = shape_values();
     // Non-finite floats are written as `null`, which neither serde_json nor
     // the schema reads back: that row is written from the domain value.
-    let rows: Vec<String> = values
-        .iter()
-        .map(|(ty, text)| format!("[{},{}]", js(ty), js(text)))
-        .collect();
+    let rows: Vec<String> = values.iter().map(|(ty, text)| format!("[{},{}]", js(ty), js(text))).collect();
     let script = format!(
         "import {{ parseJson, Int }} from \"./src/purecrate-runtime.ts\";\n\
          import * as w from \"./src/purecrate-wire.ts\";\n\
@@ -366,8 +415,14 @@ fn try_from_reads_what_the_checked_constructor_accepts() {
     for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
         let (import, valid, parse) = match schema {
             WireSchema::Zod => ("", "(s, x) => s.safeParse(x).success", "(s, x) => s.parse(x)"),
-            WireSchema::Valibot => ("import * as v from \"valibot\";\n", "(s, x) => v.safeParse(s, x).success", "(s, x) => v.parse(s, x)"),
-            WireSchema::Arktype => ("import { type } from \"arktype\";\n", "(s, x) => !(s(x) instanceof type.errors)", "(s, x) => s.assert(x)"),
+            WireSchema::Valibot => {
+                ("import * as v from \"valibot\";\n", "(s, x) => v.safeParse(s, x).success", "(s, x) => v.parse(s, x)")
+            }
+            WireSchema::Arktype => (
+                "import { type } from \"arktype\";\n",
+                "(s, x) => !(s(x) instanceof type.errors)",
+                "(s, x) => s.assert(x)",
+            ),
         };
         let script = format!(
             "{import}import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\
@@ -393,12 +448,9 @@ fn uuids_read_what_serde_reads() {
     use shapes::Ids;
     let good = uuid::Uuid::from_u128(0x67e5_5044_10b1_426f_9247_bb68_0e5f_e0c8);
     let mut texts: Vec<String> = Vec::new();
-    for form in [
-        good.hyphenated().to_string(),
-        good.simple().to_string(),
-        good.braced().to_string(),
-        good.urn().to_string(),
-    ] {
+    for form in
+        [good.hyphenated().to_string(), good.simple().to_string(), good.braced().to_string(), good.urn().to_string()]
+    {
         texts.push(form.to_uppercase());
         texts.push(form[1..].to_string());
         texts.push(format!("{form} "));
@@ -406,7 +458,9 @@ fn uuids_read_what_serde_reads() {
         texts.push(form.replacen('6', "é", 1));
         texts.push(form);
     }
-    texts.extend(["", "URN:UUID:67e55044-10b1-426f-9247-bb680e5fe0c8", "{67e5504410b1426f9247bb680e5fe0c8}"].map(String::from));
+    texts.extend(
+        ["", "URN:UUID:67e55044-10b1-426f-9247-bb680e5fe0c8", "{67e5504410b1426f9247bb680e5fe0c8}"].map(String::from),
+    );
     let mut rows = Vec::new();
     for s in &texts {
         let text = format!("{{\"one\":{},\"many\":[]}}", serde_json::to_string(s).unwrap());
@@ -425,8 +479,14 @@ fn uuids_read_what_serde_reads() {
     for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
         let (import, valid, parse) = match schema {
             WireSchema::Zod => ("", "(s, x) => s.safeParse(x).success", "(s, x) => s.parse(x)"),
-            WireSchema::Valibot => ("import * as v from \"valibot\";\n", "(s, x) => v.safeParse(s, x).success", "(s, x) => v.parse(s, x)"),
-            WireSchema::Arktype => ("import { type } from \"arktype\";\n", "(s, x) => !(s(x) instanceof type.errors)", "(s, x) => s.assert(x)"),
+            WireSchema::Valibot => {
+                ("import * as v from \"valibot\";\n", "(s, x) => v.safeParse(s, x).success", "(s, x) => v.parse(s, x)")
+            }
+            WireSchema::Arktype => (
+                "import { type } from \"arktype\";\n",
+                "(s, x) => !(s(x) instanceof type.errors)",
+                "(s, x) => s.assert(x)",
+            ),
         };
         let script = format!(
             "{import}import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\

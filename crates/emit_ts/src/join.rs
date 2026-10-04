@@ -99,8 +99,20 @@ fn rebuilt(expr: &mut Expr) {
     for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
         let Pattern::Variant { ty, variant, bind } = &mut arm.pattern else { continue };
         let names: Vec<(Option<Name>, Name)> = match bind {
-            VariantBind::Tuple(ps) => ps.iter().map(|p| match p { Pattern::Var(n) => Some((None, n.clone())), _ => None }).collect::<Option<_>>(),
-            VariantBind::Struct(ps) => ps.iter().map(|(f, p)| match p { Pattern::Var(n) => Some((Some(f.clone()), n.clone())), _ => None }).collect::<Option<_>>(),
+            VariantBind::Tuple(ps) => ps
+                .iter()
+                .map(|p| match p {
+                    Pattern::Var(n) => Some((None, n.clone())),
+                    _ => None,
+                })
+                .collect::<Option<_>>(),
+            VariantBind::Struct(ps) => ps
+                .iter()
+                .map(|(f, p)| match p {
+                    Pattern::Var(n) => Some((Some(f.clone()), n.clone())),
+                    _ => None,
+                })
+                .collect::<Option<_>>(),
             VariantBind::Unit => None,
         }
         .unwrap_or_default();
@@ -108,16 +120,21 @@ fn rebuilt(expr: &mut Expr) {
             continue;
         }
         let is_copy = |e: &Expr| match e {
-            Expr::Construct { ty: t, variant: Some(v), fields, base: None } if t == ty && v == variant => match fields {
-                purecrate_ir::Fields::Positional(xs) => {
-                    xs.len() == names.len() && xs.iter().zip(&names).all(|(x, (_, n))| matches!(x, Expr::Var(v) if v == n))
+            Expr::Construct { ty: t, variant: Some(v), fields, base: None } if t == ty && v == variant => {
+                match fields {
+                    purecrate_ir::Fields::Positional(xs) => {
+                        xs.len() == names.len()
+                            && xs.iter().zip(&names).all(|(x, (_, n))| matches!(x, Expr::Var(v) if v == n))
+                    }
+                    purecrate_ir::Fields::Named(xs) => {
+                        xs.len() == names.len()
+                            && names.iter().all(|(f, n)| {
+                                xs.iter().any(|(g, x)| Some(g) == f.as_ref() && matches!(x, Expr::Var(v) if v == n))
+                            })
+                    }
+                    purecrate_ir::Fields::Unit => false,
                 }
-                purecrate_ir::Fields::Named(xs) => {
-                    xs.len() == names.len()
-                        && names.iter().all(|(f, n)| xs.iter().any(|(g, x)| Some(g) == f.as_ref() && matches!(x, Expr::Var(v) if v == n)))
-                }
-                purecrate_ir::Fields::Unit => false,
-            },
+            }
             _ => false,
         };
         fn replace(e: &mut Expr, is_copy: &dyn Fn(&Expr) -> bool, with: &Expr) -> bool {
@@ -237,7 +254,11 @@ fn narrow(expr: &mut Expr, known: &mut Known) {
                     .collect();
                 match &arm.pattern {
                     Pattern::Or(alts) if bodies.iter().any(|b| *b != bodies[0]) => {
-                        split.extend(alts.iter().zip(bodies).map(|(alt, body)| Arm { pattern: alt.clone(), guard: arm.guard.clone(), body }));
+                        split.extend(alts.iter().zip(bodies).map(|(alt, body)| Arm {
+                            pattern: alt.clone(),
+                            guard: arm.guard.clone(),
+                            body,
+                        }));
                     }
                     _ => {
                         arm.body = bodies.into_iter().next().expect("a variant");
@@ -288,7 +309,11 @@ fn variants_of(pattern: &Pattern) -> Vec<Name> {
         Pattern::Variant { variant, .. } => vec![variant.clone()],
         Pattern::Or(alts) => {
             let vs: Vec<Name> = alts.iter().flat_map(variants_of).collect();
-            if vs.len() == alts.len() { vs } else { Vec::new() }
+            if vs.len() == alts.len() {
+                vs
+            } else {
+                Vec::new()
+            }
         }
         _ => Vec::new(),
     }
@@ -335,7 +360,9 @@ fn join(expr: &mut Expr) {
     match expr {
         Expr::Seq { first, then } if pure(first) => *expr = (**then).clone(),
         Expr::Assign { name, value } if reads_only(value, name) => *expr = Expr::Lit(Lit::Unit),
-        Expr::If { cond, then, else_ } if pure(cond) && **then == Expr::Lit(Lit::Unit) && **else_ == Expr::Lit(Lit::Unit) => {
+        Expr::If { cond, then, else_ }
+            if pure(cond) && **then == Expr::Lit(Lit::Unit) && **else_ == Expr::Lit(Lit::Unit) =>
+        {
             *expr = Expr::Lit(Lit::Unit)
         }
         _ => {}
@@ -382,7 +409,9 @@ fn pure(expr: &Expr) -> bool {
 fn reads_only(value: &Expr, name: &Name) -> bool {
     match value {
         Expr::Var(v) => v == name,
-        Expr::Call { callee: purecrate_ir::Callee::StringFrom, args } => matches!(args.as_slice(), [a] if reads_only(a, name)),
+        Expr::Call { callee: purecrate_ir::Callee::StringFrom, args } => {
+            matches!(args.as_slice(), [a] if reads_only(a, name))
+        }
         _ => false,
     }
 }
@@ -480,7 +509,9 @@ fn test(scrutinee: &Expr, pattern: &Pattern) -> Option<Expr> {
             bind: match bind {
                 VariantBind::Unit => VariantBind::Unit,
                 VariantBind::Tuple(ps) => VariantBind::Tuple(vec![Pattern::Wildcard; ps.len()]),
-                VariantBind::Struct(ps) => VariantBind::Struct(ps.iter().map(|(f, _)| (f.clone(), Pattern::Wildcard)).collect()),
+                VariantBind::Struct(ps) => {
+                    VariantBind::Struct(ps.iter().map(|(f, _)| (f.clone(), Pattern::Wildcard)).collect())
+                }
             },
         },
         p if p.is_lit_case() => p.clone(),

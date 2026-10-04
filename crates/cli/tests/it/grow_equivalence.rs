@@ -48,8 +48,7 @@ fn a_closure_over_a_grown_local_and_a_field_push_are_refused() {
         "pub fn f() -> usize { let mut v: Vec<u8> = vec![]; v.push(1); let n = |i: usize| v.len() + i; n(1) }\n",
     );
     assert!(closure.contains("cannot capture `let mut v`"), "{closure}");
-    let field = refused(
-        "pub struct S { pub items: Vec<u8> }\npub fn f(s: S) -> S { let mut s = s; s.items.push(1); s }\n",
-    );
+    let field =
+        refused("pub struct S { pub items: Vec<u8> }\npub fn f(s: S) -> S { let mut s = s; s.items.push(1); s }\n");
     assert!(field.contains("not a field or an element"), "{field}");
 }

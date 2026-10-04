@@ -326,11 +326,7 @@ pub struct Case {
     pub rust: String,
 }
 
-pub fn run<T: Show>(
-    name: &'static str,
-    call: String,
-    f: impl FnOnce() -> T + UnwindSafe,
-) -> Case {
+pub fn run<T: Show>(name: &'static str, call: String, f: impl FnOnce() -> T + UnwindSafe) -> Case {
     let rust = match panic::catch_unwind(f) {
         Ok(v) => v.show(),
         Err(payload) => {
@@ -394,11 +390,8 @@ impl Rng {
     /// An integer of `bits` bits, half the time near an edge of the width
     /// (0, the maximum, the minimum, ±1 from them), where overflow lives.
     pub fn edgy(&mut self, bits: u32, signed: bool) -> i128 {
-        let (lo, hi) = if signed {
-            (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)
-        } else {
-            (0, (1i128 << bits) - 1)
-        };
+        let (lo, hi) =
+            if signed { (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1) } else { (0, (1i128 << bits) - 1) };
         if self.below(2) == 0 {
             let edge = self.pick(&[lo, lo + 1, -1, 0, 1, hi - 1, hi]);
             edge.clamp(lo, hi)
@@ -447,7 +440,8 @@ pub fn scratch(tag: &str) -> std::path::PathBuf {
 /// then run directly: npx costs about half a second a call, and parallel
 /// calls would race to install into its cache.
 pub fn tsc(major: &str) -> &'static std::path::Path {
-    static RESOLVED: [std::sync::OnceLock<std::path::PathBuf>; 2] = [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    static RESOLVED: [std::sync::OnceLock<std::path::PathBuf>; 2] =
+        [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
     let i = TS_MAJORS.iter().position(|m| *m == major).expect("a supported TypeScript major");
     RESOLVED[i].get_or_init(|| {
         // From an empty directory: from a package dir, npx would find the
@@ -510,10 +504,9 @@ fn ts_printer(krate: &Crate, ty: &Ty) -> String {
         Ty::Option(inner) => format!("opt({})", ts_printer(krate, inner)),
         Ty::Result { ok, err } => format!("res({}, {})", ts_printer(krate, ok), ts_printer(krate, err)),
         Ty::Vec(inner) => format!("vec({})", ts_printer(krate, inner)),
-        Ty::Tuple(elems) => format!(
-            "tup([{}])",
-            elems.iter().map(|t| ts_printer(krate, t)).collect::<Vec<_>>().join(", ")
-        ),
+        Ty::Tuple(elems) => {
+            format!("tup([{}])", elems.iter().map(|t| ts_printer(krate, t)).collect::<Vec<_>>().join(", "))
+        }
         Ty::Ignored { inner, .. } => ts_printer(krate, inner),
         Ty::Named(n) => match krate.items.iter().find(|i| i.name() == n) {
             Some(Item::Alias(al)) => ts_printer(krate, &al.ty),
@@ -554,7 +547,8 @@ fn ts_printers(krate: &Crate) -> String {
                             tys.iter()
                                 .enumerate()
                                 .map(|(i, t)| {
-                                    let field = if tys.len() == 1 { "v.value".to_string() } else { format!("v.content[{i}]") };
+                                    let field =
+                                        if tys.len() == 1 { "v.value".to_string() } else { format!("v.content[{i}]") };
                                     format!("${{({})({field})}}", ts_printer(krate, t))
                                 })
                                 .collect::<Vec<_>>()
@@ -640,10 +634,7 @@ pub fn typecheck(dir: &std::path::Path) {
 /// Accepts `source`, generates its package, and checks every case agrees.
 #[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
-    assert!(
-        cfg!(debug_assertions),
-        "the Rust baseline needs overflow checks; run without --release"
-    );
+    assert!(cfg!(debug_assertions), "the Rust baseline needs overflow checks; run without --release");
     if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
         eprintln!("PURECRATE_SKIP_NODE set: skipping TS equivalence");
         return;
@@ -665,11 +656,7 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
         .current_dir(&dir)
         .output()
         .expect("run node (set PURECRATE_SKIP_NODE=1 to skip)");
-    assert!(
-        output.status.success(),
-        "node failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "node failed:\n{}", String::from_utf8_lossy(&output.stderr));
     let stdout = String::from_utf8(output.stdout).expect("utf8");
     let actual: Vec<&str> = stdout.lines().collect();
     assert_eq!(actual.len(), cases.len());

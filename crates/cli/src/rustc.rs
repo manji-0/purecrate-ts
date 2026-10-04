@@ -114,7 +114,17 @@ fn uuid_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
     let src = dir.join("uuid.rs");
     fs::write(&src, UUID_STUB).map_err(|e| Failure::Other(format!("write {}: {e}", src.display())))?;
     let output = Command::new(rustc)
-        .args(["--edition", "2021", "--crate-name", "uuid", "--crate-type", "rlib", "--cap-lints", "allow", "--out-dir"])
+        .args([
+            "--edition",
+            "2021",
+            "--crate-name",
+            "uuid",
+            "--crate-type",
+            "rlib",
+            "--cap-lints",
+            "allow",
+            "--out-dir",
+        ])
         .arg(dir)
         .arg(&src)
         .output()
@@ -161,12 +171,9 @@ fn serde_stub(rustc: &OsStr, dir: &Path) -> Result<PathBuf, Failure> {
         }
     };
     build("serde_derive", SERDE_DERIVE_STUB, &["--crate-type", "proc-macro"])?;
-    let derive = derive_artifact(dir).ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
-    build(
-        "serde",
-        SERDE_STUB,
-        &["--crate-type", "rlib", "--extern", &format!("serde_derive={}", derive.display())],
-    )?;
+    let derive =
+        derive_artifact(dir).ok_or_else(|| Failure::Other("the serde derive stand-in was not built".into()))?;
+    build("serde", SERDE_STUB, &["--crate-type", "rlib", "--extern", &format!("serde_derive={}", derive.display())])?;
     Ok(dir.join("libserde.rlib"))
 }
 
@@ -311,11 +318,7 @@ fn load_or_build_stubs(rustc: &OsStr, dir: &Path) -> Result<Stubs, Failure> {
     uuid_stub(rustc, dir)?;
     serde_stub(rustc, dir)?;
     fs::write(dir.join("ready"), b"").map_err(|e| Failure::Other(format!("write {}/ready: {e}", dir.display())))?;
-    Ok(Stubs {
-        dir: dir.to_path_buf(),
-        serde: dir.join("libserde.rlib"),
-        uuid: dir.join("libuuid.rlib"),
-    })
+    Ok(Stubs { dir: dir.to_path_buf(), serde: dir.join("libserde.rlib"), uuid: dir.join("libuuid.rlib") })
 }
 
 /// A unique 0700 directory in the process temp dir. Created exclusively so
@@ -365,10 +368,7 @@ fn random_suffix() -> String {
             return hex(&buf);
         }
     }
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     format!("{t:x}-{}", std::process::id())
 }
 
@@ -395,11 +395,7 @@ fn parse_short(stderr: &str) -> Vec<RustcError> {
                 }
                 None => (None, rest.strip_prefix(": ")?),
             };
-            Some(RustcError {
-                at: at.to_string(),
-                code,
-                message: message.to_string(),
-            })
+            Some(RustcError { at: at.to_string(), code, message: message.to_string() })
         })
         .collect()
 }
@@ -423,11 +419,7 @@ error: aborting due to 2 previous errors
                     code: Some("E0308".into()),
                     message: "mismatched types".into(),
                 },
-                RustcError {
-                    at: "src/lib.rs:9:1".into(),
-                    code: None,
-                    message: "expected item, found `}`".into(),
-                },
+                RustcError { at: "src/lib.rs:9:1".into(), code: None, message: "expected item, found `}`".into() },
             ]
         );
         assert_eq!(parse_short(stderr)[0].line(), "src/lib.rs:3:5: [rustc/E0308] mismatched types");
@@ -455,10 +447,7 @@ error: aborting due to 2 previous errors
 
     #[test]
     fn stubs_are_reused_from_the_cache_without_rustc() {
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let dir = env::temp_dir().join(format!("purecrate-stub-cache-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());

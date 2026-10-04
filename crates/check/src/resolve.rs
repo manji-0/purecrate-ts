@@ -2,8 +2,7 @@
 //! shape the reference assumes. There is no rustc pass behind the parser.
 
 use purecrate_ir::{
-    Callee, Crate, Expr, Fields, Item, Name, Pattern, Prim, Reason, Ty, VariantBind, VariantFields,
-    NEWTYPE_FIELD,
+    Callee, Crate, Expr, Fields, Item, Name, Pattern, Prim, Reason, Ty, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
 use crate::defs::Defs;
@@ -13,22 +12,19 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let defs = Defs::of(krate);
     let mut out = Vec::new();
     for (i, item) in krate.items.iter().enumerate() {
-        let mut cx = Cx {
-            defs: &defs,
-            item: i,
-            out: &mut out,
-            scopes: Vec::new(),
-            closures: Vec::new(),
-        };
+        let mut cx = Cx { defs: &defs, item: i, out: &mut out, scopes: Vec::new(), closures: Vec::new() };
         match item {
             Item::Struct(s) => {
                 s.fields.iter().for_each(|f| cx.ty(&f.ty));
                 if let Some(inner) = s.newtype_inner().filter(|t| cx.is_nullish(t)) {
-                    cx.error(Reason::NewtypeInner, format!(
-                        "`{}` wraps `{}`, which is `null` or `undefined` in TS and cannot carry a brand",
-                        s.name.as_str(),
-                        crate::types::show(inner)
-                    ));
+                    cx.error(
+                        Reason::NewtypeInner,
+                        format!(
+                            "`{}` wraps `{}`, which is `null` or `undefined` in TS and cannot carry a brand",
+                            s.name.as_str(),
+                            crate::types::show(inner)
+                        ),
+                    );
                 }
             }
             Item::Enum(e) => {
@@ -91,13 +87,11 @@ impl<'a> Cx<'_, 'a> {
         match ty {
             // A hole of `collect::<Vec<_>>()`, filled when typing.
             Ty::Named(n) if n.as_str() == "_" => {}
-            Ty::Named(n) if !self.defs.is_type(n.as_str()) => {
-                self.error_about(
-                    Reason::UndefinedType,
-                    n.as_str(),
-                    format!("type `{}` is not defined in this crate", n.as_str()),
-                )
-            }
+            Ty::Named(n) if !self.defs.is_type(n.as_str()) => self.error_about(
+                Reason::UndefinedType,
+                n.as_str(),
+                format!("type `{}` is not defined in this crate", n.as_str()),
+            ),
             Ty::Ignored { inner, .. } => self.ty(inner),
             Ty::Named(_) | Ty::Prim(_) | Ty::Never => {}
             Ty::Fn { params, ret } => {
@@ -105,9 +99,9 @@ impl<'a> Cx<'_, 'a> {
                 self.ty(ret);
             }
             Ty::Option(t) if self.is_option(t) => {
-                self.error(Reason::NestedOption, 
-                    "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS"
-                        .to_string(),
+                self.error(
+                    Reason::NestedOption,
+                    "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS".to_string(),
                 );
             }
             Ty::Option(t) | Ty::Vec(t) => self.ty(t),
@@ -210,13 +204,7 @@ impl<'a> Cx<'_, 'a> {
                 self.scopes.pop();
                 self.closures.pop();
             }
-            Expr::Let {
-                name,
-                mutable,
-                ty,
-                value,
-                then,
-            } => {
+            Expr::Let { name, mutable, ty, value, then } => {
                 if let Some(t) = ty {
                     self.ty(t);
                 }
@@ -243,10 +231,7 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(then);
                 self.expr(else_);
             }
-            Expr::Call {
-                callee: Callee::Fn(n) | Callee::Local(n),
-                args,
-            } if self.in_scope(n.as_str()) => {
+            Expr::Call { callee: Callee::Fn(n) | Callee::Local(n), args } if self.in_scope(n.as_str()) => {
                 if self.captures_mutable(n.as_str()) {
                     self.capture_error(n.as_str());
                 }
@@ -262,7 +247,8 @@ impl<'a> Cx<'_, 'a> {
                     // `opt.map(f)`, `r.map_err(f)`, `it.all(f)`, and `ord.then_with(f)` name a
                     // function; `types` checks the receiver.
                     let calls_with = if name.as_str() == "then_with" { 0 } else { 1 };
-                    let takes_fn = matches!(name.as_str(), "map" | "map_err" | "all" | "any" | "position" | "then_with");
+                    let takes_fn =
+                        matches!(name.as_str(), "map" | "map_err" | "all" | "any" | "position" | "then_with");
                     let fn_name = match a.unpositioned() {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())
@@ -277,11 +263,14 @@ impl<'a> Cx<'_, 'a> {
                     };
                     match fn_name {
                         Some(p) if p == calls_with => {}
-                        Some(p) => self.error(Reason::ConstructShape, format!(
-                            "`{}` calls its function with {calls_with} argument{}, which takes {p}",
-                            name.as_str(),
-                            if calls_with == 1 { "" } else { "s" }
-                        )),
+                        Some(p) => self.error(
+                            Reason::ConstructShape,
+                            format!(
+                                "`{}` calls its function with {calls_with} argument{}, which takes {p}",
+                                name.as_str(),
+                                if calls_with == 1 { "" } else { "s" }
+                            ),
+                        ),
                         None => self.expr(a),
                     }
                 }
@@ -316,9 +305,7 @@ impl<'a> Cx<'_, 'a> {
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
             | Expr::Try { expr: base, .. }
-            | Expr::Ignored { expr: base, .. } => {
-                self.expr(base)
-            }
+            | Expr::Ignored { expr: base, .. } => self.expr(base),
             Expr::Binary { left, right, .. } => {
                 self.expr(left);
                 self.expr(right);
@@ -330,11 +317,14 @@ impl<'a> Cx<'_, 'a> {
             }
             Expr::Assign { name, value } => {
                 match self.binding(name.as_str()) {
-                    None => self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", name.as_str())),
-                    Some(false) => self.error(Reason::ImmutableAssign, format!(
-                        "`{}` is not `let mut`; only `let mut` bindings can be assigned",
-                        name.as_str()
-                    )),
+                    None => self.error(
+                        Reason::UndefinedName,
+                        format!("`{}` is not a parameter or local binding", name.as_str()),
+                    ),
+                    Some(false) => self.error(
+                        Reason::ImmutableAssign,
+                        format!("`{}` is not `let mut`; only `let mut` bindings can be assigned", name.as_str()),
+                    ),
                     Some(true) => {}
                 }
                 self.expr(value);
@@ -376,18 +366,14 @@ impl<'a> Cx<'_, 'a> {
                     format!("function `{}` is not defined in this crate", n.as_str()),
                 ),
             },
-            Callee::Method { ty, name } => {
-                match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
-                    Some(f) => {
-                        self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc)
-                    }
-                    None => self.error_about(Reason::UndefinedFn, &format!("{}.{}", ty.as_str(), name.as_str()), format!(
-                        "method `{}.{}` is not defined in this crate",
-                        ty.as_str(),
-                        name.as_str()
-                    )),
-                }
-            }
+            Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
+                Some(f) => self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc),
+                None => self.error_about(
+                    Reason::UndefinedFn,
+                    &format!("{}.{}", ty.as_str(), name.as_str()),
+                    format!("method `{}.{}` is not defined in this crate", ty.as_str(), name.as_str()),
+                ),
+            },
             Callee::StructNew(n) => match self.defs.structs.get(n.as_str()) {
                 Some(s) => self.arity(&format!("`{}`", n.as_str()), s.fields.len(), argc),
                 None => self.error_about(
@@ -408,9 +394,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::ResultErr => self.arity("`Err`", 1, argc),
             Callee::OptionSome => self.arity("`Some`", 1, argc),
             Callee::OptionNone => self.arity("`None`", 0, argc),
-            Callee::Int { ty, op } => {
-                self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc)
-            }
+            Callee::Int { ty, op } => self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc),
             Callee::Fround => self.arity("`Math.fround`", 1, argc),
             Callee::AsFloat(_) => self.arity("`as float`", 1, argc),
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
@@ -423,7 +407,8 @@ impl<'a> Cx<'_, 'a> {
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
             Callee::Consume { method, .. } => {
-                let takes = if matches!(method, purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_)) { 1 } else { 2 };
+                let takes =
+                    if matches!(method, purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_)) { 1 } else { 2 };
                 self.arity(&format!("`{}`", method.ts_name()), takes, argc)
             }
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
@@ -434,9 +419,13 @@ impl<'a> Cx<'_, 'a> {
                 }
             }
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
-            Callee::Slice { start, end, .. } => self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc),
+            Callee::Slice { start, end, .. } => {
+                self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc)
+            }
             Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),
-            Callee::IntFrom { to, .. } | Callee::CharCode(to) => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
+            Callee::IntFrom { to, .. } | Callee::CharCode(to) => {
+                self.arity(&format!("`{}::from`", to.as_str()), 1, argc)
+            }
             Callee::CharFromU8 => self.arity("`char::from`", 1, argc),
             Callee::CharFromU32 => self.arity("`char::from_u32`", 1, argc),
             Callee::Char(m) => self.arity(&format!("`char::{}`", m.name()), 1 + m.args(), argc),
@@ -453,15 +442,18 @@ impl<'a> Cx<'_, 'a> {
             None => match self.defs.structs.get(t) {
                 Some(s) => {
                     if update && s.fields.iter().any(|f| f.name.as_str() == NEWTYPE_FIELD) {
-                        self.error(Reason::StructUpdate, format!(
-                            "struct update on newtype `{t}` is not in v0; write `{t}(value)`"
-                        ));
+                        self.error(
+                            Reason::StructUpdate,
+                            format!("struct update on newtype `{t}` is not in v0; write `{t}(value)`"),
+                        );
                         return;
                     }
                     let declared: Vec<&str> = s.fields.iter().map(|f| f.name.as_str()).collect();
                     self.named_fields(t, &declared, fields, update);
                 }
-                None => self.error_about(Reason::UndefinedType, t, format!("struct `{t}` is not defined in this crate")),
+                None => {
+                    self.error_about(Reason::UndefinedType, t, format!("struct `{t}` is not defined in this crate"))
+                }
             },
             Some(v) => {
                 let Some(var) = self.variant(ty, v) else { return };
@@ -533,9 +525,7 @@ impl<'a> Cx<'_, 'a> {
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),
-            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
-                self.pattern(p, bound)
-            }
+            Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => self.pattern(p, bound),
             Pattern::Variant { ty, variant, bind } => {
                 let Some(var) = self.variant(ty, variant) else { return };
                 let label = format!("{}::{}", ty.as_str(), variant.as_str());
@@ -549,11 +539,17 @@ impl<'a> Cx<'_, 'a> {
                             if fs.iter().any(|f| f.name == *field) {
                                 self.pattern(p, bound);
                             } else {
-                                self.error(Reason::ConstructShape, format!("`{label}` has no field `{}`", field.as_str()));
+                                self.error(
+                                    Reason::ConstructShape,
+                                    format!("`{label}` has no field `{}`", field.as_str()),
+                                );
                             }
                         }
                     }
-                    _ => self.error(Reason::ConstructShape, format!("pattern `{label}` does not match the variant's fields")),
+                    _ => self.error(
+                        Reason::ConstructShape,
+                        format!("pattern `{label}` does not match the variant's fields"),
+                    ),
                 }
             }
         }

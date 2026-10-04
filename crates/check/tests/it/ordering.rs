@@ -31,39 +31,81 @@ fn modules_name_it_too() {
 #[test]
 fn methods_and_then_with_take_what_std_takes() {
     let head = "use std::cmp::Ordering;\n";
-    assert_clean(&format!("{head}fn tie() -> Ordering {{ Ordering::Equal }}\npub fn f(o: Ordering) -> Ordering {{ o.then_with(tie) }}"));
+    assert_clean(&format!(
+        "{head}fn tie() -> Ordering {{ Ordering::Equal }}\npub fn f(o: Ordering) -> Ordering {{ o.then_with(tie) }}"
+    ));
     assert_clean(&format!("{head}pub fn f(o: Ordering, n: i32) -> Ordering {{ o.then_with(|| n.cmp(&0)) }}"));
-    assert_rejects(&format!("{head}pub fn f(o: Ordering, n: i32) -> Ordering {{ o.then_with(|x: i32| x.cmp(&n)) }}"), "`Ordering::then_with` takes a closure `|| ..` or a function name");
     assert_rejects(
-        &format!("{head}pub fn f(o: Ordering, n: Option<i32>) -> Option<Ordering> {{ Some(o.then_with(|| n?.cmp(&0))) }}"),
+        &format!("{head}pub fn f(o: Ordering, n: i32) -> Ordering {{ o.then_with(|x: i32| x.cmp(&n)) }}"),
+        "`Ordering::then_with` takes a closure `|| ..` or a function name",
+    );
+    assert_rejects(
+        &format!(
+            "{head}pub fn f(o: Ordering, n: Option<i32>) -> Option<Ordering> {{ Some(o.then_with(|| n?.cmp(&0))) }}"
+        ),
         "may not use `?` or `return`",
     );
     assert_rejects(
-        &format!("{head}fn by(n: i32) -> Ordering {{ n.cmp(&0) }}\npub fn f(o: Ordering) -> Ordering {{ o.then_with(by) }}"),
+        &format!(
+            "{head}fn by(n: i32) -> Ordering {{ n.cmp(&0) }}\npub fn f(o: Ordering) -> Ordering {{ o.then_with(by) }}"
+        ),
         "`then_with` calls its function with 0 arguments, which takes 1",
     );
-    assert_rejects(&format!("{head}pub fn f(o: Ordering) -> Ordering {{ o.then() }}"), "`Ordering::then` takes 1 argument(s) after the receiver, got 0");
+    assert_rejects(
+        &format!("{head}pub fn f(o: Ordering) -> Ordering {{ o.then() }}"),
+        "`Ordering::then` takes 1 argument(s) after the receiver, got 0",
+    );
     assert_rejects(&format!("{head}pub fn f(o: Ordering, p: Ordering) -> Ordering {{ o.max(p) }}"), "`.max()` on `Ordering` is not on the std allow-list; allowed: `is_eq`, `is_ne`, `is_lt`, `is_gt`, `is_le`, `is_ge`, `reverse`, `then`, `then_with`");
-    assert_rejects(&format!("{head}pub fn f(o: Ordering, p: Ordering) -> Ordering {{ o.cmp(&p) }}"), "`.cmp()` on `Ordering` is not on the std allow-list");
-    assert_rejects(&format!("{head}pub fn f(o: Ordering) -> bool {{ o < Ordering::Equal }}"), "ordering on `Ordering` is not in v0");
-    assert_rejects("pub fn f(a: i32, b: i32) -> bool { a.cmp(&b, 1).is_lt() }", "`cmp` takes 1 argument after the receiver, got 2");
+    assert_rejects(
+        &format!("{head}pub fn f(o: Ordering, p: Ordering) -> Ordering {{ o.cmp(&p) }}"),
+        "`.cmp()` on `Ordering` is not on the std allow-list",
+    );
+    assert_rejects(
+        &format!("{head}pub fn f(o: Ordering) -> bool {{ o < Ordering::Equal }}"),
+        "ordering on `Ordering` is not in v0",
+    );
+    assert_rejects(
+        "pub fn f(a: i32, b: i32) -> bool { a.cmp(&b, 1).is_lt() }",
+        "`cmp` takes 1 argument after the receiver, got 2",
+    );
 }
 
 #[test]
 fn cmp_is_refused_where_js_has_no_order_to_follow() {
-    assert_rejects("pub fn f(a: f64, b: f64) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `f64` is not in v0: floats are not `Ord`");
-    assert_rejects("pub fn f(a: f64, b: f64) -> bool { a.partial_cmp(&b).is_some() }", "`.partial_cmp()` on `f64` is not in v0");
-    assert_rejects("pub fn f(a: i32, b: i32) -> bool { a.partial_cmp(&b).is_some() }", "`.partial_cmp()` on `i32` is not in v0");
-    assert_rejects("pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `(i32, i32)` is not in v0");
+    assert_rejects(
+        "pub fn f(a: f64, b: f64) -> bool { a.cmp(&b).is_lt() }",
+        "`.cmp()` on `f64` is not in v0: floats are not `Ord`",
+    );
+    assert_rejects(
+        "pub fn f(a: f64, b: f64) -> bool { a.partial_cmp(&b).is_some() }",
+        "`.partial_cmp()` on `f64` is not in v0",
+    );
+    assert_rejects(
+        "pub fn f(a: i32, b: i32) -> bool { a.partial_cmp(&b).is_some() }",
+        "`.partial_cmp()` on `i32` is not in v0",
+    );
+    assert_rejects(
+        "pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a.cmp(&b).is_lt() }",
+        "`.cmp()` on `(i32, i32)` is not in v0",
+    );
     assert_rejects("pub fn f(a: Vec<f64>, b: Vec<f64>) -> bool { a.cmp(&b).is_lt() }", "floats are not `Ord`");
     assert_rejects("pub fn f(a: Vec<(u8, u8)>, b: Vec<(u8, u8)>) -> bool { a.cmp(&b).is_lt() }", "not of `(u8, u8)`");
-    assert_rejects("pub fn f(a: Option<u8>, b: Option<u8>) -> bool { a.cmp(&b).is_lt() }", "`.cmp()` on `Option<u8>` is not in v0");
+    assert_rejects(
+        "pub fn f(a: Option<u8>, b: Option<u8>) -> bool { a.cmp(&b).is_lt() }",
+        "`.cmp()` on `Option<u8>` is not in v0",
+    );
     assert_rejects(
         "#[derive(PartialEq, Eq, PartialOrd, Ord)]\npub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a.cmp(&b).is_lt() }",
         "`.cmp()` on `V` is not in v0: `Ord` on the crate's own types is not modeled",
     );
-    assert_rejects("pub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a < b }", "ordering on `V` is not in v0");
-    assert_rejects("pub fn f(a: bool) -> Option<u8> { a.then(|| 1u8) }", "`.then()` on `bool` is not on the std allow-list; allowed: `cmp`");
+    assert_rejects(
+        "pub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a < b }",
+        "ordering on `V` is not in v0",
+    );
+    assert_rejects(
+        "pub fn f(a: bool) -> Option<u8> { a.then(|| 1u8) }",
+        "`.then()` on `bool` is not on the std allow-list; allowed: `cmp`",
+    );
     assert_parse_rejects("pub struct V { pub n: u32 }\nimpl PartialOrd for V {}", "trait impls are not in v0");
     assert_parse_rejects("pub struct V { pub n: u32 }\nimpl Ord for V {}", "trait impls are not in v0");
 }
@@ -78,8 +120,14 @@ fn only_the_forms_that_keep_ordering_std_are_taken() {
         "pub struct Ordering { pub n: i32 }\npub fn f(a: i32) -> std::cmp::Ordering { a.cmp(&0) }",
         "the crate defines its own `Ordering`",
     );
-    assert_parse_rejects("use std::cmp::Ordering::*;\npub fn f() -> i32 { 0 }", "`use std::cmp::Ordering::*` is not in v0");
-    assert_parse_rejects("use std::cmp::Ordering::{Less, Greater};\npub fn f() -> i32 { 0 }", "importing the variants of `std::cmp::Ordering` is not in v0");
+    assert_parse_rejects(
+        "use std::cmp::Ordering::*;\npub fn f() -> i32 { 0 }",
+        "`use std::cmp::Ordering::*` is not in v0",
+    );
+    assert_parse_rejects(
+        "use std::cmp::Ordering::{Less, Greater};\npub fn f() -> i32 { 0 }",
+        "importing the variants of `std::cmp::Ordering` is not in v0",
+    );
     assert_parse_rejects("use std::cmp::*;\npub fn f() -> i32 { 0 }", "`use std::cmp::*` is not in v0");
     assert_parse_rejects("use std::cmp::Ordering as Order;\npub fn f() -> i32 { 0 }", "renames std's `Ordering`");
     assert_parse_rejects(
@@ -116,7 +164,8 @@ fn ordering_has_no_wire_form() {
         "use std::cmp::Ordering;\npub type Ords = Vec<Ordering>;\n#[derive(serde::Deserialize)]\npub enum Step { Compared(Option<Ords>) }",
         "`Step` derives `Deserialize` but holds a `std::cmp::Ordering`",
     );
-    let found = diagnostics("use std::cmp::Ordering;\n#[derive(serde::Serialize)]\npub struct Pair { pub by: Ordering }");
+    let found =
+        diagnostics("use std::cmp::Ordering;\n#[derive(serde::Serialize)]\npub struct Pair { pub by: Ordering }");
     assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["item/serde-derive"]);
     // Without a serde derive a type has no wire form, so it may hold one.
     assert_clean("use std::cmp::Ordering;\npub struct Pair { pub by: Ordering }");
@@ -140,6 +189,8 @@ fn a_serde_derive_needs_it_on_what_the_type_holds() {
 
 #[test]
 fn equality_on_ordering_is_its_variant() {
-    assert_clean("use std::cmp::Ordering;\npub fn f(a: Ordering, b: Ordering) -> bool { a == b || a != Ordering::Greater }");
+    assert_clean(
+        "use std::cmp::Ordering;\npub fn f(a: Ordering, b: Ordering) -> bool { a == b || a != Ordering::Greater }",
+    );
     assert_rejects("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }", "equality on `M` is not in v0");
 }

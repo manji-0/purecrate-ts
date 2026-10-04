@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod vec_build = "fixtures/vec_build.rs");
 
 const SOURCE: &str = vec_build::SOURCE;

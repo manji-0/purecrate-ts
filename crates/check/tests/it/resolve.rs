@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 const CMD: &str = "pub enum Cmd { Move(i32, i32), Paint { color: i32 }, Stop }\n\
@@ -48,7 +47,10 @@ fn constructors_must_match_declared_fields() {
 fn struct_update_fills_omitted_fields() {
     assert_clean(&with("pub fn f(p: Pos) -> Pos { Pos { x: p.x + 1, ..p } }"));
     assert_clean(&with("pub fn f(p: Pos) -> Pos { Pos { ..p } }"));
-    assert_rejects(&with("pub fn f(p: Pos) -> Pos { Pos { x: 1, x: 2, ..p } }"), "field `x` of `Pos` is specified more than once");
+    assert_rejects(
+        &with("pub fn f(p: Pos) -> Pos { Pos { x: 1, x: 2, ..p } }"),
+        "field `x` of `Pos` is specified more than once",
+    );
     assert_rejects(&with("pub fn f(p: Pos) -> Pos { Pos { z: 1, ..p } }"), "`Pos` has no field(s) z");
     assert_rejects(
         "pub struct Id(i32); pub fn f(id: Id) -> Id { Id { ..id } }",
@@ -69,7 +71,9 @@ fn patterns_must_match_variant_fields() {
     };
     assert_rejects(&arms("Cmd::Move(a) => a"), "pattern `Cmd::Move` does not match");
     assert_rejects(
-        &with("pub fn f(c: Cmd) -> i32 { match c { Cmd::Paint { hue } => hue, Cmd::Move(a, _) => a, Cmd::Stop => 0 } }"),
+        &with(
+            "pub fn f(c: Cmd) -> i32 { match c { Cmd::Paint { hue } => hue, Cmd::Move(a, _) => a, Cmd::Stop => 0 } }",
+        ),
         "`Cmd::Paint` has no field `hue`",
     );
 }

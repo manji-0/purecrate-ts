@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod methods = "fixtures/methods.rs");
 
 const SOURCE: &str = methods::SOURCE;

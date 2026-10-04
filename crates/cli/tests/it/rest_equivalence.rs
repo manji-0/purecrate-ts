@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod rest = "fixtures/rest.rs");
 
 const SOURCE: &str = rest::SOURCE;

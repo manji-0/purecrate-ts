@@ -3,7 +3,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod update = "fixtures/update.rs");
 
 const SOURCE: &str = update::SOURCE;

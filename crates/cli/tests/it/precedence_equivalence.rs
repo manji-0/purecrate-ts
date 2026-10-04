@@ -21,7 +21,10 @@ fn generated_precedence_matches_rust() {
                 for p in [None, Some(3i32)] {
                     cases.push(case!(precedence::same_presence(o, p)));
                 }
-                let r = match o { Some(v) => Ok(v), None => Err(1i32) };
+                let r = match o {
+                    Some(v) => Ok(v),
+                    None => Err(1i32),
+                };
                 cases.push(case!(precedence::ok_is_some(r)));
             }
             for a in [false, true] {

@@ -1,7 +1,6 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim, Reason, Ty, UnOp,
-    VariantBind, Wrapper,
-    NEWTYPE_FIELD,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim, Reason, Ty,
+    UnOp, VariantBind, Wrapper, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Item as SynItem, Member, Pat, UnOp as SynUnOp};
@@ -25,20 +24,17 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::Lit(l) => Ok(Expr::Lit(lower_lit(&l.lit)?)),
         SynExpr::Path(p) => lower_path_expr(cx, &p.path),
         SynExpr::Field(f) => match &f.member {
-            Member::Named(id) => Ok(Expr::Field {
-                base: Box::new(lower_expr(cx, &f.base)?),
-                name: Name::new(id.to_string()),
-            }),
-            Member::Unnamed(i) if i.index == 0 => Ok(Expr::Field {
-                base: Box::new(lower_expr(cx, &f.base)?),
-                name: Name::new(NEWTYPE_FIELD),
-            }),
+            Member::Named(id) => {
+                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(id.to_string()) })
+            }
+            Member::Unnamed(i) if i.index == 0 => {
+                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(NEWTYPE_FIELD) })
+            }
             Member::Unnamed(_) => Err(ParseError::new(Reason::TupleField, "tuple field access is not in v0")),
         },
-        SynExpr::Assign(a) => Ok(Expr::Assign {
-            name: assign_target(&a.left)?,
-            value: Box::new(lower_expr(cx, &a.right)?),
-        }),
+        SynExpr::Assign(a) => {
+            Ok(Expr::Assign { name: assign_target(&a.left)?, value: Box::new(lower_expr(cx, &a.right)?) })
+        }
         SynExpr::Binary(b) if compound_op(b.op).is_some() => {
             let name = assign_target(&b.left)?;
             let op = compound_op(b.op).expect("checked by the guard");
@@ -57,14 +53,8 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             right: Box::new(lower_expr(cx, &b.right)?),
         }),
         SynExpr::Unary(u) if matches!(u.op, SynUnOp::Deref(_)) => lower_expr(cx, &u.expr),
-        SynExpr::Unary(u) => Ok(Expr::Unary {
-            op: lower_un(u.op)?,
-            expr: Box::new(lower_expr(cx, &u.expr)?),
-        }),
-        SynExpr::Try(t) => Ok(Expr::Try {
-            expr: Box::new(lower_expr(cx, &t.expr)?),
-            on: None,
-        }),
+        SynExpr::Unary(u) => Ok(Expr::Unary { op: lower_un(u.op)?, expr: Box::new(lower_expr(cx, &u.expr)?) }),
+        SynExpr::Try(t) => Ok(Expr::Try { expr: Box::new(lower_expr(cx, &t.expr)?), on: None }),
         SynExpr::Paren(p) => lower_expr(cx, &p.expr),
         SynExpr::Group(g) => lower_expr(cx, &g.expr),
         SynExpr::Block(b) => lower_block(cx, &b.block),
@@ -92,15 +82,11 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             for arm in &m.arms {
                 arms.push(Arm {
                     guard: None,
-                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?)
-                        .map_err(|e| e.or_at(arm.pat.span()))?,
+                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?).map_err(|e| e.or_at(arm.pat.span()))?,
                     body: comments.above(arm.span(), at(arm.body.span(), lower_expr(cx, &arm.body)?)),
                 });
             }
-            Ok(Expr::Match {
-                scrutinee: Box::new(lower_expr(cx, &m.expr)?),
-                arms,
-            })
+            Ok(Expr::Match { scrutinee: Box::new(lower_expr(cx, &m.expr)?), arms })
         }
         SynExpr::Struct(s) => lower_struct_expr(cx, s),
         // Calls carry their own position, so a diagnostic about one points
@@ -118,19 +104,11 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         // it prints as `undefined`.
         SynExpr::Tuple(t) if t.elems.is_empty() => Ok(Expr::Lit(Lit::Unit)),
         SynExpr::Tuple(t) => {
-            let elems = t
-                .elems
-                .iter()
-                .map(|e| lower_expr(cx, e))
-                .collect::<Result<Vec<_>, _>>()?;
+            let elems = t.elems.iter().map(|e| lower_expr(cx, e)).collect::<Result<Vec<_>, _>>()?;
             Ok(Expr::Tuple(elems))
         }
         SynExpr::Array(a) => {
-            let elems = a
-                .elems
-                .iter()
-                .map(|e| lower_expr(cx, e))
-                .collect::<Result<Vec<_>, _>>()?;
+            let elems = a.elems.iter().map(|e| lower_expr(cx, e)).collect::<Result<Vec<_>, _>>()?;
             Ok(Expr::Array(elems))
         }
         SynExpr::Return(r) => {
@@ -143,11 +121,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
         SynExpr::Macro(m) if m.mac.path.is_ident("matches") => lower_matches(cx, &m.mac),
         SynExpr::Macro(m) if m.mac.path.is_ident("vec") => lower_vec(cx, &m.mac),
-        SynExpr::Macro(m) => Err(ParseError::new(
-            Reason::Macro,
-            format!("macro `{}!` is not in v0", path_text(&m.mac.path)),
-        )
-        .detail(path_text(&m.mac.path))),
+        SynExpr::Macro(m) => {
+            Err(ParseError::new(Reason::Macro, format!("macro `{}!` is not in v0", path_text(&m.mac.path)))
+                .detail(path_text(&m.mac.path)))
+        }
         // `xs.iter().sum::<T>()`, `s.split(c).collect::<T>()`: the type
         // argument annotates the result. `s.parse::<T>()` is a
         // `Result<T, ParseIntError>`.
@@ -179,11 +156,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                 then: Box::new(Expr::Var(name)),
             })
         }
-        SynExpr::MethodCall(m) if m.turbofish.is_some() => Err(ParseError::new(
-            Reason::MethodCall,
-            format!("method call `.{}::<..>()` is not in v0", m.method),
-        )
-        .detail(m.method.to_string())),
+        SynExpr::MethodCall(m) if m.turbofish.is_some() => {
+            Err(ParseError::new(Reason::MethodCall, format!("method call `.{}::<..>()` is not in v0", m.method))
+                .detail(m.method.to_string()))
+        }
         SynExpr::MethodCall(m) => Ok(at(
             m.method.span(),
             Expr::MethodCall {
@@ -201,10 +177,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Reason::Loop,
             format!("`while let` is not in v0; use `while` with a `match` inside, or `for`: {}", snippet(expr)),
         )),
-        SynExpr::While(w) => Ok(Expr::While {
-            cond: Box::new(lower_expr(cx, &w.cond)?),
-            body: Box::new(lower_block(cx, &w.body)?),
-        }),
+        SynExpr::While(w) => {
+            Ok(Expr::While { cond: Box::new(lower_expr(cx, &w.cond)?), body: Box::new(lower_block(cx, &w.body)?) })
+        }
         SynExpr::Break(b) if b.label.is_none() && b.expr.is_none() => Ok(Expr::Break),
         SynExpr::Continue(c) if c.label.is_none() => Ok(Expr::Continue),
         SynExpr::Break(_) | SynExpr::Continue(_) => Err(ParseError::new(
@@ -215,10 +190,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Reason::Loop,
             format!("`loop` is not in v0; write `while` with its condition: {}", snippet(expr)),
         )),
-        SynExpr::Reference(r) if r.mutability.is_some() => Err(ParseError::new(
-            Reason::Borrow,
-            format!("`&mut` borrows are not in v0: {}", snippet(expr)),
-        )),
+        SynExpr::Reference(r) if r.mutability.is_some() => {
+            Err(ParseError::new(Reason::Borrow, format!("`&mut` borrows are not in v0: {}", snippet(expr))))
+        }
         SynExpr::Reference(r) => lower_expr(cx, &r.expr),
         SynExpr::Index(i) => match &*i.index {
             SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => {
@@ -227,55 +201,62 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
                     args.push(lower_expr(cx, bound)?);
                 }
                 Ok(Expr::Call {
-                    callee: Callee::Slice {
-                        of: None,
-                        start: r.start.is_some(),
-                        end: r.end.is_some(),
-                    },
+                    callee: Callee::Slice { of: None, start: r.start.is_some(), end: r.end.is_some() },
                     args,
                 })
             }
             SynExpr::Range(_) => Err(ParseError::new(
                 Reason::Range,
-                format!("slicing takes a half-open range `a..b`, `a..`, or `..b` in v0, not `a..=b`: {}", snippet(expr)),
+                format!(
+                    "slicing takes a half-open range `a..b`, `a..`, or `..b` in v0, not `a..=b`: {}",
+                    snippet(expr)
+                ),
             )),
-            index => Ok(Expr::Index {
-                base: Box::new(lower_expr(cx, &i.expr)?),
-                index: Box::new(lower_expr(cx, index)?),
-            }),
+            index => {
+                Ok(Expr::Index { base: Box::new(lower_expr(cx, &i.expr)?), index: Box::new(lower_expr(cx, index)?) })
+            }
         },
         SynExpr::Range(_) => Err(ParseError::new(Reason::Range, format!("ranges are not in v0: {}", snippet(expr)))),
         SynExpr::Cast(c) => Ok(Expr::Cast {
             expr: Box::new(lower_expr(cx, &c.expr)?),
-            to: lower_type(&c.ty).map_err(|_| {
-                ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr)))
-            })?,
+            to: lower_type(&c.ty)
+                .map_err(|_| ParseError::new(Reason::Cast, format!("`as` casts are not in v0: {}", snippet(expr))))?,
         }),
-        other => Err(ParseError::new(
-            Reason::UnsupportedExpr,
-            format!("unsupported expression {}", snippet(other)),
-        )
-        .detail(expr_kind(other))),
+        other => Err(ParseError::new(Reason::UnsupportedExpr, format!("unsupported expression {}", snippet(other)))
+            .detail(expr_kind(other))),
     }
 }
 
 /// `expr`, marked with where its source starts, for diagnostics.
 fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
     let LineCol { line, col } = LineCol::of(span);
-    Expr::At {
-        at: Pos {
-            line: line as u32,
-            col: col as u32,
-        },
-        expr: Box::new(expr),
-    }
+    Expr::At { at: Pos { line: line as u32, col: col as u32 }, expr: Box::new(expr) }
 }
 
 /// Iterator adaptors, named so that `for` over one says so rather than
 /// failing later on the method call.
 const ITERATOR_ADAPTORS: &[&str] = &[
-    "enumerate", "rev", "zip", "map", "filter", "filter_map", "skip", "take", "step_by", "windows", "chunks",
-    "cloned", "copied", "peekable", "char_indices", "split_whitespace", "splitn", "rsplit", "lines", "keys", "values",
+    "enumerate",
+    "rev",
+    "zip",
+    "map",
+    "filter",
+    "filter_map",
+    "skip",
+    "take",
+    "step_by",
+    "windows",
+    "chunks",
+    "cloned",
+    "copied",
+    "peekable",
+    "char_indices",
+    "split_whitespace",
+    "splitn",
+    "rsplit",
+    "lines",
+    "keys",
+    "values",
 ];
 
 /// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
@@ -284,7 +265,8 @@ const ITERATOR_ADAPTORS: &[&str] = &[
 /// with the types. Iterator adaptors (`enumerate`, `rev`, `zip`, ...) and
 /// `a..=b` stay out.
 fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
-    let reject = |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
+    let reject =
+        |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
     if f.label.is_some() {
         return reject("loop labels are not in v0");
     }
@@ -308,8 +290,14 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     }
     let var = match &*f.pat {
         _ if tuple.is_some() => cx.fresh("p"),
-        Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => Name::new(p.ident.to_string()),
-        _ => return reject("`for` takes a plain name or a tuple of names for its variable, not `mut`, `_` or another pattern"),
+        Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => {
+            Name::new(p.ident.to_string())
+        }
+        _ => {
+            return reject(
+                "`for` takes a plain name or a tuple of names for its variable, not `mut`, `_` or another pattern",
+            )
+        }
     };
     // Lowered after the source, so fresh names and diagnostics keep source order.
     let tuple = std::cell::Cell::new(tuple);
@@ -322,7 +310,12 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
                     value: Box::new(Expr::Binary {
                         op: BinOp::Add,
                         left: Box::new(Expr::Var(i.clone())),
-                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::Usize), byte: false, hex: false })),
+                        right: Box::new(Expr::Lit(Lit::Int {
+                            value: 1,
+                            ty: Some(IntTy::Usize),
+                            byte: false,
+                            hex: false,
+                        })),
                     }),
                 };
                 let body = Expr::Seq { first: Box::new(advance), then: Box::new(body) };
@@ -344,12 +337,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     };
     let each = |over: Over, source: &SynExpr| -> Result<Expr, ParseError> {
         let source = lower_expr(cx, source)?;
-        Ok(counted(Expr::ForEach {
-            var: var.clone(),
-            over,
-            source: Box::new(source),
-            body: Box::new(body()?),
-        }))
+        Ok(counted(Expr::ForEach { var: var.clone(), over, source: Box::new(source), body: Box::new(body()?) }))
     };
     let (start, end) = match iterable {
         SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => match (&r.start, &r.end) {
@@ -391,13 +379,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         other => return each(Over::Items, other),
     };
     let (start, end) = (lower_expr(cx, start)?, lower_expr(cx, end)?);
-    Ok(Expr::For {
-        var: var.clone(),
-        ty: None,
-        start: Box::new(start),
-        end: Box::new(end),
-        body: Box::new(body()?),
-    })
+    Ok(Expr::For { var: var.clone(), ty: None, start: Box::new(start), end: Box::new(end), body: Box::new(body()?) })
 }
 
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
@@ -502,21 +484,16 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
     // A comment before the `}` of a block that ends in a statement ends it.
     let closing = if tail.is_none() { comments.closing(block.stmts.last().map(|s| s.span())) } else { Vec::new() };
     let acc = tail.unwrap_or(Expr::Lit(Lit::Unit));
-    let acc = if closing.is_empty() { acc } else { Expr::Seq { first: Box::new(Expr::Comment(closing)), then: Box::new(acc) } };
+    let acc = if closing.is_empty() {
+        acc
+    } else {
+        Expr::Seq { first: Box::new(Expr::Comment(closing)), then: Box::new(acc) }
+    };
     Ok(stmts.into_iter().rev().fold(acc, |then, (span, stmt)| {
         let node = match stmt {
-            Stmt::Let {
-                name,
-                mutable,
-                ty,
-                value,
-            } => Expr::Let {
-                name,
-                mutable,
-                ty,
-                value: Box::new(value),
-                then: Box::new(then),
-            },
+            Stmt::Let { name, mutable, ty, value } => {
+                Expr::Let { name, mutable, ty, value: Box::new(value), then: Box::new(then) }
+            }
             Stmt::Destructure { tuple, typed, value } => match typed {
                 Some((name, ty)) => Expr::Let {
                     name: name.clone(),
@@ -527,10 +504,7 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
                 },
                 None => tuple.bind(value, then),
             },
-            Stmt::Effect(first) => Expr::Seq {
-                first: Box::new(first),
-                then: Box::new(then),
-            },
+            Stmt::Effect(first) => Expr::Seq { first: Box::new(first), then: Box::new(then) },
         };
         comments.above(span, at(span, node))
     }))
@@ -574,7 +548,12 @@ fn line_end_comment(line: &str) -> Option<usize> {
             Some(q) if b == q => quote = None,
             Some(_) => {}
             // A `'` opens a `char` only where one ends two or three bytes on.
-            None if b == b'\'' && (bytes.get(i + 2) == Some(&b'\'') || (bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\''))) => quote = Some(b'\''),
+            None if b == b'\''
+                && (bytes.get(i + 2) == Some(&b'\'')
+                    || (bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\''))) =>
+            {
+                quote = Some(b'\'')
+            }
             None if b == b'"' => quote = Some(b'"'),
             None if b == b'/' && bytes.get(i + 1) == Some(&b'/') => return Some(i),
             None => {}
@@ -625,10 +604,7 @@ impl Comments {
         if text.is_empty() {
             return node;
         }
-        Expr::Seq {
-            first: Box::new(Expr::Comment(text)),
-            then: Box::new(node),
-        }
+        Expr::Seq { first: Box::new(Expr::Comment(text)), then: Box::new(node) }
     }
 
     /// The `//` lines after the last statement of the block, before its `}`.
@@ -645,10 +621,7 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         other => (other, None),
     };
     if let Some(tuple) = Destructure::of(cx, pat, Reason::LetPattern)? {
-        let init = local
-            .init
-            .as_ref()
-            .ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
+        let init = local.init.as_ref().ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
         if init.diverge.is_some() {
             return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
         }
@@ -670,19 +643,11 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
             ))
         }
     };
-    let init = local
-        .init
-        .as_ref()
-        .ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
+    let init = local.init.as_ref().ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
     if init.diverge.is_some() {
         return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
     }
-    Ok(Stmt::Let {
-        name,
-        mutable,
-        ty,
-        value: lower_expr(cx, &init.expr)?,
-    })
+    Ok(Stmt::Let { name, mutable, ty, value: lower_expr(cx, &init.expr)? })
 }
 
 fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
@@ -692,7 +657,8 @@ fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
             .get_ident()
             .map(|id| Name::new(id.to_string()))
             .ok_or_else(|| ParseError::new(Reason::PlaceAssign, "only a local variable can be assigned in v0")),
-        SynExpr::Field(_) => Err(ParseError::new(Reason::PlaceAssign, 
+        SynExpr::Field(_) => Err(ParseError::new(
+            Reason::PlaceAssign,
             "assigning to a field is not in v0; build a new struct with `..` or all fields",
         )),
         _ => Err(ParseError::new(Reason::PlaceAssign, "only a local variable can be assigned in v0")),
@@ -723,10 +689,7 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
         [one] => match one.as_str() {
             "true" => Ok(Expr::Lit(Lit::Bool(true))),
             "false" => Ok(Expr::Lit(Lit::Bool(false))),
-            "None" => Ok(Expr::Call {
-                callee: Callee::OptionNone,
-                args: vec![],
-            }),
+            "None" => Ok(Expr::Call { callee: Callee::OptionNone, args: vec![] }),
             _ => Ok(Expr::var(one.clone())),
         },
         [ty, var] if cx.is_enum(ty) => Ok(Expr::Construct {
@@ -735,18 +698,13 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             fields: Fields::Unit,
             base: None,
         }),
-        [ty, var] if ty == "Result" && (var == "ok" || var == "Ok") => Ok(Expr::Call {
-            callee: Callee::ResultOk,
-            args: vec![],
-        }),
-        [ty, var] if ty == "Result" && (var == "err" || var == "Err") => Ok(Expr::Call {
-            callee: Callee::ResultErr,
-            args: vec![],
-        }),
-        [a, b] => Ok(Expr::Call {
-            callee: Callee::Fn(Name::new(format!("{a}::{b}"))),
-            args: vec![],
-        }),
+        [ty, var] if ty == "Result" && (var == "ok" || var == "Ok") => {
+            Ok(Expr::Call { callee: Callee::ResultOk, args: vec![] })
+        }
+        [ty, var] if ty == "Result" && (var == "err" || var == "Err") => {
+            Ok(Expr::Call { callee: Callee::ResultErr, args: vec![] })
+        }
+        [a, b] => Ok(Expr::Call { callee: Callee::Fn(Name::new(format!("{a}::{b}"))), args: vec![] }),
         _ => Err(path_error(&segs, format!("unsupported path {}", segs.join("::")))),
     }
 }
@@ -783,22 +741,13 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
             }
             match pat {
                 Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
-                    Ok(ClosureParam {
-                        name: Name::new(id.ident.to_string()),
-                        ty,
-                    })
+                    Ok(ClosureParam { name: Name::new(id.ident.to_string()), ty })
                 }
-                Pat::Wild(_) => Ok(ClosureParam {
-                    name: Name::new("_"),
-                    ty,
-                }),
+                Pat::Wild(_) => Ok(ClosureParam { name: Name::new("_"), ty }),
                 // `|&x|`: a reference reads as its value.
                 Pat::Reference(r) if r.mutability.is_none() => match &*r.pat {
                     Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
-                        Ok(ClosureParam {
-                            name: Name::new(id.ident.to_string()),
-                            ty,
-                        })
+                        Ok(ClosureParam { name: Name::new(id.ident.to_string()), ty })
                     }
                     other => Err(ParseError::new(
                         Reason::ParamPattern,
@@ -822,20 +771,13 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
         .into_iter()
         .rev()
         .fold(lower_expr(cx, &c.body)?, |body, (name, tuple)| tuple.bind(Expr::Var(name), body));
-    Ok(Expr::Closure {
-        params,
-        ret,
-        body: Box::new(body),
-    })
+    Ok(Expr::Closure { params, ret, body: Box::new(body) })
 }
 
 fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
     let segs: Vec<String> = s.path.segments.iter().map(|p| p.ident.to_string()).collect();
     if s.rest.is_some() && segs.len() != 1 {
-        return Err(ParseError::new(
-            Reason::StructUpdate,
-            "functional record update syntax requires a struct",
-        ));
+        return Err(ParseError::new(Reason::StructUpdate, "functional record update syntax requires a struct"));
     }
     let base = match &s.rest {
         Some(e) => Some(Box::new(lower_expr(cx, e)?)),
@@ -856,22 +798,11 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
             .collect::<Result<Vec<_>, _>>()?,
     );
     match segs.as_slice() {
-        [ty] if cx.is_struct(ty) => Ok(Expr::Construct {
-            ty: Name::new(ty.clone()),
-            variant: None,
-            fields,
-            base,
-        }),
-        [ty, var] if cx.is_enum(ty) => Ok(Expr::Construct {
-            ty: Name::new(ty.clone()),
-            variant: Some(Name::new(var.clone())),
-            fields,
-            base: None,
-        }),
-        _ => Err(path_error(&segs, format!(
-            "unknown struct constructor {}",
-            segs.join("::")
-        ))),
+        [ty] if cx.is_struct(ty) => Ok(Expr::Construct { ty: Name::new(ty.clone()), variant: None, fields, base }),
+        [ty, var] if cx.is_enum(ty) => {
+            Ok(Expr::Construct { ty: Name::new(ty.clone()), variant: Some(Name::new(var.clone())), fields, base: None })
+        }
+        _ => Err(path_error(&segs, format!("unknown struct constructor {}", segs.join("::")))),
     }
 }
 
@@ -908,10 +839,7 @@ fn uuid_fn(segs: &[String]) -> Option<Callee> {
 }
 
 fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, ParseError> {
-    let args = args
-        .into_iter()
-        .map(|a| lower_expr(cx, a))
-        .collect::<Result<Vec<_>, _>>()?;
+    let args = args.into_iter().map(|a| lower_expr(cx, a)).collect::<Result<Vec<_>, _>>()?;
     match func {
         SynExpr::Path(p) => {
             let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
@@ -929,10 +857,7 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                         format!("`{}::new` takes 1 argument, got {}", wrapper.rust_name(), args.len()),
                     ));
                 }
-                return Ok(Expr::Ignored {
-                    wrapper,
-                    expr: Box::new(args.into_iter().next().unwrap()),
-                });
+                return Ok(Expr::Ignored { wrapper, expr: Box::new(args.into_iter().next().unwrap()) });
             }
             let callee = if segs == ["Some"] {
                 Callee::OptionSome
@@ -955,22 +880,13 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
             } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {
-                Callee::Variant {
-                    ty: Name::new(segs[0].clone()),
-                    variant: Name::new(segs[1].clone()),
-                }
+                Callee::Variant { ty: Name::new(segs[0].clone()), variant: Name::new(segs[1].clone()) }
             } else if segs.len() == 2 && (cx.is_enum(&segs[0]) || cx.is_struct(&segs[0])) {
-                Callee::Method {
-                    ty: Name::new(segs[0].clone()),
-                    name: Name::new(segs[1].clone()),
-                }
+                Callee::Method { ty: Name::new(segs[0].clone()), name: Name::new(segs[1].clone()) }
             } else if segs.len() == 1 {
                 Callee::Fn(Name::new(segs[0].clone()))
             } else {
-                return Err(path_error(&segs, format!(
-                    "unsupported call {}",
-                    segs.join("::")
-                )));
+                return Err(path_error(&segs, format!("unsupported call {}", segs.join("::"))));
             };
             if matches!(callee, Callee::Variant { .. }) {
                 return Ok(Expr::Construct {
@@ -1027,10 +943,7 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
         syn::Lit::Int(i) => {
             let suffix = i.suffix();
             if let Some(Some(ty)) = float_suffix(suffix) {
-                return Ok(Lit::Float {
-                    digits: i.base10_digits().to_string(),
-                    ty: Some(ty),
-                });
+                return Ok(Lit::Float { digits: i.base10_digits().to_string(), ty: Some(ty) });
             }
             let ty = match suffix {
                 "" => None,
@@ -1038,31 +951,19 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
                     ParseError::new(Reason::LiteralSuffix, format!("integer suffix `{s}` is not in v0"))
                 })?),
             };
-            let value = i
-                .base10_parse::<i128>()
-                .map_err(|e| ParseError::new(Reason::UnsupportedLiteral, e.to_string()))?;
+            let value =
+                i.base10_parse::<i128>().map_err(|e| ParseError::new(Reason::UnsupportedLiteral, e.to_string()))?;
             let hex = i.to_string().starts_with("0x") || i.to_string().starts_with("0X");
             Ok(Lit::Int { value, ty, byte: false, hex })
         }
         syn::Lit::Float(f) => match float_suffix(f.suffix()) {
-            Some(ty) => Ok(Lit::Float {
-                digits: f.base10_digits().to_string(),
-                ty,
-            }),
-            None => Err(ParseError::new(Reason::LiteralSuffix, format!(
-                "float suffix `{}` is not in v0",
-                f.suffix()
-            ))),
+            Some(ty) => Ok(Lit::Float { digits: f.base10_digits().to_string(), ty }),
+            None => Err(ParseError::new(Reason::LiteralSuffix, format!("float suffix `{}` is not in v0", f.suffix()))),
         },
         syn::Lit::Str(s) => Ok(Lit::Str(s.value())),
         syn::Lit::Char(c) => Ok(Lit::Char(c.value())),
         // `b'@'` is a `u8`.
-        syn::Lit::Byte(b) => Ok(Lit::Int {
-            value: i128::from(b.value()),
-            ty: Some(IntTy::U8),
-            byte: true,
-            hex: false,
-        }),
+        syn::Lit::Byte(b) => Ok(Lit::Int { value: i128::from(b.value()), ty: Some(IntTy::U8), byte: true, hex: false }),
         _ => Err(ParseError::new(Reason::UnsupportedLiteral, "unsupported literal")),
     }
 }
@@ -1099,7 +1000,8 @@ fn lower_bin(op: SynBinOp) -> Result<BinOp, ParseError> {
         SynBinOp::Shr(_) => BinOp::Shr,
         _ => {
             let text = snippet(&op);
-            return Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0")).detail(text.trim_matches('`')));
+            return Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0"))
+                .detail(text.trim_matches('`')));
         }
     })
 }
@@ -1110,17 +1012,14 @@ fn lower_un(op: SynUnOp) -> Result<UnOp, ParseError> {
         SynUnOp::Neg(_) => Ok(UnOp::Neg),
         _ => {
             let text = snippet(&op);
-            Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0")).detail(text.trim_matches('`')))
+            Err(ParseError::new(Reason::UnsupportedOperator, format!("operator {text} is not in v0"))
+                .detail(text.trim_matches('`')))
         }
     }
 }
 
 fn path_text(path: &syn::Path) -> String {
-    path.segments
-        .iter()
-        .map(|s| s.ident.to_string())
-        .collect::<Vec<_>>()
-        .join("::")
+    path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
 }
 
 /// The `syn` variant name, e.g. `Async`, for tallying unsupported syntax.
@@ -1138,10 +1037,6 @@ fn expr_kind(expr: &SynExpr) -> String {
 /// A path that names nothing crate-local. `Self` paths get their own reason:
 /// they name a crate-local type, just not by its name.
 fn path_error(segs: &[String], message: String) -> ParseError {
-    let reason = if segs.first().is_some_and(|s| s == "Self") {
-        Reason::SelfType
-    } else {
-        Reason::ExternalPath
-    };
+    let reason = if segs.first().is_some_and(|s| s == "Self") { Reason::SelfType } else { Reason::ExternalPath };
     ParseError::new(reason, message).detail(segs.join("::"))
 }

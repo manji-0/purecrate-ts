@@ -154,7 +154,9 @@ impl Js {
             Js::Array(e) => !e.is_empty(),
             Js::Arrow(a) => match &a.body {
                 Body::Block(_) => true,
-                Body::Expr(e) => matches!(**e, Js::Object(_) | Js::Array(_) | Js::Call(..) | Js::Ternary(..) | Js::Arrow(_)),
+                Body::Expr(e) => {
+                    matches!(**e, Js::Object(_) | Js::Array(_) | Js::Call(..) | Js::Ternary(..) | Js::Arrow(_))
+                }
             },
             _ => false,
         }
@@ -196,7 +198,12 @@ impl Arrow {
                 // with the arrow, as Prettier's `printArrowFunctionBody` has it.
                 Js::Ternary(..) => group(concat(vec![
                     head,
-                    indent(concat(vec![Doc::Line, if_break(text(""), text("(")), e.doc(), if_break(text(""), text(")"))])),
+                    indent(concat(vec![
+                        Doc::Line,
+                        if_break(text(""), text("(")),
+                        e.doc(),
+                        if_break(text(""), text(")")),
+                    ])),
                     tail(expand_last),
                 ])),
                 _ => group(concat(vec![head, indent(concat(vec![Doc::Line, e.doc()])), tail(expand_last)])),
@@ -229,7 +236,11 @@ fn array_doc(elems: &[Js]) -> Doc {
         Doc::SoftLine,
         text("]"),
     ]);
-    if matrix { broken_group(body) } else { group(body) }
+    if matrix {
+        broken_group(body)
+    } else {
+        group(body)
+    }
 }
 
 fn object_doc(props: &[(String, Js)]) -> Doc {
@@ -295,7 +306,9 @@ impl Stmt {
         match self {
             Stmt::Const(name, v) => concat(vec![assign(text(format!("const {name} =")), v.doc()), text(";")]),
             Stmt::Return(e) => concat(vec![text("return "), e.doc(), text(";")]),
-            Stmt::If(c, s) => group(concat(vec![text("if ("), c.doc(), text(")"), indent(concat(vec![Doc::Line, s.doc()]))])),
+            Stmt::If(c, s) => {
+                group(concat(vec![text("if ("), c.doc(), text(")"), indent(concat(vec![Doc::Line, s.doc()]))]))
+            }
             Stmt::IfBlock(c, ss) => concat(vec![text("if ("), c.doc(), text(") "), block_doc(ss)]),
             Stmt::Block(ss) => block_doc(ss),
             Stmt::Expr(e) => concat(vec![e.doc(), text(";")]),
@@ -310,7 +323,10 @@ impl Stmt {
                         };
                         concat(vec![
                             head,
-                            indent(concat(vec![Doc::HardLine, join(Doc::HardLine, body.iter().map(Stmt::doc).collect())])),
+                            indent(concat(vec![
+                                Doc::HardLine,
+                                join(Doc::HardLine, body.iter().map(Stmt::doc).collect()),
+                            ])),
                         ])
                     })
                     .collect();
@@ -336,7 +352,10 @@ pub(crate) fn decl(export: bool, name: &str, ty: Option<&str>, value: &Js) -> Do
     let lhs = match ty.and_then(|t| t.strip_suffix('>')).and_then(|t| t.split_once('<')) {
         Some((generic, args)) if args.contains(',') && !args.contains(['<', '{']) => group(concat(vec![
             text(format!("{head}: {generic}<")),
-            indent(concat(vec![Doc::SoftLine, join(concat(vec![text(","), Doc::Line]), args.split(',').map(|a| text(a.trim())).collect())])),
+            indent(concat(vec![
+                Doc::SoftLine,
+                join(concat(vec![text(","), Doc::Line]), args.split(',').map(|a| text(a.trim())).collect()),
+            ])),
             Doc::SoftLine,
             text("> ="),
         ])),

@@ -23,13 +23,9 @@ fn generated_destructuring_matches_rust() {
         for (a, b) in [(0, 0), (1, 2), (15, 15), (16, 15), (255, 0), (0, 255), (254, 0)] {
             cases.push(case!(destructure::both(a, b)));
         }
-        for xs in [
-            vec![],
-            vec![(2, 3), (4, 5)],
-            vec![(2, 3), (0, 5), (9, 9)],
-            vec![(2, 0), (4, 5)],
-            vec![(65_536, 65_536)],
-        ] {
+        for xs in
+            [vec![], vec![(2, 3), (4, 5)], vec![(2, 3), (0, 5), (9, 9)], vec![(2, 0), (4, 5)], vec![(65_536, 65_536)]]
+        {
             cases.push(case!(destructure::sum_pairs(&xs)));
         }
         for xs in [vec![], vec![(1, 2), (255, 255)], vec![(0, 9); 3]] {

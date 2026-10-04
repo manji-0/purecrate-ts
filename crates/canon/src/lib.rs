@@ -52,15 +52,10 @@ pub fn fixture(input: TokenStream) -> TokenStream {
     // have no line and column outside nightly.
     proc_macro2::fallback::force();
     let (module, paths) = parse_input(input);
-    let root =
-        std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
-            .join("tests");
+    let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR")).join("tests");
     let source = paths
         .iter()
-        .map(|p| {
-            std::fs::read_to_string(root.join(p))
-                .unwrap_or_else(|e| panic!("fixture!: read {p}: {e}"))
-        })
+        .map(|p| std::fs::read_to_string(root.join(p)).unwrap_or_else(|e| panic!("fixture!: read {p}: {e}")))
         .collect::<Vec<_>>()
         .join("\n");
     let krate = purecrate_syntax::parse_source(&module, &source)
@@ -79,14 +74,8 @@ pub fn fixture(input: TokenStream) -> TokenStream {
             out.push_str(&format!("    include!({});\n", at(p)));
         }
     }
-    let joined = paths
-        .iter()
-        .map(|p| format!("include_str!({})", at(p)))
-        .collect::<Vec<_>>()
-        .join(", \"\\n\", ");
-    out.push_str(&format!(
-        "    pub const SOURCE: &str = concat!({joined});\n"
-    ));
+    let joined = paths.iter().map(|p| format!("include_str!({})", at(p))).collect::<Vec<_>>().join(", \"\\n\", ");
+    out.push_str(&format!("    pub const SOURCE: &str = concat!({joined});\n"));
     for item in &krate.items {
         match item {
             Item::Struct(st) => {
@@ -126,9 +115,7 @@ fn parse_input(input: TokenStream) -> (String, Vec<String>) {
                         let path = text
                             .strip_prefix('"')
                             .and_then(|t| t.strip_suffix('"'))
-                            .unwrap_or_else(|| {
-                                panic!("{usage}: expected a string path, got {text}")
-                            });
+                            .unwrap_or_else(|| panic!("{usage}: expected a string path, got {text}"));
                         paths.push(path.to_string());
                     }
                     (1, TokenTree::Punct(p)) if p.as_char() == ',' => {}
@@ -154,7 +141,9 @@ fn show_struct(st: &Struct) -> String {
             format!("format!(\"{name} {{{{ {pattern} }}}}\", {args})")
         }
     };
-    format!("    impl {SHOW} for {name} {{\n        fn show(&self) -> String {{\n            {body}\n        }}\n    }}\n")
+    format!(
+        "    impl {SHOW} for {name} {{\n        fn show(&self) -> String {{\n            {body}\n        }}\n    }}\n"
+    )
 }
 
 fn show_enum(en: &purecrate_ir::Enum) -> String {
@@ -167,15 +156,8 @@ fn show_enum(en: &purecrate_ir::Enum) -> String {
             VariantFields::Tuple(tys) => {
                 let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
                 let holes = vec!["{}"; tys.len()].join(", ");
-                let args = binds
-                    .iter()
-                    .map(|b| format!("{SHOW}::show({b})"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{name}::{var}({}) => format!(\"{name}::{var}({holes})\", {args}),",
-                    binds.join(", ")
-                )
+                let args = binds.iter().map(|b| format!("{SHOW}::show({b})")).collect::<Vec<_>>().join(", ");
+                format!("{name}::{var}({}) => format!(\"{name}::{var}({holes})\", {args}),", binds.join(", "))
             }
             VariantFields::Struct(fields) => {
                 let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
@@ -196,16 +178,8 @@ fn show_enum(en: &purecrate_ir::Enum) -> String {
 /// `a: {}, b: {}` and the matching `Show::show(<prefix>a), ...`.
 fn named<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, String) {
     let names: Vec<&str> = names.collect();
-    let pattern = names
-        .iter()
-        .map(|n| format!("{n}: {{}}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let args = names
-        .iter()
-        .map(|n| format!("{SHOW}::show({prefix}{n})"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let pattern = names.iter().map(|n| format!("{n}: {{}}")).collect::<Vec<_>>().join(", ");
+    let args = names.iter().map(|n| format!("{SHOW}::show({prefix}{n})")).collect::<Vec<_>>().join(", ");
     (pattern, args)
 }
 
@@ -246,10 +220,7 @@ fn serialize_enum(en: &purecrate_ir::Enum) -> String {
             }
             VariantFields::Tuple(tys) => {
                 let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
-                let fields = binds
-                    .iter()
-                    .map(|b| format!(" t.serialize_field({b})?;"))
-                    .collect::<String>();
+                let fields = binds.iter().map(|b| format!(" t.serialize_field({b})?;")).collect::<String>();
                 format!(
                     "{name}::{var}({}) => {{ let mut t = s.serialize_tuple_variant({name:?}, {i}, {var:?}, {})?;{fields} t.end() }}",
                     binds.join(", "),
@@ -258,10 +229,7 @@ fn serialize_enum(en: &purecrate_ir::Enum) -> String {
             }
             VariantFields::Struct(fs) => {
                 let names = fs.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
-                let fields = names
-                    .iter()
-                    .map(|n| format!(" t.serialize_field({n:?}, {n})?;"))
-                    .collect::<String>();
+                let fields = names.iter().map(|n| format!(" t.serialize_field({n:?}, {n})?;")).collect::<String>();
                 format!(
                     "{name}::{var} {{ {} }} => {{ let mut t = s.serialize_struct_variant({name:?}, {i}, {var:?}, {})?;{fields} t.end() }}",
                     names.join(", "),
@@ -297,7 +265,12 @@ fn without_serde(text: &str) -> String {
                 .parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
                 .expect("derive list")
                 .into_iter()
-                .filter(|p| !matches!(p.segments.last().map(|s| s.ident.to_string()).as_deref(), Some("Serialize" | "Deserialize")))
+                .filter(|p| {
+                    !matches!(
+                        p.segments.last().map(|s| s.ident.to_string()).as_deref(),
+                        Some("Serialize" | "Deserialize")
+                    )
+                })
                 .collect();
             *attr = syn::parse_quote!(#[derive(#(#kept),*)]);
         }
@@ -339,9 +312,9 @@ fn js_enum(en: &purecrate_ir::Enum) -> String {
         let var = v.name.as_str();
         let arm = match &v.fields {
             VariantFields::Unit => format!("{name}::{var} => \"({{ kind: \\\"{var}\\\" }})\".to_string(),"),
-            VariantFields::Tuple(tys) if tys.len() == 1 => format!(
-                "{name}::{var}(f0) => format!(\"({{{{ kind: \\\"{var}\\\", value: {{}} }}}})\", {JS}::js(f0)),"
-            ),
+            VariantFields::Tuple(tys) if tys.len() == 1 => {
+                format!("{name}::{var}(f0) => format!(\"({{{{ kind: \\\"{var}\\\", value: {{}} }}}})\", {JS}::js(f0)),")
+            }
             VariantFields::Tuple(tys) => {
                 let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
                 let holes = vec!["{}"; tys.len()].join(", ");

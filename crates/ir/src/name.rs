@@ -58,11 +58,7 @@ pub fn to_kebab(s: &str) -> String {
         if c.is_uppercase() {
             if i > 0 {
                 let prev = chars[i - 1];
-                let next_lower = chars
-                    .get(i + 1)
-                    .copied()
-                    .map(|x| x.is_lowercase())
-                    .unwrap_or(false);
+                let next_lower = chars.get(i + 1).copied().map(|x| x.is_lowercase()).unwrap_or(false);
                 if (prev.is_lowercase() || prev == '_' || (prev.is_uppercase() && next_lower)) && !out.ends_with('-') {
                     out.push('-');
                 }

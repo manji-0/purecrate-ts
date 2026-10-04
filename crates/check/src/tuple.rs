@@ -83,12 +83,8 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
                 let lets = vec![(whole.clone(), Ty::Tuple(tys.clone()), other)];
                 (Expr::Var(whole), lets)
             };
-            let subjects = (0..tys.len())
-                .map(|i| Expr::Field {
-                    base: Box::new(base.clone()),
-                    name: tuple_field(i),
-                })
-                .collect();
+            let subjects =
+                (0..tys.len()).map(|i| Expr::Field { base: Box::new(base.clone()), name: tuple_field(i) }).collect();
             (subjects, lets)
         }
     };
@@ -203,22 +199,25 @@ impl Lowering<'_, '_, '_> {
             let (tys, named): (Vec<Ty>, Vec<Name>) = match &v.fields {
                 VariantFields::Unit => (Vec::new(), Vec::new()),
                 VariantFields::Tuple(ts) => (ts.clone(), Vec::new()),
-                VariantFields::Struct(fs) => (fs.iter().map(|f| f.ty.clone()).collect(), fs.iter().map(|f| f.name.clone()).collect()),
+                VariantFields::Struct(fs) => {
+                    (fs.iter().map(|f| f.ty.clone()).collect(), fs.iter().map(|f| f.name.clone()).collect())
+                }
             };
             let column_tys: Vec<Ty> = tys.iter().map(|t| self.norm(t)).collect();
             // Named after the field where it has one (`$verified`).
-            let fresh: Vec<Name> = (0..tys.len()).map(|i| match named.get(i) {
-                Some(f) => self.name(f.as_str()),
-                None => self.name("field"),
-            }).collect();
+            let fresh: Vec<Name> = (0..tys.len())
+                .map(|i| match named.get(i) {
+                    Some(f) => self.name(f.as_str()),
+                    None => self.name("field"),
+                })
+                .collect();
             let fields_of = |bind: VariantBind| -> Vec<(usize, Pattern)> {
                 match bind {
                     VariantBind::Unit => Vec::new(),
                     VariantBind::Tuple(ps) => ps.into_iter().enumerate().collect(),
-                    VariantBind::Struct(ps) => ps
-                        .into_iter()
-                        .filter_map(|(f, p)| named.iter().position(|n| *n == f).map(|i| (i, p)))
-                        .collect(),
+                    VariantBind::Struct(ps) => {
+                        ps.into_iter().filter_map(|(f, p)| named.iter().position(|n| *n == f).map(|i| (i, p))).collect()
+                    }
                 }
             };
             // A field some row tests inside (`verified: false`) becomes a
@@ -251,7 +250,10 @@ impl Lowering<'_, '_, '_> {
                                 }
                             }
                         }
-                        Pattern::Or(alts) if alts.iter().any(|a| matches!(a, Pattern::Variant { variant, .. } if *variant == v.name)) => {}
+                        Pattern::Or(alts)
+                            if alts
+                                .iter()
+                                .any(|a| matches!(a, Pattern::Variant { variant, .. } if *variant == v.name)) => {}
                         _ => return None,
                     }
                     row.pats.extend(inner);
@@ -283,7 +285,10 @@ impl Lowering<'_, '_, '_> {
             let pattern = Pattern::Variant { ty: en.clone(), variant: v.name.clone(), bind };
             let binds_nothing = !used.contains(&true);
             let shared = arms.iter_mut().find(|a| {
-                binds_nothing && a.body == body && a.pattern.bindings().is_empty() && !matches!(a.pattern, Pattern::Tuple(_))
+                binds_nothing
+                    && a.body == body
+                    && a.pattern.bindings().is_empty()
+                    && !matches!(a.pattern, Pattern::Tuple(_))
             });
             match shared {
                 Some(arm) => {
@@ -308,9 +313,12 @@ impl Lowering<'_, '_, '_> {
     fn tuple_column(&mut self, subjects: &[(Expr, Ty)], col: usize, elems: &[Ty], rows: Vec<Row>) -> Expr {
         let (subject, ty) = subjects[col].clone();
         let mut inner_subjects = subjects.to_vec();
-        inner_subjects.extend(elems.iter().enumerate().map(|(i, t)| {
-            (Expr::Field { base: Box::new(subject.clone()), name: tuple_field(i) }, self.norm(t))
-        }));
+        inner_subjects.extend(
+            elems
+                .iter()
+                .enumerate()
+                .map(|(i, t)| (Expr::Field { base: Box::new(subject.clone()), name: tuple_field(i) }, self.norm(t))),
+        );
         let rows = rows
             .into_iter()
             .map(|mut row| {
@@ -352,7 +360,8 @@ impl Lowering<'_, '_, '_> {
                 };
                 // A payload some row tests inside (`Some(Event::Pay { .. })`)
                 // becomes a column of its own, matched further in.
-                let column = payload.is_some() && rows.iter().any(|row| payload_of(&row.pats[col]).is_some_and(|q| q.refutable()));
+                let column = payload.is_some()
+                    && rows.iter().any(|row| payload_of(&row.pats[col]).is_some_and(|q| q.refutable()));
                 let mut uses = column;
                 let kept: Vec<Row> = rows
                     .iter()
@@ -370,7 +379,9 @@ impl Lowering<'_, '_, '_> {
                         };
                         match (inner, &payload) {
                             (inner, Some(_)) if column => row.pats.push(inner.unwrap_or(Pattern::Wildcard)),
-                            (Some(inner), Some((v, t))) => bind_names(&mut row, inner, t, Expr::Var(v.clone()), &mut uses),
+                            (Some(inner), Some((v, t))) => {
+                                bind_names(&mut row, inner, t, Expr::Var(v.clone()), &mut uses)
+                            }
                             _ => {}
                         }
                         Some(row)
@@ -427,7 +438,10 @@ impl Lowering<'_, '_, '_> {
         }
         Expr::Match {
             scrutinee: Box::new(subjects[col].0.clone()),
-            arms: vec![Arm { guard: None, pattern: p, body: yes }, Arm { guard: None, pattern: Pattern::Wildcard, body: no }],
+            arms: vec![
+                Arm { guard: None, pattern: p, body: yes },
+                Arm { guard: None, pattern: Pattern::Wildcard, body: no },
+            ],
         }
     }
 }
@@ -561,7 +575,8 @@ fn substitute(expr: Expr, binds: &[(Name, Ty, Expr)]) -> Expr {
                 go(then, &inner);
             }
             Expr::Closure { params, body, .. } => {
-                let inner: Vec<_> = binds.iter().filter(|(b, _, _)| !params.iter().any(|p| p.name == *b)).cloned().collect();
+                let inner: Vec<_> =
+                    binds.iter().filter(|(b, _, _)| !params.iter().any(|p| p.name == *b)).cloned().collect();
                 go(body, &inner);
             }
             Expr::Match { scrutinee, arms } => {

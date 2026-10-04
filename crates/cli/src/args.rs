@@ -56,18 +56,8 @@ const EDITIONS: &[&str] = &["2015", "2018", "2021", "2024"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Build {
-        input: Input,
-        out: PathBuf,
-        schema: Option<String>,
-        publishable: bool,
-    },
-    Check {
-        input: Input,
-        out: Option<PathBuf>,
-        schema: Option<String>,
-        publishable: bool,
-    },
+    Build { input: Input, out: PathBuf, schema: Option<String>, publishable: bool },
+    Check { input: Input, out: Option<PathBuf>, schema: Option<String>, publishable: bool },
     Survey { inputs: Vec<Input>, json: bool, all_causes: bool },
     Version,
     Help,
@@ -120,12 +110,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         input.edition = e;
     }
     match verb.as_str() {
-        "build" => Ok(Command::Build {
-            input,
-            out: out.ok_or("build needs --out <dir>")?,
-            schema,
-            publishable,
-        }),
+        "build" => Ok(Command::Build { input, out: out.ok_or("build needs --out <dir>")?, schema, publishable }),
         "check" => Ok(Command::Check { input, out, schema, publishable }),
         other => Err(format!("unknown command {other}")),
     }
@@ -192,10 +177,7 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
 /// Warns when a crate's release profile will wrap on overflow while the
 /// generated TypeScript panics, as a debug build does.
 pub fn overflow_warning(src: &Path) -> Option<String> {
-    let crate_dir = src
-        .parent()
-        .filter(|p| p.file_name().is_some_and(|n| n == "src"))
-        .and_then(Path::parent)?;
+    let crate_dir = src.parent().filter(|p| p.file_name().is_some_and(|n| n == "src")).and_then(Path::parent)?;
     let manifest = crate_dir.join("Cargo.toml");
     if !manifest.is_file() {
         return None;
@@ -230,7 +212,8 @@ fn release_overflow_checks(crate_dir: &Path) -> bool {
 /// `[package] key` in `dir/Cargo.toml`. `key.workspace = true` reads
 /// `[workspace.package]` from the nearest enclosing manifest that has it.
 fn package_field(dir: &Path, key: &str) -> Result<Option<String>, String> {
-    let manifest = fs::read_to_string(dir.join("Cargo.toml")).map_err(|e| format!("read {}/Cargo.toml: {e}", dir.display()))?;
+    let manifest =
+        fs::read_to_string(dir.join("Cargo.toml")).map_err(|e| format!("read {}/Cargo.toml: {e}", dir.display()))?;
     match manifest_value(&manifest, "package", key) {
         None => Ok(None),
         Some(Value::Text(v)) => Ok(Some(v)),
@@ -252,10 +235,7 @@ fn package_field(dir: &Path, key: &str) -> Result<Option<String>, String> {
 /// `Cargo.toml` `[package] name`, else the crate directory, else the file stem.
 fn infer_name(src: &Path, crate_dir: Option<&Path>) -> Option<String> {
     if let Some(dir) = crate_dir {
-        if let Some(n) = fs::read_to_string(dir.join("Cargo.toml"))
-            .ok()
-            .and_then(|t| package_name(&t))
-        {
+        if let Some(n) = fs::read_to_string(dir.join("Cargo.toml")).ok().and_then(|t| package_name(&t)) {
             return Some(n);
         }
         if let Some(n) = dir.file_name() {
@@ -356,8 +336,7 @@ mod tests {
             panic!("expected build");
         };
         assert!(!publishable);
-        let Command::Build { publishable, .. } =
-            parse(&args(&["build", src, "--out", "o", "--publishable"])).unwrap()
+        let Command::Build { publishable, .. } = parse(&args(&["build", src, "--out", "o", "--publishable"])).unwrap()
         else {
             panic!("expected build");
         };
@@ -387,9 +366,7 @@ mod tests {
             panic!("expected check");
         };
         assert_eq!(input.name, "shapes");
-        let Command::Check { input, .. } =
-            parse(&args(&["check", "/tmp/shapes.rs", "--name", "geo"])).unwrap()
-        else {
+        let Command::Check { input, .. } = parse(&args(&["check", "/tmp/shapes.rs", "--name", "geo"])).unwrap() else {
             panic!("expected check");
         };
         assert_eq!(input.name, "geo");
@@ -420,7 +397,11 @@ mod tests {
         assert_eq!(edition("[package]\nname = \"k\"\nedition = \"2024\"\n", &[]).unwrap(), "2024");
         assert_eq!(edition("[package]\nname = \"k\"\n", &[]).unwrap(), "2015");
         assert_eq!(edition("[package]\nname = \"k\"\n", &["--edition", "2018"]).unwrap(), "2018");
-        fs::write(dir.join("Cargo.toml"), "[workspace]\nmembers = [\"members/k\"]\n[workspace.package]\nedition = \"2024\"\n").unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"members/k\"]\n[workspace.package]\nedition = \"2024\"\n",
+        )
+        .unwrap();
         assert_eq!(edition("[package]\nname = \"k\"\nedition.workspace = true\n", &[]).unwrap(), "2024");
         assert_eq!(edition("[package]\nname = \"k\"\nedition = { workspace = true }\n", &[]).unwrap(), "2024");
         assert!(edition("[package]\nname = \"k\"\nedition = \"2030\"\n", &[]).unwrap_err().contains("2030"));

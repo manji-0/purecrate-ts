@@ -30,11 +30,9 @@ pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError>
 /// Also returns where each item's name is, parallel to `Crate::items`.
 /// Function bodies mark statements, block tails and `match` arms with
 /// `Expr::At`, so diagnostics can point inside a function.
-pub fn parse_source_spanned(
-    crate_name: &str,
-    source: &str,
-) -> Result<(Crate, Vec<LineCol>), ParseError> {
-    let mut file = parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
+pub fn parse_source_spanned(crate_name: &str, source: &str) -> Result<(Crate, Vec<LineCol>), ParseError> {
+    let mut file =
+        parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
     if file.items.iter().any(|i| matches!(i, syn::Item::Mod(_)) && !item::is_test_only(i)) {
         // One file with modules: the module-aware path, which reads the
         // inline ones and reports an out-of-line one as missing.
@@ -184,10 +182,7 @@ mod tests {
         assert_eq!(id.newtype_inner(), Some(&Ty::Prim(purecrate_ir::Prim::U32)));
         let Item::Fn(new) = &krate[1] else { panic!("fn") };
         assert_eq!(new.ret, Ty::Named(Name::new("Id")));
-        assert_eq!(
-            new.body,
-            Expr::Call { callee: Callee::StructNew(Name::new("Id")), args: vec![Expr::var("n")] }
-        );
+        assert_eq!(new.body, Expr::Call { callee: Callee::StructNew(Name::new("Id")), args: vec![Expr::var("n")] });
         let Item::Fn(get) = &krate[2] else { panic!("fn") };
         assert_eq!(get.params[0].ty, Ty::Named(Name::new("Id")));
         assert_eq!(get.body, Expr::Field { base: Box::new(Expr::var("self")), name: Name::new("0") });
@@ -246,13 +241,15 @@ mod tests {
                    impl S {\n    /// Doubles.\n    pub fn twice(self) -> i32 { self.n * 2 }\n}\n\
                    /// Ten.\npub const TEN: i32 = 10;\n/// An alias.\npub type Count = i32;\npub fn bare() -> i32 { 0 }\n";
         let krate = parse_source("d", src).expect("parse");
-        let doc = |name: &str| krate.items.iter().find(|i| i.name().as_str() == name).and_then(|i| match i {
-            Item::Struct(s) => s.doc.clone(),
-            Item::Enum(e) => e.doc.clone(),
-            Item::Fn(f) => f.doc.clone(),
-            Item::Const(c) => c.doc.clone(),
-            Item::Alias(a) => a.doc.clone(),
-        });
+        let doc = |name: &str| {
+            krate.items.iter().find(|i| i.name().as_str() == name).and_then(|i| match i {
+                Item::Struct(s) => s.doc.clone(),
+                Item::Enum(e) => e.doc.clone(),
+                Item::Fn(f) => f.doc.clone(),
+                Item::Const(c) => c.doc.clone(),
+                Item::Alias(a) => a.doc.clone(),
+            })
+        };
         assert_eq!(doc("S").as_deref(), Some("One line."));
         assert_eq!(doc("E").as_deref(), Some("Block."));
         assert_eq!(doc("twice").as_deref(), Some("Doubles."));
@@ -283,22 +280,18 @@ mod tests {
         assert_eq!(vis("four"), Some(Vis::Internal));
         assert_eq!(vis("five"), Some(Vis::Pub), "glob re-export");
 
-        let err = parse_source("m", "mod a {\n    pub fn one() -> i32 { 1 }\n}\npub use a::one as uno;\n").expect_err("rename");
+        let err = parse_source("m", "mod a {\n    pub fn one() -> i32 { 1 }\n}\npub use a::one as uno;\n")
+            .expect_err("rename");
         assert!(err.message.contains("renames an export"), "{}", err.message);
     }
 
     #[test]
     fn if_let_becomes_a_two_arm_match() {
         use purecrate_ir::{Expr, Item, Pattern};
-        let krate = parse_source(
-            "c",
-            "pub fn f(x: Result<i32, i32>) -> i32 { if let Ok(v) = x { v } else { 0 } }",
-        )
-        .expect("parse");
+        let krate = parse_source("c", "pub fn f(x: Result<i32, i32>) -> i32 { if let Ok(v) = x { v } else { 0 } }")
+            .expect("parse");
         let Item::Fn(f) = &krate.items[0] else { panic!("fn") };
-        let Expr::Match { arms, .. } = &f.body else {
-            panic!("match, got {:?}", f.body)
-        };
+        let Expr::Match { arms, .. } = &f.body else { panic!("match, got {:?}", f.body) };
         let patterns: Vec<&Pattern> = arms.iter().map(|a| &a.pattern).collect();
         assert_eq!(
             patterns,
@@ -308,10 +301,11 @@ mod tests {
             ]
         );
 
-        let (_, _, msg) = error_at(&with_arms("Cmd::Stop => 0, Cmd::Move(a, _) => a") .replace(
-            "match cmd { Cmd::Stop => 0, Cmd::Move(a, _) => a }",
-            "if let Cmd::Stop = cmd { 0 } else { 1 }",
-        ));
+        let (_, _, msg) =
+            error_at(&with_arms("Cmd::Stop => 0, Cmd::Move(a, _) => a").replace(
+                "match cmd { Cmd::Stop => 0, Cmd::Move(a, _) => a }",
+                "if let Cmd::Stop = cmd { 0 } else { 1 }",
+            ));
         assert!(msg.contains("`if let` on an enum variant is not in v0"), "{msg}");
     }
 
@@ -328,7 +322,8 @@ mod tests {
         rejects("Cmd::Stop | _ => 0", "each side of `|` must name an enum variant");
         parse_source("c", &with_arms("Cmd::Stop | Cmd::Move(1, _) => 0, _ => 1")).expect("`|` testing inside");
         parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | \"b\" => 1, _ => 2 } }").expect("str pattern");
-        let err = parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | 1 => 1, _ => 2 } }").expect_err("mixed");
+        let err =
+            parse_source("c", "pub fn f(s: &str) -> i32 { match s { \"a\" | 1 => 1, _ => 2 } }").expect_err("mixed");
         assert!(err.message.contains("found a literal"), "{}", err.message);
         parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, 1..=9 if x % 2 == 0) }").expect("guard");
         let err = parse_source("c", "pub fn f(x: u8) -> bool { matches!(x, _) }").expect_err("always true");
@@ -347,9 +342,7 @@ mod tests {
         use purecrate_ir::{BinOp, Expr, Item, Lit, Name};
         let krate = parse_source("c", "pub fn f(a: i32) -> i32 { let mut x = a; x += 1; x }").expect("parse");
         let Item::Fn(f) = &krate.items[0] else { panic!("fn") };
-        let Expr::Let { mutable: true, then, .. } = &f.body else {
-            panic!("let mut, got {:?}", f.body)
-        };
+        let Expr::Let { mutable: true, then, .. } = &f.body else { panic!("let mut, got {:?}", f.body) };
         let x = || Box::new(Expr::var("x"));
         assert_eq!(
             **then,

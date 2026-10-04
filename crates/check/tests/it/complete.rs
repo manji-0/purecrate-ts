@@ -1,4 +1,3 @@
-
 use crate::common;
 use crate::common::{assert_clean, assert_rejects};
 
@@ -36,9 +35,7 @@ fn a_matched_value_whose_type_is_not_known_is_rejected() {
 
 #[test]
 fn only_the_binding_is_reported_not_what_uses_it() {
-    let found = common::messages(
-        "pub fn f(a: i32) -> i32 { let r = Ok(a); match r { Ok(v) => v + 1, Err(e) => e } }",
-    );
+    let found = common::messages("pub fn f(a: i32) -> i32 { let r = Ok(a); match r { Ok(v) => v + 1, Err(e) => e } }");
     assert_eq!(found.len(), 1, "{found:#?}");
 }
 

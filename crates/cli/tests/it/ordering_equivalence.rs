@@ -68,7 +68,8 @@ fn generated_ordering_matches_rust() {
                 cases.push(case!(ordering::ops_str(*a, *b)));
             }
         }
-        for (a, b) in [("", ""), ("\u{e000}", "\u{10000}"), ("\u{ffff}", "\u{10000}"), ("é", "e\u{301}"), ("ab", "a")] {
+        for (a, b) in [("", ""), ("\u{e000}", "\u{10000}"), ("\u{ffff}", "\u{10000}"), ("é", "e\u{301}"), ("ab", "a")]
+        {
             cases.push(case!(ordering::cmp_string(a.to_string(), b.to_string())));
             // Each side as a list of its characters' strings, and of their code points.
             let list = |s: &str| s.chars().map(|c| c.to_string()).collect::<Vec<String>>();
@@ -157,7 +158,12 @@ fn generated_ordering_matches_rust() {
             cases.push(case!(ordering::then_named(a, b)));
             cases.push(case!(ordering::orderings(u32::from(a), u32::from(b))));
         }
-        let version = |major: u32, minor: u32, patch: u64, pre: &str| ordering::Version { major, minor, patch, pre: pre.to_string() };
+        let version = |major: u32, minor: u32, patch: u64, pre: &str| ordering::Version {
+            major,
+            minor,
+            patch,
+            pre: pre.to_string(),
+        };
         let versions = [
             (0, 0, 0, ""),
             (1, 0, 0, ""),

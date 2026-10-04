@@ -48,17 +48,8 @@ pub enum IntTy {
 }
 
 impl IntTy {
-    pub const ALL: [IntTy; 9] = [
-        IntTy::I8,
-        IntTy::I16,
-        IntTy::I32,
-        IntTy::I64,
-        IntTy::U8,
-        IntTy::U16,
-        IntTy::U32,
-        IntTy::U64,
-        IntTy::Usize,
-    ];
+    pub const ALL: [IntTy; 9] =
+        [IntTy::I8, IntTy::I16, IntTy::I32, IntTy::I64, IntTy::U8, IntTy::U16, IntTy::U32, IntTy::U64, IntTy::Usize];
 
     /// TypeScript brand name. Distinct from `as_str`, which is the Rust name.
     pub fn ts_name(self) -> &'static str {
@@ -216,7 +207,6 @@ impl Wrapper {
             Wrapper::Mutex => "Mutex",
         }
     }
-
 }
 
 /// Value type. No references. `Fn` is the type of a closure; the parser
@@ -225,13 +215,22 @@ impl Wrapper {
 pub enum Ty {
     Prim(Prim),
     Option(Box<Ty>),
-    Result { ok: Box<Ty>, err: Box<Ty> },
+    Result {
+        ok: Box<Ty>,
+        err: Box<Ty>,
+    },
     Vec(Box<Ty>),
     Tuple(Vec<Ty>),
     Named(Name),
-    Fn { params: Vec<Ty>, ret: Box<Ty> },
-/// `Box` / `Arc`. Equal to `inner` for checking. Emit keeps the comment.
-    Ignored { wrapper: Wrapper, inner: Box<Ty> },
+    Fn {
+        params: Vec<Ty>,
+        ret: Box<Ty>,
+    },
+    /// `Box` / `Arc`. Equal to `inner` for checking. Emit keeps the comment.
+    Ignored {
+        wrapper: Wrapper,
+        inner: Box<Ty>,
+    },
     Never,
 }
 
@@ -253,17 +252,11 @@ impl Ty {
     }
 
     pub fn result(ok: Ty, err: Ty) -> Self {
-        Ty::Result {
-            ok: Box::new(ok),
-            err: Box::new(err),
-        }
+        Ty::Result { ok: Box::new(ok), err: Box::new(err) }
     }
 
     pub fn ignored(wrapper: Wrapper, inner: Ty) -> Self {
-        Ty::Ignored {
-            wrapper,
-            inner: Box::new(inner),
-        }
+        Ty::Ignored { wrapper, inner: Box::new(inner) }
     }
 
     /// Drops `Box` / `Arc` layers. Checking sees the inner type.

@@ -6,14 +6,12 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod strs = "fixtures/str_methods.rs");
 
 const SOURCE: &str = strs::SOURCE;
 
-const TEXTS: [&str; 14] = [
-    "", "a", "pm_", "pm_card", "é", "e\u{301}", "日本", "日", "😀", "😁", "a😀é日", "\u{10ffff}", "\u{ffff}", "aa",
-];
+const TEXTS: [&str; 14] =
+    ["", "a", "pm_", "pm_card", "é", "e\u{301}", "日本", "日", "😀", "😁", "a😀é日", "\u{10ffff}", "\u{ffff}", "aa"];
 
 #[test]
 fn str_methods_match_rust() {

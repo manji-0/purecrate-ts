@@ -1,0 +1,4 @@
+# The workspace style: lines up to 120 columns, the width
+# scripts/line-counts.py formats the examples at.
+max_width = 120
+use_small_heuristics = "Max"

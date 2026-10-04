@@ -7,7 +7,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod payment = "../../../examples/payment/src/lib.rs", "fixtures/payment_driver.rs");
 
 const SOURCE: &str = payment::SOURCE;
@@ -17,21 +16,47 @@ const SOURCE: &str = payment::SOURCE;
 /// `min`. Not converted; the reference only.
 mod idiomatic {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum Kind { Card, BankDebit }
+    pub enum Kind {
+        Card,
+        BankDebit,
+    }
     #[derive(Clone, Debug, PartialEq)]
-    pub struct Method { pub id: String, pub kind: Kind }
+    pub struct Method {
+        pub id: String,
+        pub kind: Kind,
+    }
     #[derive(Clone, Copy, PartialEq)]
-    pub enum Capture { Automatic, Manual }
+    pub enum Capture {
+        Automatic,
+        Manual,
+    }
     #[derive(Clone, Copy, PartialEq)]
-    pub enum Confirmation { Automatic, Manual }
-    pub struct Terms { pub amount: i64, pub capture: Capture, pub confirmation: Confirmation }
+    pub enum Confirmation {
+        Automatic,
+        Manual,
+    }
+    pub struct Terms {
+        pub amount: i64,
+        pub capture: Capture,
+        pub confirmation: Confirmation,
+    }
     // Stripe's full lists; the runs reach only some of them.
     #[allow(dead_code)]
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum Decline { CardDeclined, InsufficientFunds, AuthenticationFailed, DebitFailed }
+    pub enum Decline {
+        CardDeclined,
+        InsufficientFunds,
+        AuthenticationFailed,
+        DebitFailed,
+    }
     #[allow(dead_code)]
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum Reason { Duplicate, Fraudulent, RequestedByCustomer, Abandoned }
+    pub enum Reason {
+        Duplicate,
+        Fraudulent,
+        RequestedByCustomer,
+        Abandoned,
+    }
 
     #[derive(Debug, PartialEq)]
     pub enum Status {
@@ -44,7 +69,12 @@ mod idiomatic {
         Canceled { reason: Option<Reason> },
     }
 
-    pub enum Outcome { Authorized, ActionRequired, Pending, Declined(Decline) }
+    pub enum Outcome {
+        Authorized,
+        ActionRequired,
+        Pending,
+        Declined(Decline),
+    }
 
     pub enum Event {
         AttachMethod(Method),
@@ -57,11 +87,19 @@ mod idiomatic {
     }
 
     #[derive(Debug, PartialEq)]
-    pub enum Error { MissingPaymentMethod, InvalidCaptureAmount { capturable: i64 }, NegativeApplicationFee, NotCancelable, InvalidTransition }
+    pub enum Error {
+        MissingPaymentMethod,
+        InvalidCaptureAmount { capturable: i64 },
+        NegativeApplicationFee,
+        NotCancelable,
+        InvalidTransition,
+    }
 
     fn attempt(t: &Terms, method: Method, outcome: Outcome) -> Status {
         match outcome {
-            Outcome::Authorized if t.capture == Capture::Manual => Status::RequiresCapture { method, capturable: t.amount },
+            Outcome::Authorized if t.capture == Capture::Manual => {
+                Status::RequiresCapture { method, capturable: t.amount }
+            }
             Outcome::Authorized => Status::Succeeded { received: t.amount, application_fee: None },
             Outcome::ActionRequired => Status::RequiresAction { method },
             Outcome::Pending => Status::Processing { method },
@@ -72,11 +110,21 @@ mod idiomatic {
     pub fn step(t: &Terms, status: Status, event: Event) -> Result<Status, Error> {
         use Status::*;
         Ok(match (status, event) {
-            (RequiresPaymentMethod { .. } | RequiresConfirmation { .. }, Event::AttachMethod(method)) => RequiresConfirmation { method },
-            (RequiresPaymentMethod { .. }, Event::Confirm { method, outcome }) => attempt(t, method.ok_or(Error::MissingPaymentMethod)?, outcome),
-            (RequiresConfirmation { method: current }, Event::Confirm { method, outcome }) => attempt(t, method.unwrap_or(current), outcome),
-            (RequiresAction { .. }, Event::ActionHandled(Outcome::Declined(code))) => RequiresPaymentMethod { last_error: Some(code) },
-            (RequiresAction { method }, Event::ActionHandled(_)) if t.confirmation == Confirmation::Manual => RequiresConfirmation { method },
+            (RequiresPaymentMethod { .. } | RequiresConfirmation { .. }, Event::AttachMethod(method)) => {
+                RequiresConfirmation { method }
+            }
+            (RequiresPaymentMethod { .. }, Event::Confirm { method, outcome }) => {
+                attempt(t, method.ok_or(Error::MissingPaymentMethod)?, outcome)
+            }
+            (RequiresConfirmation { method: current }, Event::Confirm { method, outcome }) => {
+                attempt(t, method.unwrap_or(current), outcome)
+            }
+            (RequiresAction { .. }, Event::ActionHandled(Outcome::Declined(code))) => {
+                RequiresPaymentMethod { last_error: Some(code) }
+            }
+            (RequiresAction { method }, Event::ActionHandled(_)) if t.confirmation == Confirmation::Manual => {
+                RequiresConfirmation { method }
+            }
             (RequiresAction { method }, Event::ActionHandled(outcome)) => attempt(t, method, outcome),
             (Processing { method }, Event::ProcessingSucceeded) => attempt(t, method, Outcome::Authorized),
             (Processing { .. }, Event::ProcessingFailed(code)) => RequiresPaymentMethod { last_error: Some(code) },
@@ -91,7 +139,9 @@ mod idiomatic {
                 Succeeded { received, application_fee: application_fee.map(|f| f.min(received)) }
             }
             (Processing { method }, Event::Cancel(reason)) if method.kind == Kind::BankDebit => Canceled { reason },
-            (Processing { .. } | Succeeded { .. } | Canceled { .. }, Event::Cancel(_)) => return Err(Error::NotCancelable),
+            (Processing { .. } | Succeeded { .. } | Canceled { .. }, Event::Cancel(_)) => {
+                return Err(Error::NotCancelable)
+            }
             (_, Event::Cancel(reason)) => Canceled { reason },
             _ => return Err(Error::InvalidTransition),
         })
@@ -126,11 +176,16 @@ fn idiomatic_trace(t: u8, codes: [u8; 4]) -> Result<idiomatic::Status, idiomatic
         capture: if t.is_multiple_of(2) { Capture::Automatic } else { Capture::Manual },
         confirmation: if t / 2 == 0 { Confirmation::Automatic } else { Confirmation::Manual },
     };
-    codes.iter().try_fold(Status::RequiresPaymentMethod { last_error: None }, |s, &c| step(&terms, s, idiomatic_event(c)))
+    codes
+        .iter()
+        .try_fold(Status::RequiresPaymentMethod { last_error: None }, |s, &c| step(&terms, s, idiomatic_event(c)))
 }
 
 /// Both sides as one text: variant names and numbers, through `Debug`.
-fn same(a: &Result<payment::PaymentIntent, payment::PaymentError>, b: &Result<idiomatic::Status, idiomatic::Error>) -> bool {
+fn same(
+    a: &Result<payment::PaymentIntent, payment::PaymentError>,
+    b: &Result<idiomatic::Status, idiomatic::Error>,
+) -> bool {
     use crate::support::Show;
     let a = match a {
         Ok(intent) => format!("Ok({})", intent.status.show()),
@@ -157,9 +212,7 @@ const CODES: std::ops::Range<u8> = 0..12;
 
 fn runs() -> impl Iterator<Item = (u8, [u8; 4])> {
     (0u8..4).flat_map(|t| {
-        CODES.flat_map(move |a| {
-            CODES.flat_map(move |b| CODES.flat_map(move |c| CODES.map(move |d| (t, [a, b, c, d]))))
-        })
+        CODES.flat_map(move |a| CODES.flat_map(move |b| CODES.flat_map(move |c| CODES.map(move |d| (t, [a, b, c, d])))))
     })
 }
 
@@ -170,7 +223,12 @@ fn constrained_rust_is_the_idiomatic_rules() {
             .filter_map(|(t, [a, b, c, d])| {
                 let constrained = payment::trace4(t, a, b, c, d);
                 let reference = idiomatic_trace(t, [a, b, c, d]);
-                (!same(&constrained, &reference)).then(|| format!("{t} {a} {b} {c} {d}: idiomatic {reference:?} / constrained {}", support::Show::show(&constrained)))
+                (!same(&constrained, &reference)).then(|| {
+                    format!(
+                        "{t} {a} {b} {c} {d}: idiomatic {reference:?} / constrained {}",
+                        support::Show::show(&constrained)
+                    )
+                })
             })
             .collect()
     });

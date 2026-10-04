@@ -8,7 +8,8 @@ use purecrate_ir::ORDERING;
 use super::*;
 
 /// `Ordering`'s methods on the allow-list.
-pub(super) const ORDERING_METHODS: [&str; 9] = ["is_eq", "is_ne", "is_lt", "is_gt", "is_le", "is_ge", "reverse", "then", "then_with"];
+pub(super) const ORDERING_METHODS: [&str; 9] =
+    ["is_eq", "is_ne", "is_lt", "is_gt", "is_le", "is_ge", "reverse", "then", "then_with"];
 
 impl<'d, 'a> Typer<'d, 'a> {
     /// `ty` is std's `Ordering`, not a crate enum of that name.
@@ -60,7 +61,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
         };
         let [arg] = args else {
-            self.error(Reason::ConstructShape, format!("`cmp` takes 1 argument after the receiver, got {}", args.len()));
+            self.error(
+                Reason::ConstructShape,
+                format!("`cmp` takes 1 argument after the receiver, got {}", args.len()),
+            );
             return failed();
         };
         if !self.ordering_known("cmp") {
@@ -83,17 +87,23 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `then` evaluates its argument before choosing, as Rust evaluates a
     /// call's arguments; `then_with` calls `f` only on `Equal`. `None` when
     /// `name` is none of these.
-    pub(super) fn ordering_method(&mut self, recv: Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+    pub(super) fn ordering_method(
+        &mut self,
+        recv: Expr,
+        name: &str,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Option<Typed> {
         let failed = || Some((Expr::Lit(Lit::Unit), None));
         if !ORDERING_METHODS.contains(&name) {
             return None;
         }
         let takes = usize::from(matches!(name, "then" | "then_with"));
         if args.len() != takes {
-            self.error(Reason::ConstructShape, format!(
-                "`Ordering::{name}` takes {takes} argument(s) after the receiver, got {}",
-                args.len()
-            ));
+            self.error(
+                Reason::ConstructShape,
+                format!("`Ordering::{name}` takes {takes} argument(s) after the receiver, got {}", args.len()),
+            );
             return failed();
         }
         // `then`'s argument runs after the receiver, which is read later.
@@ -130,7 +140,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                     }
                     Expr::Var(f) => Expr::Call { callee: Callee::Fn(f.clone()), args: Vec::new() },
                     _ => {
-                        self.error(Reason::Closure, "`Ordering::then_with` takes a closure `|| ..` or a function name in v0".into());
+                        self.error(
+                            Reason::Closure,
+                            "`Ordering::then_with` takes a closure `|| ..` or a function name in v0".into(),
+                        );
                         return failed();
                     }
                 };
@@ -141,7 +154,12 @@ impl<'d, 'a> Typer<'d, 'a> {
             scrutinee: Box::new(recv),
             arms: arms
                 .into_iter()
-                .map(|(v, body)| Arm::new(Pattern::Variant { ty: Name::new(ORDERING), variant: Name::new(v), bind: VariantBind::Unit }, body))
+                .map(|(v, body)| {
+                    Arm::new(
+                        Pattern::Variant { ty: Name::new(ORDERING), variant: Name::new(v), bind: VariantBind::Unit },
+                        body,
+                    )
+                })
                 .collect(),
         };
         Some(self.within(lets, &body, want))
@@ -159,7 +177,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 false
             }
             None => {
-                self.error(Reason::UndefinedType, format!("`{what}` gives `std::cmp::Ordering`; write `use std::cmp::Ordering;`"));
+                self.error(
+                    Reason::UndefinedType,
+                    format!("`{what}` gives `std::cmp::Ordering`; write `use std::cmp::Ordering;`"),
+                );
                 false
             }
         }
@@ -168,7 +189,13 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `e` as an expression to read later: itself when it is a literal, or a
     /// binding and `reread` allows, else a fresh name bound to it (in the
     /// order bound).
-    fn bind_once(&mut self, what: &str, e: Expr, ty: Option<Ty>, reread: bool) -> (Option<(Name, Option<Ty>, Expr)>, Expr) {
+    fn bind_once(
+        &mut self,
+        what: &str,
+        e: Expr,
+        ty: Option<Ty>,
+        reread: bool,
+    ) -> (Option<(Name, Option<Ty>, Expr)>, Expr) {
         if matches!(e, Expr::Lit(_)) || (reread && matches!(e, Expr::Var(_))) {
             return (None, e);
         }

@@ -14,13 +14,17 @@ use crate::std_ordering::StdOrdering;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnitKind {
     Fn,
-    Method { owner: String },
+    Method {
+        owner: String,
+    },
     Struct,
     Enum,
     Alias,
     /// Anything else that may be referenced or may hold code, e.g. `const`,
     /// `trait`, a trait impl. `what` names it for tallying.
-    Other { what: &'static str },
+    Other {
+        what: &'static str,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -85,11 +89,8 @@ fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<S
 /// reported per unit. With `all_causes`, an item is lowered past the
 /// expressions it cannot take, and each of them is a cause (`Unit::causes`).
 pub fn survey_files(sources: &[&str], all_causes: bool) -> Result<Vec<Unit>, (usize, ParseError)> {
-    let mut files = sources
-        .iter()
-        .enumerate()
-        .map(|(i, s)| parse(s).map_err(|e| (i, e)))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut files =
+        sources.iter().enumerate().map(|(i, s)| parse(s).map_err(|e| (i, e))).collect::<Result<Vec<_>, _>>()?;
     // std's `Ordering` as the parser adds it. A form it refuses stays as
     // written, and the units that use it are refused when lowered.
     let mut modules = HashSet::new();
@@ -192,8 +193,12 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
     };
     let public = |vis: &syn::Visibility| matches!(vis, syn::Visibility::Public(_));
     match item {
-        SynItem::Fn(f) => one(cx, UnitKind::Fn, f.sig.ident.to_string(), public(&f.vis), LineCol::of(f.sig.ident.span())),
-        SynItem::Struct(s) => one(cx, UnitKind::Struct, s.ident.to_string(), public(&s.vis), LineCol::of(s.ident.span())),
+        SynItem::Fn(f) => {
+            one(cx, UnitKind::Fn, f.sig.ident.to_string(), public(&f.vis), LineCol::of(f.sig.ident.span()))
+        }
+        SynItem::Struct(s) => {
+            one(cx, UnitKind::Struct, s.ident.to_string(), public(&s.vis), LineCol::of(s.ident.span()))
+        }
         SynItem::Enum(e) => one(cx, UnitKind::Enum, e.ident.to_string(), public(&e.vis), LineCol::of(e.ident.span())),
         SynItem::Type(t) => one(cx, UnitKind::Alias, t.ident.to_string(), public(&t.vis), LineCol::of(t.ident.span())),
         SynItem::Impl(imp) if imp.trait_.is_none() => imp
@@ -255,10 +260,7 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
 }
 
 fn is_try_from_impl(imp: &syn::ItemImpl) -> bool {
-    imp.trait_
-        .as_ref()
-        .and_then(|(_, p, _)| p.segments.last())
-        .is_some_and(|s| s.ident == "TryFrom")
+    imp.trait_.as_ref().and_then(|(_, p, _)| p.segments.last()).is_some_and(|s| s.ident == "TryFrom")
 }
 
 fn self_name(ty: &syn::Type) -> String {
@@ -269,9 +271,5 @@ fn self_name(ty: &syn::Type) -> String {
 }
 
 fn path_text(p: &syn::Path) -> String {
-    p.segments
-        .iter()
-        .map(|s| s.ident.to_string())
-        .collect::<Vec<_>>()
-        .join("::")
+    p.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
 }

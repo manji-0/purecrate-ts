@@ -45,7 +45,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (Some(t), _) => Some(*t),
                     (None, Some(Num::Int(t))) => Some(t),
                     (None, Some(Num::Float(_))) => {
-                        self.error(Reason::TypeMismatch, format!("integer literal `{shown}` where a float is expected; write `{shown}.0`"));
+                        self.error(
+                            Reason::TypeMismatch,
+                            format!("integer literal `{shown}` where a float is expected; write `{shown}.0`"),
+                        );
                         return (Expr::Lit(lit.clone()), None);
                     }
                     (None, None) if want.is_some() => {
@@ -84,17 +87,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                         return (Expr::Lit(lit.clone()), None);
                     }
                 };
-                let e = Expr::Lit(Lit::Float {
-                    digits: digits.clone(),
-                    ty: Some(ty),
-                });
+                let e = Expr::Lit(Lit::Float { digits: digits.clone(), ty: Some(ty) });
                 let e = if negated {
                     Expr::Call {
                         callee: Callee::AsFloat(ty),
-                        args: vec![Expr::Unary {
-                            op: UnOp::Neg,
-                            expr: Box::new(e),
-                        }],
+                        args: vec![Expr::Unary { op: UnOp::Neg, expr: Box::new(e) }],
                     }
                 } else {
                     e
@@ -102,18 +99,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (e, self.expect(want, Some(Ty::Prim(ty.into()))))
             }
             Lit::Bool(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::bool()))),
-            Lit::Str(_) => (
-                Expr::Lit(lit.clone()),
-                self.expect(want, Some(Ty::Prim(Prim::Str))),
-            ),
-            Lit::Char(_) => (
-                Expr::Lit(lit.clone()),
-                self.expect(want, Some(Ty::Prim(Prim::Char))),
-            ),
-            Lit::Unit => (
-                Expr::Lit(lit.clone()),
-                self.expect(want, Some(Ty::Prim(Prim::Unit))),
-            ),
+            Lit::Str(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Str)))),
+            Lit::Char(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Char)))),
+            Lit::Unit => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Unit)))),
             Lit::Null => (Expr::Lit(lit.clone()), want.cloned()),
         }
     }
@@ -128,21 +116,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                     return (rebuild(op, l, r), None);
                 };
                 let e = match self.num(&t) {
-                    Some(Num::Int(it)) => Expr::Call {
-                        callee: Callee::Int {
-                            ty: it,
-                            op: int_op(op),
-                        },
-                        args: vec![l, r],
-                    },
-                    Some(Num::Float(FloatTy::F32)) => Expr::Call {
-                        callee: Callee::Fround,
-                        args: vec![rebuild(op, l, r)],
-                    },
-                    Some(Num::Float(FloatTy::F64)) => Expr::Call {
-                        callee: Callee::AsFloat(FloatTy::F64),
-                        args: vec![rebuild(op, l, r)],
-                    },
+                    Some(Num::Int(it)) => {
+                        Expr::Call { callee: Callee::Int { ty: it, op: int_op(op) }, args: vec![l, r] }
+                    }
+                    Some(Num::Float(FloatTy::F32)) => {
+                        Expr::Call { callee: Callee::Fround, args: vec![rebuild(op, l, r)] }
+                    }
+                    Some(Num::Float(FloatTy::F64)) => {
+                        Expr::Call { callee: Callee::AsFloat(FloatTy::F64), args: vec![rebuild(op, l, r)] }
+                    }
                     None => {
                         self.error(Reason::NumericOp, format!("arithmetic on `{}` is not in v0", show(&t)));
                         rebuild(op, l, r)
@@ -170,18 +152,19 @@ impl<'d, 'a> Typer<'d, 'a> {
                     if !ok {
                         let what = if ordered { "ordering" } else { "equality" };
                         let instead = match self.norm(t) {
-                            Ty::Option(_) => "use `is_some()`/`is_none()`, `matches!(x, Some(..))`, or a `match`".into(),
+                            Ty::Option(_) => {
+                                "use `is_some()`/`is_none()`, `matches!(x, Some(..))`, or a `match`".into()
+                            }
                             Ty::Prim(Prim::Bool) => "use `a.cmp(&b)`, which orders `false` first".into(),
-                            Ty::Named(n) => format!(
-                                "use `matches!(x, {}::Variant)`, a `match`, or an `eq` method",
-                                n.as_str()
-                            ),
+                            Ty::Named(n) => {
+                                format!("use `matches!(x, {}::Variant)`, a `match`, or an `eq` method", n.as_str())
+                            }
                             _ => "compare the parts with a `match` or an `eq` method".into(),
                         };
-                        self.error(Reason::Comparison, format!(
-                            "{what} on `{}` is not in v0; JS compares it differently: {instead}",
-                            show(t)
-                        ));
+                        self.error(
+                            Reason::Comparison,
+                            format!("{what} on `{}` is not in v0; JS compares it differently: {instead}", show(t)),
+                        );
                     }
                 }
                 // JS orders strings by UTF-16 unit; `char` and `str` order by
@@ -298,17 +281,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                     return (neg(e), None);
                 };
                 let e = match self.num(&t) {
-                    Some(Num::Int(it)) if it.is_signed() => Expr::Call {
-                        callee: Callee::Int {
-                            ty: it,
-                            op: IntOp::Neg,
-                        },
-                        args: vec![e],
-                    },
-                    Some(Num::Float(ft)) => Expr::Call {
-                        callee: Callee::AsFloat(ft),
-                        args: vec![neg(e)],
-                    },
+                    Some(Num::Int(it)) if it.is_signed() => {
+                        Expr::Call { callee: Callee::Int { ty: it, op: IntOp::Neg }, args: vec![e] }
+                    }
+                    Some(Num::Float(ft)) => Expr::Call { callee: Callee::AsFloat(ft), args: vec![neg(e)] },
                     _ => {
                         self.error(Reason::NumericOp, format!("cannot negate `{}`", show(&t)));
                         neg(e)
@@ -361,18 +337,11 @@ pub(super) fn int_op(op: BinOp) -> IntOp {
 }
 
 pub(super) fn rebuild(op: BinOp, left: Expr, right: Expr) -> Expr {
-    Expr::Binary {
-        op,
-        left: Box::new(left),
-        right: Box::new(right),
-    }
+    Expr::Binary { op, left: Box::new(left), right: Box::new(right) }
 }
 
 pub(super) fn neg(e: Expr) -> Expr {
-    Expr::Unary {
-        op: UnOp::Neg,
-        expr: Box::new(e),
-    }
+    Expr::Unary { op: UnOp::Neg, expr: Box::new(e) }
 }
 
 /// An integer literal without a suffix, possibly negated.

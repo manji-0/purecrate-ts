@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod vending = "fixtures/vending.rs");
 
 const SOURCE: &str = vending::SOURCE;

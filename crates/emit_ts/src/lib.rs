@@ -9,9 +9,9 @@ mod join;
 mod js;
 mod paragraph;
 mod plain;
-mod tidy;
 mod schema;
 mod stmt;
+mod tidy;
 
 use expr::*;
 use imports::*;
@@ -24,8 +24,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use schema::{emit_wire, has_wire, WireSchema};
 
 use purecrate_ir::{
-    BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, Prim, TryOn,
-    Struct, Ty, VariantBind, VariantFields, Vis, NEWTYPE_FIELD,
+    BinOp, Callee, ClosureParam, Crate, Enum, Expr, Fields, FloatTy, Fn, IntTy, Item, Lit, Name, Pattern, Prim, Struct,
+    TryOn, Ty, VariantBind, VariantFields, Vis, NEWTYPE_FIELD,
 };
 
 /// First line of every generated `.ts` file. `build` also reads it to tell
@@ -106,9 +106,7 @@ pub(crate) enum Internal {
 }
 
 fn internal_name(key: &Internal) -> String {
-    INTERNAL
-        .with(|m| m.borrow().get(key).cloned())
-        .unwrap_or_else(|| internal_base(key))
+    INTERNAL.with(|m| m.borrow().get(key).cloned()).unwrap_or_else(|| internal_base(key))
 }
 
 fn internal_base(key: &Internal) -> String {
@@ -167,10 +165,9 @@ fn private_methods(krate: &Crate) -> BTreeSet<(String, String)> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Fn(f) if f.vis == Vis::Internal => f
-                .owner
-                .as_ref()
-                .map(|o| (o.as_str().to_string(), f.name.as_str().to_string())),
+            Item::Fn(f) if f.vis == Vis::Internal => {
+                f.owner.as_ref().map(|o| (o.as_str().to_string(), f.name.as_str().to_string()))
+            }
             _ => None,
         })
         .collect()
@@ -236,16 +233,10 @@ fn emit_package(krate: &Crate) -> Package {
     let mut files = Vec::new();
 
     for (stem, items) in &buckets {
-        files.push(File {
-            stem: stem.clone(),
-            source: emit_file(krate, stem, items),
-        });
+        files.push(File { stem: stem.clone(), source: emit_file(krate, stem, items) });
     }
 
-    files.push(File {
-        stem: "index".to_string(),
-        source: emit_index(krate),
-    });
+    files.push(File { stem: "index".to_string(), source: emit_index(krate) });
 
     Package { files }
 }
@@ -312,11 +303,8 @@ fn emit_index(krate: &Crate) -> String {
         runtime.push("type ParseIntError");
     }
     out.push_str(&format!("export {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
-    let mut types: Vec<&str> = IntTy::ALL
-        .into_iter()
-        .filter(|t| surface_holds(krate, Prim::from(*t)))
-        .map(IntTy::ts_name)
-        .collect();
+    let mut types: Vec<&str> =
+        IntTy::ALL.into_iter().filter(|t| surface_holds(krate, Prim::from(*t))).map(IntTy::ts_name).collect();
     for t in [FloatTy::F32, FloatTy::F64] {
         if surface_holds(krate, Prim::from(t)) {
             types.push(t.ts_name());
@@ -375,11 +363,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Struct(st) => out_.push_str(&emit_struct(krate, st)),
             Item::Alias(al) => {
                 out_.push_str(&jsdoc(&al.doc, ""));
-                out_.push_str(&format!(
-                    "export type {name} = {ty};\n",
-                    name = al.name.as_str(),
-                    ty = emit_ty(&al.ty)
-                ));
+                out_.push_str(&format!("export type {name} = {ty};\n", name = al.name.as_str(), ty = emit_ty(&al.ty)));
             }
             // A hosted helper is the file's own; nothing else imports it.
             Item::Fn(f) if f.owner.is_none() && hosted_in(f.name.as_str()).is_some() => {
@@ -388,13 +372,16 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             Item::Fn(f) if f.owner.is_none() => out_.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
             Item::Const(c) => {
-                c.comment.iter().for_each(|l| out_.push_str(&if l.is_empty() { "//\n".to_string() } else { format!("// {l}\n") }));
+                c.comment
+                    .iter()
+                    .for_each(|l| out_.push_str(&if l.is_empty() { "//\n".to_string() } else { format!("// {l}\n") }));
                 out_.push_str(&jsdoc(&c.doc, ""));
                 let value = emit_expr(&c.value, 0);
                 let value = crate::tidy::strip_outer(&value);
                 let ty = emit_ty(&c.ty);
                 // A value cast to the type already states it.
-                let annotation = if crate::tidy::cast_type(value) == Some(ty.as_str()) { String::new() } else { format!(": {ty}") };
+                let annotation =
+                    if crate::tidy::cast_type(value) == Some(ty.as_str()) { String::new() } else { format!(": {ty}") };
                 out_.push_str(&format!("export const {name}{annotation} = {value};\n", name = c.name.as_str()));
             }
         }
@@ -406,7 +393,10 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out.push_str(&body);
     // A companion with nothing in it is `{}`, as oxfmt prints it.
     let out = out.replace(" = {\n} as const;", " = {} as const;");
-    tidy::wrap(&paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out)))), WIDTH)
+    tidy::wrap(
+        &paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out)))),
+        WIDTH,
+    )
 }
 
 /// The width past which `tidy::wrap` breaks a line.
@@ -429,11 +419,7 @@ mod tests {
     use purecrate_ir::counter_example;
 
     fn file<'a>(pkg: &'a Package, stem: &str) -> &'a str {
-        &pkg.files
-            .iter()
-            .find(|f| f.stem == stem)
-            .unwrap_or_else(|| panic!("missing {stem}"))
-            .source
+        &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("missing {stem}")).source
     }
 
     #[test]
@@ -443,15 +429,9 @@ mod tests {
             vis: Vis::Pub,
             name: Name::new("share"),
             owner: None,
-            params: vec![Param {
-                name: Name::new("n"),
-                ty: Ty::ignored(Wrapper::Mutex, Ty::i32()),
-            }],
+            params: vec![Param { name: Name::new("n"), ty: Ty::ignored(Wrapper::Mutex, Ty::i32()) }],
             ret: Ty::ignored(Wrapper::Box, Ty::i32()),
-            body: Expr::Ignored {
-                wrapper: Wrapper::Arc,
-                expr: Box::new(Expr::var("n")),
-            },
+            body: Expr::Ignored { wrapper: Wrapper::Arc, expr: Box::new(Expr::var("n")) },
             doc: None,
         });
         let pkg = emit(&Crate::new("wraps", vec![share]));
@@ -474,11 +454,19 @@ mod tests {
             }
         }
         let pkg = emit(&krate);
-        assert!(file(&pkg, "event").contains(
-            "/**\n * What happens.\n *\n * One at a time; ends in *\\/ here.\n */\nexport type Event =\n"
-        ), "{}", file(&pkg, "event"));
+        assert!(
+            file(&pkg, "event").contains(
+                "/**\n * What happens.\n *\n * One at a time; ends in *\\/ here.\n */\nexport type Event =\n"
+            ),
+            "{}",
+            file(&pkg, "event")
+        );
         assert!(file(&pkg, "event").contains("  /** Up by one. */\n  Inc: "), "{}", file(&pkg, "event"));
-        assert!(file(&pkg, "state").contains("Readonly<{\n  /** The count. */\n  n: I32;\n}>"), "{}", file(&pkg, "state"));
+        assert!(
+            file(&pkg, "state").contains("Readonly<{\n  /** The count. */\n  n: I32;\n}>"),
+            "{}",
+            file(&pkg, "state")
+        );
         assert!(file(&pkg, "step").contains("/** The transition. */\nexport const step = "), "{}", file(&pkg, "step"));
     }
 
@@ -559,10 +547,7 @@ export const step = (state: State, event: Event): State => {
             vis: Vis::Pub,
             name: Name::new("run"),
             owner: None,
-            params: vec![Param {
-                name: Name::new("cmd"),
-                ty: Ty::named("Cmd"),
-            }],
+            params: vec![Param { name: Name::new("cmd"), ty: Ty::named("Cmd") }],
             ret: Ty::i32(),
             body,
             doc: None,
@@ -615,10 +600,7 @@ export const step = (state: State, event: Event): State => {
     #[test]
     fn non_place_scrutinee_is_bound_once() {
         use purecrate_ir::{Callee, Name};
-        let call = Expr::Call {
-            callee: Callee::Fn(Name::new("next")),
-            args: vec![Expr::var("cmd")],
-        };
+        let call = Expr::Call { callee: Callee::Fn(Name::new("next")), args: vec![Expr::var("cmd")] };
         let pkg = emit(&cmd_crate(cmd_match(call)));
         let run = file(&pkg, "run");
         // Named for its enum, numbered past the parameter of that name.
@@ -634,10 +616,7 @@ export const step = (state: State, event: Event): State => {
             vis: Vis::Pub,
             name: Name::new("zero"),
             owner: Some(Name::new("State")),
-            params: vec![Param {
-                name: Name::new("self"),
-                ty: Ty::named("State"),
-            }],
+            params: vec![Param { name: Name::new("self"), ty: Ty::named("State") }],
             ret: Ty::named("State"),
             body: Expr::Construct {
                 ty: Name::new("State"),
@@ -648,11 +627,7 @@ export const step = (state: State, event: Event): State => {
             doc: None,
         }));
         let pkg = emit(&krate);
-        assert!(
-            file(&pkg, "state").contains("zero: (self: State): State => ({ n: 0 }),"),
-            "{}",
-            file(&pkg, "state")
-        );
+        assert!(file(&pkg, "state").contains("zero: (self: State): State => ({ n: 0 }),"), "{}", file(&pkg, "state"));
     }
 
     #[test]
@@ -692,19 +667,14 @@ export const step = (state: State, event: Event): State => {
     #[test]
     fn imports_follow_body_and_nested_types() {
         use purecrate_ir::{Param, Vis};
-        let mut krate = cmd_crate(cmd_match(Expr::Call {
-            callee: Callee::Fn(Name::new("next")),
-            args: vec![Expr::var("cmd")],
-        }));
+        let mut krate =
+            cmd_crate(cmd_match(Expr::Call { callee: Callee::Fn(Name::new("next")), args: vec![Expr::var("cmd")] }));
         // `pub`, so it keeps its file (`homes`).
         krate.items.push(Item::Fn(Fn {
             vis: Vis::Pub,
             name: Name::new("next"),
             owner: None,
-            params: vec![Param {
-                name: Name::new("cmd"),
-                ty: Ty::named("Cmd"),
-            }],
+            params: vec![Param { name: Name::new("cmd"), ty: Ty::named("Cmd") }],
             ret: Ty::named("Cmd"),
             body: Expr::var("cmd"),
             doc: None,
@@ -743,10 +713,7 @@ export const step = (state: State, event: Event): State => {
             vis: Vis::Pub,
             name: Name::new("weight"),
             owner: Some(Name::new("Cmd")),
-            params: vec![Param {
-                name: Name::new("self"),
-                ty: Ty::named("Cmd"),
-            }],
+            params: vec![Param { name: Name::new("self"), ty: Ty::named("Cmd") }],
             ret: Ty::i32(),
             body: cmd_match(Expr::var("self")),
             doc: None,
@@ -772,11 +739,7 @@ export const step = (state: State, event: Event): State => {
                 .count();
             assert_eq!(hits, 1, "{name} in:\n{index}");
         }
-        assert_eq!(
-            index.lines().filter(|l| l.contains("export type {")).count(),
-            1,
-            "{index}"
-        );
+        assert_eq!(index.lines().filter(|l| l.contains("export type {")).count(), 1, "{index}");
     }
 
     #[test]
@@ -786,15 +749,9 @@ export const step = (state: State, event: Event): State => {
             vis: Vis::Pub,
             name: Name::new("parse"),
             owner: None,
-            params: vec![Param {
-                name: Name::new("n"),
-                ty: Ty::i32(),
-            }],
+            params: vec![Param { name: Name::new("n"), ty: Ty::i32() }],
             ret: Ty::result(Ty::i32(), Ty::Prim(purecrate_ir::Prim::String)),
-            body: Expr::Call {
-                callee: Callee::ResultOk,
-                args: vec![Expr::var("n")],
-            },
+            body: Expr::Call { callee: Callee::ResultOk, args: vec![Expr::var("n")] },
             doc: None,
         });
         let pkg = emit(&Crate::new("p", vec![parse]));
@@ -809,10 +766,7 @@ export const step = (state: State, event: Event): State => {
             vis: Vis::Pub,
             name: Name::new("f"),
             owner: None,
-            params: vec![Param {
-                name: Name::new("x"),
-                ty: Ty::Prim(Prim::F64),
-            }],
+            params: vec![Param { name: Name::new("x"), ty: Ty::Prim(Prim::F64) }],
             ret: Ty::Prim(Prim::F64),
             body,
             doc: None,
@@ -823,29 +777,18 @@ export const step = (state: State, event: Event): State => {
     #[test]
     fn nested_operators_keep_their_grouping() {
         use purecrate_ir::UnOp;
-        let bin = |op, l, r| Expr::Binary {
-            op,
-            left: Box::new(l),
-            right: Box::new(r),
-        };
+        let bin = |op, l, r| Expr::Binary { op, left: Box::new(l), right: Box::new(r) };
         let sum = bin(BinOp::Add, Expr::var("x"), Expr::var("x"));
         let src = f64_fn(bin(BinOp::Mul, sum.clone(), Expr::var("x")));
         assert!(src.contains("=> (x + x) * x;"), "{src}");
-        let neg = |e| Expr::Unary {
-            op: UnOp::Neg,
-            expr: Box::new(e),
-        };
+        let neg = |e| Expr::Unary { op: UnOp::Neg, expr: Box::new(e) };
         let src = f64_fn(neg(neg(Expr::var("x"))));
         assert!(src.contains("=> -(-x);"), "{src}");
         let src = f64_fn(neg(sum.clone()));
         assert!(src.contains("=> -(x + x);"), "{src}");
         let src = f64_fn(bin(BinOp::Add, sum, Expr::var("x")));
         assert!(src.contains("=> x + x + x;"), "{src}");
-        let src = f64_fn(bin(
-            BinOp::Sub,
-            Expr::var("x"),
-            bin(BinOp::Sub, Expr::var("x"), Expr::var("x")),
-        ));
+        let src = f64_fn(bin(BinOp::Sub, Expr::var("x"), bin(BinOp::Sub, Expr::var("x"), Expr::var("x"))));
         assert!(src.contains("=> x - (x - x);"), "{src}");
     }
 
@@ -881,17 +824,9 @@ export const step = (state: State, event: Event): State => {
 
     #[test]
     fn typed_literals_print_their_js_form() {
-        let big = Lit::Int {
-            value: -5,
-            ty: Some(IntTy::I64),
-            byte: false,
-            hex: false,
-        };
+        let big = Lit::Int { value: -5, ty: Some(IntTy::I64), byte: false, hex: false };
         assert_eq!(emit_lit(&big), "(-5n as I64)");
-        let single = Lit::Float {
-            digits: "0.1".into(),
-            ty: Some(FloatTy::F32),
-        };
+        let single = Lit::Float { digits: "0.1".into(), ty: Some(FloatTy::F32) };
         assert_eq!(emit_lit(&single), "(0.10000000149011612 as F32)");
     }
 
@@ -913,19 +848,13 @@ export const step = (state: State, event: Event): State => {
             fields: Fields::Named(vec![(Name::new("a"), Expr::var("a"))]),
             base: None,
         };
-        let boxed = Expr::Ignored {
-            wrapper: Wrapper::Box,
-            expr: Box::new(lit.clone()),
-        };
+        let boxed = Expr::Ignored { wrapper: Wrapper::Box, expr: Box::new(lit.clone()) };
         let body = arrow_expr(&boxed, 0);
         assert_eq!(body, "({ a })");
         let mut out = String::new();
         Sink::Effect.finish_expr(&boxed, 0, &mut out);
         assert_eq!(out, "({ a });\n");
-        let some = Expr::Call {
-            callee: Callee::OptionSome,
-            args: vec![lit],
-        };
+        let some = Expr::Call { callee: Callee::OptionSome, args: vec![lit] };
         assert_eq!(arrow_expr(&some, 0), "({ a })");
     }
 

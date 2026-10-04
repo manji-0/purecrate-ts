@@ -1,4 +1,3 @@
-
 use crate::common::assert_clean;
 
 #[test]
@@ -11,4 +10,3 @@ fn box_is_the_inner_value() {
          pub fn calc(e: Ast) -> i32 { match e { Ast::Num(n) => n, Ast::Add(a, b) => calc(*a) + calc(*b) } }",
     );
 }
-

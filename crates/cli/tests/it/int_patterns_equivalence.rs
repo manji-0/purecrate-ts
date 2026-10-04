@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod ints = "fixtures/int_patterns.rs");
 
 const SOURCE: &str = ints::SOURCE;

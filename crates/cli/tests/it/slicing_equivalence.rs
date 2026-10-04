@@ -63,7 +63,8 @@ fn generated_slicing_matches_rust() {
 /// at random positions up to two past the end.
 #[test]
 fn random_slicing_matches_rust() {
-    const ALPHABET: [char; 12] = ['a', 'Z', '0', ' ', 'é', '\u{7ff}', '日', '\u{ffff}', '😀', '\u{10ffff}', '\u{301}', '\u{200b}'];
+    const ALPHABET: [char; 12] =
+        ['a', 'Z', '0', ' ', 'é', '\u{7ff}', '日', '\u{ffff}', '😀', '\u{10ffff}', '\u{301}', '\u{200b}'];
     let mut rng = support::Rng::new(0x0005_11ce);
     let cases = support::quietly(|| {
         let mut cases = Vec::new();

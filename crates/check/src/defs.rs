@@ -50,8 +50,6 @@ impl<'a> Defs<'a> {
     }
 
     pub fn is_type(&self, name: &str) -> bool {
-        self.structs.contains_key(name)
-            || self.enums.contains_key(name)
-            || self.aliases.contains_key(name)
+        self.structs.contains_key(name) || self.enums.contains_key(name) || self.aliases.contains_key(name)
     }
 }

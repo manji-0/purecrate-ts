@@ -1,6 +1,5 @@
 //! `const` items and `as` on enums: what is folded, and what is refused.
 
-
 use crate::common::{assert_clean, assert_parse_rejects, assert_rejects, diagnostics};
 
 #[test]
@@ -34,7 +33,10 @@ fn const_expressions_outside_v0_are_refused() {
     assert!(found.iter().any(|(c, m)| *c == "check/const-expr" && m.contains("const `A`")), "{found:?}");
     assert_rejects("pub const A: u8 = 200 + 100;\npub fn f() -> u8 { A }", "300 does not fit `u8`");
     assert_rejects("pub const A: u32 = 1 << 32;\npub fn f() -> u32 { A }", "shift by 32 overflows a `u32`");
-    assert_rejects("pub const A: u32 = 1;\npub const B: u64 = A;\npub fn f() -> u64 { B }", "`A` is a `u32`, where a `u64` is expected");
+    assert_rejects(
+        "pub const A: u32 = 1;\npub const B: u64 = A;\npub fn f() -> u64 { B }",
+        "`A` is a `u32`, where a `u64` is expected",
+    );
     assert_rejects(
         "pub struct P { pub x: i32 }\npub const O: P = P { x: 0 };\npub fn f() -> i32 { 0 }",
         "a const of type `P` is not in v0",
@@ -44,10 +46,7 @@ fn const_expressions_outside_v0_are_refused() {
 #[test]
 fn as_reads_only_a_fieldless_enums_discriminant() {
     assert_rejects("pub fn f(x: u8) -> u32 { x as u32 }", "`u8 as u32` is not in v0");
-    assert_rejects(
-        "pub enum E { A(i32), B }\npub fn f(e: E) -> u8 { e as u8 }",
-        "`E as u8` is not in v0",
-    );
+    assert_rejects("pub enum E { A(i32), B }\npub fn f(e: E) -> u8 { e as u8 }", "`E as u8` is not in v0");
     assert_rejects(
         "#[derive(Clone, Copy)]\npub enum E { A = 1, B = 300 }\npub fn f(e: E) -> u8 { e as u8 }",
         "`E as u8` would not hold `E::B` = 300",

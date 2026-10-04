@@ -35,7 +35,10 @@ pub enum Outcome {
     /// The item itself is outside the subset.
     Rejected(Vec<Cause>),
     /// The item is fine, but something it refers to is not.
-    Blocked { by: String, causes: Vec<Cause> },
+    Blocked {
+        by: String,
+        causes: Vec<Cause>,
+    },
 }
 
 #[derive(Clone)]
@@ -47,11 +50,7 @@ pub struct Cause {
 
 impl Cause {
     fn parse(e: &ParseError) -> Self {
-        Self {
-            reason: e.reason,
-            detail: e.detail.clone(),
-            message: e.message.clone(),
-        }
+        Self { reason: e.reason, detail: e.detail.clone(), message: e.message.clone() }
     }
 }
 
@@ -92,7 +91,12 @@ fn module_dir(file: &Path, is_root: bool) -> PathBuf {
     }
 }
 
-pub fn survey(krate: &str, files: Vec<(PathBuf, String)>, missing: Vec<String>, all_causes: bool) -> Result<Report, String> {
+pub fn survey(
+    krate: &str,
+    files: Vec<(PathBuf, String)>,
+    missing: Vec<String>,
+    all_causes: bool,
+) -> Result<Report, String> {
     let sources: Vec<&str> = files.iter().map(|(_, t)| t.as_str()).collect();
     let units = survey_files(&sources, all_causes).map_err(|(i, e)| format!("{}:{e}", files[i].0.display()))?;
     let index = Index::new(&units);
@@ -142,22 +146,14 @@ struct Index {
 
 impl Index {
     fn new(units: &[Unit]) -> Self {
-        let mut index = Index {
-            types: HashMap::new(),
-            fns: HashMap::new(),
-            methods: HashMap::new(),
-        };
+        let mut index = Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new() };
         for (i, u) in units.iter().enumerate() {
             match &u.kind {
                 UnitKind::Struct | UnitKind::Enum | UnitKind::Alias => {
                     index.types.entry(u.name.clone()).or_default().push(i)
                 }
                 UnitKind::Fn => index.fns.entry(u.name.clone()).or_default().push(i),
-                UnitKind::Method { owner } => index
-                    .methods
-                    .entry((owner.clone(), u.name.clone()))
-                    .or_default()
-                    .push(i),
+                UnitKind::Method { owner } => index.methods.entry((owner.clone(), u.name.clone())).or_default().push(i),
                 UnitKind::Other { .. } => {}
             }
         }
@@ -226,16 +222,10 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
         if !recovered.is_empty() {
             return Outcome::Rejected(recovered);
         }
-        return Outcome::Blocked {
-            by: display_name(&units[j]),
-            causes,
-        };
+        return Outcome::Blocked { by: display_name(&units[j]), causes };
     }
     let order: Vec<usize> = seen.into_iter().collect();
-    let items = order
-        .iter()
-        .map(|&j| units[j].lowered.clone().expect("blockers were handled"))
-        .collect();
+    let items = order.iter().map(|&j| units[j].lowered.clone().expect("blockers were handled")).collect();
     match accept(&Crate::new(krate, items)) {
         Ok(_) if recovered.is_empty() => Outcome::Accepted,
         Ok(_) => Outcome::Rejected(recovered),
@@ -246,10 +236,8 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                 detail: d.detail.clone(),
                 message: d.message.clone(),
             };
-            let own: Vec<Cause> = recovered
-                .into_iter()
-                .chain(diagnostics.iter().filter(|d| at(d) == start).map(cause))
-                .collect();
+            let own: Vec<Cause> =
+                recovered.into_iter().chain(diagnostics.iter().filter(|d| at(d) == start).map(cause)).collect();
             if !own.is_empty() {
                 return Outcome::Rejected(own);
             }
@@ -415,11 +403,8 @@ impl Report {
                 }
                 out.push_str(&format!("{title}:\n"));
                 for (code, (n, details)) in sorted(map).into_iter().take(8) {
-                    let top: Vec<String> = sorted_details(details)
-                        .into_iter()
-                        .take(4)
-                        .map(|(d, k)| format!("{d}×{k}"))
-                        .collect();
+                    let top: Vec<String> =
+                        sorted_details(details).into_iter().take(4).map(|(d, k)| format!("{d}×{k}")).collect();
                     let suffix = if top.is_empty() { String::new() } else { format!("  ({})", top.join(", ")) };
                     out.push_str(&format!("    {n:>4}  {code}{suffix}\n"));
                 }
@@ -439,10 +424,7 @@ impl Report {
         let mut o = Json::default();
         o.open('{');
         o.field("crate", &json_str(&self.krate));
-        o.field(
-            "files",
-            &json_array(self.files.iter().map(|p| json_str(&p.display().to_string()))),
-        );
+        o.field("files", &json_array(self.files.iter().map(|p| json_str(&p.display().to_string()))));
         o.field("missing_modules", &json_array(self.missing.iter().map(|m| json_str(m))));
         for (key, types) in [("functions", false), ("types", true)] {
             let t = self.tally(types);
@@ -463,11 +445,7 @@ impl Report {
             "not_judged",
             &format!(
                 "{{{}}}",
-                self.others
-                    .iter()
-                    .map(|(k, n)| format!("{}:{n}", json_str(k)))
-                    .collect::<Vec<_>>()
-                    .join(",")
+                self.others.iter().map(|(k, n)| format!("{}:{n}", json_str(k))).collect::<Vec<_>>().join(",")
             ),
         );
         o.field("items", &json_array(self.verdicts.iter().map(|v| self.verdict_json(v))));
@@ -484,10 +462,7 @@ impl Report {
         let mut fields = vec![
             format!("\"name\":{}", json_str(&v.name)),
             format!("\"kind\":{}", json_str(v.kind)),
-            format!(
-                "\"at\":{}",
-                json_str(&format!("{}:{}:{}", self.files[v.file].display(), v.at.line, v.at.col))
-            ),
+            format!("\"at\":{}", json_str(&format!("{}:{}:{}", self.files[v.file].display(), v.at.line, v.at.col))),
             format!("\"status\":{}", json_str(status)),
         ];
         if let Some(owner) = &v.owner {
@@ -563,10 +538,8 @@ fn reason_counts(map: &ByReason) -> String {
     let parts: Vec<String> = sorted(map)
         .into_iter()
         .map(|(code, (n, details))| {
-            let ds: Vec<String> = sorted_details(details)
-                .into_iter()
-                .map(|(d, k)| format!("{}:{k}", json_str(d)))
-                .collect();
+            let ds: Vec<String> =
+                sorted_details(details).into_iter().map(|(d, k)| format!("{}:{k}", json_str(d))).collect();
             format!("{}:{{\"items\":{n},\"details\":{{{}}}}}", json_str(code), ds.join(","))
         })
         .collect();

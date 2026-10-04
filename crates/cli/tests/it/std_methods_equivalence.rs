@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod std_methods = "fixtures/std_methods.rs");
 
 const SOURCE: &str = std_methods::SOURCE;
@@ -12,16 +11,9 @@ const SOURCE: &str = std_methods::SOURCE;
 #[test]
 fn generated_std_methods_match_rust() {
     use std_methods::Cart;
-    let cart = |items: Vec<u32>, coupon: Option<&str>| Cart {
-        items,
-        coupon: coupon.map(String::from),
-    };
+    let cart = |items: Vec<u32>, coupon: Option<&str>| Cart { items, coupon: coupon.map(String::from) };
     let cart_js = |items: &[u32], coupon: Option<&str>| {
-        format!(
-            "{{ items: {}, coupon: {} }}",
-            support::Js::js(items),
-            support::Js::js(&coupon)
-        )
+        format!("{{ items: {}, coupon: {} }}", support::Js::js(items), support::Js::js(&coupon))
     };
     let cases = support::quietly(|| {
         let mut cases = Vec::new();

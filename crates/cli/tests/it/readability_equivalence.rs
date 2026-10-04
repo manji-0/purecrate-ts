@@ -72,7 +72,10 @@ fn readability_rewrites_print_as_intended() {
     // `tie`, its helper, shares the file; only `thenBy` itself is checked.
     let then_by = file("then-by");
     let then_by = then_by[then_by.find("export const thenBy").expect("thenBy")..].to_string();
-    assert!(then_by.contains("return d;") && !then_by.contains("kind: \"Less\"") && !then_by.contains("switch"), "{then_by}");
+    assert!(
+        then_by.contains("return d;") && !then_by.contains("kind: \"Less\"") && !then_by.contains("switch"),
+        "{then_by}"
+    );
     let same_again = file("same-again");
     assert!(!same_again.contains("kind: \"Pair\"") && !same_again.contains("kind: \"Rect\""), "{same_again}");
     // A helper with one caller is printed in its file, its names apart
@@ -84,7 +87,12 @@ fn readability_rewrites_print_as_intended() {
     assert!(pair.contains("open || [\"00\", \"01\", \"99\"].includes(") && !pair.contains("=> {"), "{pair}");
     let named = file("named-temporaries");
     // `ok_or(e)?` of a call holds the option in the local itself: no copy.
-    assert!(named.contains("const halfResult = ") && named.contains("const sum = Int.i32.checkedAdd(") && named.contains("if (sum === null)"), "{named}");
+    assert!(
+        named.contains("const halfResult = ")
+            && named.contains("const sum = Int.i32.checkedAdd(")
+            && named.contains("if (sum === null)"),
+        "{named}"
+    );
     let added = file("added-or-zero");
     assert!(added.contains("const s: I32 = ") && !added.contains("let s"), "{added}");
     let banded = file("banded");

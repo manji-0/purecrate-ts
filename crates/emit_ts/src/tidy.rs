@@ -58,10 +58,7 @@ fn depths(s: &str) -> Vec<Option<usize>> {
                 // Type arguments, `Result<A, B>`: the printer writes a
                 // comparison with spaces around `<` and `>`, and `=>` is not
                 // a bracket.
-                b'<' if i > 0
-                    && (bytes[i - 1].is_ascii_alphanumeric()
-                        || matches!(bytes[i - 1], b'_' | b'$')) =>
-                {
+                b'<' if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$')) => {
                     out.push(Some(depth));
                     depth += 1;
                 }
@@ -322,7 +319,10 @@ fn wide(c: char) -> bool {
 /// line however long.
 fn lone_import(line: &str) -> bool {
     line.starts_with("import ")
-        && line.split_once('{').and_then(|(_, rest)| rest.split_once('}')).is_some_and(|(names, _)| !names.contains(','))
+        && line
+            .split_once('{')
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .is_some_and(|(names, _)| !names.contains(','))
 }
 
 fn wrap_line(line: &str, width: usize, out: &mut String) {
@@ -434,10 +434,13 @@ fn calls_with_arrow(arg: &str) -> bool {
     let callee = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.');
     match arg.find('(') {
         Some(open) if open > 0 && arg.ends_with(')') && bytes[..open].iter().all(|&b| callee(b)) => {
-            call_args(arg, open).is_some_and(|(items, close)| close == arg.len() - 1 && items.iter().any(|a| {
-                let d = depths(a);
-                a.match_indices(" => ").any(|(i, _)| d[i] == Some(0))
-            }))
+            call_args(arg, open).is_some_and(|(items, close)| {
+                close == arg.len() - 1
+                    && items.iter().any(|a| {
+                        let d = depths(a);
+                        a.match_indices(" => ").any(|(i, _)| d[i] == Some(0))
+                    })
+            })
         }
         _ => false,
     }
@@ -582,10 +585,16 @@ fn wrap_after_assign(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     };
     let Some(value) = line[eq + 3..].strip_suffix(';') else { return false };
-    let path = |s: &str| !s.is_empty() && s.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$'));
+    let path = |s: &str| {
+        !s.is_empty()
+            && s.split('.')
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+    };
     let short = |s: &str| {
         let s = s.trim();
-        s.is_empty() || (cols(s) <= width / 4 && (path(s) || s.chars().all(|c| c.is_ascii_digit()) || (s.starts_with('"') && s.ends_with('"'))))
+        s.is_empty()
+            || (cols(s) <= width / 4
+                && (path(s) || s.chars().all(|c| c.is_ascii_digit()) || (s.starts_with('"') && s.ends_with('"'))))
     };
     let poor = match value.strip_suffix(')').and_then(|v| v.split_once('(')) {
         Some((callee, arg)) => path(callee) && !arg.contains(',') && !arg.contains('(') && short(arg),
@@ -646,9 +655,7 @@ fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
     }
     let d = depths(rest);
     let open = 3usize;
-    let Some(close) =
-        (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')
-    else {
+    let Some(close) = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')') else {
         return false;
     };
     if &rest[close..] != ") {" {
@@ -674,9 +681,7 @@ fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
     }
     let d = depths(rest);
     let open = 4usize;
-    let Some(close) =
-        (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')
-    else {
+    let Some(close) = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')') else {
         return false;
     };
     if &rest[close..] != ") {" {
@@ -750,8 +755,7 @@ fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool {
         }
         let level = d[i].expect("checked");
         let closer = if b == b'(' { b')' } else { b'}' };
-        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer)
-        else {
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer) else {
             continue;
         };
         if close - i <= width / 2 || i + 1 > width {
@@ -772,17 +776,10 @@ fn wrap_fat_group(line: &str, width: usize, out: &mut String) -> bool {
     let pad = &line[..line.len() - trimmed.len()];
     wrap_line(&line[..=open], width, out);
     let before = line[..open].trim_end();
-    let control = before.ends_with("if")
-        || before.ends_with("while")
-        || before.ends_with("switch")
-        || before.ends_with("for");
-    let call = !control
-        && before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')'));
-    let trail = if line.as_bytes()[open] == b'{' || call {
-        ","
-    } else {
-        ""
-    };
+    let control =
+        before.ends_with("if") || before.ends_with("while") || before.ends_with("switch") || before.ends_with("for");
+    let call = !control && before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')'));
+    let trail = if line.as_bytes()[open] == b'{' || call { "," } else { "" };
     wrap_line(&format!("{pad}  {inner}{trail}"), width, out);
     wrap_line(&format!("{pad}{}", &line[close..]), width, out);
     true
@@ -836,8 +833,7 @@ fn wrap_bracket_sep(line: &str, width: usize, sep: u8, out: &mut String) -> bool
             continue;
         }
         let level = d[i].expect("checked");
-        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == b'}')
-        else {
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == b'}') else {
             continue;
         };
         let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
@@ -937,9 +933,8 @@ fn wrap_logical(line: &str, width: usize, out: &mut String) -> bool {
 /// `Slice.at(b, start) === 45`, not `Slice.at(` alone.
 fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool {
     let expr = line.trim_start();
-    let statement = ["return ", "const ", "let ", "? ", ": ", "if ", "for ", "while "]
-        .iter()
-        .any(|p| expr.starts_with(p));
+    let statement =
+        ["return ", "const ", "let ", "? ", ": ", "if ", "for ", "while "].iter().any(|p| expr.starts_with(p));
     let d = depths(expr);
     let arrow = (0..expr.len()).any(|i| d[i] == Some(0) && expr[i..].starts_with(" => "));
     let ternary = find_ternary(expr).is_some();
@@ -1085,15 +1080,15 @@ fn split_ternary(line: &str) -> Option<(String, String, String)> {
     // A nested `?:` is parenthesized on one line, bare once split.
     let bare = |s: &str| -> String {
         let inner = strip_outer(s);
-        if inner.len() < s.len() && find_ternary(inner).is_some() { inner.to_string() } else { s.to_string() }
+        if inner.len() < s.len() && find_ternary(inner).is_some() {
+            inner.to_string()
+        } else {
+            s.to_string()
+        }
     };
     let (then, else_) = (bare(then), bare(else_.trim_end_matches(';')) + if else_.ends_with(';') { ";" } else { "" });
     let inner = format!("{pad}  ");
-    Some((
-        format!("{first_prefix}{test}"),
-        format!("{inner}? {then}"),
-        format!("{inner}: {else_}"),
-    ))
+    Some((format!("{first_prefix}{test}"), format!("{inner}? {then}"), format!("{inner}: {else_}")))
 }
 
 fn top_assign(s: &str) -> Option<usize> {
@@ -1232,18 +1227,13 @@ fn wrap_arrow_first(line: &str, width: usize, out: &mut String) -> bool {
 /// `;` there (a `for` header), optionally required to hold more than the
 /// `excess` past the width so a small `Slice.at(b, i)` is not opened when
 /// the overflow is elsewhere.
-fn split_point(
-    line: &str,
-    excess: Option<usize>,
-    from: usize,
-) -> Option<(usize, usize, Vec<String>, char)> {
+fn split_point(line: &str, excess: Option<usize>, from: usize) -> Option<(usize, usize, Vec<String>, char)> {
     let d = depths(line);
     let bytes = line.as_bytes();
     let mut best: Option<(usize, usize, usize)> = None;
     for (i, &b) in bytes.iter().enumerate().skip(from) {
-        let generic = b == b'<'
-            && i > 0
-            && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$'));
+        let generic =
+            b == b'<' && i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b'$'));
         if !(matches!(b, b'(' | b'[' | b'{') || generic) || d[i].is_none() {
             continue;
         }
@@ -1254,8 +1244,7 @@ fn split_point(
             b'{' => b'}',
             _ => b'>',
         };
-        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer)
-        else {
+        let Some(close) = (i + 1..bytes.len()).find(|&j| d[j] == Some(level) && bytes[j] == closer) else {
             continue;
         };
         let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
@@ -1303,37 +1292,23 @@ mod tests {
             "  return Result.ok({\n    kind: \"AwaitingConsent\",\n    request,\n    auth: f(a, b),\n    note: \"x, y\",\n  });\n"
         );
         let sig = "export const f = (a: A, b: /* x, y */ B): R => {";
-        assert_eq!(
-            wrap(sig, 30),
-            "export const f = (\n  a: A,\n  b: /* x, y */ B,\n): R => {\n"
-        );
+        assert_eq!(wrap(sig, 30), "export const f = (\n  a: A,\n  b: /* x, y */ B,\n): R => {\n");
         assert_eq!(wrap("short(a, b);", 40), "short(a, b);\n");
-        let header =
-            "for (let i = (0 as Usize), $e = (n as Usize); i < $e; i = (i + 1) as Usize) {";
+        let header = "for (let i = (0 as Usize), $e = (n as Usize); i < $e; i = (i + 1) as Usize) {";
         let wrapped = wrap(header, 40);
         assert!(wrapped.lines().all(|l| l.len() <= 40), "{wrapped}");
         assert!(wrapped.contains("for (\n"), "{wrapped}");
-        let small =
-            "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i))) return Result.err(e);";
+        let small = "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i))) return Result.err(e);";
         assert_eq!(
             wrap(small, 60),
             "if (!is_upper(Slice.at(b, i)) && !is_digit(Slice.at(b, i)))\n  return Result.err(e);\n"
         );
-        assert!(
-            !wrap(small, 60).contains("Slice.at(\n"),
-            "small calls stay closed"
-        );
+        assert!(!wrap(small, 60).contains("Slice.at(\n"), "small calls stay closed");
         assert_eq!(
-            wrap(
-                "f(r: Result<A, B>, n: Map<K, V<W>>, b: boolean): Result<A, B> => r;",
-                30
-            ),
+            wrap("f(r: Result<A, B>, n: Map<K, V<W>>, b: boolean): Result<A, B> => r;", 30),
             "f(\n  r: Result<A, B>,\n  n: Map<K, V<W>>,\n  b: boolean,\n): Result<A, B> => r;\n"
         );
-        assert_eq!(
-            wrap("// a, very, long, comment, line, here", 10),
-            "// a, very, long, comment, line, here\n"
-        );
+        assert_eq!(wrap("// a, very, long, comment, line, here", 10), "// a, very, long, comment, line, here\n");
     }
 
     #[test]
@@ -1414,13 +1389,15 @@ mod tests {
     fn an_object_heading_a_longer_body_does_not_hug() {
         let line = "export const digitCount = (d: OtpDigits): Usize => ({ Six: 6, Seven: 7, Eight: 8 } satisfies Record<OtpDigits[\"kind\"], number>)[d.kind] as Usize;";
         assert!(wrap(line, 100).starts_with("export const digitCount = (d: OtpDigits): Usize =>\n  ({ Six"));
-        let block = "export const validateRequestWithAVeryLongName = (params: AuthorizationParams, client: Client): R => {";
+        let block =
+            "export const validateRequestWithAVeryLongName = (params: AuthorizationParams, client: Client): R => {";
         assert!(!wrap(block, 100).contains("=>\n"), "{}", wrap(block, 100));
     }
 
     #[test]
     fn wraps_long_import_and_closed_ctor() {
-        let imp = "import { type Char, type F64, type I32, type U64, type U8, type Usize } from \"./purecrate-runtime.ts\";";
+        let imp =
+            "import { type Char, type F64, type I32, type U64, type U8, type Usize } from \"./purecrate-runtime.ts\";";
         let out = wrap(imp, 100);
         assert!(out.lines().all(|l| l.len() <= 100), "{out}");
         assert!(out.contains("import {\n"), "{out}");
@@ -1431,10 +1408,7 @@ mod tests {
 
     #[test]
     fn negates_one_top_level_comparison() {
-        assert_eq!(
-            negate("(k.kind === \"C\")").as_deref(),
-            Some("k.kind !== \"C\"")
-        );
+        assert_eq!(negate("(k.kind === \"C\")").as_deref(), Some("k.kind !== \"C\""));
         assert_eq!(negate("x !== null").as_deref(), Some("x === null"));
         assert_eq!(negate("a === b || c"), None);
         assert_eq!(negate("f(a === b)"), None);

@@ -7,17 +7,8 @@ use purecrate_ir::{Callee, Crate, Expr, Item, Pattern, Ty, VariantFields, Vis};
 
 pub fn prune_unreachable(krate: &Crate) -> Crate {
     let keep = reachable(krate);
-    let items = krate
-        .items
-        .iter()
-        .zip(keep)
-        .filter(|(_, kept)| *kept)
-        .map(|(item, _)| item.clone())
-        .collect();
-    Crate {
-        name: krate.name.clone(),
-        items,
-    }
+    let items = krate.items.iter().zip(keep).filter(|(_, kept)| *kept).map(|(item, _)| item.clone()).collect();
+    Crate { name: krate.name.clone(), items }
 }
 
 fn reachable(krate: &Crate) -> Vec<bool> {
@@ -25,11 +16,7 @@ fn reachable(krate: &Crate) -> Vec<bool> {
     let mut methods: HashMap<(&str, &str), usize> = HashMap::new();
     for (i, item) in krate.items.iter().enumerate() {
         match item {
-            Item::Fn(purecrate_ir::Fn {
-                owner: Some(owner),
-                name,
-                ..
-            }) => {
+            Item::Fn(purecrate_ir::Fn { owner: Some(owner), name, .. }) => {
                 methods.insert((owner.as_str(), name.as_str()), i);
             }
             other => {
@@ -55,11 +42,7 @@ fn reachable(krate: &Crate) -> Vec<bool> {
         };
         for (i, item) in krate.items.iter().enumerate() {
             if let Item::Fn(f) = item {
-                let owner_kept = f
-                    .owner
-                    .as_ref()
-                    .and_then(|o| top.get(o.as_str()))
-                    .is_some_and(|&o| keep[o]);
+                let owner_kept = f.owner.as_ref().and_then(|o| top.get(o.as_str())).is_some_and(|&o| keep[o]);
                 if owner_kept && f.vis == Vis::Pub {
                     mark(i, &mut keep);
                 }

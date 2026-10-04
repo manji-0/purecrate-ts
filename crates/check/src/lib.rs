@@ -41,14 +41,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     fn at(item: usize, reason: Reason, message: impl Into<String>) -> Self {
-        Self {
-            item,
-            also: Vec::new(),
-            at: None,
-            reason,
-            detail: None,
-            message: message.into(),
-        }
+        Self { item, also: Vec::new(), at: None, reason, detail: None, message: message.into() }
     }
 
     fn about(mut self, detail: impl Into<String>) -> Self {
@@ -98,7 +91,11 @@ pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                         };
                         let done = unused::drop_unused(binds::merge(lift::lift(renamed)));
                         // The emitter finds the same homes by name alone.
-                        debug_assert_eq!(done.homes(|item| done.fns_named(item)), homes, "helper homes differ after renaming");
+                        debug_assert_eq!(
+                            done.homes(|item| done.fns_named(item)),
+                            homes,
+                            "helper homes differ after renaming"
+                        );
                         return Ok(done);
                     }
                     missing => out = missing,

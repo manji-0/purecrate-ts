@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod order_of_eval = "fixtures/order_of_eval.rs");
 
 const SOURCE: &str = order_of_eval::SOURCE;

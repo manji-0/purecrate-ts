@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod guards = "fixtures/guards.rs");
 
 const SOURCE: &str = guards::SOURCE;
@@ -159,7 +158,11 @@ fn a_match_in_an_expression_is_an_expression() {
     }
     assert!(file("is-a").contains("=> k.kind === \"A\";"), "{}", file("is-a"));
     assert!(file("not-c").contains("x && k.kind !== \"C\""), "{}", file("not-c"));
-    assert!(file("or-zero").contains("o ?? (0 as I32)") || file("or-zero").contains("o !== null"), "{}", file("or-zero"));
+    assert!(
+        file("or-zero").contains("o ?? (0 as I32)") || file("or-zero").contains("o !== null"),
+        "{}",
+        file("or-zero")
+    );
 }
 
 /// `!matches!(x, A)` on an enum whose other variants have fields, and
@@ -199,7 +202,12 @@ fn a_guard_that_falls_back_joins_the_test() {
     assert!(file("echoed").contains("o !== null && o > 0 ? o : null"), "{}", file("echoed"));
     let checked = file("checked");
     assert!(checked.contains("if (p.id === null || p.id !== want) return Result.err(1 as I32);"), "{checked}");
-    assert!(checked.contains("if (p.rt === null) return Result.err(3 as I32);\n  if (p.rt !== 7) return Result.err(2 as I32);"), "{checked}");
+    assert!(
+        checked.contains(
+            "if (p.rt === null) return Result.err(3 as I32);\n  if (p.rt !== 7) return Result.err(2 as I32);"
+        ),
+        "{checked}"
+    );
 }
 
 /// A returned choice inside a choice that does not fit on one line is
@@ -269,7 +277,15 @@ fn one_variant_and_the_rest_is_an_if() {
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
-    assert!(file("code").contains("  if (s.kind !== \"A\") return 0 as I32;\n  const n = s.value;\n"), "{}", file("code"));
-    assert!(file("last").contains("  if (s.kind === \"C\") return 2 as I32;\n  return 1 as I32;\n"), "{}", file("last"));
+    assert!(
+        file("code").contains("  if (s.kind !== \"A\") return 0 as I32;\n  const n = s.value;\n"),
+        "{}",
+        file("code")
+    );
+    assert!(
+        file("last").contains("  if (s.kind === \"C\") return 2 as I32;\n  return 1 as I32;\n"),
+        "{}",
+        file("last")
+    );
     assert!(file("is-b").contains("=> s.kind === \"B\""), "{}", file("is-b"));
 }

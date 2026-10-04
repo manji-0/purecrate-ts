@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod borrow = "fixtures/borrow.rs");
 
 const SOURCE: &str = borrow::SOURCE;

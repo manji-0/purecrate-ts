@@ -9,7 +9,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod invoice = "../../../examples/invoice/src/lib.rs");
 
 const SOURCE: &str = invoice::SOURCE;
@@ -17,22 +16,51 @@ const SOURCE: &str = invoice::SOURCE;
 /// The same rules without the subset's constraints. Not converted.
 mod idiomatic {
     #[derive(Clone, Copy, PartialEq)]
-    pub enum Rate { Standard, Reduced }
+    pub enum Rate {
+        Standard,
+        Reduced,
+    }
     #[derive(Clone, Copy, PartialEq)]
-    pub enum Pricing { Exclusive, Inclusive }
+    pub enum Pricing {
+        Exclusive,
+        Inclusive,
+    }
     #[derive(Clone, Copy)]
-    pub enum Rounding { Down, Up, HalfUp }
+    pub enum Rounding {
+        Down,
+        Up,
+        HalfUp,
+    }
     #[derive(Clone, Copy)]
-    pub enum Method { Separate, ToExclusive(Rounding) }
-    pub struct Line { pub amount: i64, pub rate: Rate, pub pricing: Pricing }
+    pub enum Method {
+        Separate,
+        ToExclusive(Rounding),
+    }
+    pub struct Line {
+        pub amount: i64,
+        pub rate: Rate,
+        pub pricing: Pricing,
+    }
     #[derive(Debug, PartialEq)]
-    pub struct Group { pub base: i64, pub tax: i64 }
+    pub struct Group {
+        pub base: i64,
+        pub tax: i64,
+    }
     #[derive(Debug, PartialEq)]
-    pub struct Summary { pub standard: Group, pub reduced: Group, pub standard_inclusive: Group, pub reduced_inclusive: Group, pub total: i64 }
+    pub struct Summary {
+        pub standard: Group,
+        pub reduced: Group,
+        pub standard_inclusive: Group,
+        pub reduced_inclusive: Group,
+        pub total: i64,
+    }
 
     impl Rate {
         fn percent(self) -> i64 {
-            match self { Rate::Standard => 10, Rate::Reduced => 8 }
+            match self {
+                Rate::Standard => 10,
+                Rate::Reduced => 8,
+            }
         }
     }
 
@@ -54,7 +82,9 @@ mod idiomatic {
                 .filter(|l| l.rate == rate)
                 .filter_map(|l| match (l.pricing, method) {
                     (Pricing::Inclusive, Method::Separate) => apart.then_some(l.amount),
-                    (Pricing::Inclusive, Method::ToExclusive(c)) => (!apart).then(|| divide(l.amount * 100, 100 + rate.percent(), c)),
+                    (Pricing::Inclusive, Method::ToExclusive(c)) => {
+                        (!apart).then(|| divide(l.amount * 100, 100 + rate.percent(), c))
+                    }
                     (Pricing::Exclusive, _) => (!apart).then_some(l.amount),
                 })
                 .sum();
@@ -111,8 +141,14 @@ fn to_idiomatic(inv: &Invoice) -> (Vec<idiomatic::Line>, idiomatic::Rounding, id
         .iter()
         .map(|l| idiomatic::Line {
             amount: l.amount.value(),
-            rate: match l.rate { Rate::Standard => idiomatic::Rate::Standard, Rate::Reduced => idiomatic::Rate::Reduced },
-            pricing: match l.pricing { Pricing::Exclusive => idiomatic::Pricing::Exclusive, Pricing::Inclusive => idiomatic::Pricing::Inclusive },
+            rate: match l.rate {
+                Rate::Standard => idiomatic::Rate::Standard,
+                Rate::Reduced => idiomatic::Rate::Reduced,
+            },
+            pricing: match l.pricing {
+                Pricing::Exclusive => idiomatic::Pricing::Exclusive,
+                Pricing::Inclusive => idiomatic::Pricing::Inclusive,
+            },
         })
         .collect();
     let method = match &inv.method {
@@ -189,9 +225,13 @@ fn the_tax_agencys_examples_come_out_as_printed() {
 
     // 問57: a month's tax-inclusive invoice, 60,000 at 10% and 40,000 at 8%.
     let s = summarize(&separate(
-        vec![line(5_000, Rate::Reduced, Pricing::Inclusive), line(8_000, Rate::Reduced, Pricing::Inclusive),
-             line(27_000, Rate::Reduced, Pricing::Inclusive), line(2_000, Rate::Standard, Pricing::Inclusive),
-             line(58_000, Rate::Standard, Pricing::Inclusive)],
+        vec![
+            line(5_000, Rate::Reduced, Pricing::Inclusive),
+            line(8_000, Rate::Reduced, Pricing::Inclusive),
+            line(27_000, Rate::Reduced, Pricing::Inclusive),
+            line(2_000, Rate::Standard, Pricing::Inclusive),
+            line(58_000, Rate::Standard, Pricing::Inclusive),
+        ],
         Rounding::Down,
     ))
     .unwrap();
@@ -201,8 +241,12 @@ fn the_tax_agencys_examples_come_out_as_printed() {
 
     // 問57 (参考): four sellers' tax-exclusive amounts, one rounding per rate.
     let s = summarize(&separate(
-        vec![line(11_345, Rate::Standard, Pricing::Exclusive), line(9_987, Rate::Reduced, Pricing::Exclusive),
-             line(12_549, Rate::Standard, Pricing::Exclusive), line(12_345, Rate::Reduced, Pricing::Exclusive)],
+        vec![
+            line(11_345, Rate::Standard, Pricing::Exclusive),
+            line(9_987, Rate::Reduced, Pricing::Exclusive),
+            line(12_549, Rate::Standard, Pricing::Exclusive),
+            line(12_345, Rate::Reduced, Pricing::Exclusive),
+        ],
         Rounding::Down,
     ))
     .unwrap();
@@ -213,10 +257,20 @@ fn the_tax_agencys_examples_come_out_as_printed() {
     assert_ne!(s.reduced.tax.value(), 798 + 987);
 
     // 問59: pen 218 (10%), coffee 120 (8%), tobacco 580 tax-inclusive (10%).
-    let receipt = || vec![line(218, Rate::Standard, Pricing::Exclusive), line(120, Rate::Reduced, Pricing::Exclusive),
-                          line(580, Rate::Standard, Pricing::Inclusive)];
+    let receipt = || {
+        vec![
+            line(218, Rate::Standard, Pricing::Exclusive),
+            line(120, Rate::Reduced, Pricing::Exclusive),
+            line(580, Rate::Standard, Pricing::Inclusive),
+        ]
+    };
     // Method 1: 580 × 100/110 ≒ 527, so 745 at 10% with tax 74, and 120 with tax 9.
-    let one = summarize(&Invoice { lines: receipt(), rounding: Rounding::Down, method: Method::ToExclusive { conversion: Rounding::Down } }).unwrap();
+    let one = summarize(&Invoice {
+        lines: receipt(),
+        rounding: Rounding::Down,
+        method: Method::ToExclusive { conversion: Rounding::Down },
+    })
+    .unwrap();
     assert_eq!((one.standard.base.value(), one.standard.tax.value()), (745, 74));
     assert_eq!((one.reduced.base.value(), one.reduced.tax.value()), (120, 9));
     assert_eq!(one.total.value(), 948);

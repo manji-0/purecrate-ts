@@ -69,19 +69,20 @@ impl Folder<'_, '_> {
                         };
                         Ok(Lit::Bool(if *op == BinOp::And { l && r } else { l || r }))
                     }
-                    (Prim::Char, Expr::Lit(l @ Lit::Char(_))) | (Prim::Str, Expr::Lit(l @ Lit::Str(_))) => Ok(l.clone()),
+                    (Prim::Char, Expr::Lit(l @ Lit::Char(_))) | (Prim::Str, Expr::Lit(l @ Lit::Str(_))) => {
+                        Ok(l.clone())
+                    }
                     (_, Expr::Lit(Lit::Float { digits, ty: None | Some(_) })) if p.float().is_some() => {
                         Ok(Lit::Float { digits: digits.clone(), ty: p.float() })
                     }
                     (_, Expr::Unary { op: UnOp::Neg, expr }) if p.float().is_some() => match self.value(ty, expr)? {
-                        Lit::Float { digits, ty } if !digits.starts_with('-') => Ok(Lit::Float { digits: format!("-{digits}"), ty }),
+                        Lit::Float { digits, ty } if !digits.starts_with('-') => {
+                            Ok(Lit::Float { digits: format!("-{digits}"), ty })
+                        }
                         Lit::Float { digits, ty } => Ok(Lit::Float { digits: digits[1..].to_string(), ty }),
                         _ => unreachable!("a float const folds to a float"),
                     },
-                    _ => Err(format!(
-                        "a `{}` const is a literal or another const in v0",
-                        crate::types::show(ty)
-                    )),
+                    _ => Err(format!("a `{}` const is a literal or another const in v0", crate::types::show(ty))),
                 },
             },
             _ => Err(format!(
@@ -189,7 +190,10 @@ impl Folder<'_, '_> {
     /// literal is `i32`, as rustc types it.
     fn shift_amount(&self, expr: &Expr) -> Result<i128, String> {
         match expr {
-            Expr::Lit(Lit::Int { value, ty, .. }) => self.int(ty.unwrap_or(IntTy::I32), &Expr::Lit(Lit::Int { value: *value, ty: *ty, byte: false, hex: false })),
+            Expr::Lit(Lit::Int { value, ty, .. }) => self.int(
+                ty.unwrap_or(IntTy::I32),
+                &Expr::Lit(Lit::Int { value: *value, ty: *ty, byte: false, hex: false }),
+            ),
             Expr::Var(n) => {
                 let c = self.defs.consts.get(n.as_str()).ok_or_else(|| format!("`{}` is not a const", n.as_str()))?;
                 let it = match &c.ty {
@@ -210,9 +214,15 @@ impl Folder<'_, '_> {
         let mut next: Option<i128> = Some(0);
         for v in &e.variants {
             let value = match &v.discriminant {
-                Some(expr) => self.int(it, expr).map_err(|m| format!("`{}::{}`: {m}", e.name.as_str(), v.name.as_str()))?,
+                Some(expr) => {
+                    self.int(it, expr).map_err(|m| format!("`{}::{}`: {m}", e.name.as_str(), v.name.as_str()))?
+                }
                 None => next.ok_or_else(|| {
-                    format!("`{}::{}` would follow the largest `{label}`; rustc rejects it", e.name.as_str(), v.name.as_str())
+                    format!(
+                        "`{}::{}` would follow the largest `{label}`; rustc rejects it",
+                        e.name.as_str(),
+                        v.name.as_str()
+                    )
                 })?,
             };
             if !(lo..=hi).contains(&value) {

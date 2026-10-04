@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 #[test]
@@ -48,14 +47,20 @@ fn string_patterns_match_a_str() {
         "pub fn f(s: String) -> i32 { match s { \"a\" => 1, _ => 2 } }",
         "string patterns match a `&str`, found `String`; match on `s.as_str()`",
     );
-    assert_rejects("pub fn f(x: i32) -> i32 { match x { \"a\" => 1, _ => 2 } }", "string patterns do not match a value of type `i32`");
+    assert_rejects(
+        "pub fn f(x: i32) -> i32 { match x { \"a\" => 1, _ => 2 } }",
+        "string patterns do not match a value of type `i32`",
+    );
 }
 
 #[test]
 fn a_match_on_strings_ends_in_a_wildcard() {
     assert_rejects("pub fn f(s: &str) -> i32 { match s { \"a\" => 1 } }", "a match on strings must end in a `_` arm");
     assert_rejects("pub fn f(s: &str) -> i32 { match s { _ => 0, \"a\" => 1 } }", "`_` must be the last arm");
-    assert_rejects("pub fn f(s: &str) -> i32 { match s { \"a\" => 1, 2 => 2, _ => 3 } }", "match mixes integer arms with other arms");
+    assert_rejects(
+        "pub fn f(s: &str) -> i32 { match s { \"a\" => 1, 2 => 2, _ => 3 } }",
+        "match mixes integer arms with other arms",
+    );
 }
 
 #[test]

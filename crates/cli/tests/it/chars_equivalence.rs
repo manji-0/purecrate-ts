@@ -6,7 +6,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod chars = "fixtures/chars.rs");
 
 const SOURCE: &str = chars::SOURCE;
@@ -45,7 +44,22 @@ fn chars_match_rust() {
         for b in 0u8..=255 {
             cases.push(case!(chars::from_byte(b)));
         }
-        for n in [0u32, 0x7f, 0x80, 0xd7ff, 0xd800, 0xdbff, 0xdc00, 0xdfff, 0xe000, 0xffff, 0x10000, 0x10ffff, 0x110000, u32::MAX] {
+        for n in [
+            0u32,
+            0x7f,
+            0x80,
+            0xd7ff,
+            0xd800,
+            0xdbff,
+            0xdc00,
+            0xdfff,
+            0xe000,
+            0xffff,
+            0x10000,
+            0x10ffff,
+            0x110000,
+            u32::MAX,
+        ] {
             cases.push(case!(chars::from_code(n)));
         }
         cases

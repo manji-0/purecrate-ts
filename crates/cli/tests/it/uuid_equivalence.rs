@@ -8,7 +8,6 @@
 
 use crate::support;
 
-
 use uuid::Uuid;
 
 purecrate_canon::fixture!(mod uuids = "fixtures/uuids.rs");
@@ -78,18 +77,12 @@ fn texts(rng: &mut Rng) -> Vec<String> {
     .map(|s| s.to_string())
     .collect();
     for id in ids(rng, 60) {
-        let forms = [
-            id.hyphenated().to_string(),
-            id.simple().to_string(),
-            id.braced().to_string(),
-            id.urn().to_string(),
-        ];
+        let forms =
+            [id.hyphenated().to_string(), id.simple().to_string(), id.braced().to_string(), id.urn().to_string()];
         for form in forms {
             out.push(form.to_uppercase());
-            let mixed: String = form
-                .chars()
-                .map(|c| if rng.below(2) == 0 { c.to_ascii_uppercase() } else { c })
-                .collect();
+            let mixed: String =
+                form.chars().map(|c| if rng.below(2) == 0 { c.to_ascii_uppercase() } else { c }).collect();
             out.push(mixed);
             let b = form.as_bytes();
             let i = rng.below(b.len());

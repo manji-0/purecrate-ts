@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod strict_types = "fixtures/strict_types.rs");
 
 const SOURCE: &str = strict_types::SOURCE;

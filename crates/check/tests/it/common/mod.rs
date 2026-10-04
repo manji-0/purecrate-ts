@@ -33,10 +33,7 @@ pub fn assert_parse_rejects(source: &str, needle: &str) {
 
 pub fn assert_rejects(source: &str, needle: &str) {
     let found = messages(source);
-    assert!(
-        found.iter().any(|m| m.contains(needle)),
-        "expected a diagnostic containing {needle:?}, got {found:#?}"
-    );
+    assert!(found.iter().any(|m| m.contains(needle)), "expected a diagnostic containing {needle:?}, got {found:#?}");
 }
 
 fn assert_compiles(source: &str) {

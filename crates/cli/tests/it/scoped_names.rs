@@ -9,12 +9,7 @@ fn file(name: &str, source: &str, stem: &str) -> String {
     let krate = parse_source(name, source).expect("parse");
     let typed = accept(&krate).expect("accept");
     let pkg = assemble(&typed);
-    pkg.files
-        .iter()
-        .find(|f| f.stem == stem)
-        .unwrap_or_else(|| panic!("{stem}"))
-        .source
-        .clone()
+    pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("{stem}")).source.clone()
 }
 
 #[test]
@@ -58,11 +53,7 @@ fn sequential_lets_in_one_function_are_numbered() {
             t.starts_with("const n = ") || t.starts_with("const n:")
         })
         .collect();
-    assert_eq!(
-        decls.len(),
-        1,
-        "n is declared once, then numbered:\n{chain}"
-    );
+    assert_eq!(decls.len(), 1, "n is declared once, then numbered:\n{chain}");
 }
 
 #[test]
@@ -146,7 +137,9 @@ fn a_const_states_no_type_its_value_already_has() {
                       n\n\
                   }\n";
     let run = file("consts", source, "run");
-    for line in ["const a = p.a;", "const l = lightOf(a);", "const red = l.kind === \"Red\";", "let n: U32 = Int.u32.add("] {
+    for line in
+        ["const a = p.a;", "const l = lightOf(a);", "const red = l.kind === \"Red\";", "let n: U32 = Int.u32.add("]
+    {
         assert!(run.contains(line), "{line}:\n{run}");
     }
     assert!(run.contains("const g: Light = { kind: \"Green\" };"), "{run}");

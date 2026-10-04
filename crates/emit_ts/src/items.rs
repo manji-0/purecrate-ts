@@ -27,8 +27,7 @@ pub(crate) fn jsdoc(doc: &Option<String>, indent: &str) -> String {
 /// `tyName`, marked `@internal` (see `private_method`).
 pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     let mut out = String::new();
-    let (public, private): (Vec<&Fn>, Vec<&Fn>) =
-        methods_on(krate, ty).into_iter().partition(|m| m.vis == Vis::Pub);
+    let (public, private): (Vec<&Fn>, Vec<&Fn>) = methods_on(krate, ty).into_iter().partition(|m| m.vis == Vis::Pub);
     for m in public {
         out.push_str(&jsdoc(&m.doc, "  "));
         out.push_str(&format!(
@@ -102,11 +101,7 @@ pub(crate) fn variant_type(v: &purecrate_ir::Variant) -> String {
             format!("Readonly<{{ kind: \"{kind}\"; value: {} }}>", emit_ty(&elems[0]))
         }
         VariantFields::Tuple(elems) => {
-            let inner = elems
-                .iter()
-                .map(emit_ty)
-                .collect::<Vec<_>>()
-                .join(", ");
+            let inner = elems.iter().map(emit_ty).collect::<Vec<_>>().join(", ");
             format!("Readonly<{{ kind: \"{kind}\"; content: readonly [{inner}] }}>")
         }
         VariantFields::Struct(fields) => {
@@ -127,11 +122,7 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
             format!("(value: {}): {ty} => ({{ kind: \"{kind}\", value }})", emit_ty(&elems[0]))
         }
         VariantFields::Tuple(elems) => {
-            let params: Vec<String> = elems
-                .iter()
-                .enumerate()
-                .map(|(i, t)| format!("_{i}: {}", emit_ty(t)))
-                .collect();
+            let params: Vec<String> = elems.iter().enumerate().map(|(i, t)| format!("_{i}: {}", emit_ty(t))).collect();
             let args: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
             format!(
                 "({params}): {ty} => ({{ kind: \"{kind}\", content: [{args}] }})",
@@ -140,10 +131,8 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
             )
         }
         VariantFields::Struct(fields) => {
-            let params: Vec<String> = fields
-                .iter()
-                .map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty)))
-                .collect();
+            let params: Vec<String> =
+                fields.iter().map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty))).collect();
             let assigns: Vec<String> = fields.iter().map(|f| ctor_assign(f.name.as_str())).collect();
             format!(
                 "({params}): {ty} => ({{ kind: \"{kind}\", {assigns} }})",
@@ -177,16 +166,9 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
         .map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    let assigns = st
-        .fields
-        .iter()
-        .map(|f| ctor_assign(f.name.as_str()))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let assigns = st.fields.iter().map(|f| ctor_assign(f.name.as_str())).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("export const {name} = {{\n"));
-    out.push_str(&format!(
-        "  of: ({params}): {name} => ({{ {assigns} }}),\n"
-    ));
+    out.push_str(&format!("  of: ({params}): {name} => ({{ {assigns} }}),\n"));
     out.push_str(&companion_methods(krate, name));
     out
 }
@@ -219,12 +201,8 @@ pub(crate) fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) 
 /// not one, and with no `of` on the companion (design/01 §4).
 pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> String {
     let name = st.name.as_str();
-    let shape = st
-        .fields
-        .iter()
-        .map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty)))
-        .collect::<Vec<_>>()
-        .join("; ");
+    let shape =
+        st.fields.iter().map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty))).collect::<Vec<_>>().join("; ");
     let mut out = format!("export type {name} = Readonly<{{\n{fields}\n}}> & {};\n\n", brand(krate, name));
     out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
     out.push_str(&format!("export const {name} = {{\n"));
@@ -263,9 +241,10 @@ fn ctor_assign(field: &str) -> String {
 }
 
 pub(crate) fn emit_free_fn(f: &Fn) -> String {
-    jsdoc(&f.doc, "") + &format!(
-        "export const {name} = {impl};\n",
-        name = f.name.as_str(),
-        impl = fn_arrow(f, 0)
-    )
+    jsdoc(&f.doc, "")
+        + &format!(
+            "export const {name} = {impl};\n",
+            name = f.name.as_str(),
+            impl = fn_arrow(f, 0)
+        )
 }

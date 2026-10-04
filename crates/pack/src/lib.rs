@@ -75,13 +75,14 @@ pub fn assemble_with_license(
 ) -> Package {
     let mut pkg = emit(krate);
     if let Some(schema) = schema {
-        pkg.files.push(TsFile {
-            stem: "purecrate-wire".to_string(),
-            source: emit_wire(krate, schema),
-        });
+        pkg.files.push(TsFile { stem: "purecrate-wire".to_string(), source: emit_wire(krate, schema) });
         pkg.files.push(TsFile {
             stem: schema.package().to_string(),
-            source: copied(schema.package(), &format!("packages/boundary-{}", schema.runtime_dep()), adapter_source(schema)),
+            source: copied(
+                schema.package(),
+                &format!("packages/boundary-{}", schema.runtime_dep()),
+                adapter_source(schema),
+            ),
         });
     }
     // With a schema the index also exports `parseJson`, which reads the
@@ -111,8 +112,8 @@ pub fn assemble_with_license(
         // Rewriting `from "purecrate"` to `from "./purecrate-runtime.ts"` can
         // push an import over the width; wrap again after the paths are final.
         // Copied runtime and adapters are hand-written and must not be rewrapped.
-        let copied = file.stem == "purecrate-runtime"
-            || (file.stem.starts_with("purecrate-") && file.stem != "purecrate-wire");
+        let copied =
+            file.stem == "purecrate-runtime" || (file.stem.starts_with("purecrate-") && file.stem != "purecrate-wire");
         if !copied && !file.stem.contains('.') {
             file.source = wrap_source(&file.source);
         }
@@ -190,11 +191,7 @@ fn package_json(name: &str, version: &str, license: &str, schema: Option<WireSch
         Access::Private => "  \"private\": true,\n",
         Access::Publishable => "",
     };
-    let engines = if schema.is_some() {
-        "  \"engines\": { \"node\": \">=21\" },\n"
-    } else {
-        ""
-    };
+    let engines = if schema.is_some() { "  \"engines\": { \"node\": \">=21\" },\n" } else { "" };
     let peers = if peers.is_empty() {
         String::new()
     } else {
@@ -252,7 +249,8 @@ mod tests {
             }
         }
         let pkg = assemble_with(&krate, Some(WireSchema::Zod));
-        let file = |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
+        let file =
+            |stem: &str| &pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("no {stem}")).source;
         assert!(file(RUNTIME_STEM).starts_with(HEADER) && file(RUNTIME_STEM).contains("export const Int = {"));
         assert!(file(RUNTIME_STEM).contains("Copyright (c) 2026 Wataru Manji"));
         assert!(file(RUNTIME_STEM).contains("Permission is hereby granted"));

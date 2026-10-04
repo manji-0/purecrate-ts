@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Variant, VariantFields, Vis, NEWTYPE_FIELD,
+    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Variant, VariantFields, Vis,
+    NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -20,10 +21,7 @@ pub struct LineCol {
 impl LineCol {
     pub fn of(span: proc_macro2::Span) -> Self {
         let start = span.start();
-        Self {
-            line: start.line,
-            col: start.column + 1,
-        }
+        Self { line: start.line, col: start.column + 1 }
     }
 }
 
@@ -39,12 +37,7 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn new(reason: Reason, message: impl Into<String>) -> Self {
-        Self {
-            reason,
-            detail: None,
-            message: message.into(),
-            at: None,
-        }
+        Self { reason, detail: None, message: message.into(), at: None }
     }
 
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
@@ -264,10 +257,7 @@ fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
                  the one exception is `#[serde(try_from = \"T\")]` on a struct",
             )
         } else if path.is_ident("cfg") || path.is_ident("cfg_attr") {
-            (
-                Reason::Cfg,
-                "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`",
-            )
+            (Reason::Cfg, "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`")
         } else {
             continue;
         };
@@ -327,9 +317,9 @@ impl WithDoc for Fn {
 fn serde_derives(attrs: &[syn::Attribute]) -> Serde {
     let mut out = Serde::default();
     for attr in attrs.iter().filter(|a| a.path().is_ident("derive")) {
-        let Ok(paths) = attr.parse_args_with(
-            syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
-        ) else {
+        let Ok(paths) =
+            attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
+        else {
             continue;
         };
         for path in paths {
@@ -362,19 +352,18 @@ fn wire_from_attr(attr: &syn::Attribute) -> Result<syn::Type, ParseError> {
         return Err(not_try_from());
     }
     match &nv.value {
-        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => s.parse::<syn::Type>().map_err(|_| not_try_from()),
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => {
+            s.parse::<syn::Type>().map_err(|_| not_try_from())
+        }
         _ => Err(not_try_from()),
     }
 }
 
 /// `#[cfg(test)]` items are absent from the build the TS mirrors.
 pub fn is_test_only(item: &SynItem) -> bool {
-    item_attrs(item).iter().any(|attr| {
-        attr.path().is_ident("cfg")
-            && attr
-                .parse_args::<syn::Ident>()
-                .is_ok_and(|id| id == "test")
-    })
+    item_attrs(item)
+        .iter()
+        .any(|attr| attr.path().is_ident("cfg") && attr.parse_args::<syn::Ident>().is_ok_and(|id| id == "test"))
 }
 
 /// Each lowered item paired with the location of its name.
@@ -547,11 +536,9 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
                 "unit structs are not in v0; write `struct S {}` or an enum",
             ))
         }
-        SynFields::Unnamed(u) if u.unnamed.len() == 1 => vec![Field {
-            name: Name::new(NEWTYPE_FIELD),
-            ty: lower_type(&u.unnamed[0].ty)?,
-            doc: None,
-        }],
+        SynFields::Unnamed(u) if u.unnamed.len() == 1 => {
+            vec![Field { name: Name::new(NEWTYPE_FIELD), ty: lower_type(&u.unnamed[0].ty)?, doc: None }]
+        }
         SynFields::Unnamed(_) => {
             return Err(ParseError::new(
                 Reason::TupleStruct,
@@ -581,11 +568,7 @@ fn lower_fields(fields: &SynFields) -> Result<VariantFields, ParseError> {
     match fields {
         SynFields::Unit => Ok(VariantFields::Unit),
         SynFields::Unnamed(u) => {
-            let tys = u
-                .unnamed
-                .iter()
-                .map(|f| lower_type(&f.ty))
-                .collect::<Result<Vec<_>, _>>()?;
+            let tys = u.unnamed.iter().map(|f| lower_type(&f.ty)).collect::<Result<Vec<_>, _>>()?;
             Ok(VariantFields::Tuple(tys))
         }
         SynFields::Named(n) => {
@@ -614,9 +597,7 @@ fn lower_fn(
     block: &syn::Block,
 ) -> Result<Fn, ParseError> {
     let reject = |what: &str, span: proc_macro2::Span| {
-        Err(ParseError::new(Reason::FnQualifier, format!("{what} is not allowed in v0"))
-            .detail(what)
-            .or_at(span))
+        Err(ParseError::new(Reason::FnQualifier, format!("{what} is not allowed in v0")).detail(what).or_at(span))
     };
     if let Some(t) = &sig.asyncness {
         return reject("async", t.span);
@@ -656,21 +637,15 @@ fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseE
                 Reason::RefReceiver,
                 "`&mut self` is not in v0: take `self` and return the new value",
             )),
-            Some(owner) => Ok(Param {
-                name: Name::new("self"),
-                ty: purecrate_ir::Ty::Named(owner.clone()),
-            }),
+            Some(owner) => Ok(Param { name: Name::new("self"), ty: purecrate_ir::Ty::Named(owner.clone()) }),
             None => Err(ParseError::new(Reason::UnsupportedItem, "`self` outside an impl block")),
         },
         syn::FnArg::Typed(p) => match &*p.pat {
-            syn::Pat::Ident(id) if id.mutability.is_some() => Err(ParseError::new(Reason::MutParam, format!(
-                "`mut` parameters are not in v0; write `let mut {0} = {0};` in the body",
-                id.ident
-            ))),
-            syn::Pat::Ident(id) => Ok(Param {
-                name: Name::new(id.ident.to_string()),
-                ty: lower_type(&p.ty)?,
-            }),
+            syn::Pat::Ident(id) if id.mutability.is_some() => Err(ParseError::new(
+                Reason::MutParam,
+                format!("`mut` parameters are not in v0; write `let mut {0} = {0};` in the body", id.ident),
+            )),
+            syn::Pat::Ident(id) => Ok(Param { name: Name::new(id.ident.to_string()), ty: lower_type(&p.ty)? }),
             _ => Err(ParseError::new(Reason::ParamPattern, "only named parameters")),
         },
     }
@@ -775,8 +750,13 @@ fn written_arg(e: &syn::Expr, formatter: &syn::Ident) -> Option<syn::Expr> {
             _ => None,
         },
         syn::Expr::Macro(m) if m.mac.path.is_ident("write") => {
-            let args = m.mac.parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated).ok()?;
-            let [syn::Expr::Path(target), syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. })] = args.iter().collect::<Vec<_>>()[..] else {
+            let args = m
+                .mac
+                .parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
+                .ok()?;
+            let [syn::Expr::Path(target), syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. })] =
+                args.iter().collect::<Vec<_>>()[..]
+            else {
                 return None;
             };
             if !target.path.is_ident(formatter) {
@@ -788,7 +768,10 @@ fn written_arg(e: &syn::Expr, formatter: &syn::Ident) -> Option<syn::Expr> {
                 return None;
             }
             let unescaped = value.replace("{{", "{").replace("}}", "}");
-            Some(syn::Expr::Lit(syn::ExprLit { attrs: Vec::new(), lit: syn::Lit::Str(syn::LitStr::new(&unescaped, text.span())) }))
+            Some(syn::Expr::Lit(syn::ExprLit {
+                attrs: Vec::new(),
+                lit: syn::Lit::Str(syn::LitStr::new(&unescaped, text.span())),
+            }))
         }
         _ => None,
     }
@@ -797,7 +780,9 @@ fn written_arg(e: &syn::Expr, formatter: &syn::Ident) -> Option<syn::Expr> {
 /// `e` when it is a string literal or a `match self` whose arms are.
 fn fixed_text(e: &syn::Expr) -> Option<syn::Expr> {
     match e {
-        syn::Expr::Match(m) if is_self(&m.expr) && m.arms.iter().all(|a| a.guard.is_none() && literal(&a.body).is_some()) => {
+        syn::Expr::Match(m)
+            if is_self(&m.expr) && m.arms.iter().all(|a| a.guard.is_none() && literal(&a.body).is_some()) =>
+        {
             Some(e.clone())
         }
         other => literal(other),
@@ -834,13 +819,17 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
                 SelfError(&error).visit_impl_item_fn_mut(&mut f);
                 SelfIsOwner(owner_ident).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
-                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block).map(|l| l.with_doc(&f.attrs))
+                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block)
+                    .map(|l| l.with_doc(&f.attrs))
                     .map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
             }
             other => {
-                return Err(ParseError::new(Reason::ImplShape, "`impl TryFrom` has only `type Error` and `fn try_from`")
-                    .or_at(other.span()))
+                return Err(ParseError::new(
+                    Reason::ImplShape,
+                    "`impl TryFrom` has only `type Error` and `fn try_from`",
+                )
+                .or_at(other.span()))
             }
         }
     }
@@ -869,7 +858,10 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     let kind = match &imp.trait_ {
         None => None,
         Some((_, path, _)) => Some(trait_impl(path).ok_or_else(|| {
-            ParseError::new(Reason::TraitImpl, "trait impls are not in v0, except `Display`, `Error` (skipped) and `TryFrom<T>`")
+            ParseError::new(
+                Reason::TraitImpl,
+                "trait impls are not in v0, except `Display`, `Error` (skipped) and `TryFrom<T>`",
+            )
         })?),
     };
     if matches!(kind, Some(TraitImpl::Skipped)) {

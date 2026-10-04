@@ -48,9 +48,7 @@ pub(crate) fn plain_names(src: &str) -> String {
             .unwrap_or((0, src.len()));
         let taken = |name: &str| {
             RESERVED.contains(&name)
-                || spans.iter().any(|&(start, end)| {
-                    region.0 <= start && end <= region.1 && &src[start..end] == name
-                })
+                || spans.iter().any(|&(start, end)| region.0 <= start && end <= region.1 && &src[start..end] == name)
                 || given.iter().any(|((open, close), n)| n == name && *open < region.1 && region.0 < *close)
         };
         let (base, from) = made(word).expect("a made name");
@@ -201,11 +199,55 @@ fn camel(s: &str) -> String {
 
 /// Words a binding may not be named, in strict-mode TS.
 const RESERVED: &[&str] = &[
-    "arguments", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete",
-    "do", "else", "enum", "eval", "export", "extends", "false", "finally", "for", "function", "if", "implements",
-    "import", "in", "instanceof", "interface", "let", "new", "null", "package", "private", "protected", "public",
-    "return", "static", "super", "switch", "this", "throw", "true", "try", "typeof", "undefined", "var", "void",
-    "while", "with", "yield",
+    "arguments",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "eval",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "instanceof",
+    "interface",
+    "let",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "static",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "undefined",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
 ];
 
 #[cfg(test)]
@@ -224,7 +266,10 @@ mod tests {
     #[test]
     fn a_name_is_taken_only_where_the_made_one_is_used() {
         let src = "const f = () => { const $v = g(); return $v; };\nconst h = () => { const v = 1; return v; };\n";
-        assert_eq!(plain_names(src), "const f = () => { const v = g(); return v; };\nconst h = () => { const v = 1; return v; };\n");
+        assert_eq!(
+            plain_names(src),
+            "const f = () => { const v = g(); return v; };\nconst h = () => { const v = 1; return v; };\n"
+        );
         // An outer name read inside the block is not hidden.
         let src = "const f = (v) => { const $v = g(); return $v + v; };\n";
         assert_eq!(plain_names(src), "const f = (v) => { const v2 = g(); return v2 + v; };\n");
@@ -247,7 +292,10 @@ mod tests {
 
     #[test]
     fn a_shadow_counts_from_two_past_what_is_taken() {
-        assert_eq!(plain_names("const pre = 1; const pre$1 = pre; const pre2 = 3;"), "const pre = 1; const pre3 = pre; const pre2 = 3;");
+        assert_eq!(
+            plain_names("const pre = 1; const pre$1 = pre; const pre2 = 3;"),
+            "const pre = 1; const pre3 = pre; const pre2 = 3;"
+        );
         assert_eq!(made("$major_or"), Some(("majorOr".into(), 1)));
         assert_eq!(made("$t$1"), Some(("t".into(), 1)));
         assert_eq!(made("pre$1"), Some(("pre".into(), 2)));

@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 const DEFS: &str = "pub enum Cmd { Move(i32, i32), Paint { color: i32 }, Stop }\n\
@@ -31,9 +30,7 @@ fn tuples_nest() {
 
 #[test]
 fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
-    assert_clean(
-        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, _)) => a, None => s } }",
-    );
+    assert_clean("pub fn f(s: &str) -> &str { match s.split_once('+') { Some((a, _)) => a, None => s } }");
     assert_clean(
         "pub fn f(s: &str) -> bool { match s.split_once('-') { Some((a, b)) if a.is_empty() => b.is_empty(), _ => false } }",
     );
@@ -41,7 +38,9 @@ fn a_tuple_of_names_inside_a_variant_is_one_pattern() {
         "pub fn f(o: Option<(i32, i32)>, n: i32) -> i32 { match (o, n) { (Some((a, b)), 0) => a + b, _ => n } }",
     );
     assert_clean("pub enum E { P((i32, i32)) } pub fn f(e: E) -> i32 { match e { E::P((a, b)) => a + b } }");
-    assert_clean("pub fn f(s: &str) -> &str { match s.split_once('+') { Some((\"a\", b)) => b, Some((a, _)) => a, None => s } }");
+    assert_clean(
+        "pub fn f(s: &str) -> &str { match s.split_once('+') { Some((\"a\", b)) => b, Some((a, _)) => a, None => s } }",
+    );
     assert_clean("pub fn f(o: Option<(i32, (i32, i32))>) -> i32 { match o { Some((a, (b, 1))) => a + b, _ => 0 } }");
 }
 
@@ -56,10 +55,7 @@ fn elements_follow_the_arm_rules() {
 
 #[test]
 fn alternatives_of_tuples_bind_nothing() {
-    assert_parse_rejects(
-        &run("match (d, n) { (Dir::Up, m) | (Dir::Down, m) => m }"),
-        "`|` arms may not bind names",
-    );
+    assert_parse_rejects(&run("match (d, n) { (Dir::Up, m) | (Dir::Down, m) => m }"), "`|` arms may not bind names");
 }
 
 #[test]
@@ -69,7 +65,9 @@ fn tuple_patterns_need_a_tuple() {
 
 #[test]
 fn patterns_nest_in_a_case() {
-    assert_clean(&run("match c { Cmd::Move(0, y) => y, Cmd::Move(x, 1..=9) => x, Cmd::Paint { color: 7 } => 7, _ => 0 }"));
+    assert_clean(&run(
+        "match c { Cmd::Move(0, y) => y, Cmd::Move(x, 1..=9) => x, Cmd::Paint { color: 7 } => 7, _ => 0 }",
+    ));
     assert_clean(&run("match o { Some(0) => 1, Some(m) if m > n => m, Some(_) => 2, None => 3 }"));
     assert_clean(&run("if matches!(c, Cmd::Move(_, 0)) { 1 } else { 0 }"));
     assert_clean(

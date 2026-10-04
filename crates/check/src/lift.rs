@@ -9,10 +9,7 @@ pub fn lift(krate: Crate) -> Crate {
         .items
         .into_iter()
         .map(|item| match item {
-            Item::Fn(f) => Item::Fn(Fn {
-                body: lift_body(f.body),
-                ..f
-            }),
+            Item::Fn(f) => Item::Fn(Fn { body: lift_body(f.body), ..f }),
             other => other,
         })
         .collect();
@@ -56,7 +53,8 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
             };
             let mut fresh = |n: &Name| {
                 *made += 1;
-                let base = n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+                let base =
+                    n.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
                 let base = match base {
                     "opt" if !local.is_empty() => format!("{local}Opt"),
                     "optOr" if !local.is_empty() => format!("{local}Or"),
@@ -70,16 +68,26 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
             // return ..;`), with no copy. A `let mut` keeps its own type.
             // A made local (a tuple's, a hoisted value's) and a receiver
             // that is a place, read in place, keep the made option.
-            let direct = !*mutable && !name.as_str().starts_with('$') && !matches!(recv, Expr::Var(_) | Expr::Field { .. });
+            let direct =
+                !*mutable && !name.as_str().starts_with('$') && !matches!(recv, Expr::Var(_) | Expr::Field { .. });
             let opt = if direct { name.clone() } else { opt };
             let then = std::mem::replace(&mut **then, Expr::Unreachable);
             let guard = Expr::If {
                 cond: Box::new(Expr::Call { callee: Callee::OptionIsNone, args: vec![Expr::Var(opt.clone())] }),
-                then: Box::new(Expr::Return(Box::new(Expr::Call { callee: Callee::ResultErr, args: vec![Expr::Var(arg.clone())] }))),
+                then: Box::new(Expr::Return(Box::new(Expr::Call {
+                    callee: Callee::ResultErr,
+                    args: vec![Expr::Var(arg.clone())],
+                }))),
                 else_: Box::new(Expr::Lit(Lit::Unit)),
             };
             let bind = if !direct {
-                Expr::Let { name: name.clone(), mutable: *mutable, ty: ty.clone(), value: Box::new(Expr::Var(opt.clone())), then: Box::new(then) }
+                Expr::Let {
+                    name: name.clone(),
+                    mutable: *mutable,
+                    ty: ty.clone(),
+                    value: Box::new(Expr::Var(opt.clone())),
+                    then: Box::new(then),
+                }
             } else {
                 then
             };
@@ -186,7 +194,10 @@ impl Lifter {
             }
             _ => format!("${}", what.to_ascii_lowercase()),
         };
-        let name = (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}{i}") }).find(|n| !self.taken.contains(n)).expect("a free name");
+        let name = (1..)
+            .map(|i| if i == 1 { base.clone() } else { format!("{base}{i}") })
+            .find(|n| !self.taken.contains(n))
+            .expect("a free name");
         self.taken.insert(name.clone());
         Name::new(name)
     }
@@ -197,8 +208,7 @@ impl Lifter {
             // name meets no other, and `a` runs first either way. A `?` in
             // `a` then leaves from the statement, not from a block in `x`'s
             // value (`let s = o.unwrap_or(..)` over `f(g()?)`).
-            Expr::Let { name, mutable, ty, value, then }
-                if matches!(&*value, Expr::Let { name: t, value: tv, .. } if t.as_str().starts_with('$') && has_try(tv)) =>
+            Expr::Let { name, mutable, ty, value, then } if matches!(&*value, Expr::Let { name: t, value: tv, .. } if t.as_str().starts_with('$') && has_try(tv)) =>
             {
                 let Expr::Let { name: t, mutable: tm, ty: tt, value: tv, then: tthen } = *value else { unreachable!() };
                 self.stmt(Expr::Let {
@@ -209,91 +219,45 @@ impl Lifter {
                     then: Box::new(Expr::Let { name, mutable, ty, value: tthen, then }),
                 })
             }
-            Expr::Let {
-                name,
-                mutable,
-                ty,
-                value,
-                then,
-            } => {
+            Expr::Let { name, mutable, ty, value, then } => {
                 let (value, hoisted) = match *value {
                     Expr::Try { expr, on } => {
                         let (inner, hoisted) = self.extract(*expr);
-                        (
-                            Expr::Try {
-                                expr: Box::new(inner),
-                                on,
-                            },
-                            hoisted,
-                        )
+                        (Expr::Try { expr: Box::new(inner), on }, hoisted)
                     }
                     v if v.needs_statements() => (self.stmt(v), Vec::new()),
                     v => self.extract(v),
                 };
                 let then = self.stmt(*then);
-                wrap(
-                    hoisted,
-                    Expr::Let {
-                        name,
-                        mutable,
-                        ty,
-                        value: Box::new(value),
-                        then: Box::new(then),
-                    },
-                )
+                wrap(hoisted, Expr::Let { name, mutable, ty, value: Box::new(value), then: Box::new(then) })
             }
             Expr::If { cond, then, else_ } => {
                 let (cond, hoisted) = self.extract(*cond);
                 let (then, else_) = (self.stmt(*then), self.stmt(*else_));
-                wrap(
-                    hoisted,
-                    Expr::If {
-                        cond: Box::new(cond),
-                        then: Box::new(then),
-                        else_: Box::new(else_),
-                    },
-                )
+                wrap(hoisted, Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
             }
             Expr::Match { scrutinee, arms } => {
                 let (scrutinee, hoisted) = self.extract(*scrutinee);
                 let arms = arms
                     .into_iter()
-                    .map(|a| Arm {
-                        guard: None,
-                        pattern: a.pattern,
-                        body: self.stmt(a.body),
-                    })
+                    .map(|a| Arm { guard: None, pattern: a.pattern, body: self.stmt(a.body) })
                     .collect();
-                wrap(
-                    hoisted,
-                    Expr::Match {
-                        scrutinee: Box::new(scrutinee),
-                        arms,
-                    },
-                )
+                wrap(hoisted, Expr::Match { scrutinee: Box::new(scrutinee), arms })
             }
             Expr::Return(value) => {
                 let (value, hoisted) = self.extract(*value);
                 wrap(hoisted, Expr::Return(Box::new(value)))
             }
-            Expr::Assign { name, value } if value.needs_statements() => Expr::Assign {
-                name,
-                value: Box::new(self.stmt(*value)),
-            },
+            Expr::Assign { name, value } if value.needs_statements() => {
+                Expr::Assign { name, value: Box::new(self.stmt(*value)) }
+            }
             Expr::Assign { name, value } => {
                 let (value, hoisted) = self.extract(*value);
-                wrap(
-                    hoisted,
-                    Expr::Assign {
-                        name,
-                        value: Box::new(value),
-                    },
-                )
+                wrap(hoisted, Expr::Assign { name, value: Box::new(value) })
             }
-            Expr::Seq { first, then } => Expr::Seq {
-                first: Box::new(self.stmt(*first)),
-                then: Box::new(self.stmt(*then)),
-            },
+            Expr::Seq { first, then } => {
+                Expr::Seq { first: Box::new(self.stmt(*first)), then: Box::new(self.stmt(*then)) }
+            }
             // The condition runs before every pass, so a `?` in it cannot be
             // hoisted in front of the loop: the loop becomes `while true`
             // whose body computes the condition first and leaves when false.
@@ -321,30 +285,13 @@ impl Lifter {
                 let [start, end]: [Expr; 2] =
                     self.in_order(vec![*start, *end], &mut hoisted).try_into().expect("two bounds in, two out");
                 let body = self.stmt(*body);
-                wrap(
-                    hoisted,
-                    Expr::For {
-                        var,
-                        ty,
-                        start: Box::new(start),
-                        end: Box::new(end),
-                        body: Box::new(body),
-                    },
-                )
+                wrap(hoisted, Expr::For { var, ty, start: Box::new(start), end: Box::new(end), body: Box::new(body) })
             }
             Expr::ForEach { var, over, source: string, body } => {
                 let mut hoisted = Vec::new();
                 let string = self.extract_into(*string, &mut hoisted);
                 let body = self.stmt(*body);
-                wrap(
-                    hoisted,
-                    Expr::ForEach {
-                        var,
-                        over,
-                        source: Box::new(string),
-                        body: Box::new(body),
-                    },
-                )
+                wrap(hoisted, Expr::ForEach { var, over, source: Box::new(string), body: Box::new(body) })
             }
             other => {
                 let (value, hoisted) = self.extract(other);
@@ -402,16 +349,8 @@ impl Lifter {
                 out.push((name, *inner, Some(on)));
                 read
             }
-            Expr::Call { callee, args } => Expr::Call {
-                callee,
-                args: self.in_order(args, out),
-            },
-            Expr::Construct {
-                ty,
-                variant,
-                fields,
-                base,
-            } => {
+            Expr::Call { callee, args } => Expr::Call { callee, args: self.in_order(args, out) },
+            Expr::Construct { ty, variant, fields, base } => {
                 let (shape, names, values): (Shape, Vec<Name>, Vec<Expr>) = match fields {
                     Fields::Unit => (Shape::Unit, Vec::new(), Vec::new()),
                     Fields::Positional(xs) => (Shape::Positional, Vec::new(), xs),
@@ -440,63 +379,32 @@ impl Lifter {
                     Shape::Positional => Fields::Positional(all),
                     Shape::Named => Fields::Named(names.into_iter().zip(all).collect()),
                 };
-                Expr::Construct {
-                    ty,
-                    variant,
-                    fields,
-                    base,
-                }
+                Expr::Construct { ty, variant, fields, base }
             }
             Expr::Tuple(xs) => Expr::Tuple(self.in_order(xs, out)),
             Expr::Array(xs) => Expr::Array(self.in_order(xs, out)),
             // A block's first value runs first, so its `?` may go before the
             // statement: what `ok_or(e)?` takes (`x.checked_add(g()?)`).
-            Expr::Let { name, mutable, ty, value, then } => Expr::Let {
-                name,
-                mutable,
-                ty,
-                value: self.boxed(value, out),
-                then,
-            },
-            Expr::Field { base, name } => Expr::Field {
-                base: self.boxed(base, out),
-                name,
-            },
+            Expr::Let { name, mutable, ty, value, then } => {
+                Expr::Let { name, mutable, ty, value: self.boxed(value, out), then }
+            }
+            Expr::Field { base, name } => Expr::Field { base: self.boxed(base, out), name },
             Expr::Index { base, index } => {
                 let mut xs = self.in_order(vec![*base, *index], out);
                 let index = xs.pop().expect("two");
                 let base = xs.pop().expect("two");
-                Expr::Index {
-                    base: Box::new(base),
-                    index: Box::new(index),
-                }
+                Expr::Index { base: Box::new(base), index: Box::new(index) }
             }
-            Expr::Unary { op, expr } => Expr::Unary {
-                op,
-                expr: self.boxed(expr, out),
-            },
-            Expr::Ignored { wrapper, expr } => Expr::Ignored {
-                wrapper,
-                expr: self.boxed(expr, out),
-            },
-            Expr::Binary {
-                op: op @ (BinOp::And | BinOp::Or),
-                left,
-                right,
-            } => Expr::Binary {
-                op,
-                left: self.boxed(left, out),
-                right,
-            },
+            Expr::Unary { op, expr } => Expr::Unary { op, expr: self.boxed(expr, out) },
+            Expr::Ignored { wrapper, expr } => Expr::Ignored { wrapper, expr: self.boxed(expr, out) },
+            Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+                Expr::Binary { op, left: self.boxed(left, out), right }
+            }
             Expr::Binary { op, left, right } => {
                 let mut xs = self.in_order(vec![*left, *right], out);
                 let right = xs.pop().expect("two");
                 let left = xs.pop().expect("two");
-                Expr::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
+                Expr::Binary { op, left: Box::new(left), right: Box::new(right) }
             }
             other => other,
         }
@@ -524,31 +432,18 @@ impl Lifter {
     fn spill(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
         match expr {
             e if pure(&e) => e,
-            Expr::Construct {
-                ty,
-                variant,
-                fields,
-                base,
-            } => {
+            Expr::Construct { ty, variant, fields, base } => {
                 let fields = match fields {
                     Fields::Unit => Fields::Unit,
                     Fields::Positional(xs) => Fields::Positional(xs.into_iter().map(|x| self.spill(x, out)).collect()),
                     Fields::Named(xs) => Fields::Named(xs.into_iter().map(|(n, x)| (n, self.spill(x, out))).collect()),
                 };
                 let base = base.map(|b| Box::new(self.spill(*b, out)));
-                Expr::Construct {
-                    ty,
-                    variant,
-                    fields,
-                    base,
-                }
+                Expr::Construct { ty, variant, fields, base }
             }
             Expr::Tuple(xs) => Expr::Tuple(xs.into_iter().map(|x| self.spill(x, out)).collect()),
             Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| self.spill(x, out)).collect()),
-            Expr::Ignored { wrapper, expr } => Expr::Ignored {
-                wrapper,
-                expr: Box::new(self.spill(*expr, out)),
-            },
+            Expr::Ignored { wrapper, expr } => Expr::Ignored { wrapper, expr: Box::new(self.spill(*expr, out)) },
             other => {
                 let name = self.fresh(&other, "Value");
                 out.push((name.clone(), other, None));
@@ -569,10 +464,7 @@ fn pure(expr: &Expr) -> bool {
     match expr {
         Expr::Lit(_) | Expr::Var(_) | Expr::Closure { .. } => true,
         Expr::Field { base, .. } => pure(base),
-        Expr::Call {
-            callee: Callee::OptionNone,
-            ..
-        } => true,
+        Expr::Call { callee: Callee::OptionNone, .. } => true,
         _ => false,
     }
 }

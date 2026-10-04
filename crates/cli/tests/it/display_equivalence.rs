@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod display = "fixtures/display.rs");
 
 const SOURCE: &str = display::SOURCE;

@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod loops = "fixtures/loops.rs");
 
 const SOURCE: &str = loops::SOURCE;

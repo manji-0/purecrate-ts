@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod tuple_match = "fixtures/tuple_match.rs");
 
 const SOURCE: &str = tuple_match::SOURCE;
@@ -66,12 +65,7 @@ fn generated_tuple_matches_match_rust() {
 fn every_enum_element_ends_in_assert_never() {
     let krate = purecrate_syntax::parse_source("tuple_match", SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
-    let step = purecrate_pack::assemble(&typed)
-        .files
-        .into_iter()
-        .find(|f| f.stem == "step")
-        .expect("step.ts")
-        .source;
+    let step = purecrate_pack::assemble(&typed).files.into_iter().find(|f| f.stem == "step").expect("step.ts").source;
     assert!(step.contains("switch (event.kind)"), "{step}");
     assert!(step.contains("return assertNever(event);"), "{step}");
     assert!(step.contains("switch (state.kind)"), "{step}");

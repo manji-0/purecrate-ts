@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects, diagnostics};
 use purecrate_check::accept;
 use purecrate_ir::{Callee, Expr, FloatTy, IntOp, IntTy, Item, Lit};
@@ -19,9 +18,7 @@ fn body_of(source: &str, name: &str) -> Expr {
 #[test]
 fn integer_arithmetic_becomes_checked_calls() {
     let body = body_of("pub fn half(a: i32) -> i32 { a / 2 }", "half");
-    let Expr::Call { callee, args } = body else {
-        panic!("expected a call, got {body:?}")
-    };
+    let Expr::Call { callee, args } = body else { panic!("expected a call, got {body:?}") };
     assert_eq!(callee, Callee::Int { ty: IntTy::I32, op: IntOp::Div });
     assert_eq!(args[1], Expr::Lit(Lit::Int { value: 2, ty: Some(IntTy::I32), byte: false, hex: false }));
 }
@@ -29,9 +26,7 @@ fn integer_arithmetic_becomes_checked_calls() {
 #[test]
 fn literals_take_the_type_through_an_alias() {
     let body = body_of("pub type Id = i64;\npub fn next(a: Id) -> Id { a + 1 }", "next");
-    let Expr::Call { callee, args } = body else {
-        panic!("expected a call, got {body:?}")
-    };
+    let Expr::Call { callee, args } = body else { panic!("expected a call, got {body:?}") };
     assert_eq!(callee, Callee::Int { ty: IntTy::I64, op: IntOp::Add });
     assert_eq!(args[1], Expr::Lit(Lit::Int { value: 1, ty: Some(IntTy::I64), byte: false, hex: false }));
 }
@@ -99,10 +94,7 @@ fn comparisons_js_gets_wrong_are_rejected() {
     // By code point, through the runtime (`ordering`).
     assert_clean("pub fn f(a: String, b: String) -> bool { a < b }");
     assert_clean("pub fn f(a: String, b: String) -> bool { a == b }");
-    assert_rejects(
-        "pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }",
-        "use `matches!(x, M::Variant)`",
-    );
+    assert_rejects("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }", "use `matches!(x, M::Variant)`");
     assert_rejects("pub fn f(a: Option<i32>) -> bool { a == None }", "use `is_some()`/`is_none()`");
     let found = diagnostics("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a != b }");
     assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["check/comparison"]);

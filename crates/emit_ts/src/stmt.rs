@@ -8,9 +8,7 @@ use super::*;
 pub(crate) fn jumps_out(expr: &Expr) -> bool {
     match expr {
         Expr::Break | Expr::Continue => true,
-        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => {
-            false
-        }
+        Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => false,
         other => other.children().into_iter().any(jumps_out),
     }
 }
@@ -34,7 +32,8 @@ fn jumps_from_match(expr: &Expr, in_match: bool) -> bool {
 /// Elsewhere it is bare.
 pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
-    let label = jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop", indent) } else { String::new() });
+    let label =
+        jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop", indent) } else { String::new() });
     let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
     out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
@@ -49,9 +48,7 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
     match expr {
         Expr::Return(_) | Expr::Break | Expr::Continue => true,
         Expr::Seq { then, .. } | Expr::Let { then, .. } => ends_in_jump(then),
-        Expr::If { then, else_, .. } => {
-            expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_)
-        }
+        Expr::If { then, else_, .. } => expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_),
         // Printed as a `switch` whose `default` returns, or an `if` chain
         // ending in `else`: it jumps when every arm does.
         Expr::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| ends_in_jump(&a.body)),
@@ -73,7 +70,11 @@ fn breaks(expr: &Expr) -> bool {
 /// A jump that is all of a block (`{ break; }` is the jump then `()`).
 fn lone_jump(expr: &Expr) -> &Expr {
     match expr {
-        Expr::Seq { first, then } if **then == Expr::Lit(Lit::Unit) && matches!(**first, Expr::Break | Expr::Continue | Expr::Return(_)) => first,
+        Expr::Seq { first, then }
+            if **then == Expr::Lit(Lit::Unit) && matches!(**first, Expr::Break | Expr::Continue | Expr::Return(_)) =>
+        {
+            first
+        }
         other => other,
     }
 }
@@ -81,13 +82,17 @@ fn lone_jump(expr: &Expr) -> &Expr {
 /// ` label` of the innermost loop, or nothing when its jumps are bare.
 fn jump_label() -> String {
     let l = innermost_loop();
-    if l.is_empty() { l } else { format!(" {l}") }
+    if l.is_empty() {
+        l
+    } else {
+        format!(" {l}")
+    }
 }
 
 pub(crate) fn innermost_loop() -> String {
-    LOOPS.with(|l| l.borrow().last().cloned().flatten()).expect(
-        "`check::accept` puts `break` and `continue` only inside a loop that is labelled for them",
-    )
+    LOOPS
+        .with(|l| l.borrow().last().cloned().flatten())
+        .expect("`check::accept` puts `break` and `continue` only inside a loop that is labelled for them")
 }
 
 /// Where the value of a statement-lowered expression goes.
@@ -103,14 +108,8 @@ pub(crate) enum Sink<'a> {
 impl Sink<'_> {
     pub(crate) fn finish(self, value: &str, pad: &str, out: &mut String) {
         match self {
-            Sink::Return => out.push_str(&format!(
-                "{pad}return {};\n",
-                crate::tidy::strip_outer(value)
-            )),
-            Sink::Assign(target) => out.push_str(&format!(
-                "{pad}{target} = {};\n",
-                crate::tidy::strip_outer(value)
-            )),
+            Sink::Return => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(value))),
+            Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {};\n", crate::tidy::strip_outer(value))),
             // A variable or `()` has no effect; anything else may panic.
             Sink::Effect if value == "undefined" || is_ident(value) => {}
             Sink::Effect => out.push_str(&format!("{pad}{value};\n")),
@@ -125,7 +124,6 @@ impl Sink<'_> {
             _ => self.finish(&value, &pad, out),
         }
     }
-
 }
 
 /// The matched value of a `match` on something that is not a place, named
@@ -155,15 +153,7 @@ fn lower_first(s: &str) -> String {
 /// evaluated once, in order, as Rust evaluates the range. `i + 1` cannot
 /// overflow below `end`. A brand does not survive `+`, so the step casts
 /// back to the bounds' type, which `check::accept` records.
-pub(crate) fn emit_for(
-    var: &str,
-    ty: IntTy,
-    start: &Expr,
-    end: &Expr,
-    body: &Expr,
-    indent: usize,
-    out: &mut String,
-) {
+pub(crate) fn emit_for(var: &str, ty: IntTy, start: &Expr, end: &Expr, body: &Expr, indent: usize, out: &mut String) {
     let one = if ty.is_big() { "1n" } else { "1" };
     // A literal end is the same value however often it is read.
     let head = if matches!(peel(end), Expr::Lit(_)) {
@@ -227,13 +217,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
             sink.finish("undefined", &pad, out);
         }
-        Expr::Let {
-            name,
-            mutable,
-            ty,
-            value,
-            then,
-        } => {
+        Expr::Let { name, mutable, ty, value, then } => {
             // `let $x: T = e; $x` names `T` for `collect::<T>()` / `sum::<T>()`.
             // `e` is the result; the binding would only be copied into the sink.
             if !*mutable
@@ -251,11 +235,8 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 let pattern = slots.iter().map(|n| n.map_or("", |n| n.as_str())).collect::<Vec<_>>().join(", ");
                 // The pattern types an array literal as a tuple; only an
                 // object literal would widen (`kind: string`) without one.
-                let annotation = ty
-                    .as_ref()
-                    .filter(|t| holds_object(t))
-                    .map(|t| format!(": {}", emit_ty(t)))
-                    .unwrap_or_default();
+                let annotation =
+                    ty.as_ref().filter(|t| holds_object(t)).map(|t| format!(": {}", emit_ty(t))).unwrap_or_default();
                 out.push_str(&prelude);
                 out.push_str(&format!("{pad}const [{pattern}]{annotation} = {};\n", crate::tidy::strip_outer(&s)));
                 emit_tail(rest, indent, sink, out, tail);
@@ -283,7 +264,8 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::If { cond, then, else_ }
             if matches!(sink, Sink::Effect)
                 && **else_ == Expr::Lit(Lit::Unit)
-                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements()) | matches!(lone_jump(then), Expr::Break | Expr::Continue)
+                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements())
+                    | matches!(lone_jump(then), Expr::Break | Expr::Continue)
                 && !emit_expr(cond, indent).contains('\n') =>
         {
             let jump = match lone_jump(then) {
@@ -307,11 +289,8 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             } else {
                 Sink::Effect.finish_expr(scrutinee, indent, out);
             }
-            let test = if negated {
-                Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(on_tmp) }
-            } else {
-                on_tmp
-            };
+            let test =
+                if negated { Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(on_tmp) } } else { on_tmp };
             let rewritten = Expr::If { cond: Box::new(test), then: then.clone(), else_: else_.clone() };
             emit_stmts(&rewritten, indent, sink, out);
         }
@@ -336,7 +315,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::If { cond, then, else_ }
             if expr.needs_statements()
-                || matches!(sink, Sink::Return) && (chooses(then) || chooses(else_)) && !fits_returned(expr, indent) =>
+                || matches!(sink, Sink::Return)
+                    && (chooses(then) || chooses(else_))
+                    && !fits_returned(expr, indent) =>
         {
             let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
             let mut branches = vec![Branch { test: Some(test), prelude: String::new(), body: then }];
@@ -344,7 +325,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             // as is any where the value is returned.
             let mut rest = &**else_;
             while let Expr::If { cond, then, else_ } = rest {
-                if !rest.needs_statements() && !(matches!(sink, Sink::Return) && chooses(rest) && !fits_returned(rest, indent)) {
+                if !rest.needs_statements()
+                    && !(matches!(sink, Sink::Return) && chooses(rest) && !fits_returned(rest, indent))
+                {
                     break;
                 }
                 let test = crate::tidy::strip_outer(&emit_expr(cond, indent)).to_string();
@@ -360,11 +343,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             if value.needs_statements() {
                 emit_stmts(value, indent, Sink::Assign(name.as_str()), out);
             } else {
-                out.push_str(&format!(
-                    "{pad}{} = {};\n",
-                    name.as_str(),
-                    crate::expr::emit_item(value, indent)
-                ));
+                out.push_str(&format!("{pad}{} = {};\n", name.as_str(), crate::expr::emit_item(value, indent)));
             }
             sink.finish("undefined", &pad, out);
         }
@@ -392,7 +371,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 && is_place(scrutinee)
                 && (arms.iter().all(|a| matches!(a.body, Expr::Lit(Lit::Bool(_))))
                     || (arms.len() == 2 && two_way_test(&arms[0].pattern, "").is_some()))
-                && !(matches!(sink, Sink::Return) && arms.iter().any(|a| chooses(&a.body)) && !fits_returned(expr, indent)) =>
+                && !(matches!(sink, Sink::Return)
+                    && arms.iter().any(|a| chooses(&a.body))
+                    && !fits_returned(expr, indent)) =>
         {
             match as_expr(expr, indent) {
                 Some(value) => sink.finish(&value, &pad, out),
@@ -405,30 +386,14 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish(&value, &pad, out);
         }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, tail, out),
-        Expr::For {
-            var,
-            ty,
-            start,
-            end,
-            body,
-        } => {
+        Expr::For { var, ty, start, end, body } => {
             let ty = ty.expect("check::accept types the range");
             emit_for(var.as_str(), ty, start, end, body, indent, out);
             sink.finish("undefined", &pad, out);
         }
-        Expr::ForEach {
-            var,
-            over,
-            source: string,
-            body,
-        } => {
+        Expr::ForEach { var, over, source: string, body } => {
             let iterable = iterable(*over, emit_expr(string, indent));
-            emit_loop(
-                &format!("for (const {} of {iterable})", var.as_str()),
-                body,
-                indent,
-                out,
-            );
+            emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
         Expr::While { cond, body } => {
@@ -438,12 +403,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 Expr::Lit(Lit::Bool(true)) => "for (;;)".to_string(),
                 _ => format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))),
             };
-            emit_loop(
-                &head,
-                body,
-                indent,
-                out,
-            );
+            emit_loop(&head, body, indent, out);
             // Nothing follows a `for (;;)` that no `break` leaves.
             if !ends_in_jump(expr) {
                 sink.finish("undefined", &pad, out);
@@ -455,15 +415,12 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::Return(value) if value.needs_statements() && as_expr(value, indent).is_none() => {
             emit_stmts(value, indent, Sink::Return, out)
         }
-        Expr::Return(value) => out.push_str(&format!(
-            "{pad}return {};\n",
-            crate::tidy::strip_outer(&emit_expr(value, indent))
-        )),
+        Expr::Return(value) => {
+            out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(&emit_expr(value, indent))))
+        }
         // `x?;`: only the early return; there is no value to bind.
         // `x?;` on a binding: the test alone.
-        Expr::Try { expr: inner, on }
-            if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) =>
-        {
+        Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) && matches!(**inner, Expr::Var(_)) => {
             emit_try_test(&emit_expr(inner, indent), *on, indent, out);
         }
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
@@ -495,14 +452,7 @@ pub(crate) fn iterable(over: purecrate_ir::Over, source: String) -> String {
     }
 }
 
-pub(crate) fn emit_let(
-    name: &str,
-    mutable: bool,
-    ty: Option<&Ty>,
-    value: &Expr,
-    indent: usize,
-    out: &mut String,
-) {
+pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) {
     // `collect::<T>()` and `sum::<T>()` are a typed `let` whose body is the
     // binding. Nested under another `let`, that binding is only a copy.
     let value = peel_identity(value);
@@ -553,7 +503,8 @@ pub(crate) fn emit_let(
         {
             // A `Result` that typing named `$result` (`map_err(f)?`) is
             // named after the local it is for: `emailResult`.
-            let made = inner.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+            let made =
+                inner.as_str().trim_start_matches('$').trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
             if made == "result" && !inner_value.is_inlinable() {
                 if let Some(renamed) = named_after(name, "result") {
                     let renamed = Name::new(renamed);
@@ -640,7 +591,9 @@ fn named_after(name: &str, what: &str) -> Option<String> {
         return None;
     }
     let n = match name.rsplit_once('$') {
-        Some((b, k)) if k.bytes().all(|c| c.is_ascii_digit()) => format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1)),
+        Some((b, k)) if k.bytes().all(|c| c.is_ascii_digit()) => {
+            format!("{b}{}", k.parse::<usize>().map_or(0, |k| k + 1))
+        }
         _ => name.to_string(),
     };
     Some(format!("${n}{}{}", what[..1].to_uppercase(), &what[1..]))
@@ -648,18 +601,9 @@ fn named_after(name: &str, what: &str) -> Option<String> {
 
 /// `const tmp = expr;` and the early return of `expr?` when it holds `None`
 /// or an `Err`.
-pub(crate) fn emit_try_exit(
-    tmp: &str,
-    expr: &Expr,
-    on: Option<TryOn>,
-    indent: usize,
-    out: &mut String,
-) {
+pub(crate) fn emit_try_exit(tmp: &str, expr: &Expr, on: Option<TryOn>, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
-    out.push_str(&format!(
-        "{pad}const {tmp} = {};\n",
-        emit_expr(expr, indent)
-    ));
+    out.push_str(&format!("{pad}const {tmp} = {};\n", emit_expr(expr, indent)));
     emit_try_test(tmp, on, indent, out);
 }
 
@@ -668,9 +612,7 @@ fn emit_try_test(tmp: &str, on: Option<TryOn>, indent: usize, out: &mut String) 
     let pad = "  ".repeat(indent);
     match on {
         Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
-        Some(TryOn::Result) | None => {
-            out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n"))
-        }
+        Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),
     }
 }
 
@@ -694,13 +636,9 @@ pub(crate) fn peel(expr: &Expr) -> &Expr {
 /// type (`collect::<T>()`, `sum::<T>()`) and is not a second evaluation.
 pub(crate) fn peel_identity(expr: &Expr) -> &Expr {
     match expr {
-        Expr::Let {
-            name,
-            mutable: false,
-            value,
-            then,
-            ..
-        } if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() => {
+        Expr::Let { name, mutable: false, value, then, .. }
+            if matches!(then.as_ref(), Expr::Var(n) if n == name) && !value.needs_statements() =>
+        {
             peel_identity(value)
         }
         _ => expr,
@@ -814,7 +752,8 @@ fn destructured<'e>(t: &Name, mut then: &'e Expr) -> Option<(Vec<Option<&'e Name
     let mut slots: Vec<Option<&Name>> = Vec::new();
     while let Expr::Let { name, mutable: false, value, then: rest, .. } = then {
         let Expr::Field { base, name: field } = value.as_ref() else { break };
-        let Some(i) = field.as_str().strip_prefix('[').and_then(|f| f.strip_suffix(']')).and_then(|f| f.parse::<usize>().ok())
+        let Some(i) =
+            field.as_str().strip_prefix('[').and_then(|f| f.strip_suffix(']')).and_then(|f| f.parse::<usize>().ok())
         else {
             break;
         };
@@ -842,9 +781,7 @@ fn hoistable_test(cond: &Expr) -> Option<(&Expr, &[purecrate_ir::Arm], bool)> {
         other => (other, false),
     };
     match inner {
-        Expr::Match { scrutinee, arms }
-            if !is_place(scrutinee) && arms.iter().all(|a| !a.body.needs_statements()) =>
-        {
+        Expr::Match { scrutinee, arms } if !is_place(scrutinee) && arms.iter().all(|a| !a.body.needs_statements()) => {
             Some((scrutinee, arms, negated))
         }
         _ => None,
@@ -878,10 +815,7 @@ pub(crate) fn emit_switch_in(
     tail: bool,
     out: &mut String,
 ) {
-    assert!(
-        arms.iter().all(|a| a.guard.is_none()),
-        "guards are lowered in check::accept"
-    );
+    assert!(arms.iter().all(|a| a.guard.is_none()), "guards are lowered in check::accept");
     let pad = "  ".repeat(indent);
     let pad1 = "  ".repeat(indent + 1);
     let subject = if is_place(scrutinee) {
@@ -892,10 +826,7 @@ pub(crate) fn emit_switch_in(
         tmp
     };
     if let [a, b] = arms {
-        if let (Some(test), Some(_)) = (
-            two_way_test(&a.pattern, &subject),
-            two_way_test(&b.pattern, &subject),
-        ) {
+        if let (Some(test), Some(_)) = (two_way_test(&a.pattern, &subject), two_way_test(&b.pattern, &subject)) {
             let pad2 = "  ".repeat(indent + 1);
             // `Some(x) => a, None => return e`: the exit first, then `a` with
             // its payload read where the exit has narrowed it, as `let ..
@@ -991,9 +922,11 @@ pub(crate) fn emit_switch_in(
             ),
             _ => continue,
         };
-        let shared = arm.pattern.bindings().is_empty().then(|| {
-            groups.iter_mut().find(|(_, _, g)| g.pattern.bindings().is_empty() && g.body == arm.body)
-        });
+        let shared = arm
+            .pattern
+            .bindings()
+            .is_empty()
+            .then(|| groups.iter_mut().find(|(_, _, g)| g.pattern.bindings().is_empty() && g.body == arm.body));
         match shared.flatten() {
             Some((vs, _, _)) => vs.extend(variants),
             None => groups.push((variants, bind, arm)),
@@ -1005,9 +938,7 @@ pub(crate) fn emit_switch_in(
                 out.push_str(&format!("{pad1}case \"{v}\":\n", v = v.as_str()));
             }
             out.push_str(&format!("{pad1}case \"{v}\":", v = last.as_str()));
-            let prelude = bind
-                .map(|bind| bind_prelude(bind, &subject, &"  ".repeat(indent + 2)))
-                .unwrap_or_default();
+            let prelude = bind.map(|bind| bind_prelude(bind, &subject, &"  ".repeat(indent + 2))).unwrap_or_default();
             out.push_str(&case_body(&prelude, &arm.body, indent, sink));
         }
     }
@@ -1015,9 +946,7 @@ pub(crate) fn emit_switch_in(
         out.push_str(&format!("{pad1}default:{}", case_body("", &arm.body, indent, sink)));
         out.push_str(&format!("{pad}}}\n"));
     } else {
-        out.push_str(&format!(
-            "{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"
-        ));
+        out.push_str(&format!("{pad1}default:\n{pad1}  return assertNever({subject});\n{pad}}}\n"));
     }
 }
 
@@ -1087,16 +1016,16 @@ fn one_and_rest(arms: &[purecrate_ir::Arm]) -> Option<(&purecrate_ir::Arm, &pure
         _ => false,
     };
     match (&a.pattern, &b.pattern) {
-        (Pattern::Variant { .. }, Pattern::Wildcard | Pattern::Or(_)) if b.pattern.bindings().is_empty() => Some((a, b)),
+        (Pattern::Variant { .. }, Pattern::Wildcard | Pattern::Or(_)) if b.pattern.bindings().is_empty() => {
+            Some((a, b))
+        }
         (rest, Pattern::Variant { variant, .. }) if others(rest, variant) && rest.bindings().is_empty() => Some((b, a)),
         _ => None,
     }
 }
 
 fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
-    let named = arms
-        .iter()
-        .any(|a| matches!(a.pattern, Pattern::Variant { .. }));
+    let named = arms.iter().any(|a| matches!(a.pattern, Pattern::Variant { .. }));
     if !named {
         return None;
     }
@@ -1143,8 +1072,10 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
         if let (Some(test), None, Expr::Lit(Lit::Unit), true) =
             (&empty.test, &last.test, empty.body, empty.prelude.is_empty() && last.prelude.is_empty())
         {
-            let mut merged: Vec<Branch> =
-                branches[..branches.len() - 2].iter().map(|b| Branch { test: b.test.clone(), prelude: b.prelude.clone(), body: b.body }).collect();
+            let mut merged: Vec<Branch> = branches[..branches.len() - 2]
+                .iter()
+                .map(|b| Branch { test: b.test.clone(), prelude: b.prelude.clone(), body: b.body })
+                .collect();
             merged.push(Branch { test: Some(not(test)), prelude: String::new(), body: last.body });
             return emit_branches(&merged, indent, sink, tail, out);
         }
@@ -1282,7 +1213,8 @@ fn let_else(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: us
             // `Option` is held in `t` itself, which the exit narrows.
             let unwraps = matches!((&keep.pattern, &keep.body),
                 (Pattern::OptionSome(p), Expr::Var(read)) if matches!(&**p, Pattern::Var(n) if n == read));
-            let tmp = if unwraps && !mutable && !name.starts_with('$') { name.to_string() } else { match_temp(arms, indent) };
+            let tmp =
+                if unwraps && !mutable && !name.starts_with('$') { name.to_string() } else { match_temp(arms, indent) };
             bind_scrutinee(&tmp, scrutinee, arms, indent, out);
             let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp))), arms: arms.clone() };
             return let_else(name, mutable, ty, &on_tmp, indent, out);
@@ -1423,11 +1355,7 @@ pub(crate) fn lit_test(pattern: &Pattern, subject: &str) -> Option<String> {
         Pattern::Lit(Lit::Bool(false)) => Some(format!("!{subject}")),
         Pattern::Lit(lit) => Some(format!("{subject} === {}", bare_lit(lit))),
         // By code point: JS orders strings by UTF-16 unit.
-        Pattern::Range {
-            lo: Lit::Char(lo),
-            hi: Lit::Char(hi),
-            inclusive,
-        } => Some(format!(
+        Pattern::Range { lo: Lit::Char(lo), hi: Lit::Char(hi), inclusive } => Some(format!(
             "Char.code({subject}) >= {} && Char.code({subject}) {} {}",
             u32::from(*lo),
             if *inclusive { "<=" } else { "<" },
@@ -1545,20 +1473,16 @@ pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> Stri
                     tuple_variant_field(subject, i, pats.len()),
                     name = n.as_str()
                 )),
-                Pattern::Tuple(elems) => {
-                    Some(tuple_names(elems, &tuple_variant_field(subject, i, pats.len()), pad))
-                }
+                Pattern::Tuple(elems) => Some(tuple_names(elems, &tuple_variant_field(subject, i, pats.len()), pad)),
                 _ => None,
             })
             .collect(),
         VariantBind::Struct(pairs) => pairs
             .iter()
             .filter_map(|(field, p)| match p {
-                Pattern::Var(n) => Some(format!(
-                    "{pad}const {name} = {subject}.{f};\n",
-                    name = n.as_str(),
-                    f = field.as_str()
-                )),
+                Pattern::Var(n) => {
+                    Some(format!("{pad}const {name} = {subject}.{f};\n", name = n.as_str(), f = field.as_str()))
+                }
                 _ => None,
             })
             .collect(),

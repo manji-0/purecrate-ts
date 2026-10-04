@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod iban = "../../../examples/iban/src/lib.rs", "fixtures/iban_driver.rs");
 
 const SOURCE: &str = iban::SOURCE;
@@ -77,9 +76,19 @@ fn inputs() -> Vec<String> {
     }
     out.extend(
         // A MOD 97 remainder of 1 with check digits never issued.
-        ["DE01100000000000000010", "DE00100000000000000028", "DE99100000000000000089", "", "GB82", "GB82WEST1234569876543", "1B82WEST12345698765432", "GBX2WEST12345698765432", "GB82WEST1234569876543é"]
-            .iter()
-            .map(|s| s.to_string()),
+        [
+            "DE01100000000000000010",
+            "DE00100000000000000028",
+            "DE99100000000000000089",
+            "",
+            "GB82",
+            "GB82WEST1234569876543",
+            "1B82WEST12345698765432",
+            "GBX2WEST12345698765432",
+            "GB82WEST1234569876543é",
+        ]
+        .iter()
+        .map(|s| s.to_string()),
     );
     out.push(format!("GB82{}", "A".repeat(31)));
     out
@@ -115,11 +124,7 @@ fn constrained_rust_is_the_idiomatic_rules() {
 
 #[test]
 fn iban_matches_rust() {
-    let cases = support::quietly(|| {
-        inputs()
-            .into_iter()
-            .map(|s| case!(iban::parse_iban(s.clone())))
-            .collect::<Vec<_>>()
-    });
+    let cases =
+        support::quietly(|| inputs().into_iter().map(|s| case!(iban::parse_iban(s.clone()))).collect::<Vec<_>>());
     support::assert_equivalent("iban", SOURCE, &cases);
 }

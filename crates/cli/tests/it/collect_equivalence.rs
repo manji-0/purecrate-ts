@@ -9,23 +9,8 @@ purecrate_canon::fixture!(mod lists = "fixtures/collect.rs");
 
 const SOURCE: &str = lists::SOURCE;
 
-const TEXTS: [&str; 15] = [
-    "",
-    "a",
-    "a.b",
-    "a..b",
-    ".a.",
-    "a.b.c",
-    "é",
-    "é.日",
-    "a😀b",
-    "😀",
-    "ab",
-    "bad",
-    "boom",
-    "a,boom",
-    "a,bad,boom",
-];
+const TEXTS: [&str; 15] =
+    ["", "a", "a.b", "a..b", ".a.", "a.b.c", "é", "é.日", "a😀b", "😀", "ab", "bad", "boom", "a,boom", "a,bad,boom"];
 
 #[test]
 fn collected_lists_match_rust() {
@@ -56,14 +41,8 @@ fn collected_lists_match_rust() {
         }
         cases
     });
-    assert!(
-        cases.iter().any(|c| c.rust.starts_with("panic(")),
-        "a later piece panics"
-    );
-    assert!(
-        cases.iter().any(|c| c.rust.starts_with("Err(")),
-        "an earlier piece is an Err"
-    );
+    assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "a later piece panics");
+    assert!(cases.iter().any(|c| c.rust.starts_with("Err(")), "an earlier piece is an Err");
     support::assert_equivalent("collect", SOURCE, &cases);
 }
 
@@ -105,29 +84,11 @@ fn collect_off_a_split_is_refused() {
     let refuse = |source: &str, needle: &str| {
         let krate = purecrate_syntax::parse_source("no", source).expect("parse");
         let err = purecrate_check::accept(&krate).expect_err("refused");
-        assert!(
-            err.iter().any(|d| d.message.contains(needle)),
-            "{needle} not in {err:#?}"
-        );
+        assert!(err.iter().any(|d| d.message.contains(needle)), "{needle} not in {err:#?}");
     };
-    refuse(
-        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }\n",
-        "`collect` builds a `Vec` from",
-    );
-    refuse(
-        "pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }\n",
-        "needs its target",
-    );
-    refuse(
-        "pub fn f(s: &str) -> Vec<u8> { s.split('.').collect() }\n",
-        "expected `Vec<u8>`",
-    );
-    refuse(
-        "pub fn f(s: &str) -> u32 { s.split('.').map(|p| p.len()).collect() }\n",
-        "not `u32`",
-    );
-    refuse(
-        "pub fn f(s: &str) -> Vec<u8> { s.split(\".\").map(|p| 1u8).collect() }\n",
-        "`char` separator",
-    );
+    refuse("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }\n", "`collect` builds a `Vec` from");
+    refuse("pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }\n", "needs its target");
+    refuse("pub fn f(s: &str) -> Vec<u8> { s.split('.').collect() }\n", "expected `Vec<u8>`");
+    refuse("pub fn f(s: &str) -> u32 { s.split('.').map(|p| p.len()).collect() }\n", "not `u32`");
+    refuse("pub fn f(s: &str) -> Vec<u8> { s.split(\".\").map(|p| 1u8).collect() }\n", "`char` separator");
 }

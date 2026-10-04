@@ -11,16 +11,10 @@
 
 use std::collections::HashSet;
 
-use purecrate_ir::{
-    Arm, Callee, ClosureParam, Crate, Expr, Fn, Item, Name, Param, Pattern, VariantBind,
-};
+use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fn, Item, Name, Param, Pattern, VariantBind};
 
 pub fn drop_unused(krate: Crate) -> Crate {
-    let items: HashSet<String> = krate
-        .items
-        .iter()
-        .map(|item| item.name().as_str().to_string())
-        .collect();
+    let items: HashSet<String> = krate.items.iter().map(|item| item.name().as_str().to_string()).collect();
     let dropped = krate
         .items
         .into_iter()
@@ -39,9 +33,7 @@ fn drop_in_fn(f: Fn, items: &HashSet<String>) -> Fn {
     taken.extend(f.params.iter().map(|p| p.name.as_str().to_string()));
     let mut body = f.body;
     loop {
-        let mut cx = Cx {
-            taken: taken.clone(),
-        };
+        let mut cx = Cx { taken: taken.clone() };
         let next = cx.expr(body.clone());
         if next == body {
             let params = f
@@ -49,17 +41,10 @@ fn drop_in_fn(f: Fn, items: &HashSet<String>) -> Fn {
                 .into_iter()
                 .map(|p| {
                     let used = used_in(&next, p.name.as_str());
-                    Param {
-                        name: cx.param_name(p.name, used),
-                        ty: p.ty,
-                    }
+                    Param { name: cx.param_name(p.name, used), ty: p.ty }
                 })
                 .collect();
-            return Fn {
-                params,
-                body: next,
-                ..f
-            };
+            return Fn { params, body: next, ..f };
         }
         body = next;
     }
@@ -94,70 +79,36 @@ impl Cx {
             // `collect::<T>()` and `sum::<T>()` are a typed `let $name = e; $name`
             // so the turbofish is the `want` during typing. The name is used once,
             // as that tail, so the binding prints as nothing.
-            Expr::Let {
-                name,
-                mutable: false,
-                value,
-                then,
-                ..
-            } if name.as_str().starts_with('$')
-                && matches!(then.as_ref(), Expr::Var(n) if n == &name) =>
+            Expr::Let { name, mutable: false, value, then, .. }
+                if name.as_str().starts_with('$') && matches!(then.as_ref(), Expr::Var(n) if n == &name) =>
             {
                 return self.expr(*value);
             }
-            Expr::Let {
-                name, value, then, ..
-            } if !used_in(&then, name.as_str()) => {
+            Expr::Let { name, value, then, .. } if !used_in(&then, name.as_str()) => {
                 let value = self.expr(*value);
                 let then = self.expr(strip_assigns(*then, &name));
-                return if is_pure(&value) {
-                    then
-                } else {
-                    Expr::Seq {
-                        first: Box::new(value),
-                        then: Box::new(then),
-                    }
-                };
+                return if is_pure(&value) { then } else { Expr::Seq { first: Box::new(value), then: Box::new(then) } };
             }
             Expr::Match { scrutinee, arms } => Expr::Match {
                 scrutinee,
                 arms: arms
                     .into_iter()
                     .map(|a| {
-                        let used = |n: &str| {
-                            a.guard.as_ref().is_some_and(|g| used_in(g, n)) || used_in(&a.body, n)
-                        };
-                        Arm {
-                            pattern: drop_pattern(a.pattern, used),
-                            guard: a.guard,
-                            body: a.body,
-                        }
+                        let used = |n: &str| a.guard.as_ref().is_some_and(|g| used_in(g, n)) || used_in(&a.body, n);
+                        Arm { pattern: drop_pattern(a.pattern, used), guard: a.guard, body: a.body }
                     })
                     .collect(),
             },
-            Expr::ForEach {
-                var,
-                over,
-                source,
-                body,
-            } => {
+            Expr::ForEach { var, over, source, body } => {
                 let used = used_in(&body, var.as_str());
-                Expr::ForEach {
-                    var: self.param_name(var, used),
-                    over,
-                    source,
-                    body,
-                }
+                Expr::ForEach { var: self.param_name(var, used), over, source, body }
             }
             Expr::Closure { params, ret, body } => Expr::Closure {
                 params: params
                     .into_iter()
                     .map(|p| {
                         let used = used_in(&body, p.name.as_str());
-                        ClosureParam {
-                            name: self.param_name(p.name, used),
-                            ty: p.ty,
-                        }
+                        ClosureParam { name: self.param_name(p.name, used), ty: p.ty }
                     })
                     .collect(),
                 ret,
@@ -181,23 +132,17 @@ fn drop_pattern(p: Pattern, used: impl std::ops::Fn(&str) -> bool + Copy) -> Pat
             variant,
             bind: match bind {
                 VariantBind::Unit => VariantBind::Unit,
-                VariantBind::Tuple(ps) => {
-                    VariantBind::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect())
+                VariantBind::Tuple(ps) => VariantBind::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
+                VariantBind::Struct(fs) => {
+                    VariantBind::Struct(fs.into_iter().map(|(f, p)| (f, drop_pattern(p, used))).collect())
                 }
-                VariantBind::Struct(fs) => VariantBind::Struct(
-                    fs.into_iter()
-                        .map(|(f, p)| (f, drop_pattern(p, used)))
-                        .collect(),
-                ),
             },
         },
         Pattern::OptionSome(p) => Pattern::OptionSome(Box::new(drop_pattern(*p, used))),
         Pattern::ResultOk(p) => Pattern::ResultOk(Box::new(drop_pattern(*p, used))),
         Pattern::ResultErr(p) => Pattern::ResultErr(Box::new(drop_pattern(*p, used))),
         Pattern::Or(ps) => Pattern::Or(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
-        Pattern::Tuple(ps) => {
-            Pattern::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect())
-        }
+        Pattern::Tuple(ps) => Pattern::Tuple(ps.into_iter().map(|p| drop_pattern(p, used)).collect()),
         other => other,
     }
 }
@@ -206,37 +151,17 @@ fn drop_pattern(p: Pattern, used: impl std::ops::Fn(&str) -> bool + Copy) -> Pat
 fn used_in(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::Var(n) => n.as_str() == name,
-        Expr::Call {
-            callee: Callee::Local(n),
-            args,
-        } => n.as_str() == name || args.iter().any(|a| used_in(a, name)),
+        Expr::Call { callee: Callee::Local(n), args } => n.as_str() == name || args.iter().any(|a| used_in(a, name)),
         Expr::Assign { value, .. } => used_in(value, name),
-        Expr::Let {
-            name: n,
-            value,
-            then,
-            ..
-        } => used_in(value, name) || (n.as_str() != name && used_in(then, name)),
-        Expr::Match { scrutinee, arms } => {
-            used_in(scrutinee, name) || arms.iter().any(|a| arm_uses(a, name))
+        Expr::Let { name: n, value, then, .. } => used_in(value, name) || (n.as_str() != name && used_in(then, name)),
+        Expr::Match { scrutinee, arms } => used_in(scrutinee, name) || arms.iter().any(|a| arm_uses(a, name)),
+        Expr::For { var, start, end, body, .. } => {
+            used_in(start, name) || used_in(end, name) || (var.as_str() != name && used_in(body, name))
         }
-        Expr::For {
-            var,
-            start,
-            end,
-            body,
-            ..
-        } => {
-            used_in(start, name)
-                || used_in(end, name)
-                || (var.as_str() != name && used_in(body, name))
+        Expr::ForEach { var, source, body, .. } => {
+            used_in(source, name) || (var.as_str() != name && used_in(body, name))
         }
-        Expr::ForEach {
-            var, source, body, ..
-        } => used_in(source, name) || (var.as_str() != name && used_in(body, name)),
-        Expr::Closure { params, body, .. } => {
-            !params.iter().any(|p| p.name.as_str() == name) && used_in(body, name)
-        }
+        Expr::Closure { params, body, .. } => !params.iter().any(|p| p.name.as_str() == name) && used_in(body, name),
         _ => expr.children().iter().any(|c| used_in(c, name)),
     }
 }

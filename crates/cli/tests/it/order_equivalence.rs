@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod order = "../../../examples/order/src/lib.rs", "fixtures/order_driver.rs");
 
 const SOURCE: &str = order::SOURCE;

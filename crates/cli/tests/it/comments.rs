@@ -35,11 +35,11 @@ fn comments_above_statements_are_kept() {
 ",
         "f",
     );
+    assert!(src.contains("  // Twice, so it is even.\n  //\n  // Then one more.\n  const b = "), "{src}");
     assert!(
-        src.contains("  // Twice, so it is even.\n  //\n  // Then one more.\n  const b = "),
+        src.contains("  // Across a blank line, for the next statement.\n  // and one after its code\n  const c = "),
         "{src}"
     );
-    assert!(src.contains("  // Across a blank line, for the next statement.\n  // and one after its code\n  const c = "), "{src}");
     assert!(src.contains("  // The result.\n  return c;\n"), "{src}");
 }
 

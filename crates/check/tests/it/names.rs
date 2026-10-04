@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects, diagnostics};
 
 const COUNTER: &str = include_str!("../../../../examples/counter/src/lib.rs");
@@ -95,10 +94,7 @@ fn companion_members_are_distinct() {
         "pub struct S { pub n: i32 }\nimpl S { pub fn of(self) -> S { self } }",
         "collides with the generated companion member `of`",
     );
-    assert_rejects(
-        "pub enum E { A }\nimpl E { pub fn A(self) -> E { self } }",
-        "companion member `A`",
-    );
+    assert_rejects("pub enum E { A }\nimpl E { pub fn A(self) -> E { self } }", "companion member `A`");
     assert_rejects(
         "pub struct S { pub n: i32 }\nimpl S { pub fn f(self) -> S { self } }\nimpl S { pub fn f(self) -> S { self } }",
         "`S.f` is defined more than once",

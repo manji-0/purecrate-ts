@@ -68,15 +68,9 @@ fn rest<'a>(named: impl Iterator<Item = &'a Pattern>, enums: &[Enum]) -> Pattern
         Some(Pattern::ResultOk(_)) => Pattern::ResultErr(wild()),
         Some(Pattern::ResultErr(_)) => Pattern::ResultOk(wild()),
         Some(Pattern::Variant { ty, .. }) => {
-            let e = enums
-                .iter()
-                .find(|e| e.name == *ty)
-                .expect("exhaustive: the arms name a known enum");
-            let taken = |v: &str| {
-                named
-                    .iter()
-                    .any(|p| matches!(p, Pattern::Variant { variant, .. } if variant.as_str() == v))
-            };
+            let e = enums.iter().find(|e| e.name == *ty).expect("exhaustive: the arms name a known enum");
+            let taken =
+                |v: &str| named.iter().any(|p| matches!(p, Pattern::Variant { variant, .. } if variant.as_str() == v));
             Pattern::Or(
                 e.variants
                     .iter()

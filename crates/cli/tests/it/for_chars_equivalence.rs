@@ -6,7 +6,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod for_chars = "fixtures/for_chars.rs");
 
 const SOURCE: &str = for_chars::SOURCE;

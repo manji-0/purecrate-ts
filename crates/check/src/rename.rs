@@ -10,8 +10,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use purecrate_ir::{
-    to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern,
-    VariantBind, Vis,
+    to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, VariantBind, Vis,
 };
 
 fn camel(n: &Name) -> Name {
@@ -38,15 +37,9 @@ pub fn rename(krate: Crate) -> (Crate, BTreeMap<String, String>) {
             Item::Fn(f) => {
                 let home = file_of(&f, &file_reads.homes);
                 let f = rename_fn(f, &items, &file_reads.reads[&home], &file_reads.helpers);
-                Item::Fn(Fn {
-                    name: camel(&f.name),
-                    ..f
-                })
+                Item::Fn(Fn { name: camel(&f.name), ..f })
             }
-            Item::Const(c) => Item::Const(purecrate_ir::Const {
-                name: camel(&c.name),
-                ..c
-            }),
+            Item::Const(c) => Item::Const(purecrate_ir::Const { name: camel(&c.name), ..c }),
             other => other,
         })
         .collect();
@@ -89,7 +82,9 @@ fn file_reads(krate: &Crate, items: &[(String, bool)]) -> FileReads {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Fn(f) => Some(((f.owner.as_ref().map(|o| o.as_str().to_string()), f.name.as_str().to_string()), reads(f, items))),
+            Item::Fn(f) => {
+                Some(((f.owner.as_ref().map(|o| o.as_str().to_string()), f.name.as_str().to_string()), reads(f, items)))
+            }
             _ => None,
         })
         .collect();
@@ -150,19 +145,8 @@ fn rename_fn(f: Fn, items: &[(String, bool)], read: &HashSet<String>, helpers: &
             .map(|(name, _)| name.clone())
             .collect(),
     };
-    let params = f
-        .params
-        .into_iter()
-        .map(|p| Param {
-            name: r.bind(&p.name, &mut cx),
-            ..p
-        })
-        .collect();
-    Fn {
-        body: r.stmt_binds(f.body, &mut cx),
-        params,
-        ..f
-    }
+    let params = f.params.into_iter().map(|p| Param { name: r.bind(&p.name, &mut cx), ..p }).collect();
+    Fn { body: r.stmt_binds(f.body, &mut cx), params, ..f }
 }
 
 /// The functions `expr` calls, camelCased.
@@ -202,10 +186,7 @@ impl Renamer {
         // A name `check` made (`$major9`) drops the counter that kept it
         // apart while typing: claiming it here keeps it apart again.
         let source = name.as_str();
-        let source = match source
-            .strip_prefix('$')
-            .map(|rest| rest.trim_end_matches(|c: char| c.is_ascii_digit()))
-        {
+        let source = match source.strip_prefix('$').map(|rest| rest.trim_end_matches(|c: char| c.is_ascii_digit())) {
             Some(base) if !base.is_empty() => &source[..1 + base.len()],
             _ => source,
         };
@@ -263,27 +244,18 @@ impl Renamer {
                 variant,
                 bind: match bind {
                     VariantBind::Unit => VariantBind::Unit,
-                    VariantBind::Tuple(ps) => {
-                        VariantBind::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect())
+                    VariantBind::Tuple(ps) => VariantBind::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
+                    VariantBind::Struct(ps) => {
+                        VariantBind::Struct(ps.into_iter().map(|(f, p)| (f, self.pattern(p, cx))).collect())
                     }
-                    VariantBind::Struct(ps) => VariantBind::Struct(
-                        ps.into_iter()
-                            .map(|(f, p)| (f, self.pattern(p, cx)))
-                            .collect(),
-                    ),
                 },
             },
             Pattern::OptionSome(p) => Pattern::OptionSome(Box::new(self.pattern(*p, cx))),
             Pattern::ResultOk(p) => Pattern::ResultOk(Box::new(self.pattern(*p, cx))),
             Pattern::ResultErr(p) => Pattern::ResultErr(Box::new(self.pattern(*p, cx))),
             Pattern::Or(ps) => Pattern::Or(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
-            Pattern::Tuple(ps) => {
-                Pattern::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect())
-            }
-            other @ (Pattern::Wildcard
-            | Pattern::Lit(_)
-            | Pattern::Range { .. }
-            | Pattern::OptionNone) => other,
+            Pattern::Tuple(ps) => Pattern::Tuple(ps.into_iter().map(|p| self.pattern(p, cx)).collect()),
+            other @ (Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone) => other,
         }
     }
 
@@ -301,26 +273,13 @@ impl Renamer {
     /// a `let` here is live for the rest of the sequence.
     fn stmt_binds(&mut self, e: Expr, cx: &mut Cx) -> Expr {
         match e {
-            Expr::Let {
-                name,
-                mutable,
-                ty,
-                value,
-                then,
-            } => {
+            Expr::Let { name, mutable, ty, value, then } => {
                 let (name, value) = self.bind_let(name, value, cx);
-                Expr::Let {
-                    name,
-                    mutable,
-                    ty,
-                    value,
-                    then: Box::new(self.stmt_binds(*then, cx)),
-                }
+                Expr::Let { name, mutable, ty, value, then: Box::new(self.stmt_binds(*then, cx)) }
             }
-            Expr::Seq { first, then } => Expr::Seq {
-                first: Box::new(self.stmt_binds(*first, cx)),
-                then: Box::new(self.stmt_binds(*then, cx)),
-            },
+            Expr::Seq { first, then } => {
+                Expr::Seq { first: Box::new(self.stmt_binds(*first, cx)), then: Box::new(self.stmt_binds(*then, cx)) }
+            }
             other => self.expr(other, cx),
         }
     }
@@ -334,63 +293,27 @@ impl Renamer {
                 self.free.insert(item.as_str().to_string());
                 item
             })),
-            Expr::Let {
-                name,
-                mutable,
-                ty,
-                value,
-                then,
-            } => {
+            Expr::Let { name, mutable, ty, value, then } => {
                 let mut inner = cx.clone();
                 let (name, value) = self.bind_let(name, value, &mut inner);
-                Expr::Let {
-                    name,
-                    mutable,
-                    ty,
-                    value,
-                    then: Box::new(self.stmt_binds(*then, &mut inner)),
-                }
+                Expr::Let { name, mutable, ty, value, then: Box::new(self.stmt_binds(*then, &mut inner)) }
             }
-            Expr::For {
-                var,
-                ty,
-                start,
-                end,
-                body,
-            } => {
+            Expr::For { var, ty, start, end, body } => {
                 let start = self.boxed(start, cx);
                 let end = self.boxed(end, cx);
                 let mut inner = cx.clone();
                 let var = self.bind(&var, &mut inner);
-                Expr::For {
-                    var,
-                    ty,
-                    start,
-                    end,
-                    body: self.boxed(body, &inner),
-                }
+                Expr::For { var, ty, start, end, body: self.boxed(body, &inner) }
             }
-            Expr::ForEach {
-                var,
-                over,
-                source: string,
-                body,
-            } => {
+            Expr::ForEach { var, over, source: string, body } => {
                 let string = self.boxed(string, cx);
                 let mut inner = cx.clone();
                 let var = self.bind(&var, &mut inner);
-                Expr::ForEach {
-                    var,
-                    over,
-                    source: string,
-                    body: self.boxed(body, &inner),
-                }
+                Expr::ForEach { var, over, source: string, body: self.boxed(body, &inner) }
             }
-            Expr::If { cond, then, else_ } => Expr::If {
-                cond: self.boxed(cond, cx),
-                then: self.boxed(then, cx),
-                else_: self.boxed(else_, cx),
-            },
+            Expr::If { cond, then, else_ } => {
+                Expr::If { cond: self.boxed(cond, cx), then: self.boxed(then, cx), else_: self.boxed(else_, cx) }
+            }
             Expr::Match { scrutinee, arms } => Expr::Match {
                 scrutinee: self.boxed(scrutinee, cx),
                 arms: arms
@@ -398,28 +321,18 @@ impl Renamer {
                     .map(|a| {
                         let mut inner = cx.clone();
                         let pattern = self.pattern(a.pattern, &mut inner);
-                        Arm {
-                            guard: None,
-                            pattern,
-                            body: self.stmt_binds(a.body, &mut inner),
-                        }
+                        Arm { guard: None, pattern, body: self.stmt_binds(a.body, &mut inner) }
                     })
                     .collect(),
             },
-            Expr::Call {
-                callee: Callee::Local(n),
-                args,
-            } => Expr::Call {
+            Expr::Call { callee: Callee::Local(n), args } => Expr::Call {
                 callee: Callee::Local(cx.env.get(n.as_str()).cloned().unwrap_or_else(|| camel(&n))),
                 args: self.all(args, cx),
             },
             Expr::Call { callee, args } => Expr::Call {
                 callee: match callee {
                     Callee::Fn(n) => Callee::Fn(camel(&n)),
-                    Callee::Method { ty, name } => Callee::Method {
-                        ty,
-                        name: camel(&name),
-                    },
+                    Callee::Method { ty, name } => Callee::Method { ty, name: camel(&name) },
                     other => other,
                 },
                 args: self.all(args, cx),
@@ -428,93 +341,46 @@ impl Renamer {
                 let mut inner = cx.clone();
                 let params = params
                     .into_iter()
-                    .map(|p| ClosureParam {
-                        name: self.bind(&p.name, &mut inner),
-                        ty: p.ty,
-                    })
+                    .map(|p| ClosureParam { name: self.bind(&p.name, &mut inner), ty: p.ty })
                     .collect();
-                Expr::Closure {
-                    params,
-                    ret,
-                    body: self.boxed(body, &inner),
-                }
+                Expr::Closure { params, ret, body: self.boxed(body, &inner) }
             }
-            Expr::MethodCall {
-                receiver,
-                name,
-                args,
-            } => Expr::MethodCall {
-                receiver: self.boxed(receiver, cx),
-                name,
-                args: self.all(args, cx),
-            },
-            Expr::Construct {
-                ty,
-                variant,
-                fields,
-                base,
-            } => Expr::Construct {
+            Expr::MethodCall { receiver, name, args } => {
+                Expr::MethodCall { receiver: self.boxed(receiver, cx), name, args: self.all(args, cx) }
+            }
+            Expr::Construct { ty, variant, fields, base } => Expr::Construct {
                 ty,
                 variant,
                 fields: match fields {
                     Fields::Unit => Fields::Unit,
                     Fields::Positional(xs) => Fields::Positional(self.all(xs, cx)),
-                    Fields::Named(xs) => {
-                        Fields::Named(xs.into_iter().map(|(n, x)| (n, self.expr(x, cx))).collect())
-                    }
+                    Fields::Named(xs) => Fields::Named(xs.into_iter().map(|(n, x)| (n, self.expr(x, cx))).collect()),
                 },
                 base: base.map(|b| self.boxed(b, cx)),
             },
-            Expr::Field { base, name } => Expr::Field {
-                base: self.boxed(base, cx),
-                name,
-            },
-            Expr::Index { base, index } => Expr::Index {
-                base: self.boxed(base, cx),
-                index: self.boxed(index, cx),
-            },
+            Expr::Field { base, name } => Expr::Field { base: self.boxed(base, cx), name },
+            Expr::Index { base, index } => Expr::Index { base: self.boxed(base, cx), index: self.boxed(index, cx) },
             Expr::Tuple(xs) => Expr::Tuple(self.all(xs, cx)),
             Expr::Array(xs) => Expr::Array(self.all(xs, cx)),
-            Expr::Cast { expr, to } => Expr::Cast {
-                expr: self.boxed(expr, cx),
-                to,
-            },
-            Expr::While { cond, body } => Expr::While {
-                cond: self.boxed(cond, cx),
-                body: self.boxed(body, cx),
-            },
+            Expr::Cast { expr, to } => Expr::Cast { expr: self.boxed(expr, cx), to },
+            Expr::While { cond, body } => Expr::While { cond: self.boxed(cond, cx), body: self.boxed(body, cx) },
             Expr::Break => Expr::Break,
             Expr::Continue => Expr::Continue,
-            Expr::Binary { op, left, right } => Expr::Binary {
-                op,
-                left: self.boxed(left, cx),
-                right: self.boxed(right, cx),
-            },
-            Expr::Unary { op, expr } => Expr::Unary {
-                op,
-                expr: self.boxed(expr, cx),
-            },
+            Expr::Binary { op, left, right } => {
+                Expr::Binary { op, left: self.boxed(left, cx), right: self.boxed(right, cx) }
+            }
+            Expr::Unary { op, expr } => Expr::Unary { op, expr: self.boxed(expr, cx) },
             Expr::Return(v) => Expr::Return(self.boxed(v, cx)),
-            Expr::Assign { name, value } => Expr::Assign {
-                name: cx.env.get(name.as_str()).cloned().unwrap_or(name),
-                value: self.boxed(value, cx),
-            },
+            Expr::Assign { name, value } => {
+                Expr::Assign { name: cx.env.get(name.as_str()).cloned().unwrap_or(name), value: self.boxed(value, cx) }
+            }
             Expr::Seq { first, then } => {
                 let mut inner = cx.clone();
                 let first = self.stmt_binds(*first, &mut inner);
-                Expr::Seq {
-                    first: Box::new(first),
-                    then: Box::new(self.stmt_binds(*then, &mut inner)),
-                }
+                Expr::Seq { first: Box::new(first), then: Box::new(self.stmt_binds(*then, &mut inner)) }
             }
-            Expr::Try { expr, on } => Expr::Try {
-                expr: self.boxed(expr, cx),
-                on,
-            },
-            Expr::Ignored { wrapper, expr } => Expr::Ignored {
-                wrapper,
-                expr: self.boxed(expr, cx),
-            },
+            Expr::Try { expr, on } => Expr::Try { expr: self.boxed(expr, cx), on },
+            Expr::Ignored { wrapper, expr } => Expr::Ignored { wrapper, expr: self.boxed(expr, cx) },
             other @ (Expr::Lit(_) | Expr::Unreachable | Expr::Comment(_)) => other,
         }
     }

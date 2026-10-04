@@ -11,9 +11,9 @@
 //! suffix or an annotation instead of guessing.
 
 use purecrate_ir::{
-    Reason,
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, IntMethod, Const, Crate, Expr, Over, Fields, FloatTy, Fn, IntOp, IntTy, Item, Lit, Name, Pattern, Prim, SliceOf, StrMethod, TryOn,
-    Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatTy, Fn, IntMethod, IntOp,
+    IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, StrMethod, TryOn, Ty, UnOp, VariantBind,
+    VariantFields, NEWTYPE_FIELD,
 };
 
 use crate::defs::Defs;
@@ -24,11 +24,11 @@ mod ops;
 mod ordering;
 mod patterns;
 
+use crate::Diagnostic;
 use calls::*;
 use methods::*;
 use ops::*;
 use ordering::*;
-use crate::Diagnostic;
 
 pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let defs = Defs::of(krate);
@@ -53,7 +53,8 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                         let mut folded = e.clone();
                         for (v, (_, d)) in folded.variants.iter_mut().zip(table) {
                             if v.discriminant.is_some() {
-                                v.discriminant = Some(Expr::Lit(Lit::Int { value: d, ty: Some(it), byte: false, hex: false }));
+                                v.discriminant =
+                                    Some(Expr::Lit(Lit::Int { value: d, ty: Some(it), byte: false, hex: false }));
                             }
                         }
                         Item::Enum(folded)
@@ -94,14 +95,7 @@ type Typed = (Expr, Option<Ty>);
 
 impl<'d, 'a> Typer<'d, 'a> {
     fn new(defs: &'d Defs<'a>, item: usize, out: &'d mut Vec<Diagnostic>) -> Self {
-        Typer {
-            defs,
-            item,
-            out,
-            ret: Ty::Prim(Prim::Unit),
-            scopes: Vec::new(),
-            fresh: 0,
-        }
+        Typer { defs, item, out, ret: Ty::Prim(Prim::Unit), scopes: Vec::new(), fresh: 0 }
     }
 
     fn error(&mut self, reason: Reason, message: String) {
@@ -110,17 +104,10 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn func(mut self, f: &Fn) -> Fn {
         self.ret = f.ret.clone();
-        self.scopes = f
-            .params
-            .iter()
-            .map(|p| (p.name.as_str().to_string(), Some(p.ty.clone())))
-            .collect();
+        self.scopes = f.params.iter().map(|p| (p.name.as_str().to_string(), Some(p.ty.clone()))).collect();
         let ret = f.ret.clone();
         let (body, _) = self.expr(&f.body, Some(&ret));
-        Fn {
-            body,
-            ..f.clone()
-        }
+        Fn { body, ..f.clone() }
     }
 
     /// Expands aliases. Alias cycles are cut after a fixed depth.
@@ -140,10 +127,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn num(&self, ty: &Ty) -> Option<Num> {
         match self.norm(ty) {
-            Ty::Prim(p) => p
-                .int()
-                .map(Num::Int)
-                .or_else(|| p.float().map(Num::Float)),
+            Ty::Prim(p) => p.int().map(Num::Int).or_else(|| p.float().map(Num::Float)),
             _ => None,
         }
     }
@@ -172,11 +156,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     fn lookup(&self, name: &str) -> Option<Ty> {
-        self.scopes
-            .iter()
-            .rev()
-            .find(|(n, _)| n == name)
-            .and_then(|(_, t)| t.clone())
+        self.scopes.iter().rev().find(|(n, _)| n == name).and_then(|(_, t)| t.clone())
     }
 
     fn expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
@@ -191,13 +171,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::Ignored { wrapper, expr } => {
                 let inner_want = want.map(Ty::peel);
                 let (expr, ty) = self.expr(expr, inner_want);
-                (
-                    Expr::Ignored {
-                        wrapper: *wrapper,
-                        expr: Box::new(expr),
-                    },
-                    ty,
-                )
+                (Expr::Ignored { wrapper: *wrapper, expr: Box::new(expr) }, ty)
             }
             Expr::Lit(lit) => self.lit(lit, false, want),
             Expr::Var(n) => {
@@ -215,13 +189,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::Break | Expr::Continue => (expr.clone(), Some(Ty::Never)),
-            Expr::Let {
-                name,
-                mutable,
-                ty,
-                value,
-                then,
-            } => {
+            Expr::Let { name, mutable, ty, value, then } => {
                 let before = self.out.len();
                 let (value, vt) = self.expr(value, ty.as_ref());
                 // A type with holes (`collect::<Vec<_>>()`) is what the value
@@ -230,10 +198,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let bound = ty.clone().or(vt);
                 if bound.is_none() && self.out.len() == before {
                     let (kw, first) = if *mutable { ("let mut", " from its first value") } else { ("let", "") };
-                    self.error(Reason::NeedsAnnotation, format!(
-                        "the type of `{kw} {n}` is not known{first}; write `{kw} {n}: T`",
-                        n = name.as_str(),
-                    ));
+                    self.error(
+                        Reason::NeedsAnnotation,
+                        format!("the type of `{kw} {n}` is not known{first}; write `{kw} {n}: T`", n = name.as_str(),),
+                    );
                 }
                 // TS widens an unannotated binding (`kind: "Walk"` becomes
                 // `kind: string`, `null` stays `null`), so the type is always
@@ -272,20 +240,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                 });
                 if int.is_none() && self.out.len() == before {
                     let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
-                    self.error(Reason::TypeMismatch, format!(
-                        "`for` takes a range `a..b` of one integer type, found `{found}`"
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("`for` takes a range `a..b` of one integer type, found `{found}`"),
+                    );
                 }
                 self.scopes.push((var.as_str().to_string(), bound));
                 let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
                 self.scopes.pop();
-                let e = Expr::For {
-                    var: var.clone(),
-                    ty: int,
-                    start: Box::new(s),
-                    end: Box::new(e),
-                    body: Box::new(b),
-                };
+                let e =
+                    Expr::For { var: var.clone(), ty: int, start: Box::new(s), end: Box::new(e), body: Box::new(b) };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::ForEach { var, over, source: string, body } => {
@@ -310,21 +274,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.scopes.push((var.as_str().to_string(), item));
                 let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
                 self.scopes.pop();
-                let e = Expr::ForEach {
-                    var: var.clone(),
-                    over: *over,
-                    source: Box::new(s),
-                    body: Box::new(b),
-                };
+                let e = Expr::ForEach { var: var.clone(), over: *over, source: Box::new(s), body: Box::new(b) };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::Assign { name, value } => {
                 let target = self.lookup(name.as_str());
                 let (value, _) = self.expr(value, target.as_ref());
-                let e = Expr::Assign {
-                    name: name.clone(),
-                    value: Box::new(value),
-                };
+                let e = Expr::Assign { name: name.clone(), value: Box::new(value) };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::Seq { first, then } => {
@@ -335,34 +291,19 @@ impl<'d, 'a> Typer<'d, 'a> {
                 } else {
                     self.expr(then, want)
                 };
-                let e = Expr::Seq {
-                    first: Box::new(first),
-                    then: Box::new(then),
-                };
+                let e = Expr::Seq { first: Box::new(first), then: Box::new(then) };
                 (e, tt)
             }
             Expr::If { cond, then, else_ } => {
                 let (cond, _) = self.expr(cond, Some(&Ty::bool()));
                 let (then, tt, else_, et) = self.pair(then, else_, want);
-                (
-                    Expr::If {
-                        cond: Box::new(cond),
-                        then: Box::new(then),
-                        else_: Box::new(else_),
-                    },
-                    join(tt, et),
-                )
+                (Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) }, join(tt, et))
             }
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, want),
             Expr::Call { callee, args } => self.call(callee, args, want),
             Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
             Expr::Closure { params, ret, body } => self.closure(params, ret.as_ref(), body, want),
-            Expr::Construct {
-                ty,
-                variant,
-                fields,
-                base,
-            } => {
+            Expr::Construct { ty, variant, fields, base } => {
                 let fields = self.construct_fields(ty.as_str(), variant.as_ref().map(|v| v.as_str()), fields);
                 let want_ty = Ty::Named(ty.clone());
                 let base = match base {
@@ -372,12 +313,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     }
                     None => None,
                 };
-                let e = Expr::Construct {
-                    ty: ty.clone(),
-                    variant: variant.clone(),
-                    fields,
-                    base,
-                };
+                let e = Expr::Construct { ty: ty.clone(), variant: variant.clone(), fields, base };
                 (e, self.expect(want, Some(want_ty)))
             }
             Expr::Index { base, index } => {
@@ -391,13 +327,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     None => None,
                 };
                 let (index, _) = self.expr(index, Some(&Ty::Prim(Prim::Usize)));
-                (
-                    Expr::Index {
-                        base: Box::new(base),
-                        index: Box::new(index),
-                    },
-                    self.expect(want, elem),
-                )
+                (Expr::Index { base: Box::new(base), index: Box::new(index) }, self.expect(want, elem))
             }
             Expr::Field { base, name } => {
                 let (base, bt) = self.expr(base, None);
@@ -412,16 +342,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 });
                 if let (None, Some(bt)) = (&t, &bt) {
                     if name.as_str() == NEWTYPE_FIELD {
-                        self.error(Reason::TupleField, format!(
-                            "`.0` is only in v0 on a one-field tuple struct, not on `{}`",
-                            show(bt)
-                        ));
+                        self.error(
+                            Reason::TupleField,
+                            format!("`.0` is only in v0 on a one-field tuple struct, not on `{}`", show(bt)),
+                        );
                     }
                 }
-                let e = Expr::Field {
-                    base: Box::new(base),
-                    name: name.clone(),
-                };
+                let e = Expr::Field { base: Box::new(base), name: name.clone() };
                 (e, self.expect(want, t))
             }
             Expr::Tuple(xs) => {
@@ -429,11 +356,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Some(Ty::Tuple(ts)) if ts.len() == xs.len() => ts.into_iter().map(Some).collect(),
                     _ => vec![None; xs.len()],
                 };
-                let (elems, tys): (Vec<Expr>, Vec<Option<Ty>>) = xs
-                    .iter()
-                    .zip(&wants)
-                    .map(|(x, w)| self.expr(x, w.as_ref()))
-                    .unzip();
+                let (elems, tys): (Vec<Expr>, Vec<Option<Ty>>) =
+                    xs.iter().zip(&wants).map(|(x, w)| self.expr(x, w.as_ref())).unzip();
                 let t = tys.into_iter().collect::<Option<Vec<Ty>>>().map(Ty::Tuple);
                 (Expr::Tuple(elems), self.expect(want, t))
             }
@@ -469,9 +393,10 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// type most likely comes from a binding reported there.
     fn unknown(&mut self, what: &str) {
         if !self.out.iter().any(|d| d.item == self.item) {
-            self.error(Reason::NeedsAnnotation, format!(
-                "the operand types of this {what} are not known here; annotate the binding they come from"
-            ));
+            self.error(
+                Reason::NeedsAnnotation,
+                format!("the operand types of this {what} are not known here; annotate the binding they come from"),
+            );
         }
     }
 }
@@ -492,15 +417,10 @@ pub(crate) fn has_hole(ty: &Ty) -> bool {
 fn needs_context(expr: &Expr) -> bool {
     match expr {
         Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }) => true,
-        Expr::Unary {
-            op: UnOp::Neg,
-            expr,
-        } => needs_context(expr),
-        Expr::Binary {
-            op: BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem,
-            left,
-            right,
-        } => needs_context(left) && needs_context(right),
+        Expr::Unary { op: UnOp::Neg, expr } => needs_context(expr),
+        Expr::Binary { op: BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem, left, right } => {
+            needs_context(left) && needs_context(right)
+        }
         Expr::Binary { op, left, right } if op.is_bitwise() => needs_context(left) && needs_context(right),
         Expr::Binary { op, left, .. } if op.is_shift() => needs_context(left),
         Expr::Unary { op: UnOp::Not, expr } => needs_context(expr),
@@ -548,16 +468,11 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Option(t) => format!("Option<{}>", show(t)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", show(ok), show(err)),
         Ty::Vec(t) => format!("Vec<{}>", show(t)),
-        Ty::Tuple(ts) => format!(
-            "({})",
-            ts.iter().map(show).collect::<Vec<_>>().join(", ")
-        ),
+        Ty::Tuple(ts) => format!("({})", ts.iter().map(show).collect::<Vec<_>>().join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
-        Ty::Fn { params, ret } => format!(
-            "impl Fn({}) -> {}",
-            params.iter().map(show).collect::<Vec<_>>().join(", "),
-            show(ret)
-        ),
+        Ty::Fn { params, ret } => {
+            format!("impl Fn({}) -> {}", params.iter().map(show).collect::<Vec<_>>().join(", "), show(ret))
+        }
         Ty::Ignored { wrapper, inner } => format!("{}<{}>", wrapper.rust_name(), show(inner)),
         Ty::Never => "!".into(),
     }

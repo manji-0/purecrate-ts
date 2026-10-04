@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 #[test]
@@ -13,8 +12,14 @@ fn chars_compare_and_match() {
 fn char_arms_end_in_a_wildcard() {
     assert_rejects("pub fn f(c: char) -> i32 { match c { 'a' => 1 } }", "a match on chars must end in a `_` arm");
     assert_rejects("pub fn f(c: char) -> i32 { match c { 'a' => 1, 1 => 2, _ => 3 } }", "match mixes");
-    assert_rejects("pub fn f(x: u8) -> i32 { match x { 'a' => 1, _ => 2 } }", "`char` patterns do not match a value of type `u8`");
-    assert_rejects("pub fn f(s: &str) -> i32 { match s { 'a' => 1, _ => 2 } }", "`char` patterns do not match a value of type `&str`");
+    assert_rejects(
+        "pub fn f(x: u8) -> i32 { match x { 'a' => 1, _ => 2 } }",
+        "`char` patterns do not match a value of type `u8`",
+    );
+    assert_rejects(
+        "pub fn f(s: &str) -> i32 { match s { 'a' => 1, _ => 2 } }",
+        "`char` patterns do not match a value of type `&str`",
+    );
 }
 
 #[test]
@@ -33,5 +38,8 @@ fn ascii_methods_are_allowed_and_unicode_ones_are_not() {
     assert_clean("pub fn f(c: char) -> Option<u32> { c.to_digit(10) }");
     assert_clean("pub fn f(c: char) -> usize { c.len_utf8() }");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "is_alphabetic");
-    assert_rejects("pub fn f(c: char) -> bool { c.is_ascii_digit(1u32) }", "`char::is_ascii_digit` takes 0 argument(s)");
+    assert_rejects(
+        "pub fn f(c: char) -> bool { c.is_ascii_digit(1u32) }",
+        "`char::is_ascii_digit` takes 0 argument(s)",
+    );
 }

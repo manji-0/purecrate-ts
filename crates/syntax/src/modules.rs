@@ -42,8 +42,7 @@ pub fn parse_files_spanned(
         .map(|s| s.text)
         .enumerate()
         .map(|(i, s)| {
-            syn::parse_file(s)
-                .map_err(|e| (i, ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span())))
+            syn::parse_file(s).map_err(|e| (i, ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span())))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -134,7 +133,10 @@ fn use_tree(tree: &syn::UseTree, last: Option<String>, re: &mut Reexports) -> Re
         syn::UseTree::Group(g) => g.items.iter().try_for_each(|t| use_tree(t, last.clone(), re)),
         syn::UseTree::Rename(r) => Err(ParseError::new(
             Reason::UnsupportedItem,
-            format!("`pub use .. as {}` renames an export, which v0 does not model; export the item under its own name", r.rename),
+            format!(
+                "`pub use .. as {}` renames an export, which v0 does not model; export the item under its own name",
+                r.rename
+            ),
         )
         .detail("use-rename")),
     }
@@ -142,13 +144,7 @@ fn use_tree(tree: &syn::UseTree, last: Option<String>, re: &mut Reexports) -> Re
 
 /// Items of `items` and their inline modules, with `pub` taken away where
 /// Rust would not export the item.
-fn flatten(
-    items: Vec<SynItem>,
-    public: bool,
-    module: Option<&str>,
-    re: &Reexports,
-    out: &mut impl FnMut(SynItem),
-) {
+fn flatten(items: Vec<SynItem>, public: bool, module: Option<&str>, re: &Reexports, out: &mut impl FnMut(SynItem)) {
     for mut item in items.into_iter().filter(|i| !is_test_only(i)) {
         match item {
             SynItem::Mod(m) => {

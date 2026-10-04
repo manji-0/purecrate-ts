@@ -12,7 +12,10 @@ pub(crate) enum Doc {
     Text(String),
     Concat(Vec<Doc>),
     /// Flat when it fits, else broken; `broken` forces the latter.
-    Group { doc: Box<Doc>, broken: bool },
+    Group {
+        doc: Box<Doc>,
+        broken: bool,
+    },
     Indent(Box<Doc>),
     /// A space flat, a newline broken.
     Line,
@@ -23,14 +26,20 @@ pub(crate) enum Doc {
     /// Nothing; breaks every enclosing group, as a hard line would.
     BreakParent,
     /// `broken` in a broken group, `flat` in a flat one.
-    IfBreak { broken: Box<Doc>, flat: Box<Doc> },
+    IfBreak {
+        broken: Box<Doc>,
+        flat: Box<Doc>,
+    },
     /// Layouts tried in order, each printed flat (its broken groups still
     /// break) where it fits up to its first newline; else the last, broken.
     /// A hard line inside does not break the groups around it.
     Conditional(Vec<Doc>),
     /// `lhs = rhs`, the `=` already in `lhs`: `rhs` on the line where it fits
     /// up to its first possible break, else on the next line, indented.
-    Assign { lhs: Box<Doc>, rhs: Box<Doc> },
+    Assign {
+        lhs: Box<Doc>,
+        rhs: Box<Doc>,
+    },
 }
 
 pub(crate) fn text(s: impl Into<String>) -> Doc {
@@ -157,8 +166,8 @@ fn run(width: usize, out: &mut String, col: &mut usize, cmds: Vec<Cmd>) {
                 if mode == Mode::Flat && remeasure {
                     remeasure = false;
                 }
-                let flat = !broken
-                    && (!measure || fits(&[(level, Mode::Flat, &**doc)], &stack, width.saturating_sub(*col)));
+                let flat =
+                    !broken && (!measure || fits(&[(level, Mode::Flat, &**doc)], &stack, width.saturating_sub(*col)));
                 stack.push((level, if flat { Mode::Flat } else { Mode::Break }, doc));
             }
             Doc::Conditional(states) => {
@@ -252,9 +261,11 @@ fn fits(next: &[Cmd], rest: &[Cmd], room: usize) -> bool {
             Doc::BreakParent => {}
             Doc::IfBreak { broken, flat } => cmds.push((mode, if mode == Mode::Break { broken } else { flat })),
             Doc::Group { doc, broken } => cmds.push((if *broken { Mode::Break } else { mode }, doc)),
-            Doc::Conditional(states) => {
-                cmds.push(if mode == Mode::Break { (Mode::Break, states.last().expect("a layout")) } else { (mode, &states[0]) })
-            }
+            Doc::Conditional(states) => cmds.push(if mode == Mode::Break {
+                (Mode::Break, states.last().expect("a layout"))
+            } else {
+                (mode, &states[0])
+            }),
             // Broken, its value may move to the next line: measured to the
             // `=`, then a newline.
             Doc::Assign { lhs, rhs } => {
@@ -294,7 +305,10 @@ mod tests {
 
     #[test]
     fn a_hard_line_breaks_its_groups() {
-        let d = call("f", vec![concat(vec![text("{"), indent(concat(vec![Doc::HardLine, text("x")])), Doc::HardLine, text("}")])]);
+        let d = call(
+            "f",
+            vec![concat(vec![text("{"), indent(concat(vec![Doc::HardLine, text("x")])), Doc::HardLine, text("}")])],
+        );
         assert_eq!(print(&d, 80, 0), "f(\n  {\n    x\n  },\n)");
     }
 

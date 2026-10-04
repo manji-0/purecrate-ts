@@ -29,7 +29,8 @@ pub fn merge(krate: Crate) -> Crate {
 fn merge_in(expr: &mut Expr) {
     if let Expr::Match { arms, .. } = expr {
         for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
-            let fresh: Vec<Name> = arm.pattern.bindings().into_iter().filter(|n| n.as_str().starts_with('$')).cloned().collect();
+            let fresh: Vec<Name> =
+                arm.pattern.bindings().into_iter().filter(|n| n.as_str().starts_with('$')).cloned().collect();
             for from in fresh {
                 let mut body = arm.body.clone();
                 let Some(to) = take_copy(&mut body, &from) else { continue };

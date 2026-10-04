@@ -3,7 +3,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod control = "fixtures/control.rs");
 
 const SOURCE: &str = control::SOURCE;

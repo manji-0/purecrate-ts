@@ -3,7 +3,6 @@
 //! and `Error` impls are skipped, other serde attributes and trait impls are
 //! rejected.
 
-
 use crate::common::{assert_clean, assert_rejects, messages};
 
 const ID: &str = "#[derive(Debug)] pub enum E { Bad }\n\
@@ -52,10 +51,16 @@ fn skipped_and_rejected_trait_impls() {
 
 #[test]
 fn other_serde_attributes_and_traits_are_rejected() {
-    let err = purecrate_syntax::parse_source("c", "#[serde(rename_all = \"camelCase\")] pub struct S { pub a: i32 }").expect_err("rename_all");
+    let err = purecrate_syntax::parse_source("c", "#[serde(rename_all = \"camelCase\")] pub struct S { pub a: i32 }")
+        .expect_err("rename_all");
     assert!(err.message.contains("the one exception is `#[serde(try_from"), "{}", err.message);
-    let err = purecrate_syntax::parse_source("c", "pub struct S { #[serde(default)] pub a: i32 }").expect_err("field attr");
+    let err =
+        purecrate_syntax::parse_source("c", "pub struct S { #[serde(default)] pub a: i32 }").expect_err("field attr");
     assert!(err.message.contains("the one exception is `#[serde(try_from"), "{}", err.message);
-    let err = purecrate_syntax::parse_source("c", "pub struct S(i32);\nimpl From<i32> for S { fn from(n: i32) -> Self { S(n) } }").expect_err("From");
+    let err = purecrate_syntax::parse_source(
+        "c",
+        "pub struct S(i32);\nimpl From<i32> for S { fn from(n: i32) -> Self { S(n) } }",
+    )
+    .expect_err("From");
     assert!(err.message.contains("except `Display`, `Error` (skipped) and `TryFrom<T>`"), "{}", err.message);
 }

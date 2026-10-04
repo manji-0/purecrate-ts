@@ -53,7 +53,11 @@ fn organize(src: &str) -> String {
             continue;
         };
         let specs = specs.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| {
-            if type_only && !s.starts_with("type ") { format!("type {s}") } else { s.to_string() }
+            if type_only && !s.starts_with("type ") {
+                format!("type {s}")
+            } else {
+                s.to_string()
+            }
         });
         let module = module.trim_end_matches(';').to_string();
         match modules.iter_mut().find(|(m, _)| *m == module) {
@@ -397,9 +401,10 @@ impl Refs {
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
         match expr {
             Expr::Match { scrutinee, arms } => {
-                self.never |= arms
-                    .iter()
-                    .any(|a| matches!(a.pattern, Pattern::Variant { .. }) || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_lit_case()));
+                self.never |= arms.iter().any(|a| {
+                    matches!(a.pattern, Pattern::Variant { .. })
+                        || (matches!(a.pattern, Pattern::Or(_)) && !a.pattern.is_lit_case())
+                });
                 self.arm_literals(arms.iter().map(|a| &a.pattern));
                 if !is_place(scrutinee) {
                     if let Some(ty) = scrutinee_ty(arms) {
@@ -471,10 +476,10 @@ impl Refs {
                     Callee::StrBytes
                     | Callee::StrCmp
                     | Callee::Str(
-                        purecrate_ir::StrMethod::StripPrefix | purecrate_ir::StrMethod::StripSuffix | purecrate_ir::StrMethod::SplitOnce,
-                    ) => {
-                        self.str = true
-                    }
+                        purecrate_ir::StrMethod::StripPrefix
+                        | purecrate_ir::StrMethod::StripSuffix
+                        | purecrate_ir::StrMethod::SplitOnce,
+                    ) => self.str = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;
@@ -545,10 +550,7 @@ impl Refs {
 }
 
 pub(crate) fn closed_in(krate: &Crate, name: &str) -> bool {
-    krate
-        .items
-        .iter()
-        .any(|item| matches!(item, Item::Struct(st) if st.closed && st.name.as_str() == name))
+    krate.items.iter().any(|item| matches!(item, Item::Struct(st) if st.closed && st.name.as_str() == name))
 }
 
 pub(crate) fn private_in(krate: &Crate, ty: &str, name: &str) -> bool {
@@ -564,10 +566,7 @@ pub(crate) fn is_const(krate: &Crate, name: &str) -> bool {
 }
 
 pub(crate) fn is_free_fn(krate: &Crate, name: &str) -> bool {
-    krate
-        .items
-        .iter()
-        .any(|item| matches!(item, Item::Fn(f) if f.owner.is_none() && f.name.as_str() == name))
+    krate.items.iter().any(|item| matches!(item, Item::Fn(f) if f.owner.is_none() && f.name.as_str() == name))
 }
 
 fn refs_of(krate: &Crate, items: &[&Item]) -> Refs {
@@ -576,9 +575,7 @@ fn refs_of(krate: &Crate, items: &[&Item]) -> Refs {
         match item {
             Item::Struct(st) => {
                 st.fields.iter().for_each(|f| refs.ty(&f.ty));
-                methods_on(krate, st.name.as_str())
-                    .into_iter()
-                    .for_each(|m| refs.fn_sig_and_body(krate, m));
+                methods_on(krate, st.name.as_str()).into_iter().for_each(|m| refs.fn_sig_and_body(krate, m));
             }
             Item::Enum(en) => {
                 for v in &en.variants {
@@ -588,9 +585,7 @@ fn refs_of(krate: &Crate, items: &[&Item]) -> Refs {
                         VariantFields::Struct(fs) => fs.iter().for_each(|f| refs.ty(&f.ty)),
                     }
                 }
-                methods_on(krate, en.name.as_str())
-                    .into_iter()
-                    .for_each(|m| refs.fn_sig_and_body(krate, m));
+                methods_on(krate, en.name.as_str()).into_iter().for_each(|m| refs.fn_sig_and_body(krate, m));
             }
             Item::Alias(al) => refs.ty(&al.ty),
             Item::Const(c) => {
@@ -665,15 +660,8 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
             s = Name::new(c.clone()).file_stem()
         ));
     }
-    for t in refs
-        .types
-        .iter()
-        .filter(|t| elsewhere(t) && !refs.values.contains(*t))
-    {
-        out.push_str(&format!(
-            "import type {{ {t} }} from \"./{s}.ts\";\n",
-            s = Name::new(t.clone()).file_stem()
-        ));
+    for t in refs.types.iter().filter(|t| elsewhere(t) && !refs.values.contains(*t)) {
+        out.push_str(&format!("import type {{ {t} }} from \"./{s}.ts\";\n", s = Name::new(t.clone()).file_stem()));
     }
     out
 }

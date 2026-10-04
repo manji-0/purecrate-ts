@@ -5,7 +5,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod for_each = "fixtures/for_each.rs");
 
 const SOURCE: &str = for_each::SOURCE;

@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 #[test]
@@ -20,14 +19,14 @@ fn newtypes_over_null_like_values_are_rejected() {
 
 #[test]
 fn dot_zero_needs_a_newtype() {
-    assert_rejects("pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { s.0 }", "only in v0 on a one-field tuple struct");
+    assert_rejects(
+        "pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { s.0 }",
+        "only in v0 on a one-field tuple struct",
+    );
     assert_rejects("pub fn f(x: (i32, i32)) -> i32 { x.0 }", "not on `(i32, i32)`");
 }
 
 #[test]
 fn method_paths_need_a_defined_method() {
-    assert_rejects(
-        "pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { S::missing(s) }",
-        "`S.missing` is not defined",
-    );
+    assert_rejects("pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { S::missing(s) }", "`S.missing` is not defined");
 }

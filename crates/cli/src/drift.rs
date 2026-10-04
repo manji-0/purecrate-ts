@@ -38,20 +38,14 @@ pub fn compare(expected: &BTreeMap<String, String>, actual: &BTreeMap<String, Ve
                 Some(bytes) if bytes.as_slice() != source.as_bytes() => Kind::Differs,
                 Some(_) => return None,
             };
-            Some(Drift {
-                path: path.clone(),
-                kind,
-            })
+            Some(Drift { path: path.clone(), kind })
         })
         .collect();
     out.extend(
         actual
             .keys()
             .filter(|path| !expected.contains_key(*path))
-            .map(|path| Drift {
-                path: path.clone(),
-                kind: Kind::Extra,
-            }),
+            .map(|path| Drift { path: path.clone(), kind: Kind::Extra }),
     );
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
@@ -76,8 +70,7 @@ mod tests {
     fn every_kind_is_reported_in_path_order() {
         let expected = map(&[("b.ts", "new".to_string()), ("c.ts", "c".to_string())]);
         let actual = map(&[("a.ts", b"stale".to_vec()), ("b.ts", b"old".to_vec())]);
-        let kinds: Vec<(String, Kind)> =
-            compare(&expected, &actual).into_iter().map(|d| (d.path, d.kind)).collect();
+        let kinds: Vec<(String, Kind)> = compare(&expected, &actual).into_iter().map(|d| (d.path, d.kind)).collect();
         assert_eq!(
             kinds,
             [

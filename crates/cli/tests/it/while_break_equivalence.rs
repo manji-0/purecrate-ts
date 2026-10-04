@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod while_break = "fixtures/while_break.rs");
 
 const SOURCE: &str = while_break::SOURCE;

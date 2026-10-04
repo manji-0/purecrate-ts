@@ -99,10 +99,7 @@ fn tsc(major: &str, dir: &Path, project: &str) {
 /// `npm pack` without the `prepack` build: `dist` is already built.
 fn pack(dir: &Path, into: &Path) -> PathBuf {
     let name = run(
-        Command::new("npm")
-            .args(["pack", "--ignore-scripts", "--silent", "--pack-destination"])
-            .arg(into)
-            .arg(dir),
+        Command::new("npm").args(["pack", "--ignore-scripts", "--silent", "--pack-destination"]).arg(into).arg(dir),
         &format!("npm pack {}", dir.display()),
     );
     into.join(name.trim())

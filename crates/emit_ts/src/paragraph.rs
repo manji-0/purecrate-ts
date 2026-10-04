@@ -77,9 +77,7 @@ fn mark(lines: &[&str], open: usize, blank_before: &mut [bool]) {
         let main = i;
         i += 1;
         // Deeper lines, and the `}` lines that close what this one opened.
-        while i < lines.len()
-            && (indent(lines[i]) > inner || indent(lines[i]) == inner && closes(lines[i]))
-        {
+        while i < lines.len() && (indent(lines[i]) > inner || indent(lines[i]) == inner && closes(lines[i])) {
             i += 1;
         }
         stmts.push(Stmt { start, code, main, end: i, commented });

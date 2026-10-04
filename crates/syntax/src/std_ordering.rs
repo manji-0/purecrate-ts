@@ -116,12 +116,14 @@ impl Visit<'_> {
                 .or_at(r.span()));
             }
             syn::UseTree::Glob(g) if std_cmp(prefix) && prefix.len() <= 3 => {
-                self.fail(ParseError::new(Reason::UnsupportedItem, format!(
-                    "`use {}::*` is not in v0; {fix}",
-                    prefix.join("::")
-                ))
-                .detail("use-ordering")
-                .or_at(g.span()));
+                self.fail(
+                    ParseError::new(
+                        Reason::UnsupportedItem,
+                        format!("`use {}::*` is not in v0; {fix}", prefix.join("::")),
+                    )
+                    .detail("use-ordering")
+                    .or_at(g.span()),
+                );
             }
             syn::UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(t, prefix)),
             _ => {}
@@ -158,11 +160,19 @@ impl Visit<'_> {
                 self.cmp_call(tts[i].span());
             }
             let after_sep = i >= 2 && path_sep(i - 2);
-            if ident(tts.get(i), "cmp") && !after_sep && path_sep(i + 1) && ident(tts.get(i + 3), ORDERING) && !self.modules.contains("cmp") {
+            if ident(tts.get(i), "cmp")
+                && !after_sep
+                && path_sep(i + 1)
+                && ident(tts.get(i + 3), ORDERING)
+                && !self.modules.contains("cmp")
+            {
                 self.fail(
-                    ParseError::new(Reason::QualifiedPath, format!(
+                    ParseError::new(
+                        Reason::QualifiedPath,
+                        format!(
                         "`cmp::{ORDERING}` is not in v0; write `use std::cmp::{ORDERING};` and name it `{ORDERING}`"
-                    ))
+                    ),
+                    )
                     .detail(format!("cmp::{ORDERING}"))
                     .or_at(tts[i].span()),
                 );
@@ -199,16 +209,21 @@ impl VisitMut for Visit<'_> {
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
         let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
         match segs.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-            ["std" | "core", "cmp", o, ..] if *o == ORDERING && path.segments.iter().take(2).all(|s| s.arguments.is_empty()) => {
+            ["std" | "core", "cmp", o, ..]
+                if *o == ORDERING && path.segments.iter().take(2).all(|s| s.arguments.is_empty()) =>
+            {
                 self.name(path.span());
                 path.leading_colon = None;
                 path.segments = path.segments.iter().skip(2).cloned().collect();
             }
             ["cmp", o, ..] if *o == ORDERING && path.leading_colon.is_none() && !self.modules.contains("cmp") => {
                 self.fail(
-                    ParseError::new(Reason::QualifiedPath, format!(
+                    ParseError::new(
+                        Reason::QualifiedPath,
+                        format!(
                         "`cmp::{ORDERING}` is not in v0; write `use std::cmp::{ORDERING};` and name it `{ORDERING}`"
-                    ))
+                    ),
+                    )
                     .detail(format!("cmp::{ORDERING}"))
                     .or_at(path.span()),
                 );

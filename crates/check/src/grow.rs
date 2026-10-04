@@ -27,13 +27,20 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
             out.push(Diagnostic::at(
                 i,
                 Reason::Closure,
-                format!("a closure reads `{}`, which `push` grows; read it outside the closure, or push to a copy", n.as_str()),
+                format!(
+                    "a closure reads `{}`, which `push` grows; read it outside the closure, or push to a copy",
+                    n.as_str()
+                ),
             ));
             continue;
         }
         own(&mut f.body, &pushed);
     }
-    if out.is_empty() { Ok(krate) } else { Err(out) }
+    if out.is_empty() {
+        Ok(krate)
+    } else {
+        Err(out)
+    }
 }
 
 /// The locals `v.push(x)` grows.

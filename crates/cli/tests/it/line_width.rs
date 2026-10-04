@@ -24,17 +24,13 @@ fn generated(name: &str, source: &str) -> Vec<(String, String)> {
     };
     let mut schemas = vec![None];
     if has_wire(&typed) {
-        schemas.extend([
-            Some(WireSchema::Zod),
-            Some(WireSchema::Valibot),
-            Some(WireSchema::Arktype),
-        ]);
+        schemas.extend([Some(WireSchema::Zod), Some(WireSchema::Valibot), Some(WireSchema::Arktype)]);
     }
     let mut out = Vec::new();
     for schema in schemas {
         for f in assemble_with(&typed, schema).files {
-            let hand_written = f.stem == "purecrate-runtime"
-                || f.stem.starts_with("purecrate-") && f.stem != "purecrate-wire";
+            let hand_written =
+                f.stem == "purecrate-runtime" || f.stem.starts_with("purecrate-") && f.stem != "purecrate-wire";
             if !hand_written && !f.stem.contains('.') {
                 out.push((format!("{name}/{schema:?}/{}", f.stem), f.source));
             }
@@ -63,14 +59,7 @@ fn generated_lines_fit_the_width() {
         let lib = dir.expect("entry").path().join("src/lib.rs");
         if let Ok(src) = fs::read_to_string(&lib) {
             inputs.push((
-                lib.parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
+                lib.parent().unwrap().parent().unwrap().file_name().unwrap().to_string_lossy().into_owned(),
                 src,
             ));
         }
@@ -96,10 +85,5 @@ fn generated_lines_fit_the_width() {
         }
     }
     assert!(files > 200, "read {files} files");
-    assert!(
-        over.is_empty(),
-        "{} generated lines over {WIDTH} characters:\n{}",
-        over.len(),
-        over.join("\n")
-    );
+    assert!(over.is_empty(), "{} generated lines over {WIDTH} characters:\n{}", over.len(), over.join("\n"));
 }

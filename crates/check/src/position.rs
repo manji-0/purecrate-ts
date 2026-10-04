@@ -48,7 +48,11 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
     // leave from the middle of it.
     if let Expr::Match { arms, .. } = expr {
         if arms.iter().filter_map(|a| a.guard.as_ref()).any(exits) {
-            report("`?` or `return` inside a match guard is not in v0; bind the value with `let` before the `match`".into(), at);
+            report(
+                "`?` or `return` inside a match guard is not in v0; bind the value with `let` before the `match`"
+                    .into(),
+                at,
+            );
         }
     }
     match expr {
@@ -125,11 +129,7 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
         }
         Expr::If { cond, then, else_ } if ctx == Ctx::Stmt => {
             visit(cond, Ctx::Strict, at, report);
-            let branch = if expr.needs_statements() {
-                Ctx::Stmt
-            } else {
-                Ctx::Nested
-            };
+            let branch = if expr.needs_statements() { Ctx::Stmt } else { Ctx::Nested };
             visit(then, branch, at, report);
             visit(else_, branch, at, report);
         }
@@ -143,10 +143,9 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
             }
         }
         Expr::Closure { body, .. } => visit(body, Ctx::Stmt, at, report),
-        Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => expr
-            .children()
-            .into_iter()
-            .for_each(|c| visit(c, Ctx::Nested, at, report)),
+        Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => {
+            expr.children().into_iter().for_each(|c| visit(c, Ctx::Nested, at, report))
+        }
         _ => {
             let strict = expr.strict_children();
             for child in expr.children() {

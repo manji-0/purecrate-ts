@@ -113,14 +113,22 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
             continue;
         }
         let Some(cases) = cases_of(&arm.pattern) else {
-            out.push(Diagnostic::at(i, Reason::ArmPattern, "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, or be `_`"));
+            out.push(Diagnostic::at(
+                i,
+                Reason::ArmPattern,
+                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, or be `_`",
+            ));
             return;
         };
         for (t, case) in cases {
             match ty {
                 None => ty = Some(t),
                 Some(first) if first != t => {
-                    out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("match mixes cases of `{first}` and `{t}`")));
+                    out.push(Diagnostic::at(
+                        i,
+                        Reason::NonExhaustive,
+                        format!("match mixes cases of `{first}` and `{t}`"),
+                    ));
                     return;
                 }
                 Some(_) => {}
@@ -130,7 +138,11 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
                 continue;
             }
             if seen.contains(&case) {
-                out.push(Diagnostic::at(i, Reason::NonExhaustive, format!("{} is matched more than once", label(t, case))));
+                out.push(Diagnostic::at(
+                    i,
+                    Reason::NonExhaustive,
+                    format!("{} is matched more than once", label(t, case)),
+                ));
             }
             seen.push(case);
         }
@@ -153,14 +165,11 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
             None => return,
         },
     };
-    let missing: Vec<String> = all
-        .into_iter()
-        .filter(|c| !seen.contains(c))
-        .map(|c| label(ty, c))
-        .collect();
+    let missing: Vec<String> = all.into_iter().filter(|c| !seen.contains(c)).map(|c| label(ty, c)).collect();
     if !rest && !missing.is_empty() {
         out.push(Diagnostic::at(
-            i, Reason::NonExhaustive,
+            i,
+            Reason::NonExhaustive,
             format!("match on `{ty}` is missing {}", missing.join(", ")),
         ));
     }
@@ -197,7 +206,11 @@ fn tuple_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
                 }
             }
             _ => {
-                out.push(Diagnostic::at(i, Reason::ArmPattern, "a match on a tuple takes tuple patterns, or a last `_`"));
+                out.push(Diagnostic::at(
+                    i,
+                    Reason::ArmPattern,
+                    "a match on a tuple takes tuple patterns, or a last `_`",
+                ));
                 return;
             }
         }

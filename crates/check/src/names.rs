@@ -9,22 +9,87 @@ use crate::Diagnostic;
 
 /// Reserved in strict-mode ES modules, or bound by the emitted code itself.
 const TS_RESERVED: &[&str] = &[
-    "arguments", "await", "break", "case", "catch", "class", "const", "continue", "debugger",
-    "default", "delete", "do", "else", "enum", "eval", "export", "extends", "false", "finally",
-    "for", "function", "if", "implements", "import", "in", "instanceof", "interface", "let",
-    "new", "null", "package", "private", "protected", "public", "return", "static", "super",
-    "switch", "this", "throw", "true", "try", "typeof", "undefined", "var", "void", "while",
-    "with", "yield",
+    "arguments",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "eval",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "instanceof",
+    "interface",
+    "let",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "static",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "undefined",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
 ];
 
 /// Cannot name a TS type alias.
-const TS_TYPE_KEYWORDS: &[&str] = &[
-    "any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown",
-];
+const TS_TYPE_KEYWORDS: &[&str] =
+    &["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"];
 
 /// Top-level names the emitted package defines; see also `TS_GLOBALS`.
 const PACKAGE_NAMES: &[&str] = &[
-    "Result", "Panic", "assertNever", "Int", "Str", "Slice", "Ord", "Iter", "Char", "Uuid", "UuidError", "ParseIntError", "parseJson", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64",
+    "Result",
+    "Panic",
+    "assertNever",
+    "Int",
+    "Str",
+    "Slice",
+    "Ord",
+    "Iter",
+    "Char",
+    "Uuid",
+    "UuidError",
+    "ParseIntError",
+    "parseJson",
+    "I8",
+    "I16",
+    "I32",
+    "I64",
+    "U8",
+    "U16",
+    "U32",
+    "U64",
+    "Usize",
+    "F32",
+    "F64",
 ];
 
 fn is_generated(name: &str) -> bool {
@@ -32,7 +97,8 @@ fn is_generated(name: &str) -> bool {
 }
 
 /// File stems the emitted package already uses.
-const GENERATED_STEMS: &[&str] = &["index", "purecrate-wire", "purecrate-runtime", "purecrate-zod", "purecrate-valibot", "purecrate-arktype"];
+const GENERATED_STEMS: &[&str] =
+    &["index", "purecrate-wire", "purecrate-runtime", "purecrate-zod", "purecrate-valibot", "purecrate-arktype"];
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
@@ -59,15 +125,13 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
             _ => name.to_string(),
         };
         if is_generated(&printed) {
-            out.push(Diagnostic::at(
-                i, Reason::ReservedName,
-                format!("`{name}` is reserved by the generated package"),
-            ));
+            out.push(Diagnostic::at(i, Reason::ReservedName, format!("`{name}` is reserved by the generated package")));
             continue;
         }
         if GENERATED_STEMS.contains(&stem.as_str()) {
             out.push(Diagnostic::at(
-                i, Reason::NameCollision,
+                i,
+                Reason::NameCollision,
                 format!("`{name}` would be emitted as `{stem}.ts`, which the generated package already uses"),
             ));
             continue;
@@ -78,9 +142,13 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
             Some(&first) if matches!(item, Item::Const(_)) || matches!(krate.items[first], Item::Const(_)) => {
                 let other = krate.items[first].name().as_str();
                 out.push(
-                    Diagnostic::at(i, Reason::NameCollision, format!(
+                    Diagnostic::at(
+                        i,
+                        Reason::NameCollision,
+                        format!(
                         "`{other}` and `{name}` would both be emitted as `{stem}.ts`, which holds the crate's consts"
-                    ))
+                    ),
+                    )
                     .also(first),
                 );
             }
@@ -124,12 +192,14 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
         let name = printed.as_str();
         if name == PROTO_KEY {
             out.push(Diagnostic::at(
-                i, Reason::ReservedName,
+                i,
+                Reason::ReservedName,
                 format!("method `{owner}.{name}` would set the prototype of the emitted companion object"),
             ));
         } else if builtin.get(owner).is_some_and(|b| b.contains(&name)) {
             out.push(Diagnostic::at(
-                i, Reason::NameCollision,
+                i,
+                Reason::NameCollision,
                 format!("method `{owner}.{name}` collides with the generated companion member `{name}`"),
             ));
         } else if let Some(&first) = seen.get(&(owner, printed.clone())) {
@@ -148,10 +218,7 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
 
 fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
     let mut bad = |what: &str, name: &Name, why: &str| {
-        out.push(Diagnostic::at(
-            i, Reason::ReservedName,
-            format!("{what} `{}` {why}", name.as_str()),
-        ));
+        out.push(Diagnostic::at(i, Reason::ReservedName, format!("{what} `{}` {why}", name.as_str())));
     };
     let mut ident = |what: &str, name: &Name| {
         // Functions, consts, parameters, and bindings print as `to_camel`.
@@ -208,7 +275,8 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
     };
     if let Some(n) = type_name.filter(|n| TS_TYPE_KEYWORDS.contains(&n.as_str())) {
         out.push(Diagnostic::at(
-            i, Reason::ReservedName,
+            i,
+            Reason::ReservedName,
             format!("type `{}` is a TypeScript type keyword", n.as_str()),
         ));
     }
@@ -217,7 +285,8 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
             if let VariantFields::Struct(fields) = &v.fields {
                 if fields.iter().any(|f| f.name.as_str() == "kind") {
                     out.push(Diagnostic::at(
-                        i, Reason::ReservedName,
+                        i,
+                        Reason::ReservedName,
                         format!(
                             "variant `{}::{}` has a field `kind`, which is the union discriminant",
                             e.name.as_str(),
@@ -233,9 +302,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
 fn for_each_binding(expr: &Expr, f: &mut impl FnMut(&Name)) {
     match expr {
         Expr::Let { name, .. } | Expr::For { var: name, .. } | Expr::ForEach { var: name, .. } => f(name),
-        Expr::Match { arms, .. } => arms
-            .iter()
-            .for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
+        Expr::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.bindings().into_iter().for_each(&mut *f)),
         Expr::Closure { params, .. } => params.iter().for_each(|p| f(&p.name)),
         _ => {}
     }

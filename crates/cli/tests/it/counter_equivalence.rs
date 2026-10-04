@@ -67,10 +67,7 @@ fn generated_counter_matches_rust_step() {
     }
 
     let states: Vec<i32> = (-3..=3).chain([-1000, 1000]).collect();
-    let cases: Vec<(i32, &str)> = states
-        .iter()
-        .flat_map(|&n| EVENTS.iter().map(move |&e| (n, e)))
-        .collect();
+    let cases: Vec<(i32, &str)> = states.iter().flat_map(|&n| EVENTS.iter().map(move |&e| (n, e))).collect();
     let expected: Vec<i32> = cases.iter().map(|&(n, e)| rust_step(n, e)).collect();
 
     let dir = scratch_dir();
@@ -84,16 +81,9 @@ fn generated_counter_matches_rust_step() {
         .current_dir(&dir)
         .output()
         .expect("run node (set PURECRATE_SKIP_NODE=1 to skip)");
-    assert!(
-        output.status.success(),
-        "node failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let actual: Vec<i32> = String::from_utf8(output.stdout)
-        .expect("utf8")
-        .lines()
-        .map(|l| l.parse().expect("number"))
-        .collect();
+    assert!(output.status.success(), "node failed:\n{}", String::from_utf8_lossy(&output.stderr));
+    let actual: Vec<i32> =
+        String::from_utf8(output.stdout).expect("utf8").lines().map(|l| l.parse().expect("number")).collect();
     fs::remove_dir_all(&dir).ok();
 
     assert_eq!(actual.len(), cases.len());

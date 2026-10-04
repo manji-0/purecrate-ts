@@ -61,38 +61,14 @@ fn ok_or_then_try_is_a_guard() {
     let krate = purecrate_syntax::parse_source("guard", SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&purecrate_check::prune_unreachable(&typed));
-    let src = &pkg
-        .files
-        .iter()
-        .find(|f| f.stem == "total")
-        .expect("total")
-        .source;
+    let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
     assert!(!src.contains("(() =>"), "{src}");
-    assert!(
-        src.contains("if (a === null) return Result.err({ kind: \"Amount\" })"),
-        "{src}"
-    );
-    let or_default = &pkg
-        .files
-        .iter()
-        .find(|f| f.stem == "or-default")
-        .expect("or-default")
-        .source;
-    assert!(
-        or_default.contains("x ?? d") || or_default.contains("x !== null"),
-        "{or_default}"
-    );
+    assert!(src.contains("if (a === null) return Result.err({ kind: \"Amount\" })"), "{src}");
+    let or_default = &pkg.files.iter().find(|f| f.stem == "or-default").expect("or-default").source;
+    assert!(or_default.contains("x ?? d") || or_default.contains("x !== null"), "{or_default}");
     assert!(!or_default.contains("$x"), "{or_default}");
-    let eager = &pkg
-        .files
-        .iter()
-        .find(|f| f.stem == "eager")
-        .expect("eager")
-        .source;
-    assert!(
-        eager.contains("$xOr") || eager.contains("Int.u8.add"),
-        "{eager}"
-    );
+    let eager = &pkg.files.iter().find(|f| f.stem == "eager").expect("eager").source;
+    assert!(eager.contains("$xOr") || eager.contains("Int.u8.add"), "{eager}");
 }
 
 /// A `?` inside an expression is hoisted to one binding, tested in place,
@@ -108,14 +84,7 @@ fn a_hoisted_try_binds_once() {
     let krate = purecrate_syntax::parse_source("hoist", source).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
-    let file = |stem: &str| {
-        pkg.files
-            .iter()
-            .find(|f| f.stem == stem)
-            .expect(stem)
-            .source
-            .clone()
-    };
+    let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
     let quarter = file("quarter");
     assert!(quarter.contains("const halfResult = half(n);\n  if (halfResult.kind === \"Err\") return halfResult;\n  const halfResult2 = half(halfResult.value);"), "{quarter}");
     assert!(!quarter.contains('$'), "{quarter}");
@@ -140,7 +109,10 @@ fn an_unwrapped_option_is_held_in_its_binding() {
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let quarter = &pkg.files.iter().find(|f| f.stem == "quarter").expect("quarter").source;
-    assert!(quarter.contains("const h = half(n);\n") && quarter.contains("if (h === null) return 0 as U32;"), "{quarter}");
+    assert!(
+        quarter.contains("const h = half(n);\n") && quarter.contains("if (h === null) return 0 as U32;"),
+        "{quarter}"
+    );
     // A `let mut` keeps its own type, which a held `null` would widen.
     assert!(quarter.contains("let q: U32 = option;"), "{quarter}");
 }

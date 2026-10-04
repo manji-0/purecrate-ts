@@ -4,7 +4,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod closures = "fixtures/closures.rs");
 
 const SOURCE: &str = closures::SOURCE;

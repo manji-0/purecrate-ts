@@ -53,7 +53,8 @@ fn every_module_file_is_read_once_and_tests_are_skipped() {
 #[test]
 fn each_public_item_gets_a_verdict() {
     let json = survey(&["--json"]);
-    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of", "Percent", "PercentError"] {
+    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of", "Percent", "PercentError"]
+    {
         assert!(item(&json, accepted).contains("\"status\":\"accepted\""), "{}", item(&json, accepted));
     }
     let rejected = [
@@ -82,10 +83,7 @@ fn each_public_item_gets_a_verdict() {
 fn human_summary_counts_functions_and_types() {
     let text = survey(&[]);
     assert!(text.starts_with("crate survey-demo (4 file(s))"), "{text}");
-    assert!(
-        text.contains("public functions: 14 — accepted 8 (57%), rejected 4, blocked by a dependency 2"),
-        "{text}"
-    );
+    assert!(text.contains("public functions: 14 — accepted 8 (57%), rejected 4, blocked by a dependency 2"), "{text}");
     assert!(text.contains("public types: 5 — accepted 3 (60%), rejected 2, blocked by a dependency 0"), "{text}");
 }
 
@@ -115,7 +113,8 @@ fn all_causes_lists_every_cause_of_a_function() {
 #[test]
 fn std_ordering_is_there_for_what_uses_it() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ordering.rs");
-    let out = Command::new(env!("CARGO_BIN_EXE_purecrate-ts")).arg("survey").arg(&path).output().expect("run purecrate-ts");
+    let out =
+        Command::new(env!("CARGO_BIN_EXE_purecrate-ts")).arg("survey").arg(&path).output().expect("run purecrate-ts");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).expect("utf-8");
     assert!(text.contains("public functions: 33 — accepted 33 (100%)"), "{text}");

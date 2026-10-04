@@ -13,10 +13,7 @@ pub struct Crate {
 
 impl Crate {
     pub fn new(name: impl Into<String>, items: Vec<Item>) -> Self {
-        Self {
-            name: Name::new(name),
-            items,
-        }
+        Self { name: Name::new(name), items }
     }
 
     pub fn exported(&self) -> impl Iterator<Item = &Item> {

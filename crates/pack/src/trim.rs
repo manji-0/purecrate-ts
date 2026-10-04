@@ -70,7 +70,15 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 out.insert(format!("m.{op}"));
             }
         }
-        for (prefix, name) in [("Str.", "str"), ("Slice.", "slice"), ("Ord.", "ord"), ("Iter.", "iter"), ("Char.", "char"), ("Uuid.", "uuid"), ("Json.", "json")] {
+        for (prefix, name) in [
+            ("Str.", "str"),
+            ("Slice.", "slice"),
+            ("Ord.", "ord"),
+            ("Iter.", "iter"),
+            ("Char.", "char"),
+            ("Uuid.", "uuid"),
+            ("Json.", "json"),
+        ] {
             for (at, _) in source.match_indices(prefix) {
                 if !starts_word(source, at) {
                     continue;
@@ -246,7 +254,10 @@ fn drop_empty_namespaces(src: &str) -> String {
     let mut i = 0;
     while i < lines.len() {
         let t = lines[i].trim();
-        if t.starts_with("export const ") && t.ends_with(" = {") && i + 1 < lines.len() && lines[i + 1].trim() == "} as const;"
+        if t.starts_with("export const ")
+            && t.ends_with(" = {")
+            && i + 1 < lines.len()
+            && lines[i + 1].trim() == "} as const;"
         {
             let mut start = i;
             while start > 0 && lines[start - 1].trim().is_empty() {
@@ -311,12 +322,23 @@ mod tests {
             "Int.i32.add(a, b); Int.u8.shl(x, n); Int.i64.checkedMul(a, b); globalThis.BigInt.asIntN(64, x);",
             "Str.slice(s, a); Char.is(v); Char.code(c); Uuid.parseStr(s); Json.f64(x); parseJson(t); myparseJson()",
         ]);
-        let marked: BTreeSet<String> = found.iter().filter(|u| u.contains('.') || *u == "char" || *u == "json" || *u == "uuid").cloned().collect();
+        let marked: BTreeSet<String> =
+            found.iter().filter(|u| u.contains('.') || *u == "char" || *u == "json" || *u == "uuid").cloned().collect();
         assert_eq!(
             marked,
             set(&[
-                "bits.u8", "char", "char.is", "int.i32", "int.i64", "int.u8", "json", "m.checkedMul", "methods.i64", "op.add",
-                "str.slice", "uuid",
+                "bits.u8",
+                "char",
+                "char.is",
+                "int.i32",
+                "int.i64",
+                "int.u8",
+                "json",
+                "m.checkedMul",
+                "methods.i64",
+                "op.add",
+                "str.slice",
+                "uuid",
             ])
         );
         // Every name read in code is a use; a property or a longer name is not.
@@ -336,25 +358,108 @@ mod tests {
         let out = trim_closed(RUNTIME, &set(&["int.i32", "op.add"]));
         assert!(out.contains("const small =") && out.contains("const panic =") && out.contains("export type I32"));
         assert!(out.contains("add: (a: T, b: T)") && !out.contains("sub: (a: T, b: T)"));
-        assert!(!out.contains("const big =") && !out.contains("export type I64") && !out.contains("export type Result"));
+        assert!(
+            !out.contains("const big =") && !out.contains("export type I64") && !out.contains("export type Result")
+        );
     }
 
     #[test]
     fn every_use_keeps_the_whole_runtime_less_its_markers() {
         let all = set(&[
-            "bits.i8", "bits.i16", "bits.i32", "bits.u8", "bits.u16", "bits.u32", "bits.i64", "bits.u64",
-            "methods.i8", "methods.i16", "methods.i32", "methods.u8", "methods.u16", "methods.u32",
-            "methods.usize", "methods.i64", "methods.u64", "str.bytes", "str.len", "str.slice",
-            "str.stripPrefix", "str.stripSuffix", "str.splitOnce", "str.cmp", "slice.at", "slice.range", "ord.cmp", "ord.cmpStr", "ord.cmpList", "ord.then", "iter.all", "iter.any", "iter.position", "iter.count", "iter.sum", "iter.map", "iter.filter", "iter.tryCollect", "char", "char.is", "uuid", "json", "parseJson",
-            "parseIntError", "parse.i8", "parse.i16", "parse.i32", "parse.u8", "parse.u16", "parse.u32", "parse.usize",
-            "parse.i64", "parse.u64", "Result", "Char", "Uuid", "UuidError", "panic", "small", "big", "op.add", "op.sub",
-            "op.mul", "op.div", "op.rem", "op.neg", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32",
-            "F64", "int.i8", "int.i16", "int.i32", "int.i64", "int.u8", "int.u16", "int.u32", "int.u64", "int.usize",
-            "int.f32", "int.f64",
+            "bits.i8",
+            "bits.i16",
+            "bits.i32",
+            "bits.u8",
+            "bits.u16",
+            "bits.u32",
+            "bits.i64",
+            "bits.u64",
+            "methods.i8",
+            "methods.i16",
+            "methods.i32",
+            "methods.u8",
+            "methods.u16",
+            "methods.u32",
+            "methods.usize",
+            "methods.i64",
+            "methods.u64",
+            "str.bytes",
+            "str.len",
+            "str.slice",
+            "str.stripPrefix",
+            "str.stripSuffix",
+            "str.splitOnce",
+            "str.cmp",
+            "slice.at",
+            "slice.range",
+            "ord.cmp",
+            "ord.cmpStr",
+            "ord.cmpList",
+            "ord.then",
+            "iter.all",
+            "iter.any",
+            "iter.position",
+            "iter.count",
+            "iter.sum",
+            "iter.map",
+            "iter.filter",
+            "iter.tryCollect",
+            "char",
+            "char.is",
+            "uuid",
+            "json",
+            "parseJson",
+            "parseIntError",
+            "parse.i8",
+            "parse.i16",
+            "parse.i32",
+            "parse.u8",
+            "parse.u16",
+            "parse.u32",
+            "parse.usize",
+            "parse.i64",
+            "parse.u64",
+            "Result",
+            "Char",
+            "Uuid",
+            "UuidError",
+            "panic",
+            "small",
+            "big",
+            "op.add",
+            "op.sub",
+            "op.mul",
+            "op.div",
+            "op.rem",
+            "op.neg",
+            "I8",
+            "I16",
+            "I32",
+            "I64",
+            "U8",
+            "U16",
+            "U32",
+            "U64",
+            "Usize",
+            "F32",
+            "F64",
+            "int.i8",
+            "int.i16",
+            "int.i32",
+            "int.i64",
+            "int.u8",
+            "int.u16",
+            "int.u32",
+            "int.u64",
+            "int.usize",
+            "int.f32",
+            "int.f64",
         ]);
         let mut all = all;
         all.extend(IntMethod::ALL.iter().map(|m| format!("m.{}", m.ts_name())));
-        all.extend(["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("minmax.{t}")));
+        all.extend(
+            ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("minmax.{t}")),
+        );
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
         let mut bare: String = RUNTIME
@@ -390,10 +495,36 @@ mod tests {
     fn no_use_keeps_panic_and_assert_never_only() {
         let none = trim_closed(RUNTIME, &BTreeSet::new());
         assert!(none.contains("export class Panic") && none.contains("export const assertNever"));
-        for gone in ["export type Usize", "export const Int", "small<", "export type Result", "export type Char", "export type Uuid", "methods(", "bits32<", "Grapheme", "parseStr", "parser(", "ParseIntError", "ryu", "INTEGER_LITERAL", "digitValue", "/** `str::", "xs[i] as T", "xs.slice("] {
+        for gone in [
+            "export type Usize",
+            "export const Int",
+            "small<",
+            "export type Result",
+            "export type Char",
+            "export type Uuid",
+            "methods(",
+            "bits32<",
+            "Grapheme",
+            "parseStr",
+            "parser(",
+            "ParseIntError",
+            "ryu",
+            "INTEGER_LITERAL",
+            "digitValue",
+            "/** `str::",
+            "xs[i] as T",
+            "xs.slice(",
+        ] {
             assert!(!none.contains(gone), "{gone} is kept");
         }
-        for empty in ["export const Str", "export const Ord", "export const Iter", "export const Slice", "export const Char =", "export const Int ="] {
+        for empty in [
+            "export const Str",
+            "export const Ord",
+            "export const Iter",
+            "export const Slice",
+            "export const Char =",
+            "export const Int =",
+        ] {
             assert!(!none.contains(empty), "{empty} stays empty:\n{none}");
         }
     }

@@ -27,7 +27,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             if let Some(rt) = &rt {
                 match (name.as_str(), self.norm(rt)) {
                     ("clone", Ty::Vec(_)) => {
-                        let e = Expr::Call { callee: Callee::Collect { result: false, over: Over::Items }, args: vec![recv] };
+                        let e = Expr::Call {
+                            callee: Callee::Collect { result: false, over: Over::Items },
+                            args: vec![recv],
+                        };
                         return (e, self.expect(want, Some(rt.clone())));
                     }
                     ("clone", _) | ("as_ref", Ty::Option(_)) => return (recv, self.expect(want, Some(rt.clone()))),
@@ -57,10 +60,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         if name.as_str() == "len" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Vec(_)) {
-                    let e = Expr::Call {
-                        callee: Callee::VecLen,
-                        args: vec![recv],
-                    };
+                    let e = Expr::Call { callee: Callee::VecLen, args: vec![recv] };
                     return (e, self.expect(want, Some(Ty::Prim(Prim::Usize))));
                 }
             }
@@ -109,10 +109,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         if name.as_str() == "as_bytes" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Prim(Prim::String | Prim::Str)) {
-                    let e = Expr::Call {
-                        callee: Callee::StrBytes,
-                        args: vec![recv],
-                    };
+                    let e = Expr::Call { callee: Callee::StrBytes, args: vec![recv] };
                     return (e, self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))));
                 }
             }
@@ -149,29 +146,25 @@ impl<'d, 'a> Typer<'d, 'a> {
         match (owner, rt) {
             (Some((ty, params)), Some(rt)) => {
                 if params != args.len() + 1 {
-                    self.error(Reason::ConstructShape, format!(
-                        "`{}.{}` takes {} argument(s) after the receiver, got {}",
-                        ty.as_str(),
-                        name.as_str(),
-                        params.saturating_sub(1),
-                        args.len()
-                    ));
+                    self.error(
+                        Reason::ConstructShape,
+                        format!(
+                            "`{}.{}` takes {} argument(s) after the receiver, got {}",
+                            ty.as_str(),
+                            name.as_str(),
+                            params.saturating_sub(1),
+                            args.len()
+                        ),
+                    );
                 }
-                let (param_tys, ret) = self
-                    .defs
-                    .methods
-                    .get(&(ty.as_str(), name.as_str()))
-                    .map(|f| sig(f))
-                    .unwrap_or_default();
+                let (param_tys, ret) =
+                    self.defs.methods.get(&(ty.as_str(), name.as_str())).map(|f| sig(f)).unwrap_or_default();
                 self.expect(param_tys.first(), Some(rt));
                 let mut typed = vec![recv];
                 for (a, p) in args.iter().zip(param_tys.iter().skip(1).map(Some).chain(std::iter::repeat(None))) {
                     typed.push(self.expr(a, p).0);
                 }
-                let e = Expr::Call {
-                    callee: Callee::Method { ty, name: name.clone() },
-                    args: typed,
-                };
+                let e = Expr::Call { callee: Callee::Method { ty, name: name.clone() }, args: typed };
                 (e, self.expect(want, ret))
             }
             (Some(_), None) => unreachable!("an owner is found only from a known receiver type"),
@@ -205,10 +198,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             (None, None) => {
                 if self.out.len() == before {
                     self.out.push(
-                        Diagnostic::at(self.item, Reason::NeedsAnnotation, format!(
-                            "the receiver type of `.{}()` is not known here; annotate the binding",
-                            name.as_str()
-                        ))
+                        Diagnostic::at(
+                            self.item,
+                            Reason::NeedsAnnotation,
+                            format!(
+                                "the receiver type of `.{}()` is not known here; annotate the binding",
+                                name.as_str()
+                            ),
+                        )
                         .about(name.as_str()),
                     );
                 }
@@ -246,7 +243,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                         }
                         // `E::A as T` is a constant.
                         let known = match inner.unpositioned() {
-                            Expr::Construct { variant: Some(v), .. } => table.iter().find(|(n, _)| n == v).map(|(_, d)| *d),
+                            Expr::Construct { variant: Some(v), .. } => {
+                                table.iter().find(|(n, _)| n == v).map(|(_, d)| *d)
+                            }
                             _ => None,
                         };
                         let folded = match known {
@@ -313,10 +312,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => match self.norm(&item) {
                 Ty::Prim(p) if p.int().is_some() => Consume::Sum(p.int().expect("checked")),
                 _ => {
-                    self.error(Reason::TypeMismatch, format!(
-                        "`sum` adds integers in v0, found `{}` (a float sum starts from `-0.0`)",
-                        show(&item)
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("`sum` adds integers in v0, found `{}` (a float sum starts from `-0.0`)", show(&item)),
+                    );
                     return Some(failed);
                 }
             },
@@ -325,11 +324,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         if let Some((param, ty, body)) = pred {
             if let Some(written) = &ty {
                 if self.norm(written) != self.norm(&item) {
-                    self.error(Reason::TypeMismatch, format!(
-                        "`{name}`'s closure takes `{}`, the items are `{}`",
-                        show(written),
-                        show(&item)
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("`{name}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
+                    );
                     return Some(failed);
                 }
             }
@@ -377,7 +375,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         match arg.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
                 if leaves(body) {
-                    self.error(Reason::Closure, format!("a closure passed to `{method}` may not use `?` or `return` in v0; write the loop"));
+                    self.error(
+                        Reason::Closure,
+                        format!("a closure passed to `{method}` may not use `?` or `return` in v0; write the loop"),
+                    );
                     return None;
                 }
                 let p = &params[0];
@@ -436,7 +437,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some(failed);
             }
             Some(other) => {
-                self.error(Reason::TypeMismatch, format!("`collect` builds a `Vec<T>` or a `Result<Vec<T>, E>` in v0, not `{}`", show(&other)));
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("`collect` builds a `Vec<T>` or a `Result<Vec<T>, E>` in v0, not `{}`", show(&other)),
+                );
                 return Some(failed);
             }
         };
@@ -446,7 +450,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         let hole = |t: &Ty| matches!(t, Ty::Named(n) if n.as_str() == "_");
         let Some(map) = map else {
             if err.as_ref().is_some_and(|e| hole(e)) || result {
-                self.error(Reason::TypeMismatch, "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string());
+                self.error(
+                    Reason::TypeMismatch,
+                    "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`".to_string(),
+                );
                 return Some(failed);
             }
             let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source] };
@@ -459,7 +466,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         if let Some(written) = &written {
             if self.norm(written) != item {
-                self.error(Reason::TypeMismatch, format!("`map`'s closure takes `{}`, the items are `{}`", show(written), show(&item)));
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("`map`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
+                );
                 return Some(failed);
             }
         }
@@ -473,7 +483,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (ok, Some(e))
                 }
                 (Some(_), other) => {
-                    self.error(Reason::TypeMismatch, format!("collecting into a `Result` takes `.map(f)` with `f` returning a `Result`, not `{}`", show(&other)));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!(
+                            "collecting into a `Result` takes `.map(f)` with `f` returning a `Result`, not `{}`",
+                            show(&other)
+                        ),
+                    );
                     return Some(failed);
                 }
                 (None, other) => (other, None),
@@ -492,7 +508,11 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (closure, _) = self.expr(&closure, None);
         let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source, closure] };
-        let filled = if result { Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) } } else { Ty::Vec(Box::new(elem)) };
+        let filled = if result {
+            Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) }
+        } else {
+            Ty::Vec(Box::new(elem))
+        };
         Some((e, Some(filled)))
     }
 
@@ -510,7 +530,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (param, written, body) = self.one_param_fn(stage, f)?;
                 if let Some(written) = &written {
                     if self.norm(written) != self.norm(&item) {
-                        self.error(Reason::TypeMismatch, format!("`{stage}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)));
+                        self.error(
+                            Reason::TypeMismatch,
+                            format!("`{stage}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
+                        );
                         return None;
                     }
                 }
@@ -521,7 +544,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                     body: Box::new(body),
                 };
                 let (closure, _) = self.expr(&closure, None);
-                let (callee, out) = if stage == "map" { (Callee::IterMap { over }, ret) } else { (Callee::IterFilter { over }, item) };
+                let (callee, out) =
+                    if stage == "map" { (Callee::IterMap { over }, ret) } else { (Callee::IterFilter { over }, item) };
                 Some((Expr::Call { callee, args: vec![source, closure] }, Over::Items, out))
             }
             (adaptor, _) => {
@@ -545,10 +569,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (_, found) => {
                         if self.out.len() == before {
                             let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
-                            self.error(Reason::TypeMismatch, format!(
-                                "`.{adaptor}().{consumer}()` takes a {}, found `{found}`",
-                                if over == Over::Items { "`Vec` or slice" } else { "`String` or `&str`" }
-                            ));
+                            self.error(
+                                Reason::TypeMismatch,
+                                format!(
+                                    "`.{adaptor}().{consumer}()` takes a {}, found `{found}`",
+                                    if over == Over::Items { "`Vec` or slice" } else { "`String` or `&str`" }
+                                ),
+                            );
                         }
                         return None;
                     }
@@ -567,7 +594,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         self.scopes.pop();
         self.out.truncate(before);
         if ty.is_none() {
-            self.error(Reason::NeedsAnnotation, "the `_` in `collect::<..>()` is not known from `map`'s function; name the type".to_string());
+            self.error(
+                Reason::NeedsAnnotation,
+                "the `_` in `collect::<..>()` is not known from `map`'s function; name the type".to_string(),
+            );
         }
         ty
     }
@@ -626,7 +656,14 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// evaluate their argument whether or not the option is `Some`, as Rust
     /// does; `map(f)` calls `f` only on `Some`. `None` when `name` is none of
     /// these.
-    pub(super) fn option_method(&mut self, recv: Expr, inner: &Ty, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+    pub(super) fn option_method(
+        &mut self,
+        recv: Expr,
+        inner: &Ty,
+        name: &str,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Option<Typed> {
         let [arg] = args else { return None };
         // Named after the receiver when it is a variable or a field
         // (`$major`, `$majorOr`), so the printed code says what it holds.
@@ -684,10 +721,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                         }
                         (Pattern::Var(params[0].name.clone()), (**body).clone())
                     }
-                    Expr::Var(f) => (
-                        Pattern::Var(some.clone()),
-                        Expr::Call { callee: Callee::Fn(f.clone()), args: vec![v(&some)] },
-                    ),
+                    Expr::Var(f) => {
+                        (Pattern::Var(some.clone()), Expr::Call { callee: Callee::Fn(f.clone()), args: vec![v(&some)] })
+                    }
                     e if self.variant_fn(e).is_some() => {
                         let build = self.variant_fn(e)?;
                         (Pattern::Var(some.clone()), build(v(&some)))
@@ -697,7 +733,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                         return Some((recv, None));
                     }
                 };
-                two(pattern, Expr::Call { callee: Callee::OptionSome, args: vec![body] }, Expr::Call { callee: Callee::OptionNone, args: vec![] })
+                two(
+                    pattern,
+                    Expr::Call { callee: Callee::OptionSome, args: vec![body] },
+                    Expr::Call { callee: Callee::OptionNone, args: vec![] },
+                )
             }
             _ => return None,
         };
@@ -727,22 +767,12 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => typed,
         };
         let typed = match eager_let {
-            Some((name, ty, value)) => Expr::Let {
-                name,
-                mutable: false,
-                ty,
-                value: Box::new(value),
-                then: Box::new(typed),
-            },
+            Some((name, ty, value)) => {
+                Expr::Let { name, mutable: false, ty, value: Box::new(value), then: Box::new(typed) }
+            }
             None => typed,
         };
-        let e = Expr::Let {
-            name: opt,
-            mutable: false,
-            ty: Some(rt),
-            value: Box::new(recv),
-            then: Box::new(typed),
-        };
+        let e = Expr::Let { name: opt, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
         Some((e, t))
     }
 
@@ -780,7 +810,15 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `ok()`, `map(f)`, and `map_err(f)` on a `Result`, as the `match` std
     /// writes them; `f` runs only on `Ok` or only on `Err`. The receiver is bound to a fresh name
     /// first. `None` when `name` is neither.
-    pub(super) fn result_method(&mut self, recv: Expr, ok: &Ty, err: &Ty, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
+    pub(super) fn result_method(
+        &mut self,
+        recv: Expr,
+        ok: &Ty,
+        err: &Ty,
+        name: &str,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Option<Typed> {
         let r = self.fresh_name("result");
         let value = self.fresh_name("value");
         let v = |n: &Name| Expr::Var(n.clone());
@@ -827,7 +865,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Expr::Match {
                         scrutinee: Box::new(Expr::Var(r.clone())),
                         arms: vec![
-                            Arm { guard: None, pattern: Pattern::ResultOk(Box::new(pattern)), body: Expr::Call { callee: Callee::ResultOk, args: vec![body] } },
+                            Arm {
+                                guard: None,
+                                pattern: Pattern::ResultOk(Box::new(pattern)),
+                                body: Expr::Call { callee: Callee::ResultOk, args: vec![body] },
+                            },
                             Arm {
                                 guard: None,
                                 pattern: Pattern::ResultErr(Box::new(Pattern::Var(e.clone()))),
@@ -865,13 +907,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             _ => typed,
         };
-        let e = Expr::Let {
-            name: r,
-            mutable: false,
-            ty: Some(rt),
-            value: Box::new(recv),
-            then: Box::new(typed),
-        };
+        let e = Expr::Let { name: r, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
         Some((e, t))
     }
 
@@ -885,16 +921,20 @@ impl<'d, 'a> Typer<'d, 'a> {
             Some(Ty::Result { ok, err }) => match (self.norm(&ok), self.norm(&err)) {
                 (Ty::Prim(p), Ty::Prim(Prim::ParseIntError)) if p.int().is_some() => p.int(),
                 (ok, _) => {
-                    self.error(Reason::MethodCall, format!(
-                        "`parse` reads an integer type in v0 (`s.parse::<u64>()`), not `{}`",
-                        show(&ok)
-                    ));
+                    self.error(
+                        Reason::MethodCall,
+                        format!("`parse` reads an integer type in v0 (`s.parse::<u64>()`), not `{}`", show(&ok)),
+                    );
                     return failed;
                 }
             },
             Some(Ty::Never) => return failed,
             _ => {
-                self.error(Reason::NeedsAnnotation, "`parse` needs its target: `s.parse::<u64>()`, or a typed `let` of `Result<u64, ParseIntError>`".to_string());
+                self.error(
+                    Reason::NeedsAnnotation,
+                    "`parse` needs its target: `s.parse::<u64>()`, or a typed `let` of `Result<u64, ParseIntError>`"
+                        .to_string(),
+                );
                 return failed;
             }
         };
@@ -906,18 +946,28 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `c.m(args)` for an allow-listed `char` method.
     /// `x.min(y)`, `x.checked_add(y)`, `x.pow(e)`, ...: a `Callee::Int` on
     /// the receiver's type, the receiver first.
-    pub(super) fn int_method(&mut self, it: IntTy, m: IntMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
+    pub(super) fn int_method(
+        &mut self,
+        it: IntTy,
+        m: IntMethod,
+        recv: Expr,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Typed {
         if m == IntMethod::Abs && !it.is_signed() {
             self.error(Reason::MethodCall, format!("`{}` has no `abs`; it is never negative", it.as_str()));
         }
         if args.len() + 1 != m.arity() {
-            self.error(Reason::ConstructShape, format!(
-                "`{}::{}` takes {} argument(s) after the receiver, got {}",
-                it.as_str(),
-                m.name(),
-                m.arity() - 1,
-                args.len()
-            ));
+            self.error(
+                Reason::ConstructShape,
+                format!(
+                    "`{}::{}` takes {} argument(s) after the receiver, got {}",
+                    it.as_str(),
+                    m.name(),
+                    m.arity() - 1,
+                    args.len()
+                ),
+            );
         }
         let e = Expr::Call {
             callee: Callee::Int { ty: it, op: IntOp::Method(m) },
@@ -953,22 +1003,17 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     pub(super) fn char_method(&mut self, m: CharMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
         if args.len() != m.args() {
-            self.error(Reason::ConstructShape, format!(
-                "`char::{}` takes {} argument(s) after the receiver, got {}",
-                m.name(),
-                m.args(),
-                args.len()
-            ));
+            self.error(
+                Reason::ConstructShape,
+                format!("`char::{}` takes {} argument(s) after the receiver, got {}", m.name(), m.args(), args.len()),
+            );
         }
         let (params, ret) = char_sig(m);
         let mut typed = vec![recv];
         for (a, p) in args.iter().zip(&params) {
             typed.push(self.expr(a, Some(p)).0);
         }
-        let e = Expr::Call {
-            callee: Callee::Char(m),
-            args: typed,
-        };
+        let e = Expr::Call { callee: Callee::Char(m), args: typed };
         (e, self.expect(want, Some(ret)))
     }
 
@@ -977,12 +1022,10 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// allow-list.
     pub(super) fn str_method(&mut self, m: StrMethod, recv: Expr, args: &[Expr], want: Option<&Ty>) -> Typed {
         if args.len() != m.needles() {
-            self.error(Reason::ConstructShape, format!(
-                "`str::{}` takes {} argument(s) after the receiver, got {}",
-                m.name(),
-                m.needles(),
-                args.len()
-            ));
+            self.error(
+                Reason::ConstructShape,
+                format!("`str::{}` takes {} argument(s) after the receiver, got {}", m.name(), m.needles(), args.len()),
+            );
         }
         let mut typed = vec![recv];
         for a in args {
@@ -990,11 +1033,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             match t.map(|t| self.norm(&t)) {
                 Some(Ty::Prim(Prim::String | Prim::Str)) | Some(Ty::Never) | None => {}
                 Some(Ty::Prim(Prim::Char)) if m == StrMethod::SplitOnce => {}
-                Some(other) => self.error(Reason::TypeMismatch, format!(
-                    "`str::{}` takes a `&str` pattern in v0, found `{}`",
-                    m.name(),
-                    show(&other)
-                )),
+                Some(other) => self.error(
+                    Reason::TypeMismatch,
+                    format!("`str::{}` takes a `&str` pattern in v0, found `{}`", m.name(), show(&other)),
+                ),
             }
             typed.push(e);
         }
@@ -1005,10 +1047,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             StrMethod::SplitOnce => split_once_ty(),
             StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
         };
-        let e = Expr::Call {
-            callee: Callee::Str(m),
-            args: typed,
-        };
+        let e = Expr::Call { callee: Callee::Str(m), args: typed };
         (e, self.expect(want, Some(ret)))
     }
 
@@ -1019,43 +1058,42 @@ impl<'d, 'a> Typer<'d, 'a> {
         let arg = typed.first().and_then(|(_, t)| t.clone()).map(|t| self.norm(&t));
         if arg == Some(Ty::Prim(Prim::Char)) {
             if !matches!(to, IntTy::U32 | IntTy::U64) {
-                self.error(Reason::NumericOp, format!(
-                    "`{}::from` does not take `char`: std converts a `char` only to `u32`, `u64`, and `u128`",
-                    to.as_str()
-                ));
+                self.error(
+                    Reason::NumericOp,
+                    format!(
+                        "`{}::from` does not take `char`: std converts a `char` only to `u32`, `u64`, and `u128`",
+                        to.as_str()
+                    ),
+                );
             }
-            let e = Expr::Call {
-                callee: Callee::CharCode(to),
-                args: typed.into_iter().map(|(e, _)| e).collect(),
-            };
+            let e = Expr::Call { callee: Callee::CharCode(to), args: typed.into_iter().map(|(e, _)| e).collect() };
             return (e, self.expect(want, Some(Ty::Prim(to.into()))));
         }
         let from = match typed.first().map(|(_, t)| t.clone()) {
             Some(Some(t)) if t != Ty::Never => match self.num(&t) {
                 Some(Num::Int(f)) if f.widens_to(to) => Some(f),
                 Some(Num::Int(f)) => {
-                    self.error(Reason::NumericOp, format!(
-                        "`{}::from` does not take `{}`: std has no lossless conversion between them",
-                        to.as_str(),
-                        f.as_str()
-                    ));
+                    self.error(
+                        Reason::NumericOp,
+                        format!(
+                            "`{}::from` does not take `{}`: std has no lossless conversion between them",
+                            to.as_str(),
+                            f.as_str()
+                        ),
+                    );
                     None
                 }
                 _ => {
-                    self.error(Reason::TypeMismatch, format!(
-                        "`{}::from` takes an integer in v0, found `{}`",
-                        to.as_str(),
-                        show(&t)
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("`{}::from` takes an integer in v0, found `{}`", to.as_str(), show(&t)),
+                    );
                     None
                 }
             },
             _ => None,
         };
-        let e = Expr::Call {
-            callee: Callee::IntFrom { from, to },
-            args: typed.into_iter().map(|(e, _)| e).collect(),
-        };
+        let e = Expr::Call { callee: Callee::IntFrom { from, to }, args: typed.into_iter().map(|(e, _)| e).collect() };
         (e, self.expect(want, Some(Ty::Prim(to.into()))))
     }
 }
@@ -1074,7 +1112,11 @@ pub(super) fn leaves(expr: &Expr) -> bool {
 pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL.iter().map(|m| m.name()).chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"]).collect(),
+        Ty::Prim(Prim::String) => StrMethod::ALL
+            .iter()
+            .map(|m| m.name())
+            .chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"])
+            .collect(),
         Ty::Prim(Prim::Str) => StrMethod::ALL
             .iter()
             .filter(|m| **m != StrMethod::AsStr)
@@ -1083,7 +1125,17 @@ pub(super) fn std_methods(ty: &Ty) -> Option<String> {
             .collect(),
         Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp"]).collect(),
         Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp"],
-        Ty::Vec(_) => vec!["len", "is_empty", "cmp", "clone", "iter", "into_iter", "push (on a `let mut` local)", "indexing `xs[i]`", "slicing `xs[a..b]`"],
+        Ty::Vec(_) => vec![
+            "len",
+            "is_empty",
+            "cmp",
+            "clone",
+            "iter",
+            "into_iter",
+            "push (on a `let mut` local)",
+            "indexing `xs[i]`",
+            "slicing `xs[a..b]`",
+        ],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "as_ref", "as_deref"],
         Ty::Result { .. } => vec!["ok", "map", "map_err"],
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
@@ -1097,9 +1149,15 @@ pub(super) fn std_methods(ty: &Ty) -> Option<String> {
     Some(match (ty, names.is_empty()) {
         (_, true) => "none; use operators, `match`, or `T::from`".into(),
         (_, false) => {
-            let list = names.iter().map(|n| if n.contains(' ') { n.to_string() } else { format!("`{n}`") }).collect::<Vec<_>>().join(", ");
+            let list = names
+                .iter()
+                .map(|n| if n.contains(' ') { n.to_string() } else { format!("`{n}`") })
+                .collect::<Vec<_>>()
+                .join(", ");
             match ty {
-                Ty::Prim(Prim::U8) => format!("{list}; for `u8::is_ascii_*` use `matches!(b, b'0'..=b'9')` or `char::from(b)`"),
+                Ty::Prim(Prim::U8) => {
+                    format!("{list}; for `u8::is_ascii_*` use `matches!(b, b'0'..=b'9')` or `char::from(b)`")
+                }
                 _ => list,
             }
         }

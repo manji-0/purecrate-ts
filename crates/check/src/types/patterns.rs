@@ -10,8 +10,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         // would be `Result<T, unknown>` in TS (`Ok::<T, E>(x)` is read as
         // `Ok(x)`). Not reported when a binding of this item already was.
         if st.is_none() && !self.out.iter().any(|d| d.item == self.item) {
-            self.error(Reason::NeedsAnnotation,
-                "the type of the matched value is not known here; bind it first with `let x: T = ..`".to_string());
+            self.error(
+                Reason::NeedsAnnotation,
+                "the type of the matched value is not known here; bind it first with `let x: T = ..`".to_string(),
+            );
         }
         let st = st.map(|t| self.norm(&t));
         let mut result: Option<Ty> = None;
@@ -25,11 +27,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (body, t) = self.expr(&arm.body, hint.as_ref());
                 self.scopes.truncate(depth);
                 result = join(result.take(), t);
-                Arm {
-                    guard,
-                    pattern: self.lit_pattern(&arm.pattern, st.as_ref()),
-                    body,
-                }
+                Arm { guard, pattern: self.lit_pattern(&arm.pattern, st.as_ref()), body }
             })
             .collect::<Vec<Arm>>();
         // Typed; now one `match` per element, so TS checks each is exhaustive.
@@ -55,13 +53,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             let scrutinee = Expr::Tuple(vec![scrutinee]);
             return (crate::tuple::lower(self.defs, scrutinee, vec![t.clone()], arms, &mut self.fresh), result);
         }
-        (
-            Expr::Match {
-                scrutinee: Box::new(scrutinee),
-                arms,
-            },
-            result,
-        )
+        (Expr::Match { scrutinee: Box::new(scrutinee), arms }, result)
     }
 
     /// The normalized element types of a tuple scrutinee of `width`, or
@@ -70,10 +62,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         match scrutinee {
             Some(Ty::Tuple(ts)) if ts.len() == width => ts.iter().map(|t| Some(self.norm(t))).collect(),
             Some(t) if *t != Ty::Never => {
-                self.error(Reason::TypeMismatch, format!(
-                    "a tuple pattern of {width} elements does not match a value of type `{}`",
-                    show(t)
-                ));
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("a tuple pattern of {width} elements does not match a value of type `{}`", show(t)),
+                );
                 vec![None; width]
             }
             _ => vec![None; width],
@@ -121,10 +113,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                     .map(|v| v.fields.clone());
                 let bind = match (bind, fields) {
                     (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => VariantBind::Tuple(
-                        ps.iter().zip(&tys).map(|(p, t)| {
-                            let t = self.norm(t);
-                            self.lit_pattern(p, Some(&t))
-                        }).collect(),
+                        ps.iter()
+                            .zip(&tys)
+                            .map(|(p, t)| {
+                                let t = self.norm(t);
+                                self.lit_pattern(p, Some(&t))
+                            })
+                            .collect(),
                     ),
                     (VariantBind::Struct(ps), Some(VariantFields::Struct(fs))) => VariantBind::Struct(
                         ps.iter()
@@ -143,32 +138,28 @@ impl<'d, 'a> Typer<'d, 'a> {
         if pattern.is_bool_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Bool) | Ty::Never) | None => {}
-                Some(t) => self.error(Reason::TypeMismatch, format!(
-                    "`bool` patterns do not match a value of type `{}`",
-                    show(t)
-                )),
+                Some(t) => self
+                    .error(Reason::TypeMismatch, format!("`bool` patterns do not match a value of type `{}`", show(t))),
             }
             return pattern.clone();
         }
         if pattern.is_char_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Char) | Ty::Never) | None => {}
-                Some(t) => self.error(Reason::TypeMismatch, format!(
-                    "`char` patterns do not match a value of type `{}`",
-                    show(t)
-                )),
+                Some(t) => self
+                    .error(Reason::TypeMismatch, format!("`char` patterns do not match a value of type `{}`", show(t))),
             }
             return pattern.clone();
         }
         if pattern.is_str_case() {
             match scrutinee {
                 Some(Ty::Prim(Prim::Str) | Ty::Never) | None => {}
-                Some(Ty::Prim(Prim::String)) => self.error(Reason::TypeMismatch,
-                    "string patterns match a `&str`, found `String`; match on `s.as_str()`".to_string()),
-                Some(t) => self.error(Reason::TypeMismatch, format!(
-                    "string patterns do not match a value of type `{}`",
-                    show(t)
-                )),
+                Some(Ty::Prim(Prim::String)) => self.error(
+                    Reason::TypeMismatch,
+                    "string patterns match a `&str`, found `String`; match on `s.as_str()`".to_string(),
+                ),
+                Some(t) => self
+                    .error(Reason::TypeMismatch, format!("string patterns do not match a value of type `{}`", show(t))),
             }
             return pattern.clone();
         }
@@ -179,10 +170,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Some(Num::Int(t)) => Some(t),
             _ => {
                 if let Some(t) = scrutinee {
-                    self.error(Reason::TypeMismatch, format!(
-                        "integer patterns do not match a value of type `{}`",
-                        show(t)
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("integer patterns do not match a value of type `{}`", show(t)),
+                    );
                 }
                 None
             }
@@ -193,11 +184,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn fill_int(&mut self, pattern: &Pattern, ty: Option<IntTy>) -> Pattern {
         match pattern {
             Pattern::Lit(lit) => Pattern::Lit(self.int_lit(lit, ty)),
-            Pattern::Range { lo, hi, inclusive } => Pattern::Range {
-                lo: self.int_lit(lo, ty),
-                hi: self.int_lit(hi, ty),
-                inclusive: *inclusive,
-            },
+            Pattern::Range { lo, hi, inclusive } => {
+                Pattern::Range { lo: self.int_lit(lo, ty), hi: self.int_lit(hi, ty), inclusive: *inclusive }
+            }
             Pattern::Or(alts) => Pattern::Or(alts.iter().map(|a| self.fill_int(a, ty)).collect()),
             other => other.clone(),
         }
@@ -208,11 +197,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Lit::Int { value, ty: written, byte, hex } => {
                 if let (Some(w), Some(t)) = (written, ty) {
                     if *w != t {
-                        self.error(Reason::TypeMismatch, format!(
-                            "pattern `{value}{}` does not match a value of type `{}`",
-                            w.as_str(),
-                            t.as_str()
-                        ));
+                        self.error(
+                            Reason::TypeMismatch,
+                            format!("pattern `{value}{}` does not match a value of type `{}`", w.as_str(), t.as_str()),
+                        );
                     }
                 }
                 Lit::Int { value: *value, ty: ty.or(*written), byte: *byte, hex: *hex }
@@ -230,16 +218,18 @@ impl<'d, 'a> Typer<'d, 'a> {
             (Pattern::ResultErr(p), Some(Ty::Result { err, .. })) => return self.bind(p, Some(err.as_ref())),
             (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), other) => {
                 if let Some(t) = other {
-                    self.error(Reason::TypeMismatch, format!(
-                        "pattern `{}` does not match a value of type `{}`",
-                        describe(pattern),
-                        show(t)
-                    ));
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("pattern `{}` does not match a value of type `{}`", describe(pattern), show(t)),
+                    );
                 }
                 return self.bind(p, None);
             }
             (Pattern::OptionNone, Some(t)) if !matches!(t, Ty::Option(_)) => {
-                self.error(Reason::TypeMismatch, format!("pattern `None` does not match a value of type `{}`", show(t)));
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("pattern `None` does not match a value of type `{}`", show(t)),
+                );
                 (None, None)
             }
             (Pattern::OptionNone | Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. }, _) => (None, None),
@@ -266,12 +256,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             return;
         };
         if let Some(t) = scrutinee.filter(|t| **t != Ty::Named(ty.clone())) {
-            self.error(Reason::TypeMismatch, format!(
-                "pattern `{}::{}` does not match a value of type `{}`",
-                ty.as_str(),
-                variant.as_str(),
-                show(t)
-            ));
+            self.error(
+                Reason::TypeMismatch,
+                format!("pattern `{}::{}` does not match a value of type `{}`", ty.as_str(), variant.as_str(), show(t)),
+            );
         }
         let fields = self
             .defs

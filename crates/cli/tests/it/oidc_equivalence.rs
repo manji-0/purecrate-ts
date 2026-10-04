@@ -14,7 +14,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod oidc = "../../../examples/oidc/src/lib.rs", "fixtures/oidc_driver.rs");
 
 const SOURCE: &str = oidc::SOURCE;
@@ -24,37 +23,95 @@ const SOURCE: &str = oidc::SOURCE;
 /// converted; the reference only.
 mod idiomatic {
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum ErrorCode { InvalidRequest, UnsupportedResponseType, InvalidScope, AccessDenied, LoginRequired, ConsentRequired }
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum DisplayError { UnknownClient, MissingRedirectUri, UnregisteredRedirectUri }
-    #[derive(Debug, Clone, PartialEq)]
-    pub struct ErrorRedirect { pub redirect_uri: String, pub error: ErrorCode, pub state: Option<String> }
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum AuthorizationError { Display(DisplayError), Redirect(ErrorRedirect) }
-
-    pub struct Client { pub client_id: String, pub redirect_uris: Vec<String>, pub require_pkce: bool, pub allow_plain_pkce: bool }
-    #[derive(Default)]
-    pub struct AuthorizationParams {
-        pub client_id: Option<String>, pub response_type: Option<String>, pub redirect_uri: Option<String>,
-        pub scope: Option<String>, pub state: Option<String>, pub nonce: Option<String>,
-        pub code_challenge: Option<String>, pub code_challenge_method: Option<String>,
-        pub prompt: Option<String>, pub max_age: Option<String>, pub acr_values: Option<String>,
+    pub enum ErrorCode {
+        InvalidRequest,
+        UnsupportedResponseType,
+        InvalidScope,
+        AccessDenied,
+        LoginRequired,
+        ConsentRequired,
     }
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum AuthStrength { PasswordOnly, PasswordAndTotp }
-    pub struct Session { pub subject: String, pub auth_time: i64, pub strength: AuthStrength }
-    pub struct Policy { pub max_password_failures: u32, pub max_otp_failures: u32 }
+    pub enum DisplayError {
+        UnknownClient,
+        MissingRedirectUri,
+        UnregisteredRedirectUri,
+    }
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ErrorRedirect {
+        pub redirect_uri: String,
+        pub error: ErrorCode,
+        pub state: Option<String>,
+    }
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum AuthorizationError {
+        Display(DisplayError),
+        Redirect(ErrorRedirect),
+    }
+
+    pub struct Client {
+        pub client_id: String,
+        pub redirect_uris: Vec<String>,
+        pub require_pkce: bool,
+        pub allow_plain_pkce: bool,
+    }
+    #[derive(Default)]
+    pub struct AuthorizationParams {
+        pub client_id: Option<String>,
+        pub response_type: Option<String>,
+        pub redirect_uri: Option<String>,
+        pub scope: Option<String>,
+        pub state: Option<String>,
+        pub nonce: Option<String>,
+        pub code_challenge: Option<String>,
+        pub code_challenge_method: Option<String>,
+        pub prompt: Option<String>,
+        pub max_age: Option<String>,
+        pub acr_values: Option<String>,
+    }
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum AuthStrength {
+        PasswordOnly,
+        PasswordAndTotp,
+    }
+    pub struct Session {
+        pub subject: String,
+        pub auth_time: i64,
+        pub strength: AuthStrength,
+    }
+    pub struct Policy {
+        pub max_password_failures: u32,
+        pub max_otp_failures: u32,
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum PkceMethod { S256, Plain }
+    pub enum PkceMethod {
+        S256,
+        Plain,
+    }
     #[derive(Debug, Clone, PartialEq)]
-    pub struct Pkce { pub challenge: String, pub method: PkceMethod }
+    pub struct Pkce {
+        pub challenge: String,
+        pub method: PkceMethod,
+    }
     #[derive(Debug, Clone, Copy, Default, PartialEq)]
-    pub struct Prompt { pub no_interaction: bool, pub login: bool, pub consent: bool, pub select_account: bool }
+    pub struct Prompt {
+        pub no_interaction: bool,
+        pub login: bool,
+        pub consent: bool,
+        pub select_account: bool,
+    }
     #[derive(Debug, Clone, PartialEq)]
     pub struct AuthorizationRequest {
-        client_id: String, redirect_uri: String, scope: String, state: String, nonce: Option<String>,
-        pkce: Option<Pkce>, prompt: Prompt, max_age: Option<i64>, wants_mfa: bool,
+        client_id: String,
+        redirect_uri: String,
+        scope: String,
+        state: String,
+        nonce: Option<String>,
+        pkce: Option<Pkce>,
+        prompt: Prompt,
+        max_age: Option<i64>,
+        wants_mfa: bool,
     }
 
     pub const ACR_MFA: &str = "urn:example:acr:mfa";
@@ -90,7 +147,10 @@ mod idiomatic {
         (!(p.no_interaction && (p.login || p.consent || p.select_account))).then_some(p)
     }
 
-    pub fn validate_request(params: &AuthorizationParams, client: Option<&Client>) -> Result<AuthorizationRequest, AuthorizationError> {
+    pub fn validate_request(
+        params: &AuthorizationParams,
+        client: Option<&Client>,
+    ) -> Result<AuthorizationRequest, AuthorizationError> {
         use AuthorizationError::Display;
         let client = client
             .filter(|c| params.client_id.as_deref() == Some(c.client_id.as_str()))
@@ -100,13 +160,20 @@ mod idiomatic {
             return Err(Display(DisplayError::UnregisteredRedirectUri));
         }
         let echoed = params.state.as_deref().filter(|s| state_is_valid(s));
-        let fail = |error| AuthorizationError::Redirect(ErrorRedirect { redirect_uri: redirect_uri.to_owned(), error, state: echoed.map(str::to_owned) });
+        let fail = |error| {
+            AuthorizationError::Redirect(ErrorRedirect {
+                redirect_uri: redirect_uri.to_owned(),
+                error,
+                state: echoed.map(str::to_owned),
+            })
+        };
         match params.response_type.as_deref() {
             Some("code") => {}
             Some(_) => return Err(fail(ErrorCode::UnsupportedResponseType)),
             None => return Err(fail(ErrorCode::InvalidRequest)),
         }
-        let scope = params.scope.as_deref().filter(|s| has_token(s, "openid")).ok_or_else(|| fail(ErrorCode::InvalidScope))?;
+        let scope =
+            params.scope.as_deref().filter(|s| has_token(s, "openid")).ok_or_else(|| fail(ErrorCode::InvalidScope))?;
         let state = echoed.ok_or_else(|| fail(ErrorCode::InvalidRequest))?;
         let nonce = match params.nonce.as_deref() {
             Some(n) if !state_is_valid(n) => return Err(fail(ErrorCode::InvalidRequest)),
@@ -133,26 +200,60 @@ mod idiomatic {
             Some(p) => parse_prompt(p).ok_or_else(|| fail(ErrorCode::InvalidRequest))?,
             None => Prompt::default(),
         };
-        let max_age = params.max_age.as_deref().map(|m| parse_seconds(m).ok_or_else(|| fail(ErrorCode::InvalidRequest))).transpose()?;
+        let max_age = params
+            .max_age
+            .as_deref()
+            .map(|m| parse_seconds(m).ok_or_else(|| fail(ErrorCode::InvalidRequest)))
+            .transpose()?;
         let wants_mfa = params.acr_values.as_deref().is_some_and(|a| has_token(a, ACR_MFA));
         Ok(AuthorizationRequest {
-            client_id: client.client_id.clone(), redirect_uri: redirect_uri.to_owned(), scope: scope.to_owned(),
-            state: state.to_owned(), nonce, pkce, prompt, max_age, wants_mfa,
+            client_id: client.client_id.clone(),
+            redirect_uri: redirect_uri.to_owned(),
+            scope: scope.to_owned(),
+            state: state.to_owned(),
+            nonce,
+            pkce,
+            prompt,
+            max_age,
+            wants_mfa,
         })
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum OtpDigits { Six, Seven, Eight }
+    pub enum OtpDigits {
+        Six,
+        Seven,
+        Eight,
+    }
     #[derive(Debug, Clone, PartialEq)]
-    pub struct TotpEnrollment { pub t0: i64, pub period: i64, pub digits: OtpDigits, pub last_used_step: Option<i64>, pub failures: u32 }
+    pub struct TotpEnrollment {
+        pub t0: i64,
+        pub period: i64,
+        pub digits: OtpDigits,
+        pub last_used_step: Option<i64>,
+        pub failures: u32,
+    }
     #[derive(Debug, Clone, PartialEq)]
-    pub struct StepMac { pub step: i64, pub mac: Vec<u8> }
+    pub struct StepMac {
+        pub step: i64,
+        pub mac: Vec<u8>,
+    }
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum OtpCheck { Accepted(i64), Replayed, Mismatch, Malformed, ClockBeforeEpoch }
+    pub enum OtpCheck {
+        Accepted(i64),
+        Replayed,
+        Mismatch,
+        Malformed,
+        ClockBeforeEpoch,
+    }
 
     impl OtpDigits {
         fn count(self) -> usize {
-            match self { Self::Six => 6, Self::Seven => 7, Self::Eight => 8 }
+            match self {
+                Self::Six => 6,
+                Self::Seven => 7,
+                Self::Eight => 8,
+            }
         }
     }
 
@@ -176,7 +277,10 @@ mod idiomatic {
         let Some(submitted) = parse_otp(code, enrollment.digits) else { return OtpCheck::Malformed };
         let mut matching = candidates
             .iter()
-            .filter(|c| (current - 1..=current + 1).contains(&c.step) && truncate_mac(&c.mac, enrollment.digits) == Some(submitted))
+            .filter(|c| {
+                (current - 1..=current + 1).contains(&c.step)
+                    && truncate_mac(&c.mac, enrollment.digits) == Some(submitted)
+            })
             .map(|c| c.step)
             .peekable();
         if matching.peek().is_none() {
@@ -189,24 +293,63 @@ mod idiomatic {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum Notice { Clear, WrongPassword, WrongOtp, OtpReplayed, MalformedOtp, OtpUnavailable }
+    pub enum Notice {
+        Clear,
+        WrongPassword,
+        WrongOtp,
+        OtpReplayed,
+        MalformedOtp,
+        OtpUnavailable,
+    }
     #[derive(Debug, Clone, PartialEq)]
-    pub struct Authentication { pub subject: String, pub auth_time: i64, pub strength: AuthStrength, pub totp_step: Option<i64> }
+    pub struct Authentication {
+        pub subject: String,
+        pub auth_time: i64,
+        pub strength: AuthStrength,
+        pub totp_step: Option<i64>,
+    }
     #[derive(Debug, Clone, PartialEq)]
     pub struct CodeGrant {
-        pub client_id: String, pub redirect_uri: String, pub scope: String, pub state: String, pub nonce: Option<String>,
-        pub pkce: Option<Pkce>, pub subject: String, pub auth_time: i64, pub amr: Vec<String>, pub acr: String,
+        pub client_id: String,
+        pub redirect_uri: String,
+        pub scope: String,
+        pub state: String,
+        pub nonce: Option<String>,
+        pub pkce: Option<Pkce>,
+        pub subject: String,
+        pub auth_time: i64,
+        pub amr: Vec<String>,
+        pub acr: String,
     }
     #[derive(Debug, Clone, PartialEq)]
     pub enum Flow {
-        AwaitingPassword { request: AuthorizationRequest, needs_consent: bool, failures: u32, notice: Notice },
-        AwaitingOtp { request: AuthorizationRequest, needs_consent: bool, subject: String, enrollment: TotpEnrollment, notice: Notice },
-        AwaitingConsent { request: AuthorizationRequest, auth: Authentication },
+        AwaitingPassword {
+            request: AuthorizationRequest,
+            needs_consent: bool,
+            failures: u32,
+            notice: Notice,
+        },
+        AwaitingOtp {
+            request: AuthorizationRequest,
+            needs_consent: bool,
+            subject: String,
+            enrollment: TotpEnrollment,
+            notice: Notice,
+        },
+        AwaitingConsent {
+            request: AuthorizationRequest,
+            auth: Authentication,
+        },
         CodeIssued(CodeGrant),
         Rejected(ErrorRedirect),
-        Locked { subject: String },
+        Locked {
+            subject: String,
+        },
     }
-    pub enum SecondFactor { Totp(TotpEnrollment), NotEnrolled }
+    pub enum SecondFactor {
+        Totp(TotpEnrollment),
+        NotEnrolled,
+    }
     pub enum Event {
         PasswordChecked { subject: String, verified: bool, second_factor: SecondFactor, now: i64 },
         OtpSubmitted { code: String, now: i64, candidates: Vec<StepMac> },
@@ -214,10 +357,16 @@ mod idiomatic {
         ConsentDenied,
     }
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum FlowError { InvalidTransition }
+    pub enum FlowError {
+        InvalidTransition,
+    }
 
     fn authenticated(request: AuthorizationRequest, needs_consent: bool, auth: Authentication) -> Flow {
-        if needs_consent { Flow::AwaitingConsent { request, auth } } else { issue(request, auth) }
+        if needs_consent {
+            Flow::AwaitingConsent { request, auth }
+        } else {
+            issue(request, auth)
+        }
     }
 
     fn issue(request: AuthorizationRequest, auth: Authentication) -> Flow {
@@ -226,9 +375,16 @@ mod idiomatic {
             AuthStrength::PasswordAndTotp => (&["pwd", "otp", "mfa"], ACR_MFA),
         };
         Flow::CodeIssued(CodeGrant {
-            client_id: request.client_id, redirect_uri: request.redirect_uri, scope: request.scope, state: request.state,
-            nonce: request.nonce, pkce: request.pkce, subject: auth.subject, auth_time: auth.auth_time,
-            amr: amr.iter().map(|s| s.to_string()).collect(), acr: acr.to_owned(),
+            client_id: request.client_id,
+            redirect_uri: request.redirect_uri,
+            scope: request.scope,
+            state: request.state,
+            nonce: request.nonce,
+            pkce: request.pkce,
+            subject: auth.subject,
+            auth_time: auth.auth_time,
+            amr: amr.iter().map(|s| s.to_string()).collect(),
+            acr: acr.to_owned(),
         })
     }
 
@@ -239,18 +395,35 @@ mod idiomatic {
             && (!request.wants_mfa || session.strength == AuthStrength::PasswordAndTotp)
     }
 
-    pub fn begin(params: &AuthorizationParams, client: Option<&Client>, session: Option<&Session>, consent_on_file: bool, now: i64) -> Result<Flow, AuthorizationError> {
+    pub fn begin(
+        params: &AuthorizationParams,
+        client: Option<&Client>,
+        session: Option<&Session>,
+        consent_on_file: bool,
+        now: i64,
+    ) -> Result<Flow, AuthorizationError> {
         let request = validate_request(params, client)?;
         let reusable = session.filter(|s| session_is_usable(&request, s, now)).map(|s| Authentication {
-            subject: s.subject.clone(), auth_time: s.auth_time, strength: s.strength, totp_step: None,
+            subject: s.subject.clone(),
+            auth_time: s.auth_time,
+            strength: s.strength,
+            totp_step: None,
         });
         let needs_consent = request.prompt.consent || !consent_on_file;
-        let redirect = |error| AuthorizationError::Redirect(ErrorRedirect { redirect_uri: request.redirect_uri.clone(), error, state: Some(request.state.clone()) });
+        let redirect = |error| {
+            AuthorizationError::Redirect(ErrorRedirect {
+                redirect_uri: request.redirect_uri.clone(),
+                error,
+                state: Some(request.state.clone()),
+            })
+        };
         match (request.prompt.no_interaction, reusable, needs_consent) {
             (true, None, _) => Err(redirect(ErrorCode::LoginRequired)),
             (true, Some(_), true) => Err(redirect(ErrorCode::ConsentRequired)),
             (_, Some(auth), _) => Ok(authenticated(request, needs_consent, auth)),
-            (false, None, _) => Ok(Flow::AwaitingPassword { request, needs_consent, failures: 0, notice: Notice::Clear }),
+            (false, None, _) => {
+                Ok(Flow::AwaitingPassword { request, needs_consent, failures: 0, notice: Notice::Clear })
+            }
         }
     }
 
@@ -258,27 +431,53 @@ mod idiomatic {
         use Event::*;
         use Flow::*;
         Ok(match (flow, event) {
-            (AwaitingPassword { failures, .. }, PasswordChecked { subject, verified: false, .. }) if failures + 1 >= policy.max_password_failures => Locked { subject },
+            (AwaitingPassword { failures, .. }, PasswordChecked { subject, verified: false, .. })
+                if failures + 1 >= policy.max_password_failures =>
+            {
+                Locked { subject }
+            }
             (AwaitingPassword { request, needs_consent, failures, .. }, PasswordChecked { verified: false, .. }) => {
                 AwaitingPassword { request, needs_consent, failures: failures + 1, notice: Notice::WrongPassword }
             }
-            (AwaitingPassword { .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(e), .. }) if e.failures >= policy.max_otp_failures => Locked { subject },
-            (AwaitingPassword { request, needs_consent, .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), .. }) => {
-                AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::Clear }
+            (AwaitingPassword { .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(e), .. })
+                if e.failures >= policy.max_otp_failures =>
+            {
+                Locked { subject }
             }
-            (AwaitingPassword { request, needs_consent, .. }, PasswordChecked { subject, second_factor: SecondFactor::NotEnrolled, now, .. }) => authenticated(
+            (
+                AwaitingPassword { request, needs_consent, .. },
+                PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), .. },
+            ) => AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::Clear },
+            (
+                AwaitingPassword { request, needs_consent, .. },
+                PasswordChecked { subject, second_factor: SecondFactor::NotEnrolled, now, .. },
+            ) => authenticated(
                 request,
                 needs_consent,
                 Authentication { subject, auth_time: now, strength: AuthStrength::PasswordOnly, totp_step: None },
             ),
-            (AwaitingOtp { request, needs_consent, subject, enrollment, .. }, OtpSubmitted { code, now, candidates }) => {
+            (
+                AwaitingOtp { request, needs_consent, subject, enrollment, .. },
+                OtpSubmitted { code, now, candidates },
+            ) => {
                 let notice = match check_totp(&code, now, &enrollment, &candidates) {
                     OtpCheck::Accepted(step) => {
-                        let auth = Authentication { subject, auth_time: now, strength: AuthStrength::PasswordAndTotp, totp_step: Some(step) };
+                        let auth = Authentication {
+                            subject,
+                            auth_time: now,
+                            strength: AuthStrength::PasswordAndTotp,
+                            totp_step: Some(step),
+                        };
                         return Ok(authenticated(request, needs_consent, auth));
                     }
                     OtpCheck::ClockBeforeEpoch => {
-                        return Ok(AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::OtpUnavailable });
+                        return Ok(AwaitingOtp {
+                            request,
+                            needs_consent,
+                            subject,
+                            enrollment,
+                            notice: Notice::OtpUnavailable,
+                        });
                     }
                     OtpCheck::Replayed => Notice::OtpReplayed,
                     OtpCheck::Malformed => Notice::MalformedOtp,
@@ -288,21 +487,38 @@ mod idiomatic {
                 if failures >= policy.max_otp_failures {
                     Locked { subject }
                 } else {
-                    AwaitingOtp { request, needs_consent, subject, enrollment: TotpEnrollment { failures, ..enrollment }, notice }
+                    AwaitingOtp {
+                        request,
+                        needs_consent,
+                        subject,
+                        enrollment: TotpEnrollment { failures, ..enrollment },
+                        notice,
+                    }
                 }
             }
             (AwaitingConsent { request, auth }, ConsentGranted) => issue(request, auth),
-            (AwaitingConsent { request, .. }, ConsentDenied) => {
-                Rejected(ErrorRedirect { redirect_uri: request.redirect_uri, error: ErrorCode::AccessDenied, state: Some(request.state) })
-            }
+            (AwaitingConsent { request, .. }, ConsentDenied) => Rejected(ErrorRedirect {
+                redirect_uri: request.redirect_uri,
+                error: ErrorCode::AccessDenied,
+                state: Some(request.state),
+            }),
             _ => return Err(FlowError::InvalidTransition),
         })
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum TokenError { InvalidRequest, InvalidGrant }
+    pub enum TokenError {
+        InvalidRequest,
+        InvalidGrant,
+    }
 
-    pub fn check_redemption(grant: &CodeGrant, client_id: &str, redirect_uri: &str, code_verifier: Option<&str>, verifier_s256: Option<&str>) -> Result<(), TokenError> {
+    pub fn check_redemption(
+        grant: &CodeGrant,
+        client_id: &str,
+        redirect_uri: &str,
+        code_verifier: Option<&str>,
+        verifier_s256: Option<&str>,
+    ) -> Result<(), TokenError> {
         if grant.client_id != client_id || grant.redirect_uri != redirect_uri {
             return Err(TokenError::InvalidGrant);
         }
@@ -446,10 +662,20 @@ fn the_published_vectors_come_out_as_printed() {
         assert_eq!(oidc::totp_step(now, 0, 30), Some(t));
         let window = candidates(t - 1..=t + 1);
         let code = code.to_string();
-        assert_eq!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, None), &window), OtpCheck::Accepted(t), "at {now}");
-        assert_eq!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, Some(t - 1)), &window), OtpCheck::Accepted(t));
+        assert_eq!(
+            oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, None), &window),
+            OtpCheck::Accepted(t),
+            "at {now}"
+        );
+        assert_eq!(
+            oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, Some(t - 1)), &window),
+            OtpCheck::Accepted(t)
+        );
         assert_eq!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, Some(t)), &window), OtpCheck::Replayed);
-        assert_eq!(oidc::check_totp(&code[1..].to_string(), now, &enrollment(OtpDigits::Eight, None), &window), OtpCheck::Malformed);
+        assert_eq!(
+            oidc::check_totp(&code[1..].to_string(), now, &enrollment(OtpDigits::Eight, None), &window),
+            OtpCheck::Malformed
+        );
         // Only the candidate for T carries this code: dropping it is a mismatch.
         let others: Vec<StepMac> = candidates(t - 1..=t + 1).into_iter().filter(|c| c.step != t).collect();
         assert_eq!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, None), &others), OtpCheck::Mismatch);
@@ -461,7 +687,10 @@ fn the_published_vectors_come_out_as_printed() {
     assert!(oidc::pkce_string_is_valid(&CHALLENGE.to_string()));
     let grant = grant(&strict(), base(), Start::Fresh);
     let verifier = Some(VERIFIER.to_string());
-    assert_eq!(oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &verifier, &Some(CHALLENGE.to_string())), Ok(()));
+    assert_eq!(
+        oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &verifier, &Some(CHALLENGE.to_string())),
+        Ok(())
+    );
     assert_eq!(
         oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &verifier, &Some(VERIFIER.to_string())),
         Err(oidc::TokenError::InvalidGrant),
@@ -542,12 +771,18 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.redirect_uri = some("https://APP.example/cb"),
         |p| p.redirect_uri = some(""),
         |p| p.redirect_uri = some("https://app.example/cb2"),
-        |p| { p.redirect_uri = some("https://evil.example/"); p.response_type = some("token"); },
+        |p| {
+            p.redirect_uri = some("https://evil.example/");
+            p.response_type = some("token");
+        },
         |p| p.response_type = some("token"),
         |p| p.response_type = some("code id_token"),
         |p| p.response_type = some("Code"),
         |p| p.response_type = None,
-        |p| { p.response_type = some("token"); p.scope = None; },
+        |p| {
+            p.response_type = some("token");
+            p.scope = None;
+        },
         |p| p.scope = some("profile"),
         |p| p.scope = some("openidx profile"),
         |p| p.scope = some("OPENID"),
@@ -556,7 +791,10 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.scope = some("openid"),
         |p| p.scope = some(""),
         |p| p.scope = None,
-        |p| { p.scope = None; p.state = None; },
+        |p| {
+            p.scope = None;
+            p.state = None;
+        },
         |p| p.state = None,
         |p| p.state = some(""),
         |p| p.state = some("a\u{7f}"),
@@ -564,12 +802,18 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.state = some("~ ok ~"),
         |p| p.state = Some("s".repeat(512)),
         |p| p.state = Some("s".repeat(513)),
-        |p| { p.state = some("caf\u{e9}"); p.response_type = some("token"); },
+        |p| {
+            p.state = some("caf\u{e9}");
+            p.response_type = some("token");
+        },
         |p| p.nonce = None,
         |p| p.nonce = some("bad\nnonce"),
         |p| p.nonce = some(""),
         |p| p.nonce = Some("n".repeat(513)),
-        |p| { p.code_challenge = None; p.code_challenge_method = None; },
+        |p| {
+            p.code_challenge = None;
+            p.code_challenge_method = None;
+        },
         |p| p.code_challenge = None,
         |p| p.code_challenge = some("short"),
         |p| p.code_challenge = Some("a".repeat(42)),
@@ -580,7 +824,10 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.code_challenge_method = some("plain"),
         |p| p.code_challenge_method = some("s256"),
         |p| p.code_challenge_method = None,
-        |p| { p.code_challenge = some(VERIFIER); p.code_challenge_method = some("plain"); },
+        |p| {
+            p.code_challenge = some(VERIFIER);
+            p.code_challenge_method = some("plain");
+        },
         |p| p.prompt = some("none"),
         |p| p.prompt = some("login"),
         |p| p.prompt = some("consent"),
@@ -600,11 +847,17 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.max_age = some("-1"),
         |p| p.max_age = some("+5"),
         |p| p.max_age = some(""),
-        |p| { p.max_age = some("99"); p.prompt = some("none"); },
+        |p| {
+            p.max_age = some("99");
+            p.prompt = some("none");
+        },
         |p| p.acr_values = some("urn:example:acr:mfa"),
         |p| p.acr_values = some("urn:example:acr:pwd urn:example:acr:mfa"),
         |p| p.acr_values = some("urn:example:acr:mfax"),
-        |p| { p.acr_values = some("urn:example:acr:mfa"); p.prompt = some("none"); },
+        |p| {
+            p.acr_values = some("urn:example:acr:mfa");
+            p.prompt = some("none");
+        },
     ];
     edits
         .iter()
@@ -624,7 +877,9 @@ fn each_request_error_is_redirected_or_shown() {
         edit(&mut p);
         oidc::validate_request(&p, &strict()).map(|_| ())
     };
-    let redirect = |error, state: Option<&str>| Err(A::Redirect(oidc::ErrorRedirect { redirect_uri: CB.into(), error, state: state.map(String::from) }));
+    let redirect = |error, state: Option<&str>| {
+        Err(A::Redirect(oidc::ErrorRedirect { redirect_uri: CB.into(), error, state: state.map(String::from) }))
+    };
 
     assert_eq!(with(|_| {}), Ok(()));
     assert_eq!(oidc::validate_request(&base(), &None).map(|_| ()), Err(A::Display(D::UnknownClient)));
@@ -632,13 +887,25 @@ fn each_request_error_is_redirected_or_shown() {
     assert_eq!(with(|p| p.client_id = some("other")), Err(A::Display(D::UnknownClient)));
     assert_eq!(with(|p| p.redirect_uri = None), Err(A::Display(D::MissingRedirectUri)));
     assert_eq!(with(|p| p.redirect_uri = some("https://app.example/cb/")), Err(A::Display(D::UnregisteredRedirectUri)));
-    assert_eq!(with(|p| { p.redirect_uri = some("https://evil.example/"); p.response_type = some("token"); }), Err(A::Display(D::UnregisteredRedirectUri)));
+    assert_eq!(
+        with(|p| {
+            p.redirect_uri = some("https://evil.example/");
+            p.response_type = some("token");
+        }),
+        Err(A::Display(D::UnregisteredRedirectUri))
+    );
     // Everything after: redirected, with state echoed when well formed.
     assert_eq!(with(|p| p.response_type = some("token")), redirect(E::UnsupportedResponseType, Some("xyz")));
     assert_eq!(with(|p| p.response_type = None), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.scope = some("profile")), redirect(E::InvalidScope, Some("xyz")));
     assert_eq!(with(|p| p.state = None), redirect(E::InvalidRequest, None));
-    assert_eq!(with(|p| { p.state = some("caf\u{e9}"); p.response_type = some("token"); }), redirect(E::UnsupportedResponseType, None));
+    assert_eq!(
+        with(|p| {
+            p.state = some("caf\u{e9}");
+            p.response_type = some("token");
+        }),
+        redirect(E::UnsupportedResponseType, None)
+    );
     assert_eq!(with(|p| p.nonce = some("bad\nnonce")), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.code_challenge = None), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.code_challenge_method = some("plain")), redirect(E::InvalidRequest, Some("xyz")));
@@ -650,7 +917,11 @@ fn each_request_error_is_redirected_or_shown() {
     p.code_challenge_method = None;
     assert!(oidc::validate_request(&p, &lax()).is_ok());
     p.code_challenge_method = some("S256");
-    assert_eq!(oidc::validate_request(&p, &lax()).map(|_| ()), redirect(E::InvalidRequest, Some("xyz")), "a method without a challenge");
+    assert_eq!(
+        oidc::validate_request(&p, &lax()).map(|_| ()),
+        redirect(E::InvalidRequest, Some("xyz")),
+        "a method without a challenge"
+    );
 }
 
 #[test]
@@ -683,7 +954,17 @@ fn prompt_and_max_age_decide_on_the_session() {
     assert!(is(&begin(|p| p.max_age = some("100"), mfa(), true), "CodeIssued"));
     assert!(is(&begin(|p| p.max_age = some("99"), mfa(), true), "AwaitingPassword"));
     assert!(is(&begin(|p| p.max_age = some("0"), mfa(), true), "AwaitingPassword"));
-    assert_eq!(error(begin(|p| { p.max_age = some("99"); p.prompt = some("none"); }, mfa(), true)), Some(E::LoginRequired));
+    assert_eq!(
+        error(begin(
+            |p| {
+                p.max_age = some("99");
+                p.prompt = some("none");
+            },
+            mfa(),
+            true
+        )),
+        Some(E::LoginRequired)
+    );
     // acr_values asking for MFA passes over a password-only session.
     assert!(is(&begin(|p| p.acr_values = some("urn:example:acr:mfa"), pwd(), true), "AwaitingPassword"));
     assert!(is(&begin(|p| p.acr_values = some("urn:example:acr:mfa"), mfa(), true), "CodeIssued"));
@@ -716,7 +997,11 @@ fn password(verified: bool, second_factor: SecondFactor) -> Event {
 }
 
 fn otp(code: &str, now: i64) -> Event {
-    Event::OtpSubmitted { code: code.into(), now, candidates: (0..4).map(|s| StepMac { step: s as i64, mac: unhex(APPENDIX_D[s].0) }).collect() }
+    Event::OtpSubmitted {
+        code: code.into(),
+        now,
+        candidates: (0..4).map(|s| StepMac { step: s as i64, mac: unhex(APPENDIX_D[s].0) }).collect(),
+    }
 }
 
 fn event(code: u8) -> Event {
@@ -767,7 +1052,11 @@ fn setup(client: &Option<Client>, params: AuthorizationParams, start: Start) -> 
     let (params, session, policy) = match start {
         Start::Fresh => (params, None, policy(3, 3)),
         Start::Tight => (params, None, policy(1, 2)),
-        Start::Reused => (AuthorizationParams { prompt: some("consent"), ..params }, session(30, AuthStrength::PasswordAndTotp), policy(3, 3)),
+        Start::Reused => (
+            AuthorizationParams { prompt: some("consent"), ..params },
+            session(30, AuthStrength::PasswordAndTotp),
+            policy(3, 3),
+        ),
     };
     // No consent on file, so each login ends at the consent screen.
     Setup { params, client: client.clone(), session, consent_on_file: false, now: 40, policy }
@@ -797,10 +1086,16 @@ fn logins_run_as_the_rfcs_say() {
 
     // Password, then the code for T, then consent: a two-factor grant (RFC 8176 §2).
     let g = grant(&strict(), base(), Start::Fresh);
-    assert_eq!((g.subject.as_str(), g.auth_time, g.acr.as_str(), g.state.as_str()), ("alice", OTP_AT, "urn:example:acr:mfa", "xyz"));
+    assert_eq!(
+        (g.subject.as_str(), g.auth_time, g.acr.as_str(), g.state.as_str()),
+        ("alice", OTP_AT, "urn:example:acr:mfa", "xyz")
+    );
     assert_eq!(g.amr, oidc::amr_values(AuthStrength::PasswordAndTotp));
     assert_eq!(g.amr, ["pwd", "otp", "mfa"]);
-    assert_eq!((g.nonce.as_deref(), g.pkce.as_ref().map(|p| p.challenge.as_str())), (Some("n-0S6_WzA2Mj"), Some(CHALLENGE)));
+    assert_eq!(
+        (g.nonce.as_deref(), g.pkce.as_ref().map(|p| p.challenge.as_str())),
+        (Some("n-0S6_WzA2Mj"), Some(CHALLENGE))
+    );
     // The step accepted is what the caller records.
     let accepted = |codes: &[u8]| match trace(&fresh, codes) {
         Ok(Flow::AwaitingConsent { auth, .. }) => auth.totp_step,
@@ -818,7 +1113,11 @@ fn logins_run_as_the_rfcs_say() {
     assert_eq!(notice(&[2, 4]), (Notice::OtpReplayed, 1), "step 1 was used already");
     assert_eq!(notice(&[2, 5]), (Notice::OtpReplayed, 1), "step 0 is before the last used");
     assert_eq!(notice(&[1, 8]), (Notice::MalformedOtp, 1));
-    assert_eq!(notice(&[1, 9]), (Notice::OtpUnavailable, 0), "before T0: the server's clock, not the End-User, so not counted");
+    assert_eq!(
+        notice(&[1, 9]),
+        (Notice::OtpUnavailable, 0),
+        "before T0: the server's clock, not the End-User, so not counted"
+    );
     // Attempt limits (RFC 4226 §7.3), then nothing more is accepted.
     let locked = Ok(Flow::Locked { subject: "alice".into() });
     assert!(matches!(run(&[1, 7, 8]), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));
@@ -833,7 +1132,15 @@ fn logins_run_as_the_rfcs_say() {
         let then = |ev, rest| oidc::Script::Then(ev, Box::new(rest));
         let rest = if wrong_code { then(event(7), oidc::Script::End) } else { oidc::Script::End };
         let s = setup(&strict(), base(), Start::Fresh);
-        oidc::trace(&s.params, &s.client, &s.session, false, s.now, &s.policy, then(password(true, SecondFactor::Totp(e)), rest))
+        oidc::trace(
+            &s.params,
+            &s.client,
+            &s.session,
+            false,
+            s.now,
+            &s.policy,
+            then(password(true, SecondFactor::Totp(e)), rest),
+        )
     };
     let stored = |failures| stored(failures, failures < 3);
     assert_eq!(stored(3), locked, "at the limit already, before any code");
@@ -855,7 +1162,11 @@ fn logins_run_as_the_rfcs_say() {
     // Consent denied: access_denied to the client, state echoed.
     assert_eq!(
         run(&[3, 11]),
-        Ok(Flow::Rejected(oidc::ErrorRedirect { redirect_uri: CB.into(), error: oidc::ErrorCode::AccessDenied, state: some("xyz") }))
+        Ok(Flow::Rejected(oidc::ErrorRedirect {
+            redirect_uri: CB.into(),
+            error: oidc::ErrorCode::AccessDenied,
+            state: some("xyz")
+        }))
     );
     // Events out of order.
     assert_eq!(run(&[10]), Err(RunError::Step { index: 0, error: oidc::FlowError::InvalidTransition }));
@@ -906,11 +1217,47 @@ fn codes_redeem_only_with_their_verifier() {
     let verdicts: Vec<Result<(), oidc::TokenError>> =
         redemptions().iter().map(|(g, id, uri, v, h)| oidc::check_redemption(g, id, uri, v, h)).collect();
     let (s256, reused, plain, without) = (&verdicts[0..9], &verdicts[9..18], &verdicts[18..27], &verdicts[27..36]);
-    let expected_s256 = [Ok(()), Err(InvalidGrant), Err(InvalidGrant), Ok(()), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidGrant), Err(InvalidGrant)];
+    let expected_s256 = [
+        Ok(()),
+        Err(InvalidGrant),
+        Err(InvalidGrant),
+        Ok(()),
+        Err(InvalidRequest),
+        Err(InvalidRequest),
+        Err(InvalidRequest),
+        Err(InvalidGrant),
+        Err(InvalidGrant),
+    ];
     assert_eq!(s256, expected_s256, "row 3: the S256 check trusts the hash the caller computed");
     assert_eq!(reused, expected_s256);
-    assert_eq!(plain, [Ok(()), Ok(()), Ok(()), Err(InvalidGrant), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidGrant), Err(InvalidGrant)]);
-    assert_eq!(without, [Err(InvalidRequest), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidRequest), Err(InvalidRequest), Ok(()), Ok(()), Err(InvalidGrant), Err(InvalidGrant)]);
+    assert_eq!(
+        plain,
+        [
+            Ok(()),
+            Ok(()),
+            Ok(()),
+            Err(InvalidGrant),
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Err(InvalidGrant),
+            Err(InvalidGrant)
+        ]
+    );
+    assert_eq!(
+        without,
+        [
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Err(InvalidRequest),
+            Ok(()),
+            Ok(()),
+            Err(InvalidGrant),
+            Err(InvalidGrant)
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -934,7 +1281,12 @@ fn to_params(p: &AuthorizationParams) -> idiomatic::AuthorizationParams {
 }
 
 fn to_client(c: &Client) -> idiomatic::Client {
-    idiomatic::Client { client_id: c.client_id.clone(), redirect_uris: c.redirect_uris.clone(), require_pkce: c.require_pkce, allow_plain_pkce: c.allow_plain_pkce }
+    idiomatic::Client {
+        client_id: c.client_id.clone(),
+        redirect_uris: c.redirect_uris.clone(),
+        require_pkce: c.require_pkce,
+        allow_plain_pkce: c.allow_plain_pkce,
+    }
 }
 
 fn to_strength(s: AuthStrength) -> idiomatic::AuthStrength {
@@ -954,7 +1306,13 @@ fn to_enrollment(e: &TotpEnrollment) -> idiomatic::TotpEnrollment {
         OtpDigits::Seven => idiomatic::OtpDigits::Seven,
         OtpDigits::Eight => idiomatic::OtpDigits::Eight,
     };
-    idiomatic::TotpEnrollment { t0: e.t0, period: e.period, digits, last_used_step: e.last_used_step, failures: e.failures }
+    idiomatic::TotpEnrollment {
+        t0: e.t0,
+        period: e.period,
+        digits,
+        last_used_step: e.last_used_step,
+        failures: e.failures,
+    }
 }
 
 fn to_event(e: Event) -> idiomatic::Event {
@@ -993,10 +1351,14 @@ enum RunError {
 }
 
 fn idiomatic_trace(s: &Setup, codes: &[u8]) -> Result<idiomatic::Flow, RunError> {
-    let policy = idiomatic::Policy { max_password_failures: s.policy.max_password_failures, max_otp_failures: s.policy.max_otp_failures };
+    let policy = idiomatic::Policy {
+        max_password_failures: s.policy.max_password_failures,
+        max_otp_failures: s.policy.max_otp_failures,
+    };
     let mut flow = idiomatic_begin(s).map_err(RunError::Refused)?;
     for (index, &c) in codes.iter().enumerate() {
-        flow = idiomatic::step(flow, to_event(event(c)), &policy).map_err(|error| RunError::Step { index: index as u32, error })?;
+        flow = idiomatic::step(flow, to_event(event(c)), &policy)
+            .map_err(|error| RunError::Step { index: index as u32, error })?;
     }
     Ok(flow)
 }
@@ -1014,7 +1376,14 @@ fn begins() -> Vec<Setup> {
         for client in [strict(), lax(), None] {
             for session in sessions() {
                 for consent_on_file in [false, true] {
-                    out.push(Setup { params: params.clone(), client: client.clone(), session: session.clone(), consent_on_file, now: NOW, policy: Policy { max_password_failures: 3, max_otp_failures: 3 } });
+                    out.push(Setup {
+                        params: params.clone(),
+                        client: client.clone(),
+                        session: session.clone(),
+                        consent_on_file,
+                        now: NOW,
+                        policy: Policy { max_password_failures: 3, max_otp_failures: 3 },
+                    });
                 }
             }
         }
@@ -1059,11 +1428,23 @@ fn constrained_rust_is_the_idiomatic_rules() {
         let constrained = oidc::check_redemption(&g, &id, &uri, &v, &h);
         let pkce = g.pkce.as_ref().map(|p| idiomatic::Pkce {
             challenge: p.challenge.clone(),
-            method: if matches!(p.method, oidc::PkceMethod::S256) { idiomatic::PkceMethod::S256 } else { idiomatic::PkceMethod::Plain },
+            method: if matches!(p.method, oidc::PkceMethod::S256) {
+                idiomatic::PkceMethod::S256
+            } else {
+                idiomatic::PkceMethod::Plain
+            },
         });
         let ig = idiomatic::CodeGrant {
-            client_id: g.client_id.clone(), redirect_uri: g.redirect_uri.clone(), scope: g.scope.clone(), state: g.state.clone(),
-            nonce: g.nonce.clone(), pkce, subject: g.subject.clone(), auth_time: g.auth_time, amr: g.amr.clone(), acr: g.acr.clone(),
+            client_id: g.client_id.clone(),
+            redirect_uri: g.redirect_uri.clone(),
+            scope: g.scope.clone(),
+            state: g.state.clone(),
+            nonce: g.nonce.clone(),
+            pkce,
+            subject: g.subject.clone(),
+            auth_time: g.auth_time,
+            amr: g.amr.clone(),
+            acr: g.acr.clone(),
         };
         let r = idiomatic::check_redemption(&ig, &id, &uri, v.as_deref(), h.as_deref());
         if !same(&constrained, &r) {
@@ -1074,7 +1455,11 @@ fn constrained_rust_is_the_idiomatic_rules() {
         let t = now / 30;
         for step in t - 2..=t + 2 {
             let mac = mac_for_step(step);
-            for (d, i) in [(OtpDigits::Six, idiomatic::OtpDigits::Six), (OtpDigits::Seven, idiomatic::OtpDigits::Seven), (OtpDigits::Eight, idiomatic::OtpDigits::Eight)] {
+            for (d, i) in [
+                (OtpDigits::Six, idiomatic::OtpDigits::Six),
+                (OtpDigits::Seven, idiomatic::OtpDigits::Seven),
+                (OtpDigits::Eight, idiomatic::OtpDigits::Eight),
+            ] {
                 if oidc::truncate_mac(&mac, d) != idiomatic::truncate_mac(&mac, i) {
                     differ.push(format!("truncate step {step} {d:?}"));
                 }
@@ -1130,16 +1515,37 @@ fn generated_oidc_matches_rust() {
             for other in [code[1..].to_string(), format!("{code}0"), code.replace('0', "O")] {
                 cases.push(case!(oidc::check_totp(&other, now, &enrollment(OtpDigits::Eight, None), &window)));
             }
-            cases.push(case!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, None), &candidates(t + 1..=t + 2))));
+            cases.push(case!(oidc::check_totp(
+                &code,
+                now,
+                &enrollment(OtpDigits::Eight, None),
+                &candidates(t + 1..=t + 2)
+            )));
             cases.push(case!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Six, None), &window)));
-            cases.push(case!(oidc::check_totp(&code[2..].to_string(), now, &enrollment(OtpDigits::Six, None), &window)));
+            cases.push(case!(oidc::check_totp(
+                &code[2..].to_string(),
+                now,
+                &enrollment(OtpDigits::Six, None),
+                &window
+            )));
         }
         let before = TotpEnrollment { t0: 60, ..enrollment(OtpDigits::Six, None) };
         let stalled = TotpEnrollment { period: 0, ..enrollment(OtpDigits::Six, None) };
         for (now, e) in [(59i64, &before), (60, &before), (59, &stalled)] {
             cases.push(case!(oidc::check_totp(&"287082".to_string(), now, e, &candidates(0..=3))));
         }
-        for (now, t0, period) in [(0i64, 0i64, 30i64), (29, 0, 30), (30, 0, 30), (-1, 0, 30), (100, 100, 30), (99, 100, 30), (59, 0, 0), (59, 0, -30), (i64::MAX, 0, 1), (i64::MAX, i64::MIN, 30)] {
+        for (now, t0, period) in [
+            (0i64, 0i64, 30i64),
+            (29, 0, 30),
+            (30, 0, 30),
+            (-1, 0, 30),
+            (100, 100, 30),
+            (99, 100, 30),
+            (59, 0, 0),
+            (59, 0, -30),
+            (i64::MAX, 0, 1),
+            (i64::MAX, i64::MIN, 30),
+        ] {
             cases.push(case!(oidc::totp_step(now, t0, period)));
         }
         // Every request under each client, session and consent on file.
@@ -1150,16 +1556,42 @@ fn generated_oidc_matches_rust() {
         for start in STARTS {
             let s = setup(&strict(), base(), start);
             for codes in runs(&s, 5) {
-                cases.push(case!(oidc::trace(&s.params, &s.client, &s.session, s.consent_on_file, s.now, &s.policy, script(&codes))));
+                cases.push(case!(oidc::trace(
+                    &s.params,
+                    &s.client,
+                    &s.session,
+                    s.consent_on_file,
+                    s.now,
+                    &s.policy,
+                    script(&codes)
+                )));
             }
         }
         for (g, id, uri, v, h) in redemptions() {
             cases.push(case!(oidc::check_redemption(&g, &id, &uri, &v, &h)));
         }
-        for list in ["openid", "openid profile", "profile openid", " openid", "openid ", "openidx", "xopenid", "", " ", "open id"] {
+        for list in [
+            "openid",
+            "openid profile",
+            "profile openid",
+            " openid",
+            "openid ",
+            "openidx",
+            "xopenid",
+            "",
+            " ",
+            "open id",
+        ] {
             cases.push(case!(oidc::has_token(&list.to_string(), "openid")));
         }
-        for code in [oidc::ErrorCode::InvalidRequest, oidc::ErrorCode::UnsupportedResponseType, oidc::ErrorCode::InvalidScope, oidc::ErrorCode::AccessDenied, oidc::ErrorCode::LoginRequired, oidc::ErrorCode::ConsentRequired] {
+        for code in [
+            oidc::ErrorCode::InvalidRequest,
+            oidc::ErrorCode::UnsupportedResponseType,
+            oidc::ErrorCode::InvalidScope,
+            oidc::ErrorCode::AccessDenied,
+            oidc::ErrorCode::LoginRequired,
+            oidc::ErrorCode::ConsentRequired,
+        ] {
             cases.push(case!(oidc::error_code_wire(code)));
         }
         cases

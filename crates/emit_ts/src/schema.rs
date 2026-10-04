@@ -351,7 +351,10 @@ fn refusal(krate: &Crate, s: &Struct) -> Refusal {
         _ => None,
     });
     let Some(err) = err else { return Refusal::Type };
-    let has_text = krate.items.iter().any(|i| matches!(i, Item::Fn(f) if f.owner.as_ref() == Some(&err) && f.name.as_str() == "toString"));
+    let has_text = krate
+        .items
+        .iter()
+        .any(|i| matches!(i, Item::Fn(f) if f.owner.as_ref() == Some(&err) && f.name.as_str() == "toString"));
     if has_text {
         Refusal::Text(err.as_str().to_string())
     } else if krate.items.iter().any(|i| matches!(i, Item::Enum(en) if en.name == err)) {
@@ -391,7 +394,8 @@ fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
         let name = item.name().as_str();
         let stem = item.file_stem();
         let alias = format!("{name} as {name}$");
-        let value = matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
+        let value =
+            matches!(item, Item::Struct(s) if (s.newtype_inner().is_some() && !s.closed) || s.wire_from.is_some());
         if matches!(item, Item::Struct(s) if s.closed && s.wire_from.is_none()) {
             push(stem.clone(), Some(closed_ctor(name)), None);
             push(stem, None, Some(alias));
@@ -462,7 +466,10 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
     // optional), or with valibot an `Option` field (missing reads as
     // `undefined`, which `?? null` turns into `None`). Both libraries drop
     // unknown keys, as serde does.
-    let unit = |t: &Ty| matches!(t, Ty::Prim(purecrate_ir::Prim::Unit)) || matches!(t, Ty::Option(i) | Ty::Ignored { inner: i, .. } if matches!(**i, Ty::Prim(purecrate_ir::Prim::Unit)));
+    let unit = |t: &Ty| {
+        matches!(t, Ty::Prim(purecrate_ir::Prim::Unit))
+            || matches!(t, Ty::Option(i) | Ty::Ignored { inner: i, .. } if matches!(**i, Ty::Prim(purecrate_ir::Prim::Unit)))
+    };
     let built = s.closed
         || s.fields.iter().any(|f| unit(&f.ty))
         || (schema == WireSchema::Valibot && s.fields.iter().any(|f| matches!(f.ty, Ty::Option(_))));
@@ -483,10 +490,7 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
 
 /// `name: schema` for each field of a struct or struct variant.
 fn object_fields(schema: WireSchema, fields: &[purecrate_ir::Field]) -> Vec<(String, Js)> {
-    fields
-        .iter()
-        .map(|f| (f.name.as_str().to_string(), schema_ty_in(schema, &f.ty, true)))
-        .collect()
+    fields.iter().map(|f| (f.name.as_str().to_string(), schema_ty_in(schema, &f.ty, true))).collect()
 }
 
 /// The message of the issue a failed `try_from` raises: the type, and the
@@ -518,7 +522,10 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, refused: &Refusal)
             ]);
             let body = vec![
                 Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw("x")])),
-                Stmt::IfBlock(failed, vec![Stmt::Expr(call_path("ctx.addIssue", vec![issue])), Stmt::Return(raw("z.NEVER"))]),
+                Stmt::IfBlock(
+                    failed,
+                    vec![Stmt::Expr(call_path("ctx.addIssue", vec![issue])), Stmt::Return(raw("z.NEVER"))],
+                ),
                 Stmt::Return(raw("r.value")),
             ];
             method(from, "transform", vec![arrow("(x, ctx)", Some(&ret), Body::Block(body))])
@@ -583,10 +590,7 @@ fn fill(schema: WireSchema, fields: &[purecrate_ir::Field], from: &str) -> Vec<(
 /// The names of a fieldless enum's variants, or `None` when one has
 /// fields: the adapters' `unitEnum` reads it whole.
 fn unit_names(variants: &[purecrate_ir::Variant]) -> Option<Vec<Js>> {
-    variants
-        .iter()
-        .map(|v| matches!(v.fields, VariantFields::Unit).then(|| str_lit(v.name.as_str())))
-        .collect()
+    variants.iter().map(|v| matches!(v.fields, VariantFields::Unit).then(|| str_lit(v.name.as_str()))).collect()
 }
 
 fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant]) -> Js {
@@ -630,8 +634,12 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
     let value = arrow("(x)", Some(&ret), expr_body(variant_value(variant, rest)));
     let keyed = Js::Object(vec![(variant.to_string(), wrapper)]);
     match schema {
-        WireSchema::Zod => method(method(call_path("z.object", vec![keyed]), "strict", Vec::new()), "transform", vec![value]),
-        WireSchema::Valibot => call_path("v.pipe", vec![call_path("v.strictObject", vec![keyed]), call_path("v.transform", vec![value])]),
+        WireSchema::Zod => {
+            method(method(call_path("z.object", vec![keyed]), "strict", Vec::new()), "transform", vec![value])
+        }
+        WireSchema::Valibot => {
+            call_path("v.pipe", vec![call_path("v.strictObject", vec![keyed]), call_path("v.transform", vec![value])])
+        }
         WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
     }
 }
@@ -646,7 +654,10 @@ fn ark_morph(name: &str, body: Vec<Stmt>) -> Js {
 fn ark_parsed(wire: &str) -> Vec<Stmt> {
     vec![
         Stmt::Const("parsed".into(), call(call(raw(wire), Vec::new()), vec![raw("v")])),
-        Stmt::If(raw("parsed instanceof type.errors"), Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")])))),
+        Stmt::If(
+            raw("parsed instanceof type.errors"),
+            Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")]))),
+        ),
     ]
 }
 
@@ -668,7 +679,10 @@ fn ark_struct(s: &Struct, refused: &Refusal, doc: &str, chunks: &mut Vec<Chunk>)
             let message = try_from_message(name, refused);
             let tail = vec![
                 Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw("parsed")])),
-                Stmt::If(raw("r.kind === \"Err\""), Box::new(Stmt::Return(Js::As(Box::new(call_path("ctx.error", vec![message])), "never".into())))),
+                Stmt::If(
+                    raw("r.kind === \"Err\""),
+                    Box::new(Stmt::Return(Js::As(Box::new(call_path("ctx.error", vec![message])), "never".into()))),
+                ),
                 Stmt::Return(raw("r.value")),
             ];
             (schema_ty(WireSchema::Arktype, from), tail)
@@ -789,10 +803,12 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
             other => other
                 .int()
                 .map(|t| t.as_str().to_string())
-                .or_else(|| other.float().map(|t| match t {
-                    purecrate_ir::FloatTy::F32 => "f32".into(),
-                    purecrate_ir::FloatTy::F64 => "f64".into(),
-                }))
+                .or_else(|| {
+                    other.float().map(|t| match t {
+                        purecrate_ir::FloatTy::F32 => "f32".into(),
+                        purecrate_ir::FloatTy::F64 => "f64".into(),
+                    })
+                })
                 .unwrap_or_else(|| "str".into()),
         }),
         Ty::Option(inner) => {
@@ -850,15 +866,23 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                     .iter()
                     .map(|v| {
                         let var = v.name.as_str();
-                        let tagged = |inner: Js| call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(var), inner])])]);
+                        let tagged = |inner: Js| {
+                            call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(var), inner])])])
+                        };
                         let value = match &v.fields {
                             VariantFields::Unit => str_lit(format!("\"{var}\"")),
                             VariantFields::Tuple(tys) if tys.len() == 1 => tagged(write_json(&tys[0], "x.value", 0)),
                             VariantFields::Tuple(tys) => {
-                                let elems = tys.iter().enumerate().map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0)).collect();
+                                let elems = tys
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0))
+                                    .collect();
                                 tagged(call_path("Json.tuple", vec![Js::Array(elems)]))
                             }
-                            VariantFields::Struct(fields) => tagged(object_json(fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x.")),
+                            VariantFields::Struct(fields) => {
+                                tagged(object_json(fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x."))
+                            }
                         };
                         (str_lit(var), vec![Stmt::Return(value)])
                     })
@@ -893,7 +917,8 @@ fn object_json<'a>(fields: impl Iterator<Item = (&'a str, &'a Ty)>, prefix: &str
 fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
     use purecrate_ir::{FloatTy, Prim};
     let throws = |what: &str| {
-        let body = Body::Block(vec![Stmt::Expr(raw(format!("throw new globalThis.Error(\"{what} has no JSON form\")")))]);
+        let body =
+            Body::Block(vec![Stmt::Expr(raw(format!("throw new globalThis.Error(\"{what} has no JSON form\")")))]);
         call(Js::Paren(Box::new(arrow("()", Some("never"), body))), Vec::new())
     };
     match ty {
@@ -910,7 +935,9 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
                 None => call_path("Json.int", vec![raw(value)]),
             },
         },
-        Ty::Option(inner) => ternary(raw(format!("{value} === null")), str_lit("null"), write_json(inner, value, depth)),
+        Ty::Option(inner) => {
+            ternary(raw(format!("{value} === null")), str_lit("null"), write_json(inner, value, depth))
+        }
         Ty::Vec(inner) => {
             let v = format!("v{depth}");
             let each = arrow(&format!("({v})"), None, expr_body(write_json(inner, &v, depth + 1)));

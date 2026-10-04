@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 #[test]

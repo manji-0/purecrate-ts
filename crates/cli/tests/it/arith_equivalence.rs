@@ -3,7 +3,6 @@
 
 use crate::support;
 
-
 purecrate_canon::fixture!(mod arith = "fixtures/arith.rs");
 
 const SOURCE: &str = arith::SOURCE;

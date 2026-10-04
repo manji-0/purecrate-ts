@@ -29,11 +29,7 @@ fn build(src: &Path, out: &Path) -> Output {
 }
 
 fn check(args: &[&std::ffi::OsStr]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
-        .arg("check")
-        .args(args)
-        .output()
-        .expect("run purecrate-ts")
+    Command::new(env!("CARGO_BIN_EXE_purecrate-ts")).arg("check").args(args).output().expect("run purecrate-ts")
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -71,7 +67,9 @@ fn rejected_crate_reports_locations_and_leaves_out_alone() {
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     let path = src.display();
     assert!(
-        stderr.contains(&format!("{path}:10:8: [check/name-collision] `Step` and `step` would both be emitted as `step.ts`")),
+        stderr.contains(&format!(
+            "{path}:10:8: [check/name-collision] `Step` and `step` would both be emitted as `step.ts`"
+        )),
         "{stderr}"
     );
     assert!(stderr.contains(&format!("  note: see {path}:6:12")), "{stderr}");
@@ -189,11 +187,7 @@ fn check_with_out_lists_every_drifted_file() {
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     assert!(stderr.contains("3 file(s) out of date"), "{stderr}");
     let listed: Vec<&str> = stderr.lines().filter(|l| l.starts_with("  ")).collect();
-    assert_eq!(
-        listed,
-        ["  missing  src/event.ts", "  extra    src/notes.ts", "  differs  src/step.ts"],
-        "{stderr}"
-    );
+    assert_eq!(listed, ["  missing  src/event.ts", "  extra    src/notes.ts", "  differs  src/step.ts"], "{stderr}");
     assert!(stderr.contains("run: purecrate-ts build"), "{stderr}");
     assert_eq!(fs::read_to_string(out.join("src/step.ts")).unwrap(), "// edited by hand\n");
 
@@ -282,7 +276,8 @@ fn build_refuses_to_replace_a_directory_it_did_not_write() {
 fn raw_module_names_find_their_files() {
     let dir = scratch("raw-mod");
     fs::create_dir_all(dir.join("src")).expect("mkdir src");
-    fs::write(dir.join("src/lib.rs"), "mod r#impl;\n\npub fn four() -> i32 {\n    r#impl::twice(2)\n}\n").expect("write lib");
+    fs::write(dir.join("src/lib.rs"), "mod r#impl;\n\npub fn four() -> i32 {\n    r#impl::twice(2)\n}\n")
+        .expect("write lib");
     fs::write(dir.join("src/impl.rs"), "pub fn twice(n: i32) -> i32 {\n    n * 2\n}\n").expect("write impl");
     let result = check(&[dir.as_os_str()]);
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
@@ -319,10 +314,7 @@ fn check_diagnostics_point_inside_the_function() {
     let result = check(&[src.as_os_str()]);
     let stderr = String::from_utf8_lossy(&result.stderr);
     let path = src.display();
-    assert!(
-        stderr.contains(&format!("{path}:3:5: [check/type-mismatch] expected `i32`, found `bool`")),
-        "{stderr}"
-    );
+    assert!(stderr.contains(&format!("{path}:3:5: [check/type-mismatch] expected `i32`, found `bool`")), "{stderr}");
 }
 
 /// rustc compiles the input with the crate's edition. `gen` is a reserved
@@ -333,14 +325,20 @@ fn rustc_uses_the_manifest_edition() {
     fs::create_dir_all(dir.join("src")).expect("mkdir src");
     fs::write(dir.join("src/lib.rs"), "pub fn f(a: i32) -> i32 {\n    let gen = a;\n    gen\n}\n").expect("write lib");
     let manifest = |edition: &str| {
-        fs::write(dir.join("Cargo.toml"), format!("[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"))
-            .expect("write manifest")
+        fs::write(
+            dir.join("Cargo.toml"),
+            format!("[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"),
+        )
+        .expect("write manifest")
     };
     manifest("2024");
     let result = check(&[dir.as_os_str()]);
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(!result.status.success(), "{stderr}");
-    assert!(stderr.contains("src/lib.rs:2:9: [rustc/error] expected identifier, found reserved keyword `gen`"), "{stderr}");
+    assert!(
+        stderr.contains("src/lib.rs:2:9: [rustc/error] expected identifier, found reserved keyword `gen`"),
+        "{stderr}"
+    );
     let forced = check(&[dir.as_os_str(), "--edition".as_ref(), "2021".as_ref()]);
     assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
     manifest("2021");
@@ -383,7 +381,8 @@ fn module_trees_are_flattened() {
     let _ = fs::remove_dir_all(&dir);
     let src = dir.join("src");
     fs::create_dir_all(src.join("money")).expect("mkdir");
-    fs::write(dir.join("Cargo.toml"), "[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").expect("write");
+    fs::write(dir.join("Cargo.toml"), "[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+        .expect("write");
     fs::write(
         src.join("lib.rs"),
         "pub mod money;\nmod rules;\n\npub use rules::apply;\n\npub fn total(a: money::Yen, b: crate::money::Yen) -> money::Yen {\n    money::Yen::add(a, b)\n}\n\n\
@@ -391,7 +390,11 @@ fn module_trees_are_flattened() {
     )
     .expect("write");
     fs::write(src.join("money.rs"), "pub mod rounding;\n\npub struct Yen(pub i64);\n\nimpl Yen {\n    pub fn add(a: Yen, b: Yen) -> Yen {\n        Yen(a.0 + b.0)\n    }\n}\n").expect("write");
-    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 / 2i64)\n}\n").expect("write");
+    fs::write(
+        src.join("money/rounding.rs"),
+        "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 / 2i64)\n}\n",
+    )
+    .expect("write");
     fs::write(
         src.join("rules.rs"),
         "use crate::money::rounding::half;\nuse crate::money::Yen;\n\npub fn apply(y: Yen) -> Yen {\n    helper(half(y))\n}\n\npub fn helper(y: Yen) -> Yen {\n    Yen(y.0 + 1i64)\n}\n",
@@ -417,7 +420,11 @@ fn module_trees_are_flattened() {
     }
 
     // A rejection inside a module file names that file.
-    fs::write(src.join("money/rounding.rs"), "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 as i64)\n}\n").expect("write");
+    fs::write(
+        src.join("money/rounding.rs"),
+        "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 as i64)\n}\n",
+    )
+    .expect("write");
     let bad = check(&[dir.as_os_str()]);
     let stderr = String::from_utf8_lossy(&bad.stderr);
     assert!(stderr.contains("money/rounding.rs:4:"), "{stderr}");
@@ -457,7 +464,8 @@ fn check_warns_when_release_overflow_checks_are_off() {
     let krate = dir.join("k");
     fs::create_dir_all(krate.join("src")).expect("mkdir");
     fs::write(krate.join("src/lib.rs"), "pub fn f() -> i32 { 0 }\n").expect("write");
-    fs::write(krate.join("Cargo.toml"), "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").expect("write");
+    fs::write(krate.join("Cargo.toml"), "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+        .expect("write");
     let off = check(&[krate.as_os_str()]);
     let stderr = String::from_utf8_lossy(&off.stderr);
     assert!(off.status.success(), "{stderr}");

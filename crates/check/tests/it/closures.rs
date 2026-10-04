@@ -1,4 +1,3 @@
-
 use crate::common::{assert_clean, assert_rejects};
 
 #[test]
@@ -39,12 +38,6 @@ fn closures_need_known_parameter_and_exit_types() {
 
 #[test]
 fn calling_a_closure_checks_its_signature() {
-    assert_rejects(
-        "pub fn f(x: i32) -> i32 { let g = |v: i32| v; g(x, x) }",
-        "closure `g` takes 1 argument(s), got 2",
-    );
-    assert_rejects(
-        "pub fn f(x: i32) -> bool { let g = |v: i32| v; g(x) }",
-        "expected `bool`, found `i32`",
-    );
+    assert_rejects("pub fn f(x: i32) -> i32 { let g = |v: i32| v; g(x, x) }", "closure `g` takes 1 argument(s), got 2");
+    assert_rejects("pub fn f(x: i32) -> bool { let g = |v: i32| v; g(x) }", "expected `bool`, found `i32`");
 }
