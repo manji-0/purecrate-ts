@@ -53,72 +53,36 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
     if !is_comment(line) && wrap_composition(line, width, out) {
         return;
     }
-    if cols(line) <= width || is_comment(line) || lone_import(line) {
+    let short = cols(line) <= width || is_comment(line) || lone_import(line);
+    if short || !WRAPS.iter().any(|wrap| wrap(line, width, out)) {
         emit_raw(line, out);
-        return;
     }
-    if wrap_if_return(line, width, out) {
-        return;
-    }
-    if wrap_if_open(line, width, out) {
-        return;
-    }
-    if wrap_for(line, width, out) {
-        return;
-    }
-    if wrap_condition(line, width, out) {
-        return;
-    }
-    if wrap_arrow_first(line, width, out) {
-        return;
-    }
-    if wrap_assign_ternary(line, width, out) {
-        return;
-    }
-    // A top-level `?:` splits before a bracket in one of its branches opens.
-    if wrap_ternary(line, width, out) {
-        return;
-    }
-    if wrap_after_assign(line, width, out) {
-        return;
-    }
-    if wrap_last_arrow(line, width, out) {
-        return;
-    }
-    if wrap_sole_item(line, width, out) {
-        return;
-    }
-    if wrap_bracket(line, width, true, out) {
-        return;
-    }
-    if wrap_bracket(line, width, false, out) {
-        return;
-    }
-    if wrap_type_fields(line, width, out) {
-        return;
-    }
-    if wrap_fat_group(line, width, out) {
-        return;
-    }
-    if wrap_arrow(line, width, out) {
-        return;
-    }
-    // A top-level `?:` binds looser than the `&&` / `||` in its operands, so
-    // it splits first.
-    if wrap_ternary(line, width, out) {
-        return;
-    }
-    if wrap_logical(line, width, out) {
-        return;
-    }
-    if wrap_outer_parens(line, width, out) {
-        return;
-    }
-    if wrap_top_commas(line, width, out) {
-        return;
-    }
-    emit_raw(line, out);
 }
+
+/// The ways to break a long line, tried in order. Each writes nothing
+/// where it does not apply.
+const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
+    wrap_if_return,
+    wrap_if_open,
+    wrap_for,
+    wrap_condition,
+    wrap_arrow_first,
+    wrap_assign_ternary,
+    // A top-level `?:` splits before a bracket in one of its branches
+    // opens, and before the `&&` / `||` in its operands, which bind tighter.
+    wrap_ternary,
+    wrap_after_assign,
+    wrap_last_arrow,
+    wrap_sole_item,
+    |line, width, out| wrap_bracket(line, width, true, out),
+    |line, width, out| wrap_bracket(line, width, false, out),
+    wrap_type_fields,
+    wrap_fat_group,
+    wrap_arrow,
+    wrap_logical,
+    wrap_outer_parens,
+    wrap_top_commas,
+];
 
 #[cfg(test)]
 mod tests {

@@ -61,41 +61,32 @@ pub(super) fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool
 }
 
 fn parse_if_return(line: &str) -> Option<(&str, &str, &str)> {
-    let pad_len = line.len() - line.trim_start().len();
-    let rest = &line[pad_len..];
-    let inner = rest.strip_prefix("if (")?.strip_suffix(';')?;
-    let d = depths(rest);
-    let open = 3usize;
-    let close = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')?;
-    let after = rest[close + 1..].strip_prefix(" return ")?;
-    let val = after.strip_suffix(';')?;
+    let (pad, cond, after) = paren_head(line, "if")?;
+    let val = after.strip_prefix(" return ")?.strip_suffix(';')?;
     if val.is_empty() || val.contains('\n') {
         return None;
     }
-    let _ = inner;
-    Some((&line[..pad_len], &rest[open + 1..close], val))
+    Some((pad, cond, val))
+}
+
+/// `line` as `<pad><keyword> (<inside>)<after>`, the parenthesis closed at
+/// its own depth.
+fn paren_head<'a>(line: &'a str, keyword: &str) -> Option<(&'a str, &'a str, &'a str)> {
+    let pad_len = line.len() - line.trim_start().len();
+    let rest = line[pad_len..].strip_prefix(keyword)?.strip_prefix(' ')?;
+    if !rest.starts_with('(') {
+        return None;
+    }
+    let d = depths(rest);
+    let close = (1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')')?;
+    Some((&line[..pad_len], &rest[1..close], &rest[close + 1..]))
 }
 
 /// `if (cond) {` whose condition does not fit on the line.
 pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
-    let pad_len = line.len() - line.trim_start().len();
-    let rest = &line[pad_len..];
-    let Some(inner) = rest.strip_prefix("if (") else {
+    let Some((pad, cond, " {")) = paren_head(line, "if") else {
         return false;
     };
-    if !inner.ends_with(") {") {
-        return false;
-    }
-    let d = depths(rest);
-    let open = 3usize;
-    let Some(close) = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')') else {
-        return false;
-    };
-    if &rest[close..] != ") {" {
-        return false;
-    }
-    let pad = &line[..pad_len];
-    let cond = &rest[open + 1..close];
     wrap_line(&format!("{pad}if ("), width, out);
     wrap_line(&format!("{pad}  {cond}"), width, out);
     wrap_line(&format!("{pad}) {{"), width, out);
@@ -104,23 +95,9 @@ pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
 
 /// `for (init; test; step) {` with the three clauses on their own lines.
 pub(super) fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
-    let pad_len = line.len() - line.trim_start().len();
-    let rest = &line[pad_len..];
-    let Some(inner) = rest.strip_prefix("for (") else {
+    let Some((pad, header, " {")) = paren_head(line, "for") else {
         return false;
     };
-    if !inner.ends_with(") {") {
-        return false;
-    }
-    let d = depths(rest);
-    let open = 4usize;
-    let Some(close) = (open + 1..rest.len()).find(|&j| d[j] == Some(0) && rest.as_bytes()[j] == b')') else {
-        return false;
-    };
-    if &rest[close..] != ") {" {
-        return false;
-    }
-    let header = &rest[open + 1..close];
     let hd = depths(header);
     let mut parts = Vec::new();
     let mut start = 0;
@@ -137,7 +114,6 @@ pub(super) fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
     if parts.len() != 3 {
         return false;
     }
-    let pad = &line[..pad_len];
     wrap_line(&format!("{pad}for ("), width, out);
     wrap_line(&format!("{pad}  {};", parts[0]), width, out);
     wrap_line(&format!("{pad}  {};", parts[1]), width, out);
