@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.4 — 2026-10-05
+
+A refactor, and the generated sweeps run locally. Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Added
 
