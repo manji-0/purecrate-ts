@@ -41,8 +41,7 @@ fn jumps_from_match(expr: &Expr, in_match: bool) -> bool {
 /// Elsewhere it is bare.
 pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
     let pad = "  ".repeat(indent);
-    let label =
-        jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop", indent) } else { String::new() });
+    let label = jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop") } else { String::new() });
     let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
     out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
@@ -113,7 +112,7 @@ pub(crate) fn emit_for(var: &str, ty: IntTy, start: &Expr, end: &Expr, body: &Ex
             ty.ts_name()
         )
     } else {
-        let bound = temp("end", indent);
+        let bound = temp("end");
         format!(
             "for (let {var} = {}, {bound} = {}; {var} < {bound}; {var} = ({var} + {one}) as {})",
             emit_item(start, indent),

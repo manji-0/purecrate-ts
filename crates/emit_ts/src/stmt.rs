@@ -68,7 +68,7 @@ impl Sink<'_> {
 /// The matched value of a `match` on something that is not a place, named
 /// for what the arms test: the enum (`otpCheck`), `result`, `option`, or
 /// `value`.
-pub(crate) fn match_temp(arms: &[purecrate_ir::Arm], indent: usize) -> String {
+pub(crate) fn match_temp(arms: &[purecrate_ir::Arm]) -> String {
     let base = match scrutinee_ty(arms) {
         Some(ty) => purecrate_ir::to_camel(&purecrate_ir::lower_first(ty.as_str())),
         None => match arms.iter().map(|a| &a.pattern).find(|p| !matches!(p, Pattern::Wildcard)) {
@@ -77,7 +77,7 @@ pub(crate) fn match_temp(arms: &[purecrate_ir::Arm], indent: usize) -> String {
             _ => "value".to_string(),
         },
     };
-    temp(&base, indent)
+    temp(&base)
 }
 
 /// Whether `expr` prints as a `?:` of its own (not `&&` / `||` with a
@@ -195,7 +195,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         // `if` and the test reads the binding, not an inline function.
         Expr::If { cond, then, else_ } if hoistable_test(cond).is_some() => {
             let (scrutinee, arms, negated) = hoistable_test(cond).expect("checked above");
-            let tmp = match_temp(arms, indent);
+            let tmp = match_temp(arms);
             let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.to_vec() };
             // A test that does not read the value (every arm `true`) still
             // evaluates it, for what it may panic on.
@@ -342,10 +342,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             emit_try_test(&emit_expr(inner, indent), *on, indent, out);
         }
         Expr::Try { expr: inner, on } if matches!(sink, Sink::Effect) => {
-            emit_try_exit(&try_temp(None, *on, indent), inner, *on, indent, out);
+            emit_try_exit(&try_temp(None, *on), inner, *on, indent, out);
         }
         Expr::Try { .. } => {
-            let tmp = temp("value", indent);
+            let tmp = temp("value");
             emit_let(&tmp, false, None, expr, indent, out);
             sink.finish(&tmp, &pad, out);
         }
@@ -378,7 +378,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     match value {
         Expr::Var(n) if n.as_str() == name => {}
         Expr::Try { expr, on } => {
-            let tmp = try_temp(Some(name), *on, indent);
+            let tmp = try_temp(Some(name), *on);
             emit_try_exit(&tmp, expr, *on, indent, out);
             let payload = match on {
                 Some(TryOn::Option) => tmp,
@@ -489,10 +489,10 @@ fn declares_return(value: &Expr) -> bool {
 
 /// What `x?` is held in before its test: `<name>Result` or `<name>Option`
 /// for `let name = x?`, else `result` or `option`.
-fn try_temp(name: Option<&str>, on: Option<TryOn>, indent: usize) -> String {
+fn try_temp(name: Option<&str>, on: Option<TryOn>) -> String {
     let what = if on == Some(TryOn::Option) { "option" } else { "result" };
     // A temporary's own name (`$value_2`) says nothing; its `_<depth>` is kept.
-    name.and_then(|n| named_after(n, what)).unwrap_or_else(|| temp(what, indent))
+    name.and_then(|n| named_after(n, what)).unwrap_or_else(|| temp(what))
 }
 
 /// A temporary named after the local it is for (`$nResult` for `n`), or
@@ -510,7 +510,7 @@ fn named_after(name: &str, what: &str) -> Option<String> {
     };
     // Numbered as every temporary is: two in one block (`let x = r.ok()`,
     // then `x.ok_or(e)` matched) would be one name, declared twice.
-    Some(crate::temp(&format!("{n}{}{}", what[..1].to_uppercase(), &what[1..]), 0))
+    Some(crate::temp(&format!("{n}{}", purecrate_ir::upper_first(what))))
 }
 
 /// `const tmp = expr;` and the early return of `expr?` when it holds `None`

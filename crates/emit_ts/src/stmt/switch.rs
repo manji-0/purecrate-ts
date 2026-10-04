@@ -51,7 +51,7 @@ pub(crate) fn value_expr(value: &Expr, indent: usize) -> Option<(String, String)
     if let Some(s) = coalesced(value, indent) {
         return Some((String::new(), s));
     }
-    let tmp = match_temp(arms, indent);
+    let tmp = match_temp(arms);
     let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
     let s = as_expr(&on_tmp, indent)?;
     let mut prelude = String::new();
@@ -66,7 +66,7 @@ pub(super) fn coalesced(value: &Expr, indent: usize) -> Option<String> {
     if is_place(scrutinee) {
         return None;
     }
-    let tmp = match_temp(arms, indent);
+    let tmp = match_temp(arms);
     let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
     let rest = match as_tx(&on_tmp, indent)? {
         Tx::Atom(s) if s == tmp => None,
@@ -148,7 +148,7 @@ pub(crate) fn emit_switch_in(
     let subject = if is_place(scrutinee) {
         emit_expr(scrutinee, indent)
     } else {
-        let tmp = match_temp(arms, indent);
+        let tmp = match_temp(arms);
         bind_scrutinee(&tmp, scrutinee, arms, indent, out);
         tmp
     };

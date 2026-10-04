@@ -9,7 +9,7 @@ use super::*;
 /// and end in `_<n>`, a count of them, so no two are one name before
 /// `plain::plain_names` gives each a plain name that no other in an
 /// overlapping block has. The final text does not depend on the count.
-pub(super) fn temp(base: &str, _indent: usize) -> String {
+pub(super) fn temp(base: &str) -> String {
     let n = TEMPS.with(|t| {
         let n = t.get() + 1;
         t.set(n);
@@ -123,9 +123,18 @@ pub(crate) fn internal_names(krate: &Crate) -> BTreeMap<Internal, String> {
 /// Runs `f` with the crate's internal names in place for `closed_ctor` and
 /// `private_method`.
 pub(crate) fn with_internal_names<T>(krate: &Crate, f: impl FnOnce() -> T) -> T {
-    let previous = INTERNAL.with(|m| m.replace(internal_names(krate)));
+    scoped(&INTERNAL, internal_names(krate), f)
+}
+
+/// Runs `f` with `key` holding `value`, then puts back what it held.
+pub(crate) fn scoped<V: 'static, T>(
+    key: &'static std::thread::LocalKey<RefCell<V>>,
+    value: V,
+    f: impl FnOnce() -> T,
+) -> T {
+    let previous = key.with(|k| k.replace(value));
     let out = f();
-    INTERNAL.with(|m| m.replace(previous));
+    key.with(|k| k.replace(previous));
     out
 }
 

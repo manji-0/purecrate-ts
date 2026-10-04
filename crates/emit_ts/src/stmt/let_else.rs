@@ -34,8 +34,7 @@ pub(super) fn let_else(
             // `Option` is held in `t` itself, which the exit narrows.
             let unwraps = matches!((&keep.pattern, &keep.body),
                 (Pattern::OptionSome(p), Expr::Var(read)) if matches!(&**p, Pattern::Var(n) if n == read));
-            let tmp =
-                if unwraps && !mutable && !name.starts_with('$') { name.to_string() } else { match_temp(arms, indent) };
+            let tmp = if unwraps && !mutable && !name.starts_with('$') { name.to_string() } else { match_temp(arms) };
             bind_scrutinee(&tmp, scrutinee, arms, indent, out);
             let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp))), arms: arms.clone() };
             return let_else(name, mutable, ty, &on_tmp, indent, out);

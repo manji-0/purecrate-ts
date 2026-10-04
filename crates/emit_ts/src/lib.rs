@@ -49,20 +49,19 @@ pub struct Package {
 }
 
 pub fn emit(krate: &Crate) -> Package {
-    let previous = CLOSED.with(|c| c.replace(closed_names(krate)));
-    let previous_private = PRIVATE.with(|p| p.replace(private_methods(krate)));
     let structs = krate.items.iter().filter_map(|item| match item {
         Item::Struct(st) => Some(st.name.as_str().to_string()),
         _ => None,
     });
-    let previous_structs = STRUCTS.with(|c| c.replace(structs.collect()));
-    let previous_hosted = HOSTED.with(|h| h.replace(krate.homes(|item| krate.fns_named(item))));
-    let package = with_internal_names(krate, || emit_package(krate));
-    HOSTED.with(|h| h.replace(previous_hosted));
-    STRUCTS.with(|c| c.replace(previous_structs));
-    CLOSED.with(|c| c.replace(previous));
-    PRIVATE.with(|p| p.replace(previous_private));
-    package
+    scoped(&CLOSED, closed_names(krate), || {
+        scoped(&PRIVATE, private_methods(krate), || {
+            scoped(&STRUCTS, structs.collect(), || {
+                scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
+                    with_internal_names(krate, || emit_package(krate))
+                })
+            })
+        })
+    })
 }
 
 /// The file a helper is printed in, when not its own (`homes`).

@@ -25,10 +25,7 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
-    let previous = crate::PUSHED.with(|p| p.replace(pushed));
-    let out = arrow(&params, &emit_ty(&f.ret), &f.body, indent);
-    crate::PUSHED.with(|p| p.replace(previous));
-    out
+    crate::scoped(&crate::PUSHED, pushed, || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
@@ -532,7 +529,7 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
             return name.clone();
         }
         let base = format!("{}Discriminants{}", purecrate_ir::lower_first(of.as_str()), if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" });
-        let name = temp(&base, 0);
+        let name = temp(&base);
         let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
         let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
         let decl = format!(
