@@ -230,3 +230,11 @@ pub fn unit_ok(a: i32) -> Result<(), i32> {
 pub fn unit_some(a: i32) -> Option<()> {
     if a == 0i32 { None } else { Some(()) }
 }
+
+/// `if let` whose payload may fail to match: `Some(5)` takes the `else`, as
+/// `None` does (it panicked as an unexpected variant).
+pub fn refutable_if_let(x: Option<i32>, r: Result<i32, i32>) -> i32 {
+    let a: i32 = if let Some(0..=9) = x { 1 } else { 2 };
+    let b: i32 = if let Err(-1) = r { 10 } else { 20 };
+    a + b
+}

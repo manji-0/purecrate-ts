@@ -330,7 +330,8 @@ pub(super) fn prelude_pat(name: &str, bind: VariantBind) -> Result<Option<Patter
     }))
 }
 
-/// `if let P = e { a } else { b }` is `match e { P => a, <the other case> => b }`.
+/// `if let P = e { a } else { b }` is `match e { P => a, <the other case> => b }`,
+/// or `_ => b` where `P`'s payload may fail to match.
 pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -> Result<Expr, ParseError> {
     let pattern = arm_pattern(lower_pat(cx, &l.pat)?).map_err(|e| e.or_at(l.pat.span()))?;
     if !cx.take_struct_pats().is_empty() {
@@ -341,6 +342,9 @@ pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -
         .or_at(l.pat.span()));
     }
     let other = match &pattern {
+        // `if let Some(0) = o`: `Some(5)` takes the `else` too, so the other
+        // arm is every value (it once panicked as an unexpected variant).
+        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) if p.refutable() => Pattern::Wildcard,
         Pattern::OptionSome(_) => Pattern::OptionNone,
         Pattern::OptionNone => Pattern::OptionSome(Box::new(Pattern::Wildcard)),
         Pattern::ResultOk(_) => Pattern::ResultErr(Box::new(Pattern::Wildcard)),
