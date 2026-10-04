@@ -82,6 +82,9 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_redeclared(c, n)));
             }
             cases.push(case!(narrowing::equal_constructors(c, 9i32)));
+            for o in [None, Some(1i32), Some(50)] {
+                cases.push(case!(narrowing::payload_test(o)));
+            }
         }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {
@@ -126,6 +129,9 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_redeclared(c, n)));
             }
             cases.push(case!(narrowing::equal_constructors(c, 9i32)));
+            for o in [None, Some(1i32), Some(50)] {
+                cases.push(case!(narrowing::payload_test(o)));
+            }
         }
         cases
     });

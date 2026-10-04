@@ -53,6 +53,11 @@ fn generated_guards_match_rust() {
                 cases.push(case!(guards::overlap(n, strict)));
             }
         }
+        for b in [-1i32, 0, 4] {
+            for v in [None, Some(7i32)] {
+                cases.push(case!(guards::guarded_field(guards::Setting::Set(v), b)));
+            }
+        }
         for state in [State::Open, State::Paid, State::Closed] {
             for n in [0, 50, 55, 56, 255] {
                 cases.push(case!(guards::guarded_overflow(state, n)));

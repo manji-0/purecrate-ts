@@ -1005,6 +1005,11 @@ thread_local! {
 fn aliased(expr: &Expr) -> Option<Expr> {
     let Expr::Var(n) = expr else { return None };
     let target = ALIASES.with(|a| a.borrow().iter().rev().find(|(m, _)| m == n).map(|(_, p)| p.clone()))?;
+    // `let v = v` (a pattern's binding read again under its own name) is
+    // no alias: following it would never end.
+    if target == *expr {
+        return None;
+    }
     Some(aliased(&target).unwrap_or(target))
 }
 
@@ -1105,6 +1110,12 @@ fn tried_case(on: TryOn) -> Name {
 fn taken_arm(expr: &Expr, known: &Known) -> Option<Expr> {
     let Expr::Match { scrutinee, arms } = expr else { return None };
     let (_, variants) = known.iter().rev().find(|(p, _)| p == &**scrutinee)?;
+    // A place known `Some` is read as its payload once narrowed (`o` for
+    // `o.unwrap_or(d)`): a `match` testing the payload (`0..=9 => ..`) is
+    // not decided by what is known of the option.
+    if !arms.iter().all(|a| tests_case(&a.pattern, &variants[0])) {
+        return None;
+    }
     let pick = |v: &Name| arms.iter().position(|a| admits(&a.pattern, v));
     let first = pick(&variants[0])?;
     let arm = &arms[first];
@@ -1159,6 +1170,20 @@ fn admits(pattern: &Pattern, variant: &Name) -> bool {
         Pattern::OptionNone => variant.as_str() == NONE,
         Pattern::Lit(Lit::Bool(b)) => variant.as_str() == if *b { TRUE } else { FALSE },
         Pattern::Or(alts) => alts.iter().any(|p| admits(p, variant)),
+        _ => false,
+    }
+}
+
+/// Whether `pattern` tests the kind of value `case` names (an `Option`'s,
+/// a `Result`'s, an enum's, or a `bool`'s), or nothing.
+fn tests_case(pattern: &Pattern, case: &Name) -> bool {
+    match pattern {
+        Pattern::Wildcard | Pattern::Var(_) => true,
+        Pattern::OptionSome(_) | Pattern::OptionNone => [SOME, NONE].contains(&case.as_str()),
+        Pattern::ResultOk(_) | Pattern::ResultErr(_) => [OK, ERR].contains(&case.as_str()),
+        Pattern::Lit(Lit::Bool(_)) => [TRUE, FALSE].contains(&case.as_str()),
+        Pattern::Variant { .. } => !case.as_str().starts_with('$'),
+        Pattern::Or(alts) => alts.iter().all(|p| tests_case(p, case)),
         _ => false,
     }
 }

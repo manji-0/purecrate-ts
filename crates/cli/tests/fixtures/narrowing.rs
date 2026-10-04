@@ -318,3 +318,12 @@ pub fn known_err_other_ok(r: Result<i32, i32>) -> Result<bool, i32> {
         }
     }
 }
+
+/// Narrowed, `o.unwrap_or(3)` is `o` read as its payload: a `match` on the
+/// payload (`0..=9`) is not decided by `o` being `Some` (it took `_`).
+pub fn payload_test(o: Option<i32>) -> bool {
+    match o {
+        Some(_) => matches!(o.unwrap_or(3), 0..=9),
+        None => false,
+    }
+}

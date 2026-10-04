@@ -167,3 +167,17 @@ pub fn shadowed_later(p: Pair, c: bool) -> i32 {
         Pair::Q => 0,
     }
 }
+
+pub enum Setting {
+    Set(Option<i32>),
+}
+
+/// A guarded arm testing inside a field, then an arm binding the whole
+/// field under the same name the tree gives it (`let v = v`): the printer
+/// followed that alias forever.
+pub fn guarded_field(e: Setting, b: i32) -> i32 {
+    match e {
+        Setting::Set(Some(_)) if b > 0 => 1,
+        Setting::Set(v) => v.unwrap_or(b),
+    }
+}
