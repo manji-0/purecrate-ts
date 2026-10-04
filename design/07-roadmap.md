@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.0)
+Status: current (2026-10-04, after 0.10.0; §8.15 unreleased)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -144,6 +144,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
+| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -464,6 +465,24 @@ Why: an evaluation of 0.9.1 found that every audit since 0.8.1 turned up output 
 
 - **06 §4.3 reads the generator, not only the examples.** The row on silent wrong values now names the audits' findings and the generated test's count.
 - **Open:** line breaking (`tidy::wrap`) still reads printed lines, as a layout pass; oxc's formatter is not published as a crate.
+
+### 8.15 Unreleased: generated function bodies
+
+<!-- derived-from #814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04 -->
+
+Why: the generator of 0.10.0 drew expressions only, over four types. Two of the four disagreements the audits found were in statements and crate types, outside it. This adds statements around those expressions; crate types, patterns on them, strings, and `Vec` are still outside.
+
+| Item | Verified by |
+| --- | --- |
+| Function bodies generated from seeds: `let` / `let mut`, assignment and `op=`, `if` and `match` as statements, range `for` and `while`, `break`, `continue`, early `return`, `?` in a range's ends and a loop's test | `generated_statements_equivalence.rs`: seeds 1 to 8 on every run; 1 to 120 agree on every value (4,800 functions, 57,600 calls), 60 of them type-check |
+| `match o.ok_or(x.ok_or(e)?)` leaves the function (it returned from an inline function and took the `Err` arm: Rust `Err(e)`, TS `Ok(..)`) | `order_of_eval_equivalence.rs`, failing on values before the fix |
+| A temporary named after a local is numbered (two `xResult` in one block) | `order_of_eval_equivalence.rs` |
+| What folding leaves type-checks: a value nothing reads runs only what it does; a decided test keeps the side taken (`if (true) { .. }` where it declares); what follows a jump goes; `r?` on a known `Err` is the `return` | `narrowing_equivalence.rs`, each refused by tsc before |
+| Narrowing past a statement `match` with jumping arms, past an `if` that always leaves, and of `bool`s an `if` decided; `if c { p } else { p }` and `{ let t = p; t }` are `p` | `narrowing_equivalence.rs` |
+| A sweep compares values even where tsc refuses (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check | `support::assert_values_equivalent` |
+
+- **Open:** the 60 seeds tsc refuses (§3, narrowing as TS does it). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`.
+- **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
 
 ## 9. Generated API stability
 

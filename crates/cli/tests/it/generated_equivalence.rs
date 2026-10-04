@@ -14,7 +14,10 @@
 //! `purecrate-ts build`.
 //!
 //! `SEEDS` run on every `cargo test`; seeds 1..=120 have all passed, with
-//! no value disagreeing with Rust. Getting there took the runtime's
+//! no value disagreeing with Rust (again after 0.10.0, whose `matches!`
+//! no longer draws a `?`). A sweep may set `PURECRATE_GEN_TYPES=report`
+//! with `PURECRATE_GEN_SEED`: what tsc refuses is printed, and the values
+//! are still compared. Getting there took the runtime's
 //! `Result.ok` / `Result.err` defaults (`E = never`, `T = never`), so a
 //! lone `Result.ok(v)` is not `Result<T, unknown>`, and folding what TS
 //! has narrowed (`join.rs`: a `match` on a place an arm or a `?` has
@@ -35,7 +38,7 @@ use std::process::Command;
 use crate::support::{self, Case, Js, Rng};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Ty {
+pub(crate) enum Ty {
     Int,
     Bool,
     Opt,
@@ -43,7 +46,7 @@ enum Ty {
 }
 
 impl Ty {
-    fn rust(self) -> &'static str {
+    pub(crate) fn rust(self) -> &'static str {
         match self {
             Ty::Int => "i32",
             Ty::Bool => "bool",
@@ -53,21 +56,35 @@ impl Ty {
     }
 }
 
-struct Gen {
-    rng: Rng,
-    /// Names in scope, innermost last.
-    scope: Vec<(String, Ty)>,
+pub(crate) struct Gen {
+    pub(crate) rng: Rng,
+    /// Names in scope, innermost last, and whether each is a `let mut`.
+    pub(crate) scope: Vec<(String, Ty, bool)>,
     /// What `?` leaves the function with: `Opt`, `Res`, or neither.
-    ret: Ty,
+    pub(crate) ret: Ty,
     /// Inside a closure, where `?` would leave the closure instead, or
     /// inside `&&`, `||`, `if`, or `match`, where v0 refuses it
     /// (`[expr/position]`).
-    no_try: usize,
-    next_name: usize,
+    pub(crate) no_try: usize,
+    /// Inside a closure, which reads only immutable bindings.
+    pub(crate) closure: usize,
+    pub(crate) next_name: usize,
 }
 
 impl Gen {
-    fn fresh(&mut self) -> String {
+    pub(crate) fn new(seed: u64) -> Self {
+        Gen { rng: Rng::new(seed), scope: Vec::new(), ret: Ty::Int, no_try: 0, closure: 0, next_name: 0 }
+    }
+
+    /// The parameters every generated function takes ([`PARAMS`]).
+    pub(crate) fn params() -> Vec<(String, Ty, bool)> {
+        [("a", Ty::Int), ("b", Ty::Int), ("o", Ty::Opt), ("r", Ty::Res), ("c", Ty::Bool)]
+            .into_iter()
+            .map(|(n, t)| (n.to_string(), t, false))
+            .collect()
+    }
+
+    pub(crate) fn fresh(&mut self) -> String {
         // Now and then a name that shadows a parameter, as a closure or arm
         // in Rust may.
         if self.rng.below(5) == 0 {
@@ -77,14 +94,21 @@ impl Gen {
         format!("v{}", self.next_name)
     }
 
-    fn var(&mut self, ty: Ty) -> Option<String> {
+    pub(crate) fn var(&mut self, ty: Ty) -> Option<String> {
+        self.var_where(ty, false)
+    }
+
+    /// A name of type `ty` in scope; with `mutable`, only a `let mut`.
+    pub(crate) fn var_where(&mut self, ty: Ty, mutable: bool) -> Option<String> {
+        let in_closure = self.closure > 0;
         let names: Vec<String> = self
             .scope
             .iter()
             .enumerate()
             // The innermost binding of a name is the one in scope.
-            .filter(|(i, (n, t))| *t == ty && !self.scope[i + 1..].iter().any(|(m, _)| m == n))
-            .map(|(_, (n, _))| n.clone())
+            .filter(|(i, (n, t, _))| *t == ty && !self.scope[i + 1..].iter().any(|(m, _, _)| m == n))
+            .filter(|(_, (_, _, m))| if mutable { *m } else { !(in_closure && *m) })
+            .map(|(_, (n, _, _))| n.clone())
             .collect();
         if names.is_empty() {
             None
@@ -94,24 +118,32 @@ impl Gen {
     }
 
     fn with<T>(&mut self, name: &str, ty: Ty, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.scope.push((name.to_string(), ty));
+        self.scope.push((name.to_string(), ty, false));
         let out = f(self);
         self.scope.pop();
         out
     }
 
-    fn without_try<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+    pub(crate) fn without_try<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         self.no_try += 1;
         let out = f(self);
         self.no_try -= 1;
         out
     }
 
-    fn can_try(&self, ty: Ty) -> bool {
+    /// A closure's body: no `?`, and no `let mut` read.
+    fn closure<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.closure += 1;
+        let out = self.without_try(f);
+        self.closure -= 1;
+        out
+    }
+
+    pub(crate) fn can_try(&self, ty: Ty) -> bool {
         self.no_try == 0 && self.ret == ty
     }
 
-    fn lit(&mut self) -> String {
+    pub(crate) fn lit(&mut self) -> String {
         let n = self.rng.pick(&[0i64, 1, 2, 3, 7, 10, 100, 65535, 2147483647]);
         // Suffixed: a literal receiver, or one a closure reads, would leave
         // rustc without a type.
@@ -126,7 +158,7 @@ impl Gen {
     /// constructor (`Some(a).unwrap_or(b)` is `a ?? b`, which TS refuses as
     /// never nullish, and nobody writes it); a choice of values leaves rustc
     /// without its type, so it is bound to an annotated local first.
-    fn place(&mut self, ty: Ty, depth: u32) -> String {
+    pub(crate) fn place(&mut self, ty: Ty, depth: u32) -> String {
         let built = |e: &str| ["None", "Some(", "Ok(", "Err("].iter().any(|p| e.starts_with(p));
         let bare = |e: &str| ["(if ", "(match "].iter().any(|p| e.starts_with(p));
         let mut e = self.expr(ty, depth);
@@ -152,7 +184,7 @@ impl Gen {
         }
     }
 
-    fn expr(&mut self, ty: Ty, depth: u32) -> String {
+    pub(crate) fn expr(&mut self, ty: Ty, depth: u32) -> String {
         match ty {
             Ty::Int => self.int(depth),
             Ty::Bool => self.boolean(depth),
@@ -161,7 +193,7 @@ impl Gen {
         }
     }
 
-    fn int(&mut self, depth: u32) -> String {
+    pub(crate) fn int(&mut self, depth: u32) -> String {
         if depth == 0 || self.rng.below(6) == 0 {
             return match self.var(Ty::Int) {
                 Some(v) if self.rng.below(3) != 0 => v,
@@ -206,7 +238,7 @@ impl Gen {
                 1 => {
                     let e = self.fresh();
                     let res = self.place(Ty::Res, d);
-                    let body = self.without_try(|g| g.with(&e, Ty::Int, |g| g.int(d)));
+                    let body = self.closure(|g| g.with(&e, Ty::Int, |g| g.int(d)));
                     format!("({res}).map_err(|{e}| {body})?")
                 }
                 _ => format!("{}?", self.place(Ty::Res, d)),
@@ -247,7 +279,7 @@ impl Gen {
         }
     }
 
-    fn boolean(&mut self, depth: u32) -> String {
+    pub(crate) fn boolean(&mut self, depth: u32) -> String {
         if depth == 0 || self.rng.below(6) == 0 {
             // `c`, not `true`: a constant test folds away, and what TS then
             // reports (unreachable code) is not about equivalence.
@@ -270,7 +302,7 @@ impl Gen {
             9 => {
                 let v = self.fresh();
                 let opt = self.place(Ty::Opt, d);
-                let body = self.without_try(|g| g.with(&v, Ty::Int, |g| g.int(d)));
+                let body = self.closure(|g| g.with(&v, Ty::Int, |g| g.int(d)));
                 format!("({opt}).map(|{v}| {body}).is_none()")
             }
             10 => self
@@ -281,7 +313,9 @@ impl Gen {
                 let guard = g.with(&v, Ty::Int, |g| g.boolean(d));
                 format!("matches!({scrutinee}, Some({v}) if {guard})")
             }),
-            12 => format!("matches!({}, 0..=9 | 100)", self.int(d)),
+            // `matches!` is a `match`: inside an `if` test, a `?` in its
+            // scrutinee is `[check/position]`.
+            12 => self.without_try(|g| format!("matches!({}, 0..=9 | 100)", g.int(d))),
             _ => self.boolean(d),
         }
     }
@@ -300,7 +334,7 @@ impl Gen {
             1 | 2 => {
                 let v = self.fresh();
                 let opt = self.place(Ty::Opt, d);
-                let body = self.without_try(|g| g.with(&v, Ty::Int, |g| g.int(d)));
+                let body = self.closure(|g| g.with(&v, Ty::Int, |g| g.int(d)));
                 format!("({opt}).map(|{v}| {body})")
             }
             3 => format!("({}).ok()", self.place(Ty::Res, d)),
@@ -335,7 +369,7 @@ impl Gen {
                 let v = self.fresh();
                 let res = self.place(Ty::Res, d);
                 let m = self.rng.pick(&["map", "map_err"]);
-                let body = self.without_try(|g| g.with(&v, Ty::Int, |g| g.int(d)));
+                let body = self.closure(|g| g.with(&v, Ty::Int, |g| g.int(d)));
                 format!("({res}).{m}(|{v}| {body})")
             }
             4 => format!("({}).ok_or({})", self.place(Ty::Opt, d), self.int(d)),
@@ -345,7 +379,7 @@ impl Gen {
     }
 }
 
-const PARAMS: &str = "a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>, c: bool";
+pub(crate) const PARAMS: &str = "a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>, c: bool";
 
 type Row = (i32, i32, Option<i32>, Result<i32, i32>, bool);
 
@@ -438,18 +472,12 @@ fn rust_results(source: &str, fns: &[(String, Ty)], rows: &[Row]) -> Vec<String>
 const SEEDS: &[u64] = &[1, 2, 3, 4, 5, 6, 7, 8];
 
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
-    let mut g = Gen { rng: Rng::new(seed), scope: Vec::new(), ret: Ty::Int, no_try: 0, next_name: 0 };
+    let mut g = Gen::new(seed);
     for i in 0..count {
         let ret = g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
         g.ret = ret;
         g.next_name = 0;
-        g.scope = vec![
-            ("a".into(), Ty::Int),
-            ("b".into(), Ty::Int),
-            ("o".into(), Ty::Opt),
-            ("r".into(), Ty::Res),
-            ("c".into(), Ty::Bool),
-        ];
+        g.scope = Gen::params();
         let body = match ret {
             // A `?` needs the value wrapped back.
             Ty::Opt if g.rng.below(2) == 0 => format!("Some({})", g.int(4)),
@@ -462,27 +490,32 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
     }
 }
 
-#[test]
-fn generated_expressions_match_rust() {
-    let seeds = match std::env::var("PURECRATE_GEN_SEED").ok().and_then(|s| s.parse().ok()) {
+/// The seeds a test draws: `PURECRATE_GEN_SEED` alone, or `defaults`.
+pub(crate) fn seeds(defaults: &[u64]) -> Vec<u64> {
+    match std::env::var("PURECRATE_GEN_SEED").ok().and_then(|s| s.parse().ok()) {
         Some(seed) => vec![seed],
-        None => SEEDS.to_vec(),
-    };
-    let count = std::env::var("PURECRATE_GEN_FNS").ok().and_then(|s| s.parse().ok()).unwrap_or(60);
-    let (mut source, mut fns) = (String::new(), Vec::new());
-    for &seed in &seeds {
-        generate(seed, count, &mut source, &mut fns);
+        None => defaults.to_vec(),
     }
+}
+
+/// How many functions a seed draws: `PURECRATE_GEN_FNS`, or `default`.
+pub(crate) fn fn_count(default: usize) -> usize {
+    std::env::var("PURECRATE_GEN_FNS").ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
+/// Runs `fns` of `source` in Rust and in the generated TS on the same rows
+/// and asserts they agree; on a failure, prints the source.
+pub(crate) fn compare(crate_name: &str, seeds: &[u64], source: &str, fns: &[(String, Ty)]) {
     if let Some(path) = std::env::var_os("PURECRATE_GEN_DUMP") {
-        fs::write(path, &source).expect("write PURECRATE_GEN_DUMP");
+        fs::write(path, source).expect("write PURECRATE_GEN_DUMP");
     }
     let rows = rows(&mut Rng::new(seeds[0] ^ 0xa5a5));
-    let rust = rust_results(&source, &fns, &rows);
+    let rust = rust_results(source, fns, &rows);
     assert_eq!(rust.len(), rows.len() * fns.len());
     let mut results = rust.into_iter();
     let mut cases = Vec::new();
     for (a, b, o, r, c) in &rows {
-        for (name, _) in &fns {
+        for (name, _) in fns {
             let args = [a.js(), b.js(), o.js(), r.js(), c.js()].join(", ");
             cases.push(Case {
                 name: Box::leak(name.clone().into_boxed_str()),
@@ -491,9 +524,34 @@ fn generated_expressions_match_rust() {
             });
         }
     }
-    let label = format!("generated (seeds {seeds:?}; PURECRATE_GEN_SEED reruns one)");
-    if let Err(e) = std::panic::catch_unwind(|| support::assert_equivalent("generated", &source, &cases)) {
+    let label = format!("{crate_name} (seeds {seeds:?}; PURECRATE_GEN_SEED reruns one)");
+    // A sweep (`PURECRATE_GEN_SEED`) may ask for the values alone with
+    // `PURECRATE_GEN_TYPES=report`: what tsc refuses is printed, and node
+    // still runs. The seeds every run checks always type-check.
+    let report = std::env::var_os("PURECRATE_GEN_SEED").is_some()
+        && std::env::var("PURECRATE_GEN_TYPES").is_ok_and(|v| v == "report");
+    let run = || {
+        if report {
+            if !support::assert_values_equivalent(crate_name, source, &cases) {
+                eprintln!("{label}: values agree; tsc refuses the package");
+            }
+        } else {
+            support::assert_equivalent(crate_name, source, &cases);
+        }
+    };
+    if let Err(e) = std::panic::catch_unwind(run) {
         eprintln!("{label}\n{source}");
         std::panic::resume_unwind(e);
     }
+}
+
+#[test]
+fn generated_expressions_match_rust() {
+    let seeds = seeds(SEEDS);
+    let count = fn_count(60);
+    let (mut source, mut fns) = (String::new(), Vec::new());
+    for &seed in &seeds {
+        generate(seed, count, &mut source, &mut fns);
+    }
+    compare("generated", &seeds, &source, &fns);
 }

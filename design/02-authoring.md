@@ -333,7 +333,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | Instead of | Write |
 | --- | --- |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
-| `?` inside a guard, `\|` arms that bind names | bind the `?` result with `let` first; split the match |
+| `?` inside a guard, in `matches!`'s first argument inside a test (`if matches!(x?, p)`), or on the right of `&&` / `\|\|`; `\|` arms that bind names | bind the `?` result with `let` first; split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
 | `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |

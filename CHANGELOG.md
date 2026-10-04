@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Function bodies generated from seeds, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-unreleased-generated-function-bodies)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+
+### Fixed
+
+- **`match o.ok_or(x.ok_or(e)?)` returned the wrong value.** The inner `?` sat in an inline function, so its `return` left only that function and the `Err` arm ran: Rust gave `Err(e)`, TS `Ok(..)`. It now runs before the `match`, as Rust evaluates the argument first. Also in an `if` or `while` test, a range's end, and an operand.
+- **Two temporaries named after one local** (`let x = r.ok()`, then `x.ok_or(e)` matched) were both `xResult` in one block.
+- **Output tsc refused under the generated tsconfig**, none of it a wrong value: an `unwrap_or` default left `const optOr` and an empty `if {} else {}` where the value was unread; a test folding decided left unreachable code (`while (false)`, code after a `return`); `r?` on a known `Err`, a place past a `match` whose other arms `break`, and a `bool` an enclosing `if` decided were compared as TS knew they could not be.
+- A decided side that declares a name keeps its block, so a later `let` of the same name is not a redeclaration.
+
+### Added
+
+- `generated_statements_equivalence.rs`: `let`, assignment, `if` / `match` statements, `for`, `while`, `break`, `continue`, `return`, and `?` around generated expressions. Seeds 1 to 120 agree on every value; 60 type-check (roadmap §3 has the rest).
+
 ## 0.10.0 — 2026-10-04
 
 Tests generated from seeds, and what they found; parentheses decided on a tree of the printed operators; rustfmt and clippy in CI. A minor release: the runtime's `Result.ok` and `Result.err` signatures change, which the stable surface lists ([roadmap §8.14](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04)). Regenerate committed output: each copied runtime changes by two lines.

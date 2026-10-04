@@ -27,6 +27,7 @@ mod flags_equivalence;
 mod for_chars_equivalence;
 mod for_each_equivalence;
 mod generated_equivalence;
+mod generated_statements_equivalence;
 mod golden;
 mod grow_equivalence;
 mod guards_equivalence;

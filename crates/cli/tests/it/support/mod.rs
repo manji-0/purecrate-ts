@@ -615,29 +615,50 @@ pub const SOURCE_CONDITION: &str = purecrate_pack::SOURCE_CONDITION;
 
 /// `tsc -p` over the generated package under each of `TS_MAJORS`.
 pub fn typecheck(dir: &std::path::Path) {
+    assert!(types_checked(dir), "tsc rejects the generated package in {}", dir.display());
+}
+
+/// Whether `tsc -p` accepts the generated package under each of
+/// `TS_MAJORS`; what it refuses is printed.
+pub fn types_checked(dir: &std::path::Path) -> bool {
+    let mut ok = true;
     for major in TS_MAJORS {
         let project = dir.to_str().expect("utf-8 path");
         let output = Command::new(tsc(major))
             .args(["-p", project, "--customConditions", SOURCE_CONDITION])
             .output()
             .expect("run tsc");
-        assert!(
-            output.status.success(),
-            "tsc {major} rejects the generated package in {}:\n{}{}",
-            dir.display(),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if !output.status.success() {
+            eprintln!(
+                "tsc {major} rejects the generated package in {}:\n{}{}",
+                dir.display(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            ok = false;
+        }
     }
+    ok
 }
 
 /// Accepts `source`, generates its package, and checks every case agrees.
-#[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
+    equivalent(crate_name, source, cases, true);
+}
+
+/// As `assert_equivalent`, with what tsc refuses printed instead of
+/// failing, so the values are still compared; whether tsc accepted the
+/// package. Only for sweeps over generated seeds.
+pub fn assert_values_equivalent(crate_name: &str, source: &str, cases: &[Case]) -> bool {
+    equivalent(crate_name, source, cases, false)
+}
+
+#[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]
+fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bool) -> bool {
     assert!(cfg!(debug_assertions), "the Rust baseline needs overflow checks; run without --release");
     if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
         eprintln!("PURECRATE_SKIP_NODE set: skipping TS equivalence");
-        return;
+        return true;
     }
     let krate = parse_source(crate_name, source).unwrap_or_else(|e| panic!("parse {crate_name}: {e}"));
     let typed = accept(&krate).unwrap_or_else(|d| panic!("{crate_name} rejected: {d:#?}"));
@@ -648,7 +669,12 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
         fs::write(path, file.source).expect("write");
     }
     fs::write(dir.join("driver.ts"), driver(&krate, cases)).expect("write driver");
-    typecheck(&dir);
+    let types_ok = if types_required {
+        typecheck(&dir);
+        true
+    } else {
+        types_checked(&dir)
+    };
 
     let output = Command::new("node")
         .arg(format!("--conditions={SOURCE_CONDITION}"))
@@ -668,4 +694,5 @@ pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
         .collect();
     fs::remove_dir_all(&dir).ok();
     assert!(mismatches.is_empty(), "mismatches:\n{}", mismatches.join("\n"));
+    types_ok
 }
