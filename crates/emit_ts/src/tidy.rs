@@ -404,8 +404,11 @@ fn wrap_composition(line: &str, width: usize, out: &mut String) -> bool {
         }
         out.push_str(&line[..=outer]);
         out.push('\n');
+        // A group's `(` (`=> (a ? b : c)`) takes no trailing comma: `(x,)`
+        // is a syntax error.
+        let comma = if bytes[outer] != b'(' || is_call(line[..outer].trim_end()) { "," } else { "" };
         for item in &outer_items {
-            wrap_line(&format!("{pad}  {item},"), width, out);
+            wrap_line(&format!("{pad}  {item}{comma}"), width, out);
         }
         wrap_line(&format!("{pad}{}", &line[outer_close..]), width, out);
         return true;
@@ -1361,6 +1364,13 @@ mod tests {
         let ctor = "export const AuthorizationRequest$of = (fields: Readonly<{ client_id: string; redirect_uri: string; scope: string; state: string; nonce: string | null; pkce: Pkce | null; prompt: Prompt; max_age: I64 | null; wants_mfa: boolean }>): AuthorizationRequest => fields as AuthorizationRequest;";
         let out = wrap(ctor, 100);
         assert!(out.lines().all(|l| l.len() <= 100), "{out}");
+    }
+
+    #[test]
+    fn a_group_broken_inside_takes_no_trailing_comma() {
+        let line = "export const f = (s: string, t: string, xs: ReadonlyArray<I32>, a: I32): I32 => (Str.slice(t, 3 as Usize, 3 as Usize).includes(\"a\") ? Iter.sum(Iter.map(xs, (x: I32): I32 => Int.i32.mul(x, -1 as I32)), Int.i32.add, 0 as I32) : 2 < 5 ? (s.length === 0 ? a : (1 as I32)) : Iter.sum(xs, Int.i32.add, 0 as I32));";
+        let out = wrap(line, 100);
+        assert!(!out.contains("I32),\n  );"), "{out}");
     }
 
     #[test]
