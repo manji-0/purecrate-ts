@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.3 — 2026-10-04
 
-The rest of what tsc refused in generated code ([roadmap §8.17](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#817-unreleased-the-rest-of-what-tsc-refused)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.
+The rest of what tsc refused in generated code ([roadmap §8.17](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 

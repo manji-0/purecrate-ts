@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.2; §8.17 unreleased)
+Status: current (2026-10-04, after 0.10.3)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -515,7 +515,7 @@ Seeds 1 to 120, values agreeing in all five generators: bodies type-check on 103
 - **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own. A side or arm the state says is never taken is printed as it stands, while TS checks it with the place as `never`; much of the `??` class is likely there (an `unwrap_or` on a known `None` or `Some` is one fold away).
 - **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
 
-### 8.17 Unreleased: the rest of what tsc refused
+### 8.17 0.10.3: the rest of what tsc refused (2026-10-04)
 
 <!-- derived-from #816-0102-narrowing-as-ts-does-it-2026-10-04 -->
 

@@ -96,7 +96,7 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 | Capability | transitions keep ADTs, exhaustiveness, `Result`, debug integer semantics |
 | Idiomaticity | no serialization, initialization, or async loading for TS users |
 
-Types holds for every example and fixture. Every generated function of seeds 1 to 120, in all five generators, type-checks ([07 §8.17](./07-roadmap.md#817-unreleased-the-rest-of-what-tsc-refused); 60 of the bodies did before narrowing followed TS's control flow, [§8.16](./07-roadmap.md#816-0102-narrowing-as-ts-does-it-2026-10-04)).
+Types holds for every example and fixture. Every generated function of seeds 1 to 120, in all five generators, type-checks ([07 §8.17](./07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04); 60 of the bodies did before narrowing followed TS's control flow, [§8.16](./07-roadmap.md#816-0102-narrowing-as-ts-does-it-2026-10-04)).
 
 ### 4.2 External criteria
 
