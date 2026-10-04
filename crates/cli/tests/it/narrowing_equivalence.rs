@@ -111,6 +111,11 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_matches(o, c, 7i32)));
             }
             cases.push(case!(narrowing::decided_or(c, 9i32)));
+            for o in [None, Some(5i32)] {
+                for n in [0i32, 3, 5] {
+                    cases.push(case!(narrowing::late_write(o, n)));
+                }
+            }
             for r in [Ok(1i32), Err(2i32)] {
                 for w in [false, true] {
                     cases.push(case!(narrowing::decided_left(r, c, w)));

@@ -478,3 +478,25 @@ pub fn decided_left(r: Result<i32, i32>, v: bool, w: bool) -> bool {
         }
     }
 }
+
+/// A place the loop tests and writes later in its body: at its head, `x`
+/// is whatever any pass left, never what it held on the way in.
+pub fn late_write(o: Option<i32>, n: i32) -> i32 {
+    let mut x: Option<i32> = o;
+    let mut k: i32 = 0;
+    let mut i: i32 = 0;
+    while i < n % 6 {
+        i += 1;
+        k += match x {
+            Some(v) => v % 7,
+            None => 1,
+        };
+        if i == 2 {
+            x = None;
+        }
+        if i == 4 {
+            x = Some(3);
+        }
+    }
+    k + x.unwrap_or(0)
+}

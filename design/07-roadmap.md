@@ -507,11 +507,12 @@ Why: 0.10.1 left 60 of seeds 1 to 120 of generated bodies refused by tsc, 47 of 
 | `join/flow.rs`: each place's possible cases flow forward, refined on each side of a test and per `match` arm (less what earlier unguarded arms took), joined where control flow meets, found at a loop's head by running the body until the state settles, forgotten at a write, kept in a closure for names nothing writes. A side a known case contradicts is never taken | `narrowing_equivalence.rs`: past jumping arms and leaving `if`s, through loops, `joined_sides` |
 | Facts from `?` statements (not `let x = p?`, which tests a copy), `is_some`, `matches!` (a `match` whose other arms give `false`), shared sides of `\|\|`, `bool` places, `let v = true`, and a place compared with a literal (`t == ","`) | `decided_matches`, `decided_or`, `decided_literal_binding`, `decided_string` |
 | Folds: `p?` and `let x = p?` of a known case or a built `Ok(e)`; a decided test whose part must still run (`100 / a > 0 && c`) runs it, then the side taken; `&&` / `\|\|` with a decided left side; `known_bool` of `&&`, `\|\|`, `if`, and a `match` of `bool`s where nothing in them can panic | `decided_try`, `decided_and_runs_left` (panicking for `a == 0` as Rust does), `decided_left` |
+| A loop's head that does not settle within six rounds is what enters, less every place under a name the loop writes; states compare in one order, so settling is seen | `late_write` |
 | Narrowing reruns after the cleanup until it settles; a loop's body runs for its effects; a `while true` nothing breaks out of ends its block; an `if` run for one side's effect prints as a statement | the generated sweeps; `scripts/verify.sh` lints the fixtures' output |
 
 Seeds 1 to 120, values agreeing in all five generators: bodies type-check on 103 (60 before), transitions and text on all (118 and 119 before); none is refused for narrowing alone.
 
-- **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own.
+- **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own. A side or arm the state says is never taken is printed as it stands, while TS checks it with the place as `never`; much of the `??` class is likely there (an `unwrap_or` on a known `None` or `Some` is one fold away).
 - **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
 
 ## 9. Generated API stability

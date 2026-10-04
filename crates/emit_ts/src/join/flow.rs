@@ -35,7 +35,10 @@ impl State {
         cases.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         cases.dedup();
         self.0.retain(|(k, _)| *k != p);
-        self.0.push((p, cases));
+        // Kept in one order, so two states that know the same are equal
+        // (a loop's head is found by comparing them).
+        let at = self.0.partition_point(|(k, _)| format!("{k:?}") < format!("{p:?}"));
+        self.0.insert(at, (p, cases));
     }
 
     /// Sets `p` and, where `p` is a made name standing for a place, that
@@ -478,7 +481,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             join_all(after_right.into_iter().chain(stop))
         }
         Expr::While { cond, body } => {
-            let head = loop_head(st, cx, |cx, head| {
+            let head = loop_head(st, &[cond, body], cx, |cx, head| {
                 let (mut c, mut b) = ((**cond).clone(), (**body).clone());
                 let sc = flow(&mut c, head, cx)?;
                 let (yes, _) = refine(&c, &sc);
@@ -498,7 +501,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             let mut s = flow(end, s, cx)?;
             s.forget(var);
             let var = var.clone();
-            let head = loop_head(s, cx, |cx, head| flow(&mut (**body).clone(), head, cx));
+            let head = loop_head(s, &[body], cx, |cx, head| flow(&mut (**body).clone(), head, cx));
             cx.loops.push(Jumps::default());
             flow(body, head.clone(), cx);
             let jumps = cx.loops.pop().expect("pushed");
@@ -511,7 +514,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             let mut s = flow(source, st, cx)?;
             s.forget(var);
             let var = var.clone();
-            let head = loop_head(s, cx, |cx, head| flow(&mut (**body).clone(), head, cx));
+            let head = loop_head(s, &[body], cx, |cx, head| flow(&mut (**body).clone(), head, cx));
             cx.loops.push(Jumps::default());
             flow(body, head.clone(), cx);
             let jumps = cx.loops.pop().expect("pushed");
@@ -684,7 +687,15 @@ fn known_payload(place: &Expr, on: TryOn, st: &State) -> Option<Expr> {
 /// The state at a loop's head: what enters, joined with what the end of
 /// the body and each `continue` bring back, until it stops changing.
 /// `round` runs one pass on a copy of the body from a head state.
-fn loop_head(entry: State, cx: &mut Cx, mut round: impl FnMut(&mut Cx, State) -> Option<State>) -> State {
+/// Where it does not settle within `ROUNDS`, what enters less every place
+/// under a name the loop (`parts`: its test and body) writes, which holds
+/// on every pass.
+fn loop_head(
+    entry: State,
+    parts: &[&Expr],
+    cx: &mut Cx,
+    mut round: impl FnMut(&mut Cx, State) -> Option<State>,
+) -> State {
     let mut head = entry.clone();
     for _ in 0..ROUNDS {
         cx.loops.push(Jumps::default());
@@ -693,11 +704,17 @@ fn loop_head(entry: State, cx: &mut Cx, mut round: impl FnMut(&mut Cx, State) ->
         let next = join_all(std::iter::once(entry.clone()).chain(end).chain(jumps.continues))
             .expect("the entry reaches the head");
         if next == head {
-            break;
+            return head;
         }
         head = next;
     }
-    head
+    let mut written = HashSet::new();
+    for part in parts {
+        collect_written(part, &mut written);
+    }
+    let mut safe = entry;
+    safe.0.retain(|(p, _)| !written.contains(root(p).as_str()));
+    safe
 }
 
 /// A `match` on a place: each arm runs with the place narrowed to the cases

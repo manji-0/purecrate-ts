@@ -374,7 +374,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             if value.needs_statements() {
                 emit_stmts(value, indent, Sink::Assign(name.as_str()), out);
             } else {
-                out.push_str(&format!("{pad}{} = {};\n", name.as_str(), crate::expr::emit_item(value, indent)));
+                // `x = 3 as I32;`: an assignment's value needs no parentheses
+                // of its own (`Some(3)` prints as a parenthesized `3`).
+                let item = crate::expr::emit_item(value, indent);
+                out.push_str(&format!("{pad}{} = {};\n", name.as_str(), crate::tidy::strip_outer(&item)));
             }
             sink.finish("undefined", &pad, out);
         }
