@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#816-unreleased-narrowing-as-ts-does-it)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+
+### Fixed
+
+- **Output tsc refused where TS had narrowed a value and the printer had not**, none of it a wrong value: past an `if` / `else` whose sides each leave on `Err`, inside and past a loop, past `if c { return }`, inside `if matches!(o, Some(_) if g)`, `if c || c`, or `if t == ","`, after `let v = true`. The printer now follows each place's possible cases as TS does, joining them where control flow meets and finding a loop's head by running its body until they settle. Generated bodies that type-check, seeds 1 to 120: 60 -> 103; transitions and text: all.
+- A test decided though part of it must run (`100 / a > 0 && c`, `c` known `false`) runs that part, then the side taken.
+- An `if` run for one side's effect prints as a statement, not `c ? undefined : f()`.
+
 ## 0.10.1 — 2026-10-04
 
 Tests generated across the subset, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.

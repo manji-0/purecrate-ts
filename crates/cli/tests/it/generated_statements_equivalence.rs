@@ -17,10 +17,10 @@
 //! What it found: one hole (`match o.ok_or(x.ok_or(e)?)` left only an
 //! inline function, and the `Err` arm ran), a temporary declared twice,
 //! and output tsc refused (`order_of_eval.rs`, `narrowing.rs`). Seeds 1 to
-//! 120 agree on every value; 60 of them type-check. Of the rest, 47 stop
-//! only at narrowing TS does where control flow joins or loops, which the
-//! printer's fold does not follow (roadmap §3); 13 also at `??` on a known
-//! `null`, unreachable code, or a temporary TS types from itself in a loop.
+//! 120 agree on every value; 103 of them type-check (60 before narrowing
+//! followed TS's control flow, roadmap §8.16). The rest stop at `??` on a
+//! known `null`, unreachable code, or a temporary TS types from itself in a
+//! loop.
 
 use std::fmt::Write as _;
 

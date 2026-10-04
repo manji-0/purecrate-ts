@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.1)
+Status: current (2026-10-04, after 0.10.1; §8.16 unreleased)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -144,7 +144,6 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc, 47 of them only for narrowing (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds; generated transitions (2 of 120) and text (1 of 120) stop at it too |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -496,6 +495,24 @@ What they found, each with a fixture that fails before its fix:
 - A sweep compares values where tsc refuses the package (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check (`support::assert_values_equivalent`).
 - **Open:** the seeds tsc refuses. Bodies: 47 of 60 only for narrowing TS does where control flow joins or loops (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022), or an unread one (TS6133). Patterns 2 and text 1, narrowing too (TS2322, TS2339, TS2367). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`. `if let` takes `Option` and `Result` only (`[pattern/if-let-variant]`).
 - **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
+
+### 8.16 Unreleased: narrowing as TS does it
+
+<!-- derived-from #815-0101-the-generator-across-the-subset-2026-10-04 -->
+
+Why: 0.10.1 left 60 of seeds 1 to 120 of generated bodies refused by tsc, 47 of them only where TS narrows and the printer did not fold (§8.15). The fold kept a stack of what enclosing arms, `?`s, and jumps had decided, with no state where control flow joins or at a loop's head, and dropped a fact for the rest of a block wherever anything later wrote the place.
+
+| Item | Verified by |
+| --- | --- |
+| `join/flow.rs`: each place's possible cases flow forward, refined on each side of a test and per `match` arm (less what earlier unguarded arms took), joined where control flow meets, found at a loop's head by running the body until the state settles, forgotten at a write, kept in a closure for names nothing writes. A side a known case contradicts is never taken | `narrowing_equivalence.rs`: past jumping arms and leaving `if`s, through loops, `joined_sides` |
+| Facts from `?` statements (not `let x = p?`, which tests a copy), `is_some`, `matches!` (a `match` whose other arms give `false`), shared sides of `\|\|`, `bool` places, `let v = true`, and a place compared with a literal (`t == ","`) | `decided_matches`, `decided_or`, `decided_literal_binding`, `decided_string` |
+| Folds: `p?` and `let x = p?` of a known case or a built `Ok(e)`; a decided test whose part must still run (`100 / a > 0 && c`) runs it, then the side taken; `&&` / `\|\|` with a decided left side; `known_bool` of `&&`, `\|\|`, `if`, and a `match` of `bool`s where nothing in them can panic | `decided_try`, `decided_and_runs_left` (panicking for `a == 0` as Rust does), `decided_left` |
+| Narrowing reruns after the cleanup until it settles; a loop's body runs for its effects; a `while true` nothing breaks out of ends its block; an `if` run for one side's effect prints as a statement | the generated sweeps; `scripts/verify.sh` lints the fixtures' output |
+
+Seeds 1 to 120, values agreeing in all five generators: bodies type-check on 103 (60 before), transitions and text on all (118 and 119 before); none is refused for narrowing alone.
+
+- **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own.
+- **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
 
 ## 9. Generated API stability
 

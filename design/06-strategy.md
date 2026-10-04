@@ -96,7 +96,7 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 | Capability | transitions keep ADTs, exhaustiveness, `Result`, debug integer semantics |
 | Idiomaticity | no serialization, initialization, or async loading for TS users |
 
-Types holds for every example and fixture. Of seeds 1 to 120, generated expressions and integer widths type-check on all, text on 119, transitions on 118, function bodies on 60: 47 of those 60 stop only where TS narrows across joins and loops and the printer does not, 13 also at a `??` on a known `null`, unreachable code, or a temporary TS types from itself in a loop ([07 §3](./07-roadmap.md#3-candidates), [§8.15](./07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)).
+Types holds for every example and fixture. Of seeds 1 to 120, generated expressions, integer widths, transitions, and text type-check on all, function bodies on 103 (60 before narrowing followed TS's control flow, [07 §8.16](./07-roadmap.md#816-unreleased-narrowing-as-ts-does-it)); the other 17 stop at a `??` on a known `null`, unreachable code, or a temporary TS types from itself in a loop, none at narrowing ([07 §8.15](./07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)).
 
 ### 4.2 External criteria
 
