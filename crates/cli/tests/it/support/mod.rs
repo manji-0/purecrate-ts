@@ -17,6 +17,7 @@ use purecrate_syntax::parse_source;
 
 pub mod corpus;
 mod driver;
+pub mod generated;
 mod values;
 
 use driver::driver;

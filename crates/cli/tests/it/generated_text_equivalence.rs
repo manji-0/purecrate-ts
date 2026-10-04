@@ -13,8 +13,8 @@
 
 use std::fmt::Write as _;
 
-use crate::generated_equivalence::{check_cases, dump, fn_count, rust_lines, seeds, SHOW_PRELUDE};
-use crate::support::{Case, Js, Rng};
+use crate::support::generated::{compare_rows, fn_count, seeds, Args, SEEDS};
+use crate::support::{Js, Rng};
 
 #[derive(Clone, Copy, PartialEq)]
 enum T {
@@ -240,9 +240,6 @@ impl<T: Show> Show for Vec<T> {
 }
 "#;
 
-/// Seeds checked on every run.
-const SEEDS: &[u64] = &[1, 2, 3, 4, 5, 6, 7, 8];
-
 #[test]
 fn generated_text_matches_rust() {
     let seeds = seeds(SEEDS);
@@ -260,8 +257,6 @@ fn generated_text_matches_rust() {
             fns.push(name);
         }
     }
-    dump(&source);
-
     let strings = ["", "abc", "12", "-7", "+12", "a,b,,c", "é,a", "日本,12", "x", ",", "2147483648", "aé1"];
     let lists: [&[i32]; 5] = [&[], &[1], &[0, -3, 5], &[i32::MAX, 1], &[2, 2, 7, -1]];
     let mut rng = Rng::new(seeds[0] ^ 0x7e7);
@@ -274,29 +269,12 @@ fn generated_text_matches_rust() {
         })
         .collect();
 
-    let mut program = source.clone();
-    program.push_str(SHOW_PRELUDE);
-    program.push_str(SHOW_TEXT);
-    program.push_str("fn main() {\n    std::panic::set_hook(Box::new(|_| {}));\n");
-    for (s, t, xs, a) in &rows {
-        for name in &fns {
-            writeln!(program, "    println!(\"{{}}\", run(|| {name}({s:?}, String::from({t:?}), vec!{xs:?}, {a})));")
-                .expect("write");
-        }
-    }
-    program.push_str("}\n");
-    let mut results = rust_lines(&program).into_iter();
-
-    let mut cases = Vec::new();
-    for (s, t, xs, a) in &rows {
-        for name in &fns {
-            let args = [s.js(), t.js(), xs.js(), a.js()].join(", ");
-            cases.push(Case {
-                name: Box::leak(name.clone().into_boxed_str()),
-                call: format!("{}({args})", purecrate_ir::to_camel(name)),
-                rust: results.next().expect("a result per case"),
-            });
-        }
-    }
-    check_cases("generated_text", &seeds, &source, &cases);
+    let rows: Vec<Args> = rows
+        .iter()
+        .map(|(s, t, xs, a)| Args {
+            rust: format!("{s:?}, String::from({t:?}), vec!{xs:?}, {a}"),
+            js: [s.js(), t.js(), xs.js(), a.js()].join(", "),
+        })
+        .collect();
+    compare_rows("generated_text", &seeds, &source, SHOW_TEXT, &fns, &rows);
 }

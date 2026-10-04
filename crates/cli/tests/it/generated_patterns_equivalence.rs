@@ -15,8 +15,9 @@
 
 use std::fmt::Write as _;
 
-use crate::generated_equivalence::{check_cases, dump, fn_count, rust_lines, seeds, Gen, Ty, SHOW_PRELUDE};
-use crate::support::{Case, Js, Rng};
+use crate::generated_equivalence::{Gen, Ty};
+use crate::support::generated::{compare_rows, fn_count, seeds, Args, SEEDS};
+use crate::support::{Js, Rng};
 
 /// The crate's types, the same in every seed.
 const TYPES: &str = "#[derive(Clone, Copy)]
@@ -321,9 +322,6 @@ fn event_value(rng: &mut Rng) -> (String, String) {
     }
 }
 
-/// Seeds checked on every run.
-const SEEDS: &[u64] = &[1, 2, 3, 4, 5, 6, 7, 8];
-
 #[test]
 fn generated_patterns_match_rust() {
     let seeds = seeds(SEEDS);
@@ -345,8 +343,6 @@ fn generated_patterns_match_rust() {
             fns.push(name);
         }
     }
-    dump(&source);
-
     let mut rng = Rng::new(seeds[0] ^ 0x5eed);
     let rows: Vec<_> = (0..12)
         .map(|_| {
@@ -360,29 +356,12 @@ fn generated_patterns_match_rust() {
         })
         .collect();
 
-    let mut program = source.clone();
-    program.push_str(SHOW_PRELUDE);
-    program.push_str(SHOW_TYPES);
-    program.push_str("fn main() {\n    std::panic::set_hook(Box::new(|_| {}));\n");
-    for (s, e, a, b, o, r, c) in &rows {
-        for name in &fns {
-            writeln!(program, "    println!(\"{{}}\", run(|| {name}({}, {}, {a}, {b}, {o:?}, {r:?}, {c})));", s.0, e.0)
-                .expect("write");
-        }
-    }
-    program.push_str("}\n");
-    let mut results = rust_lines(&program).into_iter();
-
-    let mut cases = Vec::new();
-    for (s, e, a, b, o, r, c) in &rows {
-        for name in &fns {
-            let args = [s.1.clone(), e.1.clone(), a.js(), b.js(), o.js(), r.js(), c.js()].join(", ");
-            cases.push(Case {
-                name: Box::leak(name.clone().into_boxed_str()),
-                call: format!("{}({args})", purecrate_ir::to_camel(name)),
-                rust: results.next().expect("a result per case"),
-            });
-        }
-    }
-    check_cases("generated_patterns", &seeds, &source, &cases);
+    let rows: Vec<Args> = rows
+        .iter()
+        .map(|(s, e, a, b, o, r, c)| Args {
+            rust: format!("{}, {}, {a}, {b}, {o:?}, {r:?}, {c}", s.0, e.0),
+            js: [s.1.clone(), e.1.clone(), a.js(), b.js(), o.js(), r.js(), c.js()].join(", "),
+        })
+        .collect();
+    compare_rows("generated_patterns", &seeds, &source, SHOW_TYPES, &fns, &rows);
 }

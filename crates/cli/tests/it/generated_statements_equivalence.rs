@@ -22,7 +22,8 @@
 
 use std::fmt::Write as _;
 
-use crate::generated_equivalence::{compare, fn_count, seeds, Gen, Ty, PARAMS};
+use crate::generated_equivalence::{compare, Gen, Ty, PARAMS};
+use crate::support::generated::{fn_count, seeds, SEEDS};
 
 struct Body {
     g: Gen,
@@ -192,9 +193,6 @@ impl Body {
         self.line("}");
     }
 }
-
-/// Seeds checked on every run.
-const SEEDS: &[u64] = &[1, 2, 3, 4, 5, 6, 7, 8];
 
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
     let mut body = Body { g: Gen::new(seed ^ 0x5717), loops: 0, out: String::new(), indent: 1 };
