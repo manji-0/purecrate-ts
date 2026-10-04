@@ -21,9 +21,8 @@ export const addLine = (
     } else if (l.unit_price !== line.unit_price) {
       return Result.err({ kind: "PriceMismatch" });
     } else {
-      const qtyOpt = Int.u32.checkedAdd(l.qty, line.qty);
-      if (qtyOpt === null) return Result.err({ kind: "Overflow" });
-      const qty = qtyOpt;
+      const qty = Int.u32.checkedAdd(l.qty, line.qty);
+      if (qty === null) return Result.err({ kind: "Overflow" });
       out.push({ ...l, qty });
       merged = true;
     }

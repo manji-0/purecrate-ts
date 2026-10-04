@@ -83,7 +83,8 @@ fn readability_rewrites_print_as_intended() {
     let pair = file("reserved-pair");
     assert!(pair.contains("open || [\"00\", \"01\", \"99\"].includes(") && !pair.contains("=> {"), "{pair}");
     let named = file("named-temporaries");
-    assert!(named.contains("const halfResult = ") && named.contains("const sumOpt = "), "{named}");
+    // `ok_or(e)?` of a call holds the option in the local itself: no copy.
+    assert!(named.contains("const halfResult = ") && named.contains("const sum = Int.i32.checkedAdd(") && named.contains("if (sum === null)"), "{named}");
     let added = file("added-or-zero");
     assert!(added.contains("const s: I32 = ") && !added.contains("let s"), "{added}");
     let banded = file("banded");

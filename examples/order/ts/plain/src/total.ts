@@ -9,9 +9,8 @@ export const total = (lines: ReadonlyArray<Line>): Result<Yen, OrderError> => {
   let sum = 0n as I64;
 
   for (const line of lines) {
-    const amountOpt = Int.i64.checkedMul(line.unit_price, globalThis.BigInt(line.qty) as I64);
-    if (amountOpt === null) return Result.err({ kind: "Overflow" });
-    const amount = amountOpt;
+    const amount = Int.i64.checkedMul(line.unit_price, globalThis.BigInt(line.qty) as I64);
+    if (amount === null) return Result.err({ kind: "Overflow" });
     const opt = Int.i64.checkedAdd(sum, amount);
     if (opt === null) return Result.err({ kind: "Overflow" });
     sum = opt;

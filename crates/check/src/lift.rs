@@ -65,13 +65,24 @@ fn guard_ok_or(expr: &mut Expr, made: &mut usize) {
                 Name::new(format!("${base}_{made}"))
             };
             let (opt, arg) = (fresh(&opt), fresh(&arg));
+            // An immutable local holds the option itself: past the test, TS
+            // reads it as the value (`const qty = ..; if (qty === null)
+            // return ..;`), with no copy. A `let mut` keeps its own type.
+            // A made local (a tuple's, a hoisted value's) and a receiver
+            // that is a place, read in place, keep the made option.
+            let direct = !*mutable && !name.as_str().starts_with('$') && !matches!(recv, Expr::Var(_) | Expr::Field { .. });
+            let opt = if direct { name.clone() } else { opt };
             let then = std::mem::replace(&mut **then, Expr::Unreachable);
             let guard = Expr::If {
                 cond: Box::new(Expr::Call { callee: Callee::OptionIsNone, args: vec![Expr::Var(opt.clone())] }),
                 then: Box::new(Expr::Return(Box::new(Expr::Call { callee: Callee::ResultErr, args: vec![Expr::Var(arg.clone())] }))),
                 else_: Box::new(Expr::Lit(Lit::Unit)),
             };
-            let bind = Expr::Let { name: name.clone(), mutable: *mutable, ty: ty.clone(), value: Box::new(Expr::Var(opt.clone())), then: Box::new(then) };
+            let bind = if !direct {
+                Expr::Let { name: name.clone(), mutable: *mutable, ty: ty.clone(), value: Box::new(Expr::Var(opt.clone())), then: Box::new(then) }
+            } else {
+                then
+            };
             *expr = Expr::Let {
                 name: opt,
                 mutable: false,
