@@ -145,6 +145,21 @@ fn effects(expr: Expr) -> Expr {
     let unit = Expr::Lit(Lit::Unit);
     match expr {
         e if effectless(&e) => unit,
+        // A comparison or `!` whose value is unread: its operands run, in
+        // order (`k < Int.i32.div(100, n);` is only the division).
+        Expr::Binary { op, left, right } if is_compare(op) => sequence(effects(*left), effects(*right)),
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => effects(*expr),
+        // `a && b` runs `b` only where `a` holds.
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+            let right = effects(*right);
+            if right == unit {
+                effects(*left)
+            } else if op == BinOp::And {
+                Expr::If { cond: left, then: Box::new(right), else_: Box::new(unit) }
+            } else {
+                Expr::If { cond: left, then: Box::new(unit), else_: Box::new(right) }
+            }
+        }
         Expr::Seq { first, then } => sequence(effects(*first), effects(*then)),
         Expr::Let { name, mutable, ty, value, then } => {
             let then = effects(*then);
@@ -216,6 +231,11 @@ fn ends(expr: &Expr) -> bool {
         Expr::At { expr, .. } => ends(expr),
         _ => false,
     }
+}
+
+/// `==`, `!=`, `<`, `<=`, `>`, `>=`: no effect of their own.
+fn is_compare(op: BinOp) -> bool {
+    matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
 }
 
 /// `first; then`, without a `first` that is `()`.
@@ -1311,7 +1331,7 @@ fn assigns(expr: &Expr, name: &Name) -> bool {
 }
 
 /// Whether printing `expr` as statements declares a name in its block.
-fn declares(expr: &Expr) -> bool {
+pub(crate) fn declares(expr: &Expr) -> bool {
     match expr {
         Expr::Let { .. } | Expr::Try { .. } => true,
         Expr::Seq { first, then } => declares(first) || declares(then),

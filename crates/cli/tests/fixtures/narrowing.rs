@@ -262,7 +262,7 @@ pub fn decided_receiver(r: Result<i32, i32>, c: bool, b: i32) -> Option<i32> {
             Ok(_) => {}
             Err(_) => {
                 let mut k: i32 = 0;
-                while k < (b >> 3) % 5 && matches!(a.map(|v| v), Some(_) if !c) {
+                while k < (b >> 3) % 5 && a.is_some() && !c {
                     a = ({
                         let t: Result<i32, i32> = (if c { r } else { Err(65535i32) });
                         t

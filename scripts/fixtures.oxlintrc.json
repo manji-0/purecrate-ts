@@ -24,6 +24,14 @@
       // a `matches!` that names every variant.
       "files": ["guards/src/overlap.ts", "control/src/shadowed.ts", "rest/src/matched.ts"],
       "rules": { "typescript/no-unnecessary-condition": "off", "eslint/no-constant-condition": "off" }
+    },
+    {
+      // Tests the Rust states that narrowing has already decided, kept to
+      // reach the folds: `o.ok_or(e).ok().is_some()` past `o?`, both sides
+      // of an `if` building `None`, and `v.unwrap_or(b)` the decision tree
+      // copies under `v`'s `None` after a guard on its `Some`.
+      "files": ["narrowing/src/decided-declaring.ts", "narrowing/src/equal-constructors.ts", "guards/src/guarded-field.ts"],
+      "rules": { "typescript/no-unnecessary-condition": "off" }
     }
   ]
 }

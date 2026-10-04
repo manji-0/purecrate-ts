@@ -260,6 +260,19 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 emit_tail(then, indent, sink, out, tail);
             }
         }
+        // `if true { .. }` as a statement (the side a decided test keeps,
+        // which declares names a later `let` may declare again): a block of
+        // its own. Lint refuses a constant test; a block that declares is
+        // no lone block.
+        Expr::If { cond, then, else_ }
+            if matches!(sink, Sink::Effect)
+                && **cond == Expr::Lit(Lit::Bool(true))
+                && **else_ == Expr::Lit(Lit::Unit) =>
+        {
+            out.push_str(&format!("{pad}{{\n"));
+            emit_stmts(then, indent + 1, sink, out);
+            out.push_str(&format!("{pad}}}\n"));
+        }
         // A guard: `if (c) return v;` on one line, when both fit on one, and
         // `if (c) break;` / `continue;`.
         Expr::If { cond, then, else_ }
@@ -529,10 +542,21 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
         }
         v if v.needs_statements() => {
             out.push_str(&format!("{pad}let {name}{annotation};\n"));
-            if matches!(v, Expr::Let { .. } | Expr::Seq { .. }) {
-                // A Rust block: its bindings end with it.
+            // A Rust block: its bindings end with it. One whose printed
+            // lines declare nothing at its level needs no braces (lint: a
+            // lone block).
+            let mut inner = String::new();
+            let block = matches!(v, Expr::Let { .. } | Expr::Seq { .. }) && {
+                emit_stmts(v, indent + 1, Sink::Assign(name), &mut inner);
+                let own = "  ".repeat(indent + 1);
+                inner.lines().any(|l| {
+                    l.strip_prefix(own.as_str())
+                        .is_some_and(|r| !r.starts_with(' ') && (r.starts_with("const ") || r.starts_with("let ")))
+                })
+            };
+            if block {
                 out.push_str(&format!("{pad}{{\n"));
-                emit_stmts(v, indent + 1, Sink::Assign(name), out);
+                out.push_str(&inner);
                 out.push_str(&format!("{pad}}}\n"));
             } else {
                 emit_stmts(v, indent, Sink::Assign(name), out);

@@ -8,10 +8,21 @@ use std::collections::BTreeSet;
 /// `src` with every `import { .. }` name that the rest of the file does not
 /// mention removed, and imports left empty dropped. Other lines are kept.
 pub fn prune_unused(src: &str) -> String {
-    let used = code_idents(&src.lines().filter(|l| !l.starts_with("import ")).collect::<Vec<_>>().join("\n"));
+    let code = src.lines().filter(|l| !l.starts_with("import ")).collect::<Vec<_>>().join("\n");
+    let used = code_idents(&code);
+    // The runtime's `Result` is a value (`Result.ok`) and a type. Where the
+    // printed code no longer builds one (a fold took `Result.ok` away), it
+    // is a type only, and lint wants `type Result`.
+    // As a type it is always `Result<..>`; any other reference is a value.
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    let result_value = code.match_indices("Result").any(|(i, _)| {
+        let before = code[..i].chars().next_back();
+        let after = code[i + "Result".len()..].chars().next();
+        !word(before) && before != Some('.') && !word(after) && after != Some('<')
+    });
     let mut out = String::with_capacity(src.len());
     for line in src.split_inclusive('\n') {
-        match prune_line(line.trim_end_matches('\n'), &used) {
+        match prune_line(line.trim_end_matches('\n'), &used, result_value) {
             Some(kept) if kept == line.trim_end_matches('\n') => out.push_str(line),
             Some(kept) => {
                 out.push_str(&kept);
@@ -93,7 +104,7 @@ fn organize(src: &str) -> String {
 
 /// `None` drops the line. Lines that are not a named import are returned
 /// unchanged.
-fn prune_line(line: &str, used: &BTreeSet<String>) -> Option<String> {
+fn prune_line(line: &str, used: &BTreeSet<String>, result_value: bool) -> Option<String> {
     let Some(rest) = line.strip_prefix("import ") else {
         return Some(line.to_string());
     };
@@ -112,6 +123,7 @@ fn prune_line(line: &str, used: &BTreeSet<String>) -> Option<String> {
         .map(str::trim)
         .filter(|spec| !spec.is_empty())
         .filter(|spec| used.contains(local_name(spec)))
+        .map(|spec| if spec == "Result" && !result_value && !type_only { "type Result" } else { spec })
         .collect();
     if kept.is_empty() {
         return None;
@@ -701,6 +713,13 @@ mod tests {
             \n\
             const f = (l: Lines, y: Yen, b: U8): I64 => Int.i64.add(unsafeMakeYen(y), Result);\n"
         );
+    }
+
+    #[test]
+    fn result_read_only_as_a_type_is_a_type_import() {
+        // A fold took every `Result.ok` away; `xResult.kind` is a local.
+        let src = "import { Result, type I32 } from \"purecrate\";\n\nconst f = (r: Result<I32, I32>): I32 => { const xResult = r; return xResult.kind === \"Ok\" ? xResult.value : 0; };\n";
+        assert!(prune_unused(src).starts_with("import type { I32, Result }"), "{}", prune_unused(src));
     }
 
     #[test]
