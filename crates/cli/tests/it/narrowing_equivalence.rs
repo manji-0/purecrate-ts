@@ -111,6 +111,11 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_matches(o, c, 7i32)));
             }
             cases.push(case!(narrowing::decided_or(c, 9i32)));
+            for r in [Ok(1i32), Err(2i32)] {
+                for w in [false, true] {
+                    cases.push(case!(narrowing::decided_left(r, c, w)));
+                }
+            }
             cases.push(case!(narrowing::decided_literal_binding(c, 4i32)));
         }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {

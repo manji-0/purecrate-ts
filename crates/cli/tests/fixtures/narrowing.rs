@@ -463,3 +463,18 @@ pub fn decided_literal_binding(c: bool, n: i32) -> i32 {
 pub fn decided_string(t: String, s: &str) -> bool {
     (t == "," && t == "") && s.is_empty()
 }
+
+/// Where `!(x || w)` holds, `x` is `false`: `x && r.ok().is_some()` is
+/// `false`, and its right side, which TS checks with `r` known `Err`, goes.
+pub fn decided_left(r: Result<i32, i32>, v: bool, w: bool) -> bool {
+    match r {
+        Ok(_) => v,
+        Err(_) => {
+            let mut x: bool = v;
+            if !(x || w) {
+                x = x && r.ok().is_some();
+            }
+            x
+        }
+    }
+}

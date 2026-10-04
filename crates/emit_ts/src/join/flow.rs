@@ -459,6 +459,19 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
             let and = *op == BinOp::And;
             let s = flow(left, st, cx)?;
+            // A left side narrowing decides: `false && x` is `false` (`x` is
+            // never evaluated), `true && x` is `x`. TS still checks `x`, with
+            // what it has narrowed, so leaving it would leave its tests.
+            if effectless(left) {
+                if let Some(l) = known_bool(left, &s.0) {
+                    if l != and {
+                        *expr = Expr::Lit(Lit::Bool(l));
+                        return Some(s);
+                    }
+                    *expr = (**right).clone();
+                    return flow(expr, s, cx);
+                }
+            }
             let (yes, no) = refine(left, &s);
             let (go, stop) = if and { (yes, no) } else { (no, yes) };
             let after_right = go.and_then(|g| flow(right, g, cx));
