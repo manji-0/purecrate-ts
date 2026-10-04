@@ -632,7 +632,9 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
     // Everything from the runtime in one import, values then types; `pack`
     // points `"purecrate"` at the package's copy.
     let values = [
-        refs.never.then_some("assertNever"),
+        // Folding may print a `switch` the IR did not hold; unread, it is
+        // pruned (`prune_unused`).
+        Some("assertNever"),
         refs.int.then_some("Int"),
         refs.result_value.then_some("Result"),
         refs.char_value.then_some("Char"),

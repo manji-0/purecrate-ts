@@ -73,6 +73,12 @@ fn join_all(states: impl IntoIterator<Item = State>) -> Option<State> {
     states.into_iter().reduce(|a, b| a.join(&b))
 }
 
+thread_local! {
+    /// `const v = <test>` in scope, innermost last: TS narrows by `v` as by
+    /// the test ("aliased conditions"), where nothing writes what it tests.
+    static CONDS: std::cell::RefCell<Vec<(Name, Expr)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 #[derive(Default)]
 struct Jumps {
     breaks: Vec<State>,
@@ -143,8 +149,29 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
 fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
     use purecrate_ir::Callee;
     match cond {
-        c if is_place(c) => vec![(c.clone(), Name::new(if holds { TRUE } else { FALSE }))],
+        c if is_place(c) => {
+            let mut out = vec![(c.clone(), Name::new(if holds { TRUE } else { FALSE }))];
+            if let Expr::Var(n) = c {
+                let aliased = CONDS.with(|t| t.borrow().iter().rev().find(|(m, _)| m == n).map(|(_, e)| e.clone()));
+                if let Some(test) = aliased {
+                    out.extend(tests(&test, holds));
+                }
+            }
+            out
+        }
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => tests(expr, !holds),
+        // `if c { true } else { b }` and `if c { a } else { false }` as a
+        // test print as `c || b` and `c && a`, which TS narrows by (not by
+        // `?:`; narrowing folds a side to the literal first).
+        Expr::If { cond, then, else_ } => {
+            if **then == Expr::Lit(Lit::Bool(true)) {
+                tests(&Expr::Binary { op: BinOp::Or, left: cond.clone(), right: else_.clone() }, holds)
+            } else if **else_ == Expr::Lit(Lit::Bool(false)) {
+                tests(&Expr::Binary { op: BinOp::And, left: cond.clone(), right: then.clone() }, holds)
+            } else {
+                Vec::new()
+            }
+        }
         // `t == ","` holding: TS has `t` as the literal `","` (a string, a
         // number, or a char is no union, so failing it narrows nothing).
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } if holds == (*op == BinOp::Eq) => {
@@ -473,7 +500,18 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                     decide_on(then, &name, &built);
                 }
             }
+            // `const v = r.kind === "Ok"`: a test TS narrows by through `v`,
+            // where nothing writes `v` or what the test reads.
+            let alias = !mutable || !join_assigns(then, &name);
+            let tested = |e: &Expr| reads_of(e).iter().all(|n| !cx.written.contains(n.as_str()));
+            let cond = (alias && !tests(value, true).is_empty() && tested(value)).then(|| (**value).clone());
+            if let Some(c) = &cond {
+                CONDS.with(|t| t.borrow_mut().push((name.clone(), c.clone())));
+            }
             let after = flow(then, s, cx);
+            if cond.is_some() {
+                CONDS.with(|t| t.borrow_mut().pop());
+            }
             // A binding narrowing left unread (`unwrap_or(d)`'s eager `d`
             // once its `None` arm is gone) still runs, as a statement; TS
             // refuses the unread `const`.
@@ -492,8 +530,18 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         Expr::If { cond, then, else_ } => {
             let s = flow(cond, st, cx)?;
             let (yes, no) = refine(cond, &s);
-            let a = yes.and_then(|y| flow(then, y, cx));
-            let b = no.and_then(|n| flow(else_, n, cx));
+            // A side the state says is never taken is still printed, and TS
+            // checks it with what it has narrowed before the test: it runs
+            // from there, and nothing it leaves joins.
+            let side = |cx: &mut Cx, body: &mut Expr, refined: Option<State>| match refined {
+                Some(r) => flow(body, r, cx),
+                None => {
+                    flow(body, s.clone(), cx);
+                    None
+                }
+            };
+            let a = side(cx, then, yes);
+            let b = side(cx, else_, no);
             join_all(a.into_iter().chain(b))
         }
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
@@ -514,7 +562,13 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
             let (yes, no) = refine(left, &s);
             let (go, stop) = if and { (yes, no) } else { (no, yes) };
-            let after_right = go.and_then(|g| flow(right, g, cx));
+            let after_right = match go {
+                Some(g) => flow(right, g, cx),
+                None => {
+                    flow(right, s.clone(), cx);
+                    None
+                }
+            };
             join_all(after_right.into_iter().chain(stop))
         }
         Expr::While { cond, body } => {
@@ -765,6 +819,12 @@ fn known_test(cond: &Expr, st: &State) -> Option<(Expr, bool)> {
         }
         _ => None,
     }
+}
+
+/// Whether `expr` writes `name`.
+fn join_assigns(expr: &Expr, name: &Name) -> bool {
+    matches!(expr, Expr::Assign { name: n, .. } if n == name)
+        || expr.children().into_iter().any(|c| join_assigns(c, name))
 }
 
 /// Whether `expr` reads `name` as the argument of `is_some()` /

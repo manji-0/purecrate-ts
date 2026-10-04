@@ -121,6 +121,10 @@ fn generated_narrowing_matches_rust() {
                 }
             }
             for r in [Ok(1i32), Err(2i32)] {
+                cases.push(case!(narrowing::aliased_condition(r, c)));
+                cases.push(case!(narrowing::built_from_field(r, c)));
+                cases.push(case!(narrowing::never_taken_side(r, c, 5i32)));
+                cases.push(case!(narrowing::if_test_as_or(r, c)));
                 cases.push(case!(narrowing::none_scrutinee(r, 7i32)));
             }
             for o in [None, Some(5i32)] {

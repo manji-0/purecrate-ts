@@ -559,3 +559,51 @@ pub fn assigned_try_leaves(o: Option<i32>, c: bool) -> Option<i32> {
     }
     Some(v)
 }
+
+/// `let v = r.ok().is_none()` prints as `const v = r.kind !== "Ok"`, and
+/// TS narrows `r` by `if (v)` as by the test itself.
+pub fn aliased_condition(r: Result<i32, i32>, c: bool) -> bool {
+    let v: bool = r.ok().is_none();
+    if v {
+        r.ok().is_some()
+    } else {
+        c
+    }
+}
+
+/// Past `r?`, `match r.map_err(f) { Ok(_) => .., Err(_) => None }` takes
+/// its `Ok` arm on `Ok(r.value)`, a payload that only reads.
+#[allow(unused_variables, unused_assignments, unused_parens)]
+pub fn built_from_field(r: Result<i32, i32>, c: bool) -> Option<i32> {
+    let mut v: Option<i32> = None;
+    if r.ok().is_some() {
+        v = match r.map_err(|e| e) {
+            Ok(_) => (if c { v } else { None }),
+            Err(_) => None,
+        };
+    }
+    v
+}
+
+/// A side the state says is never taken (`c && !c`) is still printed, and
+/// TS checks it with `r` known `Err` past `if r.is_ok() { return }`.
+#[allow(clippy::nonminimal_bool, clippy::overly_complex_bool_expr)]
+pub fn never_taken_side(r: Result<i32, i32>, c: bool, a: i32) -> Result<i32, i32> {
+    if r.ok().is_some() {
+        return Ok(1);
+    }
+    if c && !c {
+        return Ok(r.ok().unwrap_or(a));
+    }
+    Err(a)
+}
+
+/// `if c { c || c } else { r.ok().is_some() }` prints as `c || r.kind ===
+/// "Ok"`: past it failing, `r` is `Err`.
+#[allow(clippy::nonminimal_bool, unused_parens)]
+pub fn if_test_as_or(r: Result<i32, i32>, c: bool) -> Option<i32> {
+    if (if c { c || c } else { r.ok().is_some() }) {
+        return Some(1);
+    }
+    r.ok()
+}

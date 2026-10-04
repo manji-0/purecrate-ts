@@ -539,7 +539,8 @@ fn constructed_arm(expr: &Expr) -> Option<Expr> {
                     then: Box::new(arm.body.clone()),
                 }),
                 (Some(Pattern::Var(_)), None) => None,
-                (_, Some(e)) if !matches!(e, Expr::Var(_) | Expr::Lit(_)) => None,
+                // A payload left unread must do nothing: a name, a literal, a field.
+                (_, Some(e)) if !pure(e) => None,
                 _ => Some(arm.body.clone()),
             };
         }
