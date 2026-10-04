@@ -198,6 +198,19 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     if let Expr::If { cond, .. } | Expr::While { cond, .. } = expr {
         decide(cond, &st.0);
     }
+    // A test whose value narrowing decides though something in it must
+    // still run (`100 / a > 0 && c` with `c` known `false`): that part runs
+    // as a statement, then the side taken. TS would refuse the comparison.
+    if let Expr::If { cond, then, else_ } = expr {
+        if !matches!(**cond, Expr::Lit(_)) {
+            if let Some((before, b)) = known_test(cond, &st) {
+                let side =
+                    Expr::If { cond: Box::new(Expr::Lit(Lit::Bool(b))), then: then.clone(), else_: else_.clone() };
+                *expr = sequence(before, side);
+                return flow(expr, st, cx);
+            }
+        }
+    }
     // Decided with nothing to run first, it is the side taken, so what reads
     // it (`match { let t = if c { .. } else { r }; t }`) sees that side.
     if let Expr::If { cond, then, else_ } = expr {
@@ -214,11 +227,17 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         *expr = taken;
         return flow(expr, st, cx);
     }
-    // `let x = r?` where `r` is known `Err` always leaves.
+    // `let x = r?` where `r` is known `Err` always leaves; known `Ok`, it
+    // is the payload. So is `Ok(e)?` (what a fold may leave), and `Err(e)?`
+    // always leaves.
     if let Expr::Let { value, .. } = expr {
-        if let Expr::Try { expr: place, on: Some(on) } = &**value {
+        if let Expr::Try { expr: place, on: Some(on) } = &mut **value {
             if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
                 *expr = exit;
+                return flow(expr, st, cx);
+            }
+            if let Some(payload) = known_payload(place, *on, &st) {
+                **value = payload;
                 return flow(expr, st, cx);
             }
         }
@@ -226,7 +245,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     // `r?` where `r` is known `Ok` never leaves; known `Err`, always does.
     if let Expr::Seq { first, then } = expr {
         if let Expr::Try { expr: place, on: Some(on) } = &**first {
-            if is_place(place) && st.get(place).is_some_and(|c| c == [tried_case(*on)]) {
+            if known_payload(place, *on, &st).is_some() {
                 *expr = (**then).clone();
                 return flow(expr, st, cx);
             }
@@ -265,9 +284,17 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             join_all(outs)
         }
         Expr::Seq { first, then } => {
-            let mut s = flow(first, st, cx)?;
+            let mut s = flow(first, st.clone(), cx)?;
             // `p?;` as a statement tests `p` itself (a `let` of `p?` tests a
             // copy, `xOption`, which TS narrows instead).
+            if let Expr::Try { expr: inner, on: Some(on) } = &mut **first {
+                // Narrowing made what `?` takes a place (`{ let t = if c { r }
+                // else { .. }; t }?`): decided as the place, from the start.
+                same_sides(inner);
+                if known_payload(inner, *on, &st).is_some() || failed_try(inner, *on, &st.0).is_some() {
+                    return flow(expr, st, cx);
+                }
+            }
             if let Expr::Try { expr: place, on: Some(on) } = &**first {
                 if is_place(place) {
                     s.set_place(place, vec![tried_case(*on)]);
@@ -310,6 +337,12 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             same_sides(value);
             if !mutable && is_place(value) && !touches(then, root(value)) {
                 return flow(expr, st, cx);
+            }
+            // ..or made `p?` of a place whose case is known.
+            if let Expr::Try { expr: place, on: Some(on) } = &**value {
+                if known_payload(place, *on, &st).is_some() || failed_try(place, *on, &st.0).is_some() {
+                    return flow(expr, st, cx);
+                }
             }
             let Expr::Let { name, value, then, .. } = expr else { unreachable!("matched") };
             let name = name.clone();
@@ -466,6 +499,19 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 }
             }
             literal_compare(expr);
+            // `is_some()` of a place whose case is known.
+            if let Expr::Call {
+                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
+                args,
+            } = expr
+            {
+                if let [p] = args.as_slice() {
+                    if let Some(c) = st_case(&s, p) {
+                        let some = c.as_str() == SOME;
+                        *expr = Expr::Lit(Lit::Bool(some == (*callee == purecrate_ir::Callee::OptionIsSome)));
+                    }
+                }
+            }
             // `is_some()` of what narrowing made `None` or `Some(v)`.
             if let Expr::Call {
                 callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
@@ -487,6 +533,73 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             Some(s)
         }
     }
+}
+
+/// The value of a test narrowing has decided, with what in it must still
+/// run first (`()` if nothing): `&&` and `||` run their left side and stop
+/// where it decides; a side that decides alone is reached only if it does
+/// nothing, so the other runs on its own. Comparisons of two such values
+/// run both.
+fn known_test(cond: &Expr, st: &State) -> Option<(Expr, bool)> {
+    let unit = Expr::Lit(Lit::Unit);
+    if let Some(b) = known_bool(cond, &st.0) {
+        return Some((if effectless(cond) { unit } else { return None }, b));
+    }
+    match cond {
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_test(expr, st).map(|(e, b)| (e, !b)),
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+            let decides = *op == BinOp::Or;
+            match known_test(left, st) {
+                Some((e, l)) if l == decides => Some((e, l)),
+                Some((e, _)) => {
+                    let (r, b) = known_test(right, st)?;
+                    Some((sequence(e, r), b))
+                }
+                None => match known_test(right, st) {
+                    Some((r, b)) if b == decides && r == unit => Some((effects(left.as_ref().clone()), b)),
+                    _ => None,
+                },
+            }
+        }
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } => {
+            let (l, a) = known_test(left, st)?;
+            let (r, b) = known_test(right, st)?;
+            Some((sequence(l, r), (a == b) == (*op == BinOp::Eq)))
+        }
+        _ => None,
+    }
+}
+
+/// The one case a place is known to hold.
+fn st_case(st: &State, p: &Expr) -> Option<Name> {
+    if !is_place(p) {
+        return None;
+    }
+    match st.get(p)?.as_slice() {
+        [c] => Some(c.clone()),
+        _ => None,
+    }
+}
+
+/// What `place?` gives where it cannot leave: the place itself known to
+/// hold `Some` / `Ok` (its payload read as TS has narrowed it), or `Some(e)`
+/// / `Ok(e)` built in place (`e`).
+fn known_payload(place: &Expr, on: TryOn, st: &State) -> Option<Expr> {
+    use purecrate_ir::Callee;
+    if let Expr::Call { callee: Callee::OptionSome | Callee::ResultOk, args } = place {
+        let ok = matches!(place, Expr::Call { callee: Callee::OptionSome, .. }) == (on == TryOn::Option);
+        return match args.as_slice() {
+            [e] if ok => Some(e.clone()),
+            _ => None,
+        };
+    }
+    if !is_place(place) || st.get(place).is_none_or(|c| c != [tried_case(on)]) {
+        return None;
+    }
+    Some(match on {
+        TryOn::Option => place.clone(),
+        TryOn::Result => Expr::Field { base: Box::new(place.clone()), name: Name::new("value") },
+    })
 }
 
 /// The state at a loop's head: what enters, joined with what the end of

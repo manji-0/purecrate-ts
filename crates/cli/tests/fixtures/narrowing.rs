@@ -336,3 +336,77 @@ pub fn unread_as_str(s: &str, t: String, xs: Vec<i32>) -> usize {
     let v: &str = t.as_str();
     s.len()
 }
+
+/// Past `if c { r? } else { r? }` (each side leaving on `Err`), `r` is
+/// `Ok`: TS joins what both sides narrowed.
+pub fn joined_sides(r: Result<i32, i32>, c: bool, b: i32) -> Result<i32, i32> {
+    if c {
+        let x: i32 = r.map_err(|_| -1i32)?;
+        if x > b {
+            return Ok(x);
+        }
+    } else {
+        let y: i32 = r?;
+        if y < b {
+            return Ok(y);
+        }
+    }
+    let z: i32 = r.map(|v| v + 1)?;
+    Ok(z)
+}
+
+/// Narrowed before a loop, `r` stays narrowed inside it and past it.
+pub fn narrowed_through_loop(r: Result<i32, i32>, n: i32) -> Result<i32, i32> {
+    let mut k: i32 = r.map_err(|e| e + 1)?;
+    let mut i: i32 = 0;
+    while i < n % 4 {
+        i += 1;
+        k += r.map(|v| v * 2)?;
+    }
+    let last: i32 = r?;
+    Ok(k + last)
+}
+
+/// Past `if c { return }`, `c` is `false`, so `!c != (o.is_some() && c)`
+/// is decided.
+#[allow(unused_parens)]
+pub fn decided_and(c: bool, o: Option<i32>, n: i32) -> i32 {
+    let mut k: i32 = 0;
+    for i in 0..n % 5 {
+        if c {
+            return i;
+        }
+        if ((!c) != matches!(o, Some(_) if c)) {
+            k += 1;
+        }
+    }
+    k
+}
+
+/// `{ let t = if c { r } else { Err(..) }; t }?` inside `if c`, past `r?`:
+/// decided as `r`, which never leaves.
+#[allow(unused_parens, unused_variables)]
+pub fn decided_try(r: Result<i32, i32>, c: bool) -> Result<i32, i32> {
+    let x: i32 = r.map_err(|_| 1i32)?;
+    if c {
+        let y: i32 = {
+            let t: Result<i32, i32> = (if c { r } else { Err(5i32) });
+            t
+        }?;
+        return Ok(y + x);
+    }
+    Ok(x)
+}
+
+/// The same with a left side that may panic: `100 / a > 0 && c` still runs
+/// the division (panicking for `a == 0`) though `c` decides the `&&`.
+#[allow(unused_parens)]
+pub fn decided_and_runs_left(c: bool, a: i32) -> i32 {
+    if c {
+        return 1;
+    }
+    if ((!c) != (100 / a > 0 && c)) {
+        return 2;
+    }
+    3
+}

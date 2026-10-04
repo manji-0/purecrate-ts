@@ -22,11 +22,19 @@ pub(crate) fn joined(expr: &Expr) -> Expr {
     let mut out = expr.clone();
     unstated(&mut out, true);
     same_sides(&mut out);
-    flow::flow_fn(&mut out);
-    join(&mut out);
-    unread(&mut out);
-    decided(&mut out, false);
-    unread(&mut out);
+    // What the cleanup simplifies (`match o { Some(_) if c => true, _ =>
+    // false }` to `c`) may let narrowing decide more: until it settles.
+    for _ in 0..3 {
+        let before = out.clone();
+        flow::flow_fn(&mut out);
+        join(&mut out);
+        unread(&mut out);
+        decided(&mut out, false);
+        unread(&mut out);
+        if out == before {
+            break;
+        }
+    }
     out
 }
 
@@ -134,6 +142,10 @@ fn unread(expr: &mut Expr) {
         // A statement's value nothing reads: only what it does is left.
         Expr::Seq { first, then } => {
             *expr = sequence(effects((**first).clone()), (**then).clone());
+        }
+        // A loop's body is run for what it does: its value is unread too.
+        Expr::While { body, .. } | Expr::For { body, .. } | Expr::ForEach { body, .. } => {
+            **body = effects(std::mem::replace(&mut **body, Expr::Lit(Lit::Unit)));
         }
         _ => {}
     }
@@ -540,6 +552,28 @@ fn constructed_arm(expr: &Expr) -> Option<Expr> {
 /// Each `match name { .. }` in `expr` as the arm `value`, a constructor,
 /// takes, where `constructed_arm` can tell.
 fn decide_on(expr: &mut Expr, name: &Name, value: &Expr) {
+    use purecrate_ir::Callee;
+    // `name?` of `Some(e)` / `Ok(e)` never leaves, and its payload is `e`
+    // (`Result.ok(10).value` reads what TS cannot narrow).
+    let payload = match value {
+        Expr::Call { callee: Callee::OptionSome | Callee::ResultOk, args } => match args.as_slice() {
+            [e] if matches!(e, Expr::Var(_) | Expr::Lit(_)) => Some(e),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(e) = payload {
+        if let Expr::Seq { first, then } = expr {
+            if matches!(&**first, Expr::Try { expr: t, .. } if **t == Expr::Var(name.clone())) {
+                *expr = std::mem::replace(&mut **then, Expr::Lit(Lit::Unit));
+                return decide_on(expr, name, value);
+            }
+        }
+        if matches!(expr, Expr::Field { base, name: f } if **base == Expr::Var(name.clone()) && f.as_str() == "value") {
+            *expr = e.clone();
+            return;
+        }
+    }
     if let Expr::Match { scrutinee, arms } = expr {
         if **scrutinee == Expr::Var(name.clone()) {
             let on_value = Expr::Match { scrutinee: Box::new(value.clone()), arms: arms.clone() };
@@ -722,6 +756,37 @@ fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
     match expr {
         Expr::Lit(Lit::Bool(b)) => Some(*b),
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_bool(expr, known).map(|b| !b),
+        // A `match` of `bool`s (`matches!(o, Some(_) if c)`, printed `o !==
+        // null && c`): the value every arm that may run gives, an arm whose
+        // guard is decided `false` never running.
+        // Only where nothing in it can panic: folded, it no longer runs.
+        Expr::Match { arms, .. } if effectless(expr) => {
+            let mut value = None;
+            for arm in arms {
+                if arm.guard.as_ref().is_some_and(|g| known_bool(g, known) == Some(false)) {
+                    continue;
+                }
+                let v = known_bool(&arm.body, known)?;
+                if value.is_some_and(|w| w != v) {
+                    return None;
+                }
+                value = Some(v);
+                if arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard | Pattern::Var(_)) {
+                    break;
+                }
+            }
+            value
+        }
+        // TS types `x && c` as `false` once `c` is, and `true` once both are.
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } if effectless(expr) => {
+            let decides = *op == BinOp::Or;
+            match (known_bool(left, known), known_bool(right, known)) {
+                (Some(l), _) if l == decides => Some(l),
+                (_, Some(r)) if r == decides => Some(r),
+                (Some(l), Some(r)) => Some(l && r || (l || r) && decides),
+                _ => None,
+            }
+        }
         p if is_place(p) => {
             let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
             match vs.as_slice() {
@@ -924,9 +989,12 @@ fn effectless(expr: &Expr) -> bool {
         }
         Expr::Let { value, then, .. } => effectless(value) && effectless(then),
         Expr::Match { scrutinee, arms } => {
-            effectless(scrutinee) && arms.iter().all(|a| a.guard.is_none() && effectless(&a.body))
+            effectless(scrutinee) && arms.iter().all(|a| a.guard.as_ref().is_none_or(effectless) && effectless(&a.body))
         }
         Expr::If { cond, then, else_ } => effectless(cond) && effectless(then) && effectless(else_),
+        // Comparisons, `!`, `&&`, `||`: integer arithmetic is a call by now.
+        Expr::Binary { left, right, .. } => effectless(left) && effectless(right),
+        Expr::Unary { expr, .. } => effectless(expr),
         e => pure(e),
     }
 }

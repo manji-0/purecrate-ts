@@ -86,6 +86,21 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::payload_test(o)));
             }
             cases.push(case!(narrowing::unread_as_str("é,a", String::from("x"), vec![1i32])));
+            for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
+                for b in [0i32, 5] {
+                    cases.push(case!(narrowing::joined_sides(r, c, b)));
+                    cases.push(case!(narrowing::narrowed_through_loop(r, b + 3)));
+                }
+                cases.push(case!(narrowing::decided_try(r, c)));
+            }
+            for o in [None, Some(1i32)] {
+                for n in [0i32, 3] {
+                    cases.push(case!(narrowing::decided_and(c, o, n)));
+                }
+            }
+            for a in [0i32, 7] {
+                cases.push(case!(narrowing::decided_and_runs_left(c, a)));
+            }
         }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {
