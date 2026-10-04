@@ -630,3 +630,56 @@ pub fn past_leaving_if(r: Result<i32, i32>, c: bool, b: i32, n: i32) -> Result<i
     }
     Ok(k)
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    Shut,
+    Open,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Note {
+    Stop(i32),
+    Wait,
+    Skip,
+    Read(i32),
+    Echo,
+}
+
+fn echo(n: &Note) -> i32 {
+    match n {
+        Note::Read(v) => *v,
+        _ => 9,
+    }
+}
+
+/// A guard on `n` before the gate's other arm: TS has `n` narrowed past
+/// it, so the next `match` on `n` leaves `Stop` out of the cases its `_`
+/// names (`Stop | Echo`; TS refuses a `case` it has ruled out).
+pub fn past_guard_on_other(g: Gate, n: Note) -> i32 {
+    match g {
+        Gate::Shut => 0,
+        _ if matches!(n, Note::Stop(_)) => match n {
+            Note::Stop(v) => v,
+            _ => 1,
+        },
+        Gate::Open => match n {
+            Note::Wait | Note::Skip => 2,
+            Note::Read(v) => v,
+            _ => echo(&n),
+        },
+    }
+}
+
+/// Past `!matches!(n, A | B | C)` leaving, `n` is one of the three: an arm
+/// of any other variant is never taken, and is not printed.
+pub fn past_negated_matches(n: Note) -> i32 {
+    if !matches!(n, Note::Wait | Note::Skip | Note::Echo) {
+        return 7;
+    }
+    match n {
+        Note::Wait => 1,
+        Note::Stop(v) => v,
+        _ => echo(&n),
+    }
+}

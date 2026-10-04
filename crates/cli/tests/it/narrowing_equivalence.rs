@@ -5,6 +5,8 @@ use crate::support;
 
 purecrate_canon::fixture!(mod narrowing = "fixtures/narrowing.rs");
 
+use narrowing::{Gate, Note};
+
 #[test]
 fn generated_narrowing_matches_rust() {
     support::equivalence("narrowing", narrowing::SOURCE, |cases| {
@@ -31,6 +33,9 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_guard(o, c)));
             }
         }
+        let notes = [Note::Stop(3), Note::Wait, Note::Skip, Note::Read(4), Note::Echo];
+        grid!(cases, narrowing::past_guard_on_other; g in [Gate::Shut, Gate::Open], n in notes);
+        grid!(cases, narrowing::past_negated_matches; n in notes);
         grid!(cases, narrowing::written_past_try; x in [None, Some(1u32), Some(u32::MAX)], y in [None, Some(4u32)]);
         grid!(cases, narrowing::bound_constructor; a in [0i32, 7, i32::MAX], c in [false, true]);
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {

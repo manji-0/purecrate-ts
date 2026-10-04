@@ -53,11 +53,17 @@ pub fn emit(krate: &Crate) -> Package {
         Item::Struct(st) => Some(st.name.as_str().to_string()),
         _ => None,
     });
+    let enums = krate.items.iter().filter_map(|item| match item {
+        Item::Enum(e) => Some((e.name.as_str().to_string(), e.variants.iter().map(|v| v.name.clone()).collect())),
+        _ => None,
+    });
     scoped(&CLOSED, closed_names(krate), || {
         scoped(&PRIVATE, private_methods(krate), || {
             scoped(&STRUCTS, structs.collect(), || {
-                scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
-                    with_internal_names(krate, || emit_package(krate))
+                scoped(&ENUMS, enums.collect(), || {
+                    scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
+                        with_internal_names(krate, || emit_package(krate))
+                    })
                 })
             })
         })

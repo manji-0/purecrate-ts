@@ -31,6 +31,9 @@ thread_local! {
     /// Structs of the crate, likewise: a place of one needs no `as` to
     /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
     pub(crate) static STRUCTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// Each enum of the crate and its variants, likewise: a `match`'s `_`
+    /// holds the variants no earlier arm took (`join::flow`).
+    pub(crate) static ENUMS: RefCell<BTreeMap<String, Vec<Name>>> = const { RefCell::new(BTreeMap::new()) };
     /// The crate's internal names (`internal_names`), likewise.
     pub(crate) static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
@@ -58,6 +61,10 @@ pub(super) fn is_closed(name: &str) -> bool {
 
 pub(super) fn is_struct(name: &str) -> bool {
     STRUCTS.with(|c| c.borrow().contains(name))
+}
+
+pub(super) fn enum_variants(ty: &str) -> Option<Vec<Name>> {
+    ENUMS.with(|e| e.borrow().get(ty).cloned())
 }
 
 pub(super) fn is_private_method(ty: &str, name: &str) -> bool {

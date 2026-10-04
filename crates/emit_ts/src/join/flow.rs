@@ -124,29 +124,34 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
     if let Expr::Lit(Lit::Bool(b)) = cond {
         return if *b { (Some(st.clone()), None) } else { (None, Some(st.clone())) };
     }
-    // A side that needs a place to hold a case it is known not to hold is
-    // never taken (as TS has it `never`).
+    // A side that needs a place to hold only cases it is known not to hold
+    // is never taken (as TS has it `never`).
     let side = |holds: bool| {
         let mut s = st.clone();
-        for (p, case) in tests(cond, holds) {
-            if s.get(&p).is_some_and(|known| !known.contains(&case)) {
+        for (p, cases) in tests(cond, holds) {
+            let left = match s.get(&p) {
+                Some(known) => cases.into_iter().filter(|c| known.contains(c)).collect(),
+                None => cases,
+            };
+            if left.is_empty() {
                 return None;
             }
-            s.set_place(&p, vec![case]);
+            s.set_place(&p, left);
         }
         Some(s)
     };
     (side(true), side(false))
 }
 
-/// The places `cond` decides where it is `holds`: a `bool` place, an
-/// `Option` place's `is_some()` / `is_none()`, through `!`, `&&` (holding),
-/// and `||` (failing).
-fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
+/// The places `cond` decides where it is `holds`, each with the cases it
+/// may then hold: a `bool` place, an `Option` place's `is_some()` /
+/// `is_none()`, a `match` on a place, through `!`, `&&` (holding), and `||`
+/// (failing).
+fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
     use purecrate_ir::Callee;
     match cond {
         c if is_place(c) => {
-            let mut out = vec![(c.clone(), Name::new(if holds { TRUE } else { FALSE }))];
+            let mut out = vec![(c.clone(), vec![Name::new(if holds { TRUE } else { FALSE })])];
             if let Expr::Var(n) = c {
                 let aliased = CONDS.with(|t| t.borrow().iter().rev().find(|(m, _)| m == n).map(|(_, e)| e.clone()));
                 if let Some(test) = aliased {
@@ -170,7 +175,7 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } if holds == (*op == BinOp::Eq) => {
             match (&**left, &**right) {
                 (p, Expr::Lit(l)) | (Expr::Lit(l), p) if is_place(p) => match literal_case(l) {
-                    Some(case) => vec![(p.clone(), case)],
+                    Some(case) => vec![(p.clone(), vec![case])],
                     None => Vec::new(),
                 },
                 _ => Vec::new(),
@@ -198,12 +203,12 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
         // value holds too. TS reads it printed as `p !== null && g`.
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
             // The arms that may give the value tested for (`true` holding).
+            // An `A | B` side prints as `p.kind === "A" || p.kind === "B"`.
             let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(!holds))).collect();
             let [arm] = may.as_slice() else { return Vec::new() };
-            let mut out: Vec<(Expr, Name)> = match variants_of(&arm.pattern).as_slice() {
-                [v] => vec![((**scrutinee).clone(), v.clone())],
-                _ => Vec::new(),
-            };
+            let cases = variants_of(&arm.pattern);
+            let mut out: Vec<(Expr, Vec<Name>)> =
+                if cases.is_empty() { Vec::new() } else { vec![((**scrutinee).clone(), cases)] };
             if holds {
                 out.extend(arm.guard.iter().flat_map(|g| tests(g, true)));
             } else if arm.guard.is_some() {
@@ -216,7 +221,7 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
         Expr::Call { callee: callee @ (Callee::OptionIsSome | Callee::OptionIsNone), args } => match args.as_slice() {
             [p] if is_place(p) => {
                 let some = holds == (*callee == Callee::OptionIsSome);
-                vec![(p.clone(), Name::new(if some { SOME } else { NONE }))]
+                vec![(p.clone(), vec![Name::new(if some { SOME } else { NONE })])]
             }
             _ => Vec::new(),
         },
@@ -238,6 +243,32 @@ fn lit_key(l: &Lit) -> String {
     match l {
         Lit::Int { value, .. } => value.to_string(),
         other => format!("{other:?}"),
+    }
+}
+
+/// The enum a pattern names a variant of.
+fn enum_of(pattern: &Pattern) -> Option<&Name> {
+    match pattern {
+        Pattern::Variant { ty, .. } => Some(ty),
+        Pattern::Or(alts) => alts.iter().find_map(enum_of),
+        _ => None,
+    }
+}
+
+/// An arm's pattern on an enum less the variants the place cannot hold;
+/// `None` where it admits none of them. Other patterns are kept whole.
+fn narrowed(pattern: Pattern, possible: &impl Fn(&Name) -> bool) -> Option<Pattern> {
+    match pattern {
+        Pattern::Variant { ref variant, .. } => possible(variant).then_some(pattern),
+        Pattern::Or(alts) if alts.iter().all(|a| matches!(a, Pattern::Variant { .. })) => {
+            let mut kept: Vec<Pattern> = alts.into_iter().filter(|a| variants_of(a).iter().any(possible)).collect();
+            match kept.len() {
+                0 => None,
+                1 => kept.pop(),
+                _ => Some(Pattern::Or(kept)),
+            }
+        }
+        other => Some(other),
     }
 }
 
@@ -999,6 +1030,10 @@ fn loop_head(
 fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     let Expr::Match { scrutinee, arms } = expr else { unreachable!("a match") };
     let known = st.get(scrutinee);
+    let universe = arms.iter().find_map(|a| enum_of(&a.pattern)).and_then(|ty| crate::enum_variants(ty.as_str()));
+    // TS has narrowed the place to `known`: it refuses a `case` of any other
+    // variant ("not comparable").
+    let possible = |v: &Name| known.as_ref().is_none_or(|k| k.contains(v));
     let mut taken: Vec<Name> = Vec::new();
     let mut outs: Vec<State> = Vec::new();
     let mut split = Vec::with_capacity(arms.len());
@@ -1006,7 +1041,13 @@ fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         let named = variants_of(&arm.pattern);
         let admitted: Vec<Name> = named.iter().filter(|v| admits(&arm.pattern, v)).cloned().collect();
         let unguarded = arm.guard.is_none();
-        let variants: Vec<Name> = named.iter().filter(|v| !taken.contains(v)).cloned().collect();
+        let variants: Vec<Name> = named.iter().filter(|v| !taken.contains(v) && possible(v)).cloned().collect();
+        if named.iter().any(|v| !possible(v)) {
+            match narrowed(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &possible) {
+                Some(p) => arm.pattern = p,
+                None => continue,
+            }
+        }
         let writes = touches(&arm.body, root(scrutinee));
         let mut base = st.clone();
         for n in arm.pattern.bindings() {
@@ -1026,7 +1067,9 @@ fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         if named.is_empty() || writes {
             // `_` or a binding: what no earlier arm took, where that is known.
             if !writes {
-                if let Some(rest) = remaining(known.as_ref(), &taken) {
+                // An enum's `_` after named arms: the variants they left.
+                let all = known.clone().or_else(|| universe.clone().filter(|_| !taken.is_empty()));
+                if let Some(rest) = remaining(all.as_ref(), &taken) {
                     base.set_place(scrutinee, rest);
                 }
             }
