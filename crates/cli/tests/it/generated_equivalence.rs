@@ -402,20 +402,18 @@ fn rows(rng: &mut Rng) -> Vec<Row> {
         .collect()
 }
 
-/// The Rust baseline: the functions plus a `main` that prints each result
-/// as `support::Show` would, or `panic(message)`.
-fn harness(source: &str, fns: &[(String, Ty)], rows: &[Row]) -> String {
-    let mut out = String::from(source);
-    out.push_str(
-        r#"
+/// What every baseline starts with: `Show` for the generated types, and
+/// `run`, which prints a result as `support::Show` would, or
+/// `panic(message)`.
+pub(crate) const SHOW_PRELUDE: &str = r#"
 trait Show { fn show(&self) -> String; }
 impl Show for i32 { fn show(&self) -> String { self.to_string() } }
 impl Show for bool { fn show(&self) -> String { self.to_string() } }
-impl Show for Option<i32> {
-    fn show(&self) -> String { match self { Some(v) => format!("Some({v})"), None => "None".into() } }
+impl<T: Show> Show for Option<T> {
+    fn show(&self) -> String { match self { Some(v) => format!("Some({})", v.show()), None => "None".into() } }
 }
-impl Show for Result<i32, i32> {
-    fn show(&self) -> String { match self { Ok(v) => format!("Ok({v})"), Err(e) => format!("Err({e})") } }
+impl<T: Show, E: Show> Show for Result<T, E> {
+    fn show(&self) -> String { match self { Ok(v) => format!("Ok({})", v.show()), Err(e) => format!("Err({})", e.show()) } }
 }
 fn run<T: Show>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> String {
     match std::panic::catch_unwind(f) {
@@ -426,10 +424,13 @@ fn run<T: Show>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> String {
         }
     }
 }
-fn main() {
-    std::panic::set_hook(Box::new(|_| {}));
-"#,
-    );
+"#;
+
+/// The Rust baseline: the functions plus a `main` that prints each result.
+fn harness(source: &str, fns: &[(String, Ty)], rows: &[Row]) -> String {
+    let mut out = String::from(source);
+    out.push_str(SHOW_PRELUDE);
+    out.push_str("fn main() {\n    std::panic::set_hook(Box::new(|_| {}));\n");
     for (a, b, o, r, c) in rows {
         for (name, _) in fns {
             writeln!(out, "    println!(\"{{}}\", run(|| {name}({a}, {b}, {o:?}, {r:?}, {c})));").expect("write");
@@ -439,10 +440,12 @@ fn main() {
     out
 }
 
-fn rust_results(source: &str, fns: &[(String, Ty)], rows: &[Row]) -> Vec<String> {
+/// Compiles `program` with debug-build checks, runs it, and returns the
+/// lines it prints.
+pub(crate) fn rust_lines(program: &str) -> Vec<String> {
     let dir = support::scratch("generated-rust");
     let main = dir.join("main.rs");
-    fs::write(&main, harness(source, fns, rows)).expect("write harness");
+    fs::write(&main, program).expect("write harness");
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
     let out = Command::new(rustc)
         .args([
@@ -490,6 +493,14 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
     }
 }
 
+/// Writes the generated crate to `PURECRATE_GEN_DUMP`, if set, before
+/// anything can fail on it.
+pub(crate) fn dump(source: &str) {
+    if let Some(path) = std::env::var_os("PURECRATE_GEN_DUMP") {
+        fs::write(path, source).expect("write PURECRATE_GEN_DUMP");
+    }
+}
+
 /// The seeds a test draws: `PURECRATE_GEN_SEED` alone, or `defaults`.
 pub(crate) fn seeds(defaults: &[u64]) -> Vec<u64> {
     match std::env::var("PURECRATE_GEN_SEED").ok().and_then(|s| s.parse().ok()) {
@@ -506,11 +517,9 @@ pub(crate) fn fn_count(default: usize) -> usize {
 /// Runs `fns` of `source` in Rust and in the generated TS on the same rows
 /// and asserts they agree; on a failure, prints the source.
 pub(crate) fn compare(crate_name: &str, seeds: &[u64], source: &str, fns: &[(String, Ty)]) {
-    if let Some(path) = std::env::var_os("PURECRATE_GEN_DUMP") {
-        fs::write(path, source).expect("write PURECRATE_GEN_DUMP");
-    }
+    dump(source);
     let rows = rows(&mut Rng::new(seeds[0] ^ 0xa5a5));
-    let rust = rust_results(source, fns, &rows);
+    let rust = rust_lines(&harness(source, fns, &rows));
     assert_eq!(rust.len(), rows.len() * fns.len());
     let mut results = rust.into_iter();
     let mut cases = Vec::new();
@@ -524,6 +533,12 @@ pub(crate) fn compare(crate_name: &str, seeds: &[u64], source: &str, fns: &[(Str
             });
         }
     }
+    check_cases(crate_name, seeds, source, &cases);
+}
+
+/// Asserts the generated TS agrees with `cases`; on a failure, prints the
+/// source.
+pub(crate) fn check_cases(crate_name: &str, seeds: &[u64], source: &str, cases: &[Case]) {
     let label = format!("{crate_name} (seeds {seeds:?}; PURECRATE_GEN_SEED reruns one)");
     // A sweep (`PURECRATE_GEN_SEED`) may ask for the values alone with
     // `PURECRATE_GEN_TYPES=report`: what tsc refuses is printed, and node
@@ -532,11 +547,11 @@ pub(crate) fn compare(crate_name: &str, seeds: &[u64], source: &str, fns: &[(Str
         && std::env::var("PURECRATE_GEN_TYPES").is_ok_and(|v| v == "report");
     let run = || {
         if report {
-            if !support::assert_values_equivalent(crate_name, source, &cases) {
+            if !support::assert_values_equivalent(crate_name, source, cases) {
                 eprintln!("{label}: values agree; tsc refuses the package");
             }
         } else {
-            support::assert_equivalent(crate_name, source, &cases);
+            support::assert_equivalent(crate_name, source, cases);
         }
     };
     if let Err(e) = std::panic::catch_unwind(run) {
