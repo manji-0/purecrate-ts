@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.2 — 2026-10-04
 
-Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#816-unreleased-narrowing-as-ts-does-it)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#816-0102-narrowing-as-ts-does-it-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 

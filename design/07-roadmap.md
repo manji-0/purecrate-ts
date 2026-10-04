@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-04, after 0.10.1; §8.16 unreleased)
+Status: current (2026-10-04, after 0.10.2)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -496,7 +496,7 @@ What they found, each with a fixture that fails before its fix:
 - **Open:** the seeds tsc refuses. Bodies: 47 of 60 only for narrowing TS does where control flow joins or loops (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022), or an unread one (TS6133). Patterns 2 and text 1, narrowing too (TS2322, TS2339, TS2367). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`. `if let` takes `Option` and `Result` only (`[pattern/if-let-variant]`).
 - **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
 
-### 8.16 Unreleased: narrowing as TS does it
+### 8.16 0.10.2: narrowing as TS does it (2026-10-04)
 
 <!-- derived-from #815-0101-the-generator-across-the-subset-2026-10-04 -->
 
