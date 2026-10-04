@@ -327,3 +327,12 @@ pub fn payload_test(o: Option<i32>) -> bool {
         None => false,
     }
 }
+
+/// A `let` of `t.as_str()` nothing reads goes, and `t` with it: the
+/// parameter is `_t`, as TS refuses an unread one.
+#[allow(unused_variables)]
+pub fn unread_as_str(s: &str, t: String, xs: Vec<i32>) -> usize {
+    let n: usize = xs.len();
+    let v: &str = t.as_str();
+    s.len()
+}

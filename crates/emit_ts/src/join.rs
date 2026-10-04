@@ -1280,6 +1280,12 @@ fn effectless(expr: &Expr) -> bool {
                 | Callee::OptionIsNone,
             args,
         } => args.iter().all(effectless),
+        // Reads that cannot panic: a string's `len`, `as_str`, tests, and
+        // pieces; a `Vec`'s `len` and `is_empty`; `String::from`. (Not
+        // `char` methods: `to_digit` panics past radix 36.)
+        Expr::Call { callee: Callee::Str(_) | Callee::VecLen | Callee::VecIsEmpty | Callee::StringFrom, args } => {
+            args.iter().all(effectless)
+        }
         Expr::Let { value, then, .. } => effectless(value) && effectless(then),
         Expr::Match { scrutinee, arms } => {
             effectless(scrutinee) && arms.iter().all(|a| a.guard.is_none() && effectless(&a.body))
