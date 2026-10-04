@@ -58,6 +58,7 @@ mod scoped_names;
 mod semver_equivalence;
 mod signup_equivalence;
 mod slicing_equivalence;
+mod ssh_equivalence;
 mod std_methods_equivalence;
 mod str_methods_equivalence;
 mod str_patterns_equivalence;
