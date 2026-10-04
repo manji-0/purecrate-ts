@@ -1,0 +1,161 @@
+//! What the printers share while printing one crate, which none of them
+//! is handed: its closed structs, internal and private names, the
+//! temporaries made so far, and the loops and tables of the file being
+//! printed.
+
+use super::*;
+
+/// The printer's temporaries start with `$`, which no Rust identifier has,
+/// and end in `_<n>`, a count of them, so no two are one name before
+/// `plain::plain_names` gives each a plain name that no other in an
+/// overlapping block has. The final text does not depend on the count.
+pub(super) fn temp(base: &str, _indent: usize) -> String {
+    let n = TEMPS.with(|t| {
+        let n = t.get() + 1;
+        t.set(n);
+        n
+    });
+    format!("${base}_{n}")
+}
+
+/// A discriminant table: its enum and whether it holds `bigint`s, then its
+/// name and declaration.
+type Table = ((String, bool), String, String);
+
+thread_local! {
+    /// Temporaries made so far (`temp`).
+    pub(crate) static TEMPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Closed structs of the crate `emit` is printing (design/01 §4). The
+    /// expression printer has no `Crate`; `emit` sets this for its duration.
+    pub(crate) static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// Structs of the crate, likewise: a place of one needs no `as` to
+    /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
+    pub(crate) static STRUCTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// The crate's internal names (`internal_names`), likewise.
+    pub(crate) static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
+    /// Methods that are not `pub`, as (type, method), likewise.
+    pub(crate) static PRIVATE: RefCell<BTreeSet<(String, String)>> = const { RefCell::new(BTreeSet::new()) };
+    /// The locals of the function being printed that `push` grows: the one
+    /// array the output writes, typed `Array<T>` (design/01 §7.14).
+    pub(crate) static PUSHED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// Helpers printed in another item's file (`Crate::homes`), likewise.
+    pub(crate) static HOSTED: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
+    /// Whether the statement `stmt::emit_stmts` prints next is the last of
+    /// its JS block, so nothing after it could meet a name it declares.
+    pub(crate) static TAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The discriminant tables the file being printed reads (`expr::table`),
+    /// each keyed by its enum and whether it holds `bigint`s, with its name
+    /// and declaration; printed after the file's imports.
+    pub(crate) static TABLES: RefCell<Vec<Table>> = const { RefCell::new(Vec::new()) };
+    /// The loops being printed, innermost last, each with its label when a
+    /// `break` or `continue` in it leaves it.
+    pub(crate) static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(super) fn is_closed(name: &str) -> bool {
+    CLOSED.with(|c| c.borrow().contains(name))
+}
+
+pub(super) fn is_struct(name: &str) -> bool {
+    STRUCTS.with(|c| c.borrow().contains(name))
+}
+
+pub(super) fn is_private_method(ty: &str, name: &str) -> bool {
+    PRIVATE.with(|p| p.borrow().contains(&(ty.to_string(), name.to_string())))
+}
+
+/// A method that is not `pub` in Rust stays off the exported companion: TS
+/// callers outside the package must not reach what Rust callers cannot (a
+/// private `fn raw(v) -> Yen` would build a closed type unchecked). Like a
+/// closed struct's constructor, it is exported from the type's file but not
+/// from `index.ts`, as `yenRaw` (`internal_names`).
+pub(crate) fn private_method(ty: &str, name: &str) -> String {
+    internal_name(&Internal::Method(ty.to_string(), name.to_string()))
+}
+
+/// A name the generated files share that callers do not see.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Internal {
+    /// A closed struct's constructor.
+    Ctor(String),
+    /// A method that is not `pub`: the type and the method.
+    Method(String, String),
+}
+
+fn internal_name(key: &Internal) -> String {
+    INTERNAL.with(|m| m.borrow().get(key).cloned()).unwrap_or_else(|| internal_base(key))
+}
+
+fn internal_base(key: &Internal) -> String {
+    match key {
+        Internal::Ctor(ty) => format!("unsafeMake{ty}"),
+        Internal::Method(ty, m) => format!("{}{}", purecrate_ir::lower_first(ty), purecrate_ir::upper_first(m)),
+    }
+}
+
+/// The internal names of a crate, each told apart from the crate's own
+/// top-level names and from the others by a number where they meet
+/// (`unsafeMakeYen2` beside a `fn unsafe_make_yen`).
+pub(crate) fn internal_names(krate: &Crate) -> BTreeMap<Internal, String> {
+    let mut taken: BTreeSet<String> = krate
+        .items
+        .iter()
+        .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
+        .map(|item| item.name().as_str().to_string())
+        .collect();
+    let keys = closed_names(krate)
+        .into_iter()
+        .map(Internal::Ctor)
+        .chain(private_methods(krate).into_iter().map(|(t, m)| Internal::Method(t, m)));
+    let mut out = BTreeMap::new();
+    for key in keys {
+        let base = internal_base(&key);
+        let name = (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base}{n}") })
+            .find(|n| !taken.contains(n))
+            .expect("a free name");
+        taken.insert(name.clone());
+        out.insert(key, name);
+    }
+    out
+}
+
+/// Runs `f` with the crate's internal names in place for `closed_ctor` and
+/// `private_method`.
+pub(crate) fn with_internal_names<T>(krate: &Crate, f: impl FnOnce() -> T) -> T {
+    let previous = INTERNAL.with(|m| m.replace(internal_names(krate)));
+    let out = f();
+    INTERNAL.with(|m| m.replace(previous));
+    out
+}
+
+pub(super) fn private_methods(krate: &Crate) -> BTreeSet<(String, String)> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) if f.vis == Vis::Internal => {
+                f.owner.as_ref().map(|o| (o.as_str().to_string(), f.name.as_str().to_string()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The package-internal constructor of a closed struct (`unsafeMakeYen`).
+/// It is exported from the type's file for the other generated files, but
+/// not from `index.ts`, and the package's `exports` reach no other file.
+pub(crate) fn closed_ctor(name: &str) -> String {
+    internal_name(&Internal::Ctor(name.to_string()))
+}
+
+pub(crate) fn closed_names(krate: &Crate) -> BTreeSet<String> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(st) if st.closed => Some(st.name.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
