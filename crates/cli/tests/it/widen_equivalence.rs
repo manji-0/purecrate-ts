@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod widen = "fixtures/widen.rs");
 
-const SOURCE: &str = widen::SOURCE;
-
 #[test]
 fn generated_widening_matches_rust() {
     let cases = support::quietly(|| {
@@ -73,5 +71,5 @@ fn generated_widening_matches_rust() {
             case!(widen::i32_to_i64(7i32)),
         ]
     });
-    support::assert_equivalent("widen", SOURCE, &cases);
+    support::assert_equivalent("widen", widen::SOURCE, &cases);
 }

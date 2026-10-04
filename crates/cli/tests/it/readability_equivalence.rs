@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod readability = "fixtures/readability.rs");
 
-const SOURCE: &str = readability::SOURCE;
-
 #[test]
 fn generated_readability_matches_rust() {
     use readability::{Dir, Shape};
@@ -51,12 +49,12 @@ fn generated_readability_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("readability", SOURCE, &cases);
+    support::assert_equivalent("readability", readability::SOURCE, &cases);
 }
 
 #[test]
 fn readability_rewrites_print_as_intended() {
-    let krate = purecrate_syntax::parse_source("readability", SOURCE).expect("parse");
+    let krate = purecrate_syntax::parse_source("readability", readability::SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     // The file a function is printed in: its own, or its one caller's.

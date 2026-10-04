@@ -1,15 +1,10 @@
 //! Locals are numbered only when the name is live in the same JS scope:
 //! match arms reuse the Rust name; sequential `let`s in one function number.
 
-use purecrate_check::accept;
-use purecrate_pack::assemble;
-use purecrate_syntax::parse_source;
+use crate::support;
 
 fn file(name: &str, source: &str, stem: &str) -> String {
-    let krate = parse_source(name, source).expect("parse");
-    let typed = accept(&krate).expect("accept");
-    let pkg = assemble(&typed);
-    pkg.files.iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("{stem}")).source.clone()
+    support::emitted(name, source, stem)
 }
 
 #[test]

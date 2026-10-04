@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod update = "fixtures/update.rs");
 
-const SOURCE: &str = update::SOURCE;
-
 #[test]
 fn generated_struct_update_matches_rust() {
     let coords = [-2i32, 0, 3, 40];
@@ -25,5 +23,5 @@ fn generated_struct_update_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("update", SOURCE, &cases);
+    support::assert_equivalent("update", update::SOURCE, &cases);
 }

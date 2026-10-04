@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod pats = "fixtures/struct_patterns.rs");
 
-const SOURCE: &str = pats::SOURCE;
-
 #[test]
 fn struct_patterns_match_rust() {
     use pats::{Kind, Method, Owner, Status};
@@ -37,7 +35,7 @@ fn struct_patterns_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("struct_patterns", SOURCE, &cases);
+    support::assert_equivalent("struct_patterns", pats::SOURCE, &cases);
 }
 
 #[test]

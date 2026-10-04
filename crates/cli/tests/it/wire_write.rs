@@ -14,12 +14,11 @@ use crate::support;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use purecrate_check::accept;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::{assemble_with, disk_path};
+use purecrate_pack::assemble_with;
 use purecrate_syntax::parse_source;
 
 purecrate_canon::fixture!(mod shapes = "fixtures/wire_shapes.rs", "fixtures/wire_shapes_driver.rs");
@@ -51,23 +50,15 @@ fn run_node_with(schema: WireSchema, name: &str, source: &str, script: &str) -> 
         return None;
     }
     let dir = support::scratch(&format!("wire-write-{name}-{}", schema.runtime_dep()));
-    if dir.exists() {
-        fs::remove_dir_all(&dir).ok();
-    }
-    fs::create_dir_all(&dir).expect("mkdir");
     let krate = parse_source(name, source).expect("parse");
     let typed = accept(&krate).unwrap_or_else(|d| panic!("{name} rejected: {d:#?}"));
-    for file in assemble_with(&typed, Some(schema)).files {
-        let path = dir.join(disk_path(&file.stem));
-        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        fs::write(path, file.source).expect("write");
-    }
+    support::write_package(&dir, &assemble_with(&typed, Some(schema)));
     // The runtime and adapter are in the package; only the library is not.
     let lib = schema.runtime_dep();
     let package = format!("boundary-{lib}");
-    link(&dir, lib, &format!("{package}/node_modules/{lib}"));
+    support::link(&dir, lib, &format!("{package}/node_modules/{lib}"));
     if schema == WireSchema::Arktype {
-        link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
+        support::link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
     }
     support::typecheck(&dir);
     fs::write(dir.join("driver.ts"), script).expect("write driver");
@@ -80,14 +71,6 @@ fn run_node_with(schema: WireSchema, name: &str, source: &str, script: &str) -> 
     assert!(output.status.success(), "node in {}:\n{}", dir.display(), String::from_utf8_lossy(&output.stderr));
     let _ = fs::remove_dir_all(&dir);
     Some(String::from_utf8(output.stdout).expect("utf8"))
-}
-
-fn link(dir: &Path, name: &str, rel: &str) {
-    let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages").join(rel);
-    let modules = dir.join("node_modules").join(name);
-    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir");
-    let _ = fs::remove_file(&modules);
-    std::os::unix::fs::symlink(&target, &modules).unwrap_or_else(|e| panic!("link {name}: {e} ({target:?})"));
 }
 
 fn assert_ok(stdout: Option<String>) {

@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod while_break = "fixtures/while_break.rs");
 
-const SOURCE: &str = while_break::SOURCE;
-
 #[test]
 fn generated_loops_with_jumps_match_rust() {
     use while_break::Token::{self, Digit, Skip, Stop};
@@ -43,7 +41,7 @@ fn generated_loops_with_jumps_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("while_break", SOURCE, &cases);
+    support::assert_equivalent("while_break", while_break::SOURCE, &cases);
 }
 
 /// A loop whose jumps are not inside a `match` has no label, and a jump that

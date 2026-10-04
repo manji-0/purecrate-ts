@@ -10,12 +10,10 @@ use crate::support;
 use std::fs;
 
 use purecrate_check::accept;
-use purecrate_pack::{assemble, disk_path};
+use purecrate_pack::assemble;
 use purecrate_syntax::parse_source;
 
 purecrate_canon::fixture!(mod closed = "fixtures/closed.rs");
-
-const SOURCE: &str = closed::SOURCE;
 
 #[test]
 fn closed_types_are_built_through_the_crate_and_match_rust() {
@@ -29,7 +27,7 @@ fn closed_types_are_built_through_the_crate_and_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("closed", SOURCE, &cases);
+    support::assert_equivalent("closed", closed::SOURCE, &cases);
 }
 
 /// What a consumer of the package can and cannot write. Each
@@ -70,17 +68,10 @@ fn a_consumer_cannot_build_a_closed_type() {
     if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
         return;
     }
-    let krate = parse_source("closed", SOURCE).expect("parse");
+    let krate = parse_source("closed", closed::SOURCE).expect("parse");
     let typed = accept(&krate).unwrap_or_else(|d| panic!("closed rejected: {d:#?}"));
     let dir = support::scratch("closed-consumer");
-    if dir.exists() {
-        fs::remove_dir_all(&dir).expect("clear scratch");
-    }
-    for file in assemble(&typed).files {
-        let path = dir.join(disk_path(&file.stem));
-        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        fs::write(path, file.source).expect("write");
-    }
+    support::write_package(&dir, &assemble(&typed));
     fs::write(dir.join("src/consumer.ts"), CONSUMER).expect("write consumer");
     support::typecheck(&dir);
     fs::remove_dir_all(&dir).ok();

@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod bits = "fixtures/bits.rs");
 
-const SOURCE: &str = bits::SOURCE;
-
 #[test]
 fn generated_bit_operations_match_rust() {
     let cases = support::quietly(|| {
@@ -132,7 +130,7 @@ fn generated_bit_operations_match_rust() {
         cases.push(case!(bits::truncate(high.as_slice())));
         cases
     });
-    support::assert_equivalent("bits", SOURCE, &cases);
+    support::assert_equivalent("bits", bits::SOURCE, &cases);
 }
 
 #[test]

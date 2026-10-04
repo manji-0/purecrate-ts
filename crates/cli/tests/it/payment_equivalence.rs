@@ -9,8 +9,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod payment = "../../../examples/payment/src/lib.rs", "fixtures/payment_driver.rs");
 
-const SOURCE: &str = payment::SOURCE;
-
 /// The same lifecycle as one would write it without the subset's
 /// constraints: a tuple `match` with a wildcard, `Option` combinators, and
 /// `min`. Not converted; the reference only.
@@ -280,5 +278,5 @@ fn generated_payment_lifecycle_matches_rust() {
     ] {
         assert!(cases.iter().any(|c| c.rust.contains(reached)), "no run reaches {reached}");
     }
-    support::assert_equivalent("payment", SOURCE, &cases);
+    support::assert_equivalent("payment", payment::SOURCE, &cases);
 }

@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod for_chars = "fixtures/for_chars.rs");
 
-const SOURCE: &str = for_chars::SOURCE;
-
 const STRINGS: [&str; 14] = [
     "",
     "a",
@@ -52,5 +50,5 @@ fn for_chars_matches_rust() {
     for s in STRINGS {
         assert_eq!(for_chars::utf8_len(s), s.len(), "{s:?}");
     }
-    support::assert_equivalent("for_chars", SOURCE, &cases);
+    support::assert_equivalent("for_chars", for_chars::SOURCE, &cases);
 }

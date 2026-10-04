@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod strings = "fixtures/strings.rs");
 
-const SOURCE: &str = strings::SOURCE;
-
 const TEXTS: [&str; 7] =
     ["", "a@b", "é", "日本", "😀", "a😀é日", "\u{7f}\u{80}\u{7ff}\u{800}\u{ffff}\u{10000}\u{10ffff}"];
 
@@ -23,5 +21,5 @@ fn utf8_bytes_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("strings", SOURCE, &cases);
+    support::assert_equivalent("strings", strings::SOURCE, &cases);
 }

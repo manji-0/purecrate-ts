@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod ints = "fixtures/int_patterns.rs");
 
-const SOURCE: &str = ints::SOURCE;
-
 #[test]
 fn integer_patterns_match_rust() {
     let cases = support::quietly(|| {
@@ -32,5 +30,5 @@ fn integer_patterns_match_rust() {
         cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "the overflow case must panic");
-    support::assert_equivalent("int_patterns", SOURCE, &cases);
+    support::assert_equivalent("int_patterns", ints::SOURCE, &cases);
 }

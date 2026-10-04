@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod strs = "fixtures/str_methods.rs");
 
-const SOURCE: &str = strs::SOURCE;
-
 const TEXTS: [&str; 14] =
     ["", "a", "pm_", "pm_card", "é", "e\u{301}", "日本", "日", "😀", "😁", "a😀é日", "\u{10ffff}", "\u{ffff}", "aa"];
 
@@ -33,5 +31,5 @@ fn str_methods_match_rust() {
         cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "no case panics");
-    support::assert_equivalent("str_methods", SOURCE, &cases);
+    support::assert_equivalent("str_methods", strs::SOURCE, &cases);
 }

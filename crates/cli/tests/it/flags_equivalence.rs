@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod flags = "fixtures/flags.rs");
 
-const SOURCE: &str = flags::SOURCE;
-
 #[test]
 fn generated_consts_and_discriminants_match_rust() {
     use flags::{Level, Override, Permission, Sign};
@@ -69,7 +67,7 @@ fn generated_consts_and_discriminants_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("flags", SOURCE, &cases);
+    support::assert_equivalent("flags", flags::SOURCE, &cases);
 }
 
 #[test]
@@ -79,7 +77,7 @@ fn folded_values_are_rusts() {
     assert_eq!(flags::OFFSET, -13);
     assert_eq!(flags::WRAPPED, 2);
     assert_eq!(flags::ALL_BITS, u64::MAX);
-    let krate = purecrate_syntax::parse_source("flags", SOURCE).expect("parse");
+    let krate = purecrate_syntax::parse_source("flags", flags::SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let folded = |name: &str| {
         typed

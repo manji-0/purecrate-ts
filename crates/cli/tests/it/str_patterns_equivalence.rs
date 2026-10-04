@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod pats = "fixtures/str_patterns.rs");
 
-const SOURCE: &str = pats::SOURCE;
-
 const TEXTS: [&str; 16] = [
     "",
     "card",
@@ -40,5 +38,5 @@ fn string_patterns_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("str_patterns", SOURCE, &cases);
+    support::assert_equivalent("str_patterns", pats::SOURCE, &cases);
 }

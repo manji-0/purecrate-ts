@@ -10,8 +10,6 @@ purecrate_canon::fixture!(mod nested_patterns = "fixtures/nested_patterns.rs");
 
 use nested_patterns::{Login, Method};
 
-const SOURCE: &str = nested_patterns::SOURCE;
-
 fn logins() -> Vec<Login> {
     let mut out = vec![Login::Started];
     for verified in [true, false] {
@@ -72,5 +70,5 @@ fn generated_nested_patterns_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("nested_patterns", SOURCE, &cases);
+    support::assert_equivalent("nested_patterns", nested_patterns::SOURCE, &cases);
 }

@@ -2,19 +2,10 @@
 //! `const`, after the code on a statement's last line, and before a block's
 //! `}`, are printed where that code goes (design/03 §1).
 
-use purecrate_check::accept;
-use purecrate_pack::assemble_with;
-use purecrate_syntax::parse_source;
+use crate::support;
 
 fn emitted(source: &str, stem: &str) -> String {
-    let krate = parse_source("comments", source).expect("parses");
-    let typed = accept(&krate).expect("in the subset");
-    assemble_with(&typed, None)
-        .files
-        .into_iter()
-        .find(|f| f.stem == stem)
-        .unwrap_or_else(|| panic!("missing {stem}"))
-        .source
+    support::emitted("comments", source, stem)
 }
 
 #[test]

@@ -9,8 +9,6 @@ use std::process::Command;
 
 purecrate_canon::fixture!(mod signup = "../../../examples/signup/src/lib.rs", "fixtures/signup_driver.rs");
 
-const SOURCE: &str = signup::SOURCE;
-
 fn emails() -> Vec<String> {
     let label63 = "a".repeat(63);
     let label64 = "a".repeat(64);
@@ -80,7 +78,7 @@ fn signup_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("signup", SOURCE, &cases);
+    support::assert_equivalent("signup", signup::SOURCE, &cases);
 }
 
 /// The WHATWG "valid e-mail address" regular expression, verbatim.

@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod parse = "fixtures/parse.rs");
 
-const SOURCE: &str = parse::SOURCE;
-
 const TEXTS: [&str; 32] = [
     "",
     "0",
@@ -67,7 +65,7 @@ fn generated_parse_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("parse", SOURCE, &cases);
+    support::assert_equivalent("parse", parse::SOURCE, &cases);
 }
 
 /// A file that only names `Result` as a type imports it with `type`; one

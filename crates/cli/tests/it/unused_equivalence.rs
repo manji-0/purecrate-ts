@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod unused = "fixtures/unused.rs");
 
-const SOURCE: &str = unused::SOURCE;
-
 #[test]
 fn generated_code_with_unused_bindings_matches_rust() {
     use unused::Shape;
@@ -45,7 +43,7 @@ fn generated_code_with_unused_bindings_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("unused", SOURCE, &cases);
+    support::assert_equivalent("unused", unused::SOURCE, &cases);
 }
 
 /// A statement with no effect is left out: an `if` whose sides do nothing,

@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod chars = "fixtures/chars.rs");
 
-const SOURCE: &str = chars::SOURCE;
-
 const CHARS: [char; 32] = [
     '\0', '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '!', '"', '\'', '/', '0', '9', ':', '@', 'A', 'F', 'G', 'Z', '[',
     '\\', '`', 'a', 'f', 'z', '{', '~', '\u{7f}', '\u{80}', 'é', '\u{7ff}', '\u{800}',
@@ -65,5 +63,5 @@ fn chars_match_rust() {
         cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "a bad radix must panic");
-    support::assert_equivalent("chars", SOURCE, &cases);
+    support::assert_equivalent("chars", chars::SOURCE, &cases);
 }

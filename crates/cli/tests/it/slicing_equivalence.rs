@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod slicing = "fixtures/slicing.rs");
 
-const SOURCE: &str = slicing::SOURCE;
-
 // Every UTF-8 width, and a position inside each multi-byte character. The
 // last string's characters are ones `Debug` escapes in the panic message: a
 // combining mark, and Zs, Cc, Cf, Co, and Cn code points.
@@ -56,7 +54,7 @@ fn generated_slicing_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("slicing", SOURCE, &cases);
+    support::assert_equivalent("slicing", slicing::SOURCE, &cases);
 }
 
 /// Random strings over every UTF-8 width and the escaped categories, sliced
@@ -81,5 +79,5 @@ fn random_slicing_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("slicing_random", SOURCE, &cases);
+    support::assert_equivalent("slicing_random", slicing::SOURCE, &cases);
 }

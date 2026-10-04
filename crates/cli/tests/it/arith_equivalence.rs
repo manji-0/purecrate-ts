@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod arith = "fixtures/arith.rs");
 
-const SOURCE: &str = arith::SOURCE;
-
 #[test]
 fn generated_arithmetic_matches_rust_debug_build() {
     let cases = support::quietly(|| {
@@ -72,5 +70,5 @@ fn generated_arithmetic_matches_rust_debug_build() {
             case!(arith::div_f64(-1.0f64, 3.0f64)),
         ]
     });
-    support::assert_equivalent("arith", SOURCE, &cases);
+    support::assert_equivalent("arith", arith::SOURCE, &cases);
 }

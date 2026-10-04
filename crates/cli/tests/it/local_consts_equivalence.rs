@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod local_consts = "fixtures/local_consts.rs");
 
-const SOURCE: &str = local_consts::SOURCE;
-
 #[test]
 fn generated_local_consts_match_rust() {
     let cases = support::quietly(|| {
@@ -27,5 +25,5 @@ fn generated_local_consts_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("local_consts", SOURCE, &cases);
+    support::assert_equivalent("local_consts", local_consts::SOURCE, &cases);
 }

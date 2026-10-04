@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod narrowing = "fixtures/narrowing.rs");
 
-const SOURCE: &str = narrowing::SOURCE;
-
 #[test]
 fn generated_narrowing_matches_rust() {
     let cases = support::quietly(|| {
@@ -192,5 +190,5 @@ fn generated_narrowing_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("narrowing", SOURCE, &cases);
+    support::assert_equivalent("narrowing", narrowing::SOURCE, &cases);
 }

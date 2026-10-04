@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod lists = "fixtures/collect.rs");
 
-const SOURCE: &str = lists::SOURCE;
-
 const TEXTS: [&str; 15] =
     ["", "a", "a.b", "a..b", ".a.", "a.b.c", "é", "é.日", "a😀b", "😀", "ab", "bad", "boom", "a,boom", "a,bad,boom"];
 
@@ -43,7 +41,7 @@ fn collected_lists_match_rust() {
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "a later piece panics");
     assert!(cases.iter().any(|c| c.rust.starts_with("Err(")), "an earlier piece is an Err");
-    support::assert_equivalent("collect", SOURCE, &cases);
+    support::assert_equivalent("collect", lists::SOURCE, &cases);
 }
 
 /// `collect` from a split prints as the array or `Iter.tryCollect`, and

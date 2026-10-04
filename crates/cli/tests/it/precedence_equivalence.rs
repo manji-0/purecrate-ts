@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod precedence = "fixtures/precedence.rs");
 
-const SOURCE: &str = precedence::SOURCE;
-
 #[test]
 fn generated_precedence_matches_rust() {
     let cases = support::quietly(|| {
@@ -45,5 +43,5 @@ fn generated_precedence_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("precedence", SOURCE, &cases);
+    support::assert_equivalent("precedence", precedence::SOURCE, &cases);
 }

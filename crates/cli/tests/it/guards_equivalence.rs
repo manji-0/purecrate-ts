@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod guards = "fixtures/guards.rs");
 
-const SOURCE: &str = guards::SOURCE;
-
 #[test]
 fn generated_guards_match_rust() {
     use guards::{Event, Rate, State};
@@ -84,7 +82,7 @@ fn generated_guards_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("guards", SOURCE, &cases);
+    support::assert_equivalent("guards", guards::SOURCE, &cases);
 }
 
 /// Random states, events, and values through the guarded decision trees.
@@ -116,7 +114,7 @@ fn random_guards_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("guards_random", SOURCE, &cases);
+    support::assert_equivalent("guards_random", guards::SOURCE, &cases);
 }
 
 /// A field or payload a lowered `match` reads binds the arm's own name

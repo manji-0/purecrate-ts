@@ -16,7 +16,7 @@ use std::process::Command;
 
 use purecrate_check::accept;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::{assemble_versioned, disk_path};
+use purecrate_pack::assemble_versioned;
 use purecrate_syntax::parse_source;
 
 const SOURCE: &str = "
@@ -60,10 +60,6 @@ const back: PricingI32 = doubled;
 console.log(`${t.n} ${total} ${back}`);
 "#;
 
-fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn run(cmd: &mut Command, what: &str) -> String {
     let output = cmd.output().unwrap_or_else(|e| panic!("{what}: {e}"));
     assert!(
@@ -73,14 +69,6 @@ fn run(cmd: &mut Command, what: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn write(dir: &Path, pkg: &purecrate_emit_ts::Package) {
-    for file in &pkg.files {
-        let path = dir.join(disk_path(&file.stem));
-        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        fs::write(path, &file.source).expect("write");
-    }
 }
 
 fn link(dir: &Path, name: &str, target: &Path) {
@@ -121,15 +109,18 @@ fn packed_package_installs_runs_and_type_checks() {
         let tarballs = dir.join("tarballs");
         fs::create_dir_all(&tarballs).expect("mkdir");
 
-        let zod = repo().join("packages/boundary-zod/node_modules/zod");
+        let zod = support::repo().join("packages/boundary-zod/node_modules/zod");
         let shop = dir.join("shop");
-        write(&shop, &assemble_versioned(&typed, Some(WireSchema::Zod), "1.2.3"));
+        support::write_package(&shop, &assemble_versioned(&typed, Some(WireSchema::Zod), "1.2.3"));
         link(&shop, "zod", &zod);
         tsc(major, &shop, "tsconfig.build.json");
 
         let pricing_krate = parse_source("pricing", PRICING).expect("parse pricing");
         let pricing = dir.join("pricing");
-        write(&pricing, &assemble_versioned(&accept(&pricing_krate).expect("accept pricing"), None, "0.1.0"));
+        support::write_package(
+            &pricing,
+            &assemble_versioned(&accept(&pricing_krate).expect("accept pricing"), None, "0.1.0"),
+        );
         tsc(major, &pricing, "tsconfig.build.json");
 
         let packed: Vec<PathBuf> = [&shop, &pricing, &zod].into_iter().map(|d| pack(d, &tarballs)).collect();

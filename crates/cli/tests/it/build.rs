@@ -6,10 +6,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
@@ -144,7 +140,7 @@ fn rustc_rejects_what_the_subset_checks_let_through() {
 fn check_fails_closed_without_rustc() {
     let result = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
         .arg("check")
-        .arg(repo().join("examples/counter"))
+        .arg(support::repo().join("examples/counter"))
         .env("RUSTC", "/nonexistent/rustc")
         .output()
         .expect("run purecrate-ts");
@@ -155,7 +151,7 @@ fn check_fails_closed_without_rustc() {
 
 #[test]
 fn check_without_out_runs_the_subset_checks_and_rustc() {
-    let ok = check(&[repo().join("examples/counter").as_os_str()]);
+    let ok = check(&[support::repo().join("examples/counter").as_os_str()]);
     assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
 
     let bad = check(&[fixture("rejected.rs").as_os_str()]);
@@ -166,8 +162,8 @@ fn check_without_out_runs_the_subset_checks_and_rustc() {
 
 #[test]
 fn check_with_out_passes_on_the_committed_golden() {
-    let crate_dir = repo().join("examples/counter");
-    let golden = repo().join("examples/counter/ts/plain");
+    let crate_dir = support::repo().join("examples/counter");
+    let golden = support::repo().join("examples/counter/ts/plain");
     let result = check(&[crate_dir.as_os_str(), "--out".as_ref(), golden.as_os_str()]);
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
 }
@@ -176,12 +172,12 @@ fn check_with_out_passes_on_the_committed_golden() {
 fn check_with_out_lists_every_drifted_file() {
     let dir = scratch("drift");
     let out = dir.join("pkg");
-    copy_tree(&repo().join("examples/counter/ts/plain"), &out);
+    copy_tree(&support::repo().join("examples/counter/ts/plain"), &out);
     fs::write(out.join("src/step.ts"), "// edited by hand\n").expect("edit");
     fs::remove_file(out.join("src/event.ts")).expect("remove");
     fs::write(out.join("src/notes.ts"), "").expect("extra");
 
-    let crate_dir = repo().join("examples/counter");
+    let crate_dir = support::repo().join("examples/counter");
     let result = check(&[crate_dir.as_os_str(), "--out".as_ref(), out.as_os_str()]);
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert_eq!(result.status.code(), Some(1), "{stderr}");
@@ -201,7 +197,7 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
     let dir = scratch("ok");
     let out = dir.join("pkg");
     let src = dir.join("lib.rs");
-    let counter = fs::read_to_string(repo().join("examples/counter/src/lib.rs")).expect("read counter");
+    let counter = fs::read_to_string(support::repo().join("examples/counter/src/lib.rs")).expect("read counter");
     fs::write(&src, format!("{counter}\nfn unused(s: State) -> State {{ s }}\n")).expect("write source");
 
     let first = build(&src, &out);
@@ -224,7 +220,7 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
 fn rebuild_keeps_node_modules_and_drops_stale_dist() {
     let dir = scratch("keep-nm");
     let out = dir.join("pkg");
-    let src = repo().join("examples/counter/src/lib.rs");
+    let src = support::repo().join("examples/counter/src/lib.rs");
     let first = build(&src, &out);
     assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
     fs::create_dir_all(out.join("node_modules/left")).expect("mkdir node_modules");
@@ -250,7 +246,7 @@ fn build_refuses_to_replace_a_directory_it_did_not_write() {
     fs::create_dir_all(out.join("src")).expect("mkdir out");
     fs::write(out.join("driver.ts"), "keep").expect("write driver");
     fs::write(out.join("src/index.ts"), "export {};\n").expect("write index");
-    let src = repo().join("examples/counter/src/lib.rs");
+    let src = support::repo().join("examples/counter/src/lib.rs");
 
     let result = build(&src, &out);
     let stderr = String::from_utf8_lossy(&result.stderr);
@@ -450,7 +446,7 @@ fn build_with(flags: &[&str], out: &Path) -> Output {
 fn build_example(example: &str, flags: &[&str], out: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
         .arg("build")
-        .arg(repo().join("examples").join(example))
+        .arg(support::repo().join("examples").join(example))
         .args(flags)
         .arg("--out")
         .arg(out)
@@ -494,7 +490,7 @@ fn generated_package_is_private_unless_publishable() {
     assert!(!manifest(&publishable).contains("private"));
 
     // `check --out` compares with the same access, so the flag must match.
-    let counter = repo().join("examples/counter");
+    let counter = support::repo().join("examples/counter");
     let against = |out: &Path, flags: &[&str]| {
         let mut args: Vec<&std::ffi::OsStr> = vec![counter.as_os_str()];
         args.extend(flags.iter().map(std::ffi::OsStr::new));
@@ -530,7 +526,7 @@ fn generated_packages_need_only_the_schema_library() {
     assert!(wired.join("src/purecrate-zod.ts").exists());
     if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {
         support::typecheck(&plain);
-        let zod = repo().join("packages/boundary-zod/node_modules/zod");
+        let zod = support::repo().join("packages/boundary-zod/node_modules/zod");
         fs::create_dir_all(wired.join("node_modules")).expect("mkdir node_modules");
         std::os::unix::fs::symlink(&zod, wired.join("node_modules/zod")).expect("link zod");
         support::typecheck(&wired);

@@ -11,8 +11,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod invoice = "../../../examples/invoice/src/lib.rs");
 
-const SOURCE: &str = invoice::SOURCE;
-
 /// The same rules without the subset's constraints. Not converted.
 mod idiomatic {
     #[derive(Clone, Copy, PartialEq)]
@@ -310,5 +308,5 @@ fn generated_invoice_matches_rust() {
     let cases = support::quietly(|| invoices.iter().map(|inv| case!(invoice::summarize(inv))).collect::<Vec<_>>());
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "the overflow case must panic");
     assert!(cases.iter().any(|c| c.rust.starts_with("Err(InvoiceError::NoLines)")));
-    support::assert_equivalent("invoice", SOURCE, &cases);
+    support::assert_equivalent("invoice", invoice::SOURCE, &cases);
 }

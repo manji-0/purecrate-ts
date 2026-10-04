@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod strict_types = "fixtures/strict_types.rs");
 
-const SOURCE: &str = strict_types::SOURCE;
-
 #[test]
 fn generated_types_check_and_match_rust() {
     let cases = support::quietly(|| {
@@ -21,5 +19,5 @@ fn generated_types_check_and_match_rust() {
         cases.push(case!(strict_types::first(3i32)));
         cases
     });
-    support::assert_equivalent("strict_types", SOURCE, &cases);
+    support::assert_equivalent("strict_types", strict_types::SOURCE, &cases);
 }

@@ -8,8 +8,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod semver = "../../../examples/semver/src/lib.rs", "fixtures/semver_driver.rs");
 
-const SOURCE: &str = semver::SOURCE;
-
 /// SemVer 2.0.0 as one would write it without the subset's constraints.
 /// Not converted; the reference only.
 mod idiomatic {
@@ -310,5 +308,5 @@ fn semver_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("semver", SOURCE, &cases);
+    support::assert_equivalent("semver", semver::SOURCE, &cases);
 }

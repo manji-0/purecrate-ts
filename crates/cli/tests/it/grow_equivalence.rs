@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod grow = "fixtures/grow.rs");
 
-const SOURCE: &str = grow::SOURCE;
-
 #[test]
 fn grown_vecs_match_rust() {
     let cases = support::quietly(|| {
@@ -32,7 +30,7 @@ fn grown_vecs_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("grow", SOURCE, &cases);
+    support::assert_equivalent("grow", grow::SOURCE, &cases);
 }
 
 fn refused(src: &str) -> String {

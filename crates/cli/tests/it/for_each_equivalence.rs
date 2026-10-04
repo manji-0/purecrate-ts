@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod for_each = "fixtures/for_each.rs");
 
-const SOURCE: &str = for_each::SOURCE;
-
 #[test]
 fn generated_for_each_matches_rust() {
     use for_each::Line;
@@ -56,5 +54,5 @@ fn generated_for_each_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("for_each", SOURCE, &cases);
+    support::assert_equivalent("for_each", for_each::SOURCE, &cases);
 }

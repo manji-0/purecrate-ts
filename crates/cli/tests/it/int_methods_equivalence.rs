@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod int_methods = "fixtures/int_methods.rs");
 
-const SOURCE: &str = int_methods::SOURCE;
-
 #[test]
 fn generated_int_methods_match_rust() {
     let cases = support::quietly(|| {
@@ -67,7 +65,7 @@ fn generated_int_methods_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("int_methods", SOURCE, &cases);
+    support::assert_equivalent("int_methods", int_methods::SOURCE, &cases);
 }
 
 /// Random operands, half at the edges of each width: 400 draws per function.
@@ -98,5 +96,5 @@ fn random_int_methods_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("int_methods_random", SOURCE, &cases);
+    support::assert_equivalent("int_methods_random", int_methods::SOURCE, &cases);
 }

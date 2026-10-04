@@ -12,8 +12,6 @@ use uuid::Uuid;
 
 purecrate_canon::fixture!(mod uuids = "fixtures/uuids.rs");
 
-const SOURCE: &str = uuids::SOURCE;
-
 /// xorshift64*, so the corpus is the same on every run.
 struct Rng(u64);
 
@@ -128,5 +126,5 @@ fn uuids_parse_and_compare_as_in_rust() {
     // The forms the crate prints all parse, so the corpus reaches `Ok`.
     let accepted = texts.iter().filter(|s| Uuid::parse_str(s).is_ok()).count();
     assert!(accepted > 60 * 8, "only {accepted} accepted inputs");
-    support::assert_equivalent("uuids", SOURCE, &cases);
+    support::assert_equivalent("uuids", uuids::SOURCE, &cases);
 }

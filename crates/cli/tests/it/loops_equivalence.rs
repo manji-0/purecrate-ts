@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod loops = "fixtures/loops.rs");
 
-const SOURCE: &str = loops::SOURCE;
-
 #[test]
 fn for_ranges_match_rust() {
     let cases = support::quietly(|| {
@@ -35,5 +33,5 @@ fn for_ranges_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("loops", SOURCE, &cases);
+    support::assert_equivalent("loops", loops::SOURCE, &cases);
 }

@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod empty_arm = "fixtures/empty_arm.rs");
 
-const SOURCE: &str = empty_arm::SOURCE;
-
 #[test]
 fn generated_empty_arms_match_rust() {
     let cases = support::quietly(|| {
@@ -27,5 +25,5 @@ fn generated_empty_arms_match_rust() {
         cases.push(case!(empty_arm::all_return(None::<u32>)));
         cases
     });
-    support::assert_equivalent("empty_arm", SOURCE, &cases);
+    support::assert_equivalent("empty_arm", empty_arm::SOURCE, &cases);
 }

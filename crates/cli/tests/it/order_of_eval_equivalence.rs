@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod order_of_eval = "fixtures/order_of_eval.rs");
 
-const SOURCE: &str = order_of_eval::SOURCE;
-
 #[test]
 fn generated_evaluation_order_matches_rust() {
     let cases = support::quietly(|| {
@@ -70,5 +68,5 @@ fn generated_evaluation_order_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("order_of_eval", SOURCE, &cases);
+    support::assert_equivalent("order_of_eval", order_of_eval::SOURCE, &cases);
 }

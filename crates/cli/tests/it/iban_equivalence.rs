@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod iban = "../../../examples/iban/src/lib.rs", "fixtures/iban_driver.rs");
 
-const SOURCE: &str = iban::SOURCE;
-
 /// ISO 13616-1 electronic format with MOD 97-10, as one would write it
 /// without the subset's constraints. Not converted; the reference only.
 mod idiomatic {
@@ -126,5 +124,5 @@ fn constrained_rust_is_the_idiomatic_rules() {
 fn iban_matches_rust() {
     let cases =
         support::quietly(|| inputs().into_iter().map(|s| case!(iban::parse_iban(s.clone()))).collect::<Vec<_>>());
-    support::assert_equivalent("iban", SOURCE, &cases);
+    support::assert_equivalent("iban", iban::SOURCE, &cases);
 }

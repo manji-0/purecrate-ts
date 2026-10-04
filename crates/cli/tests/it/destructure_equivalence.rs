@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod destructure = "fixtures/destructure.rs");
 
-const SOURCE: &str = destructure::SOURCE;
-
 #[test]
 fn generated_destructuring_matches_rust() {
     let cases = support::quietly(|| {
@@ -36,5 +34,5 @@ fn generated_destructuring_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("destructure", SOURCE, &cases);
+    support::assert_equivalent("destructure", destructure::SOURCE, &cases);
 }

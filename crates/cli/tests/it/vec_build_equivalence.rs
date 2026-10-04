@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod vec_build = "fixtures/vec_build.rs");
 
-const SOURCE: &str = vec_build::SOURCE;
-
 #[test]
 fn generated_vec_literals_match_rust() {
     use vec_build::Strength;
@@ -39,5 +37,5 @@ fn generated_vec_literals_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("vec_build", SOURCE, &cases);
+    support::assert_equivalent("vec_build", vec_build::SOURCE, &cases);
 }

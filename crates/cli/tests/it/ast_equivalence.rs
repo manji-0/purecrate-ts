@@ -4,8 +4,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod ast = "fixtures/ast.rs");
 
-const SOURCE: &str = ast::SOURCE;
-
 #[test]
 fn generated_recursive_enum_matches_rust() {
     let ns = [-4i32, -1, 0, 2, 9];
@@ -26,5 +24,5 @@ fn generated_recursive_enum_matches_rust() {
         cases.push(case!(ast::boxed_opt(None::<i32>)));
         cases
     });
-    support::assert_equivalent("ast", SOURCE, &cases);
+    support::assert_equivalent("ast", ast::SOURCE, &cases);
 }

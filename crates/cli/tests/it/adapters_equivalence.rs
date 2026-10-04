@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod adapters = "fixtures/adapters.rs");
 
-const SOURCE: &str = adapters::SOURCE;
-
 #[test]
 fn adapters_match_rust() {
     let lists: Vec<Vec<u32>> = vec![
@@ -38,5 +36,5 @@ fn adapters_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("adapters", SOURCE, &cases);
+    support::assert_equivalent("adapters", adapters::SOURCE, &cases);
 }

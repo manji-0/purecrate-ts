@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod consumers = "fixtures/consumers.rs");
 
-const SOURCE: &str = consumers::SOURCE;
-
 #[test]
 fn generated_consumers_match_rust() {
     let cases = support::quietly(|| {
@@ -47,7 +45,7 @@ fn generated_consumers_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("consumers", SOURCE, &cases);
+    support::assert_equivalent("consumers", consumers::SOURCE, &cases);
 }
 
 /// The consumers print as calls to the runtime's `Iter`, the closure as an

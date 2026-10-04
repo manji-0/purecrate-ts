@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod control = "fixtures/control.rs");
 
-const SOURCE: &str = control::SOURCE;
-
 #[test]
 fn generated_control_flow_matches_rust() {
     let cases = support::quietly(|| {
@@ -82,5 +80,5 @@ fn generated_control_flow_matches_rust() {
             case!(control::unit_some(1i32)),
         ]
     });
-    support::assert_equivalent("control", SOURCE, &cases);
+    support::assert_equivalent("control", control::SOURCE, &cases);
 }

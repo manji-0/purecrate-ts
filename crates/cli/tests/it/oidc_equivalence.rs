@@ -16,8 +16,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod oidc = "../../../examples/oidc/src/lib.rs", "fixtures/oidc_driver.rs");
 
-const SOURCE: &str = oidc::SOURCE;
-
 /// The same flow as one would write it without the subset's constraints:
 /// iterators, `from_be_bytes`, a tuple `match` with guards. Not
 /// converted; the reference only.
@@ -1625,5 +1623,5 @@ fn generated_oidc_matches_rust() {
     ] {
         assert!(cases.iter().any(|c| c.rust.contains(reached)), "no case reaches {reached}");
     }
-    support::assert_equivalent("oidc", SOURCE, &cases);
+    support::assert_equivalent("oidc", oidc::SOURCE, &cases);
 }

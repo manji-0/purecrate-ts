@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod borrow = "fixtures/borrow.rs");
 
-const SOURCE: &str = borrow::SOURCE;
-
 #[test]
 fn generated_borrowing_code_matches_rust() {
     let cases = support::quietly(|| {
@@ -25,5 +23,5 @@ fn generated_borrowing_code_matches_rust() {
             case!(borrow::label("north", "south", false)),
         ]
     });
-    support::assert_equivalent("borrow", SOURCE, &cases);
+    support::assert_equivalent("borrow", borrow::SOURCE, &cases);
 }

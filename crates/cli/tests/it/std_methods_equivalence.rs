@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod std_methods = "fixtures/std_methods.rs");
 
-const SOURCE: &str = std_methods::SOURCE;
-
 #[test]
 fn generated_std_methods_match_rust() {
     use std_methods::Cart;
@@ -48,5 +46,5 @@ fn generated_std_methods_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("std_methods", SOURCE, &cases);
+    support::assert_equivalent("std_methods", std_methods::SOURCE, &cases);
 }

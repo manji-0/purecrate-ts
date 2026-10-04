@@ -12,311 +12,15 @@ use std::panic::{self, UnwindSafe};
 use std::process::Command;
 
 use purecrate_check::accept;
-use purecrate_ir::{Crate, Item, Prim, Ty, VariantFields, NEWTYPE_FIELD};
 use purecrate_pack::{assemble, disk_path};
 use purecrate_syntax::parse_source;
 
-/// A Rust value as a TS argument expression.
-pub trait Js {
-    fn js(&self) -> String;
-}
+pub mod corpus;
+mod driver;
+mod values;
 
-macro_rules! js_number {
-    ($($t:ty),*) => {$(
-        impl Js for $t {
-            fn js(&self) -> String {
-                self.to_string()
-            }
-        }
-    )*};
-}
-js_number!(i8, i16, i32, u8, u16, u32, usize, bool);
-
-macro_rules! js_bigint {
-    ($($t:ty),*) => {$(
-        impl Js for $t {
-            fn js(&self) -> String {
-                format!("{self}n")
-            }
-        }
-    )*};
-}
-js_bigint!(i64, u64);
-
-impl Js for f32 {
-    fn js(&self) -> String {
-        format!("Math.fround({:?})", f64::from(*self))
-    }
-}
-
-impl Js for f64 {
-    fn js(&self) -> String {
-        format!("{self:?}")
-    }
-}
-
-impl<T: Js + ?Sized> Js for &T {
-    fn js(&self) -> String {
-        (**self).js()
-    }
-}
-
-/// `{:?}` is a JS string literal too: JS reads its `\u{…}` escapes, and a
-/// code point Rust prints as is stays as is.
-impl Js for str {
-    fn js(&self) -> String {
-        format!("{self:?}")
-    }
-}
-
-impl Js for String {
-    fn js(&self) -> String {
-        self.as_str().js()
-    }
-}
-
-/// A one-code-point string; the `Char` brand exists only in types.
-impl Js for char {
-    fn js(&self) -> String {
-        self.to_string().js()
-    }
-}
-
-/// The canonical form, as the generated code holds a `Uuid`.
-impl Js for uuid::Uuid {
-    fn js(&self) -> String {
-        self.hyphenated().to_string().js()
-    }
-}
-
-/// A fieldless variant, as the generated code holds std's `Ordering`.
-impl Js for std::cmp::Ordering {
-    fn js(&self) -> String {
-        format!("({{ kind: \"{self:?}\" }})")
-    }
-}
-
-impl<T: Js> Js for [T] {
-    fn js(&self) -> String {
-        format!("[{}]", self.iter().map(Js::js).collect::<Vec<_>>().join(", "))
-    }
-}
-
-impl<T: Js> Js for Vec<T> {
-    fn js(&self) -> String {
-        self.as_slice().js()
-    }
-}
-
-impl<T: Js> Js for Option<T> {
-    fn js(&self) -> String {
-        match self {
-            Some(v) => v.js(),
-            None => "null".into(),
-        }
-    }
-}
-
-/// The generated `Result`: `{ kind, value }` or `{ kind, error }`.
-impl<T: Js, E: Js> Js for Result<T, E> {
-    fn js(&self) -> String {
-        match self {
-            Ok(v) => format!("{{ kind: \"Ok\", value: {} }}", v.js()),
-            Err(e) => format!("{{ kind: \"Err\", error: {} }}", e.js()),
-        }
-    }
-}
-
-/// `Box` and `Arc` are erased in TS.
-impl<T: Js + ?Sized> Js for Box<T> {
-    fn js(&self) -> String {
-        (**self).js()
-    }
-}
-
-impl<T: Js + ?Sized> Js for std::sync::Arc<T> {
-    fn js(&self) -> String {
-        (**self).js()
-    }
-}
-
-impl<T: Js> Js for std::sync::Mutex<T> {
-    fn js(&self) -> String {
-        self.lock().expect("unpoisoned").js()
-    }
-}
-
-impl Js for () {
-    fn js(&self) -> String {
-        "undefined".into()
-    }
-}
-
-impl<A: Js, B: Js> Js for (A, B) {
-    fn js(&self) -> String {
-        format!("[{}, {}]", self.0.js(), self.1.js())
-    }
-}
-
-impl<A: Js, B: Js, C: Js> Js for (A, B, C) {
-    fn js(&self) -> String {
-        format!("[{}, {}, {}]", self.0.js(), self.1.js(), self.2.js())
-    }
-}
-
-/// A value as canonical text: the format `purecrate_canon::fixture!` gives
-/// every struct and enum, and the TS driver prints from the same IR
-/// (`ts_printer`). Floats are their bits, so `-0` and `0` differ.
-pub trait Show {
-    fn show(&self) -> String;
-}
-
-macro_rules! show_plain {
-    ($($t:ty),*) => {$(
-        impl Show for $t {
-            fn show(&self) -> String {
-                self.to_string()
-            }
-        }
-    )*};
-}
-show_plain!(i8, i16, i32, i64, u8, u16, u32, u64, usize, bool);
-
-impl Show for f32 {
-    fn show(&self) -> String {
-        f64::from(*self).to_bits().to_string()
-    }
-}
-
-impl Show for f64 {
-    fn show(&self) -> String {
-        self.to_bits().to_string()
-    }
-}
-
-/// Printable ASCII but `"` and `\` as is, any other code point `\u{hex}`.
-impl Show for str {
-    fn show(&self) -> String {
-        let mut out = String::from("\"");
-        for c in self.chars() {
-            if (' '..='~').contains(&c) && c != '"' && c != '\\' {
-                out.push(c);
-            } else {
-                out.push_str(&format!("\\u{{{:x}}}", u32::from(c)));
-            }
-        }
-        out.push('"');
-        out
-    }
-}
-
-/// As a string, between `'`: the TS side cannot tell a one-code-point
-/// string from a `char` otherwise.
-impl Show for char {
-    fn show(&self) -> String {
-        format!("'{}'", self.to_string().show())
-    }
-}
-
-/// `Uuid("…")` with the canonical form: the TS side holds only that form.
-impl Show for uuid::Uuid {
-    fn show(&self) -> String {
-        format!("Uuid({})", self.hyphenated().to_string().show())
-    }
-}
-
-impl Show for uuid::Error {
-    fn show(&self) -> String {
-        "UuidError".into()
-    }
-}
-
-/// As `purecrate_canon` shows a crate enum: the TS side prints the
-/// `Ordering` the parser adds as one.
-impl Show for std::cmp::Ordering {
-    fn show(&self) -> String {
-        format!("Ordering::{self:?}")
-    }
-}
-
-impl Show for String {
-    fn show(&self) -> String {
-        self.as_str().show()
-    }
-}
-
-impl Show for () {
-    fn show(&self) -> String {
-        "()".into()
-    }
-}
-
-impl<T: Show + ?Sized> Show for &T {
-    fn show(&self) -> String {
-        (**self).show()
-    }
-}
-
-impl<T: Show + ?Sized> Show for Box<T> {
-    fn show(&self) -> String {
-        (**self).show()
-    }
-}
-
-impl<T: Show + ?Sized> Show for std::sync::Arc<T> {
-    fn show(&self) -> String {
-        (**self).show()
-    }
-}
-
-impl<T: Show> Show for std::sync::Mutex<T> {
-    fn show(&self) -> String {
-        self.lock().expect("lock").show()
-    }
-}
-
-impl<T: Show> Show for Option<T> {
-    fn show(&self) -> String {
-        match self {
-            Some(v) => format!("Some({})", v.show()),
-            None => "None".into(),
-        }
-    }
-}
-
-impl<T: Show, E: Show> Show for Result<T, E> {
-    fn show(&self) -> String {
-        match self {
-            Ok(v) => format!("Ok({})", v.show()),
-            Err(e) => format!("Err({})", e.show()),
-        }
-    }
-}
-
-impl<T: Show> Show for [T] {
-    fn show(&self) -> String {
-        format!("[{}]", self.iter().map(Show::show).collect::<Vec<_>>().join(", "))
-    }
-}
-
-impl<T: Show> Show for Vec<T> {
-    fn show(&self) -> String {
-        self.as_slice().show()
-    }
-}
-
-macro_rules! show_tuple {
-    ($($t:ident $i:tt),+) => {
-        impl<$($t: Show),+> Show for ($($t,)+) {
-            fn show(&self) -> String {
-                format!("({})", [$(self.$i.show()),+].join(", "))
-            }
-        }
-    };
-}
-show_tuple!(A 0, B 1);
-show_tuple!(A 0, B 1, C 2);
-show_tuple!(A 0, B 1, C 2, D 3);
+use driver::driver;
+pub use values::{Js, Show};
 
 pub struct Case {
     /// Name of the called function.
@@ -357,10 +61,6 @@ thread_local! {
     static QUIET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Runs the Rust side with panic output silenced on this thread. The hook is
-/// installed once for the whole binary and asks a thread-local flag: tests
-/// run in parallel threads of one process, and swapping the process-wide
-/// hook per call would let one test restore another's silent hook.
 /// Inputs for randomized cases: SplitMix64 from a fixed seed, so every run
 /// draws the same cases and a failure names an input that reproduces.
 pub struct Rng(u64);
@@ -401,6 +101,10 @@ impl Rng {
     }
 }
 
+/// Runs the Rust side with panic output silenced on this thread. The hook is
+/// installed once for the whole binary and asks a thread-local flag: tests
+/// run in parallel threads of one process, and swapping the process-wide
+/// hook per call would let one test restore another's silent hook.
 pub fn quietly<T>(f: impl FnOnce() -> T) -> T {
     static HOOK: std::sync::Once = std::sync::Once::new();
     HOOK.call_once(|| {
@@ -440,8 +144,8 @@ pub fn scratch(tag: &str) -> std::path::PathBuf {
 /// then run directly: npx costs about half a second a call, and parallel
 /// calls would race to install into its cache.
 pub fn tsc(major: &str) -> &'static std::path::Path {
-    static RESOLVED: [std::sync::OnceLock<std::path::PathBuf>; 2] =
-        [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    static RESOLVED: [std::sync::OnceLock<std::path::PathBuf>; TS_MAJORS.len()] =
+        [const { std::sync::OnceLock::new() }; TS_MAJORS.len()];
     let i = TS_MAJORS.iter().position(|m| *m == major).expect("a supported TypeScript major");
     RESOLVED[i].get_or_init(|| {
         // From an empty directory: from a package dir, npx would find the
@@ -458,151 +162,35 @@ pub fn tsc(major: &str) -> &'static std::path::Path {
     })
 }
 
-/// The TS half of the canonical text (see `Show`). `ts_printer` composes
-/// these by type.
-const PRELUDE: &str = r#"import * as pkg from "./src/index.ts";
-const int = (x) => (Object.is(x, -0) ? "-0" : String(x));
-const bits = (x) => String(new BigUint64Array(new Float64Array([x]).buffer)[0]);
-const str = (s) => {
-  let out = '"';
-  for (const c of s) {
-    const p = c.codePointAt(0);
-    out += p >= 0x20 && p <= 0x7e && c !== '"' && c !== "\\" ? c : `\\u{${p.toString(16)}}`;
-  }
-  return out + '"';
-};
-const chr = (c) => `'${str(c)}'`;
-const unit = (x) => (x === undefined ? "()" : `not unit: ${String(x)}`);
-const opt = (f) => (x) => (x === null ? "None" : `Some(${f(x)})`);
-const res = (f, g) => (x) => (x.kind === "Ok" ? `Ok(${f(x.value)})` : `Err(${g(x.error)})`);
-const vec = (f) => (xs) => `[${xs.map((x) => f(x)).join(", ")}]`;
-const tup = (fs) => (xs) => `(${fs.map((f, i) => f(xs[i])).join(", ")})`;
-const run = (f, print) => {
-  let r;
-  try {
-    r = f();
-  } catch (e) {
-    return `panic(${e instanceof Error ? e.message : String(e)})`;
-  }
-  return print(r);
-};
-"#;
+/// The repository's root.
+pub fn repo() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
 
-/// A JS function that prints a value of `ty` as `Show` does in Rust.
-fn ts_printer(krate: &Crate, ty: &Ty) -> String {
-    match ty {
-        Ty::Prim(p) => match p {
-            Prim::Bool => "String".into(),
-            Prim::F32 | Prim::F64 => "bits".into(),
-            Prim::String | Prim::Str => "str".into(),
-            Prim::Char => "chr".into(),
-            Prim::Uuid => "((x) => `Uuid(${str(x)})`)".into(),
-            Prim::UuidError => "(() => \"UuidError\")".into(),
-            Prim::Unit => "unit".into(),
-            _ => "int".into(),
-        },
-        Ty::Option(inner) => format!("opt({})", ts_printer(krate, inner)),
-        Ty::Result { ok, err } => format!("res({}, {})", ts_printer(krate, ok), ts_printer(krate, err)),
-        Ty::Vec(inner) => format!("vec({})", ts_printer(krate, inner)),
-        Ty::Tuple(elems) => {
-            format!("tup([{}])", elems.iter().map(|t| ts_printer(krate, t)).collect::<Vec<_>>().join(", "))
-        }
-        Ty::Ignored { inner, .. } => ts_printer(krate, inner),
-        Ty::Named(n) => match krate.items.iter().find(|i| i.name() == n) {
-            Some(Item::Alias(al)) => ts_printer(krate, &al.ty),
-            // Wrapped: the printer may be declared further down.
-            Some(Item::Struct(_) | Item::Enum(_)) => format!("((x) => show${}(x))", n.as_str()),
-            _ => panic!("no printable type `{}`", n.as_str()),
-        },
-        Ty::Fn { .. } | Ty::Never => panic!("a case cannot return {ty:?}"),
+/// The file `stem` of the package generated from `source` (no schema).
+pub fn emitted(name: &str, source: &str, stem: &str) -> String {
+    let krate = parse_source(name, source).expect("parse");
+    let typed = accept(&krate).unwrap_or_else(|d| panic!("{name} rejected: {d:#?}"));
+    assemble(&typed).files.into_iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("missing {stem}")).source
+}
+
+/// Writes each file of `package` under `dir`.
+pub fn write_package(dir: &std::path::Path, package: &purecrate_emit_ts::Package) {
+    for file in &package.files {
+        let path = dir.join(disk_path(&file.stem));
+        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        fs::write(path, &file.source).expect("write");
     }
 }
 
-/// `show$T` for every struct and enum: the TS shape of the value (design/03
-/// §2) printed as `purecrate_canon` prints the Rust one.
-fn ts_printers(krate: &Crate) -> String {
-    let mut out = String::new();
-    for item in &krate.items {
-        match item {
-            Item::Struct(st) => {
-                let name = st.name.as_str();
-                let body = match st.fields.as_slice() {
-                    [] => format!("{name:?}"),
-                    [f] if f.name.as_str() == NEWTYPE_FIELD => {
-                        format!("`{name}(${{({})(v)}})`", ts_printer(krate, &f.ty))
-                    }
-                    fields => format!("`{name} {{ {} }}`", ts_fields(krate, fields, "v")),
-                };
-                out.push_str(&format!("const show${name} = (v) => {body};\n"));
-            }
-            Item::Enum(en) => {
-                let name = en.name.as_str();
-                let mut arms = String::new();
-                for v in &en.variants {
-                    let var = v.name.as_str();
-                    let text = match &v.fields {
-                        VariantFields::Unit => format!("\"{name}::{var}\""),
-                        VariantFields::Tuple(tys) => format!(
-                            "`{name}::{var}({})`",
-                            tys.iter()
-                                .enumerate()
-                                .map(|(i, t)| {
-                                    let field =
-                                        if tys.len() == 1 { "v.value".to_string() } else { format!("v.content[{i}]") };
-                                    format!("${{({})({field})}}", ts_printer(krate, t))
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                        VariantFields::Struct(fields) => {
-                            format!("`{name}::{var} {{ {} }}`", ts_fields(krate, fields, "v"))
-                        }
-                    };
-                    arms.push_str(&format!("    case \"{var}\": return {text};\n"));
-                }
-                out.push_str(&format!(
-                    "const show${name} = (v) => {{\n  switch (v.kind) {{\n{arms}    default: return `not a {name}: ${{String(v.kind)}}`;\n  }}\n}};\n"
-                ));
-            }
-            Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
-        }
-    }
-    out
-}
-
-fn ts_fields(krate: &Crate, fields: &[purecrate_ir::Field], value: &str) -> String {
-    fields
-        .iter()
-        .map(|f| {
-            let n = f.name.as_str();
-            format!("{n}: ${{({})({value}.{n})}}", ts_printer(krate, &f.ty))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn driver(krate: &Crate, cases: &[Case]) -> String {
-    // The TS spelling of each function (`check::rename`).
-    let mut names: Vec<String> = cases.iter().map(|c| purecrate_ir::to_camel(c.name)).collect();
-    names.sort();
-    names.dedup();
-    let mut out = String::from(PRELUDE);
-    out.push_str(&ts_printers(krate));
-    out.push_str(&format!("const {{ {} }} = pkg;\n", names.join(", ")));
-    out.push_str("const out = [\n");
-    for c in cases {
-        let ret = krate
-            .items
-            .iter()
-            .find_map(|i| match i {
-                Item::Fn(f) if f.owner.is_none() && f.name.as_str() == c.name => Some(&f.ret),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("no free function `{}`", c.name));
-        out.push_str(&format!("  run(() => {}, {}),\n", c.call, ts_printer(krate, ret)));
-    }
-    out.push_str("];\nconsole.log(out.join(\"\\n\"));\n");
-    out
+/// `dir/node_modules/<name>` as a link to `packages/<rel>` in this
+/// repository.
+pub fn link(dir: &std::path::Path, name: &str, rel: &str) {
+    let target = repo().join("packages").join(rel);
+    let modules = dir.join("node_modules").join(name);
+    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir");
+    let _ = fs::remove_file(&modules);
+    std::os::unix::fs::symlink(&target, &modules).unwrap_or_else(|e| panic!("link {name}: {e} ({target:?})"));
 }
 
 /// TypeScript majors the generated package must type-check under: 6 is the
@@ -620,7 +208,7 @@ pub fn typecheck(dir: &std::path::Path) {
 
 /// Whether `tsc -p` accepts the generated package under each of
 /// `TS_MAJORS`; what it refuses is printed.
-pub fn types_checked(dir: &std::path::Path) -> bool {
+fn types_checked(dir: &std::path::Path) -> bool {
     let mut ok = true;
     for major in TS_MAJORS {
         let project = dir.to_str().expect("utf-8 path");
@@ -663,11 +251,7 @@ fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bo
     let krate = parse_source(crate_name, source).unwrap_or_else(|e| panic!("parse {crate_name}: {e}"));
     let typed = accept(&krate).unwrap_or_else(|d| panic!("{crate_name} rejected: {d:#?}"));
     let dir = scratch(&format!("{crate_name}-eq"));
-    for file in assemble(&typed).files {
-        let path = dir.join(disk_path(&file.stem));
-        fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        fs::write(path, file.source).expect("write");
-    }
+    write_package(&dir, &assemble(&typed));
     fs::write(dir.join("driver.ts"), driver(&krate, cases)).expect("write driver");
     let types_ok = if types_required {
         typecheck(&dir);

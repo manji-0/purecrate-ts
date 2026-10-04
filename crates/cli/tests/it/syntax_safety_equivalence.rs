@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod syntax_safety = "fixtures/syntax_safety.rs");
 
-const SOURCE: &str = syntax_safety::SOURCE;
-
 #[test]
 fn generated_syntax_matches_rust() {
     let cases = support::quietly(|| {
@@ -30,5 +28,5 @@ fn generated_syntax_matches_rust() {
         }
         cases
     });
-    support::assert_equivalent("syntax_safety", SOURCE, &cases);
+    support::assert_equivalent("syntax_safety", syntax_safety::SOURCE, &cases);
 }

@@ -17,7 +17,7 @@ use std::process::Command;
 
 use purecrate_check::accept;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::{assemble_with, disk_path};
+use purecrate_pack::assemble_with;
 use purecrate_syntax::parse_source;
 
 const SOURCE: &str = include_str!("../fixtures/wire_shapes.rs");
@@ -175,18 +175,11 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
     for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
         let lib = schema.runtime_dep();
         let dir = support::scratch(&format!("wire-{lib}"));
-        if dir.exists() {
-            fs::remove_dir_all(&dir).ok();
-        }
-        for file in assemble_with(&typed, Some(schema)).files {
-            let path = dir.join(disk_path(&file.stem));
-            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-            fs::write(path, file.source).expect("write");
-        }
+        support::write_package(&dir, &assemble_with(&typed, Some(schema)));
         let package = format!("boundary-{lib}");
-        link(&dir, lib, &format!("{package}/node_modules/{lib}"));
+        support::link(&dir, lib, &format!("{package}/node_modules/{lib}"));
         if schema == WireSchema::Arktype {
-            link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
+            support::link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
         }
         support::typecheck(&dir);
 
@@ -214,14 +207,6 @@ fn wire_schemas_type_check_and_read_serde_json_into_the_domain_value() {
         );
         let _ = fs::remove_dir_all(&dir);
     }
-}
-
-fn link(dir: &std::path::Path, name: &str, rel: &str) {
-    let target = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages").join(rel);
-    let modules = dir.join("node_modules").join(name);
-    fs::create_dir_all(modules.parent().expect("node_modules")).expect("mkdir");
-    let _ = fs::remove_file(&modules);
-    std::os::unix::fs::symlink(&target, &modules).unwrap_or_else(|e| panic!("link {name}: {e} ({target:?})"));
 }
 
 /// Only serde's derives give a type a wire form (design/04 §3.2): a schema

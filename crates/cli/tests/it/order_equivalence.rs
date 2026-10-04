@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod order = "../../../examples/order/src/lib.rs", "fixtures/order_driver.rs");
 
-const SOURCE: &str = order::SOURCE;
-
 #[test]
 fn generated_order_lifecycle_matches_rust() {
     let codes = 0u8..10;
@@ -50,5 +48,5 @@ fn generated_order_lifecycle_matches_rust() {
     ] {
         assert!(cases.iter().any(|c| c.rust.starts_with(reached)), "no run reaches {reached}");
     }
-    support::assert_equivalent("order", SOURCE, &cases);
+    support::assert_equivalent("order", order::SOURCE, &cases);
 }

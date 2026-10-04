@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod methods = "fixtures/methods.rs");
 
-const SOURCE: &str = methods::SOURCE;
-
 #[test]
 fn generated_method_calls_match_rust() {
     let ranks = [2u8, 10, 11, 13];
@@ -26,5 +24,5 @@ fn generated_method_calls_match_rust() {
         cases.push(case!(methods::total(250u8, 3u8)));
         cases
     });
-    support::assert_equivalent("methods", SOURCE, &cases);
+    support::assert_equivalent("methods", methods::SOURCE, &cases);
 }

@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod display = "fixtures/display.rs");
 
-const SOURCE: &str = display::SOURCE;
-
 #[test]
 fn generated_display_matches_rust() {
     let cases = support::quietly(|| {
@@ -21,12 +19,12 @@ fn generated_display_matches_rust() {
         cases.push(case!(display::show_formatted(display::Formatted::N(3))));
         cases
     });
-    support::assert_equivalent("display", SOURCE, &cases);
+    support::assert_equivalent("display", display::SOURCE, &cases);
 }
 
 #[test]
 fn display_with_arguments_is_skipped() {
-    let krate = purecrate_syntax::parse_source("display", SOURCE).expect("parse");
+    let krate = purecrate_syntax::parse_source("display", display::SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();

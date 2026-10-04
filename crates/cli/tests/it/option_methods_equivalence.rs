@@ -7,8 +7,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod option_methods = "fixtures/option_methods.rs");
 
-const SOURCE: &str = option_methods::SOURCE;
-
 #[test]
 fn generated_option_methods_match_rust() {
     let cases = support::quietly(|| {
@@ -50,7 +48,7 @@ fn generated_option_methods_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("option_methods", SOURCE, &cases);
+    support::assert_equivalent("option_methods", option_methods::SOURCE, &cases);
 }
 
 /// `let x = opt.ok_or(e)?` prints as a guard. A variant literal `e` is
@@ -58,7 +56,7 @@ fn generated_option_methods_match_rust() {
 /// overflow is still bound before the test (it is eager).
 #[test]
 fn ok_or_then_try_is_a_guard() {
-    let krate = purecrate_syntax::parse_source("guard", SOURCE).expect("parse");
+    let krate = purecrate_syntax::parse_source("guard", option_methods::SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&purecrate_check::prune_unreachable(&typed));
     let src = &pkg.files.iter().find(|f| f.stem == "total").expect("total").source;
@@ -121,7 +119,7 @@ fn an_unwrapped_option_is_held_in_its_binding() {
 /// `Option` held between them.
 #[test]
 fn map_then_unwrap_or_is_one_test() {
-    let krate = purecrate_syntax::parse_source("fused", SOURCE).expect("parse");
+    let krate = purecrate_syntax::parse_source("fused", option_methods::SOURCE).expect("parse");
     let typed = purecrate_check::accept(&krate).expect("accept");
     let pkg = purecrate_pack::assemble(&typed);
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();

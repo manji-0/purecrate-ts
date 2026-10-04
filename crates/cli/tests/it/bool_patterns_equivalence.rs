@@ -5,8 +5,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod bool_patterns = "fixtures/bool_patterns.rs");
 
-const SOURCE: &str = bool_patterns::SOURCE;
-
 #[test]
 fn generated_bool_patterns_match_rust() {
     let cases = support::quietly(|| {
@@ -24,5 +22,5 @@ fn generated_bool_patterns_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("bool_patterns", SOURCE, &cases);
+    support::assert_equivalent("bool_patterns", bool_patterns::SOURCE, &cases);
 }

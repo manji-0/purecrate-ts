@@ -6,8 +6,6 @@ use crate::support;
 
 purecrate_canon::fixture!(mod closures = "fixtures/closures.rs");
 
-const SOURCE: &str = closures::SOURCE;
-
 #[test]
 fn generated_closures_match_rust() {
     let xs = [-5i32, -1, 0, 1, 4, 6, 8, 12, 1001, i32::MAX];
@@ -28,5 +26,5 @@ fn generated_closures_match_rust() {
         }
         cases
     });
-    support::assert_equivalent("closures", SOURCE, &cases);
+    support::assert_equivalent("closures", closures::SOURCE, &cases);
 }
