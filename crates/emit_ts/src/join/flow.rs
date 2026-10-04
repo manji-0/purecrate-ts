@@ -176,15 +176,21 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Name)> {
         // g, None => false }`, the guard in the arm): holding, `p` is in an
         // arm that may give `true`; where that is one arm, its case, and its
         // value holds too. TS reads it printed as `p !== null && g`.
-        Expr::Match { scrutinee, arms } if holds && is_place(scrutinee) => {
-            let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(false))).collect();
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
+            // The arms that may give the value tested for (`true` holding).
+            let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(!holds))).collect();
             let [arm] = may.as_slice() else { return Vec::new() };
             let mut out: Vec<(Expr, Name)> = match variants_of(&arm.pattern).as_slice() {
                 [v] => vec![((**scrutinee).clone(), v.clone())],
                 _ => Vec::new(),
             };
-            out.extend(arm.guard.iter().flat_map(|g| tests(g, true)));
-            out.extend(tests(&arm.body, true));
+            if holds {
+                out.extend(arm.guard.iter().flat_map(|g| tests(g, true)));
+            } else if arm.guard.is_some() {
+                // Failing, the arm's guard may be what failed.
+                return Vec::new();
+            }
+            out.extend(tests(&arm.body, holds));
             out
         }
         Expr::Call { callee: callee @ (Callee::OptionIsSome | Callee::OptionIsNone), args } => match args.as_slice() {
@@ -323,7 +329,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     }
     match expr {
         Expr::Match { scrutinee, .. } if is_place(scrutinee) => flow_match(expr, st, cx),
-        Expr::Match { scrutinee, arms } => {
+        Expr::Match { scrutinee, .. } => {
             let s = flow(scrutinee, st, cx)?;
             // A scrutinee narrowing has made a place (`{ let t = if false {
             // .. } else { r }; t }` is `r`) is decided as the place.
@@ -331,6 +337,18 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             if is_place(scrutinee) {
                 return flow_match(expr, s, cx);
             }
+            // ..or a constructor (`{ let t = None; t }`), whose arm is taken
+            // (TS refuses `null ?? a`).
+            if let Expr::Let { name, value, then, .. } = &**scrutinee {
+                if **then == Expr::Var(name.clone()) && constructed_case(value).is_some() {
+                    **scrutinee = (**value).clone();
+                }
+            }
+            if let Some(taken) = constructed_arm(expr) {
+                *expr = taken;
+                return flow(expr, s, cx);
+            }
+            let Expr::Match { arms, .. } = expr else { unreachable!("matched") };
             let outs: Vec<State> = arms
                 .iter_mut()
                 .filter_map(|arm| {
@@ -395,6 +413,25 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 a.forget(&name);
                 a
             })
+        }
+        // A made binding of a value that does nothing, read once as what
+        // `is_some()` / `is_none()` tests, where nothing writes what it reads
+        // first (`let $value = o.map(f); v = $value.is_none()`): read in
+        // place, so the test folds into the value's `match` (and no
+        // temporary is printed for TS to type from itself in a loop).
+        Expr::Let { name, mutable: false, value, then, .. }
+            if name.as_str().starts_with('$')
+                && effectless(value)
+                && uses(then, name) == 1
+                && tested_once(then, name)
+                && reached_clean(then, name, &reads_of(value)) == Ok(true) =>
+        {
+            let (name, value) = (name.clone(), (**value).clone());
+            let Expr::Let { then, .. } = expr else { unreachable!("matched") };
+            let mut inlined = std::mem::replace(&mut **then, Expr::Lit(Lit::Unit));
+            replace_var(&mut inlined, &name, &value);
+            *expr = inlined;
+            flow(expr, st, cx)
         }
         Expr::Let { mutable, value, then, .. } => {
             let mutable = *mutable;
@@ -581,6 +618,59 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 }
             }
             literal_compare(expr);
+            // `is_some()` of a `match` whose arms build `Some` / `None` (`o.map(f)`)
+            // is that `match` of `true` / `false`: no temporary to hold the
+            // `Option` (TS types one in a loop from itself, TS7022).
+            if let Expr::Call {
+                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
+                args,
+            } = expr
+            {
+                let some = *callee == purecrate_ir::Callee::OptionIsSome;
+                // Through the `let`s that bind the receiver (`let $o = ..;
+                // match $o { .. }`).
+                let mut built = args.first().cloned().filter(|_| args.len() == 1);
+                let mut tail = built.as_mut();
+                while let Some(Expr::Let { then, .. }) = tail {
+                    tail = Some(&mut **then);
+                }
+                if let Some(Expr::Match { scrutinee, arms }) = tail {
+                    let decided: Option<Vec<Arm>> = arms
+                        .iter()
+                        .map(|a| {
+                            let case = constructed_case(&a.body)?;
+                            if !effectless(&a.body) || a.guard.as_ref().is_some_and(|g| !effectless(g)) {
+                                return None;
+                            }
+                            let is = case.as_str() == SOME;
+                            Some(Arm { body: Expr::Lit(Lit::Bool(is == some)), ..a.clone() })
+                        })
+                        .collect();
+                    if let Some(mut arms) = decided {
+                        // The arms bind nothing they read now.
+                        for arm in arms.iter_mut() {
+                            let read = |n: &Name| arm.guard.as_ref().is_some_and(|g| mentions(g, n));
+                            arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
+                        }
+                        *tail.expect("matched") = Expr::Match { scrutinee: scrutinee.clone(), arms };
+                        let mut built = built.expect("matched");
+                        // `let $r = r; match $r { .. }`: the place itself, so a
+                        // test reads it as TS will (`r.kind === "Ok"`).
+                        while let Expr::Let { name, mutable: false, value, then, .. } = &built {
+                            if !(name.as_str().starts_with('$') && is_place(value) && !touches(then, root(value))) {
+                                break;
+                            }
+                            let (name, value) = (name.clone(), (**value).clone());
+                            let Expr::Let { then, .. } = built else { unreachable!("matched") };
+                            built = *then;
+                            replace_var(&mut built, &name, &value);
+                        }
+                        *expr = built;
+                        // The `match` it made is decided as any other.
+                        return flow(expr, s, cx);
+                    }
+                }
+            }
             // `is_some()` of a place whose case is known.
             if let Expr::Call {
                 callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
@@ -643,6 +733,31 @@ fn known_test(cond: &Expr, st: &State) -> Option<(Expr, bool)> {
                 },
             }
         }
+        // A `match` every arm of which that may run gives one known value:
+        // the scrutinee still runs (`matches!(x.checked_mul(b), Some(_) if
+        // false)`).
+        Expr::Match { scrutinee, arms } => {
+            let mut value = None;
+            for arm in arms {
+                if let Some(g) = &arm.guard {
+                    if !effectless(g) {
+                        return None;
+                    }
+                    if known_bool(g, &st.0) == Some(false) {
+                        continue;
+                    }
+                }
+                if !effectless(&arm.body) {
+                    return None;
+                }
+                let v = known_bool(&arm.body, &st.0)?;
+                if value.is_some_and(|w| w != v) {
+                    return None;
+                }
+                value = Some(v);
+            }
+            Some((effects((**scrutinee).clone()), value?))
+        }
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } => {
             let (l, a) = known_test(left, st)?;
             let (r, b) = known_test(right, st)?;
@@ -650,6 +765,97 @@ fn known_test(cond: &Expr, st: &State) -> Option<(Expr, bool)> {
         }
         _ => None,
     }
+}
+
+/// Whether `expr` reads `name` as the argument of `is_some()` /
+/// `is_none()`.
+fn tested_once(expr: &Expr, name: &Name) -> bool {
+    use purecrate_ir::Callee;
+    match expr {
+        Expr::Call { callee: Callee::OptionIsSome | Callee::OptionIsNone, args } => {
+            matches!(args.as_slice(), [Expr::Var(n)] if n == name)
+        }
+        other => other.children().into_iter().any(|c| tested_once(c, name)),
+    }
+}
+
+/// How many times `expr` reads `name`.
+fn uses(expr: &Expr, name: &Name) -> usize {
+    let here = usize::from(matches!(expr, Expr::Var(n) if n == name));
+    here + expr.children().into_iter().map(|c| uses(c, name)).sum::<usize>()
+}
+
+/// Whether evaluating `expr` reaches its read of `name` before anything
+/// writes one of `reads` (`Ok(true)`), passes it by (`Ok(false)`), or
+/// writes first (`Err`). A loop or closure holding the read is clean only
+/// where nothing in it writes them: a later pass reads after a write.
+fn reached_clean(expr: &Expr, name: &Name, reads: &[Name]) -> Result<bool, ()> {
+    let writes = |e: &Expr| reads.iter().any(|n| touches(e, n));
+    match expr {
+        Expr::Var(n) => Ok(n == name),
+        Expr::Assign { name: n, value } => {
+            if reached_clean(value, name, reads)? {
+                return Ok(true);
+            }
+            if reads.contains(n) {
+                Err(())
+            } else {
+                Ok(false)
+            }
+        }
+        Expr::Let { name: n, value, then, .. } => {
+            if reached_clean(value, name, reads)? {
+                return Ok(true);
+            }
+            if n == name || reads.contains(n) {
+                return if uses(then, name) > 0 { Err(()) } else { Ok(false) };
+            }
+            reached_clean(then, name, reads)
+        }
+        Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::Closure { .. } => {
+            if uses(expr, name) == 0 {
+                if writes(expr) {
+                    Err(())
+                } else {
+                    Ok(false)
+                }
+            } else if writes(expr) {
+                Err(())
+            } else {
+                Ok(true)
+            }
+        }
+        Expr::Match { arms, .. }
+            if arms.iter().any(|a| a.pattern.bindings().iter().any(|b| reads.contains(b) || *b == name)) =>
+        {
+            Err(())
+        }
+        other => {
+            for c in other.children() {
+                if reached_clean(c, name, reads)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+    }
+}
+
+/// The names `expr` reads.
+fn reads_of(expr: &Expr) -> Vec<Name> {
+    let mut out = Vec::new();
+    fn walk(e: &Expr, out: &mut Vec<Name>) {
+        if let Expr::Var(n) = e {
+            if !out.contains(n) {
+                out.push(n.clone());
+            }
+        }
+        for c in e.children() {
+            walk(c, out);
+        }
+    }
+    walk(expr, &mut out);
+    out
 }
 
 /// The one case a place is known to hold.

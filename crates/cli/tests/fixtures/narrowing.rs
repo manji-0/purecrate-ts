@@ -500,3 +500,62 @@ pub fn late_write(o: Option<i32>, n: i32) -> i32 {
     }
     k + x.unwrap_or(0)
 }
+
+/// `match { let t = None; t } { .. }` (what an `if` of two `None`s folds
+/// to) takes its `None` arm: no `null ?? a`.
+#[allow(unused_parens, unused_variables)]
+pub fn none_scrutinee(r: Result<i32, i32>, a: i32) -> i32 {
+    match ({
+        let t: Option<i32> = (match r {
+            Ok(_) => None,
+            Err(_) => None,
+        });
+        t
+    }) {
+        Some(v) => v,
+        None => a,
+    }
+}
+
+/// `o.map(f).is_none()` in a loop that writes what `o` is chosen by: the
+/// test reads the `match` itself, with no temporary TS would type from
+/// itself.
+#[allow(unused_parens)]
+pub fn mapped_test_in_loop(o: Option<i32>, n: i32) -> bool {
+    let mut v: bool = false;
+    let mut k: i32 = 0;
+    while k < n % 4 {
+        k += 1;
+        v = ({
+            let t: Option<i32> = (if v { None } else { o });
+            t
+        })
+        .map(|_| 3i32)
+        .is_none();
+    }
+    v
+}
+
+/// A `matches!` whose guard is decided `false` runs its scrutinee alone.
+#[allow(unused_variables)]
+pub fn decided_guard_runs(o: Option<i32>, a: i32, b: i32) -> i32 {
+    let mut k: i32 = 0;
+    if o.is_some() {
+        if matches!(a.checked_mul(b), Some(_) if o.map(|_| 2i32).is_none()) {
+            k = 1;
+        }
+    }
+    k
+}
+
+/// `v = x?` where `x` is known `None` leaves: what follows never runs.
+#[allow(unused_assignments)]
+pub fn assigned_try_leaves(o: Option<i32>, c: bool) -> Option<i32> {
+    let mut v: i32 = o?;
+    let b: Option<i32> = None;
+    if c {
+        v = b?;
+        v += 1;
+    }
+    Some(v)
+}

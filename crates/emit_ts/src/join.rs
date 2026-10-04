@@ -237,6 +237,7 @@ fn ends(expr: &Expr) -> bool {
         Expr::Return(_) | Expr::Break | Expr::Continue => true,
         Expr::Seq { first, then } => ends(first) || ends(then),
         Expr::Let { value, then, .. } => ends(value) || ends(then),
+        Expr::Assign { value, .. } => ends(value),
         Expr::If { cond, then, else_ } => match constant(cond) {
             Some((_, b)) => ends(if b { then } else { else_ }),
             None => ends(then) && ends(else_),

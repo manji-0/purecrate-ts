@@ -111,6 +111,18 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_matches(o, c, 7i32)));
             }
             cases.push(case!(narrowing::decided_or(c, 9i32)));
+            for o in [None, Some(4i32)] {
+                cases.push(case!(narrowing::assigned_try_leaves(o, c)));
+                for n in [0i32, 1, 3] {
+                    cases.push(case!(narrowing::mapped_test_in_loop(o, n)));
+                }
+                for (a, b) in [(2i32, 3i32), (i32::MAX, 2)] {
+                    cases.push(case!(narrowing::decided_guard_runs(o, a, b)));
+                }
+            }
+            for r in [Ok(1i32), Err(2i32)] {
+                cases.push(case!(narrowing::none_scrutinee(r, 7i32)));
+            }
             for o in [None, Some(5i32)] {
                 for n in [0i32, 3, 5] {
                     cases.push(case!(narrowing::late_write(o, n)));
