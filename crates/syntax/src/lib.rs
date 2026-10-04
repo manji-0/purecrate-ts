@@ -359,7 +359,7 @@ mod tests {
                     value: Box::new(Expr::Binary {
                         op: BinOp::Add,
                         left: x(),
-                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: None, byte: false })),
+                        right: Box::new(Expr::Lit(Lit::Int { value: 1, ty: None, byte: false, hex: false })),
                     }),
                 }),
                 then: x(),

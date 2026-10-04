@@ -66,6 +66,10 @@ fn operand(line: &str, at: usize) -> &str {
 
 fn is_number(s: &str) -> bool {
     let s = s.trim_start_matches('-').trim_end_matches('n');
+    // A literal the source wrote in hexadecimal keeps its base (`0x7f`).
+    if let Some(hex) = s.strip_prefix("0x") {
+        return !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
     !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-' | '_'))
 }
 

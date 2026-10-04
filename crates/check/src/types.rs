@@ -53,7 +53,7 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                         let mut folded = e.clone();
                         for (v, (_, d)) in folded.variants.iter_mut().zip(table) {
                             if v.discriminant.is_some() {
-                                v.discriminant = Some(Expr::Lit(Lit::Int { value: d, ty: Some(it), byte: false }));
+                                v.discriminant = Some(Expr::Lit(Lit::Int { value: d, ty: Some(it), byte: false, hex: false }));
                             }
                         }
                         Item::Enum(folded)

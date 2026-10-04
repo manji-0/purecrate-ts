@@ -380,7 +380,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                             v.as_str(),
                             crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                                 value: *d,
-                                ty: Some(*to), byte: false
+                                ty: Some(*to), byte: false, hex: false
                             }))
                         )
                     })
@@ -399,7 +399,7 @@ pub(crate) fn emit_expr(expr: &Expr, indent: usize) -> String {
                         int.as_str(),
                         crate::tidy::strip_outer(&emit_lit(&Lit::Int {
                             value: 0,
-                            ty: Some(*int), byte: false
+                            ty: Some(*int), byte: false, hex: false
                         }))
                     ),
                     m => format!(
@@ -1167,11 +1167,14 @@ pub(crate) fn emit_iife(expr: &Expr, indent: usize) -> String {
 pub(crate) fn emit_lit(lit: &Lit) -> String {
     match lit {
         Lit::Bool(b) => if *b { "true" } else { "false" }.into(),
-        Lit::Int { value, ty, byte } => match ty {
-            Some(t) if t.is_big() => format!("({value}n as {})", t.ts_name()),
-            Some(t) => format!("({}{value} as {})", byte_note(*value, *byte), t.ts_name()),
-            None => value.to_string(),
-        },
+        Lit::Int { value, ty, byte, hex } => {
+            let digits = int_digits(*value, *hex);
+            match ty {
+                Some(t) if t.is_big() => format!("({digits}n as {})", t.ts_name()),
+                Some(t) => format!("({}{digits} as {})", byte_note(*value, *byte), t.ts_name()),
+                None => digits,
+            }
+        }
         Lit::Float { digits, ty } => match ty {
             Some(FloatTy::F32) => f32_literal(digits),
             Some(FloatTy::F64) => format!("({digits} as F64)"),
@@ -1390,10 +1393,21 @@ fn bare(expr: &Expr, indent: usize) -> Option<String> {
 
 /// A literal as a comparison reads it: an integer or a `char` without its
 /// brand (`48`, `2n`, `"a"`); anything else as `emit_lit` prints it.
+/// `value` as the source wrote it: hexadecimal where it was (`0x` and
+/// lowercase digits, in whole bytes: `0x0f`), else decimal.
+fn int_digits(value: i128, hex: bool) -> String {
+    if !hex {
+        return value.to_string();
+    }
+    let digits = format!("{:x}", value.unsigned_abs());
+    let digits = if digits.len() % 2 == 1 { format!("0{digits}") } else { digits };
+    if value < 0 { format!("-0x{digits}") } else { format!("0x{digits}") }
+}
+
 pub(crate) fn bare_lit(lit: &Lit) -> String {
     match lit {
-        Lit::Int { value, ty: Some(t), .. } if t.is_big() => format!("{value}n"),
-        Lit::Int { value, byte, .. } => format!("{}{value}", byte_note(*value, *byte)),
+        Lit::Int { value, ty: Some(t), hex, .. } if t.is_big() => format!("{}n", int_digits(*value, *hex)),
+        Lit::Int { value, byte, hex, .. } => format!("{}{}", byte_note(*value, *byte), int_digits(*value, *hex)),
         Lit::Char(c) => js_string(&c.to_string()),
         other => emit_lit(other),
     }
@@ -1405,13 +1419,13 @@ mod tests {
 
     #[test]
     fn a_byte_literal_names_its_character() {
-        let byte = |value| Lit::Int { value, ty: Some(purecrate_ir::IntTy::U8), byte: true };
+        let byte = |value| Lit::Int { value, ty: Some(purecrate_ir::IntTy::U8), byte: true, hex: false };
         assert_eq!(bare_lit(&byte(46)), "/* '.' */ 46");
         assert_eq!(bare_lit(&byte(39)), r"/* '\'' */ 39");
         assert_eq!(bare_lit(&byte(10)), r"/* '\n' */ 10");
         assert_eq!(bare_lit(&byte(32)), "/* ' ' */ 32");
         assert_eq!(emit_lit(&byte(48)), "(/* '0' */ 48 as U8)");
-        let plain = Lit::Int { value: 48, ty: Some(purecrate_ir::IntTy::U8), byte: false };
+        let plain = Lit::Int { value: 48, ty: Some(purecrate_ir::IntTy::U8), byte: false, hex: false };
         assert_eq!(bare_lit(&plain), "48");
     }
 }

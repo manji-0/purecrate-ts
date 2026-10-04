@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`let x = f(..).ok_or(e)?` holds the option in `x`.** `const qty = Int.u32.checkedAdd(..); if (qty === null) return ..;` instead of a `qtyOpt` copied into `qty`. A `let mut`, a made local, and a receiver that is already a place keep the old form.
+- **A hexadecimal literal stays hexadecimal**, in whole bytes: `0x0f as U8`, `b >= 0x20 && b <= 0x7e`.
+
 ## 0.9.1 — 2026-10-04
 
 Fixes from an audit of 0.9.0: four outputs that disagreed with Rust, two shapes oxlint refused, and documents that lagged the subset. No change to what is accepted, but `ok()` of a `Result` holding an `Option`, which is now refused ([roadmap §8.13](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#813-091-fixes-from-an-audit-of-090-2026-10-04)).

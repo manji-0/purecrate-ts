@@ -24,7 +24,7 @@ import { redirectError } from "./redirect-error.ts";
 const stateIsValid = (state: string): boolean =>
   state.length !== 0 &&
   Str.len(state) <= MAX_STATE_LEN &&
-  Iter.all(Str.bytes(state), (b: U8): boolean => b >= 32 && b <= 126);
+  Iter.all(Str.bytes(state), (b: U8): boolean => b >= 0x20 && b <= 0x7e);
 
 /**
  * A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).

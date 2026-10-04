@@ -26,12 +26,12 @@ export const truncateMac = (mac: ReadonlyArray<U8>, digits: OtpDigits): U32 | nu
   // As RFC 4226 §5.4 writes it; the top bit is masked off.
   const offset = Int.u8.and(
     Slice.at(mac, Int.usize.sub(n, 1 as Usize)),
-    15 as U8,
+    0x0f as U8,
   ) as number as Usize;
   const bin = Int.u32.or(
     Int.u32.or(
       Int.u32.or(
-        Int.u32.shl(Int.u8.and(Slice.at(mac, offset), 127 as U8) as number as U32, 24),
+        Int.u32.shl(Int.u8.and(Slice.at(mac, offset), 0x7f as U8) as number as U32, 24),
         Int.u32.shl(Slice.at(mac, Int.usize.add(offset, 1 as Usize)) as number as U32, 16),
       ),
       Int.u32.shl(Slice.at(mac, Int.usize.add(offset, 2 as Usize)) as number as U32, 8),

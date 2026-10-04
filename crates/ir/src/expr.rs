@@ -8,8 +8,9 @@ use crate::ty::{FloatTy, IntTy, Ty, Wrapper};
 pub enum Lit {
     Bool(bool),
     /// `byte` when the source wrote it as a byte literal (`b'@'`), which
-    /// emit notes beside the number.
-    Int { value: i128, ty: Option<IntTy>, byte: bool },
+    /// emit notes beside the number; `hex` when it wrote `0x..`, which emit
+    /// keeps.
+    Int { value: i128, ty: Option<IntTy>, byte: bool, hex: bool },
     Float { digits: String, ty: Option<FloatTy> },
     Str(String),
     Char(char),
@@ -1260,7 +1261,8 @@ impl Expr {
         Expr::Lit(Lit::Int {
             value: n.into(),
             ty: None,
-    byte: false,
+            byte: false,
+            hex: false,
         })
     }
 }

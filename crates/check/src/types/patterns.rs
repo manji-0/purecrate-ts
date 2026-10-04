@@ -205,7 +205,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     pub(super) fn int_lit(&mut self, lit: &Lit, ty: Option<IntTy>) -> Lit {
         match lit {
-            Lit::Int { value, ty: written, byte } => {
+            Lit::Int { value, ty: written, byte, hex } => {
                 if let (Some(w), Some(t)) = (written, ty) {
                     if *w != t {
                         self.error(Reason::TypeMismatch, format!(
@@ -215,7 +215,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                         ));
                     }
                 }
-                Lit::Int { value: *value, ty: ty.or(*written), byte: *byte }
+                Lit::Int { value: *value, ty: ty.or(*written), byte: *byte, hex: *hex }
             }
             other => other.clone(),
         }

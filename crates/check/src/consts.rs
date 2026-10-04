@@ -55,7 +55,7 @@ impl Folder<'_, '_> {
     fn value(&self, ty: &Ty, expr: &Expr) -> Result<Lit, String> {
         match ty {
             Ty::Prim(p) => match p.int() {
-                Some(it) => Ok(Lit::Int { value: self.int(it, expr)?, ty: Some(it), byte: false }),
+                Some(it) => Ok(Lit::Int { value: self.int(it, expr)?, ty: Some(it), byte: false, hex: false }),
                 None => match (p, expr) {
                     (_, Expr::Var(n)) => self.named(n, ty).and_then(|(t, v)| self.deeper()?.value(&t, v)),
                     (Prim::Bool, Expr::Lit(l @ Lit::Bool(_))) => Ok(l.clone()),
@@ -189,7 +189,7 @@ impl Folder<'_, '_> {
     /// literal is `i32`, as rustc types it.
     fn shift_amount(&self, expr: &Expr) -> Result<i128, String> {
         match expr {
-            Expr::Lit(Lit::Int { value, ty, .. }) => self.int(ty.unwrap_or(IntTy::I32), &Expr::Lit(Lit::Int { value: *value, ty: *ty, byte: false })),
+            Expr::Lit(Lit::Int { value, ty, .. }) => self.int(ty.unwrap_or(IntTy::I32), &Expr::Lit(Lit::Int { value: *value, ty: *ty, byte: false, hex: false })),
             Expr::Var(n) => {
                 let c = self.defs.consts.get(n.as_str()).ok_or_else(|| format!("`{}` is not a const", n.as_str()))?;
                 let it = match &c.ty {

@@ -884,7 +884,8 @@ export const step = (state: State, event: Event): State => {
         let big = Lit::Int {
             value: -5,
             ty: Some(IntTy::I64),
-    byte: false,
+            byte: false,
+            hex: false,
         };
         assert_eq!(emit_lit(&big), "(-5n as I64)");
         let single = Lit::Float {
