@@ -548,10 +548,17 @@ pub(super) struct Comments {
 fn comment_text(line: &str) -> Option<String> {
     match line.trim().strip_prefix("//") {
         Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
-            Some(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string())
+            Some(one_line(rest.strip_prefix(' ').unwrap_or(rest).trim_end()))
         }
         _ => None,
     }
+}
+
+/// `text` with what JS reads as a line end and Rust does not (a lone CR,
+/// U+2028, U+2029) made a space: in a printed `//` comment, the rest of
+/// the line would be code.
+pub(crate) fn one_line(text: &str) -> String {
+    text.replace(['\r', '\u{2028}', '\u{2029}'], " ")
 }
 
 /// Where a `//` comment starts in `line` after code: outside a string, a

@@ -163,7 +163,7 @@ impl Cx {
         for i in (0..line.saturating_sub(1)).rev() {
             match lines.get(i).and_then(|l| l.trim().strip_prefix("//")) {
                 Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
-                    out.push(rest.strip_prefix(' ').unwrap_or(rest).trim_end().to_string());
+                    out.push(crate::expr::one_line(rest.strip_prefix(' ').unwrap_or(rest).trim_end()));
                 }
                 _ => break,
             }

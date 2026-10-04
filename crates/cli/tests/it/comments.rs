@@ -111,3 +111,24 @@ fn comments_above_a_tail_open_the_body() {
     );
     assert!(src.contains("=> {\n  // Exact match.\n  return a === 1;\n};"), "{src}");
 }
+
+#[test]
+fn a_comment_stays_one_line_in_js() {
+    // Rust reads a lone CR, U+2028, and U+2029 inside a `//` comment; JS
+    // ends the line there, so the rest would be code.
+    for sep in ["\r", "\u{2028}", "\u{2029}"] {
+        let src = emitted(
+            &format!(
+                "// k{sep}export const Z = 1;\npub const N: u32 = 1;\npub fn f(x: u32) -> u32 {{\n    // note{sep}if (x === 1) return 42 as U32;\n    let y = x + N;\n    y\n}}\n"
+            ),
+            "f",
+        );
+        assert!(src.contains("// note if (x === 1) return 42 as U32;\n"), "{src:?}");
+        assert!(!src.contains(sep), "{src:?}");
+        let consts = emitted(
+            &format!("// k{sep}export const Z = 1;\npub const N: u32 = 1;\npub fn f() -> u32 {{ N }}\n"),
+            "consts",
+        );
+        assert!(consts.contains("// k export const Z = 1;\n") && !consts.contains(sep), "{consts:?}");
+    }
+}
