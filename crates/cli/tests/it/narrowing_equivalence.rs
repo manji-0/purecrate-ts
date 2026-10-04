@@ -77,6 +77,10 @@ fn generated_narrowing_matches_rust() {
             for k in [-1i32, 0, 3] {
                 cases.push(case!(narrowing::past_returning_if(c, k)));
             }
+            for n in [0i32, 1, 200] {
+                cases.push(case!(narrowing::decided_redeclared(c, n)));
+            }
+            cases.push(case!(narrowing::equal_constructors(c, 9i32)));
         }
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {
@@ -116,6 +120,10 @@ fn generated_narrowing_matches_rust() {
             for k in [-1i32, 0, 3] {
                 cases.push(case!(narrowing::past_returning_if(c, k)));
             }
+            for n in [0i32, 1, 200] {
+                cases.push(case!(narrowing::decided_redeclared(c, n)));
+            }
+            cases.push(case!(narrowing::equal_constructors(c, 9i32)));
         }
         cases
     });

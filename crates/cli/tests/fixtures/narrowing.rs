@@ -275,3 +275,35 @@ pub fn decided_receiver(r: Result<i32, i32>, c: bool, b: i32) -> Option<i32> {
     }
     Some(b * if c { 100 } else { 7 })
 }
+
+/// A decided test whose left side still runs, and whose taken side
+/// declares a name a `let` after it declares again: the side keeps a block.
+pub fn decided_redeclared(c: bool, n: i32) -> i32 {
+    if c {
+        let mut s: i32 = 0;
+        if 100 / n > 0 && !c {
+            let x: i32 = 1;
+            s += x;
+        } else {
+            let x: i32 = 2;
+            s += x;
+        }
+        let x: i32 = s + 3;
+        x * x
+    } else {
+        0
+    }
+}
+
+/// Equal sides that are not a place stay a choice: `None` read as a
+/// `match` scrutinee is decided where it is built, not as `null ?? a`.
+#[allow(unused_parens)]
+pub fn equal_constructors(c: bool, a: i32) -> i32 {
+    match ({
+        let t: Option<i32> = (if c { None } else { None });
+        t
+    }) {
+        Some(v) => v,
+        None => a,
+    }
+}

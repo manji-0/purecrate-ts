@@ -105,18 +105,18 @@ fn unread(expr: &mut Expr) {
         Expr::If { cond, then, else_ } if constant(cond).is_some() => {
             let (before, taken) = constant(cond).expect("checked above");
             let side = if taken { &**then } else { &**else_ };
-            if before != Expr::Lit(Lit::Unit) || !declares(side) {
-                *expr = sequence(before, side.clone());
-            } else {
+            let side = if declares(side) {
                 // The side declares names, which its block keeps apart from
                 // what follows (`decided`): `if (true) { .. }` alone.
-                let side = side.clone();
-                *expr = Expr::If {
+                Expr::If {
                     cond: Box::new(Expr::Lit(Lit::Bool(true))),
-                    then: Box::new(side),
+                    then: Box::new(side.clone()),
                     else_: Box::new(Expr::Lit(Lit::Unit)),
-                };
-            }
+                }
+            } else {
+                side.clone()
+            };
+            *expr = sequence(before, side);
         }
         Expr::While { cond, .. } if matches!(constant(cond), Some((_, false))) => {
             *expr = constant(cond).expect("checked above").0;
@@ -300,15 +300,17 @@ fn unstated(expr: &mut Expr, block: bool) {
     }
 }
 
-/// `if c { a } else { a }` as `a` where `c` does nothing, and `{ let t =
-/// p; t }` as the place `p`: TS types either as `p` narrowed, and a place is
+/// `if c { p } else { p }` as the place `p` where `c` does nothing, and
+/// `{ let t = p; t }` as `p`: TS types either as `p` narrowed, and a place is
 /// what `narrow` follows through the `let` that holds it.
 fn same_sides(expr: &mut Expr) {
     for child in expr.children_mut() {
         same_sides(child);
     }
     match expr {
-        Expr::If { cond, then, else_ } if then == else_ && effectless(cond) => *expr = (**then).clone(),
+        Expr::If { cond, then, else_ } if then == else_ && is_place(then) && effectless(cond) => {
+            *expr = (**then).clone()
+        }
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && **then == Expr::Var(name.clone()) => {
             *expr = (**value).clone()
         }
