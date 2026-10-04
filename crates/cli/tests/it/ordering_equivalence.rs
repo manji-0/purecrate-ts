@@ -60,8 +60,7 @@ const ORDERINGS: [Ordering; 3] = [Ordering::Less, Ordering::Equal, Ordering::Gre
 
 #[test]
 fn generated_ordering_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("ordering", ordering::SOURCE, |cases| {
         for a in STRINGS {
             for b in STRINGS {
                 cases.push(case!(ordering::cmp_str(*a, *b)));
@@ -118,11 +117,7 @@ fn generated_ordering_matches_rust() {
                 cases.push(case!(ordering::not_after(*a, *b)));
             }
         }
-        for a in [false, true] {
-            for b in [false, true] {
-                cases.push(case!(ordering::cmp_bool(a, b)));
-            }
-        }
+        grid!(cases, ordering::cmp_bool; a in [false, true], b in [false, true]);
         let ids = [
             Uuid::nil(),
             Uuid::max(),
@@ -131,23 +126,10 @@ fn generated_ordering_matches_rust() {
             Uuid::from_u128(0xa000_0000_0000_0000_0000_0000_0000_0000),
             Uuid::from_u128(0x9fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff),
         ];
-        for a in ids {
-            for b in ids {
-                cases.push(case!(ordering::cmp_uuid(a, b)));
-            }
-        }
-        for o in ORDERINGS {
-            cases.push(case!(ordering::preds(o)));
-            cases.push(case!(ordering::more_preds(o)));
-            cases.push(case!(ordering::reversed(o)));
-            cases.push(case!(ordering::as_int(o)));
-            for n in [0u8, 4] {
-                cases.push(case!(ordering::guarded(o, n)));
-            }
-            for p in ORDERINGS {
-                cases.push(case!(ordering::same(o, p)));
-            }
-        }
+        grid!(cases, ordering::cmp_uuid; a in ids, b in ids);
+        grid!(cases, [ordering::preds, ordering::more_preds, ordering::reversed, ordering::as_int]; o in ORDERINGS);
+        grid!(cases, ordering::guarded; o in ORDERINGS, n in [0u8, 4]);
+        grid!(cases, ordering::same; o in ORDERINGS, p in ORDERINGS);
         for (a, b) in [(0i32, 0i32), (1, 2), (2, 1), (i32::MAX, 0), (i32::MIN, 0)] {
             for x in [0i32, -5, i32::MAX] {
                 cases.push(case!(ordering::then_eager(a, b, x)));
@@ -192,28 +174,22 @@ fn generated_ordering_matches_rust() {
         }
         cases.push(case!(ordering::size_of(ordering::Size::Less(7))));
         cases.push(case!(ordering::size_of(ordering::Size::More)));
-        cases
     });
-    support::assert_equivalent("ordering", ordering::SOURCE, &cases);
 }
 
 #[test]
 fn a_crates_own_ordering_stays_its_own() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("own_ordering", own_ordering::SOURCE, |cases| {
         for (a, b) in [(1, 2), (2, 2), (3, 2)] {
             cases.push(case!(own_ordering::order(a, b)));
             cases.push(case!(own_ordering::flip(own_ordering::order(a, b))));
         }
-        cases
     });
-    support::assert_equivalent("own_ordering", own_ordering::SOURCE, &cases);
 }
 
 #[test]
 fn cmp_alone_gives_an_internal_ordering() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("cmp_only", cmp_only::SOURCE, |cases| {
         for a in STRINGS {
             for b in ["", "a", "\u{e000}", "\u{10000}"] {
                 cases.push(case!(cmp_only::before(*a, b)));
@@ -222,9 +198,7 @@ fn cmp_alone_gives_an_internal_ordering() {
         for (a, b, c) in [(1u64, 1u64, 1u64), (1, 1, 2), (u64::MAX, u64::MAX, u64::MAX), (0, u64::MAX, 0)] {
             cases.push(case!(cmp_only::settled(a, b, c)));
         }
-        cases
     });
-    support::assert_equivalent("cmp_only", cmp_only::SOURCE, &cases);
 }
 
 /// `cmp` and `then` print as calls to the runtime's `Ord`, nested in Rust's

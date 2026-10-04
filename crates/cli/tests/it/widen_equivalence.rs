@@ -7,8 +7,8 @@ purecrate_canon::fixture!(mod widen = "fixtures/widen.rs");
 
 #[test]
 fn generated_widening_matches_rust() {
-    let cases = support::quietly(|| {
-        vec![
+    support::equivalence("widen", widen::SOURCE, |cases| {
+        cases.extend([
             case!(widen::u8_to_u16(0u8)),
             case!(widen::u8_to_u16(u8::MAX)),
             case!(widen::u8_to_u16(7u8)),
@@ -69,7 +69,6 @@ fn generated_widening_matches_rust() {
             case!(widen::i32_to_i64(i32::MIN)),
             case!(widen::i32_to_i64(i32::MAX)),
             case!(widen::i32_to_i64(7i32)),
-        ]
+        ]);
     });
-    support::assert_equivalent("widen", widen::SOURCE, &cases);
 }

@@ -8,8 +8,7 @@ purecrate_canon::fixture!(mod order_of_eval = "fixtures/order_of_eval.rs");
 
 #[test]
 fn generated_evaluation_order_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("order_of_eval", order_of_eval::SOURCE, |cases| {
         for a in [1i32, 7, i32::MAX] {
             for z in [0i32, 2] {
                 for fail in [false, true] {
@@ -45,9 +44,7 @@ fn generated_evaluation_order_matches_rust() {
             cases.push(case!(order_of_eval::annotated_scrutinee(a)));
             cases.push(case!(order_of_eval::folded_param(a, 2i32)));
         }
-        for x in [None, Some(0u32), Some(9)] {
-            cases.push(case!(order_of_eval::reassigned_scrutinee(x)));
-        }
+        grid!(cases, order_of_eval::reassigned_scrutinee; x in [None, Some(0u32), Some(9)]);
         for o in [None, Some(4i32), Some(i32::MIN)] {
             for fail in [false, true] {
                 for v in [0i32, 3, i32::MIN] {
@@ -66,7 +63,5 @@ fn generated_evaluation_order_matches_rust() {
                 cases.push(case!(order_of_eval::try_after_index(vec![10i32, 20], i, 3i32, none)));
             }
         }
-        cases
     });
-    support::assert_equivalent("order_of_eval", order_of_eval::SOURCE, &cases);
 }

@@ -7,18 +7,17 @@ purecrate_canon::fixture!(mod adapters = "fixtures/adapters.rs");
 
 #[test]
 fn adapters_match_rust() {
-    let lists: Vec<Vec<u32>> = vec![
-        vec![],
-        vec![1, 2, 3],
-        vec![0, 1, 2],
-        vec![2, 0, 1],
-        vec![3, 7, 0, 9],
-        vec![u32::MAX / 2, u32::MAX / 2, 3],
-        vec![u32::MAX, 1],
-        vec![u32::MAX / 4, u32::MAX / 4, u32::MAX / 4, u32::MAX],
-    ];
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("adapters", adapters::SOURCE, |cases| {
+        let lists: Vec<Vec<u32>> = vec![
+            vec![],
+            vec![1, 2, 3],
+            vec![0, 1, 2],
+            vec![2, 0, 1],
+            vec![3, 7, 0, 9],
+            vec![u32::MAX / 2, u32::MAX / 2, 3],
+            vec![u32::MAX, 1],
+            vec![u32::MAX / 4, u32::MAX / 4, u32::MAX / 4, u32::MAX],
+        ];
         for xs in &lists {
             cases.push(case!(adapters::doubled_sum(xs.clone())));
             cases.push(case!(adapters::doubled(xs.clone())));
@@ -28,13 +27,9 @@ fn adapters_match_rust() {
             cases.push(case!(adapters::first_big(xs.clone())));
             cases.push(case!(adapters::all_small(xs.clone())));
         }
-        for s in ["", "a1b2", "é9z", "1234567890", "99999", "  two  words ", "x"] {
-            cases.push(case!(adapters::digits(s)));
-            cases.push(case!(adapters::letters(s)));
-            cases.push(case!(adapters::byte_sum(s)));
-            cases.push(case!(adapters::words(s)));
-        }
-        cases
+        grid!(
+            cases, [adapters::digits, adapters::letters, adapters::byte_sum, adapters::words];
+            s in ["", "a1b2", "é9z", "1234567890", "99999", "  two  words ", "x"]
+        );
     });
-    support::assert_equivalent("adapters", adapters::SOURCE, &cases);
 }

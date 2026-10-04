@@ -8,16 +8,12 @@ purecrate_canon::fixture!(mod destructure = "fixtures/destructure.rs");
 
 #[test]
 fn generated_destructuring_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for x in [0, 1, 2, 7, u32::MAX - 1, u32::MAX] {
-            cases.push(case!(destructure::swap(x)));
-            cases.push(case!(destructure::bump(x)));
-            cases.push(case!(destructure::first(x)));
-            for k in [0, 1, 3, u32::MAX] {
-                cases.push(case!(destructure::scaled(x, k)));
-            }
-        }
+    support::equivalence("destructure", destructure::SOURCE, |cases| {
+        grid!(
+            cases, [destructure::swap, destructure::bump, destructure::first];
+            x in [0, 1, 2, 7, u32::MAX - 1, u32::MAX]
+        );
+        grid!(cases, destructure::scaled; x in [0, 1, 2, 7, u32::MAX - 1, u32::MAX], k in [0, 1, 3, u32::MAX]);
         for (a, b) in [(0, 0), (1, 2), (15, 15), (16, 15), (255, 0), (0, 255), (254, 0)] {
             cases.push(case!(destructure::both(a, b)));
         }
@@ -29,10 +25,6 @@ fn generated_destructuring_matches_rust() {
         for xs in [vec![], vec![(1, 2), (255, 255)], vec![(0, 9); 3]] {
             cases.push(case!(destructure::sum_refs(xs.clone())));
         }
-        for o in [None, Some((1, 2)), Some((u32::MAX, 1))] {
-            cases.push(case!(destructure::add(o)));
-        }
-        cases
+        grid!(cases, destructure::add; o in [None, Some((1, 2)), Some((u32::MAX, 1))]);
     });
-    support::assert_equivalent("destructure", destructure::SOURCE, &cases);
 }

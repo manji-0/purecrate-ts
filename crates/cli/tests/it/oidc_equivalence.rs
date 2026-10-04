@@ -1492,8 +1492,7 @@ fn runs(s: &Setup, depth: usize) -> Vec<Vec<u8>> {
 
 #[test]
 fn generated_oidc_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         // Truncation and the TOTP check on the published vectors.
         let example = unhex("1f8698690e02ca16618550ef7f19da8e945b555a");
         let short = example[..19].to_vec();
@@ -1592,7 +1591,6 @@ fn generated_oidc_matches_rust() {
         ] {
             cases.push(case!(oidc::error_code_wire(code)));
         }
-        cases
     });
     for reached in [
         "Ok(Flow::AwaitingPassword {",

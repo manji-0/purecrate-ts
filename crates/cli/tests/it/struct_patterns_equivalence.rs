@@ -7,9 +7,8 @@ purecrate_canon::fixture!(mod pats = "fixtures/struct_patterns.rs");
 
 #[test]
 fn struct_patterns_match_rust() {
-    use pats::{Kind, Method, Owner, Status};
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("struct_patterns", pats::SOURCE, |cases| {
+        use pats::{Kind, Method, Owner, Status};
         let mut all = vec![Status::Done];
         for kind in [Kind::Card, Kind::Bank] {
             for id in [0u32, 4] {
@@ -33,9 +32,7 @@ fn struct_patterns_match_rust() {
                 cases.push(case!(pats::shadowed(pats::Bag { a: 2, xs: xs.clone() }, b)));
             }
         }
-        cases
     });
-    support::assert_equivalent("struct_patterns", pats::SOURCE, &cases);
 }
 
 #[test]

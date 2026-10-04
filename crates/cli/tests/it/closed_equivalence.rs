@@ -17,17 +17,10 @@ purecrate_canon::fixture!(mod closed = "fixtures/closed.rs");
 
 #[test]
 fn closed_types_are_built_through_the_crate_and_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for code in 0u8..3 {
-            for age in [0u8, 17, 18, 254, 255] {
-                cases.push(case!(closed::signup(code, age)));
-            }
-            cases.push(case!(closed::adult_after(code)));
-        }
-        cases
+    support::equivalence("closed", closed::SOURCE, |cases| {
+        grid!(cases, closed::signup; code in 0u8..3, age in [0u8, 17, 18, 254, 255]);
+        grid!(cases, closed::adult_after; code in 0u8..3);
     });
-    support::assert_equivalent("closed", closed::SOURCE, &cases);
 }
 
 /// What a consumer of the package can and cannot write. Each

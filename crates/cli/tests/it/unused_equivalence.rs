@@ -9,41 +9,24 @@ purecrate_canon::fixture!(mod unused = "fixtures/unused.rs");
 
 #[test]
 fn generated_code_with_unused_bindings_matches_rust() {
-    use unused::Shape;
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("unused", unused::SOURCE, |cases| {
+        use unused::Shape;
         let edges = [i32::MIN, -1, 0, 1, i32::MAX];
-        for a in edges {
-            for b in edges {
-                cases.push(case!(unused::ignored_param(a, b)));
-                cases.push(case!(unused::underscored_param(a, b)));
-                cases.push(case!(unused::unused_let(a, b)));
-                cases.push(case!(unused::write_only(a, b)));
-            }
-            cases.push(case!(unused::unused_closure_param(a)));
-        }
-        for flag in [0, 4] {
-            cases.push(case!(unused::unused_try(flag)));
-        }
+        grid!(
+            cases, [unused::ignored_param, unused::underscored_param, unused::unused_let, unused::write_only];
+            a in edges, b in edges
+        );
+        grid!(cases, unused::unused_closure_param; a in edges);
+        grid!(cases, unused::unused_try; flag in [0, 4]);
         for s in [Shape::Circle { r: 2 }, Shape::Rect(3, 4), Shape::Empty] {
             cases.push(case!(unused::unused_arm(s.clone())));
         }
         let opts = [None, Some(0), Some(5)];
-        for a in opts {
-            cases.push(case!(unused::unused_if_let(a)));
-            for b in opts {
-                cases.push(case!(unused::unused_tuple_arm(a, b)));
-            }
-        }
-        for n in [0u8, 3] {
-            cases.push(case!(unused::unused_loop_var(n)));
-        }
-        for s in ["", "aé😀"] {
-            cases.push(case!(unused::unused_char(s)));
-        }
-        cases
+        grid!(cases, unused::unused_if_let; a in opts);
+        grid!(cases, unused::unused_tuple_arm; a in opts, b in opts);
+        grid!(cases, unused::unused_loop_var; n in [0u8, 3]);
+        grid!(cases, unused::unused_char; s in ["", "aé😀"]);
     });
-    support::assert_equivalent("unused", unused::SOURCE, &cases);
 }
 
 /// A statement with no effect is left out: an `if` whose sides do nothing,

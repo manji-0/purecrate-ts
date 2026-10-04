@@ -9,25 +9,13 @@ purecrate_canon::fixture!(mod order = "../../../examples/order/src/lib.rs", "fix
 #[test]
 fn generated_order_lifecycle_matches_rust() {
     let codes = 0u8..10;
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for a in codes.clone() {
-            for b in codes.clone() {
-                for c in codes.clone() {
-                    for d in codes.clone() {
-                        cases.push(case!(order::run4(a, b, c, d)));
-                        cases.push(case!(order::trace4(a, b, c, d)));
-                    }
-                }
-            }
-        }
-        for code in 0u8..3 {
-            cases.push(case!(order::open_with(code)));
-        }
-        for code in 0u8..4 {
-            cases.push(case!(order::edge(code)));
-        }
-        cases
+    let cases = support::cases(|cases| {
+        grid!(
+            cases, [order::run4, order::trace4];
+            a in codes.clone(), b in codes.clone(), c in codes.clone(), d in codes.clone()
+        );
+        grid!(cases, order::open_with; code in 0u8..3);
+        grid!(cases, order::edge; code in 0u8..4);
     });
     for reached in [
         "Ok(1000450)",

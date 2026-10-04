@@ -8,8 +8,7 @@ purecrate_canon::fixture!(mod empty_arm = "fixtures/empty_arm.rs");
 
 #[test]
 fn generated_empty_arms_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("empty_arm", empty_arm::SOURCE, |cases| {
         for n in [0u8, 2, 255] {
             for s in ["", "x"] {
                 cases.push(case!(empty_arm::unit_cases(empty_arm::M::A, s, n)));
@@ -23,7 +22,5 @@ fn generated_empty_arms_match_rust() {
             cases.push(case!(empty_arm::spin(u32::from(n))));
         }
         cases.push(case!(empty_arm::all_return(None::<u32>)));
-        cases
     });
-    support::assert_equivalent("empty_arm", empty_arm::SOURCE, &cases);
 }

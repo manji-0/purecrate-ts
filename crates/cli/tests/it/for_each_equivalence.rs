@@ -9,11 +9,10 @@ purecrate_canon::fixture!(mod for_each = "fixtures/for_each.rs");
 
 #[test]
 fn generated_for_each_matches_rust() {
-    use for_each::Line;
-    let vecs = [vec![], vec![1], vec![-3, 4, 9], vec![i32::MAX, 1], vec![i32::MIN, -1], vec![5, 5, 0, 10]];
-    let strings = ["", "abc", "a1b22", "é9😀", "٣", "12\u{10ffff}"];
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("for_each", for_each::SOURCE, |cases| {
+        use for_each::Line;
+        let vecs = [vec![], vec![1], vec![-3, 4, 9], vec![i32::MAX, 1], vec![i32::MIN, -1], vec![5, 5, 0, 10]];
+        let strings = ["", "abc", "a1b22", "é9😀", "٣", "12\u{10ffff}"];
         for xs in &vecs {
             cases.push(case!(for_each::sum(xs.clone())));
             cases.push(case!(for_each::sum_iter(xs.clone())));
@@ -41,18 +40,10 @@ fn generated_for_each_matches_rust() {
             cases.push(case!(for_each::total(lines.clone())));
         }
         let texts = ["", " ", "a", "a b", " a  b ", "openid profile", "aébéc", "😀x😀", "é", "x\u{10ffff}y"];
-        for s in texts {
-            for sep in [' ', 'é', '😀', 'x', '\u{10ffff}'] {
-                cases.push(case!(for_each::pieces(s, sep)));
-            }
-            for word in ["", "a", "b", "openid", "é"] {
-                cases.push(case!(for_each::has_word(s, word)));
-            }
-        }
+        grid!(cases, for_each::pieces; s in texts, sep in [' ', 'é', '😀', 'x', '\u{10ffff}']);
+        grid!(cases, for_each::has_word; s in texts, word in ["", "a", "b", "openid", "é"]);
         for xs in [vec![], vec![None], vec![Some(0u8), None, Some(255)]] {
             cases.push(case!(for_each::count_some(xs.clone())));
         }
-        cases
     });
-    support::assert_equivalent("for_each", for_each::SOURCE, &cases);
 }

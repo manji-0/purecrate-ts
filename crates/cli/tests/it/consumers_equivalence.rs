@@ -9,8 +9,7 @@ purecrate_canon::fixture!(mod consumers = "fixtures/consumers.rs");
 
 #[test]
 fn generated_consumers_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("consumers", consumers::SOURCE, |cases| {
         for s in ["", "0", "0123", "12a3", "é1", "Hi there", "a@b@c", "x😀@", " a  b "] {
             cases.push(case!(consumers::all_digits(s)));
             cases.push(case!(consumers::any_upper(String::from(s))));
@@ -35,17 +34,12 @@ fn generated_consumers_match_rust() {
             }
         }
         let u8s: [&[u8]; 6] = [&[], &[1, 2], &[100, 100, 55], &[100, 100, 56], &[60, 1], &[1, 60, 255]];
-        for xs in u8s {
-            cases.push(case!(consumers::total(xs)));
-            cases.push(case!(consumers::stops_early(xs)));
-        }
+        grid!(cases, [consumers::total, consumers::stops_early]; xs in u8s);
         for xs in [vec![], vec![1, -2, 3], vec![i64::MAX, 1], vec![i64::MIN, -1], vec![i64::MAX, -1, 1]] {
             cases.push(case!(consumers::total_wide(xs.clone())));
             cases.push(case!(consumers::items(xs.clone())));
         }
-        cases
     });
-    support::assert_equivalent("consumers", consumers::SOURCE, &cases);
 }
 
 /// The consumers print as calls to the runtime's `Iter`, the closure as an

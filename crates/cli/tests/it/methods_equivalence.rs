@@ -8,9 +8,8 @@ purecrate_canon::fixture!(mod methods = "fixtures/methods.rs");
 
 #[test]
 fn generated_method_calls_match_rust() {
-    let ranks = [2u8, 10, 11, 13];
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("methods", methods::SOURCE, |cases| {
+        let ranks = [2u8, 10, 11, 13];
         for a in ranks {
             for b in ranks {
                 for a_red in [false, true] {
@@ -22,7 +21,5 @@ fn generated_method_calls_match_rust() {
             }
         }
         cases.push(case!(methods::total(250u8, 3u8)));
-        cases
     });
-    support::assert_equivalent("methods", methods::SOURCE, &cases);
 }

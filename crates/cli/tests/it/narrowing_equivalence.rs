@@ -7,8 +7,7 @@ purecrate_canon::fixture!(mod narrowing = "fixtures/narrowing.rs");
 
 #[test]
 fn generated_narrowing_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("narrowing", narrowing::SOURCE, |cases| {
         let results = [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)];
         for r in results {
             for b in [0i32, 5, i32::MAX] {
@@ -32,16 +31,8 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_guard(o, c)));
             }
         }
-        for x in [None, Some(1u32), Some(u32::MAX)] {
-            for y in [None, Some(4u32)] {
-                cases.push(case!(narrowing::written_past_try(x, y)));
-            }
-        }
-        for a in [0i32, 7, i32::MAX] {
-            for c in [false, true] {
-                cases.push(case!(narrowing::bound_constructor(a, c)));
-            }
-        }
+        grid!(cases, narrowing::written_past_try; x in [None, Some(1u32), Some(u32::MAX)], y in [None, Some(4u32)]);
+        grid!(cases, narrowing::bound_constructor; a in [0i32, 7, i32::MAX], c in [false, true]);
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {
             for b in [2i32, 50_000] {
                 cases.push(case!(narrowing::unread_default(r, b)));
@@ -61,18 +52,11 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
             }
         }
-        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
-            for n in [0i32, 1, 3] {
-                cases.push(case!(narrowing::past_break(r, n)));
-            }
-            for c in [false, true] {
-                for b in [2i32, 50_000] {
-                    cases.push(case!(narrowing::same_sides(r, c, b)));
-                    cases.push(case!(narrowing::decided_scrutinee(r, c, b)));
-                    cases.push(case!(narrowing::decided_receiver(r, c, b)));
-                }
-            }
-        }
+        grid!(cases, narrowing::past_break; r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)], n in [0i32, 1, 3]);
+        grid!(
+            cases, [narrowing::same_sides, narrowing::decided_scrutinee, narrowing::decided_receiver];
+            r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)], c in [false, true], b in [2i32, 50_000]
+        );
         for c in [false, true] {
             for d in [false, true] {
                 cases.push(case!(narrowing::decided_bools(c, d, 5i32)));
@@ -85,9 +69,7 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_redeclared(c, n)));
             }
             cases.push(case!(narrowing::equal_constructors(c, 9i32)));
-            for o in [None, Some(1i32), Some(50)] {
-                cases.push(case!(narrowing::payload_test(o)));
-            }
+            grid!(cases, narrowing::payload_test; o in [None, Some(1i32), Some(50)]);
             cases.push(case!(narrowing::unread_as_str("é,a", String::from("x"), vec![1i32])));
             for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
                 for b in [0i32, 5] {
@@ -128,11 +110,7 @@ fn generated_narrowing_matches_rust() {
                 }
                 cases.push(case!(narrowing::none_scrutinee(r, 7i32)));
             }
-            for o in [None, Some(5i32)] {
-                for n in [0i32, 3, 5] {
-                    cases.push(case!(narrowing::late_write(o, n)));
-                }
-            }
+            grid!(cases, narrowing::late_write; o in [None, Some(5i32)], n in [0i32, 3, 5]);
             for r in [Ok(1i32), Err(2i32)] {
                 for w in [false, true] {
                     cases.push(case!(narrowing::decided_left(r, c, w)));
@@ -159,18 +137,11 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_loop(o, 3i32, n)));
             }
         }
-        for r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)] {
-            for n in [0i32, 1, 3] {
-                cases.push(case!(narrowing::past_break(r, n)));
-            }
-            for c in [false, true] {
-                for b in [2i32, 50_000] {
-                    cases.push(case!(narrowing::same_sides(r, c, b)));
-                    cases.push(case!(narrowing::decided_scrutinee(r, c, b)));
-                    cases.push(case!(narrowing::decided_receiver(r, c, b)));
-                }
-            }
-        }
+        grid!(cases, narrowing::past_break; r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)], n in [0i32, 1, 3]);
+        grid!(
+            cases, [narrowing::same_sides, narrowing::decided_scrutinee, narrowing::decided_receiver];
+            r in [Ok(3i32), Err(4i32), Ok(i32::MAX), Err(i32::MIN)], c in [false, true], b in [2i32, 50_000]
+        );
         for c in [false, true] {
             for d in [false, true] {
                 cases.push(case!(narrowing::decided_bools(c, d, 5i32)));
@@ -183,12 +154,8 @@ fn generated_narrowing_matches_rust() {
                 cases.push(case!(narrowing::decided_redeclared(c, n)));
             }
             cases.push(case!(narrowing::equal_constructors(c, 9i32)));
-            for o in [None, Some(1i32), Some(50)] {
-                cases.push(case!(narrowing::payload_test(o)));
-            }
+            grid!(cases, narrowing::payload_test; o in [None, Some(1i32), Some(50)]);
             cases.push(case!(narrowing::unread_as_str("é,a", String::from("x"), vec![1i32])));
         }
-        cases
     });
-    support::assert_equivalent("narrowing", narrowing::SOURCE, &cases);
 }

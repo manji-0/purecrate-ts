@@ -8,18 +8,11 @@ purecrate_canon::fixture!(mod display = "fixtures/display.rs");
 
 #[test]
 fn generated_display_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for c in [0u8, 1] {
-            cases.push(case!(display::show_fixed(c)));
-            cases.push(case!(display::show_arms(c)));
-            cases.push(case!(display::show_bound(c)));
-        }
+    support::equivalence("display", display::SOURCE, |cases| {
+        grid!(cases, [display::show_fixed, display::show_arms, display::show_bound]; c in [0u8, 1]);
         cases.push(case!(display::show_plain(3)));
         cases.push(case!(display::show_formatted(display::Formatted::N(3))));
-        cases
     });
-    support::assert_equivalent("display", display::SOURCE, &cases);
 }
 
 #[test]

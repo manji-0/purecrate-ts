@@ -10,15 +10,12 @@ purecrate_canon::fixture!(mod readability = "fixtures/readability.rs");
 
 #[test]
 fn generated_readability_matches_rust() {
-    use readability::{Dir, Shape};
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("readability", readability::SOURCE, |cases| {
+        use readability::{Dir, Shape};
         for c in [false, true] {
             cases.push(case!(readability::flipped(c, 7)));
         }
-        for v in [0, 20] {
-            cases.push(case!(readability::bumped_twice(v)));
-        }
+        grid!(cases, readability::bumped_twice; v in [0, 20]);
         for s in ["00x", "01", "02", "99", "9"] {
             if s.len() >= 2 {
                 for open in [false, true] {
@@ -29,27 +26,16 @@ fn generated_readability_matches_rust() {
         for x in [0u64, 5, 11] {
             cases.push(case!(readability::banded(x, 3u64)));
         }
-        for b in [3u32, 30] {
-            cases.push(case!(readability::above_ten(b)));
-        }
-        for n in [3, 8, i32::MAX - 1] {
-            cases.push(case!(readability::added_or_zero(n)));
-            cases.push(case!(readability::named_temporaries(n)));
-        }
+        grid!(cases, readability::above_ten; b in [3u32, 30]);
+        grid!(cases, [readability::added_or_zero, readability::named_temporaries]; n in [3, 8, i32::MAX - 1]);
         let shapes = [Shape::Rect { w: 3, h: 4 }, Shape::Pair(5, 6), Shape::Empty, Shape::Pair(i32::MAX, 1)];
-        for s in shapes {
-            cases.push(case!(readability::area(s)));
-            cases.push(case!(readability::same_again(s)));
-            cases.push(case!(readability::swapped(s)));
-        }
+        grid!(cases, [readability::area, readability::same_again, readability::swapped]; s in shapes);
         for d in [Dir::Less, Dir::Equal, Dir::Greater] {
             for (a, b) in [(1, 2), (2, 2), (3, 2)] {
                 cases.push(case!(readability::then_by(d, a, b)));
             }
         }
-        cases
     });
-    support::assert_equivalent("readability", readability::SOURCE, &cases);
 }
 
 #[test]

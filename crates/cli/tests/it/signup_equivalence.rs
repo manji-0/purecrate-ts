@@ -65,8 +65,7 @@ fn passwords() -> Vec<String> {
 
 #[test]
 fn signup_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("signup", signup::SOURCE, |cases| {
         for e in emails() {
             cases.push(case!(signup::parse_email(e.clone())));
         }
@@ -76,9 +75,7 @@ fn signup_matches_rust() {
         for (e, p) in [("a@b", "x"), ("a", "x"), ("a@b", "passwordpassword"), ("a@b", "abcdefghijklmnop")] {
             cases.push(case!(signup::parse_signup(e.to_string(), p.to_string())));
         }
-        cases
     });
-    support::assert_equivalent("signup", signup::SOURCE, &cases);
 }
 
 /// The WHATWG "valid e-mail address" regular expression, verbatim.

@@ -8,12 +8,9 @@ purecrate_canon::fixture!(mod while_break = "fixtures/while_break.rs");
 
 #[test]
 fn generated_loops_with_jumps_match_rust() {
-    use while_break::Token::{self, Digit, Skip, Stop};
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for n in [0u32, 1, 2, 3, 7, 27, 97, 1_431_655_765, u32::MAX] {
-            cases.push(case!(while_break::steps(n)));
-        }
+    support::equivalence("while_break", while_break::SOURCE, |cases| {
+        use while_break::Token::{self, Digit, Skip, Stop};
+        grid!(cases, while_break::steps; n in [0u32, 1, 2, 3, 7, 27, 97, 1_431_655_765, u32::MAX]);
         let seqs: Vec<Vec<Token>> = vec![
             vec![],
             vec![Digit(1), Digit(2)],
@@ -25,23 +22,13 @@ fn generated_loops_with_jumps_match_rust() {
         for tokens in seqs {
             cases.push(case!(while_break::read(tokens.clone())));
         }
-        for n in [0u32, 1, 4] {
-            for width in [0u32, 1, 5, 200] {
-                cases.push(case!(while_break::rows(n, width)));
-            }
-        }
-        for budget in [0u32, 3, 5, 10] {
-            cases.push(case!(while_break::guarded(budget)));
-        }
+        grid!(cases, while_break::rows; n in [0u32, 1, 4], width in [0u32, 1, 5, 200]);
+        grid!(cases, while_break::guarded; budget in [0u32, 3, 5, 10]);
         for xs in [vec![], vec![1, 3], vec![1, 4, 6], vec![46_341], vec![-7, -46_342]] {
             cases.push(case!(while_break::first_even_square(xs.clone())));
         }
-        for s in ["", "ab", "abcdef", "ab1cd", "é", "Zabc"] {
-            cases.push(case!(while_break::prefix_len(s)));
-        }
-        cases
+        grid!(cases, while_break::prefix_len; s in ["", "ab", "abcdef", "ab1cd", "é", "Zabc"]);
     });
-    support::assert_equivalent("while_break", while_break::SOURCE, &cases);
 }
 
 /// A loop whose jumps are not inside a `match` has no label, and a jump that

@@ -58,6 +58,42 @@ macro_rules! case {
     };
 }
 
+/// `grid!(cases, m::f; a in A, b in B)` pushes `case!(m::f(a, b))` for each
+/// `a` in `A` and `b` in `B`, in that order; `[m::f, m::g]` pushes each.
+macro_rules! grid {
+    ($cases:ident, [$($m:ident :: $f:ident),+ $(,)?]; $($x:ident in $xs:expr),+ $(,)?) => {
+        grid!(@for $cases, [$($m::$f),+], ($($x),+); $($x in $xs),+)
+    };
+    ($cases:ident, $m:ident :: $f:ident; $($x:ident in $xs:expr),+ $(,)?) => {
+        grid!($cases, [$m::$f]; $($x in $xs),+)
+    };
+    (@for $cases:ident, $fs:tt, $args:tt; $x:ident in $xs:expr $(, $rx:ident in $rxs:expr)*) => {
+        for $x in $xs {
+            grid!(@for $cases, $fs, $args; $($rx in $rxs),*)
+        }
+    };
+    (@for $cases:ident, [$($m:ident :: $f:ident),+], $args:tt;) => {
+        {
+            $($cases.push(case!($m::$f $args));)+
+        }
+    };
+}
+
+/// The `case!`s `push` makes, run with panics silenced (`quietly`).
+pub fn cases(push: impl FnOnce(&mut Vec<Case>)) -> Vec<Case> {
+    quietly(|| {
+        let mut cases = Vec::new();
+        push(&mut cases);
+        cases
+    })
+}
+
+/// Asserts the package generated from `source` agrees with Rust on each
+/// `case!` `push` makes.
+pub fn equivalence(crate_name: &str, source: &str, push: impl FnOnce(&mut Vec<Case>)) {
+    assert_equivalent(crate_name, source, &cases(push));
+}
+
 thread_local! {
     static QUIET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

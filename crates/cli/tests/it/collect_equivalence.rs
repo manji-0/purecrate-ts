@@ -12,8 +12,7 @@ const TEXTS: [&str; 15] =
 
 #[test]
 fn collected_lists_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         for s in TEXTS {
             cases.push(case!(lists::words(s)));
             cases.push(case!(lists::dotted(s)));
@@ -23,9 +22,7 @@ fn collected_lists_match_rust() {
             cases.push(case!(lists::each_token(s)));
             cases.push(case!(lists::pieces(s)));
         }
-        for s in ["boom", "bad,boom", "ok,boom", "boom,bad"] {
-            cases.push(case!(lists::tokens(s)));
-        }
+        grid!(cases, lists::tokens; s in ["boom", "bad,boom", "ok,boom", "boom,bad"]);
         for s in TEXTS {
             for c in ['.', ',', ' ', 'é', '😀'] {
                 cases.push(case!(lists::lengths(s, c)));
@@ -37,7 +34,6 @@ fn collected_lists_match_rust() {
                 cases.push(case!(lists::once_owned(String::from(s), String::from(p))));
             }
         }
-        cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "a later piece panics");
     assert!(cases.iter().any(|c| c.rust.starts_with("Err(")), "an earlier piece is an Err");

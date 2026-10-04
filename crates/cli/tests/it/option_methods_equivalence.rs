@@ -9,46 +9,23 @@ purecrate_canon::fixture!(mod option_methods = "fixtures/option_methods.rs");
 
 #[test]
 fn generated_option_methods_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for x in [None, Some(0u8), Some(7)] {
-            for d in [0u8, 254, 255] {
-                cases.push(case!(option_methods::or_default(x, d)));
-                cases.push(case!(option_methods::eager(x, d)));
-                cases.push(case!(option_methods::bumped(x, d)));
-            }
-        }
-        for x in [None, Some(0i64), Some(-5), Some(i64::MAX)] {
-            cases.push(case!(option_methods::required(x)));
-            for b in [None, Some(1i64), Some(i64::MAX)] {
-                cases.push(case!(option_methods::total(x, b)));
-            }
-        }
-        for x in [None, Some(0i32), Some(3), Some(i32::MAX)] {
-            for n in [0, i32::MAX] {
-                cases.push(case!(option_methods::doubled(x, n)));
-            }
-        }
-        for x in [None, Some(0u32), Some(9), Some(u32::MAX)] {
-            cases.push(case!(option_methods::chain(x)));
-        }
-        for x in [0u32, 1, 9, u32::MAX] {
-            for d in [0u32, 7] {
-                cases.push(case!(option_methods::doubled_less(x, d)));
-            }
-        }
-        for x in [None, Some((0u8, false)), Some((5, true))] {
-            cases.push(case!(option_methods::pair_or(x)));
-        }
-        for n in [0u8, 1, 2, 4, 255] {
-            cases.push(case!(option_methods::split_or(n)));
-        }
-        for x in [None, Some(false), Some(true)] {
-            cases.push(case!(option_methods::falsy(x)));
-        }
-        cases
+    support::equivalence("option_methods", option_methods::SOURCE, |cases| {
+        grid!(
+            cases, [option_methods::or_default, option_methods::eager, option_methods::bumped];
+            x in [None, Some(0u8), Some(7)], d in [0u8, 254, 255]
+        );
+        grid!(cases, option_methods::required; x in [None, Some(0i64), Some(-5), Some(i64::MAX)]);
+        grid!(
+            cases, option_methods::total;
+            x in [None, Some(0i64), Some(-5), Some(i64::MAX)], b in [None, Some(1i64), Some(i64::MAX)]
+        );
+        grid!(cases, option_methods::doubled; x in [None, Some(0i32), Some(3), Some(i32::MAX)], n in [0, i32::MAX]);
+        grid!(cases, option_methods::chain; x in [None, Some(0u32), Some(9), Some(u32::MAX)]);
+        grid!(cases, option_methods::doubled_less; x in [0u32, 1, 9, u32::MAX], d in [0u32, 7]);
+        grid!(cases, option_methods::pair_or; x in [None, Some((0u8, false)), Some((5, true))]);
+        grid!(cases, option_methods::split_or; n in [0u8, 1, 2, 4, 255]);
+        grid!(cases, option_methods::falsy; x in [None, Some(false), Some(true)]);
     });
-    support::assert_equivalent("option_methods", option_methods::SOURCE, &cases);
 }
 
 /// `let x = opt.ok_or(e)?` prints as a guard. A variant literal `e` is

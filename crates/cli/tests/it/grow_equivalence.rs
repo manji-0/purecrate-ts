@@ -8,11 +8,8 @@ purecrate_canon::fixture!(mod grow = "fixtures/grow.rs");
 
 #[test]
 fn grown_vecs_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for n in [0u32, 1, 5] {
-            cases.push(case!(grow::evens(n)));
-        }
+    support::equivalence("grow", grow::SOURCE, |cases| {
+        grid!(cases, grow::evens; n in [0u32, 1, 5]);
         for xs in [vec![], vec![3u32], vec![1, 2, 3]] {
             cases.push(case!(grow::appended(xs.clone(), 9u32)));
             cases.push(case!(grow::through(xs.clone())));
@@ -21,16 +18,12 @@ fn grown_vecs_match_rust() {
                 cases.push(case!(grow::chosen(xs.clone(), again)));
             }
         }
-        for xs in [vec![], vec![1u8, 2, 3], vec![200, 50, 10]] {
-            cases.push(case!(grow::running(xs)));
-        }
+        grid!(cases, grow::running; xs in [vec![], vec![1u8, 2, 3], vec![200, 50, 10]]);
         for s in [None, Some(String::from("abc"))] {
             cases.push(case!(grow::copied_name(&s)));
             cases.push(case!(grow::name_len(&s)));
         }
-        cases
     });
-    support::assert_equivalent("grow", grow::SOURCE, &cases);
 }
 
 fn refused(src: &str) -> String {

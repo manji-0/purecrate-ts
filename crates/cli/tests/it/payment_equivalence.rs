@@ -237,22 +237,10 @@ fn constrained_rust_is_the_idiomatic_rules() {
 fn generated_payment_lifecycle_matches_rust() {
     let cases = support::quietly(|| {
         let mut cases: Vec<_> = runs().map(|(t, [a, b, c, d])| case!(payment::trace4(t, a, b, c, d))).collect();
-        for amount in 0u8..7 {
-            for fee in 0u8..7 {
-                cases.push(case!(payment::capture(amount, fee)));
-            }
-        }
-        for t in 0u8..4 {
-            for o in 0u8..4 {
-                cases.push(case!(payment::action(t, o)));
-            }
-        }
-        for code in 0u8..5 {
-            cases.push(case!(payment::cancel(code)));
-        }
-        for v in [i64::MIN, -1, 0, 49, 50, 99_999_999, 100_000_000, i64::MAX] {
-            cases.push(case!(payment::amount_of(v)));
-        }
+        grid!(cases, payment::capture; amount in 0u8..7, fee in 0u8..7);
+        grid!(cases, payment::action; t in 0u8..4, o in 0u8..4);
+        grid!(cases, payment::cancel; code in 0u8..5);
+        grid!(cases, payment::amount_of; v in [i64::MIN, -1, 0, 49, 50, 99_999_999, 100_000_000, i64::MAX]);
         for s in ["", "pm_", "pm_x", "pa_x", "PM_x", "pmx_", "pm_é", "é"] {
             cases.push(case!(payment::method_id(s.to_string())));
         }

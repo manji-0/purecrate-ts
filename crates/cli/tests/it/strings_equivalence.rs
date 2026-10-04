@@ -10,8 +10,7 @@ const TEXTS: [&str; 7] =
 
 #[test]
 fn utf8_bytes_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("strings", strings::SOURCE, |cases| {
         for s in TEXTS {
             cases.push(case!(strings::bytes(s)));
             cases.push(case!(strings::byte_len(String::from(s))));
@@ -19,7 +18,5 @@ fn utf8_bytes_match_rust() {
             cases.push(case!(strings::nth_byte(s, 0usize)));
             cases.push(case!(strings::nth_byte(s, 3usize)));
         }
-        cases
     });
-    support::assert_equivalent("strings", strings::SOURCE, &cases);
 }

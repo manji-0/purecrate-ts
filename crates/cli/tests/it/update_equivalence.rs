@@ -7,9 +7,8 @@ purecrate_canon::fixture!(mod update = "fixtures/update.rs");
 
 #[test]
 fn generated_struct_update_matches_rust() {
-    let coords = [-2i32, 0, 3, 40];
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("update", update::SOURCE, |cases| {
+        let coords = [-2i32, 0, 3, 40];
         for x in coords {
             for y in coords {
                 for z in coords {
@@ -21,7 +20,5 @@ fn generated_struct_update_matches_rust() {
                 }
             }
         }
-        cases
     });
-    support::assert_equivalent("update", update::SOURCE, &cases);
 }

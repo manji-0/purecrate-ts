@@ -43,29 +43,28 @@ const TEXTS: [&str; 32] = [
 
 #[test]
 fn generated_parse_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for s in TEXTS {
-            cases.push(case!(parse::as_i8(s)));
-            cases.push(case!(parse::as_i16(s)));
-            cases.push(case!(parse::as_i32(s)));
-            cases.push(case!(parse::as_i64(s)));
-            cases.push(case!(parse::as_u8(s)));
-            cases.push(case!(parse::as_u16(s)));
-            cases.push(case!(parse::as_u32(s)));
-            cases.push(case!(parse::as_u64(s)));
-            cases.push(case!(parse::or_zero(s)));
-            cases.push(case!(parse::doubled(s)));
-            cases.push(case!(parse::kept(s)));
-            cases.push(case!(parse::named(s)));
-        }
+    support::equivalence("parse", parse::SOURCE, |cases| {
+        grid!(
+            cases,
+            [
+                parse::as_i8,
+                parse::as_i16,
+                parse::as_i32,
+                parse::as_i64,
+                parse::as_u8,
+                parse::as_u16,
+                parse::as_u32,
+                parse::as_u64,
+                parse::or_zero,
+                parse::doubled,
+                parse::kept,
+                parse::named,
+            ];
+            s in TEXTS
+        );
         // `usize` above 2^53−1 panics in TS (design/01 §3); below, it agrees.
-        for s in ["", "0", "+9007199254740991", "-1", "1x"] {
-            cases.push(case!(parse::as_usize(s)));
-        }
-        cases
+        grid!(cases, parse::as_usize; s in ["", "0", "+9007199254740991", "-1", "1x"]);
     });
-    support::assert_equivalent("parse", parse::SOURCE, &cases);
 }
 
 /// A file that only names `Result` as a type imports it with `type`; one

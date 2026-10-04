@@ -13,8 +13,7 @@ const TEXTS: [&str; 14] =
 
 #[test]
 fn str_methods_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         for s in TEXTS {
             cases.push(case!(strs::len_of(s)));
             cases.push(case!(strs::owned_len(String::from(s))));
@@ -28,7 +27,6 @@ fn str_methods_match_rust() {
                 cases.push(case!(strs::owned_needle(String::from(s), String::from(t))));
             }
         }
-        cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "no case panics");
     support::assert_equivalent("str_methods", strs::SOURCE, &cases);

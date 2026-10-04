@@ -6,9 +6,8 @@ purecrate_canon::fixture!(mod ast = "fixtures/ast.rs");
 
 #[test]
 fn generated_recursive_enum_matches_rust() {
-    let ns = [-4i32, -1, 0, 2, 9];
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("ast", ast::SOURCE, |cases| {
+        let ns = [-4i32, -1, 0, 2, 9];
         for n in ns {
             cases.push(case!(ast::calc_num(n)));
             cases.push(case!(ast::through(n)));
@@ -22,7 +21,5 @@ fn generated_recursive_enum_matches_rust() {
             }
         }
         cases.push(case!(ast::boxed_opt(None::<i32>)));
-        cases
     });
-    support::assert_equivalent("ast", ast::SOURCE, &cases);
 }

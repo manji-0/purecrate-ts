@@ -9,24 +9,16 @@ purecrate_canon::fixture!(mod vec_build = "fixtures/vec_build.rs");
 
 #[test]
 fn generated_vec_literals_match_rust() {
-    use vec_build::Strength;
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("vec_build", vec_build::SOURCE, |cases| {
+        use vec_build::Strength;
         for s in [Strength::Password, Strength::PasswordAndOtp] {
             cases.push(case!(vec_build::amr(s)));
             cases.push(case!(vec_build::issue(String::from("alice"), s)));
         }
         cases.push(case!(vec_build::wide()));
-        for n in [0u8, 1, 2, 255] {
-            cases.push(case!(vec_build::upto(n)));
-        }
+        grid!(cases, vec_build::upto; n in [0u8, 1, 2, 255]);
         let edges = [i32::MIN, -1, 0, 1, 2, 46_341, i32::MAX];
-        for a in edges {
-            for b in edges {
-                cases.push(case!(vec_build::nested(a, b)));
-                cases.push(case!(vec_build::ordered(a, b)));
-            }
-        }
+        grid!(cases, [vec_build::nested, vec_build::ordered]; a in edges, b in edges);
         for (a, b) in [('a', 'b'), ('\0', '😀'), ('é', 'é')] {
             cases.push(case!(vec_build::reread(a, b)));
         }
@@ -35,7 +27,5 @@ fn generated_vec_literals_match_rust() {
                 cases.push(case!(vec_build::optional(x.clone(), y.clone())));
             }
         }
-        cases
     });
-    support::assert_equivalent("vec_build", vec_build::SOURCE, &cases);
 }

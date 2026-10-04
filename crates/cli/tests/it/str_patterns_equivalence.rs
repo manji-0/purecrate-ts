@@ -29,14 +29,11 @@ const TEXTS: [&str; 16] = [
 
 #[test]
 fn string_patterns_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("str_patterns", pats::SOURCE, |cases| {
         for s in TEXTS {
             cases.push(case!(pats::method_of(s)));
             cases.push(case!(pats::owned(String::from(s))));
             cases.push(case!(pats::score(s)));
         }
-        cases
     });
-    support::assert_equivalent("str_patterns", pats::SOURCE, &cases);
 }

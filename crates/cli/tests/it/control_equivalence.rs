@@ -7,8 +7,8 @@ purecrate_canon::fixture!(mod control = "fixtures/control.rs");
 
 #[test]
 fn generated_control_flow_matches_rust() {
-    let cases = support::quietly(|| {
-        vec![
+    support::equivalence("control", control::SOURCE, |cases| {
+        cases.extend([
             case!(control::or_zero(Some(5i32))),
             case!(control::or_zero(None::<i32>)),
             case!(control::none_first(Some(5i32))),
@@ -78,7 +78,6 @@ fn generated_control_flow_matches_rust() {
             case!(control::unit_ok(1i32)),
             case!(control::unit_some(0i32)),
             case!(control::unit_some(1i32)),
-        ]
+        ]);
     });
-    support::assert_equivalent("control", control::SOURCE, &cases);
 }

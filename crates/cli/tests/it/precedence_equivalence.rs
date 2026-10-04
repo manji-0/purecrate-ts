@@ -9,8 +9,7 @@ purecrate_canon::fixture!(mod precedence = "fixtures/precedence.rs");
 
 #[test]
 fn generated_precedence_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("precedence", precedence::SOURCE, |cases| {
         for c in [false, true] {
             for o in [None, Some(0i32), Some(5)] {
                 cases.push(case!(precedence::coalesce_choice(o, c)));
@@ -35,13 +34,7 @@ fn generated_precedence_matches_rust() {
                 }
             }
         }
-        for x in [None, Some((1i32, 2i32, 3i32))] {
-            cases.push(case!(precedence::first_two(x)));
-        }
-        for o in [None, Some(vec![1u8, 2])] {
-            cases.push(case!(precedence::len_or_empty(o)));
-        }
-        cases
+        grid!(cases, precedence::first_two; x in [None, Some((1i32, 2i32, 3i32))]);
+        grid!(cases, precedence::len_or_empty; o in [None, Some(vec![1u8, 2])]);
     });
-    support::assert_equivalent("precedence", precedence::SOURCE, &cases);
 }

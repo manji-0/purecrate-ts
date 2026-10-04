@@ -9,22 +9,9 @@ purecrate_canon::fixture!(mod rest = "fixtures/rest.rs");
 
 #[test]
 fn generated_rest_arms_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for a in 0i32..4 {
-            cases.push(case!(rest::area(a)));
-            cases.push(case!(rest::corners(a)));
-            cases.push(case!(rest::stops(a)));
-            cases.push(case!(rest::next(a)));
-            for b in 0i32..4 {
-                cases.push(case!(rest::nested(a, b)));
-                cases.push(case!(rest::matched(a, b)));
-            }
-        }
-        for x in [-3i32, -2, 0, 1, 2, 5, 8] {
-            cases.push(case!(rest::options(x)));
-        }
-        cases
+    support::equivalence("rest", rest::SOURCE, |cases| {
+        grid!(cases, [rest::area, rest::corners, rest::stops, rest::next]; a in 0i32..4);
+        grid!(cases, [rest::nested, rest::matched]; a in 0i32..4, b in 0i32..4);
+        grid!(cases, rest::options; x in [-3i32, -2, 0, 1, 2, 5, 8]);
     });
-    support::assert_equivalent("rest", rest::SOURCE, &cases);
 }

@@ -8,8 +8,8 @@ purecrate_canon::fixture!(mod borrow = "fixtures/borrow.rs");
 
 #[test]
 fn generated_borrowing_code_matches_rust() {
-    let cases = support::quietly(|| {
-        vec![
+    support::equivalence("borrow", borrow::SOURCE, |cases| {
+        cases.extend([
             case!(borrow::trip(0i32, 3i32, 10i32)),
             case!(borrow::trip(5i32, 2i32, 2i32)),
             case!(borrow::trip(i32::MIN, 0i32, 1i32)),
@@ -21,7 +21,6 @@ fn generated_borrowing_code_matches_rust() {
             case!(borrow::hours(&-7i32, true, 2i32)),
             case!(borrow::label("north", "south", true)),
             case!(borrow::label("north", "south", false)),
-        ]
+        ]);
     });
-    support::assert_equivalent("borrow", borrow::SOURCE, &cases);
 }

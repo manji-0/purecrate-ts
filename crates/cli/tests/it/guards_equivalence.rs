@@ -8,14 +8,13 @@ purecrate_canon::fixture!(mod guards = "fixtures/guards.rs");
 
 #[test]
 fn generated_guards_match_rust() {
-    use guards::{Event, Rate, State};
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
-        for rate in [Rate::Standard, Rate::Reduced, Rate::Exempt] {
-            for amount in [i64::MIN, -5, 0, 9_999, 10_000, i64::MAX / 10, i64::MAX] {
-                cases.push(case!(guards::tax(rate, amount)));
-            }
-        }
+    support::equivalence("guards", guards::SOURCE, |cases| {
+        use guards::{Event, Rate, State};
+        grid!(
+            cases, guards::tax;
+            rate in [Rate::Standard, Rate::Reduced, Rate::Exempt],
+            amount in [i64::MIN, -5, 0, 9_999, 10_000, i64::MAX / 10, i64::MAX],
+        );
         for state in [State::Open, State::Paid, State::Closed] {
             for event in [
                 Event::Pay { amount: 1 },
@@ -27,71 +26,44 @@ fn generated_guards_match_rust() {
                 cases.push(case!(guards::step(state, event.clone())));
             }
         }
-        for rate in [Rate::Standard, Rate::Reduced, Rate::Exempt] {
-            for amount in [0, 1, i32::MAX] {
-                cases.push(case!(guards::only_when_matched(rate, amount)));
-            }
-        }
-        for n in [i32::MIN, -1, 0, 1, 50, 51, i32::MAX / 2 + 1, i32::MAX] {
-            cases.push(case!(guards::bucket(n)));
-        }
+        grid!(
+            cases, guards::only_when_matched;
+            rate in [Rate::Standard, Rate::Reduced, Rate::Exempt], amount in [0, 1, i32::MAX]
+        );
+        grid!(cases, guards::bucket; n in [i32::MIN, -1, 0, 1, 50, 51, i32::MAX / 2 + 1, i32::MAX]);
         for xs in [vec![], vec![None, Some(3), Some(10), Some(255)]] {
             cases.push(case!(guards::guard_runs(xs.clone())));
         }
-        for x in [None, Some(10), Some(12), Some(13), Some(u32::MAX - 1)] {
-            cases.push(case!(guards::big_even(x)));
-        }
-        for rate in [Rate::Standard, Rate::Reduced, Rate::Exempt] {
-            for amount in [0, 5, 6] {
-                cases.push(case!(guards::wild_after(rate, amount)));
-            }
-        }
-        for n in [0, 4, 5, 9, 10, 255] {
-            for strict in [true, false] {
-                cases.push(case!(guards::overlap(n, strict)));
-            }
-        }
+        grid!(cases, guards::big_even; x in [None, Some(10), Some(12), Some(13), Some(u32::MAX - 1)]);
+        grid!(cases, guards::wild_after; rate in [Rate::Standard, Rate::Reduced, Rate::Exempt], amount in [0, 5, 6]);
+        grid!(cases, guards::overlap; n in [0, 4, 5, 9, 10, 255], strict in [true, false]);
         for b in [-1i32, 0, 4] {
             for v in [None, Some(7i32)] {
                 cases.push(case!(guards::guarded_field(guards::Setting::Set(v), b)));
             }
         }
-        for state in [State::Open, State::Paid, State::Closed] {
-            for n in [0, 50, 55, 56, 255] {
-                cases.push(case!(guards::guarded_overflow(state, n)));
-            }
-        }
-        for a in [true, false] {
-            for b in [true, false] {
-                for n in [0, 3, 4] {
-                    cases.push(case!(guards::flags(a, b, n)));
-                }
-            }
-        }
-        for x in [None, Some(0), Some(7), Some(8)] {
-            cases.push(case!(guards::only_in_guard(x)));
-        }
-        for s in ["", "a", "ab", "abc", "abcdefghi", "éé"] {
-            cases.push(case!(guards::classify(s)));
-        }
+        grid!(
+            cases, guards::guarded_overflow;
+            state in [State::Open, State::Paid, State::Closed], n in [0, 50, 55, 56, 255]
+        );
+        grid!(cases, guards::flags; a in [true, false], b in [true, false], n in [0, 3, 4]);
+        grid!(cases, guards::only_in_guard; x in [None, Some(0), Some(7), Some(8)]);
+        grid!(cases, guards::classify; s in ["", "a", "ab", "abc", "abcdefghi", "éé"]);
         for c in [false, true] {
             for p in [guards::Pair::P(3, 4), guards::Pair::Q] {
                 cases.push(case!(guards::pick(p, c)));
                 cases.push(case!(guards::shadowed_later(p, c)));
             }
         }
-        cases
     });
-    support::assert_equivalent("guards", guards::SOURCE, &cases);
 }
 
 /// Random states, events, and values through the guarded decision trees.
 #[test]
 fn random_guards_match_rust() {
-    use guards::{Event, Rate, State};
-    let mut rng = support::Rng::new(0x0006_a2d5);
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("guards_random", guards::SOURCE, |cases| {
+        use guards::{Event, Rate, State};
+        let mut rng = support::Rng::new(0x0006_a2d5);
         for _ in 0..500 {
             let state = rng.pick(&[State::Open, State::Paid, State::Closed]);
             let rate = rng.pick(&[Rate::Standard, Rate::Reduced, Rate::Exempt]);
@@ -112,9 +84,7 @@ fn random_guards_match_rust() {
             cases.push(case!(guards::flags(a, b, k)));
             cases.push(case!(guards::bucket(m)));
         }
-        cases
     });
-    support::assert_equivalent("guards_random", guards::SOURCE, &cases);
 }
 
 /// A field or payload a lowered `match` reads binds the arm's own name

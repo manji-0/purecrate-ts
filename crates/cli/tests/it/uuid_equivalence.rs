@@ -104,8 +104,7 @@ fn uuids_parse_and_compare_as_in_rust() {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let texts = texts(&mut rng);
     let ids = ids(&mut rng, 40);
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         for s in &texts {
             cases.push(case!(uuids::parse(s)));
             cases.push(case!(uuids::try_parse(s.clone())));
@@ -121,7 +120,6 @@ fn uuids_parse_and_compare_as_in_rust() {
             let d = uuids::Disk { id: ids[i % ids.len()], parent: None };
             cases.push(case!(uuids::reparent(d, s)));
         }
-        cases
     });
     // The forms the crate prints all parse, so the corpus reaches `Ok`.
     let accepted = texts.iter().filter(|s| Uuid::parse_str(s).is_ok()).count();

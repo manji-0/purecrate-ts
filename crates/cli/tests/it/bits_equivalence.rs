@@ -9,8 +9,7 @@ purecrate_canon::fixture!(mod bits = "fixtures/bits.rs");
 
 #[test]
 fn generated_bit_operations_match_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    support::equivalence("bits", bits::SOURCE, |cases| {
         let u8s = [0u8, 1, 0x0f, 0x80, 0xaa, 0xff];
         let i8s = [0i8, 1, -1, 0x55, i8::MIN, i8::MAX];
         let i16s = [0i16, -1, 0x1234, i16::MIN, i16::MAX];
@@ -19,62 +18,22 @@ fn generated_bit_operations_match_rust() {
         let u32s = [0u32, 1, 0x8000_0000, 0xdead_beef, u32::MAX];
         let i64s = [0i64, -1, 0x7fff_ffff_ffff, i64::MIN, i64::MAX];
         let u64s = [0u64, 1, 1 << 53, 0xdead_beef_cafe_babe, u64::MAX];
-        for a in u8s {
-            for b in u8s {
-                cases.push(case!(bits::and_u8(a, b)));
-            }
-            cases.push(case!(bits::not_u8(a)));
-        }
-        for a in i8s {
-            for b in i8s {
-                cases.push(case!(bits::or_i8(a, b)));
-            }
-            cases.push(case!(bits::not_i8(a)));
-        }
-        for a in i16s {
-            for b in i16s {
-                cases.push(case!(bits::xor_i16(a, b)));
-            }
-            cases.push(case!(bits::toggles(a)));
-        }
-        for a in u16s {
-            for b in u16s {
-                cases.push(case!(bits::ops_u16(a, b)));
-            }
-        }
-        for a in i32s {
-            for b in i32s {
-                cases.push(case!(bits::ops_i32(a, b)));
-            }
-            cases.push(case!(bits::not_i32(a)));
-        }
-        for a in u32s {
-            for b in u32s {
-                cases.push(case!(bits::ops_u32(a, b)));
-            }
-            cases.push(case!(bits::not_u32(a)));
-            cases.push(case!(bits::popcount(a)));
-            cases.push(case!(bits::reverse_bytes(a)));
-        }
-        for a in i64s {
-            for b in i64s {
-                cases.push(case!(bits::ops_i64(a, b)));
-            }
-            cases.push(case!(bits::not_i64(a)));
-        }
-        for a in u64s {
-            for b in u64s {
-                cases.push(case!(bits::ops_u64(a, b)));
-                cases.push(case!(bits::allows(a, b)));
-            }
-            cases.push(case!(bits::not_u64(a)));
-            cases.push(case!(bits::literals(a)));
-        }
-        for a in [false, true] {
-            for x in [0u16, 1] {
-                cases.push(case!(bits::not_bool(a, x)));
-            }
-        }
+        grid!(cases, bits::and_u8; a in u8s, b in u8s);
+        grid!(cases, bits::not_u8; a in u8s);
+        grid!(cases, bits::or_i8; a in i8s, b in i8s);
+        grid!(cases, bits::not_i8; a in i8s);
+        grid!(cases, bits::xor_i16; a in i16s, b in i16s);
+        grid!(cases, bits::toggles; a in i16s);
+        grid!(cases, bits::ops_u16; a in u16s, b in u16s);
+        grid!(cases, bits::ops_i32; a in i32s, b in i32s);
+        grid!(cases, bits::not_i32; a in i32s);
+        grid!(cases, bits::ops_u32; a in u32s, b in u32s);
+        grid!(cases, [bits::not_u32, bits::popcount, bits::reverse_bytes]; a in u32s);
+        grid!(cases, bits::ops_i64; a in i64s, b in i64s);
+        grid!(cases, bits::not_i64; a in i64s);
+        grid!(cases, [bits::ops_u64, bits::allows]; a in u64s, b in u64s);
+        grid!(cases, [bits::not_u64, bits::literals]; a in u64s);
+        grid!(cases, bits::not_bool; a in [false, true], x in [0u16, 1]);
         for n in [0u32, 1, 7, 8, 9, 31, 32, 33, u32::MAX] {
             for a in [1u8, 0x81, 0xff] {
                 cases.push(case!(bits::shl_u8(a, n)));
@@ -128,9 +87,7 @@ fn generated_bit_operations_match_rust() {
         high[19] = 0x0f;
         high[15] = 0xff;
         cases.push(case!(bits::truncate(high.as_slice())));
-        cases
     });
-    support::assert_equivalent("bits", bits::SOURCE, &cases);
 }
 
 #[test]

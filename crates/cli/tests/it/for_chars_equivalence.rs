@@ -27,8 +27,7 @@ const STRINGS: [&str; 14] = [
 
 #[test]
 fn for_chars_matches_rust() {
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         for s in STRINGS {
             let owned = s.to_string();
             cases.push(case!(for_chars::digits(s)));
@@ -45,7 +44,6 @@ fn for_chars_matches_rust() {
                 cases.push(case!(for_chars::overflow(s, limit)));
             }
         }
-        cases
     });
     for s in STRINGS {
         assert_eq!(for_chars::utf8_len(s), s.len(), "{s:?}");

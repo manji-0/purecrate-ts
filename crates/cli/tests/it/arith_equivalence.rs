@@ -7,8 +7,8 @@ purecrate_canon::fixture!(mod arith = "fixtures/arith.rs");
 
 #[test]
 fn generated_arithmetic_matches_rust_debug_build() {
-    let cases = support::quietly(|| {
-        vec![
+    support::equivalence("arith", arith::SOURCE, |cases| {
+        cases.extend([
             case!(arith::add_i32(1i32, 2i32)),
             case!(arith::add_i32(i32::MAX, 1i32)),
             case!(arith::sub_i32(i32::MIN, 1i32)),
@@ -68,7 +68,6 @@ fn generated_arithmetic_matches_rust_debug_build() {
             case!(arith::poly_f64(0.1f64)),
             case!(arith::div_f64(1.0f64, 0.0f64)),
             case!(arith::div_f64(-1.0f64, 3.0f64)),
-        ]
+        ]);
     });
-    support::assert_equivalent("arith", arith::SOURCE, &cases);
 }

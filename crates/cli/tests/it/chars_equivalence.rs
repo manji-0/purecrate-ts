@@ -18,8 +18,7 @@ const WIDE: [char; 8] = ['\u{d7ff}', '\u{e000}', '\u{ffff}', '\u{10000}', '😀'
 #[test]
 fn chars_match_rust() {
     let all: Vec<char> = CHARS.iter().chain(WIDE.iter()).copied().collect();
-    let cases = support::quietly(|| {
-        let mut cases = Vec::new();
+    let cases = support::cases(|cases| {
         for &c in &all {
             cases.push(case!(chars::classify(c)));
             cases.push(case!(chars::ascii_bits(c)));
@@ -39,9 +38,7 @@ fn chars_match_rust() {
                 cases.push(case!(chars::same_letter(c, d)));
             }
         }
-        for b in 0u8..=255 {
-            cases.push(case!(chars::from_byte(b)));
-        }
+        grid!(cases, chars::from_byte; b in 0u8..=255);
         for n in [
             0u32,
             0x7f,
@@ -60,7 +57,6 @@ fn chars_match_rust() {
         ] {
             cases.push(case!(chars::from_code(n)));
         }
-        cases
     });
     assert!(cases.iter().any(|c| c.rust.starts_with("panic(")), "a bad radix must panic");
     support::assert_equivalent("chars", chars::SOURCE, &cases);
