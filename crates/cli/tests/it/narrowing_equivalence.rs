@@ -43,6 +43,7 @@ fn generated_narrowing_matches_rust() {
             for b in [2i32, 50_000] {
                 cases.push(case!(narrowing::unread_default(r, b)));
                 cases.push(case!(narrowing::known_err_try(r, b)));
+                cases.push(case!(narrowing::known_err_other_ok(r)));
             }
             for o in [None, Some(5i32), Some(i32::MIN)] {
                 for a in [0i32, 2, i32::MIN] {
@@ -86,6 +87,7 @@ fn generated_narrowing_matches_rust() {
             for b in [2i32, 50_000] {
                 cases.push(case!(narrowing::unread_default(r, b)));
                 cases.push(case!(narrowing::known_err_try(r, b)));
+                cases.push(case!(narrowing::known_err_other_ok(r)));
             }
             for o in [None, Some(5i32), Some(i32::MIN)] {
                 for a in [0i32, 2, i32::MIN] {

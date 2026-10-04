@@ -90,11 +90,13 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 | Metric | Criterion |
 | --- | --- |
 | Equivalence | Differential tests (boundary values, exhaustive sequences where feasible) agree on whole values for every example |
-| Types | 0 errors under `tsc --strict`, TS 6 and 7. Met by every example and fixture; generated bodies type-check on 60 of seeds 1 to 120, the rest refused where TS narrows across joins and loops and the printer does not ([07 §3](./07-roadmap.md#3-candidates)) |
+| Types | 0 errors under `tsc --strict`, TS 6 and 7 |
 | Determinism | same input, same bytes |
 | Rejection quality | `path:line:col` + reason, no partial output |
 | Capability | transitions keep ADTs, exhaustiveness, `Result`, debug integer semantics |
 | Idiomaticity | no serialization, initialization, or async loading for TS users |
+
+Types holds for every example and fixture. Generated function bodies type-check on 60 of seeds 1 to 120: 47 of the others stop only where TS narrows across joins and loops and the printer does not, 13 also at a `??` on a known `null`, unreachable code, or a temporary TS types from itself in a loop ([07 §3](./07-roadmap.md#3-candidates), [§8.15](./07-roadmap.md#815-unreleased-generated-function-bodies)).
 
 ### 4.2 External criteria
 

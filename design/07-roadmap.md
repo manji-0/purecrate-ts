@@ -144,7 +144,7 @@ What the evidence currently points at, strongest first. None is scheduled until 
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds |
+| Narrowing as TS's control-flow analysis does it: the variants each place may hold, merged where branches join and at a loop's head, a write resetting them | generated bodies: 60 of seeds 1 to 120 refused by tsc, 47 of them only for narrowing (`no overlap`, a property of `never`), values all agreeing | no value disagrees, so it is not a hole; it decides whether generated code type-checks. The fold in `join.rs` is a stack of what enclosing arms, jumps, and tests decided, extended four times in §8.15, each buying a few seeds |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
@@ -481,7 +481,7 @@ Why: the generator of 0.10.0 drew expressions only, over four types. Two of the 
 | Narrowing past a statement `match` with jumping arms, past an `if` that always leaves, and of `bool`s an `if` decided; `if c { p } else { p }` and `{ let t = p; t }` are `p` | `narrowing_equivalence.rs` |
 | A sweep compares values even where tsc refuses (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check | `support::assert_values_equivalent` |
 
-- **Open:** the 60 seeds tsc refuses (§3, narrowing as TS does it). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`.
+- **Open:** the 60 seeds tsc refuses: 47 only for narrowing (§3, narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022, wanting an annotation), or an unread one (TS6133). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`.
 - **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
 
 ## 9. Generated API stability

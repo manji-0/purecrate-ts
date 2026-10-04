@@ -307,3 +307,14 @@ pub fn equal_constructors(c: bool, a: i32) -> i32 {
         None => a,
     }
 }
+
+/// `r?` on a known `Err` returns `r` where the function's `Ok` type differs.
+pub fn known_err_other_ok(r: Result<i32, i32>) -> Result<bool, i32> {
+    match r {
+        Ok(v) => Ok(v > 0),
+        Err(_) => {
+            let y: i32 = r?;
+            Ok(y > 1)
+        }
+    }
+}
