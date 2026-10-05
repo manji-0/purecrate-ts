@@ -5,6 +5,7 @@ import type { Line } from "./line.ts";
 import type { OrderError } from "./order-error.ts";
 import { unsafeMakeYen, type Yen } from "./yen.ts";
 
+/** The sum of the lines' amounts. */
 export const total = (lines: ReadonlyArray<Line>): Result<Yen, OrderError> => {
   let sum = 0n as I64;
 

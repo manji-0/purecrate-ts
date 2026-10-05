@@ -21,4 +21,5 @@ export const Sku = {
     Str.wellFormed(code);
     return code.length === 0 ? Result.err({ kind: "EmptySku" }) : Result.ok(unsafeMakeSku(code));
   },
+  code: (self: Sku): string => self,
 } as const;

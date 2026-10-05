@@ -1,3 +1,19 @@
+// An order's lifecycle: lines are added and removed while it is a draft, it
+// is placed at the total of its lines, paid that exact amount, and shipped
+// with a tracking number; a draft or a placed order can be cancelled.
+//
+// Invariants, held by construction: `Yen`, `Sku`, `Line`, and `Order` have
+// private fields, so a value of each comes only from its checked function.
+// - A `Yen` is not negative, and a `Sku` is not empty.
+// - A `Line` has a quantity above zero.
+// - An `Order` has at most one line per SKU (`step` merges a repeated SKU
+//   at the same unit price, and refuses another price), its total is the
+//   sum of its lines, and a shipped order's tracking number is not empty.
+//
+// `step` reads the order and returns the next one, so a refused command
+// leaves the caller holding the order it had.
+
+#[derive(Clone)]
 pub struct Yen(i64);
 
 impl Yen {
@@ -14,6 +30,7 @@ impl Yen {
     }
 }
 
+#[derive(Clone)]
 pub struct Sku(String);
 
 impl Sku {
@@ -24,25 +41,68 @@ impl Sku {
             Ok(Sku(code))
         }
     }
+
+    pub fn code(&self) -> &str {
+        &self.0
+    }
 }
 
+#[derive(Clone)]
 pub struct Line {
-    pub sku: Sku,
-    pub unit_price: Yen,
-    pub qty: u32,
+    sku: Sku,
+    unit_price: Yen,
+    qty: u32,
 }
 
+impl Line {
+    pub fn new(sku: Sku, unit_price: Yen, qty: u32) -> Result<Line, OrderError> {
+        if qty == 0 {
+            Err(OrderError::QtyZero)
+        } else {
+            Ok(Line { sku, unit_price, qty })
+        }
+    }
+
+    pub fn sku(&self) -> &Sku {
+        &self.sku
+    }
+
+    pub fn unit_price(&self) -> &Yen {
+        &self.unit_price
+    }
+
+    pub fn qty(&self) -> u32 {
+        self.qty
+    }
+}
+
+#[derive(Clone)]
 pub enum CancelReason {
     ByCustomer,
     PaymentFailed,
 }
 
-pub enum Order {
+/// Where an order is, read through `Order::status`. Only `Order` holds one,
+/// so the invariants above hold for every `Status` an `Order` returns.
+pub enum Status {
     Draft { lines: Vec<Line> },
     Placed { lines: Vec<Line>, total: Yen },
     Paid { lines: Vec<Line>, total: Yen },
     Shipped { lines: Vec<Line>, total: Yen, tracking: String },
     Cancelled { reason: CancelReason },
+}
+
+pub struct Order(Status);
+
+impl Order {
+    /// An empty draft, where every order starts.
+    pub fn draft() -> Order {
+        Order(Status::Draft { lines: Vec::new() })
+    }
+
+    pub fn status(&self) -> &Status {
+        &self.0
+    }
 }
 
 pub enum Command {
@@ -71,17 +131,17 @@ pub enum OrderError {
 
 /// Adds `line`, or adds its quantity to the line of the same SKU, which
 /// must have the same unit price.
-pub fn add_line(lines: Vec<Line>, line: Line) -> Result<Vec<Line>, OrderError> {
+fn add_line(lines: &Vec<Line>, line: Line) -> Result<Vec<Line>, OrderError> {
     let mut out: Vec<Line> = Vec::new();
     let mut merged = false;
     for l in lines {
         if l.sku.0 != line.sku.0 {
-            out.push(l);
+            out.push(l.clone());
         } else if l.unit_price.0 != line.unit_price.0 {
             return Err(OrderError::PriceMismatch);
         } else {
             let qty = l.qty.checked_add(line.qty).ok_or(OrderError::Overflow)?;
-            out.push(Line { qty, ..l });
+            out.push(Line { qty, ..l.clone() });
             merged = true;
         }
     }
@@ -92,13 +152,14 @@ pub fn add_line(lines: Vec<Line>, line: Line) -> Result<Vec<Line>, OrderError> {
 }
 
 /// Removes the line of `sku`; there is at most one, as `add_line` merges.
-pub fn remove_sku(lines: Vec<Line>, sku: &Sku) -> Result<Vec<Line>, OrderError> {
+fn remove_sku(lines: &Vec<Line>, sku: &Sku) -> Result<Vec<Line>, OrderError> {
     if !lines.iter().any(|l| l.sku.0 == sku.0) {
         return Err(OrderError::UnknownSku);
     }
-    Ok(lines.into_iter().filter(|l| l.sku.0 != sku.0).collect())
+    Ok(lines.iter().filter(|l| l.sku.0 != sku.0).cloned().collect())
 }
 
+/// The sum of the lines' amounts.
 pub fn total(lines: &Vec<Line>) -> Result<Yen, OrderError> {
     let mut sum = 0i64;
     for line in lines {
@@ -108,23 +169,28 @@ pub fn total(lines: &Vec<Line>) -> Result<Yen, OrderError> {
     Ok(Yen(sum))
 }
 
-pub fn step(order: Order, cmd: Command) -> Result<Order, OrderError> {
-    match (order, cmd) {
-        (Order::Draft { .. }, Command::AddLine(line)) if line.qty == 0 => Err(OrderError::QtyZero),
-        (Order::Draft { lines }, Command::AddLine(line)) => Ok(Order::Draft { lines: add_line(lines, line)? }),
-        (Order::Draft { lines }, Command::RemoveSku(sku)) => Ok(Order::Draft { lines: remove_sku(lines, &sku)? }),
-        (Order::Draft { lines }, Command::Place) if lines.is_empty() => Err(OrderError::Empty),
-        (Order::Draft { lines }, Command::Place) => {
-            let total = total(&lines)?;
-            Ok(Order::Placed { lines, total })
+/// The order after `cmd`, or why `cmd` does not apply; `order` is unchanged
+/// either way.
+pub fn step(order: &Order, cmd: Command) -> Result<Order, OrderError> {
+    let next = match (&order.0, cmd) {
+        (Status::Draft { lines }, Command::AddLine(line)) => Status::Draft { lines: add_line(lines, line)? },
+        (Status::Draft { lines }, Command::RemoveSku(sku)) => Status::Draft { lines: remove_sku(lines, &sku)? },
+        (Status::Draft { lines }, Command::Place) => {
+            if lines.is_empty() {
+                return Err(OrderError::Empty);
+            }
+            Status::Placed { lines: lines.clone(), total: total(lines)? }
         }
-        (Order::Placed { total, .. }, Command::Pay(amount)) if amount.0 != total.0 => {
-            Err(OrderError::AmountMismatch { expected: total, got: amount })
+        (Status::Placed { total, .. }, Command::Pay(amount)) if amount.0 != total.0 => {
+            return Err(OrderError::AmountMismatch { expected: total.clone(), got: amount });
         }
-        (Order::Placed { lines, total }, Command::Pay(_)) => Ok(Order::Paid { lines, total }),
-        (Order::Paid { .. }, Command::Ship(tracking)) if tracking.is_empty() => Err(OrderError::EmptyTracking),
-        (Order::Paid { lines, total }, Command::Ship(tracking)) => Ok(Order::Shipped { lines, total, tracking }),
-        (Order::Draft { .. } | Order::Placed { .. }, Command::Cancel(reason)) => Ok(Order::Cancelled { reason }),
-        _ => Err(OrderError::InvalidTransition),
-    }
+        (Status::Placed { lines, total }, Command::Pay(_)) => Status::Paid { lines: lines.clone(), total: total.clone() },
+        (Status::Paid { .. }, Command::Ship(tracking)) if tracking.is_empty() => return Err(OrderError::EmptyTracking),
+        (Status::Paid { lines, total }, Command::Ship(tracking)) => {
+            Status::Shipped { lines: lines.clone(), total: total.clone(), tracking }
+        }
+        (Status::Draft { .. } | Status::Placed { .. }, Command::Cancel(reason)) => Status::Cancelled { reason },
+        _ => return Err(OrderError::InvalidTransition),
+    };
+    Ok(Order(next))
 }
