@@ -161,6 +161,36 @@ pub(super) fn wrap_assign_logical(line: &str, width: usize, out: &mut String) ->
     true
 }
 
+/// `return a && b;` that does not fit: the value in parentheses, one
+/// indent in on a line of its own where it fits there, else one operand of
+/// its top-level `||` (else `&&`, else `??`) per line, as oxfmt lays out a
+/// logical return value.
+pub(super) fn wrap_return_logical(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let Some(value) = line.trim_start().strip_prefix("return ").and_then(|v| v.strip_suffix(';')) else {
+        return false;
+    };
+    let d = depths(value);
+    let arrow = (0..value.len()).any(|i| d[i] == Some(0) && value[i..].starts_with(" => "));
+    if arrow || find_ternary(value).is_some() {
+        return false;
+    }
+    let Some(parts) = [" || ", " && ", " ?? "].iter().find_map(|op| split_at_op(value, op, 0)) else {
+        return false;
+    };
+    emit_raw(&format!("{pad}return ("), out);
+    let whole = format!("{pad}  {value}");
+    if cols(&whole) <= width {
+        emit_raw(&whole, out);
+    } else {
+        for part in parts {
+            wrap_line(&format!("{pad}  {}", part.trim_end()), width, out);
+        }
+    }
+    emit_raw(&format!("{pad});"), out);
+    true
+}
+
 /// An item of a bracket that `wrap_bracket`, `wrap_fat_group`, or
 /// `wrap_sole_item` opened, `a && b,`: where it does not fit, one operand of
 /// its top-level `||` (else `&&`) per line, the ones after the first one

@@ -69,6 +69,7 @@ const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
     wrap_arrow_first,
     wrap_assign_ternary,
     wrap_assign_logical,
+    wrap_return_logical,
     wrap_branch_operator,
     wrap_paren_group,
     // A top-level `?:` splits before a bracket in one of its branches
@@ -97,6 +98,25 @@ mod tests {
         assert_eq!(strip_outer("(a) || (b)"), "(a) || (b)");
         assert_eq!(strip_outer("(\")\" + x)"), "\")\" + x");
         assert_eq!(strip_outer("f(x)"), "f(x)");
+    }
+
+    #[test]
+    fn a_long_logical_return_is_parenthesized_as_oxfmt_lays_it_out() {
+        let line = "  return aaaaaaaaaaaa && bbbbbbbbbbbbbbbbbb && cccccccccc(s);";
+        assert_eq!(wrap(line, 60), "  return (\n    aaaaaaaaaaaa && bbbbbbbbbbbbbbbbbb && cccccccccc(s)\n  );\n");
+        let line = "  return aaaaaaaaaaaa(s) || (bbbbbbbbbbbb(s) && ccccccccc(s)) || dddddd(s);";
+        assert_eq!(
+            wrap(line, 40),
+            "  return (\n    aaaaaaaaaaaa(s) ||\n    (bbbbbbbbbbbb(s) && ccccccccc(s)) ||\n    dddddd(s)\n  );\n"
+        );
+        let line = "  return aaaaaaaaaaaaaaaa(s) ?? bbbbbbbbbbbbbbbbbbbbbb(s) ?? ccc(s);";
+        assert_eq!(
+            wrap(line, 40),
+            "  return (\n    aaaaaaaaaaaaaaaa(s) ??\n    bbbbbbbbbbbbbbbbbbbbbb(s) ??\n    ccc(s)\n  );\n"
+        );
+        // A `?:` or a call holding the operators is laid out as before.
+        assert!(!wrap("  return aaaaaaaaaaaa ? bbbbbbbbbbbbbbbbbb && c : dddddddddd;", 30).contains("return ("));
+        assert!(!wrap("  return fffffffff(aaaaaaaaaaaa && bbbbbbbbbbbbbbbbbb);", 30).contains("return ("));
     }
 
     #[test]
