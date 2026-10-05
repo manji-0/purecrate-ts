@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 — 2026-10-05
+
+Building a `String`, and `examples/punycode`, written from the authoring skill alone, which found a `while` that ran forever in TS where Rust returned: a loop on a flag its body sets. That is fixed, and the statements generator now writes such loops; the narrowing they reached is closed too. Programs that passed 0.11.0 translate as before, but for that loop; the other examples' output is byte for byte the same.
 
 ### Fixed
 

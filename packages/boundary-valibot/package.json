@@ -1,6 +1,6 @@
 {
   "name": "purecrate-valibot",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -27,7 +27,7 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "purecrate": "^0.11.0",
+    "purecrate": "^0.12.0",
     "valibot": "^1.1.0"
   },
   "devDependencies": {
