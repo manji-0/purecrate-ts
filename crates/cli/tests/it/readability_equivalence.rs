@@ -50,7 +50,8 @@ fn readability_rewrites_print_as_intended() {
         pkg.files.iter().find(|f| f.source.contains(&decl)).expect(stem).source.clone()
     };
     let flipped = file("flipped");
-    assert!(flipped.contains("c ? (0 as I32) : a"), "{flipped}");
+    // No string to check on entry, so the body stays an expression.
+    assert!(flipped.contains("c ? (0 as I32) : a") && !flipped.contains("=> {"), "{flipped}");
     let area = file("area");
     assert!(area.contains("const { w, h } = s;"), "{area}");
     // `tie`, its helper, shares the file; only `thenBy` itself is checked.

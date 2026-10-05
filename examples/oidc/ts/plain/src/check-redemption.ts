@@ -16,6 +16,7 @@ export const checkRedemption = (
   codeVerifier: string | null,
   verifierS256: string | null,
 ): Result<undefined, TokenError> => {
+  Str.wellFormed(grant);
   Str.wellFormed(clientId);
   Str.wellFormed(redirectUri);
   Str.wellFormed(codeVerifier);

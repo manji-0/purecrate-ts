@@ -13,7 +13,9 @@ export const judgeHostKey = (
   port: U16,
   key: HostKey,
 ): Trust => {
+  Str.wellFormed(known);
   Str.wellFormed(host);
+  Str.wellFormed(key);
   const revoked = Iter.any(
     known,
     (k: KnownHost): boolean =>

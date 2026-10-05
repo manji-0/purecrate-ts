@@ -80,6 +80,8 @@ export const validateRequest = (
   params: AuthorizationParams,
   client: Client | null,
 ): Result<AuthorizationRequest, AuthorizationError> => {
+  Str.wellFormed(params);
+  Str.wellFormed(client);
   if (client === null || params.client_id === null || params.client_id !== client.client_id)
     return Result.err({ kind: "Display", value: { kind: "UnknownClient" } });
   const client2 = client;

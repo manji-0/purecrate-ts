@@ -30,20 +30,15 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     crate::scoped(&crate::PUSHED, pushed, || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
 }
 
-/// `f` with each string parameter checked on entry, where `f` is `pub`: a
-/// caller in TS may pass a lone surrogate, which no Rust `str` holds.
+/// `f` with each parameter that may hold a string checked on entry, where
+/// `f` is `pub`: a caller in TS may pass a lone surrogate, which no Rust
+/// `str` holds, in a string or anywhere in an open struct, an enum, an
+/// `Option`, a `Vec`, or a tuple (`context::holds_string`).
 pub(crate) fn checked_strings(f: &Fn) -> Fn {
-    use purecrate_ir::Prim;
-    let text = |t: &Ty| matches!(t, Ty::Prim(Prim::String | Prim::Str));
     let mut body = f.body.clone();
     if f.vis == purecrate_ir::Vis::Pub {
         for p in f.params.iter().rev() {
-            let strings = match &p.ty {
-                t if text(t) => true,
-                Ty::Option(inner) | Ty::Vec(inner) => text(inner),
-                _ => false,
-            };
-            if strings {
+            if crate::context::holds_string(&p.ty) {
                 let check = Expr::Call { callee: Callee::StrWellFormed, args: vec![Expr::Var(p.name.clone())] };
                 body = Expr::Seq { first: Box::new(check), then: Box::new(body) };
             }

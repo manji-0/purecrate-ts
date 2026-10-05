@@ -6,6 +6,7 @@ import {
   Iter,
   Result,
   Slice,
+  Str,
   type U32,
   type U8,
   type Usize,
@@ -87,6 +88,8 @@ export const step = (
   c: Connection,
   event: Event,
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
+  Str.wellFormed(c);
+  Str.wellFormed(event);
   const result: Result<readonly [Connection, ReadonlyArray<Action>], Failure> =
     event.kind === "Line"
       ? onLine(c, event.value)

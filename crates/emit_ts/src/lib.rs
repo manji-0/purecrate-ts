@@ -61,8 +61,10 @@ pub fn emit(krate: &Crate) -> Package {
         scoped(&PRIVATE, private_methods(krate), || {
             scoped(&STRUCTS, structs.collect(), || {
                 scoped(&ENUMS, enums.collect(), || {
-                    scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
-                        with_internal_names(krate, || emit_package(krate))
+                    scoped(&STRINGY, stringy_names(krate), || {
+                        scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
+                            with_internal_names(krate, || emit_package(krate))
+                        })
                     })
                 })
             })

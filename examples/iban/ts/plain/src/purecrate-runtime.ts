@@ -113,15 +113,22 @@ export const Str = {
     return out as unknown as ReadonlyArray<U8>;
   },
   /**
-   * A `pub` function's string argument checked on entry: a lone surrogate
-   * is in no Rust `str`, so the call panics here rather than reading its
-   * bytes, which are not specified (a string, `null`, or each of an array).
+   * A `pub` function's argument checked on entry: a lone surrogate is in no
+   * Rust `str`, so the call panics here, wherever in the value the string
+   * is (a field, a variant's payload, an element, an `Option`).
    */
-  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+  wellFormed: (x: unknown): void => {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
-      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
-    }
+    const visit = (v: unknown): void => {
+      if (typeof v === "string") {
+        if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+      } else if (Array.isArray(v)) {
+        for (const e of v) visit(e);
+      } else if (typeof v === "object" && v !== null) {
+        for (const e of Object.values(v)) visit(e);
+      }
+    };
+    visit(x);
   },
 } as const;
 

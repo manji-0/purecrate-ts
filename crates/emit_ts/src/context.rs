@@ -34,6 +34,10 @@ thread_local! {
     /// Each enum of the crate and its variants, likewise: a `match`'s `_`
     /// holds the variants no earlier arm took (`join::flow`).
     pub(crate) static ENUMS: RefCell<BTreeMap<String, Vec<Name>>> = const { RefCell::new(BTreeMap::new()) };
+    /// The crate's open structs and enums that hold a string, in a field or
+    /// in one of theirs (`stringy_names`), likewise: a `pub` function checks
+    /// such an argument on entry (`expr::checked_strings`).
+    pub(crate) static STRINGY: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     /// The crate's internal names (`internal_names`), likewise.
     pub(crate) static INTERNAL: RefCell<BTreeMap<Internal, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Methods that are not `pub`, as (type, method), likewise.
@@ -61,6 +65,52 @@ pub(super) fn is_closed(name: &str) -> bool {
 
 pub(super) fn is_struct(name: &str) -> bool {
     STRUCTS.with(|c| c.borrow().contains(name))
+}
+
+/// Whether a value of `ty` may hold a string a TS caller wrote: a closed
+/// type's came through its own `pub` functions, checked there.
+pub(crate) fn holds_string(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::String | Prim::Str) => true,
+        Ty::Named(n) => STRINGY.with(|s| s.borrow().contains(n.as_str())),
+        Ty::Fn { .. } => false,
+        t => t.children().into_iter().any(holds_string),
+    }
+}
+
+/// The open structs and enums of `krate` that hold a string, to a fixed
+/// point, since one may hold another.
+pub(super) fn stringy_names(krate: &Crate) -> BTreeSet<String> {
+    let fields = |item: &Item| -> Option<(String, Vec<Ty>)> {
+        match item {
+            Item::Struct(st) if !st.closed => {
+                Some((st.name.as_str().to_string(), st.fields.iter().map(|f| f.ty.clone()).collect()))
+            }
+            Item::Enum(e) => Some((
+                e.name.as_str().to_string(),
+                e.variants
+                    .iter()
+                    .flat_map(|v| match &v.fields {
+                        VariantFields::Unit => Vec::new(),
+                        VariantFields::Tuple(ts) => ts.clone(),
+                        VariantFields::Struct(fs) => fs.iter().map(|f| f.ty.clone()).collect(),
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        }
+    };
+    let types: Vec<(String, Vec<Ty>)> = krate.items.iter().filter_map(fields).collect();
+    let mut found = BTreeSet::new();
+    loop {
+        let next: BTreeSet<String> = scoped(&STRINGY, found.clone(), || {
+            types.iter().filter(|(_, tys)| tys.iter().any(holds_string)).map(|(n, _)| n.clone()).collect()
+        });
+        if next == found {
+            return found;
+        }
+        found = next;
+    }
 }
 
 pub(super) fn enum_variants(ty: &str) -> Option<Vec<Name>> {
