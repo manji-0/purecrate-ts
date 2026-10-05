@@ -45,6 +45,8 @@ pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String
     let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
     out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
+    // The body is a block of its own: nothing after it meets its names.
+    crate::TAIL.with(|t| t.set(true));
     emit_stmts(body, indent + 1, Sink::Effect, out);
     LOOPS.with(|l| l.borrow_mut().pop());
     out.push_str(&format!("{pad}}}\n"));

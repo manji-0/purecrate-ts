@@ -403,7 +403,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 let from = from.expect("check::accept sets the source width");
                 return match (from.is_big(), to.is_big()) {
                     _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
-                    (false, true) => format!("(globalThis.BigInt({}) as {})", x.print(), to.ts_name()),
+                    (false, true) => format!("(globalThis.BigInt({}) as {})", uncast_default(&x.print()), to.ts_name()),
                     _ => format!("({} as number as {})", cast_operand(x), to.ts_name()),
                 };
             }
@@ -859,6 +859,21 @@ fn match_tx(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Opti
         acc_lit = None;
     }
     Some(acc)
+}
+
+/// `o ?? (1 as U32)` as `o ?? 1`: `BigInt` takes any number, and lint
+/// refuses the cast it does not need.
+fn uncast_default(x: &str) -> String {
+    let Some((head, last)) = x.rsplit_once(" ?? ") else { return x.to_string() };
+    let literal = last
+        .strip_prefix('(')
+        .and_then(|l| l.strip_suffix(')'))
+        .and_then(|l| l.split_once(" as "))
+        .filter(|(n, t)| n.bytes().all(|b| b.is_ascii_digit()) && t.bytes().all(|b| b.is_ascii_alphanumeric()));
+    match literal {
+        Some((n, _)) => format!("{head} ?? {n}"),
+        None => x.to_string(),
+    }
 }
 
 /// `subject.kind === "V"`.

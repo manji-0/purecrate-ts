@@ -188,3 +188,61 @@ pub fn reason_after_the_split(config: &VeryLongConfigurationRecord) -> Authoriza
     }
     failure_reason
 }
+
+/// A `match` ending a loop's body whose `None` arm leaves: the exit first,
+/// then the rest unnested (lint refuses an `else` after `return`).
+pub fn count_the_named_settings(configuration_text: &str) -> Result<u32, u32> {
+    let mut number_of_settings: u32 = 0;
+    for setting in configuration_text.split(';') {
+        match setting.split_once('=') {
+            None => return Err(number_of_settings),
+            Some((setting_name, setting_value)) => {
+                let name_length = setting_name.len();
+                number_of_settings += 1;
+                if name_length > setting_value.len() {
+                    number_of_settings += 1;
+                }
+            }
+        }
+    }
+    Ok(number_of_settings)
+}
+
+/// A default widened to `bigint`: `BigInt(o ?? 1)`, no cast on the `1`.
+pub fn widened_attempt_limit(configured_limit: Option<u32>) -> i64 {
+    i64::from(configured_limit.unwrap_or(1))
+}
+
+/// A `while` test that reads its value through a function called in place:
+/// opened, one operand a line.
+pub fn length_of_the_leading_digits(text_to_scan: &str) -> usize {
+    let bytes_of_the_text = text_to_scan.as_bytes();
+    let mut scanned_position: usize = 0;
+    while scanned_position < bytes_of_the_text.len() && matches!(bytes_of_the_text[scanned_position], b'0'..=b'9') {
+        scanned_position += 1;
+    }
+    scanned_position
+}
+
+fn the_limit_is_listed_for_the_record(listed_limits: &[u32], candidate_limit: u32, upper_bound: u32) -> bool {
+    listed_limits.iter().any(|l| *l == candidate_limit) && candidate_limit < upper_bound
+}
+
+/// A `?:` branch too long for its line: broken at its loosest operator, and
+/// a parenthesized `||` group inside it stays open on its line.
+pub fn limits_agree_with_the_record(
+    config: &VeryLongConfigurationRecord,
+    listed_limits: &[u32],
+    candidate_limit: u32,
+    check_the_list: bool,
+) -> bool {
+    if check_the_list {
+        (listed_limits.is_empty()
+            || the_limit_is_listed_for_the_record(listed_limits, candidate_limit, config.maximum_number_of_password_attempts))
+            && (config.maximum_number_of_one_time_code_attempts == 0
+                || the_limit_is_listed_for_the_record(listed_limits, candidate_limit, config.minimum_length_of_the_generated_identifier))
+    } else {
+        config.maximum_number_of_password_attempts / 7 + config.maximum_number_of_one_time_code_attempts / 7 + 1
+            == candidate_limit
+    }
+}

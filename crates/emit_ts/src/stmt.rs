@@ -355,7 +355,21 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             // which no lint takes for a constant condition.
             let head = match **cond {
                 Expr::Lit(Lit::Bool(true)) => "for (;;)".to_string(),
-                _ => format!("while ({})", crate::tidy::strip_outer(&emit_expr(cond, indent))),
+                _ => {
+                    let test = crate::tidy::strip_outer(&emit_expr(cond, indent + 1)).to_string();
+                    if test.contains('\n') {
+                        // A test of several lines (a function called in
+                        // place) opens, one operand a line, as oxfmt lays it.
+                        let pad1 = "  ".repeat(indent + 1);
+                        let parts = crate::tidy::split_at_op(&test, " || ", 0)
+                            .or_else(|| crate::tidy::split_at_op(&test, " && ", 0))
+                            .unwrap_or_else(|| vec![test.clone()]);
+                        let lines: Vec<String> = parts.iter().map(|p| format!("{pad1}{}", p.trim_end())).collect();
+                        format!("while (\n{}\n{pad})", lines.join("\n"))
+                    } else {
+                        format!("while ({test})")
+                    }
+                }
             };
             emit_loop(&head, body, indent, out);
             // Nothing follows a `for (;;)` that no `break` leaves.

@@ -159,15 +159,20 @@ pub(crate) fn emit_switch_in(
             // its payload read where the exit has narrowed it, as `let ..
             // else` reads. Only where `a` declares nothing the block's later
             // statements could meet.
-            if let Some(a_body) = exit_first(a, b, scrutinee) {
-                let b_test = two_way_tx(&b.pattern, &subject).expect("two-way");
-                let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
-                let branches = vec![
-                    Branch { test: Some(b_test), prelude: b_prelude, body: &b_body },
-                    Branch { test: None, prelude: String::new(), body: &a_body },
-                ];
-                emit_branches(&branches, indent, sink, tail, out);
-                return;
+            // A value bound to a temporary is read through it.
+            let read_from = if is_place(scrutinee) { scrutinee.clone() } else { Expr::Var(Name::new(subject.clone())) };
+            // The exit may be either arm (`None => return e, Some(x) => a`).
+            for (keep, exit) in [(a, b), (b, a)] {
+                if let Some(kept) = exit_first(keep, exit, &read_from, tail) {
+                    let exit_test = two_way_tx(&exit.pattern, &subject).expect("two-way");
+                    let (prelude, exit_body) = read_in_place(&exit.pattern, scrutinee, &exit.body, &subject, &pad2);
+                    let branches = vec![
+                        Branch { test: Some(exit_test), prelude, body: &exit_body },
+                        Branch { test: None, prelude: String::new(), body: &kept },
+                    ];
+                    emit_branches(&branches, indent, sink, tail, out);
+                    return;
+                }
             }
             let (a_prelude, a_body) = read_in_place(&a.pattern, scrutinee, &a.body, &subject, &pad2);
             let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
@@ -312,8 +317,9 @@ pub(super) fn declares(stmts: &str, pad: &str) -> bool {
 
 /// The first arm's body with its payload read from `scrutinee`, where the
 /// other arm binds nothing and jumps, `scrutinee` is a place the first arm
-/// does not reassign, and the body declares nothing at its top.
-fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr) -> Option<Expr> {
+/// does not reassign, and the body declares nothing at its top, unless the
+/// `match` ends its block (`tail`), where nothing after could meet it.
+fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr, tail: bool) -> Option<Expr> {
     if !ends_in_jump(&b.body) || !b.pattern.bindings().is_empty() || ends_in_jump(&a.body) {
         return None;
     }
@@ -322,7 +328,7 @@ fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr) ->
         root = base;
     }
     let Expr::Var(var) = root else { return None };
-    if touches(&a.body, var) || declares_at_top(&a.body) {
+    if touches(&a.body, var) || (declares_at_top(&a.body) && !tail) {
         return None;
     }
     let mut body = a.body.clone();

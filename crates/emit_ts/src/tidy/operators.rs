@@ -85,7 +85,7 @@ fn split_logical(line: &str) -> Option<Vec<String>> {
     split_at_op(expr, op, depth)
 }
 
-pub(super) fn split_at_op(expr: &str, op: &str, depth: usize) -> Option<Vec<String>> {
+pub(crate) fn split_at_op(expr: &str, op: &str, depth: usize) -> Option<Vec<String>> {
     let d = depths(expr);
     let mut parts = Vec::new();
     let mut start = 0;
@@ -190,12 +190,91 @@ fn wrap_logical_item(line: &str, width: usize, out: &mut String) -> bool {
     true
 }
 
+/// A `?:` branch, `? a === b` or `: a && b`, that does not fit: broken at
+/// its top-level `||`, else `&&`, else comparison, the operands after the
+/// first one indent in, as oxfmt lays out a branch.
+pub(super) fn wrap_branch_operator(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    let Some(prefix) = ["? ", ": "].into_iter().find(|p| rest.starts_with(p)) else { return false };
+    let body = &rest[2..];
+    let (body, end) = match body.strip_suffix(';') {
+        Some(b) => (b, ";"),
+        None => (body, ""),
+    };
+    if find_ternary(body).is_some() {
+        return false;
+    }
+    let logical = split_at_op(body, " || ", 0).or_else(|| split_at_op(body, " && ", 0));
+    // A comparison breaks only where its left side fits; else the left side
+    // opens and the right stays after its `)`.
+    let compared = || {
+        let ops = [" === ", " !== ", " <= ", " >= ", " < ", " > "];
+        ops.iter().find_map(|op| split_at_op(body, op, 0)).filter(|p| cols(&format!("{pad}{prefix}{}", p[0])) <= width)
+    };
+    let Some(parts) = logical.or_else(compared) else { return false };
+    let last = parts.len() - 1;
+    for (i, part) in parts.into_iter().enumerate() {
+        let lead = if i == 0 { format!("{pad}{prefix}") } else { format!("{pad}  ") };
+        let tail = if i == last { end } else { "" };
+        wrap_line(&format!("{lead}{}{tail}", part.trim_end()), width, out);
+    }
+    true
+}
+
+/// A parenthesized group, `(a || f(x)) &&` or `(c ? a : b));`, that does not
+/// fit: it stays open on its line, its `||` / `&&` operands or its `?:`
+/// branches one indent in, the `)` after the last, as oxfmt hugs a group.
+pub(super) fn wrap_paren_group(line: &str, width: usize, out: &mut String) -> bool {
+    let indent = &line[..line.len() - line.trim_start().len()];
+    // After a `?:` branch's `? ` / `: `, the group's lines sit past it.
+    let (lead, rest, pad) = match ["? ", ": "].into_iter().find(|p| line.trim_start().starts_with(p)) {
+        Some(p) => (format!("{indent}{p}"), &line.trim_start()[2..], format!("{indent}  ")),
+        None => (indent.to_string(), line.trim_start(), indent.to_string()),
+    };
+    if !rest.starts_with('(') {
+        return false;
+    }
+    let d = depths(rest);
+    let Some(close) = (1..rest.len()).find(|&i| d[i] == Some(0) && rest.as_bytes()[i] == b')') else { return false };
+    let (inner, after) = (&rest[1..close], &rest[close..]);
+    // Only what closes the line follows: `)`, `,`, `;`, or a last operator.
+    let trailing = after.trim_end_matches([')', ',', ';']);
+    if !(trailing.is_empty() || trailing == ") &&" || trailing == ") ||" || [" &&", " ||"].contains(&trailing)) {
+        return false;
+    }
+    let lines: Vec<String> = if let Some((test, then, else_)) = find_ternary(inner) {
+        vec![test.to_string(), format!("  ? {then}"), format!("  : {else_}")]
+    } else {
+        let Some(parts) = split_at_op(inner, " || ", 0).or_else(|| split_at_op(inner, " && ", 0)) else {
+            return false;
+        };
+        parts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| if i == 0 { p.trim_end().to_string() } else { format!("  {}", p.trim_end()) })
+            .collect()
+    };
+    let last = lines.len() - 1;
+    for (i, l) in lines.iter().enumerate() {
+        let open = if i == 0 { format!("{lead}(") } else { pad.clone() };
+        let shut = if i == last { after } else { "" };
+        wrap_line(&format!("{open}{l}{shut}"), width, out);
+    }
+    true
+}
+
 /// `test ? then : else` with `?` / `:` on their own continuation lines.
 pub(super) fn wrap_ternary(line: &str, width: usize, out: &mut String) -> bool {
     let Some((first, then_line, else_line)) = split_ternary(line) else {
         return false;
     };
-    wrap_line(&first, width, out);
+    // A nested `?:`'s test (`: a &&` then `? b`) goes on four past its `:`
+    // (`wrap_logical`), not as a branch's value does.
+    let nested = first.trim_start().starts_with("? ") || first.trim_start().starts_with(": ");
+    if !(nested && cols(&first) > width && wrap_logical(&first, width, out)) {
+        wrap_line(&first, width, out);
+    }
     branch(&then_line, width, out);
     branch(&else_line, width, out);
     true
