@@ -11,13 +11,6 @@
 // Everything impure is outside: the caller reads the input, displays the
 // result, and resolves the name.
 //
-// Results are `Vec<char>`, not `String`. The subset has no way to build a
-// `String` from computed characters (no `String::new`, `push`, `push_str`,
-// `+`, `collect::<String>()`, or `String::from(char)`), so `encode`,
-// `decode`, `to_ascii`, and `to_unicode` return the characters and the
-// caller joins them (`v.into_iter().collect::<String>()` in Rust,
-// `v.join("")` in TS).
-//
 // Policy choices, not the specifications':
 // - Overflow (§6.4): every RFC quantity (n, i, delta, bias, w, and the
 //   lengths h, b, and the output length) is a `u32`, and every addition and
@@ -142,8 +135,8 @@ fn insert_at(out: &Vec<u32>, at: u32, cp: u32) -> Vec<u32> {
 }
 
 /// §6.3, on code points. The result is ASCII.
-fn encode_code_points(input: &Vec<u32>) -> Result<Vec<char>, PunycodeError> {
-    let mut out: Vec<char> = Vec::new();
+fn encode_code_points(input: &Vec<u32>) -> Result<String, PunycodeError> {
+    let mut out = String::new();
     let mut len: u32 = 0;
     let mut b: u32 = 0;
     for cp in input {
@@ -263,30 +256,20 @@ fn decode_chars(input: &Vec<char>) -> Result<Vec<u32>, PunycodeError> {
     Ok(out)
 }
 
-/// Punycode of a string of Unicode scalar values (RFC 3492 §6.3), as its
-/// characters (all ASCII).
-pub fn encode(input: &str) -> Result<Vec<char>, PunycodeError> {
-    let cs: Vec<char> = input.chars().collect();
-    encode_chars(&cs)
-}
-
-/// The characters a Punycode text stands for (RFC 3492 §6.2).
-pub fn decode(input: &str) -> Result<Vec<char>, PunycodeError> {
-    let cs: Vec<char> = input.chars().collect();
-    decode_to_chars(&cs)
-}
-
-fn encode_chars(input: &Vec<char>) -> Result<Vec<char>, PunycodeError> {
-    let cps: Vec<u32> = input.iter().map(|c| u32::from(*c)).collect();
+/// Punycode of a string of Unicode scalar values (RFC 3492 §6.3); ASCII.
+pub fn encode(input: &str) -> Result<String, PunycodeError> {
+    let cps: Vec<u32> = input.chars().map(|c| u32::from(c)).collect();
     encode_code_points(&cps)
 }
 
-fn decode_to_chars(input: &Vec<char>) -> Result<Vec<char>, PunycodeError> {
-    if !input.iter().all(|c| c.is_ascii()) {
+/// The text a Punycode text stands for (RFC 3492 §6.2).
+pub fn decode(input: &str) -> Result<String, PunycodeError> {
+    if !input.bytes().all(|b| b < 0x80) {
         return Err(PunycodeError::NonBasic);
     }
-    let cps = decode_chars(input)?;
-    let mut out: Vec<char> = Vec::new();
+    let cs: Vec<char> = input.chars().collect();
+    let cps = decode_chars(&cs)?;
+    let mut out = String::new();
     for cp in &cps {
         match char::from_u32(*cp) {
             Some(c) => out.push(c),
@@ -302,6 +285,7 @@ fn decode_to_chars(input: &Vec<char>) -> Result<Vec<char>, PunycodeError> {
 
 pub const MAX_LABEL_LEN: usize = 63;
 pub const MAX_DOMAIN_LEN: usize = 253;
+pub const ACE_PREFIX: &str = "xn--";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainError {
@@ -320,18 +304,13 @@ pub enum DomainError {
     AsciiOnly,
 }
 
-fn is_ascii_label(label: &Vec<char>) -> bool {
-    label.iter().all(|c| c.is_ascii())
-}
-
-/// "xn--" on a label already lower-cased.
-fn has_ace_prefix(label: &Vec<char>) -> bool {
-    label.len() >= 4 && label[0] == 'x' && label[1] == 'n' && label[2] == '-' && label[3] == '-'
+fn is_ascii_label(label: &str) -> bool {
+    label.bytes().all(|b| b < 0x80)
 }
 
 /// The labels of a name, ASCII letters lower-cased, and whether it ends in
 /// the root dot.
-fn split_labels(domain: &str) -> Result<(Vec<Vec<char>>, bool), DomainError> {
+fn split_labels(domain: &str) -> Result<(Vec<String>, bool), DomainError> {
     let (body, rooted) = match domain.strip_suffix(".") {
         Some(rest) => (rest, true),
         None => (domain, false),
@@ -339,7 +318,7 @@ fn split_labels(domain: &str) -> Result<(Vec<Vec<char>>, bool), DomainError> {
     if body.is_empty() {
         return Err(DomainError::EmptyLabel);
     }
-    let mut labels: Vec<Vec<char>> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
     for label in body.split('.') {
         if label.is_empty() {
             return Err(DomainError::EmptyLabel);
@@ -350,56 +329,50 @@ fn split_labels(domain: &str) -> Result<(Vec<Vec<char>>, bool), DomainError> {
 }
 
 /// The U-label an "xn--" label stands for, after the round-trip check.
-fn checked_u_label(label: &Vec<char>) -> Result<Vec<char>, DomainError> {
-    let mut payload: Vec<char> = Vec::new();
-    for j in 4..label.len() {
-        payload.push(label[j]);
-    }
-    let u = decode_to_chars(&payload).map_err(|e| DomainError::Punycode(e))?;
+fn checked_u_label(label: &str) -> Result<String, DomainError> {
+    // "xn--" is ASCII, so byte 4 is a character boundary.
+    let payload = &label[4..];
+    let u = decode(payload).map_err(|e| DomainError::Punycode(e))?;
     if is_ascii_label(&u) {
         return Err(DomainError::AsciiOnly);
     }
-    let again = encode_chars(&u).map_err(|e| DomainError::Punycode(e))?;
-    if again.cmp(&payload).is_ne() {
+    let again = encode(&u).map_err(|e| DomainError::Punycode(e))?;
+    if again != payload {
         return Err(DomainError::NotRoundTrip);
     }
     Ok(u)
 }
 
 /// The A-label (ASCII form) of one label.
-fn a_label(label: &Vec<char>) -> Result<Vec<char>, DomainError> {
+fn a_label(label: &str) -> Result<String, DomainError> {
     if is_ascii_label(label) {
-        if has_ace_prefix(label) {
+        if label.starts_with(ACE_PREFIX) {
             checked_u_label(label)?;
         }
-        return Ok(label.clone());
+        return Ok(String::from(label));
     }
-    let p = encode_chars(label).map_err(|e| DomainError::Punycode(e))?;
-    let mut out: Vec<char> = vec!['x', 'n', '-', '-'];
-    for c in &p {
-        out.push(*c);
-    }
+    let p = encode(label).map_err(|e| DomainError::Punycode(e))?;
+    let mut out = String::from(ACE_PREFIX);
+    out.push_str(&p);
     Ok(out)
 }
 
 /// The U-label (Unicode form) of one label.
-fn u_label(label: &Vec<char>) -> Result<Vec<char>, DomainError> {
-    if has_ace_prefix(label) {
+fn u_label(label: &str) -> Result<String, DomainError> {
+    if label.starts_with(ACE_PREFIX) {
         return checked_u_label(label);
     }
-    Ok(label.clone())
+    Ok(String::from(label))
 }
 
 /// The labels joined with '.', with the root dot when `rooted`.
-fn join_labels(labels: &Vec<Vec<char>>, rooted: bool) -> Vec<char> {
-    let mut out: Vec<char> = Vec::new();
+fn join_labels(labels: &Vec<String>, rooted: bool) -> String {
+    let mut out = String::new();
     for (j, label) in labels.iter().enumerate() {
         if j > 0 {
             out.push('.');
         }
-        for c in label {
-            out.push(*c);
-        }
+        out.push_str(label);
     }
     if rooted {
         out.push('.');
@@ -409,7 +382,7 @@ fn join_labels(labels: &Vec<Vec<char>>, rooted: bool) -> Vec<char> {
 
 /// Checks the lengths of the ASCII form of a name (ASCII, so one octet per
 /// character).
-fn check_lengths(a_labels: &Vec<Vec<char>>) -> Result<(), DomainError> {
+fn check_lengths(a_labels: &Vec<String>) -> Result<(), DomainError> {
     let mut total: usize = 0;
     for (j, label) in a_labels.iter().enumerate() {
         if label.len() > MAX_LABEL_LEN {
@@ -426,10 +399,10 @@ fn check_lengths(a_labels: &Vec<Vec<char>>) -> Result<(), DomainError> {
     Ok(())
 }
 
-/// The ASCII form of a domain name, as its characters.
-pub fn to_ascii(domain: &str) -> Result<Vec<char>, DomainError> {
+/// The ASCII form of a domain name.
+pub fn to_ascii(domain: &str) -> Result<String, DomainError> {
     let (labels, rooted) = split_labels(domain)?;
-    let mut out: Vec<Vec<char>> = Vec::new();
+    let mut out: Vec<String> = Vec::new();
     for label in &labels {
         out.push(a_label(label)?);
     }
@@ -437,11 +410,11 @@ pub fn to_ascii(domain: &str) -> Result<Vec<char>, DomainError> {
     Ok(join_labels(&out, rooted))
 }
 
-/// The Unicode form of a domain name, as its characters.
-pub fn to_unicode(domain: &str) -> Result<Vec<char>, DomainError> {
+/// The Unicode form of a domain name.
+pub fn to_unicode(domain: &str) -> Result<String, DomainError> {
     let (labels, rooted) = split_labels(domain)?;
-    let mut ascii: Vec<Vec<char>> = Vec::new();
-    let mut out: Vec<Vec<char>> = Vec::new();
+    let mut ascii: Vec<String> = Vec::new();
+    let mut out: Vec<String> = Vec::new();
     for label in &labels {
         ascii.push(a_label(label)?);
         out.push(u_label(label)?);

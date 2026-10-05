@@ -121,47 +121,55 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
  * its bytes here are not specified.
  */
 export const Str = {
+  /** `str::as_bytes`: the UTF-8 bytes. */
+  bytes: (s: string): ReadonlyArray<U8> => {
+    const out: number[] = [];
+    for (const c of s) {
+      const p = c.codePointAt(0) as number;
+      if (p < 0x80) out.push(p);
+      else if (p < 0x800) out.push(0xc0 | (p >> 6), 0x80 | (p & 0x3f));
+      else if (p < 0x10000) out.push(0xe0 | (p >> 12), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
+      else out.push(0xf0 | (p >> 18), 0x80 | ((p >> 12) & 0x3f), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
+    }
+    return out as unknown as ReadonlyArray<U8>;
+  },
+  /** `str::len`: the number of UTF-8 bytes. */
+  len: (s: string): Usize => utf8Len(s),
+  /**
+   * `&s[start..end]` at UTF-8 byte positions (`end` absent for `&s[start..]`).
+   * Panics as Rust does, in its order: a position past the end, a reversed
+   * range, then a position inside a character, shown as `Debug` shows it.
+   */
+  slice: (s: string, start: Usize, end?: Usize): string => {
+    const len = utf8Len(s);
+    const stop = end ?? len;
+    if (start > len) panicWith(`start byte index ${start} is out of bounds for string of length ${len}`);
+    if (stop > len) panicWith(`end byte index ${stop} is out of bounds for string of length ${len}`);
+    if (start > stop) panicWith(`byte range starts at ${start} but ends at ${stop}`);
+    let byte = 0;
+    let unit = 0;
+    let from = -1;
+    let to = -1;
+    let inside: string | null = null;
+    for (const c of s) {
+      const w = utf8Width(c);
+      if (byte === start) from = unit;
+      if (byte === stop) to = unit;
+      for (const [which, at] of [["start", start], ["end", stop]] as const) {
+        if (inside === null && at > byte && at < byte + w) {
+          inside = `${which} byte index ${at} is not a char boundary; it is inside '${debugChar(c)}' (bytes ${byte}..${byte + w} of string)`;
+        }
+      }
+      byte += w;
+      unit += c.length;
+    }
+    if (byte === start) from = unit;
+    if (byte === stop) to = unit;
+    if (from < 0 || to < 0) panicWith(inside as string);
+    return s.slice(from, to);
+  },
   /** `str::strip_suffix` with a `&str`. */
   stripSuffix: (s: string, p: string): string | null => (s.endsWith(p) ? s.slice(0, s.length - p.length) : null),
-  /**
-   * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
-   * JS `<` compares UTF-16 units, which puts U+E000..=U+FFFF above the
-   * surrogates of the supplementary planes; at the first unit that differs,
-   * those are moved back below them. A shorter prefix orders first.
-   */
-  cmp: (a: string, b: string): -1 | 0 | 1 => {
-    const key = (u: number): number => (u < 0xd800 ? u : u < 0xe000 ? u + 0x2000 : u - 0x800);
-    const n = a.length < b.length ? a.length : b.length;
-    for (let i = 0; i < n; i++) {
-      const x = a.charCodeAt(i);
-      const y = b.charCodeAt(i);
-      if (x !== y) return key(x) < key(y) ? -1 : 1;
-    }
-    return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
-  },
-} as const;
-
-/** std's `Ordering`, as the crate's `Ordering` declares it. */
-type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
-
-const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { kind: "Equal" }, { kind: "Greater" }];
-
-/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
-export const Ord = {
-  /** `a.cmp(&b)` on a `char`, a string, or a `Uuid`: by code point. */
-  cmpStr: (a: string, b: string): Ordering => ORDERINGS[Str.cmp(a, b) + 1],
-  /**
-   * `a.cmp(&b)` on two `Vec`s: the first pair of elements `by` does not find
-   * equal decides, else the shorter is less, as std orders slices.
-   */
-  cmpList: <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>, by: (x: T, y: T) => Ordering): Ordering => {
-    const n = Math.min(a.length, b.length);
-    for (let i = 0; i < n; i++) {
-      const o = by(a[i] as T, b[i] as T);
-      if (o.kind !== "Equal") return o;
-    }
-    return ORDERINGS[a.length < b.length ? 0 : a.length === b.length ? 1 : 2];
-  },
 } as const;
 
 /**
@@ -191,6 +199,32 @@ export const Slice = {
     return xs[i] as T;
   },
 } as const;
+
+/**
+ * A non-ASCII `char` as Rust's `Debug` writes it between quotes: `\u{..}`
+ * for a grapheme extender or a code point that is not printable (the
+ * categories core's `printable.py` escapes), itself otherwise. The tables are
+ * the JS engine's; they agree with Rust's where both use one Unicode version
+ * (design/01 §3).
+ */
+const debugChar = (c: string): string =>
+  (escaped ??= new RegExp("[\\p{Grapheme_Extend}\\p{Zs}\\p{Zl}\\p{Zp}\\p{Cc}\\p{Cf}\\p{Cs}\\p{Co}\\p{Cn}]", "u")).test(c) && c !== " "
+    ? `\\u{${(c.codePointAt(0) as number).toString(16)}}`
+    : c;
+// Built on first use: a literal with Unicode properties costs about half a
+// millisecond when the module loads, for a message only a panic prints.
+let escaped: RegExp | undefined;
+
+const utf8Len = (s: string): Usize => {
+  let n = 0;
+  for (const c of s) n += utf8Width(c);
+  return n as Usize;
+};
+
+const utf8Width = (c: string): number => {
+  const p = c.codePointAt(0) as number;
+  return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+};
 
 const code = (c: Char): number => c.codePointAt(0) as number;
 const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;

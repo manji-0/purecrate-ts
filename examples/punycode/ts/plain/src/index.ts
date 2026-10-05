@@ -15,6 +15,7 @@ export { encode } from "./encode.ts";
 export { decode } from "./decode.ts";
 export { MAX_LABEL_LEN } from "./consts.ts";
 export { MAX_DOMAIN_LEN } from "./consts.ts";
+export { ACE_PREFIX } from "./consts.ts";
 export { DomainError } from "./domain-error.ts";
 export { toAscii } from "./to-ascii.ts";
 export { toUnicode } from "./to-unicode.ts";

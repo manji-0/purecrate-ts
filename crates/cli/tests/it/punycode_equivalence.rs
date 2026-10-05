@@ -211,8 +211,8 @@ mod idiomatic {
     }
 }
 
-fn text(v: Vec<char>) -> String {
-    v.into_iter().collect()
+fn text(s: String) -> String {
+    s
 }
 
 /// RFC 3492 §7.1, (A) to (S): the code points and the published Punycode.

@@ -12,3 +12,4 @@ export const INITIAL_N = 128 as U32;
 export const DELIMITER = "-" as Char;
 export const MAX_LABEL_LEN = 63 as Usize;
 export const MAX_DOMAIN_LEN = 253 as Usize;
+export const ACE_PREFIX: string = "xn--";

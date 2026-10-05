@@ -10,7 +10,8 @@
 
 ### Added
 
-- **`examples/punycode`**, written from the authoring skill alone: RFC 3492 Punycode with §6.4 overflow, and a simplified IDNA layer. It found the `while` hole above. Its results are `Vec<char>`: the subset cannot build a `String` from computed characters (design/07 §2.1); its logic is 2.0× the idiomatic reference's.
+- **Building a `String`**: `String::new()`, `push(c)` and `push_str(t)` on a local `let mut`, and `collect::<String>()` over `char`s (design/01 §7.15). A push is the assignment `s = s + c` to every pass, and prints as `s += c`.
+- **`examples/punycode`**, written from the authoring skill alone: RFC 3492 Punycode with §6.4 overflow, and a simplified IDNA layer. It found the `while` hole above. As written its results were `Vec<char>`, since the subset could not build a `String` (design/07 §2.1), and its logic was 2.0× the idiomatic reference's; with `String` building (above) they are `String`s, at 1.9×.
 
 ## 0.11.0 — 2026-10-05
 

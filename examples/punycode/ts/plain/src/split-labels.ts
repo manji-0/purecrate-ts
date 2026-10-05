@@ -9,16 +9,18 @@ import type { DomainError } from "./domain-error.ts";
  */
 export const splitLabels = (
   domain: string,
-): Result<readonly [ReadonlyArray<ReadonlyArray<Char>>, boolean], DomainError> => {
+): Result<readonly [ReadonlyArray<string>, boolean], DomainError> => {
   const option = Str.stripSuffix(domain, ".");
   const [body, rooted] = option !== null ? [option, true] : [domain, false];
   if (body.length === 0) return Result.err({ kind: "EmptyLabel" });
-  const labels: Array<ReadonlyArray<Char>> = [];
+  const labels: Array<string> = [];
 
   for (const label of body.split(".")) {
     if (label.length === 0) return Result.err({ kind: "EmptyLabel" });
     labels.push(
-      Array.from(Iter.map(label as Iterable<Char>, (c: Char): Char => Char.toAsciiLowercase(c))),
+      Array.from(
+        Iter.map(label as Iterable<Char>, (c: Char): Char => Char.toAsciiLowercase(c)),
+      ).join(""),
     );
   }
 
