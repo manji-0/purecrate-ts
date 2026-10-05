@@ -49,7 +49,7 @@ fn is_number(s: &str) -> bool {
 
 /// Why `<operand> as <target>` on `line` is sound, or `None`.
 fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Option<&'static str> {
-    let target_name = target.split([' ', ')', ';', ',', '[', '<']).next().unwrap_or("");
+    let target_name = target.split([' ', ')', ';', ',', '[', ']', '}', '<']).next().unwrap_or("");
     let value = value.trim_start_matches('(');
     if target.starts_with("const") {
         return Some("readonly literal");
