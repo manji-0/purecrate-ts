@@ -60,6 +60,8 @@ fn passwords() -> Vec<String> {
     // JS `.length` and the byte length both say 16 or more; the code points are fewer than 15.
     out.push("😀".repeat(8));
     out.push("é".repeat(8));
+    // Not normalized: 15 code points, 8 in NFC.
+    out.push(DECOMPOSED.to_string());
     out
 }
 
@@ -75,7 +77,54 @@ fn signup_matches_rust() {
         for (e, p) in [("a@b", "x"), ("a", "x"), ("a@b", "passwordpassword"), ("a@b", "abcdefghijklmnop")] {
             cases.push(case!(signup::parse_signup(e.to_string(), p.to_string())));
         }
+        for (e, p, _) in PASSWORD_IS_EMAIL {
+            cases.push(case!(signup::parse_signup(e.to_string(), p.to_string())));
+        }
+        cases.push(case!(signup::parse_signup(SHORT_EMAIL.to_string(), SHORT_EMAIL.to_string())));
     });
+}
+
+/// An e-mail and a password, and whether the sign-up is refused as a
+/// password that is the address (ignoring ASCII case only).
+const PASSWORD_IS_EMAIL: [(&str, &str, bool); 8] = [
+    ("someone@example.com", "someone@example.com", true),
+    ("someone@example.com", "SomeOne@Example.COM", true),
+    ("SOMEONE@EXAMPLE.COM", "someone@example.com", true),
+    // Not the address: one character more or less, or a non-ASCII letter.
+    ("someone@example.com", "someone@example.co", false),
+    ("someone@example.com", "someone@example.com.", false),
+    ("someone@example.com", "someone@exämple.com", false),
+    // `K` and the Kelvin sign fold together in Unicode, not in ASCII.
+    ("kelvin@example.com", "\u{212a}elvin@example.com", false),
+    ("someone@example.com", "xsomeone@example.comx", false),
+];
+
+#[test]
+fn password_is_not_the_email() {
+    for (e, p, refused) in PASSWORD_IS_EMAIL {
+        let got = signup::Signup::parse(e.to_string(), p.to_string());
+        assert_eq!(matches!(got, Err(signup::SignupError::PasswordIsEmail)), refused, "{e:?} / {p:?}");
+        assert_eq!(got.is_ok(), !refused, "{e:?} / {p:?}");
+    }
+    // The password's own errors come first: a 14-character address as the
+    // password is too short.
+    let short = signup::Signup::parse(SHORT_EMAIL.to_string(), SHORT_EMAIL.to_string());
+    assert!(matches!(short, Err(signup::SignupError::Password(signup::PasswordError::TooShort))));
+}
+
+const SHORT_EMAIL: &str = "abcdefg@hij.kl";
+
+/// `e` and a combining acute, seven times, then `x`: 15 code points, 8
+/// once NFC composes each pair into `é`.
+const DECOMPOSED: &str = "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}x";
+
+#[test]
+fn password_is_counted_as_given() {
+    // Not normalized (the header's policy): the decomposed form is long
+    // enough, the composed one is not.
+    assert!(signup::Password::parse(DECOMPOSED.to_string()).is_ok());
+    let composed = "\u{e9}".repeat(7) + "x";
+    assert!(matches!(signup::Password::parse(composed), Err(signup::PasswordError::TooShort)));
 }
 
 /// The WHATWG "valid e-mail address" regular expression, verbatim.

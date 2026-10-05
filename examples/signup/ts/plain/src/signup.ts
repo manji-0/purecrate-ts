@@ -34,6 +34,7 @@ export const Signup = {
     if (password2Result.kind === "Err")
       return Result.err({ kind: "Password", value: password2Result.error });
     const password2 = password2Result.value;
+    if (Str.eqIgnoreAsciiCase(password2, email2)) return Result.err({ kind: "PasswordIsEmail" });
     return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
 } as const;

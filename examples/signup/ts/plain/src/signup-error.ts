@@ -5,9 +5,12 @@ import type { PasswordError } from "./password-error.ts";
 
 export type SignupError =
   | Readonly<{ kind: "Email"; value: EmailError }>
-  | Readonly<{ kind: "Password"; value: PasswordError }>;
+  | Readonly<{ kind: "Password"; value: PasswordError }>
+  | Readonly<{ kind: "PasswordIsEmail" }>;
 
 export const SignupError = {
   Email: (value: EmailError): SignupError => ({ kind: "Email", value }),
   Password: (value: PasswordError): SignupError => ({ kind: "Password", value }),
+  /** The password is the e-mail address, ignoring ASCII case. */
+  PasswordIsEmail: (): SignupError => ({ kind: "PasswordIsEmail" }),
 } as const;

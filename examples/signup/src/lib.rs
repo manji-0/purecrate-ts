@@ -8,8 +8,24 @@
 //   that is the only factor. Length counts code points; at least 15, and at
 //   most 64 accepted (as one factor of several, the minimum would be 8). A
 //   short blocklist stands in for the list of known-compromised values.
+//   The same section says the verifier SHOULD normalize Unicode passwords
+//   to NFC (rev. 3, §5.1.1.2, said NFKC or NFKD). Rust's std has no Unicode
+//   normalization, so this does not normalize: the length is counted on
+//   the password as given, and a caller that wants the SHOULD normalizes
+//   before calling, and does the same before hashing or comparing it later.
+//   An `é` written as `e` and a combining accent is two code points here.
+// - `Signup`: both, and a password that is not the e-mail address. The
+//   e-mail is the username here, and §3.1.1.2 lists the username among the
+//   context-specific words a blocklist may hold. The comparison ignores
+//   ASCII case: the domain is case-insensitive, RFC 5321 lets a server
+//   treat the local part's case as it likes and most ignore it, and
+//   someone guessing from the address would try its case variants. An
+//   address is ASCII (the WHATWG grammar), so ASCII case is all the case it
+//   has. Only equality is checked, not a password that contains the
+//   address or its local part. A password that is too short or blocked
+//   gets that error first.
 //
-// Both are closed types: the fields are not `pub`, so the value comes only
+// All three are closed types: the fields are not `pub`, so the value comes only
 // from `parse` (design/01 §4).
 
 pub struct Email(String);
@@ -36,6 +52,8 @@ pub struct Signup {
 pub enum SignupError {
     Email(EmailError),
     Password(PasswordError),
+    /// The password is the e-mail address, ignoring ASCII case.
+    PasswordIsEmail,
 }
 
 fn is_alnum(b: u8) -> bool {
@@ -94,6 +112,9 @@ impl Signup {
     pub fn parse(email: String, password: String) -> Result<Signup, SignupError> {
         let email = Email::parse(email).map_err(SignupError::Email)?;
         let password = Password::parse(password).map_err(SignupError::Password)?;
+        if password.0.eq_ignore_ascii_case(&email.0) {
+            return Err(SignupError::PasswordIsEmail);
+        }
         Ok(Signup { email, password })
     }
 }
