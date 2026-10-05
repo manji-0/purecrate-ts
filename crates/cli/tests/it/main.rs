@@ -57,6 +57,7 @@ mod precedence_equivalence;
 mod punycode_equivalence;
 mod readability_equivalence;
 mod rest_equivalence;
+mod review_holes_equivalence;
 mod scoped_names;
 mod semver_equivalence;
 mod signup_equivalence;

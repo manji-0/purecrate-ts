@@ -427,6 +427,21 @@ impl Destructure {
         Ok(Some(Destructure { pattern: Pattern::Tuple(elems), rebind }))
     }
 
+    /// The plain name the last element binds, left out of the pattern, so
+    /// a loop takes it as its variable (`for (i, x) in xs.iter().enumerate()`
+    /// iterates `x` itself rather than binding it again from a fresh one).
+    pub(super) fn take_last_name(&mut self) -> Option<Name> {
+        let Pattern::Tuple(elems) = &mut self.pattern else { return None };
+        let last = elems.last_mut()?;
+        let Pattern::Var(name) = last else { return None };
+        if self.rebind.iter().any(|(_, temp)| temp == name) {
+            return None;
+        }
+        let name = name.clone();
+        *last = Pattern::Wildcard;
+        Some(name)
+    }
+
     pub(super) fn len(&self) -> usize {
         match &self.pattern {
             Pattern::Tuple(elems) => elems.len(),

@@ -12,9 +12,8 @@ export const checkLengths = (aLabels: ReadonlyArray<string>): Result<undefined, 
   let total = 0 as Usize;
   let i = 0 as Usize;
 
-  for (const p of aLabels) {
+  for (const label of aLabels) {
     const j = i;
-    const label = p;
     i = Int.usize.add(i, 1 as Usize);
     if (Str.len(label) > MAX_LABEL_LEN) return Result.err({ kind: "LabelTooLong" });
 

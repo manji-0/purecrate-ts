@@ -288,14 +288,22 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     if counter.is_some() && tuple.as_ref().is_none_or(|t| t.len() != 2) {
         return reject("`for` over `.enumerate()` takes a pair `(i, x)`");
     }
+    let mut tuple = tuple;
     let var = match &*f.pat {
+        // `(i, x)` of `enumerate`: the loop iterates `x` itself.
+        _ if counter.is_some() => match tuple.as_mut().and_then(|t| t.take_last_name()) {
+            Some(name) => name,
+            None => cx.fresh("p"),
+        },
         _ if tuple.is_some() => cx.fresh("p"),
         Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => {
             Name::new(p.ident.to_string())
         }
+        // `for _ in 0..n`: a name nothing reads.
+        Pat::Wild(_) => cx.fresh("i"),
         _ => {
             return reject(
-                "`for` takes a plain name or a tuple of names for its variable, not `mut`, `_` or another pattern",
+                "`for` takes a plain name, `_`, or a tuple of names for its variable, not `mut` or another pattern",
             )
         }
     };

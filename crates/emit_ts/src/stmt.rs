@@ -290,10 +290,13 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
             emit_branches(&branches, indent, sink, tail, out);
         }
-        // `s.push(x)` / `s.push_str(x)`, as `check` writes them.
+        // `s.push(x)` / `s.push_str(x)`, as `check` writes them. JS `+=`
+        // reads `s` before the piece, as `s = s + x` does, so a piece that
+        // needs statements is the same `(() => { .. })()` either way; one
+        // that leaves the function is printed by the general path.
         Expr::Assign { name, value }
             if matches!(&**value, Expr::Call { callee: purecrate_ir::Callee::StrConcat, args }
-                if args[0] == Expr::Var(name.clone()) && !args[1].needs_statements()) =>
+                if args[0] == Expr::Var(name.clone()) && !args[1].exits()) =>
         {
             let Expr::Call { args, .. } = &**value else { unreachable!("matched above") };
             let piece = match &args[1] {

@@ -13,9 +13,7 @@
   ],
   "rules": {
     // A closure that captures nothing, kept to test closures.
-    "unicorn/consistent-function-scoping": "off",
-    // `for _ in 0..n` binds `_i`.
-    "eslint/no-underscore-dangle": "off"
+    "unicorn/consistent-function-scoping": "off"
   },
   "overrides": [
     {

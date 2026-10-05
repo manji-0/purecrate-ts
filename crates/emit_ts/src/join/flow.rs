@@ -493,6 +493,28 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 a
             })
         }
+        // A made binding that is only what a `match` of unit variants to
+        // `true` / `false` tests (`let $ord = a.cmp(b); match $ord { Equal =>
+        // true, _ => false }`, as `is_eq` lowers): the `match` takes the value
+        // itself, nothing running in between, so the printer reads it once
+        // in one test.
+        Expr::Let { name, mutable: false, value, then, .. }
+            if name.as_str().starts_with('$')
+                && matches!(&**then, Expr::Match { scrutinee, arms }
+                    if **scrutinee == Expr::Var(name.clone())
+                        && arms.iter().all(|a| a.guard.is_none()
+                            && matches!(a.pattern, Pattern::Variant { bind: VariantBind::Unit, .. })
+                            && matches!(a.body, Expr::Lit(Lit::Bool(_)))))
+                && uses(then, name) == 1 =>
+        {
+            let value = (**value).clone();
+            let Expr::Let { then, .. } = expr else { unreachable!("matched") };
+            let mut inlined = std::mem::replace(&mut **then, Expr::Lit(Lit::Unit));
+            let Expr::Match { scrutinee, .. } = &mut inlined else { unreachable!("matched") };
+            **scrutinee = value;
+            *expr = inlined;
+            flow(expr, st, cx)
+        }
         // A made binding of a value that does nothing, read once as what
         // `is_some()` / `is_none()` tests, where nothing writes what it reads
         // first (`let $value = o.map(f); v = $value.is_none()`): read in

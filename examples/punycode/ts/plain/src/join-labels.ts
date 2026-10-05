@@ -7,9 +7,8 @@ export const joinLabels = (labels: ReadonlyArray<string>, rooted: boolean): stri
   let out: string = "";
   let i = 0 as Usize;
 
-  for (const p of labels) {
+  for (const label of labels) {
     const j = i;
-    const label = p;
     i = Int.usize.add(i, 1 as Usize);
 
     if (j > 0) {

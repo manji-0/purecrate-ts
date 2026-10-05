@@ -11,6 +11,5 @@ import type { Version } from "./version.ts";
  */
 export const equal = (a: Version, b: Version): boolean => {
   if (!samePrecedence(a, b)) return false;
-  const ord = Ord.cmpList(a.build, b.build, Ord.cmpStr);
-  return ord.kind === "Equal";
+  return Ord.cmpList(a.build, b.build, Ord.cmpStr).kind === "Equal";
 };

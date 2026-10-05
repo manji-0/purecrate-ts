@@ -36,9 +36,8 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
   let lastDelim: Usize | null = null;
   let i2 = 0 as Usize;
 
-  for (const p of input) {
+  for (const c of input) {
     const j = i2;
-    const c = p;
     i2 = Int.usize.add(i2, 1 as Usize);
 
     if (c === DELIMITER) {

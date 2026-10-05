@@ -47,6 +47,32 @@ pub(crate) fn checked_strings(f: &Fn) -> Fn {
     Fn { body, ..f.clone() }
 }
 
+/// `a && m` as `if a { m } else { false }`, and `a || m` as `if a { true }
+/// else { m }`, where an operand is no expression (`as_tx`): the `if` is printed as
+/// statements where it stands as one, where `&&` would hold an inline
+/// function that oxfmt breaks at each operator.
+pub(crate) fn split_operands(e: &mut Expr) {
+    // A `while` test is no place for statements: an `if` there would be
+    // one inline function where `&&` keeps its plain operands apart.
+    if let Expr::While { body, .. } = e {
+        return split_operands(body);
+    }
+    for c in e.children_mut() {
+        split_operands(c);
+    }
+    let Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } = e else { return };
+    if as_tx(left, 0).is_some() && as_tx(right, 0).is_some() {
+        return;
+    }
+    let (left, right) =
+        (std::mem::replace(&mut **left, Expr::Lit(Lit::Unit)), std::mem::replace(&mut **right, Expr::Lit(Lit::Unit)));
+    let (then, else_) = match op {
+        BinOp::And => (right, Expr::Lit(Lit::Bool(false))),
+        _ => (Expr::Lit(Lit::Bool(true)), right),
+    };
+    *e = Expr::If { cond: Box::new(left), then: Box::new(then), else_: Box::new(else_) };
+}
+
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
     let typed = |name: &Name, ty: Option<&Ty>| match ty {
         Some(t) => format!("{}: {}", name.as_str(), emit_ty(t)),
@@ -80,7 +106,7 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
         {
             // An object would read as a block; a `?:` is parenthesized on the
             // arrow's line, as oxfmt prints it (`tidy::wrap_arrow` drops it).
-            let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond());
+            let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond()) || crate::tidy::is_ternary(value);
             let value = if value.starts_with('{') || choice { format!("({value})") } else { value.to_string() };
             return format!("({params}): {ret} => {value}");
         }
@@ -668,6 +694,11 @@ pub(crate) fn as_tx(expr: &Expr, indent: usize) -> Option<Tx> {
             as_tx(&subst(then, name, value), indent)
         }
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_tx(scrutinee, arms, indent),
+        // A `match` on a value that is not a place, read once: `call ?? d`,
+        // or a test `call.kind === "A"`.
+        Expr::Match { .. } if crate::stmt::coalesced_tx(expr, indent).is_some() => {
+            crate::stmt::coalesced_tx(expr, indent)
+        }
         Expr::Match { scrutinee, arms } if one_of(arms).is_some() => {
             let (lits, yes) = one_of(arms)?;
             let test = Tx::atom(format!("[{lits}].includes({})", emit_tx(scrutinee, indent).print()));

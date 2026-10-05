@@ -107,9 +107,8 @@ export const Version = {
 
     let i2 = 0 as Usize;
 
-    for (const p of self.build) {
+    for (const b of self.build) {
       const i = i2;
-      const b = p;
       i2 = Int.usize.add(i2, 1 as Usize);
       s += i === 0 ? ("+" as Char) : ("." as Char);
       s += b;

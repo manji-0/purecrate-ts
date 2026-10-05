@@ -62,9 +62,20 @@ pub(crate) fn value_expr(value: &Expr, indent: usize) -> Option<(String, String)
 /// A `match` on a call that reads the value once, `call ?? d` or the call
 /// itself, so it needs no binding: the arms copy what `Some` holds.
 pub(super) fn coalesced(value: &Expr, indent: usize) -> Option<String> {
+    coalesced_tx(value, indent).map(|t| t.print())
+}
+
+/// `coalesced` as a `Tx`, for an operand of a larger expression.
+pub(crate) fn coalesced_tx(value: &Expr, indent: usize) -> Option<Tx> {
     let Expr::Match { scrutinee, arms } = peel_identity(value) else { return None };
     if is_place(scrutinee) {
         return None;
+    }
+    // Each arm a unit variant and `true` or `false`, one of them alone on
+    // its side (`is_eq` / `is_ne` ..): one test of `kind`, read once.
+    if let Some((op, variant)) = one_variant_test(arms) {
+        let Tx::Atom(call) = emit_tx(scrutinee, indent) else { return None };
+        return Some(Tx::bin(op, Tx::atom(format!("{call}.kind")), Tx::atom(js_string(variant.as_str()))));
     }
     let tmp = match_temp(arms);
     let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.clone() };
@@ -79,8 +90,8 @@ pub(super) fn coalesced(value: &Expr, indent: usize) -> Option<String> {
     }
     let call = Tx::atom(crate::tidy::strip_outer(&call));
     Some(match rest {
-        Some(rest) => Tx::bin(Op::Coalesce, call, rest).print(),
-        None => call.print(),
+        Some(rest) => Tx::bin(Op::Coalesce, call, rest),
+        None => call,
     })
 }
 
@@ -298,6 +309,10 @@ pub(crate) fn emit_switch_in(
 fn case_body(prelude: &str, body: &Expr, indent: usize, sink: Sink) -> String {
     let pad1 = "  ".repeat(indent + 1);
     let mut stmts = prelude.to_string();
+    // Only `break` follows the body, and a case that declares a name is a
+    // block of its own (below): nothing after could meet what it declares,
+    // so a branch after one that returns needs no `else`.
+    crate::TAIL.with(|t| t.set(true));
     emit_stmts(body, indent + 2, sink, &mut stmts);
     if !matches!(sink, Sink::Return) && !ends_in_jump(body) {
         stmts.push_str(&format!("{pad1}  break;\n"));
@@ -385,4 +400,25 @@ fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
         }
     }
     found
+}
+
+/// The comparison and the variant where every arm is a unit variant whose
+/// body is `true` or `false`, and one variant alone is `true` (`===`) or
+/// alone is `false` (`!==`).
+fn one_variant_test(arms: &[purecrate_ir::Arm]) -> Option<(Op, &Name)> {
+    let mut yes = Vec::new();
+    let mut no = Vec::new();
+    for arm in arms {
+        let Pattern::Variant { variant, bind: VariantBind::Unit, .. } = &arm.pattern else { return None };
+        match (&arm.body, &arm.guard) {
+            (Expr::Lit(Lit::Bool(true)), None) => yes.push(variant),
+            (Expr::Lit(Lit::Bool(false)), None) => no.push(variant),
+            _ => return None,
+        }
+    }
+    match (yes.as_slice(), no.as_slice()) {
+        ([v], _) => Some((Op::Eq, v)),
+        (_, [v]) => Some((Op::Ne, v)),
+        _ => None,
+    }
 }

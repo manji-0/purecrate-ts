@@ -411,7 +411,7 @@ pub(crate) fn has_hole(ty: &Ty) -> bool {
 }
 
 fn needs_context(expr: &Expr) -> bool {
-    match expr {
+    match expr.unpositioned() {
         Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }) => true,
         Expr::Unary { op: UnOp::Neg, expr } => needs_context(expr),
         Expr::Binary { op: BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem, left, right } => {

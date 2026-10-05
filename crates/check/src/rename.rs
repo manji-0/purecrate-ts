@@ -11,6 +11,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use purecrate_ir::{to_camel, Arm, Callee, ClosureParam, Crate, Expr, Fields, Fn, Item, Name, Param, Pattern, Vis};
 
+/// `name` without the leading `_` of a source name (`_high`), where some
+/// of it is left.
+fn undangled(name: &Name) -> Name {
+    match name.as_str().trim_start_matches('_') {
+        rest if !rest.is_empty() && !name.as_str().starts_with('$') => Name::new(rest),
+        _ => name.clone(),
+    }
+}
+
 fn camel(n: &Name) -> Name {
     Name::new(to_camel(n.as_str()))
 }
@@ -143,7 +152,7 @@ fn rename_fn(f: Fn, items: &[(String, bool)], read: &HashSet<String>, helpers: &
             .map(|(name, _)| name.clone())
             .collect(),
     };
-    let params = f.params.into_iter().map(|p| Param { name: r.bind(&p.name, &mut cx), ..p }).collect();
+    let params = f.params.into_iter().map(|p| Param { name: r.bind_param(&p.name, &mut cx), ..p }).collect();
     Fn { body: r.stmt_binds(f.body, &mut cx), params, ..f }
 }
 
@@ -222,14 +231,25 @@ impl Renamer {
         printed
     }
 
+    /// A local's TS spelling drops a leading `_` (`_high` is `high`): Rust
+    /// marks an unread local so, while oxlint refuses a dangling `_` in a
+    /// local's name. A parameter keeps it (`bind_param`), as TS reads it as
+    /// unused on purpose. One that meets another local's spelling is
+    /// numbered like a shadowed one.
     fn bind(&mut self, name: &Name, cx: &mut Cx) -> Name {
+        let printed = self.reserve(&undangled(name), cx);
+        cx.env.insert(name.as_str().to_string(), printed.clone());
+        printed
+    }
+
+    fn bind_param(&mut self, name: &Name, cx: &mut Cx) -> Name {
         let printed = self.reserve(name, cx);
         cx.env.insert(name.as_str().to_string(), printed.clone());
         printed
     }
 
     fn bind_let(&mut self, name: Name, value: Box<Expr>, cx: &mut Cx) -> (Name, Box<Expr>) {
-        let printed = self.reserve(&name, cx);
+        let printed = self.reserve(&undangled(&name), cx);
         let value = self.boxed(value, cx);
         cx.env.insert(name.as_str().to_string(), printed.clone());
         (printed, value)
@@ -329,7 +349,7 @@ impl Renamer {
                 let mut inner = cx.clone();
                 let params = params
                     .into_iter()
-                    .map(|p| ClosureParam { name: self.bind(&p.name, &mut inner), ty: p.ty })
+                    .map(|p| ClosureParam { name: self.bind_param(&p.name, &mut inner), ty: p.ty })
                     .collect();
                 Expr::Closure { params, ret, body: self.boxed(body, &inner) }
             }

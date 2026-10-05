@@ -71,8 +71,8 @@ struct Cx {
 }
 
 impl Cx {
-    /// An unread parameter or `for..of` variable, renamed with the `_` that
-    /// TS exempts from its unused checks.
+    /// An unread parameter, renamed with the `_` that TS exempts from its
+    /// unused checks.
     fn param_name(&mut self, n: Name, used: bool) -> Name {
         if used || n.as_str().starts_with('_') {
             return n;
@@ -146,7 +146,10 @@ impl Cx {
             },
             Expr::ForEach { var, over, source, body } => {
                 let used = used_in(&body, var.as_str());
-                Expr::ForEach { var: self.param_name(var, used), over, source, body }
+                // `_` itself: TS exempts it, and oxlint's `no-underscore-dangle`
+                // allows it where it refuses `_x` on a local. Each loop is
+                // its own block, so nested ones may all take it.
+                Expr::ForEach { var: if used { var } else { Name::new("_") }, over, source, body }
             }
             Expr::Closure { params, ret, body } => Expr::Closure {
                 params: params

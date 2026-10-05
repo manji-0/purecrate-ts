@@ -4,7 +4,4 @@ import { compare } from "./compare.ts";
 import type { Version } from "./version.ts";
 
 /** Equal precedence (§11): every part but build metadata is equal. */
-export const samePrecedence = (a: Version, b: Version): boolean => {
-  const ord = compare(a, b);
-  return ord.kind === "Equal";
-};
+export const samePrecedence = (a: Version, b: Version): boolean => compare(a, b).kind === "Equal";

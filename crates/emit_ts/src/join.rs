@@ -42,6 +42,7 @@ pub(crate) fn joined(expr: &Expr) -> Expr {
             break;
         }
     }
+    crate::expr::split_operands(&mut out);
     out
 }
 
