@@ -28,7 +28,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | `5 as I32`, `"x" as Email`, out-of-range or non-integer `number`s | Brands exist only in types. Values entering from outside go through `Int.i32.of` or a wire schema |
 | Values of closed types not returned by public functions | See §4 |
 | Strings with lone surrogates | Not a Rust `String`. A `pub` function panics on one in a string parameter (§6), and a wire schema refuses one |
-| Objects mutated after casting away `Readonly` | The output is not `Object.freeze`d; mutation is visible through aliases that Rust would not share |
+| Objects mutated in place | The output is not `Object.freeze`d, and `Readonly` stops only assignment through the type: `Object.assign(Version.preRelease(v), [..])` or `Object.assign(rule, { interval: .. })` compiles with no cast. Any mutation is visible through aliases that Rust would not share (an accessor returns the value it holds, not a copy, and a caller's array passed in is the one kept), and can break a closed type's invariant |
 | Reading the original argument after the call | Rust moved it; TS still has it. Not promised either way |
 
 ## 3. Known non-equivalences
@@ -66,7 +66,7 @@ Values returned by public functions, or read from the wire. The wire reads by sh
 
 ### 4.3 Not closed at runtime
 
-`as` still works, fields are readable, and objects are not frozen. Classes with `#private` fields would close it, but break idiomatic values, JSON, and structured cloning.
+`as` still works, fields are readable, and objects are not frozen, so `Object.assign` changes a closed value's fields with no cast (the brand keeps out a literal or a spread, not mutation in place). Freezing at construction would be shallow (an array or a nested value stays open) and cost every hot path; classes with `#private` fields would close it, but break idiomatic values, JSON, and structured cloning.
 
 ### 4.4 Validation layers
 

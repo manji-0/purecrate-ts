@@ -354,7 +354,7 @@ What callers of a successfully generated package must observe.
 
 ### 5.6 Aliasing
 
-Arguments are not mutated, so the pre-call state remains usable. Nothing is frozen. Mutating after stripping `Readonly` is outside the guarantee.
+Arguments are not mutated, so the pre-call state remains usable. Nothing is frozen, and values are shared, not copied: an accessor returns what the value holds, and an array a caller passes in is the one kept. Any mutation in place is outside the guarantee, with a cast or without one (`Object.assign` needs none, `Readonly` notwithstanding).
 
 ### 5.7 JSON
 
