@@ -12,7 +12,8 @@ export type OrderError =
   | Readonly<{ kind: "NegativeAmount" }>
   | Readonly<{ kind: "EmptySku" }>
   | Readonly<{ kind: "PriceMismatch" }>
-  | Readonly<{ kind: "Overflow" }>;
+  | Readonly<{ kind: "Overflow" }>
+  | Readonly<{ kind: "ReasonMismatch" }>;
 
 export const OrderError = {
   QtyZero: (): OrderError => ({ kind: "QtyZero" }),
@@ -31,4 +32,9 @@ export const OrderError = {
   PriceMismatch: (): OrderError => ({ kind: "PriceMismatch" }),
   /** A quantity or a total past what its integer holds. */
   Overflow: (): OrderError => ({ kind: "Overflow" }),
+  /**
+   * A cancel reason that does not fit the status: `PaymentFailed` on a
+   * draft, where no payment was attempted.
+   */
+  ReasonMismatch: (): OrderError => ({ kind: "ReasonMismatch" }),
 } as const;

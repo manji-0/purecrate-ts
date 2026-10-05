@@ -126,3 +126,25 @@ pub fn trace4(a: u8, b: u8, c: u8, d: u8) -> Result<Order, OrderError> {
     let order = step(&order, decode(c)?)?;
     step(&order, decode(d)?)
 }
+
+/// A cancel from each status, for each reason: `at` is an empty draft (0),
+/// a draft of one line (1), placed (2), paid (3), shipped (4), or cancelled
+/// (5); `reason` is `ByCustomer` (0) or `PaymentFailed` (1).
+pub fn cancel_at(at: u8, reason: u8) -> Result<Order, OrderError> {
+    let order = Order::draft();
+    let order = if at == 0 { order } else { step(&order, decode(0u8)?)? };
+    let order = if at >= 2 && at != 5 { step(&order, Command::Place)? } else { order };
+    let order = if at >= 3 && at != 5 { step(&order, Command::Pay(Yen::new(200i64)?))? } else { order };
+    let order = if at == 4 { step(&order, decode(8u8)?)? } else { order };
+    let order = if at == 5 { step(&order, decode(9u8)?)? } else { order };
+    let reason = if reason == 0 { CancelReason::ByCustomer } else { CancelReason::PaymentFailed };
+    step(&order, Command::Cancel(reason))
+}
+
+/// A line of `qty` at a unit price of zero, placed, then paid `paid`.
+pub fn free_line(qty: u32, paid: i64) -> Result<Order, OrderError> {
+    let line = Line::new(Sku::new(String::from("gift"))?, Yen::new(0i64)?, qty)?;
+    let order = step(&Order::draft(), Command::AddLine(line))?;
+    let order = step(&order, Command::Place)?;
+    step(&order, Command::Pay(Yen::new(paid)?))
+}

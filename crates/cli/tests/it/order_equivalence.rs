@@ -27,6 +27,8 @@ fn generated_order_lifecycle_matches_rust() {
         );
         grid!(cases, order::open_with; code in 0u8..4);
         grid!(cases, order::edge; code in 0u8..4);
+        grid!(cases, order::cancel_at; at in 0u8..6, reason in 0u8..2);
+        grid!(cases, order::free_line; qty in [1u32, 3], paid in [0i64, 1]);
     });
     for reached in [
         "Ok(1000450)",
@@ -44,6 +46,7 @@ fn generated_order_lifecycle_matches_rust() {
         "Ok(1000300)",
         "Err(OrderError::PriceMismatch)",
         "Err(OrderError::Overflow)",
+        "Err(OrderError::ReasonMismatch)",
     ] {
         assert!(cases.iter().any(|c| c.rust.starts_with(reached)), "no run reaches {reached}");
     }
@@ -82,6 +85,57 @@ fn every_reachable_order_keeps_its_invariants() {
         }
     }
     assert!(placed > 0, "no run places an order");
+}
+
+/// The header's policies: a cancel reason fits the status (`PaymentFailed`
+/// only once placed), nothing paid is cancelled, a zero-price line is a
+/// line, a payment is exactly the total, and a SKU is only non-empty.
+#[test]
+fn the_header_policies_hold() {
+    use order::{CancelReason, OrderError, Status};
+    let show = |r: &Result<order::Order, OrderError>| support::Show::show(r);
+    for at in [0u8, 1] {
+        let r = order::cancel_at(at, 0);
+        assert!(
+            matches!(r.as_ref().map(|o| o.status()), Ok(Status::Cancelled { reason: CancelReason::ByCustomer })),
+            "{}",
+            show(&r)
+        );
+        let r = order::cancel_at(at, 1);
+        assert!(matches!(r, Err(OrderError::ReasonMismatch)), "{}", show(&r));
+    }
+    let r = order::cancel_at(2, 1);
+    assert!(
+        matches!(r.as_ref().map(|o| o.status()), Ok(Status::Cancelled { reason: CancelReason::PaymentFailed })),
+        "{}",
+        show(&r)
+    );
+    let r = order::cancel_at(2, 0);
+    assert!(
+        matches!(r.as_ref().map(|o| o.status()), Ok(Status::Cancelled { reason: CancelReason::ByCustomer })),
+        "{}",
+        show(&r)
+    );
+    for at in [3u8, 4, 5] {
+        for reason in [0u8, 1] {
+            let r = order::cancel_at(at, reason);
+            assert!(matches!(r, Err(OrderError::InvalidTransition)), "{at} {reason}: {}", show(&r));
+        }
+    }
+    for qty in [1u32, 3] {
+        let r = order::free_line(qty, 0);
+        assert!(
+            matches!(r.as_ref().map(|o| o.status()), Ok(Status::Paid { total, .. }) if total.value() == 0),
+            "{}",
+            show(&r)
+        );
+        let r = order::free_line(qty, 1);
+        assert!(
+            matches!(&r, Err(OrderError::AmountMismatch { expected, got }) if expected.value() == 0 && got.value() == 1)
+        );
+    }
+    assert!(matches!(order::Sku::new(String::new()), Err(OrderError::EmptySku)));
+    assert!(order::Sku::new(String::from(" ")).is_ok());
 }
 
 /// A refused command gives no new order, and the caller still holds the one

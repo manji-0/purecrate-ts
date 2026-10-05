@@ -9,6 +9,21 @@
 // - An `Order` has at most one line per SKU (`step` merges a repeated SKU
 //   at the same unit price, and refuses another price), its total is the
 //   sum of its lines, and a shipped order's tracking number is not empty.
+// - A cancelled order's reason fits where it was cancelled: a draft is
+//   cancelled only `ByCustomer`, as no payment was attempted on it, so
+//   `PaymentFailed` is refused there (`ReasonMismatch`); a placed order may
+//   be cancelled for either reason.
+//
+// Policies, chosen here rather than taken from a standard:
+// - A unit price of zero is a price (a free item still makes a line), so a
+//   placed order may total zero and is paid with `Pay(0)`.
+// - `Pay` must be exactly the total: a partial or an over payment is
+//   refused with `AmountMismatch`, and amounts compare as integers.
+// - A paid or shipped order cannot be cancelled: undoing a payment is a
+//   refund, which this model leaves out.
+// - A SKU is any non-empty string, compared exactly (case and spacing
+//   count); a tracking number is any non-empty string.
+// - Quantities and totals past `u32` / `i64` are refused (`Overflow`).
 //
 // `step` reads the order and returns the next one, so a refused command
 // leaves the caller holding the order it had.
@@ -127,6 +142,9 @@ pub enum OrderError {
     PriceMismatch,
     /// A quantity or a total past what its integer holds.
     Overflow,
+    /// A cancel reason that does not fit the status: `PaymentFailed` on a
+    /// draft, where no payment was attempted.
+    ReasonMismatch,
 }
 
 /// Adds `line`, or adds its quantity to the line of the same SKU, which
@@ -189,6 +207,7 @@ pub fn step(order: &Order, cmd: Command) -> Result<Order, OrderError> {
         (Status::Paid { lines, total }, Command::Ship(tracking)) => {
             Status::Shipped { lines: lines.clone(), total: total.clone(), tracking }
         }
+        (Status::Draft { .. }, Command::Cancel(CancelReason::PaymentFailed)) => return Err(OrderError::ReasonMismatch),
         (Status::Draft { .. } | Status::Placed { .. }, Command::Cancel(reason)) => Status::Cancelled { reason },
         _ => return Err(OrderError::InvalidTransition),
     };
