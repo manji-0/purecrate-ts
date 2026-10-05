@@ -3,9 +3,19 @@
 //! four-event run under each capture and confirmation method, compared as
 //! the whole final `PaymentIntent`. It also agrees with the same rules in
 //! idiomatic Rust (`idiomatic`, the line count design/07 §2 compares
-//! against) on the same runs.
+//! against) on the same runs. An intent read from outside goes through
+//! `PaymentIntent::new`, which refuses amounts that disagree with the terms:
+//! in Rust, in the generated function, and in every library's schema.
 
 use crate::support;
+
+use std::fs;
+use std::process::Command;
+
+use purecrate_check::accept;
+use purecrate_emit_ts::WireSchema;
+use purecrate_pack::assemble_with;
+use purecrate_syntax::parse_source;
 
 purecrate_canon::fixture!(mod payment = "../../../examples/payment/src/lib.rs", "fixtures/payment_driver.rs");
 
@@ -186,7 +196,7 @@ fn same(
 ) -> bool {
     use crate::support::Show;
     let a = match a {
-        Ok(intent) => format!("Ok({})", intent.status.show()),
+        Ok(intent) => format!("Ok({})", intent.status().show()),
         Err(e) => format!("Err({})", e.show()),
     };
     let b = format!("{b:?}")
@@ -240,6 +250,8 @@ fn generated_payment_lifecycle_matches_rust() {
         grid!(cases, payment::capture; amount in 0u8..7, fee in 0u8..7);
         grid!(cases, payment::action; t in 0u8..4, o in 0u8..4);
         grid!(cases, payment::cancel; code in 0u8..5);
+        grid!(cases, payment::read_intent; t in 0u8..4, s in 0u8..19);
+        grid!(cases, payment::read_and_step; t in 0u8..4, s in 0u8..19, e in 0u8..12);
         grid!(cases, payment::amount_of; v in [i64::MIN, -1, 0, 49, 50, 99_999_999, 100_000_000, i64::MAX]);
         for s in ["", "pm_", "pm_x", "pa_x", "PM_x", "pmx_", "pm_é", "é"] {
             cases.push(case!(payment::method_id(s.to_string())));
@@ -263,8 +275,154 @@ fn generated_payment_lifecycle_matches_rust() {
         "Err(PaymentError::InvalidTransition)",
         "Err(PaymentError::AmountOutOfRange)",
         "Err(PaymentError::InvalidPaymentMethodId)",
+        "Err(PaymentError::InconsistentStatus)",
     ] {
         assert!(cases.iter().any(|c| c.rust.contains(reached)), "no run reaches {reached}");
     }
     support::assert_equivalent("payment", payment::SOURCE, &cases);
+}
+
+/// The statuses of the driver's `status_of` that agree with each capture
+/// method's terms (amount 2000): `capturable` and `received` within
+/// 1..=2000, a fee within 0..=received, and, with automatic capture, no
+/// `requires_capture`, no fee, and the whole amount received.
+const MANUAL_ACCEPTS: [u8; 12] = [0, 1, 5, 6, 10, 11, 13, 14, 15, 16, 17, 18];
+const AUTOMATIC_ACCEPTS: [u8; 5] = [5, 15, 16, 17, 18];
+const STATUSES: std::ops::Range<u8> = 0..19;
+
+fn accepted(t: u8, s: u8) -> bool {
+    if t.is_multiple_of(2) {
+        AUTOMATIC_ACCEPTS.contains(&s)
+    } else {
+        MANUAL_ACCEPTS.contains(&s)
+    }
+}
+
+#[test]
+fn an_intent_from_outside_is_checked_against_its_terms() {
+    support::quietly(|| {
+        for t in 0u8..4 {
+            for s in STATUSES {
+                let read = payment::read_intent(t, s);
+                if accepted(t, s) {
+                    assert!(read.is_ok(), "terms {t} status {s} refused");
+                } else {
+                    assert!(
+                        matches!(read, Err(payment::PaymentError::InconsistentStatus)),
+                        "terms {t} status {s} accepted"
+                    );
+                }
+            }
+        }
+        // Every state `step` reaches passes the same check.
+        for (t, [a, b, c, d]) in runs() {
+            if payment::trace4(t, a, b, c, d).is_ok() {
+                assert!(payment::trace4_rechecked(t, a, b, c, d).is_ok(), "{t} {a} {b} {c} {d}");
+            }
+        }
+    });
+}
+
+/// JS string literal.
+fn js(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 || (c as u32) > 0x7e => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Writes the package with `schema`, runs `script` on node, and returns its
+/// stdout; `None` when node is skipped (`PURECRATE_SKIP_NODE`).
+fn run_node_with(schema: WireSchema, script: &str) -> Option<String> {
+    if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
+        return None;
+    }
+    let dir = support::scratch(&format!("payment-intent-wire-{}", schema.runtime_dep()));
+    let krate = parse_source("payment", payment::SOURCE).expect("parse");
+    let typed = accept(&krate).unwrap_or_else(|d| panic!("payment rejected: {d:#?}"));
+    support::write_package(&dir, &assemble_with(&typed, Some(schema)));
+    let lib = schema.runtime_dep();
+    let package = format!("boundary-{lib}");
+    support::link(&dir, lib, &format!("{package}/node_modules/{lib}"));
+    if schema == WireSchema::Arktype {
+        support::link(&dir, "@ark", &format!("{package}/node_modules/@ark"));
+    }
+    support::typecheck(&dir);
+    fs::write(dir.join("driver.ts"), script).expect("write driver");
+    let output = Command::new("node")
+        .arg(format!("--conditions={}", support::SOURCE_CONDITION))
+        .arg("driver.ts")
+        .current_dir(&dir)
+        .output()
+        .expect("node");
+    assert!(output.status.success(), "node in {}:\n{}", dir.display(), String::from_utf8_lossy(&output.stderr));
+    let _ = fs::remove_dir_all(&dir);
+    Some(String::from_utf8(output.stdout).expect("utf8"))
+}
+
+/// `PaymentIntent` is read through `#[serde(try_from = "UncheckedIntent")]`:
+/// every library's schema reads the JSON of an intent exactly when
+/// `PaymentIntent::new` accepts it, writes back the same bytes, and names
+/// the refusal as serde does (`PaymentIntent: ` and the error's `Display`).
+/// `UncheckedIntent` reads them all, so the refusals are not about shape.
+#[test]
+fn every_schema_refuses_an_inconsistent_intent() {
+    let mut rows = Vec::new();
+    let mut refused = 0;
+    for t in 0u8..4 {
+        for s in STATUSES {
+            let text = serde_json::to_string(&payment::unchecked(t, s)).unwrap();
+            let want = match payment::read_intent(t, s) {
+                Ok(intent) => serde_json::to_string(&intent).unwrap(),
+                Err(_) => "Err".to_string(),
+            };
+            // The wire form is unchanged: a checked intent is written as
+            // the fields it was read from.
+            assert!(want == "Err" || want == text, "{text} written as {want}");
+            assert_eq!(want != "Err", accepted(t, s), "{text}");
+            refused += usize::from(want == "Err");
+            rows.push(format!("[{},{}]", js(&text), js(&want)));
+        }
+    }
+    assert!(refused == 7 * 2 + 14 * 2, "{refused} refused");
+    let rows = rows.join(",");
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let (import, refusal) = match schema {
+            WireSchema::Zod => ("", "(x) => { const r = w.PaymentIntent.safeParse(x); return r.success ? null : r.error.issues[0].message; }"),
+            WireSchema::Valibot => (
+                "import * as v from \"valibot\";\n",
+                "(x) => { const r = v.safeParse(w.PaymentIntent, x); return r.success ? null : r.issues[0].message; }",
+            ),
+            WireSchema::Arktype => (
+                "import { type } from \"arktype\";\n",
+                "(x) => { const r = w.PaymentIntent(x); return r instanceof type.errors ? r.summary : null; }",
+            ),
+        };
+        let script = format!(
+            "{import}import {{ parseJson }} from \"./src/purecrate-runtime.ts\";\n\
+             import * as w from \"./src/purecrate-wire.ts\";\n\
+             const refusal = {refusal};\n\
+             const out = [];\n\
+             for (const [text, want] of [{rows}]) {{\n\
+               const x = parseJson(text);\n\
+               if (w.toJson.UncheckedIntent(w.fromJson.UncheckedIntent(text)) !== text) out.push(`unchecked ${{text}}`);\n\
+               const why = refusal(x);\n\
+               const got = why === null ? w.toJson.PaymentIntent(w.fromJson.PaymentIntent(text)) : \"Err\";\n\
+               if (got !== want) out.push(`${{text}}: want ${{want}} got ${{got}}`);\n\
+               if (why !== null && !why.includes(\"PaymentIntent: status inconsistent with the terms\")) out.push(`${{text}}: ${{why}}`);\n\
+               if (why !== null) {{ try {{ w.fromJson.PaymentIntent(text); out.push(`${{text}}: fromJson read it`); }} catch {{}} }}\n\
+             }}\n\
+             console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
+        );
+        if let Some(out) = run_node_with(schema, &script) {
+            assert_eq!(out.trim(), "ok", "{schema:?}:\n{out}");
+        }
+    }
 }

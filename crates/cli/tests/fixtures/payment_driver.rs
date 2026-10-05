@@ -120,3 +120,68 @@ pub fn amount_of(value: i64) -> Result<Amount, PaymentError> {
 pub fn method_id(raw: String) -> Result<PaymentMethodId, PaymentError> {
     PaymentMethodId::new(raw)
 }
+
+fn status_of(code: u8) -> Status {
+    if code == 0u8 {
+        Status::RequiresCapture { method: card(), capturable: 2000i64 }
+    } else if code == 1u8 {
+        Status::RequiresCapture { method: card(), capturable: 1i64 }
+    } else if code == 2u8 {
+        Status::RequiresCapture { method: card(), capturable: 0i64 }
+    } else if code == 3u8 {
+        Status::RequiresCapture { method: card(), capturable: 2001i64 }
+    } else if code == 4u8 {
+        Status::RequiresCapture { method: bank(), capturable: -1i64 }
+    } else if code == 5u8 {
+        Status::Succeeded { received: 2000i64, application_fee: None }
+    } else if code == 6u8 {
+        Status::Succeeded { received: 1500i64, application_fee: None }
+    } else if code == 7u8 {
+        Status::Succeeded { received: 0i64, application_fee: None }
+    } else if code == 8u8 {
+        Status::Succeeded { received: 2001i64, application_fee: None }
+    } else if code == 9u8 {
+        Status::Succeeded { received: 1500i64, application_fee: Some(-1i64) }
+    } else if code == 10u8 {
+        Status::Succeeded { received: 1500i64, application_fee: Some(0i64) }
+    } else if code == 11u8 {
+        Status::Succeeded { received: 1500i64, application_fee: Some(1500i64) }
+    } else if code == 12u8 {
+        Status::Succeeded { received: 1500i64, application_fee: Some(1501i64) }
+    } else if code == 13u8 {
+        Status::Succeeded { received: 2000i64, application_fee: Some(100i64) }
+    } else if code == 14u8 {
+        Status::Succeeded { received: 1i64, application_fee: Some(1i64) }
+    } else if code == 15u8 {
+        Status::RequiresPaymentMethod { last_error: Some(DeclineCode::CardDeclined) }
+    } else if code == 16u8 {
+        Status::Processing { method: bank() }
+    } else if code == 17u8 {
+        Status::RequiresConfirmation { method: card() }
+    } else {
+        Status::Canceled { reason: None }
+    }
+}
+
+/// An intent as a client might send it: terms `t` (as `terms_of`) with
+/// status `s`, consistent or not.
+pub fn unchecked(t: u8, s: u8) -> UncheckedIntent {
+    UncheckedIntent { terms: terms_of(t), status: status_of(s) }
+}
+
+pub fn read_intent(t: u8, s: u8) -> Result<PaymentIntent, PaymentError> {
+    PaymentIntent::new(unchecked(t, s))
+}
+
+/// `trace4`'s result put through the check again: every state `step`
+/// reaches is one the check accepts.
+pub fn trace4_rechecked(t: u8, a: u8, b: u8, c: u8, d: u8) -> Result<PaymentIntent, PaymentError> {
+    let intent = trace4(t, a, b, c, d)?;
+    PaymentIntent::new(UncheckedIntent { terms: intent.terms, status: intent.status })
+}
+
+/// A checked intent, then one event on it.
+pub fn read_and_step(t: u8, s: u8, e: u8) -> Result<PaymentIntent, PaymentError> {
+    let intent = PaymentIntent::new(unchecked(t, s))?;
+    step(intent, decode(e))
+}

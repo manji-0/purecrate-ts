@@ -12,11 +12,12 @@ import type { Event as DomainEvent } from "./event.ts";
 import type { MethodKind as DomainMethodKind } from "./method-kind.ts";
 import type { Outcome as DomainOutcome } from "./outcome.ts";
 import { PaymentError as DomainPaymentError } from "./payment-error.ts";
-import type { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
+import { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
 import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
 import type { PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
 import type { Status as DomainStatus } from "./status.ts";
 import type { Terms as DomainTerms } from "./terms.ts";
+import type { UncheckedIntent as DomainUncheckedIntent } from "./unchecked-intent.ts";
 
 export const Amount: z.ZodType<DomainAmount> = i64.transform((x, ctx): DomainAmount => {
   const r = DomainAmount.tryFrom(x);
@@ -128,10 +129,34 @@ export const Status: z.ZodType<DomainStatus> = z.union([
     .transform((x): DomainStatus => ({ kind: "Canceled", reason: x.Canceled.reason })),
 ]);
 
-export const PaymentIntent: z.ZodType<DomainPaymentIntent> = z.object({
+/**
+ * An intent as it arrives, before `PaymentIntent::new` checks it: the same
+ * fields, so the JSON is the same.
+ */
+export const UncheckedIntent: z.ZodType<DomainUncheckedIntent> = z.object({
   terms: Terms,
   status: Status,
 });
+
+/**
+ * An intent whose amounts agree with its terms: `PaymentIntent::new`
+ * checks them, and `step` keeps them (see `consistent`).
+ */
+export const PaymentIntent: z.ZodType<DomainPaymentIntent> = UncheckedIntent.transform(
+  (x, ctx): DomainPaymentIntent => {
+    const r = DomainPaymentIntent.tryFrom(x);
+    if (r.kind === "Err") {
+      ctx.addIssue({
+        code: "custom",
+        message: `PaymentIntent: ${DomainPaymentError.toString(r.error)}`,
+        input: x,
+        params: { error: r.error },
+      });
+      return z.NEVER;
+    }
+    return r.value;
+  },
+);
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: z.ZodType<DomainOutcome> = z.union([
@@ -211,6 +236,9 @@ export const PaymentError: z.ZodType<DomainPaymentError> = z.union([
   unitVariant("InvalidTransition").transform((): DomainPaymentError => ({
     kind: "InvalidTransition",
   })),
+  unitVariant("InconsistentStatus").transform((): DomainPaymentError => ({
+    kind: "InconsistentStatus",
+  })),
 ]);
 
 /**
@@ -231,6 +259,7 @@ export const fromJson = {
     CancellationReason.parse(parseJson(text)),
   Status: (text: string): DomainStatus => Status.parse(parseJson(text)),
   PaymentIntent: (text: string): DomainPaymentIntent => PaymentIntent.parse(parseJson(text)),
+  UncheckedIntent: (text: string): DomainUncheckedIntent => UncheckedIntent.parse(parseJson(text)),
   Outcome: (text: string): DomainOutcome => Outcome.parse(parseJson(text)),
   Event: (text: string): DomainEvent => Event.parse(parseJson(text)),
   PaymentError: (text: string): DomainPaymentError => PaymentError.parse(parseJson(text)),
@@ -320,6 +349,11 @@ export const toJson = {
       ["terms", toJson.Terms(x.terms)],
       ["status", toJson.Status(x.status)],
     ]),
+  UncheckedIntent: (x: DomainUncheckedIntent): string =>
+    Json.object([
+      ["terms", toJson.Terms(x.terms)],
+      ["status", toJson.Status(x.status)],
+    ]),
   Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":
@@ -396,6 +430,8 @@ export const toJson = {
         return '"NotCancelable"';
       case "InvalidTransition":
         return '"InvalidTransition"';
+      case "InconsistentStatus":
+        return '"InconsistentStatus"';
       default:
         return assertNever(x);
     }

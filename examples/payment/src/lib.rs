@@ -34,9 +34,12 @@
 // states only the upper bound.
 //
 // The same types are the server's wire format: serde derives with no
-// attributes, except that `Amount` and `PaymentMethodId` are read through
-// their checked constructors (`#[serde(try_from)]`), so JSON cannot carry an
-// out-of-range amount or a malformed ID on either side.
+// attributes, except that `Amount`, `PaymentMethodId`, and `PaymentIntent`
+// are read through their checked constructors (`#[serde(try_from)]`), so
+// JSON cannot carry an out-of-range amount, a malformed ID, or a status
+// whose amounts disagree with the terms (a negative fee, a capture above
+// the amount) on either side. `PaymentIntent` is read as `UncheckedIntent`,
+// which has the same fields, so its JSON is what it was before the check.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -158,10 +161,75 @@ pub enum Status {
     },
 }
 
+/// An intent whose amounts agree with its terms: `PaymentIntent::new`
+/// checks them, and `step` keeps them (see `consistent`).
 #[derive(Serialize, Deserialize)]
+#[serde(try_from = "UncheckedIntent")]
 pub struct PaymentIntent {
+    terms: Terms,
+    status: Status,
+}
+
+/// An intent as it arrives, before `PaymentIntent::new` checks it: the same
+/// fields, so the JSON is the same.
+#[derive(Serialize, Deserialize)]
+pub struct UncheckedIntent {
     pub terms: Terms,
     pub status: Status,
+}
+
+impl PaymentIntent {
+    pub fn new(raw: UncheckedIntent) -> Result<PaymentIntent, PaymentError> {
+        if !consistent(&raw.terms, &raw.status) {
+            return Err(PaymentError::InconsistentStatus);
+        }
+        Ok(PaymentIntent {
+            terms: raw.terms,
+            status: raw.status,
+        })
+    }
+
+    pub fn terms(&self) -> &Terms {
+        &self.terms
+    }
+
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+}
+
+impl TryFrom<UncheckedIntent> for PaymentIntent {
+    type Error = PaymentError;
+
+    fn try_from(raw: UncheckedIntent) -> Result<Self, Self::Error> {
+        PaymentIntent::new(raw)
+    }
+}
+
+/// Stripe's amounts against the intent's: `amount_capturable` and
+/// `amount_received` are at most `amount` (and at least 1, as a capture of 0
+/// is refused here); `requires_capture` happens with manual capture only;
+/// an automatic capture receives the whole amount and carries no fee; the
+/// application fee is not negative and is capped at the amount captured.
+fn consistent(terms: &Terms, status: &Status) -> bool {
+    let amount = terms.amount.0;
+    let manual = matches!(terms.capture, CaptureMethod::Manual);
+    match status {
+        Status::RequiresCapture { capturable, .. } => {
+            manual && *capturable >= 1 && *capturable <= amount
+        }
+        Status::Succeeded {
+            received,
+            application_fee,
+        } => {
+            let fee_ok = match application_fee {
+                Some(fee) => manual && *fee >= 0 && *fee <= *received,
+                None => true,
+            };
+            fee_ok && *received >= 1 && *received <= amount && (manual || *received == amount)
+        }
+        _ => true,
+    }
 }
 
 /// What Stripe reports for a confirmation attempt or a completed action.
@@ -199,6 +267,7 @@ pub enum PaymentError {
     NegativeApplicationFee,
     NotCancelable,
     InvalidTransition,
+    InconsistentStatus,
 }
 
 /// For the server's logs and serde's `try_from` errors; the client gets the
@@ -213,6 +282,7 @@ impl fmt::Display for PaymentError {
             PaymentError::NegativeApplicationFee => "negative application fee",
             PaymentError::NotCancelable => "not cancelable",
             PaymentError::InvalidTransition => "invalid transition",
+            PaymentError::InconsistentStatus => "status inconsistent with the terms",
         };
         f.write_str(text)
     }

@@ -4,7 +4,7 @@ import { assertNever, Int, Result, type I64 } from "./purecrate-runtime.ts";
 import type { Event } from "./event.ts";
 import type { Outcome } from "./outcome.ts";
 import type { PaymentError } from "./payment-error.ts";
-import type { PaymentIntent } from "./payment-intent.ts";
+import { unsafeMakePaymentIntent, type PaymentIntent } from "./payment-intent.ts";
 import type { PaymentMethod } from "./payment-method.ts";
 import type { Status } from "./status.ts";
 import type { Terms } from "./terms.ts";
@@ -145,7 +145,7 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       return assertNever(intent.status);
   }
 
-  return Result.ok({ terms, status });
+  return Result.ok(unsafeMakePaymentIntent({ terms, status }));
 };
 
 const attempt = (terms: Terms, method: PaymentMethod, outcome: Outcome): Status => {

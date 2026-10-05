@@ -12,11 +12,12 @@ import type { Event as DomainEvent } from "./event.ts";
 import type { MethodKind as DomainMethodKind } from "./method-kind.ts";
 import type { Outcome as DomainOutcome } from "./outcome.ts";
 import { PaymentError as DomainPaymentError } from "./payment-error.ts";
-import type { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
+import { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
 import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
 import type { PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
 import type { Status as DomainStatus } from "./status.ts";
 import type { Terms as DomainTerms } from "./terms.ts";
+import type { UncheckedIntent as DomainUncheckedIntent } from "./unchecked-intent.ts";
 
 export const Amount: v.GenericSchema<unknown, DomainAmount> = v.pipe(
   i64,
@@ -132,10 +133,30 @@ export const Status: v.GenericSchema<unknown, DomainStatus> = v.union([
   ),
 ]);
 
-export const PaymentIntent: v.GenericSchema<unknown, DomainPaymentIntent> = record({
+/**
+ * An intent as it arrives, before `PaymentIntent::new` checks it: the same
+ * fields, so the JSON is the same.
+ */
+export const UncheckedIntent: v.GenericSchema<unknown, DomainUncheckedIntent> = record({
   terms: Terms,
   status: Status,
 });
+
+/**
+ * An intent whose amounts agree with its terms: `PaymentIntent::new`
+ * checks them, and `step` keeps them (see `consistent`).
+ */
+export const PaymentIntent: v.GenericSchema<unknown, DomainPaymentIntent> = v.pipe(
+  UncheckedIntent,
+  v.rawTransform(({ dataset, addIssue, NEVER }): DomainPaymentIntent => {
+    const r = DomainPaymentIntent.tryFrom(dataset.value);
+    if (r.kind === "Err") {
+      addIssue({ message: `PaymentIntent: ${DomainPaymentError.toString(r.error)}` });
+      return NEVER;
+    }
+    return r.value;
+  }),
+);
 
 /** What Stripe reports for a confirmation attempt or a completed action. */
 export const Outcome: v.GenericSchema<unknown, DomainOutcome> = v.union([
@@ -235,6 +256,10 @@ export const PaymentError: v.GenericSchema<unknown, DomainPaymentError> = v.unio
     unitVariant("InvalidTransition"),
     v.transform((): DomainPaymentError => ({ kind: "InvalidTransition" })),
   ),
+  v.pipe(
+    unitVariant("InconsistentStatus"),
+    v.transform((): DomainPaymentError => ({ kind: "InconsistentStatus" })),
+  ),
 ]);
 
 /**
@@ -256,6 +281,8 @@ export const fromJson = {
     v.parse(CancellationReason, parseJson(text)),
   Status: (text: string): DomainStatus => v.parse(Status, parseJson(text)),
   PaymentIntent: (text: string): DomainPaymentIntent => v.parse(PaymentIntent, parseJson(text)),
+  UncheckedIntent: (text: string): DomainUncheckedIntent =>
+    v.parse(UncheckedIntent, parseJson(text)),
   Outcome: (text: string): DomainOutcome => v.parse(Outcome, parseJson(text)),
   Event: (text: string): DomainEvent => v.parse(Event, parseJson(text)),
   PaymentError: (text: string): DomainPaymentError => v.parse(PaymentError, parseJson(text)),
@@ -345,6 +372,11 @@ export const toJson = {
       ["terms", toJson.Terms(x.terms)],
       ["status", toJson.Status(x.status)],
     ]),
+  UncheckedIntent: (x: DomainUncheckedIntent): string =>
+    Json.object([
+      ["terms", toJson.Terms(x.terms)],
+      ["status", toJson.Status(x.status)],
+    ]),
   Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":
@@ -421,6 +453,8 @@ export const toJson = {
         return '"NotCancelable"';
       case "InvalidTransition":
         return '"InvalidTransition"';
+      case "InconsistentStatus":
+        return '"InconsistentStatus"';
       default:
         return assertNever(x);
     }

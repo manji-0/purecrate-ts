@@ -22,11 +22,12 @@ import type { Event as DomainEvent } from "./event.ts";
 import type { MethodKind as DomainMethodKind } from "./method-kind.ts";
 import type { Outcome as DomainOutcome } from "./outcome.ts";
 import { PaymentError as DomainPaymentError } from "./payment-error.ts";
-import type { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
+import { PaymentIntent as DomainPaymentIntent } from "./payment-intent.ts";
 import { PaymentMethodId as DomainPaymentMethodId } from "./payment-method-id.ts";
 import type { PaymentMethod as DomainPaymentMethod } from "./payment-method.ts";
 import type { Status as DomainStatus } from "./status.ts";
 import type { Terms as DomainTerms } from "./terms.ts";
+import type { UncheckedIntent as DomainUncheckedIntent } from "./unchecked-intent.ts";
 
 const amountWire = memo(() => i64);
 export const Amount: Wire<DomainAmount> = type("unknown").pipe((v, ctx): DomainAmount => {
@@ -184,10 +185,30 @@ export const Status: Wire<DomainStatus> = type("unknown").pipe((v, ctx): DomainS
   return ctx.error("Status") as never;
 });
 
-const paymentIntentWire = memo(() => type({ terms: Terms, status: Status }).narrow(record));
+const paymentIntentWire = memo(() => UncheckedIntent);
+/**
+ * An intent whose amounts agree with its terms: `PaymentIntent::new`
+ * checks them, and `step` keeps them (see `consistent`).
+ */
 export const PaymentIntent: Wire<DomainPaymentIntent> = type("unknown").pipe(
   (v, ctx): DomainPaymentIntent => {
     const parsed = paymentIntentWire()(v);
+    if (parsed instanceof type.errors) return fail(ctx, parsed);
+    const r = DomainPaymentIntent.tryFrom(parsed);
+    if (r.kind === "Err")
+      return ctx.error(`PaymentIntent: ${DomainPaymentError.toString(r.error)}`) as never;
+    return r.value;
+  },
+);
+
+const uncheckedIntentWire = memo(() => type({ terms: Terms, status: Status }).narrow(record));
+/**
+ * An intent as it arrives, before `PaymentIntent::new` checks it: the same
+ * fields, so the JSON is the same.
+ */
+export const UncheckedIntent: Wire<DomainUncheckedIntent> = type("unknown").pipe(
+  (v, ctx): DomainUncheckedIntent => {
+    const parsed = uncheckedIntentWire()(v);
     if (parsed instanceof type.errors) return fail(ctx, parsed);
     return { terms: parsed.terms, status: parsed.status };
   },
@@ -317,6 +338,9 @@ const paymentErrorNotCancelableArm = memo(() => type({ "+": "reject", NotCancela
 const paymentErrorInvalidTransitionArm = memo(() =>
   type({ "+": "reject", InvalidTransition: "null" }),
 );
+const paymentErrorInconsistentStatusArm = memo(() =>
+  type({ "+": "reject", InconsistentStatus: "null" }),
+);
 export const PaymentError: Wire<DomainPaymentError> = type("unknown").pipe(
   (v, ctx): DomainPaymentError => {
     if (v === "AmountOutOfRange") return { kind: "AmountOutOfRange" };
@@ -361,6 +385,12 @@ export const PaymentError: Wire<DomainPaymentError> = type("unknown").pipe(
       if (!(parsed instanceof type.errors)) return { kind: "InvalidTransition" };
       if (keyed(v, "InvalidTransition")) return fail(ctx, parsed);
     }
+    if (v === "InconsistentStatus") return { kind: "InconsistentStatus" };
+    {
+      const parsed = paymentErrorInconsistentStatusArm()(v);
+      if (!(parsed instanceof type.errors)) return { kind: "InconsistentStatus" };
+      if (keyed(v, "InconsistentStatus")) return fail(ctx, parsed);
+    }
     return ctx.error("PaymentError") as never;
   },
 );
@@ -383,6 +413,7 @@ export const fromJson = {
     CancellationReason.assert(parseJson(text)),
   Status: (text: string): DomainStatus => Status.assert(parseJson(text)),
   PaymentIntent: (text: string): DomainPaymentIntent => PaymentIntent.assert(parseJson(text)),
+  UncheckedIntent: (text: string): DomainUncheckedIntent => UncheckedIntent.assert(parseJson(text)),
   Outcome: (text: string): DomainOutcome => Outcome.assert(parseJson(text)),
   Event: (text: string): DomainEvent => Event.assert(parseJson(text)),
   PaymentError: (text: string): DomainPaymentError => PaymentError.assert(parseJson(text)),
@@ -472,6 +503,11 @@ export const toJson = {
       ["terms", toJson.Terms(x.terms)],
       ["status", toJson.Status(x.status)],
     ]),
+  UncheckedIntent: (x: DomainUncheckedIntent): string =>
+    Json.object([
+      ["terms", toJson.Terms(x.terms)],
+      ["status", toJson.Status(x.status)],
+    ]),
   Outcome: (x: DomainOutcome): string => {
     switch (x.kind) {
       case "Authorized":
@@ -548,6 +584,8 @@ export const toJson = {
         return '"NotCancelable"';
       case "InvalidTransition":
         return '"InvalidTransition"';
+      case "InconsistentStatus":
+        return '"InconsistentStatus"';
       default:
         return assertNever(x);
     }

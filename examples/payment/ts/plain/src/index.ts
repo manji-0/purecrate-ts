@@ -13,6 +13,7 @@ export { DeclineCode } from "./decline-code.ts";
 export { CancellationReason } from "./cancellation-reason.ts";
 export { Status } from "./status.ts";
 export { PaymentIntent } from "./payment-intent.ts";
+export { UncheckedIntent } from "./unchecked-intent.ts";
 export { Outcome } from "./outcome.ts";
 export { Event } from "./event.ts";
 export { PaymentError } from "./payment-error.ts";

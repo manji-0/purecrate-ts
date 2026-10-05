@@ -9,7 +9,8 @@ export type PaymentError =
   | Readonly<{ kind: "InvalidCaptureAmount"; capturable: I64 }>
   | Readonly<{ kind: "NegativeApplicationFee" }>
   | Readonly<{ kind: "NotCancelable" }>
-  | Readonly<{ kind: "InvalidTransition" }>;
+  | Readonly<{ kind: "InvalidTransition" }>
+  | Readonly<{ kind: "InconsistentStatus" }>;
 
 export const PaymentError = {
   AmountOutOfRange: (): PaymentError => ({ kind: "AmountOutOfRange" }),
@@ -22,6 +23,7 @@ export const PaymentError = {
   NegativeApplicationFee: (): PaymentError => ({ kind: "NegativeApplicationFee" }),
   NotCancelable: (): PaymentError => ({ kind: "NotCancelable" }),
   InvalidTransition: (): PaymentError => ({ kind: "InvalidTransition" }),
+  InconsistentStatus: (): PaymentError => ({ kind: "InconsistentStatus" }),
   /**
    * For the server's logs and serde's `try_from` errors; the client gets the
    * same text from `PaymentError.toString`.
@@ -42,6 +44,8 @@ export const PaymentError = {
         return "not cancelable";
       case "InvalidTransition":
         return "invalid transition";
+      case "InconsistentStatus":
+        return "status inconsistent with the terms";
       default:
         return assertNever(self);
     }
