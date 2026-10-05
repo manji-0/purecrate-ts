@@ -4,7 +4,9 @@
 
 ### Added
 
-- **`examples/calendar`**, written from the authoring skill alone: RFC 3339 timestamps (leap seconds by §5.7, "-00:00"), Hinnant's civil-date algorithms over years -9999 to 9999, ISO 8601 week dates, and RFC 5545 RRULE parsing and expansion (DAILY to YEARLY, INTERVAL, COUNT, UNTIL, BYDAY with ordinals, BYMONTHDAY, BYMONTH, WKST). Its test reproduces RFC 3339 §5.8 and RFC 5545 §3.8.5.3's examples, agrees with an idiomatic-Rust reference on every day count in range, and compares the package with Rust. Its logic is 1.8× the idiomatic reference's, rule parsing 2.0× (design/07 §2.2).
+- **`examples/calendar`**, written from the authoring skill alone: RFC 3339 timestamps (leap seconds by §5.7, "-00:00"), Hinnant's civil-date algorithms over years -9999 to 9999, ISO 8601 week dates, and RFC 5545 RRULE parsing and expansion (DAILY to YEARLY, INTERVAL, COUNT, UNTIL, BYDAY with ordinals, BYMONTHDAY, BYMONTH, WKST). Its test reproduces RFC 3339 §5.8 and RFC 5545 §3.8.5.3's examples, agrees with an idiomatic-Rust reference on every day count in range, and compares the package with Rust. Its logic was 1.8× the idiomatic reference's as written, rule parsing 2.0×; 1.7× and 1.6× with `eq_ignore_ascii_case` (below; design/07 §2.2).
+
+- **`str::eq_ignore_ascii_case`** with a `&str`, as `Str.eqIgnoreAsciiCase`: ASCII letters fold, nothing else does, as in Rust. calendar's rule parsing uses it with name tables: 274 lines to 226 (2.0× to 1.6× the idiomatic reference).
 
 ### Fixed
 

@@ -48,12 +48,12 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | signup: password (NIST) | 17 | 24 | 1.4× | 1.6×; 1.4× |
 | iban | 24 | 44 | 1.8× | 2.4× with recursion only; 1.9× with range `for` |
 | invoice | 48 | 76 | 1.6× | 2.2× first draft; 1.4× restructured |
-| calendar | 428 | 770 | 1.8× | as written from the skill alone (2026-10-05); by section below |
+| calendar | 428 | 722 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
 | oidc | 369 | 429 | 1.2× | 1.65× as written from the skill alone |
 | payment | 61 | 103 | 1.7× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
 | semver | 75 | 123 | 1.6× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
-**calendar by section** (both sides rustfmt'd): civil dates 103 / 150 (1.5×), timestamps 114 / 162 (1.4×), rule types 82 / 121 (1.5×), rule parsing 139 / 274 (2.0×), expansion 138 / 204 (1.5×). Rule parsing carries the gap: names compared without case by a byte loop and an `if` per name (idiomatic code looks them up in a table with `eq_ignore_ascii_case`), and one `Option` local per part with its own repeat check (idiomatic code keeps a list of the parts seen). Expansion stayed close because the constrained side generates candidates in order, so it needs no `sort` / `dedup`.
+**calendar by section** (both sides rustfmt'd): civil dates 103 / 150 (1.5×), timestamps 114 / 162 (1.4×), rule types 82 / 121 (1.5×), rule parsing 139 / 274 (2.0×), expansion 138 / 204 (1.5×). With `str::eq_ignore_ascii_case` (added for it), rule parsing is 254 (1.8×), and 226 (1.6×) once the names are looked up in tables (`position`, then a `vec![..]` indexed) as the idiomatic side does. As written, rule parsing carried the gap: names compared without case by a byte loop and an `if` per name (idiomatic code looks them up in a table with `eq_ignore_ascii_case`), and one `Option` local per part with its own repeat check (idiomatic code keeps a list of the parts seen). Expansion stayed close because the constrained side generates candidates in order, so it needs no `sort` / `dedup`.
 
 signup is counted by hand, as its test has no idiomatic module; ssh is not measured, as its test has none either (its rules are asserted one by one instead, §2.3). The "earlier" figures were taken as written, before rustfmt normalization; they are comparable with each other, not with the "now" column.
 

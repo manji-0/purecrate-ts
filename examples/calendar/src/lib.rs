@@ -628,103 +628,52 @@ impl Rule {
     }
 }
 
-fn upper_byte(b: u8) -> u8 {
-    if matches!(b, b'a'..=b'z') {
-        b - 32
-    } else {
-        b
-    }
-}
-
-/// ASCII case-insensitive equality with an upper-case name (RFC 5545 §3.1).
-fn same_name(a: &str, upper: &str) -> bool {
-    let x = a.as_bytes();
-    let y = upper.as_bytes();
-    if x.len() != y.len() {
-        return false;
-    }
-    for i in 0..x.len() {
-        if upper_byte(x[i]) != y[i] {
-            return false;
-        }
-    }
-    true
-}
-
 fn part_name(name: &str) -> Result<RulePart, RuleError> {
-    if same_name(name, "FREQ") {
-        return Ok(RulePart::Freq);
-    }
-    if same_name(name, "INTERVAL") {
-        return Ok(RulePart::Interval);
-    }
-    if same_name(name, "COUNT") {
-        return Ok(RulePart::Count);
-    }
-    if same_name(name, "UNTIL") {
-        return Ok(RulePart::Until);
-    }
-    if same_name(name, "BYDAY") {
-        return Ok(RulePart::ByDay);
-    }
-    if same_name(name, "BYMONTHDAY") {
-        return Ok(RulePart::ByMonthDay);
-    }
-    if same_name(name, "BYMONTH") {
-        return Ok(RulePart::ByMonth);
-    }
-    if same_name(name, "WKST") {
-        return Ok(RulePart::Wkst);
+    let names = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY", "BYMONTHDAY", "BYMONTH", "WKST"];
+    let parts = vec![
+        RulePart::Freq,
+        RulePart::Interval,
+        RulePart::Count,
+        RulePart::Until,
+        RulePart::ByDay,
+        RulePart::ByMonthDay,
+        RulePart::ByMonth,
+        RulePart::Wkst,
+    ];
+    if let Some(i) = names.iter().position(|n| name.eq_ignore_ascii_case(n)) {
+        return Ok(parts[i]);
     }
     let unsupported = ["BYSECOND", "BYMINUTE", "BYHOUR", "BYYEARDAY", "BYWEEKNO", "BYSETPOS"];
-    if unsupported.iter().any(|u| same_name(name, u)) {
+    if unsupported.iter().any(|u| name.eq_ignore_ascii_case(u)) {
         return Err(RuleError::UnsupportedPart);
     }
     Err(RuleError::UnknownPart)
 }
 
 fn parse_freq(v: &str) -> Result<Freq, RuleError> {
-    if same_name(v, "DAILY") {
-        return Ok(Freq::Daily);
+    let names = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"];
+    let freqs = vec![Freq::Daily, Freq::Weekly, Freq::Monthly, Freq::Yearly];
+    if let Some(i) = names.iter().position(|n| v.eq_ignore_ascii_case(n)) {
+        return Ok(freqs[i]);
     }
-    if same_name(v, "WEEKLY") {
-        return Ok(Freq::Weekly);
-    }
-    if same_name(v, "MONTHLY") {
-        return Ok(Freq::Monthly);
-    }
-    if same_name(v, "YEARLY") {
-        return Ok(Freq::Yearly);
-    }
-    if same_name(v, "SECONDLY") || same_name(v, "MINUTELY") || same_name(v, "HOURLY") {
+    if ["SECONDLY", "MINUTELY", "HOURLY"].iter().any(|n| v.eq_ignore_ascii_case(n)) {
         return Err(RuleError::UnsupportedFreq);
     }
     Err(RuleError::InvalidValue(RulePart::Freq))
 }
 
 fn day_code(v: &str) -> Option<DayOfWeek> {
-    if same_name(v, "MO") {
-        return Some(DayOfWeek::Monday);
-    }
-    if same_name(v, "TU") {
-        return Some(DayOfWeek::Tuesday);
-    }
-    if same_name(v, "WE") {
-        return Some(DayOfWeek::Wednesday);
-    }
-    if same_name(v, "TH") {
-        return Some(DayOfWeek::Thursday);
-    }
-    if same_name(v, "FR") {
-        return Some(DayOfWeek::Friday);
-    }
-    if same_name(v, "SA") {
-        return Some(DayOfWeek::Saturday);
-    }
-    if same_name(v, "SU") {
-        return Some(DayOfWeek::Sunday);
-    }
-    None
+    let i = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"].iter().position(|c| v.eq_ignore_ascii_case(c))?;
+    let days = vec![
+        DayOfWeek::Monday,
+        DayOfWeek::Tuesday,
+        DayOfWeek::Wednesday,
+        DayOfWeek::Thursday,
+        DayOfWeek::Friday,
+        DayOfWeek::Saturday,
+        DayOfWeek::Sunday,
+    ];
+    Some(days[i])
 }
 
 fn all_digits(s: &str) -> bool {

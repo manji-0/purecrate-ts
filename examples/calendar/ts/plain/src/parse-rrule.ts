@@ -24,31 +24,33 @@ import type { RulePart } from "./rule-part.ts";
 import { unsafeMakeRule, type Rule } from "./rule.ts";
 import type { Until } from "./until.ts";
 
-const upperByte = (b: U8): U8 =>
-  b >= /* 'a' */ 97 && b <= /* 'z' */ 122 ? Int.u8.sub(b, 32 as U8) : b;
-
-/** ASCII case-insensitive equality with an upper-case name (RFC 5545 §3.1). */
-const sameName = (a: string, upper: string): boolean => {
-  const x = Str.bytes(a);
-  const y = Str.bytes(upper);
-  if (x.length !== y.length) return false;
-
-  for (let i = 0 as Usize, end = x.length as Usize; i < end; i = (i + 1) as Usize) {
-    if (upperByte(Slice.at(x, i)) !== Slice.at(y, i)) return false;
+const partName = (name: string): Result<RulePart, RuleError> => {
+  const names: ReadonlyArray<string> = [
+    "FREQ",
+    "INTERVAL",
+    "COUNT",
+    "UNTIL",
+    "BYDAY",
+    "BYMONTHDAY",
+    "BYMONTH",
+    "WKST",
+  ];
+  const parts: ReadonlyArray<RulePart> = [
+    { kind: "Freq" },
+    { kind: "Interval" },
+    { kind: "Count" },
+    { kind: "Until" },
+    { kind: "ByDay" },
+    { kind: "ByMonthDay" },
+    { kind: "ByMonth" },
+    { kind: "Wkst" },
+  ];
+  const option = Iter.position(names, (n: string): boolean => Str.eqIgnoreAsciiCase(name, n));
+  if (option !== null) {
+    const i = option;
+    return Result.ok(Slice.at(parts, i));
   }
 
-  return true;
-};
-
-const partName = (name: string): Result<RulePart, RuleError> => {
-  if (sameName(name, "FREQ")) return Result.ok({ kind: "Freq" });
-  if (sameName(name, "INTERVAL")) return Result.ok({ kind: "Interval" });
-  if (sameName(name, "COUNT")) return Result.ok({ kind: "Count" });
-  if (sameName(name, "UNTIL")) return Result.ok({ kind: "Until" });
-  if (sameName(name, "BYDAY")) return Result.ok({ kind: "ByDay" });
-  if (sameName(name, "BYMONTHDAY")) return Result.ok({ kind: "ByMonthDay" });
-  if (sameName(name, "BYMONTH")) return Result.ok({ kind: "ByMonth" });
-  if (sameName(name, "WKST")) return Result.ok({ kind: "Wkst" });
   const unsupported: ReadonlyArray<string> = [
     "BYSECOND",
     "BYMINUTE",
@@ -57,30 +59,50 @@ const partName = (name: string): Result<RulePart, RuleError> => {
     "BYWEEKNO",
     "BYSETPOS",
   ];
-  if (Iter.any(unsupported, (u: string): boolean => sameName(name, u)))
+  if (Iter.any(unsupported, (u: string): boolean => Str.eqIgnoreAsciiCase(name, u)))
     return Result.err({ kind: "UnsupportedPart" });
   return Result.err({ kind: "UnknownPart" });
 };
 
 const parseFreq = (v: string): Result<Freq, RuleError> => {
-  if (sameName(v, "DAILY")) return Result.ok({ kind: "Daily" });
-  if (sameName(v, "WEEKLY")) return Result.ok({ kind: "Weekly" });
-  if (sameName(v, "MONTHLY")) return Result.ok({ kind: "Monthly" });
-  if (sameName(v, "YEARLY")) return Result.ok({ kind: "Yearly" });
-  if (sameName(v, "SECONDLY") || sameName(v, "MINUTELY") || sameName(v, "HOURLY"))
+  const names: ReadonlyArray<string> = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"];
+  const freqs: ReadonlyArray<Freq> = [
+    { kind: "Daily" },
+    { kind: "Weekly" },
+    { kind: "Monthly" },
+    { kind: "Yearly" },
+  ];
+  const option = Iter.position(names, (n: string): boolean => Str.eqIgnoreAsciiCase(v, n));
+  if (option !== null) {
+    const i = option;
+    return Result.ok(Slice.at(freqs, i));
+  }
+
+  if (
+    Iter.any(["SECONDLY", "MINUTELY", "HOURLY"], (n: string): boolean =>
+      Str.eqIgnoreAsciiCase(v, n),
+    )
+  )
     return Result.err({ kind: "UnsupportedFreq" });
   return Result.err({ kind: "InvalidValue", value: { kind: "Freq" } });
 };
 
 const dayCode = (v: string): DayOfWeek | null => {
-  if (sameName(v, "MO")) return { kind: "Monday" };
-  if (sameName(v, "TU")) return { kind: "Tuesday" };
-  if (sameName(v, "WE")) return { kind: "Wednesday" };
-  if (sameName(v, "TH")) return { kind: "Thursday" };
-  if (sameName(v, "FR")) return { kind: "Friday" };
-  if (sameName(v, "SA")) return { kind: "Saturday" };
-  if (sameName(v, "SU")) return { kind: "Sunday" };
-  return null;
+  const iOption = Iter.position(["MO", "TU", "WE", "TH", "FR", "SA", "SU"], (c: string): boolean =>
+    Str.eqIgnoreAsciiCase(v, c),
+  );
+  if (iOption === null) return null;
+  const i = iOption;
+  const days: ReadonlyArray<DayOfWeek> = [
+    { kind: "Monday" },
+    { kind: "Tuesday" },
+    { kind: "Wednesday" },
+    { kind: "Thursday" },
+    { kind: "Friday" },
+    { kind: "Saturday" },
+    { kind: "Sunday" },
+  ];
+  return Slice.at(days, i);
 };
 
 const allDigits = (s: string): boolean =>
