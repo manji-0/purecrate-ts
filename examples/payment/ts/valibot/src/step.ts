@@ -18,13 +18,17 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       switch (event.kind) {
         case "AttachMethod": {
           const method = event.value;
-          status = { kind: "RequiresConfirmation", method };
+          const usableResult = usable(terms, method);
+          if (usableResult.kind === "Err") return usableResult;
+          status = { kind: "RequiresConfirmation", method: usableResult.value };
           break;
         }
         case "Confirm": {
           const { method, outcome } = event;
           if (method === null) return Result.err({ kind: "MissingPaymentMethod" });
-          status = attempt(terms, method, outcome);
+          const usableResult2 = usable(terms, method);
+          if (usableResult2.kind === "Err") return usableResult2;
+          status = attempt(terms, usableResult2.value, outcome);
           break;
         }
         case "Cancel": {
@@ -42,12 +46,16 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
       switch (event.kind) {
         case "AttachMethod": {
           const method = event.value;
-          status = { kind: "RequiresConfirmation", method };
+          const usableResult3 = usable(terms, method);
+          if (usableResult3.kind === "Err") return usableResult3;
+          status = { kind: "RequiresConfirmation", method: usableResult3.value };
           break;
         }
         case "Confirm": {
           const { method, outcome } = event;
-          status = attempt(terms, method ?? current, outcome);
+          const usableResult4 = usable(terms, method ?? current);
+          if (usableResult4.kind === "Err") return usableResult4;
+          status = attempt(terms, usableResult4.value, outcome);
           break;
         }
         case "Cancel": {
@@ -146,6 +154,16 @@ export const step = (intent: PaymentIntent, event: Event): Result<PaymentIntent,
   }
 
   return Result.ok(unsafeMakePaymentIntent({ terms, status }));
+};
+
+/**
+ * `method`, unless the terms' capture method does not support it: bank
+ * debits have no manual capture.
+ */
+const usable = (terms: Terms, method: PaymentMethod): Result<PaymentMethod, PaymentError> => {
+  if (terms.capture.kind === "Manual" && method.kind.kind === "BankDebit")
+    return Result.err({ kind: "ManualCaptureUnsupported" });
+  return Result.ok(method);
 };
 
 const attempt = (terms: Terms, method: PaymentMethod, outcome: Outcome): Status => {

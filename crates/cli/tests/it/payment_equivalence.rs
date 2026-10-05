@@ -101,6 +101,14 @@ mod idiomatic {
         NegativeApplicationFee,
         NotCancelable,
         InvalidTransition,
+        ManualCaptureUnsupported,
+    }
+
+    fn usable(t: &Terms, method: Method) -> Result<Method, Error> {
+        if t.capture == Capture::Manual && method.kind == Kind::BankDebit {
+            return Err(Error::ManualCaptureUnsupported);
+        }
+        Ok(method)
     }
 
     fn attempt(t: &Terms, method: Method, outcome: Outcome) -> Status {
@@ -119,13 +127,13 @@ mod idiomatic {
         use Status::*;
         Ok(match (status, event) {
             (RequiresPaymentMethod { .. } | RequiresConfirmation { .. }, Event::AttachMethod(method)) => {
-                RequiresConfirmation { method }
+                RequiresConfirmation { method: usable(t, method)? }
             }
             (RequiresPaymentMethod { .. }, Event::Confirm { method, outcome }) => {
-                attempt(t, method.ok_or(Error::MissingPaymentMethod)?, outcome)
+                attempt(t, usable(t, method.ok_or(Error::MissingPaymentMethod)?)?, outcome)
             }
             (RequiresConfirmation { method: current }, Event::Confirm { method, outcome }) => {
-                attempt(t, method.unwrap_or(current), outcome)
+                attempt(t, usable(t, method.unwrap_or(current))?, outcome)
             }
             (RequiresAction { .. }, Event::ActionHandled(Outcome::Declined(code))) => {
                 RequiresPaymentMethod { last_error: Some(code) }
@@ -250,8 +258,10 @@ fn generated_payment_lifecycle_matches_rust() {
         grid!(cases, payment::capture; amount in 0u8..7, fee in 0u8..7);
         grid!(cases, payment::action; t in 0u8..4, o in 0u8..4);
         grid!(cases, payment::cancel; code in 0u8..5);
-        grid!(cases, payment::read_intent; t in 0u8..4, s in 0u8..19);
-        grid!(cases, payment::read_and_step; t in 0u8..4, s in 0u8..19, e in 0u8..12);
+        grid!(cases, payment::read_intent; t in STATUS_TERMS, s in STATUSES);
+        grid!(cases, payment::read_and_step; t in STATUS_TERMS, s in STATUSES, e in 0u8..12);
+        grid!(cases, payment::confirm_with; t in 0u8..4, a in 0u8..3, m in 0u8..3, o in 0u8..4);
+        grid!(cases, payment::capture_of; amount in [1000i64], to_capture in [999i64, 1000, 1001]);
         grid!(cases, payment::amount_of; v in [i64::MIN, -1, 0, 49, 50, 99_999_999, 100_000_000, i64::MAX]);
         for s in ["", "pm_", "pm_x", "pa_x", "PM_x", "pmx_", "pm_é", "é"] {
             cases.push(case!(payment::method_id(s.to_string())));
@@ -276,6 +286,7 @@ fn generated_payment_lifecycle_matches_rust() {
         "Err(PaymentError::AmountOutOfRange)",
         "Err(PaymentError::InvalidPaymentMethodId)",
         "Err(PaymentError::InconsistentStatus)",
+        "Err(PaymentError::ManualCaptureUnsupported)",
     ] {
         assert!(cases.iter().any(|c| c.rust.contains(reached)), "no run reaches {reached}");
     }
@@ -286,9 +297,11 @@ fn generated_payment_lifecycle_matches_rust() {
 /// method's terms (amount 2000): `capturable` and `received` within
 /// 1..=2000, a fee within 0..=received, and, with automatic capture, no
 /// `requires_capture`, no fee, and the whole amount received.
-const MANUAL_ACCEPTS: [u8; 12] = [0, 1, 5, 6, 10, 11, 13, 14, 15, 16, 17, 18];
-const AUTOMATIC_ACCEPTS: [u8; 5] = [5, 15, 16, 17, 18];
-const STATUSES: std::ops::Range<u8> = 0..19;
+/// Manual capture also holds no bank debit (16, 19 to 21).
+const MANUAL_ACCEPTS: [u8; 11] = [0, 1, 5, 6, 10, 11, 13, 14, 15, 17, 18];
+const AUTOMATIC_ACCEPTS: [u8; 7] = [5, 15, 16, 17, 18, 20, 21];
+const STATUSES: std::ops::Range<u8> = 0..22;
+const STATUS_TERMS: std::ops::Range<u8> = 0..4;
 
 fn accepted(t: u8, s: u8) -> bool {
     if t.is_multiple_of(2) {
@@ -321,6 +334,82 @@ fn an_intent_from_outside_is_checked_against_its_terms() {
             }
         }
     });
+}
+
+/// "Place a hold on a payment method": bank debits do not support manual
+/// capture, so under it a bank debit is refused where it is attached or
+/// confirmed, and nothing else changes; under automatic capture it goes
+/// through as before.
+#[test]
+fn manual_capture_refuses_a_bank_debit() {
+    use payment::PaymentError::ManualCaptureUnsupported;
+    let status = |r: &Result<payment::PaymentIntent, payment::PaymentError>| {
+        support::Show::show(&r.as_ref().map(|i| i.status()))
+    };
+    support::quietly(|| {
+        for t in [1u8, 3] {
+            for o in 0u8..4 {
+                // Confirming with a bank debit, attached first or sent with
+                // the confirmation (over a card attached before).
+                for (a, m) in [(1u8, 2u8), (2, 1), (0, 1)] {
+                    let r = payment::confirm_with(t, a, m, o);
+                    assert!(matches!(r, Err(ManualCaptureUnsupported)), "{t} {a} {m} {o}: {}", status(&r));
+                }
+                // A card sent with the confirmation goes through.
+                let r = payment::confirm_with(t, 2, 0, o);
+                assert!(r.is_ok(), "{t} {o}: {}", status(&r));
+            }
+            // The finding's run: manual terms, a bank debit authorized.
+            let r = payment::trace4(t, 1, 2, 11, 11);
+            assert!(matches!(r, Err(ManualCaptureUnsupported)), "{}", status(&r));
+        }
+        for t in [0u8, 2] {
+            let r = payment::confirm_with(t, 2, 1, 0);
+            assert!(status(&r).starts_with("Ok(Status::Succeeded { received: 2000"), "{}", status(&r));
+            let r = payment::confirm_with(t, 2, 1, 2);
+            assert!(status(&r).starts_with("Ok(Status::Processing {"), "{}", status(&r));
+        }
+        // And from outside: a bank debit in any status that holds a method
+        // is inconsistent with manual capture.
+        for s in [16u8, 19, 20, 21] {
+            assert!(matches!(payment::read_intent(1, s), Err(payment::PaymentError::InconsistentStatus)), "{s}");
+        }
+    });
+}
+
+/// Overcapture is not modeled: a capture above the authorized amount is
+/// refused (manual 1000, authorized, `amount_to_capture` 1001), and up to
+/// it goes through.
+#[test]
+fn a_capture_above_the_authorized_amount_is_refused() {
+    let received = |r: Result<payment::PaymentIntent, payment::PaymentError>| match r.as_ref().map(|i| i.status()) {
+        Ok(payment::Status::Succeeded { received, .. }) => Some(*received),
+        _ => None,
+    };
+    assert_eq!(received(payment::capture_of(1000, 999)), Some(999));
+    assert_eq!(received(payment::capture_of(1000, 1000)), Some(1000));
+    assert!(matches!(
+        payment::capture_of(1000, 1001),
+        Err(payment::PaymentError::InvalidCaptureAmount { capturable: 1000 })
+    ));
+}
+
+/// With manual confirmation, a handled action that succeeds returns to
+/// `requires_confirmation`, and a declined one to `requires_payment_method`,
+/// as the header says.
+#[test]
+fn a_handled_action_under_manual_confirmation() {
+    let status =
+        |r: Result<payment::PaymentIntent, payment::PaymentError>| support::Show::show(&r.as_ref().map(|i| i.status()));
+    for t in [2u8, 3] {
+        for o in 0u8..3 {
+            assert!(status(payment::action(t, o)).starts_with("Ok(Status::RequiresConfirmation {"), "{t} {o}");
+        }
+        assert_eq!(
+            status(payment::action(t, 3)),
+            "Ok(Status::RequiresPaymentMethod { last_error: Some(DeclineCode::InsufficientFunds) })"
+        );
+    }
 }
 
 /// JS string literal.
@@ -391,7 +480,7 @@ fn every_schema_refuses_an_inconsistent_intent() {
             rows.push(format!("[{},{}]", js(&text), js(&want)));
         }
     }
-    assert!(refused == 7 * 2 + 14 * 2, "{refused} refused");
+    assert!(refused == 11 * 2 + 15 * 2, "{refused} refused");
     let rows = rows.join(",");
     for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
         let (import, refusal) = match schema {

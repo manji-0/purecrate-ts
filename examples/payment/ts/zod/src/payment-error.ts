@@ -10,7 +10,8 @@ export type PaymentError =
   | Readonly<{ kind: "NegativeApplicationFee" }>
   | Readonly<{ kind: "NotCancelable" }>
   | Readonly<{ kind: "InvalidTransition" }>
-  | Readonly<{ kind: "InconsistentStatus" }>;
+  | Readonly<{ kind: "InconsistentStatus" }>
+  | Readonly<{ kind: "ManualCaptureUnsupported" }>;
 
 export const PaymentError = {
   AmountOutOfRange: (): PaymentError => ({ kind: "AmountOutOfRange" }),
@@ -24,6 +25,8 @@ export const PaymentError = {
   NotCancelable: (): PaymentError => ({ kind: "NotCancelable" }),
   InvalidTransition: (): PaymentError => ({ kind: "InvalidTransition" }),
   InconsistentStatus: (): PaymentError => ({ kind: "InconsistentStatus" }),
+  /** A bank debit under manual capture, which it does not support. */
+  ManualCaptureUnsupported: (): PaymentError => ({ kind: "ManualCaptureUnsupported" }),
   /**
    * For the server's logs and serde's `try_from` errors; the client gets the
    * same text from `PaymentError.toString`.
@@ -46,6 +49,8 @@ export const PaymentError = {
         return "invalid transition";
       case "InconsistentStatus":
         return "status inconsistent with the terms";
+      case "ManualCaptureUnsupported":
+        return "bank debits do not support manual capture";
       default:
         return assertNever(self);
     }

@@ -86,10 +86,12 @@ fn outcome_of(code: u8) -> Outcome {
     }
 }
 
-/// Each outcome of a customer action, under both confirmation methods.
+/// Each outcome of a customer action, under both confirmation methods: a
+/// bank debit under automatic capture, a card under manual.
 pub fn action(t: u8, o: u8) -> Result<PaymentIntent, PaymentError> {
     let intent = create(terms_of(t));
-    let intent = step(intent, Event::Confirm { method: Some(bank()), outcome: Outcome::ActionRequired })?;
+    let method = if t % 2u8 == 0u8 { bank() } else { card() };
+    let intent = step(intent, Event::Confirm { method: Some(method), outcome: Outcome::ActionRequired })?;
     step(intent, Event::ActionHandled(outcome_of(o)))
 }
 
@@ -158,8 +160,14 @@ fn status_of(code: u8) -> Status {
         Status::Processing { method: bank() }
     } else if code == 17u8 {
         Status::RequiresConfirmation { method: card() }
-    } else {
+    } else if code == 18u8 {
         Status::Canceled { reason: None }
+    } else if code == 19u8 {
+        Status::RequiresCapture { method: bank(), capturable: 2000i64 }
+    } else if code == 20u8 {
+        Status::RequiresConfirmation { method: bank() }
+    } else {
+        Status::RequiresAction { method: bank() }
     }
 }
 
@@ -184,4 +192,34 @@ pub fn trace4_rechecked(t: u8, a: u8, b: u8, c: u8, d: u8) -> Result<PaymentInte
 pub fn read_and_step(t: u8, s: u8, e: u8) -> Result<PaymentIntent, PaymentError> {
     let intent = PaymentIntent::new(unchecked(t, s))?;
     step(intent, decode(e))
+}
+
+/// A confirmation with method `m` (a card, a bank debit, or none) and
+/// outcome `o` (as `outcome_of`) on a fresh intent with terms `t`, after a
+/// card (`a` = 0), a bank debit (1), or nothing (2) was attached.
+pub fn confirm_with(t: u8, a: u8, m: u8, o: u8) -> Result<PaymentIntent, PaymentError> {
+    let intent = create(terms_of(t));
+    let intent = if a == 0u8 {
+        step(intent, Event::AttachMethod(card()))?
+    } else if a == 1u8 {
+        step(intent, Event::AttachMethod(bank()))?
+    } else {
+        intent
+    };
+    let method = if m == 0u8 {
+        Some(card())
+    } else if m == 1u8 {
+        Some(bank())
+    } else {
+        None
+    };
+    step(intent, Event::Confirm { method, outcome: outcome_of(o) })
+}
+
+/// Stripe's capture example scaled: a manual intent of `amount`,
+/// authorized by card, then captured `to_capture`.
+pub fn capture_of(amount: i64, to_capture: i64) -> Result<PaymentIntent, PaymentError> {
+    let terms = Terms { amount: Amount::new(amount)?, capture: CaptureMethod::Manual, confirmation: ConfirmationMethod::Automatic };
+    let intent = step(create(terms), Event::Confirm { method: Some(card()), outcome: Outcome::Authorized })?;
+    step(intent, Event::Capture { amount_to_capture: Some(to_capture), application_fee: None })
 }

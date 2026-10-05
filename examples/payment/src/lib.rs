@@ -1,6 +1,7 @@
 // The status lifecycle of a Stripe PaymentIntent, from Stripe's API
 // reference (the PaymentIntent object, capture, cancel) and "How intents
-// work" (docs.stripe.com, read 2026-09-29):
+// work" (docs.stripe.com, read 2026-09-29), with "Place a hold on a payment
+// method" and "Capture more than the authorized amount" (read 2026-10-05):
 //
 // - Created in `requires_payment_method`. Attaching a payment method moves it
 //   to `requires_confirmation`; most integrations skip that state by sending
@@ -13,8 +14,16 @@
 //   capture, held in `requires_capture`. `amount_to_capture` must not exceed
 //   the capturable amount and defaults to all of it; the application fee is
 //   capped at the amount captured.
-// - With manual confirmation, the intent returns to `requires_confirmation`
-//   after the customer's action, and the server confirms again.
+// - Of this model's two kinds, only cards support separate authorization
+//   and capture: bank debits (ACH and the like) do not ("Place a hold",
+//   payment method limitations), so under `CaptureMethod::Manual` a `BankDebit`
+//   method is refused where it is attached or confirmed
+//   (`ManualCaptureUnsupported`), and an intent read from outside may not
+//   hold one.
+// - With manual confirmation, a customer action that succeeds returns the
+//   intent to `requires_confirmation`, and the server confirms again; one
+//   that fails returns it to `requires_payment_method`, as any failed
+//   attempt does.
 // - Cancelable in `requires_payment_method`, `requires_confirmation`,
 //   `requires_action`, `requires_capture`, and, for bank debits only,
 //   `processing`. `succeeded` and `canceled` are final.
@@ -23,23 +32,33 @@
 //
 // Not modeled: Stripe-internal cancellation reasons, among them the
 // transition to `canceled` after too many failed confirmations and the
-// expiry of an uncaptured authorization; multicapture; capture that goes to
-// `processing`; updating the method during `requires_action`; creating with
-// a method or confirming at once (`create` always starts in
-// `requires_payment_method`); `capture_method=automatic_async`, Stripe's
-// default, whose states are those of `automatic`; an
-// `application_fee_amount` set at creation (a fee is given at capture
-// only, so an automatic capture has none); and currencies: amounts are
-// USD cents, with USD's minimum. A capture of 0 is refused, though Stripe
-// states only the upper bound.
+// expiry of an uncaptured authorization; multicapture; overcapture, which
+// some online card payments allow when requested at confirmation
+// (`request_overcapture`), up to a limit the card network sets by merchant
+// category and Stripe reports per charge (`maximum_amount_capturable`), so
+// here a capture above the capturable amount is refused
+// (`InvalidCaptureAmount`); capture that goes to `processing`; the failure
+// of a cancel during `processing`, which "How intents work" says may fail
+// as its window is limited and varies, so here that cancel always succeeds
+// and the caller sends `Cancel` once Stripe has accepted it; updating the
+// method during `requires_action`; creating with a method or confirming at
+// once (`create` always starts in `requires_payment_method`);
+// `capture_method=automatic_async`, Stripe's default, whose states are
+// those of `automatic`; a capture method per payment method type
+// (`payment_method_options[card][capture_method]`), with which one intent
+// holds a card and takes a bank debit at once; an `application_fee_amount`
+// set at creation (a fee is given at capture only, so an automatic capture
+// has none); and currencies: amounts are USD cents, with USD's minimum. A
+// capture of 0 is refused, though Stripe states only the upper bound.
 //
 // The same types are the server's wire format: serde derives with no
 // attributes, except that `Amount`, `PaymentMethodId`, and `PaymentIntent`
 // are read through their checked constructors (`#[serde(try_from)]`), so
 // JSON cannot carry an out-of-range amount, a malformed ID, or a status
-// whose amounts disagree with the terms (a negative fee, a capture above
-// the amount) on either side. `PaymentIntent` is read as `UncheckedIntent`,
-// which has the same fields, so its JSON is what it was before the check.
+// that disagrees with the terms (a negative fee, a capture above the
+// amount, a bank debit under manual capture) on either side.
+// `PaymentIntent` is read as `UncheckedIntent`, which has the same fields,
+// so its JSON is what it was before the check.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -210,10 +229,21 @@ impl TryFrom<UncheckedIntent> for PaymentIntent {
 /// `amount_received` are at most `amount` (and at least 1, as a capture of 0
 /// is refused here); `requires_capture` happens with manual capture only;
 /// an automatic capture receives the whole amount and carries no fee; the
-/// application fee is not negative and is capped at the amount captured.
+/// application fee is not negative and is capped at the amount captured;
+/// and manual capture holds no bank debit.
 fn consistent(terms: &Terms, status: &Status) -> bool {
     let amount = terms.amount.0;
     let manual = matches!(terms.capture, CaptureMethod::Manual);
+    let method = match status {
+        Status::RequiresConfirmation { method } => Some(method),
+        Status::RequiresAction { method } => Some(method),
+        Status::Processing { method } => Some(method),
+        Status::RequiresCapture { method, .. } => Some(method),
+        _ => None,
+    };
+    if manual && matches!(method, Some(PaymentMethod { kind: MethodKind::BankDebit, .. })) {
+        return false;
+    }
     match status {
         Status::RequiresCapture { capturable, .. } => {
             manual && *capturable >= 1 && *capturable <= amount
@@ -268,6 +298,8 @@ pub enum PaymentError {
     NotCancelable,
     InvalidTransition,
     InconsistentStatus,
+    /// A bank debit under manual capture, which it does not support.
+    ManualCaptureUnsupported,
 }
 
 /// For the server's logs and serde's `try_from` errors; the client gets the
@@ -283,6 +315,7 @@ impl fmt::Display for PaymentError {
             PaymentError::NotCancelable => "not cancelable",
             PaymentError::InvalidTransition => "invalid transition",
             PaymentError::InconsistentStatus => "status inconsistent with the terms",
+            PaymentError::ManualCaptureUnsupported => "bank debits do not support manual capture",
         };
         f.write_str(text)
     }
@@ -303,13 +336,15 @@ pub fn step(intent: PaymentIntent, event: Event) -> Result<PaymentIntent, Paymen
         (
             Status::RequiresPaymentMethod { .. } | Status::RequiresConfirmation { .. },
             Event::AttachMethod(method),
-        ) => Status::RequiresConfirmation { method },
+        ) => Status::RequiresConfirmation {
+            method: usable(&terms, method)?,
+        },
         (Status::RequiresPaymentMethod { .. }, Event::Confirm { method, outcome }) => {
             let method = method.ok_or(PaymentError::MissingPaymentMethod)?;
-            attempt(&terms, method, outcome)
+            attempt(&terms, usable(&terms, method)?, outcome)
         }
         (Status::RequiresConfirmation { method: current }, Event::Confirm { method, outcome }) => {
-            attempt(&terms, method.unwrap_or(current), outcome)
+            attempt(&terms, usable(&terms, method.unwrap_or(current))?, outcome)
         }
         // With manual confirmation the server confirms again; a decline
         // still returns the intent to `requires_payment_method`.
@@ -363,6 +398,15 @@ pub fn step(intent: PaymentIntent, event: Event) -> Result<PaymentIntent, Paymen
         _ => return Err(PaymentError::InvalidTransition),
     };
     Ok(PaymentIntent { terms, status })
+}
+
+/// `method`, unless the terms' capture method does not support it: bank
+/// debits have no manual capture.
+fn usable(terms: &Terms, method: PaymentMethod) -> Result<PaymentMethod, PaymentError> {
+    if matches!(terms.capture, CaptureMethod::Manual) && matches!(method.kind, MethodKind::BankDebit) {
+        return Err(PaymentError::ManualCaptureUnsupported);
+    }
+    Ok(method)
 }
 
 fn attempt(terms: &Terms, method: PaymentMethod, outcome: Outcome) -> Status {

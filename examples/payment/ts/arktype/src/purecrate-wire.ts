@@ -443,6 +443,9 @@ const paymentErrorInvalidTransitionArm = memo(() =>
 const paymentErrorInconsistentStatusArm = memo(() =>
   type("unknown").pipe(sequence(), type({ "+": "reject", InconsistentStatus: "null" })),
 );
+const paymentErrorManualCaptureUnsupportedArm = memo(() =>
+  type("unknown").pipe(sequence(), type({ "+": "reject", ManualCaptureUnsupported: "null" })),
+);
 export const PaymentError: Wire<DomainPaymentError> = type("unknown").pipe(
   (v, ctx): DomainPaymentError => {
     if (v === "AmountOutOfRange") return { kind: "AmountOutOfRange" };
@@ -492,6 +495,12 @@ export const PaymentError: Wire<DomainPaymentError> = type("unknown").pipe(
       const parsed = paymentErrorInconsistentStatusArm()(v);
       if (!(parsed instanceof type.errors)) return { kind: "InconsistentStatus" };
       if (keyed(v, "InconsistentStatus")) return fail(ctx, parsed);
+    }
+    if (v === "ManualCaptureUnsupported") return { kind: "ManualCaptureUnsupported" };
+    {
+      const parsed = paymentErrorManualCaptureUnsupportedArm()(v);
+      if (!(parsed instanceof type.errors)) return { kind: "ManualCaptureUnsupported" };
+      if (keyed(v, "ManualCaptureUnsupported")) return fail(ctx, parsed);
     }
     return ctx.error("PaymentError") as never;
   },
@@ -688,6 +697,8 @@ export const toJson = {
         return '"InvalidTransition"';
       case "InconsistentStatus":
         return '"InconsistentStatus"';
+      case "ManualCaptureUnsupported":
+        return '"ManualCaptureUnsupported"';
       default:
         return assertNever(x);
     }

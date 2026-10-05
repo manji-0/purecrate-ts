@@ -2,6 +2,7 @@
 
 import { Result } from "./purecrate-runtime.ts";
 import type { PaymentError } from "./payment-error.ts";
+import type { PaymentMethod } from "./payment-method.ts";
 import type { Status } from "./status.ts";
 import type { Terms } from "./terms.ts";
 import type { UncheckedIntent } from "./unchecked-intent.ts";
@@ -46,11 +47,23 @@ export const PaymentIntent = {
  * `amount_received` are at most `amount` (and at least 1, as a capture of 0
  * is refused here); `requires_capture` happens with manual capture only;
  * an automatic capture receives the whole amount and carries no fee; the
- * application fee is not negative and is capped at the amount captured.
+ * application fee is not negative and is capped at the amount captured;
+ * and manual capture holds no bank debit.
  */
 const consistent = (terms: Terms, status: Status): boolean => {
   const amount = terms.amount;
   const manual = terms.capture.kind === "Manual";
+  const method: PaymentMethod | null =
+    status.kind === "RequiresConfirmation"
+      ? status.method
+      : status.kind === "RequiresAction"
+        ? status.method
+        : status.kind === "Processing"
+          ? status.method
+          : status.kind === "RequiresCapture"
+            ? status.method
+            : null;
+  if (manual && method !== null && method.kind.kind === "BankDebit") return false;
 
   switch (status.kind) {
     case "RequiresCapture": {

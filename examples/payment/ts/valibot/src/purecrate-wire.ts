@@ -254,6 +254,10 @@ export const PaymentError: v.GenericSchema<unknown, DomainPaymentError> = v.unio
     unitVariant("InconsistentStatus"),
     v.transform((): DomainPaymentError => ({ kind: "InconsistentStatus" })),
   ),
+  v.pipe(
+    unitVariant("ManualCaptureUnsupported"),
+    v.transform((): DomainPaymentError => ({ kind: "ManualCaptureUnsupported" })),
+  ),
 ]);
 
 /**
@@ -449,6 +453,8 @@ export const toJson = {
         return '"InvalidTransition"';
       case "InconsistentStatus":
         return '"InconsistentStatus"';
+      case "ManualCaptureUnsupported":
+        return '"ManualCaptureUnsupported"';
       default:
         return assertNever(x);
     }

@@ -232,6 +232,9 @@ export const PaymentError: z.ZodType<DomainPaymentError> = z.union([
   unitVariant("InconsistentStatus").transform((): DomainPaymentError => ({
     kind: "InconsistentStatus",
   })),
+  unitVariant("ManualCaptureUnsupported").transform((): DomainPaymentError => ({
+    kind: "ManualCaptureUnsupported",
+  })),
 ]);
 
 /**
@@ -425,6 +428,8 @@ export const toJson = {
         return '"InvalidTransition"';
       case "InconsistentStatus":
         return '"InconsistentStatus"';
+      case "ManualCaptureUnsupported":
+        return '"ManualCaptureUnsupported"';
       default:
         return assertNever(x);
     }
