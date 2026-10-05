@@ -68,7 +68,11 @@ fn readability_rewrites_print_as_intended() {
     let twice = file("bumped-twice");
     assert!(twice.contains("import { bump } from") && twice.contains("const doubled = (bump2: I32)"), "{twice}");
     let pair = file("reserved-pair");
-    assert!(pair.contains("open || [\"00\", \"01\", \"99\"].includes(") && !pair.contains("=> {"), "{pair}");
+    // The body is one `return` after the entry check of `s`: no temporary.
+    assert!(
+        pair.contains("return open || [\"00\", \"01\", \"99\"].includes(") && pair.matches("const ").count() == 1,
+        "{pair}"
+    );
     let named = file("named-temporaries");
     // `ok_or(e)?` of a call holds the option in the local itself: no copy.
     assert!(

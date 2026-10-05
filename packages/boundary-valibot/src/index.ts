@@ -45,7 +45,9 @@ export const record = <const E extends v.ObjectEntries>(entries: E) =>
     v.custom<Record<string, unknown>>((x) => typeof x === "object" && x !== null && !Array.isArray(x), "an object"),
     v.object(entries),
   );
-export const str = v.string();
+/** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+export const str = v.pipe(v.string(), v.check((s) => !LONE_SURROGATE.test(s), "a string without a lone surrogate"));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = v.pipe(v.string(), v.check(Char.is, "a single character"), v.transform((s) => s as Char));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

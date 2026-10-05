@@ -35,6 +35,7 @@ export const unsafeMakeVersion = (
 
 export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
+    Str.wellFormed(s);
     if (s.length === 0) return Result.err({ kind: "Empty" });
     const option = Str.splitOnce(s, "+");
     const [rest, build] = option !== null ? [option[0], option[1]] : [s, null];

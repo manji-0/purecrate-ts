@@ -420,6 +420,19 @@ export const Str = {
     return s.slice(from, to);
   },
   // #endregion
+  // #region str.wellFormed
+  /**
+   * A `pub` function's string argument checked on entry: a lone surrogate
+   * is in no Rust `str`, so the call panics here rather than reading its
+   * bytes, which are not specified (a string, `null`, or each of an array).
+   */
+  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
+      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+    }
+  },
+  // #endregion
   // #region str.stripPrefix
   /** `str::strip_prefix` with a `&str`. */
   stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
@@ -644,7 +657,7 @@ const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
   r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 // #endregion
-// #region char methods.usize parse.usize str.slice
+// #region char methods.usize parse.usize str.slice str.wellFormed
 const panicWith = (message: string): never => {
   throw new Panic(message);
 };

@@ -6,6 +6,7 @@ import type { Failure } from "./failure.ts";
 import type { Identification } from "./identification.ts";
 
 export const parseIdentification = (line: string): Result<Identification, Failure> => {
+  Str.wellFormed(line);
   if (Str.len(line) > MAX_IDENTIFICATION_LEN) return Result.err({ kind: "IdentificationTooLong" });
   const rest = Str.stripPrefix(line, "SSH-");
   if (rest === null) return Result.err({ kind: "BadIdentification" });

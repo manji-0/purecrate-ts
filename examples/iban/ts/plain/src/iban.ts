@@ -18,6 +18,7 @@ export const unsafeMakeIban = (value: string): Iban => value as Iban;
 
 export const Iban = {
   parse: (raw: string): Result<Iban, IbanError> => {
+    Str.wellFormed(raw);
     const b = Str.bytes(raw);
     if (b.length < 15 || b.length > 34) return Result.err({ kind: "Length" });
     if (!isUpper(Slice.at(b, 0)) || !isUpper(Slice.at(b, 1)))

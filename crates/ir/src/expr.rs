@@ -502,6 +502,13 @@ pub enum Callee {
     VecPush,
     /// `String::new()`: the empty `String`. Prints as `""`.
     StringNew,
+    /// A `String` / `&str` argument of a `pub` function checked on entry: a
+    /// JS string may hold a lone surrogate, which no Rust `str` does, so it
+    /// panics there rather than meeting the encoding later (design/01 §6).
+    /// The argument is the parameter (a string, `Option`, or `Vec` of
+    /// strings); `emit` writes it, never `check`. Prints as
+    /// `Str.wellFormed(s)`.
+    StrWellFormed,
     /// `a` with `b` (a `char` or a `&str`) after it, a new `String`:
     /// `check::accept` writes `s.push(c)` and `s.push_str(t)` on a local `let
     /// mut s: String` as `s = StrConcat(s, c)`, an assignment like any other

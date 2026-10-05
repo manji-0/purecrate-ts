@@ -5,6 +5,8 @@ use crate::tx::{CondStyle, Op, Tx};
 
 /// `indent` is the nesting level of the line the arrow starts on.
 pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
+    let checked = checked_strings(f);
+    let f = &checked;
     // `check` marks the parameters the body never reads (`_a`); one read
     // only in a side `join` folds away (`if false { a } else { 1 }`) is
     // unread in the printed body too, and TS refuses it the same way.
@@ -26,6 +28,28 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
     crate::scoped(&crate::PUSHED, pushed, || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
+}
+
+/// `f` with each string parameter checked on entry, where `f` is `pub`: a
+/// caller in TS may pass a lone surrogate, which no Rust `str` holds.
+pub(crate) fn checked_strings(f: &Fn) -> Fn {
+    use purecrate_ir::Prim;
+    let text = |t: &Ty| matches!(t, Ty::Prim(Prim::String | Prim::Str));
+    let mut body = f.body.clone();
+    if f.vis == purecrate_ir::Vis::Pub {
+        for p in f.params.iter().rev() {
+            let strings = match &p.ty {
+                t if text(t) => true,
+                Ty::Option(inner) | Ty::Vec(inner) => text(inner),
+                _ => false,
+            };
+            if strings {
+                let check = Expr::Call { callee: Callee::StrWellFormed, args: vec![Expr::Var(p.name.clone())] };
+                body = Expr::Seq { first: Box::new(check), then: Box::new(body) };
+            }
+        }
+    }
+    Fn { body, ..f.clone() }
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
@@ -364,6 +388,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::StringNew => return "\"\"".into(),
+                purecrate_ir::Callee::StrWellFormed => {
+                    return format!("Str.wellFormed({})", emit_expr(&args[0], indent))
+                }
                 purecrate_ir::Callee::StrFromChars => {
                     return format!("{}.join(\"\")", receiver(emit_tx(&args[0], indent)));
                 }

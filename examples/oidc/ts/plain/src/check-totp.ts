@@ -42,6 +42,7 @@ export const checkTotp = (
   enrollment: TotpEnrollment,
   candidates: ReadonlyArray<StepMac>,
 ): OtpCheck => {
+  Str.wellFormed(code);
   const current = totpStep(now, enrollment.t0, enrollment.period);
   if (current === null) return { kind: "ClockBeforeEpoch" };
   const submitted = parseOtp(code, enrollment.digits);

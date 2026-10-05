@@ -7,17 +7,21 @@ import { PKCE_MAX_LEN, PKCE_MIN_LEN } from "./consts.ts";
  * RFC 7636 §4.1 / §4.2: 43..=128 characters of
  * unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
  */
-export const pkceStringIsValid = (s: string): boolean =>
-  Str.len(s) >= PKCE_MIN_LEN &&
-  Str.len(s) <= PKCE_MAX_LEN &&
-  Iter.all(
-    Str.bytes(s),
-    (b: U8): boolean =>
-      (b >= /* 'A' */ 65 && b <= /* 'Z' */ 90) ||
-      (b >= /* 'a' */ 97 && b <= /* 'z' */ 122) ||
-      (b >= /* '0' */ 48 && b <= /* '9' */ 57) ||
-      b === /* '-' */ 45 ||
-      b === /* '.' */ 46 ||
-      b === /* '_' */ 95 ||
-      b === /* '~' */ 126,
+export const pkceStringIsValid = (s: string): boolean => {
+  Str.wellFormed(s);
+  return (
+    Str.len(s) >= PKCE_MIN_LEN &&
+    Str.len(s) <= PKCE_MAX_LEN &&
+    Iter.all(
+      Str.bytes(s),
+      (b: U8): boolean =>
+        (b >= /* 'A' */ 65 && b <= /* 'Z' */ 90) ||
+        (b >= /* 'a' */ 97 && b <= /* 'z' */ 122) ||
+        (b >= /* '0' */ 48 && b <= /* '9' */ 57) ||
+        b === /* '-' */ 45 ||
+        b === /* '.' */ 46 ||
+        b === /* '_' */ 95 ||
+        b === /* '~' */ 126,
+    )
   );
+};

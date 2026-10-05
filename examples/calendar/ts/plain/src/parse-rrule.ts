@@ -211,6 +211,7 @@ const parseUntil = (v: string): Result<Until, RuleError> => {
  * `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=6`.
  */
 export const parseRrule = (s: string): Result<Rule, RuleError> => {
+  Str.wellFormed(s);
   let freq: Freq | null = null;
   let interval: U32 | null = null;
   let count: U32 | null = null;

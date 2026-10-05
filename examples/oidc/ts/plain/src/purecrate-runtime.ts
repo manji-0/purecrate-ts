@@ -200,6 +200,17 @@ export const Str = {
   },
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
+  /**
+   * A `pub` function's string argument checked on entry: a lone surrogate
+   * is in no Rust `str`, so the call panics here rather than reading its
+   * bytes, which are not specified (a string, `null`, or each of an array).
+   */
+  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
+      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+    }
+  },
 } as const;
 
 /**
@@ -239,6 +250,10 @@ const utf8Len = (s: string): Usize => {
 const utf8Width = (c: string): number => {
   const p = c.codePointAt(0) as number;
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
+};
+
+const panicWith = (message: string): never => {
+  throw new Panic(message);
 };
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */

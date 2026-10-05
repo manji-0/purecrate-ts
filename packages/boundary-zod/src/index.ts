@@ -36,7 +36,9 @@ const float = z.union([z.number(), z.instanceof(JsonFloat).transform((x) => x.va
 export const f32: Out<F32, number> = float.transform(Int.f32.of) as unknown as Out<F32, number>;
 export const f64: Out<F64, number> = float.transform(Int.f64.of) as unknown as Out<F64, number>;
 
-export const str = z.string();
+/** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+export const str = z.string().refine((s) => !LONE_SURROGATE.test(s), "a string without a lone surrogate");
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char: Out<Char, string> = z.string().refine(Char.is, "a single character") as unknown as Out<Char, string>;
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

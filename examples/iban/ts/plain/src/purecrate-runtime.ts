@@ -112,6 +112,17 @@ export const Str = {
     }
     return out as unknown as ReadonlyArray<U8>;
   },
+  /**
+   * A `pub` function's string argument checked on entry: a lone surrogate
+   * is in no Rust `str`, so the call panics here rather than reading its
+   * bytes, which are not specified (a string, `null`, or each of an array).
+   */
+  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
+      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+    }
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
@@ -124,6 +135,10 @@ export const Slice = {
     return xs[i] as T;
   },
 } as const;
+
+const panicWith = (message: string): never => {
+  throw new Panic(message);
+};
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {

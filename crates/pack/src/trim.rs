@@ -388,6 +388,7 @@ mod tests {
             "str.stripSuffix",
             "str.splitOnce",
             "str.eqIgnoreAsciiCase",
+            "str.wellFormed",
             "str.cmp",
             "slice.at",
             "slice.range",

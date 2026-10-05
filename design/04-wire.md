@@ -126,7 +126,7 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 **Limits.**
 
 - Unit structs are rejected ([02 §3.7](./02-authoring.md#37-types)): serde writes `struct S;` as `null` and `struct S {}` as `{}`, and the IR keeps only the fields.
-- A string with a lone surrogate is not a Rust `String` (01 §2); `JSON.stringify` escapes it and serde_json then rejects the text.
+- A string with a lone surrogate is not a Rust `String` (01 §2): a `str` schema refuses one, as serde_json refuses the escaped text `JSON.stringify` writes.
 
 **Why.** In an optimistic update the client reads the server's state, runs `step`, and sends the event back.
 

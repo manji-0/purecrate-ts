@@ -6,6 +6,7 @@ import type { Failure } from "./failure.ts";
 
 /** A comma-separated name-list; "" is the empty list. */
 export const nameList = (s: string): Result<ReadonlyArray<string>, Failure> => {
+  Str.wellFormed(s);
   if (s.length === 0) return Result.ok([]);
   return Iter.tryCollect(s.split(","), algorithmName);
 };

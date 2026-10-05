@@ -20,9 +20,13 @@ export const unsafeMakePaymentMethodId = (value: string): PaymentMethodId =>
 
 export const PaymentMethodId = {
   new: (raw: string): Result<PaymentMethodId, PaymentError> => {
+    Str.wellFormed(raw);
     if (Str.len(raw) < 4 || !raw.startsWith("pm_"))
       return Result.err({ kind: "InvalidPaymentMethodId" });
     return Result.ok(unsafeMakePaymentMethodId(raw));
   },
-  tryFrom: (raw: string): Result<PaymentMethodId, PaymentError> => PaymentMethodId.new(raw),
+  tryFrom: (raw: string): Result<PaymentMethodId, PaymentError> => {
+    Str.wellFormed(raw);
+    return PaymentMethodId.new(raw);
+  },
 } as const;

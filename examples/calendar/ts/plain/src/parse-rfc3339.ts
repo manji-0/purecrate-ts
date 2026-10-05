@@ -68,6 +68,7 @@ const parseOffset = (b: ReadonlyArray<U8>, pos: Usize): Result<Offset, Timestamp
 
 /** Parses `YYYY-MM-DDTHH:MM:SS[.fraction](Z|+hh:mm|-hh:mm)` (RFC 3339 §5.6). */
 export const parseRfc3339 = (s: string): Result<Timestamp, TimestampError> => {
+  Str.wellFormed(s);
   const b = Str.bytes(s);
   const yearResult = field(b, 0 as Usize, 4 as Usize);
   if (yearResult.kind === "Err") return yearResult;

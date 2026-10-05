@@ -195,6 +195,17 @@ export const Str = {
     if (from < 0 || to < 0) panicWith(inside as string);
     return s.slice(from, to);
   },
+  /**
+   * A `pub` function's string argument checked on entry: a lone surrogate
+   * is in no Rust `str`, so the call panics here rather than reading its
+   * bytes, which are not specified (a string, `null`, or each of an array).
+   */
+  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
+      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+    }
+  },
   /** `str::strip_prefix` with a `&str`. */
   stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
   /** `str::split_once` with a `char` or a `&str`: the text around the first match. */

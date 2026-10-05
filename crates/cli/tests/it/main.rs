@@ -40,6 +40,7 @@ mod int_patterns_equivalence;
 mod invoice_equivalence;
 mod line_width;
 mod local_consts_equivalence;
+mod lone_surrogate;
 mod loops_equivalence;
 mod methods_equivalence;
 mod narrowing_equivalence;

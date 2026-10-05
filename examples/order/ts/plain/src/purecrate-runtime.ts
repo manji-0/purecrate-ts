@@ -111,6 +111,26 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
 };
 
 /**
+ * `str` operations whose result depends on the encoding (design/01 §6).
+ * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
+ * string must be well-formed: a lone surrogate is not a Rust `String`, and
+ * its bytes here are not specified.
+ */
+export const Str = {
+  /**
+   * A `pub` function's string argument checked on entry: a lone surrogate
+   * is in no Rust `str`, so the call panics here rather than reading its
+   * bytes, which are not specified (a string, `null`, or each of an array).
+   */
+  wellFormed: (x: string | null | ReadonlyArray<string>): void => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const s of typeof x === "string" ? [x] : (x ?? [])) {
+      if (lone.test(s)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+    }
+  },
+} as const;
+
+/**
  * The consuming iterator methods, as std's default methods run them: in
  * order, `all` stopping at the first `false`, `any` and `position` at the
  * first `true`. `sum` adds from `zero` with `add`, the type's checked
@@ -122,6 +142,10 @@ export const Iter = {
     return false;
   },
 } as const;
+
+const panicWith = (message: string): never => {
+  throw new Panic(message);
+};
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {

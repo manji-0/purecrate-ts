@@ -18,6 +18,7 @@ export const unsafeMakeEmail = (value: string): Email => value as Email;
 
 export const Email = {
   parse: (raw: string): Result<Email, EmailError> => {
+    Str.wellFormed(raw);
     const opt = Str.splitOnce(raw, "@");
     if (opt === null) return Result.err({ kind: "MissingAt" });
     const [local, domain] = opt;

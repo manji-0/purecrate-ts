@@ -367,6 +367,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::StringFrom => (typed_args(self, vec![Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::String))),
             Callee::StringNew => (Vec::new(), Some(Ty::Prim(Prim::String))),
+            Callee::StrWellFormed => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
             // Written only by `method_call` and `collect`, typed.
             Callee::StrConcat | Callee::StrFromChars => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::String)))

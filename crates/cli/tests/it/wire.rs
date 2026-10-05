@@ -97,6 +97,7 @@ const accepts = [
   ["Shape", { Named: { label: "x", extra: 1 } }, { kind: "Named", label: "x", tag: null }],
   // serde_json also reads a unit variant written as a map with a `null` value.
   ["Shape", { Dot: null }, { kind: "Dot" }],
+  ["Shape", { Named: { label: "😀\u{10ffff}" } }, { kind: "Named", label: "😀\u{10ffff}", tag: null }],
   ["Tree", { Node: [{ Leaf: null }, 1, "Leaf"] }, { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Leaf" }] }],
   ["Sealed", { code: -1 }, { code: -1, hint: null }],
   ["Node", { Group: { label: "g", children: [{ Leaf: 1 }, { Group: { label: "h", children: [] } }] } },
@@ -157,6 +158,9 @@ const rejects = [
   ["Letters", { one: "ab", many: [] }],
   ["Letters", { one: "e\u{301}", many: [] }],
   ["Letters", { one: "\ud800", many: [] }],
+  // nor a string with one, as serde_json refuses it.
+  ["Shape", { Named: { label: "a\ud800" } }],
+  ["Shape", { Named: { label: "\udc00b" } }],
   ["Letters", { one: "\udfff", many: [] }],
   ["Letters", { one: 97, many: [] }],
   ["Letters", { one: "a", many: ["😀😀"] }],

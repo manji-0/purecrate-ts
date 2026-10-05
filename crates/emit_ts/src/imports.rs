@@ -486,7 +486,8 @@ impl Refs {
                         | purecrate_ir::StrMethod::StripSuffix
                         | purecrate_ir::StrMethod::SplitOnce
                         | purecrate_ir::StrMethod::EqIgnoreAsciiCase,
-                    ) => self.str = true,
+                    )
+                    | Callee::StrWellFormed => self.str = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;
@@ -552,7 +553,8 @@ impl Refs {
     fn fn_sig_and_body(&mut self, krate: &Crate, f: &Fn) {
         f.params.iter().for_each(|p| self.ty(&p.ty));
         self.ty(&f.ret);
-        self.expr(krate, &f.body);
+        // As printed: with the entry checks of a `pub` function's strings.
+        self.expr(krate, &crate::expr::checked_strings(f).body);
     }
 }
 

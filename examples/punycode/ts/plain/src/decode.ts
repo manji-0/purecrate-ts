@@ -131,6 +131,7 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
 
 /** The text a Punycode text stands for (RFC 3492 §6.2). */
 export const decode = (input: string): Result<string, PunycodeError> => {
+  Str.wellFormed(input);
   if (!Iter.all(Str.bytes(input), (b: U8): boolean => b < 0x80))
     return Result.err({ kind: "NonBasic" });
   const cs = Array.from(input as Iterable<Char>);

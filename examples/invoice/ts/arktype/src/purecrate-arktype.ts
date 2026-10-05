@@ -112,7 +112,9 @@ export const f64 = float.pipe(Int.f64.of);
  * sequence form, which serde_json never writes, and this refuses it.
  */
 export const record = (x: object, ctx: Traversal): boolean => !Array.isArray(x) || ctx.mustBe("an object");
-export const str = type("string");
+/** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+export const str = type("string").narrow((s, ctx) => !LONE_SURROGATE.test(s) || ctx.mustBe("a string without a lone surrogate"));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

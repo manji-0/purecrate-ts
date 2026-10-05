@@ -27,7 +27,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | --- | --- |
 | `5 as I32`, `"x" as Email`, out-of-range or non-integer `number`s | Brands exist only in types. Values entering from outside go through `Int.i32.of` or a wire schema |
 | Values of closed types not returned by public functions | See §4 |
-| Strings with lone surrogates | Not a Rust `String`. Checking at the boundary is the codec's job |
+| Strings with lone surrogates | Not a Rust `String`. A `pub` function panics on one in a string parameter (§6), and a wire schema refuses one |
 | Objects mutated after casting away `Readonly` | The output is not `Object.freeze`d; mutation is visible through aliases that Rust would not share |
 | Reading the original argument after the call | Rust moved it; TS still has it. Not promised either way |
 
@@ -116,7 +116,7 @@ Inference is bidirectional and closed within the expression tree. It does not us
 Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how-additions-are-chosen)). Two rules hold throughout:
 
 - **Allow-list, exact match.** A method is accepted by (receiver type, method), each with its own differential test over empty, non-ASCII, supplementary-plane, boundary, and panicking inputs. A method that cannot be matched is rejected, not accepted with a documented difference: `f64::to_string` (Rust `1000000000000000000000`, JS `1e+21`) and `str::trim` (JS `trim()` also strips U+FEFF) are out.
-- **Well-formed strings only.** Rust strings are UTF-8 and JS strings UTF-16. Every equivalence below relies on a string holding only whole scalar values, which a Rust `String` always does; a TS string with lone surrogates is outside the domain (§2).
+- **Well-formed strings only.** Rust strings are UTF-8 and JS strings UTF-16. Every equivalence below relies on a string holding only whole scalar values, which a Rust `String` always does; a TS string with lone surrogates is outside the domain (§2). A `pub` function checks each `String` / `&str` parameter, and each in an `Option` or a `Vec`, on entry (`Str.wellFormed`) and panics on one, so no later step meets it; a private helper is not checked again, and a string inside a struct argument came through that struct's own `pub` constructor (tested: lead, trail, and reversed halves, inside an `Option` and a `Vec`, against pairs and U+10FFFF, `lone_surrogate.rs`).
 
 | Receiver | Accepted | TS | Verified by |
 | --- | --- | --- | --- |
