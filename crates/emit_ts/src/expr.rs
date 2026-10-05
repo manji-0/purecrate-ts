@@ -48,17 +48,102 @@ pub(crate) fn checked_strings(f: &Fn) -> Fn {
 }
 
 /// `a && m` as `if a { m } else { false }`, and `a || m` as `if a { true }
-/// else { m }`, where an operand is no expression (`as_tx`): the `if` is printed as
-/// statements where it stands as one, where `&&` would hold an inline
-/// function that oxfmt breaks at each operator.
+/// else { m }`, where an operand is no expression (`as_tx`) and the `&&`
+/// stands where a statement may (a body's value, a `let`'s or an
+/// assignment's, a `return`'s, a branch's): the `if` is printed as
+/// statements there, where `&&` would hold an inline function that oxfmt
+/// breaks at each operator. Inside an expression (a test, an operand, an
+/// argument) the `&&` stays: an `if` there is one inline function, across
+/// which TS keeps no narrowing of the left side (`x !== null && ..`). A
+/// closure's body is split when the closure is printed.
 pub(crate) fn split_operands(e: &mut Expr) {
-    // A `while` test is no place for statements: an `if` there would be
-    // one inline function where `&&` keeps its plain operands apart.
-    if let Expr::While { body, .. } = e {
-        return split_operands(body);
+    split_at(e, true);
+}
+
+fn split_at(e: &mut Expr, statement: bool) {
+    match e {
+        Expr::Closure { .. } => return,
+        Expr::Seq { first, then } => {
+            split_at(first, true);
+            split_at(then, statement);
+        }
+        Expr::Let { value, then, .. } => {
+            split_at(value, true);
+            split_at(then, statement);
+        }
+        Expr::Assign { value, .. } | Expr::Return(value) => split_at(value, true),
+        Expr::If { cond, then, else_ } => {
+            split_at(cond, false);
+            // `if a && m { x } else { y }`, `m` no expression, as a statement:
+            // `if a { if m { x } else { y } } else { y }`, which keeps what
+            // `a` narrows for `x` without an inline function in the test.
+            // The branch said twice is one that is cheap to say twice.
+            if statement {
+                // `if { let r = v; t } { .. }` as `let r = v; if t { .. }`:
+                // the test runs first either way, and `rename` gave each
+                // binding a name of its own in the function.
+                match &**cond {
+                    Expr::Let { name, mutable, ty, value, then: test } => {
+                        let inner = Expr::If { cond: test.clone(), then: then.clone(), else_: else_.clone() };
+                        *e = Expr::Let {
+                            name: name.clone(),
+                            mutable: *mutable,
+                            ty: ty.clone(),
+                            value: value.clone(),
+                            then: Box::new(inner),
+                        };
+                        return split_at(e, true);
+                    }
+                    Expr::Seq { first, then: test } if !matches!(**first, Expr::Comment(_)) => {
+                        let inner = Expr::If { cond: test.clone(), then: then.clone(), else_: else_.clone() };
+                        *e = Expr::Seq { first: first.clone(), then: Box::new(inner) };
+                        return split_at(e, true);
+                    }
+                    _ => {}
+                }
+                if let Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } = &**cond {
+                    let copied = if *op == BinOp::And { &**else_ } else { &**then };
+                    if as_tx(left, 0).is_some() && as_tx(right, 0).is_none() && cheap(copied) {
+                        let inner = Expr::If { cond: right.clone(), then: then.clone(), else_: else_.clone() };
+                        let (t, f) = match op {
+                            BinOp::And => (inner, (**else_).clone()),
+                            _ => ((**then).clone(), inner),
+                        };
+                        *e = Expr::If { cond: left.clone(), then: Box::new(t), else_: Box::new(f) };
+                        return split_at(e, true);
+                    }
+                }
+            }
+            split_at(then, statement);
+            split_at(else_, statement);
+        }
+        Expr::Match { scrutinee, arms } => {
+            split_at(scrutinee, false);
+            for arm in arms {
+                split_at(&mut arm.body, statement);
+            }
+        }
+        Expr::For { start, end, body, .. } => {
+            split_at(start, false);
+            split_at(end, false);
+            split_at(body, true);
+        }
+        Expr::ForEach { source, body, .. } => {
+            split_at(source, false);
+            split_at(body, true);
+        }
+        Expr::While { cond, body } => {
+            split_at(cond, false);
+            split_at(body, true);
+        }
+        _ => {
+            for c in e.children_mut() {
+                split_at(c, false);
+            }
+        }
     }
-    for c in e.children_mut() {
-        split_operands(c);
+    if !statement {
+        return;
     }
     let Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } = e else { return };
     if as_tx(left, 0).is_some() && as_tx(right, 0).is_some() {
@@ -71,6 +156,23 @@ pub(crate) fn split_operands(e: &mut Expr) {
         _ => (Expr::Lit(Lit::Bool(true)), right),
     };
     *e = Expr::If { cond: Box::new(left), then: Box::new(then), else_: Box::new(else_) };
+    // The branches stand where the `&&` did.
+    if let Expr::If { then, else_, .. } = e {
+        split_at(then, true);
+        split_at(else_, true);
+    }
+}
+
+/// A value that costs nothing to print twice: no statements, no call but a
+/// constructor (`Ok(b)`), and not long.
+fn cheap(e: &Expr) -> bool {
+    !e.needs_statements()
+        && !e.any(|x| {
+            matches!(x, Expr::Call { callee, .. }
+                if !matches!(callee, Callee::OptionNone | Callee::ResultOk | Callee::ResultErr))
+                || matches!(x, Expr::Closure { .. })
+        })
+        && as_tx(e, 0).is_some_and(|t| t.print().len() <= 60)
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {

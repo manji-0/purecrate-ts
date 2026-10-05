@@ -104,3 +104,25 @@ pub fn clamp(second: i64) -> i64 {
     let kept = if second == 60 { 59 } else { second };
     kept
 }
+
+/// A test made of a payload check and a `match` (`Some(a)` then a test that
+/// needs statements): the `&&` stays an expression, so TS keeps `a`
+/// narrowed in the branch it chooses.
+pub fn narrowed(e: Option<i32>, c: bool, b: i32) -> Result<i32, i32> {
+    match e {
+        Some(a) => {
+            if ({
+                let t: Result<i32, i32> = if c { Ok(10i32) } else { Ok(0i32) };
+                t
+            })
+            .ok()
+            .is_some()
+            {
+                Ok(2i32 & a)
+            } else {
+                Err(b)
+            }
+        }
+        None => Err(b),
+    }
+}
