@@ -6,7 +6,7 @@ import type { Yen } from "./yen.ts";
 export type Summary = Readonly<{
   standard: Group;
   reduced: Group;
-  /** Inclusive lines under method 2; the tax is contained in `base`. */
+  /** Tax-inclusive totals; the tax is contained in `base`. */
   standard_inclusive: Group;
   reduced_inclusive: Group;
   total: Yen;

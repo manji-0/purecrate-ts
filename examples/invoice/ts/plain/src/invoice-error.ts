@@ -2,17 +2,27 @@
 
 import { assertNever } from "./purecrate-runtime.ts";
 
-export type InvoiceError = Readonly<{ kind: "NegativeAmount" }> | Readonly<{ kind: "NoLines" }>;
+export type InvoiceError =
+  | Readonly<{ kind: "NegativeAmount" }>
+  | Readonly<{ kind: "NoLines" }>
+  | Readonly<{ kind: "MixedPricing" }>
+  | Readonly<{ kind: "Overflow" }>;
 
 export const InvoiceError = {
   NegativeAmount: (): InvoiceError => ({ kind: "NegativeAmount" }),
   NoLines: (): InvoiceError => ({ kind: "NoLines" }),
+  MixedPricing: (): InvoiceError => ({ kind: "MixedPricing" }),
+  Overflow: (): InvoiceError => ({ kind: "Overflow" }),
   toString: (self: InvoiceError): string => {
     switch (self.kind) {
       case "NegativeAmount":
         return "amount must not be negative";
       case "NoLines":
         return "an invoice needs a line";
+      case "MixedPricing":
+        return "tax-inclusive and tax-exclusive lines need a conversion";
+      case "Overflow":
+        return "an amount is too large";
       default:
         return assertNever(self);
     }

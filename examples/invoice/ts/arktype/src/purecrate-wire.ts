@@ -25,27 +25,40 @@ export const Yen: Wire<DomainYen> = type("unknown").pipe((v, ctx): DomainYen => 
 
 export const Rate: Wire<DomainRate> = unitEnum("Rate", ["Standard", "Reduced"]);
 
-export const Pricing: Wire<DomainPricing> = unitEnum("Pricing", ["Exclusive", "Inclusive"]);
+export const Pricing: Wire<DomainPricing> = unitEnum("Pricing", [
+  "Exclusive",
+  "Inclusive",
+  "FixedRetail",
+]);
 
 export const Rounding: Wire<DomainRounding> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
 
-const methodSeparateArm = memo(() => type({ "+": "reject", Separate: "null" }));
 const methodToExclusiveArm = memo(() =>
   type({ "+": "reject", ToExclusive: type({ conversion: Rounding }).narrow(record) }),
 );
-/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
+const methodToInclusiveArm = memo(() =>
+  type({ "+": "reject", ToInclusive: type({ conversion: Rounding }).narrow(record) }),
+);
+const methodSeparateArm = memo(() => type({ "+": "reject", Separate: "null" }));
+/** 問59: the one basis the invoice's totals are on. */
 export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainMethod => {
-  if (v === "Separate") return { kind: "Separate" };
-  {
-    const parsed = methodSeparateArm()(v);
-    if (!(parsed instanceof type.errors)) return { kind: "Separate" };
-    if (keyed(v, "Separate")) return fail(ctx, parsed);
-  }
   {
     const parsed = methodToExclusiveArm()(v);
     if (!(parsed instanceof type.errors))
       return { kind: "ToExclusive", conversion: parsed.ToExclusive.conversion };
     if (keyed(v, "ToExclusive")) return fail(ctx, parsed);
+  }
+  {
+    const parsed = methodToInclusiveArm()(v);
+    if (!(parsed instanceof type.errors))
+      return { kind: "ToInclusive", conversion: parsed.ToInclusive.conversion };
+    if (keyed(v, "ToInclusive")) return fail(ctx, parsed);
+  }
+  if (v === "Separate") return { kind: "Separate" };
+  {
+    const parsed = methodSeparateArm()(v);
+    if (!(parsed instanceof type.errors)) return { kind: "Separate" };
+    if (keyed(v, "Separate")) return fail(ctx, parsed);
   }
   return ctx.error("Method") as never;
 });
@@ -67,7 +80,7 @@ export const Invoice: Wire<DomainInvoice> = type("unknown").pipe((v, ctx): Domai
 });
 
 const groupWire = memo(() => type({ base: Yen, tax: Yen }).narrow(record));
-/** One rate and pricing: the total of its amounts and the tax on it. */
+/** One rate and basis: the total of its amounts and the tax on it. */
 export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGroup => {
   const parsed = groupWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
@@ -98,6 +111,8 @@ export const Summary: Wire<DomainSummary> = type("unknown").pipe((v, ctx): Domai
 export const InvoiceError: Wire<DomainInvoiceError> = unitEnum("InvoiceError", [
   "NegativeAmount",
   "NoLines",
+  "MixedPricing",
+  "Overflow",
 ]);
 
 /**
@@ -125,12 +140,16 @@ export const toJson = {
   Rounding: (x: DomainRounding): string => `"${x.kind}"`,
   Method: (x: DomainMethod): string => {
     switch (x.kind) {
-      case "Separate":
-        return '"Separate"';
       case "ToExclusive":
         return Json.object([
           ["ToExclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
         ]);
+      case "ToInclusive":
+        return Json.object([
+          ["ToInclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
+        ]);
+      case "Separate":
+        return '"Separate"';
       default:
         return assertNever(x);
     }

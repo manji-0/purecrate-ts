@@ -2,14 +2,27 @@
 
 import type { Rounding } from "./rounding.ts";
 
-/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
+/** 問59: the one basis the invoice's totals are on. */
 export type Method =
-  | Readonly<{ kind: "Separate" }>
-  | Readonly<{ kind: "ToExclusive"; conversion: Rounding }>;
+  | Readonly<{ kind: "ToExclusive"; conversion: Rounding }>
+  | Readonly<{ kind: "ToInclusive"; conversion: Rounding }>
+  | Readonly<{ kind: "Separate" }>;
 
 export const Method = {
-  /** Method 2: total and tax the inclusive lines apart. */
-  Separate: (): Method => ({ kind: "Separate" }),
-  /** Method 1: convert each inclusive line to an exclusive amount first. */
+  /**
+   * Every total tax-exclusive; each rate's tax-inclusive lines are
+   * totalled and converted once.
+   */
   ToExclusive: (conversion: Rounding): Method => ({ kind: "ToExclusive", conversion }),
+  /**
+   * Every total tax-inclusive; each rate's tax-exclusive lines are
+   * totalled and converted once.
+   */
+  ToInclusive: (conversion: Rounding): Method => ({ kind: "ToInclusive", conversion }),
+  /**
+   * Nothing converted: fixed retail prices are totalled and taxed apart
+   * from tax-exclusive lines. Tax-inclusive lines are allowed only with no
+   * tax-exclusive line.
+   */
+  Separate: (): Method => ({ kind: "Separate" }),
 } as const;

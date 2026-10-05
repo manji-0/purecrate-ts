@@ -98,6 +98,10 @@ const small = <T extends number>(min: number, max: number) => {
     mul: (a: T, b: T): T => fit(a * b, "multiply"),
     div: (a: T, b: T): T =>
       b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
+    rem: (a: T, b: T): T =>
+      b === 0
+        ? panic("calculate the remainder with a divisor of zero")
+        : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
   } as const;
 };
 
@@ -112,6 +116,27 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
     mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
     div: (a: T, b: T): T =>
       n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
+    rem: (a: T, b: T): T =>
+      n(b) === 0n
+        ? panic("calculate the remainder with a divisor of zero")
+        : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
+  } as const;
+};
+
+/**
+ * The integer methods, from the exact result: `x.checked_add(y)` is it or
+ * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
+ * low `bits`, and the others panic outside the range as a debug build does.
+ * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
+ * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
+ */
+const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: number; signed: boolean; to: (n: bigint) => T }) => {
+  const v = (x: T): bigint => BigInt(x);
+  const inRange = (n: bigint): boolean => n >= r.lo && n <= r.hi;
+  const checked = (n: bigint | null): T | null => (n !== null && inRange(n) ? r.to(n) : null);
+  return {
+    checkedAdd: (a: T, b: T): T | null => checked(v(a) + v(b)),
+    checkedMul: (a: T, b: T): T | null => checked(v(a) * v(b)),
   } as const;
 };
 
@@ -198,14 +223,9 @@ export const parseJson = (text: string): unknown => {
  * addition, so it panics where a debug build does.
  */
 export const Iter = {
-  sum: <T>(xs: Iterable<T>, add: (a: T, b: T) => T, zero: T): T => {
-    let total = zero;
-    for (const x of xs) total = add(total, x);
-    return total;
-  },
-  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
-  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
-    for (const x of xs) yield f(x);
+  any: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (f(x)) return true;
+    return false;
   },
 } as const;
 
@@ -347,6 +367,7 @@ export const Int = {
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }),
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),

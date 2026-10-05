@@ -2,7 +2,7 @@
 
 import type { Yen } from "./yen.ts";
 
-/** One rate and pricing: the total of its amounts and the tax on it. */
+/** One rate and basis: the total of its amounts and the tax on it. */
 export type Group = Readonly<{
   base: Yen;
   tax: Yen;

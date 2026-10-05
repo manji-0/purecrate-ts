@@ -1,21 +1,31 @@
 // Consumption tax on a qualified invoice (適格請求書), as the National Tax
 // Agency states it (インボイスQ&A 問57 and 問59, revised 2024-04; read
-// 2026-09-29):
+// 2026-10-05):
 //
-// - The tax is computed per rate, 10% (standard) and 8% (reduced), from the
-//   total of that rate's amounts, and rounded to a yen once per rate per
-//   invoice (消令70の10, 基通1-8-15). Rounding up, down, or half up is the
-//   seller's choice. Rounding each line and adding the results is not
-//   allowed; this type has no way to do it.
-// - Amounts are tax-exclusive (tax = total × rate) or tax-inclusive (tax =
-//   total × rate / (100 + rate)).
-// - When one receipt mixes tax-inclusive lines (tobacco, at a fixed retail
-//   price) with tax-exclusive ones (問59), either every inclusive line is
-//   first converted to an exclusive amount (method 1; that conversion's
-//   rounding is also the seller's choice and is not the tax rounding), or
-//   the inclusive lines are totalled and taxed apart (method 2).
+// - 問57: the tax is rounded to a yen once per rate, 10% (standard) and 8%
+//   (reduced), per invoice (消令70の10, 基通1-8-15), on the total of that
+//   rate's amounts. Rounding up, down, or half up is the seller's choice.
+//   Rounding each line and adding the results is not allowed; this type has
+//   no way to do it.
+// - 問59: the totals per rate are all tax-exclusive (tax = total × rate) or
+//   all tax-inclusive (tax = total × rate / (100 + rate)), one or the other
+//   for the whole invoice. Lines priced on the other basis are converted
+//   first; that conversion's rounding is the seller's choice and is not the
+//   tax rounding. `Method::ToExclusive` and `Method::ToInclusive` do this.
+//   The conversion is made once per rate on the total of the lines to
+//   convert, not line by line, so its rounding cannot add up over many small
+//   lines either.
+// - 問59, ただし: a price the law fixes tax-inclusive (tobacco, designated
+//   garbage bags, goods under resale price maintenance;
+//   `Pricing::FixedRetail`) may instead stay unconverted among tax-exclusive
+//   lines: its rate's fixed prices are totalled and taxed apart
+//   (`Method::Separate`), the one case with two roundings in a rate. Under
+//   `Separate` an ordinary tax-inclusive line among tax-exclusive ones is
+//   refused (`MixedPricing`): the exception covers fixed prices only.
 //
-// Amounts are yen, an integer; there is no decimal.
+// Amounts are yen, an integer; there is no decimal. A sum or a figure that
+// does not fit in an `i64` is refused (`Overflow`), not wrapped or panicked
+// on.
 //
 // Not modeled: the invoice's other required items (the issuer's
 // registration number, T and 13 digits, the date, the parties), and lines
@@ -59,6 +69,8 @@ pub enum Rate {
 pub enum Pricing {
     Exclusive,
     Inclusive,
+    /// Tax-inclusive at a price the law fixes (問59, ただし).
+    FixedRetail,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -68,13 +80,19 @@ pub enum Rounding {
     HalfUp,
 }
 
-/// 問59: what to do with tax-inclusive lines among tax-exclusive ones.
+/// 問59: the one basis the invoice's totals are on.
 #[derive(Serialize, Deserialize)]
 pub enum Method {
-    /// Method 2: total and tax the inclusive lines apart.
-    Separate,
-    /// Method 1: convert each inclusive line to an exclusive amount first.
+    /// Every total tax-exclusive; each rate's tax-inclusive lines are
+    /// totalled and converted once.
     ToExclusive { conversion: Rounding },
+    /// Every total tax-inclusive; each rate's tax-exclusive lines are
+    /// totalled and converted once.
+    ToInclusive { conversion: Rounding },
+    /// Nothing converted: fixed retail prices are totalled and taxed apart
+    /// from tax-exclusive lines. Tax-inclusive lines are allowed only with no
+    /// tax-exclusive line.
+    Separate,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,7 +109,7 @@ pub struct Invoice {
     pub method: Method,
 }
 
-/// One rate and pricing: the total of its amounts and the tax on it.
+/// One rate and basis: the total of its amounts and the tax on it.
 #[derive(Serialize, Deserialize)]
 pub struct Group {
     pub base: Yen,
@@ -102,7 +120,7 @@ pub struct Group {
 pub struct Summary {
     pub standard: Group,
     pub reduced: Group,
-    /// Inclusive lines under method 2; the tax is contained in `base`.
+    /// Tax-inclusive totals; the tax is contained in `base`.
     pub standard_inclusive: Group,
     pub reduced_inclusive: Group,
     pub total: Yen,
@@ -112,6 +130,8 @@ pub struct Summary {
 pub enum InvoiceError {
     NegativeAmount,
     NoLines,
+    MixedPricing,
+    Overflow,
 }
 
 impl fmt::Display for InvoiceError {
@@ -119,6 +139,8 @@ impl fmt::Display for InvoiceError {
         f.write_str(match self {
             InvoiceError::NegativeAmount => "amount must not be negative",
             InvoiceError::NoLines => "an invoice needs a line",
+            InvoiceError::MixedPricing => "tax-inclusive and tax-exclusive lines need a conversion",
+            InvoiceError::Overflow => "an amount is too large",
         })
     }
 }
@@ -132,50 +154,85 @@ fn percent(rate: &Rate) -> i64 {
     }
 }
 
-/// `n / d` rounded to an integer, for `n >= 0` and `d > 0`.
-fn divide(n: i64, d: i64, rounding: &Rounding) -> i64 {
-    match rounding {
-        Rounding::Down => n / d,
-        Rounding::Up => (n + d - 1) / d,
-        Rounding::HalfUp => (2 * n + d) / (2 * d),
+fn is_inclusive(pricing: &Pricing) -> bool {
+    match pricing {
+        Pricing::Exclusive => false,
+        Pricing::Inclusive | Pricing::FixedRetail => true,
     }
 }
 
-/// What `line` adds to the total of `rate`'s group; `apart` is the group of
-/// inclusive lines under method 2.
-fn share(line: &Line, rate: &Rate, apart: bool, method: &Method) -> i64 {
-    match (&line.pricing, method) {
-        _ if percent(&line.rate) != percent(rate) => 0,
-        (Pricing::Exclusive, _) if !apart => line.amount.0,
-        (Pricing::Inclusive, Method::Separate) if apart => line.amount.0,
-        (Pricing::Inclusive, Method::ToExclusive { conversion }) if !apart => {
-            divide(line.amount.0 * 100, 100 + percent(rate), conversion)
+fn add(a: i64, b: i64) -> Result<i64, InvoiceError> {
+    a.checked_add(b).ok_or(InvoiceError::Overflow)
+}
+
+/// `n × m / d` rounded to an integer, for `n >= 0` and `0 < m, d <= 110`;
+/// `Overflow` only when the result does not fit.
+fn scale(n: i64, m: i64, d: i64, rounding: &Rounding) -> Result<i64, InvoiceError> {
+    let whole = (n / d).checked_mul(m).ok_or(InvoiceError::Overflow)?;
+    let rest = n % d * m;
+    let part = match rounding {
+        Rounding::Down => rest / d,
+        Rounding::Up => (rest + d - 1) / d,
+        Rounding::HalfUp => (2 * rest + d) / (2 * d),
+    };
+    add(whole, part)
+}
+
+/// The total of `rate`'s tax-inclusive lines, or of its tax-exclusive ones.
+fn subtotal(invoice: &Invoice, rate: &Rate, inclusive: bool) -> Result<i64, InvoiceError> {
+    let mut sum: i64 = 0;
+    for line in invoice.lines.iter() {
+        if percent(&line.rate) == percent(rate) && is_inclusive(&line.pricing) == inclusive {
+            sum = add(sum, line.amount.0)?;
         }
-        _ => 0,
+    }
+    Ok(sum)
+}
+
+/// A total and its tax, rounded once (消令70の10).
+fn taxed(base: i64, rate: &Rate, inclusive: bool, rounding: &Rounding) -> Result<Group, InvoiceError> {
+    let p = percent(rate);
+    let d = if inclusive { 100 + p } else { 100 };
+    Ok(Group { base: Yen(base), tax: Yen(scale(base, p, d, rounding)?) })
+}
+
+/// One rate's tax-exclusive group and tax-inclusive group, each taxed once.
+fn groups(invoice: &Invoice, rate: Rate) -> Result<(Group, Group), InvoiceError> {
+    let p = percent(&rate);
+    let exclusive = subtotal(invoice, &rate, false)?;
+    let inclusive = subtotal(invoice, &rate, true)?;
+    match &invoice.method {
+        Method::ToExclusive { conversion } => {
+            let converted = scale(inclusive, 100, 100 + p, conversion)?;
+            both(invoice, &rate, add(exclusive, converted)?, 0)
+        }
+        Method::ToInclusive { conversion } => {
+            let converted = scale(exclusive, 100 + p, 100, conversion)?;
+            both(invoice, &rate, 0, add(inclusive, converted)?)
+        }
+        Method::Separate => both(invoice, &rate, exclusive, inclusive),
     }
 }
 
-/// One group's total and its tax, rounded once (消令70の10).
-fn taxed(invoice: &Invoice, rate: Rate, apart: bool) -> Group {
-    let base: i64 = invoice.lines.iter().map(|line| share(line, &rate, apart, &invoice.method)).sum();
-    let p = percent(&rate);
-    let d = if apart { 100 + p } else { 100 };
-    Group { base: Yen(base), tax: Yen(divide(base * p, d, &invoice.rounding)) }
+fn both(invoice: &Invoice, rate: &Rate, exclusive: i64, inclusive: i64) -> Result<(Group, Group), InvoiceError> {
+    Ok((taxed(exclusive, rate, false, &invoice.rounding)?, taxed(inclusive, rate, true, &invoice.rounding)?))
 }
 
 pub fn summarize(invoice: &Invoice) -> Result<Summary, InvoiceError> {
     if invoice.lines.is_empty() {
         return Err(InvoiceError::NoLines);
     }
-    let standard = taxed(invoice, Rate::Standard, false);
-    let reduced = taxed(invoice, Rate::Reduced, false);
-    let standard_inclusive = taxed(invoice, Rate::Standard, true);
-    let reduced_inclusive = taxed(invoice, Rate::Reduced, true);
-    let total = standard.base.0
-        + standard.tax.0
-        + reduced.base.0
-        + reduced.tax.0
-        + standard_inclusive.base.0
-        + reduced_inclusive.base.0;
+    let exclusive = invoice.lines.iter().any(|line| !is_inclusive(&line.pricing));
+    let inclusive = invoice.lines.iter().any(|line| matches!(line.pricing, Pricing::Inclusive));
+    if matches!(invoice.method, Method::Separate) && exclusive && inclusive {
+        return Err(InvoiceError::MixedPricing);
+    }
+    let (standard, standard_inclusive) = groups(invoice, Rate::Standard)?;
+    let (reduced, reduced_inclusive) = groups(invoice, Rate::Reduced)?;
+    let mut total = add(standard.base.0, standard.tax.0)?;
+    total = add(total, reduced.base.0)?;
+    total = add(total, reduced.tax.0)?;
+    total = add(total, standard_inclusive.base.0)?;
+    total = add(total, reduced_inclusive.base.0)?;
     Ok(Summary { standard, reduced, standard_inclusive, reduced_inclusive, total: Yen(total) })
 }

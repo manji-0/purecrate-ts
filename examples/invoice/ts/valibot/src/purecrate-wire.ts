@@ -31,6 +31,7 @@ export const Rate: v.GenericSchema<unknown, DomainRate> = unitEnum(["Standard", 
 export const Pricing: v.GenericSchema<unknown, DomainPricing> = unitEnum([
   "Exclusive",
   "Inclusive",
+  "FixedRetail",
 ]);
 
 export const Rounding: v.GenericSchema<unknown, DomainRounding> = unitEnum([
@@ -39,18 +40,25 @@ export const Rounding: v.GenericSchema<unknown, DomainRounding> = unitEnum([
   "HalfUp",
 ]);
 
-/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
+/** 問59: the one basis the invoice's totals are on. */
 export const Method: v.GenericSchema<unknown, DomainMethod> = v.union([
-  v.pipe(
-    unitVariant("Separate"),
-    v.transform((): DomainMethod => ({ kind: "Separate" })),
-  ),
   v.pipe(
     v.strictObject({ ToExclusive: record({ conversion: Rounding }) }),
     v.transform((x): DomainMethod => ({
       kind: "ToExclusive",
       conversion: x.ToExclusive.conversion,
     })),
+  ),
+  v.pipe(
+    v.strictObject({ ToInclusive: record({ conversion: Rounding }) }),
+    v.transform((x): DomainMethod => ({
+      kind: "ToInclusive",
+      conversion: x.ToInclusive.conversion,
+    })),
+  ),
+  v.pipe(
+    unitVariant("Separate"),
+    v.transform((): DomainMethod => ({ kind: "Separate" })),
   ),
 ]);
 
@@ -66,7 +74,7 @@ export const Invoice: v.GenericSchema<unknown, DomainInvoice> = record({
   method: Method,
 });
 
-/** One rate and pricing: the total of its amounts and the tax on it. */
+/** One rate and basis: the total of its amounts and the tax on it. */
 export const Group: v.GenericSchema<unknown, DomainGroup> = record({ base: Yen, tax: Yen });
 
 export const Summary: v.GenericSchema<unknown, DomainSummary> = record({
@@ -80,6 +88,8 @@ export const Summary: v.GenericSchema<unknown, DomainSummary> = record({
 export const InvoiceError: v.GenericSchema<unknown, DomainInvoiceError> = unitEnum([
   "NegativeAmount",
   "NoLines",
+  "MixedPricing",
+  "Overflow",
 ]);
 
 /**
@@ -107,12 +117,16 @@ export const toJson = {
   Rounding: (x: DomainRounding): string => `"${x.kind}"`,
   Method: (x: DomainMethod): string => {
     switch (x.kind) {
-      case "Separate":
-        return '"Separate"';
       case "ToExclusive":
         return Json.object([
           ["ToExclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
         ]);
+      case "ToInclusive":
+        return Json.object([
+          ["ToInclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
+        ]);
+      case "Separate":
+        return '"Separate"';
       default:
         return assertNever(x);
     }

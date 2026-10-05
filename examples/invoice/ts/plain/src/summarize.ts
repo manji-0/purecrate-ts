@@ -5,7 +5,7 @@ import type { Group } from "./group.ts";
 import type { InvoiceError } from "./invoice-error.ts";
 import type { Invoice } from "./invoice.ts";
 import type { Line } from "./line.ts";
-import type { Method } from "./method.ts";
+import type { Pricing } from "./pricing.ts";
 import type { Rate } from "./rate.ts";
 import type { Rounding } from "./rounding.ts";
 import type { Summary } from "./summary.ts";
@@ -22,80 +22,149 @@ const percent = (rate: Rate): I64 => {
   }
 };
 
-/** `n / d` rounded to an integer, for `n >= 0` and `d > 0`. */
-const divide = (n: I64, d: I64, rounding: Rounding): I64 => {
-  switch (rounding.kind) {
-    case "Down":
-      return Int.i64.div(n, d);
-    case "Up":
-      return Int.i64.div(Int.i64.sub(Int.i64.add(n, d), 1n as I64), d);
-    case "HalfUp":
-      return Int.i64.div(Int.i64.add(Int.i64.mul(2n as I64, n), d), Int.i64.mul(2n as I64, d));
-    default:
-      return assertNever(rounding);
-  }
+const isInclusive = (pricing: Pricing): boolean => pricing.kind !== "Exclusive";
+
+const add = (a: I64, b: I64): Result<I64, InvoiceError> => {
+  const opt = Int.i64.checkedAdd(a, b);
+  return opt !== null ? Result.ok(opt) : Result.err({ kind: "Overflow" });
 };
 
 /**
- * What `line` adds to the total of `rate`'s group; `apart` is the group of
- * inclusive lines under method 2.
+ * `n × m / d` rounded to an integer, for `n >= 0` and `0 < m, d <= 110`;
+ * `Overflow` only when the result does not fit.
  */
-const share = (line: Line, rate: Rate, apart: boolean, method: Method): I64 => {
-  if (percent(line.rate) !== percent(rate)) return 0n as I64;
+const scale = (n: I64, m: I64, d: I64, rounding: Rounding): Result<I64, InvoiceError> => {
+  const whole = Int.i64.checkedMul(Int.i64.div(n, d), m);
+  if (whole === null) return Result.err({ kind: "Overflow" });
+  const rest = Int.i64.mul(Int.i64.rem(n, d), m);
+  const part: I64 =
+    rounding.kind === "Down"
+      ? Int.i64.div(rest, d)
+      : rounding.kind === "Up"
+        ? Int.i64.div(Int.i64.sub(Int.i64.add(rest, d), 1n as I64), d)
+        : Int.i64.div(Int.i64.add(Int.i64.mul(2n as I64, rest), d), Int.i64.mul(2n as I64, d));
+  return add(whole, part);
+};
 
-  switch (line.pricing.kind) {
-    case "Exclusive":
-      return apart ? (0n as I64) : line.amount;
-    case "Inclusive":
-      switch (method.kind) {
-        case "Separate":
-          return apart ? line.amount : (0n as I64);
-        case "ToExclusive": {
-          const conversion = method.conversion;
-          return apart
-            ? (0n as I64)
-            : divide(
-                Int.i64.mul(line.amount, 100n as I64),
-                Int.i64.add(100n as I64, percent(rate)),
-                conversion,
-              );
-        }
-        default:
-          return assertNever(method);
-      }
+/** The total of `rate`'s tax-inclusive lines, or of its tax-exclusive ones. */
+const subtotal = (invoice: Invoice, rate: Rate, inclusive: boolean): Result<I64, InvoiceError> => {
+  let sum = 0n as I64;
+
+  for (const line of invoice.lines) {
+    if (percent(line.rate) === percent(rate) && isInclusive(line.pricing) === inclusive) {
+      const addResult = add(sum, line.amount);
+      if (addResult.kind === "Err") return addResult;
+      sum = addResult.value;
+    }
+  }
+
+  return Result.ok(sum);
+};
+
+/** A total and its tax, rounded once (消令70の10). */
+const taxed = (
+  base: I64,
+  rate: Rate,
+  inclusive: boolean,
+  rounding: Rounding,
+): Result<Group, InvoiceError> => {
+  const p = percent(rate);
+  const d: I64 = inclusive ? Int.i64.add(100n as I64, p) : (100n as I64);
+  const value = unsafeMakeYen(base);
+  const scaleResult = scale(base, p, d, rounding);
+  if (scaleResult.kind === "Err") return scaleResult;
+  return Result.ok({ base: value, tax: unsafeMakeYen(scaleResult.value) });
+};
+
+/** One rate's tax-exclusive group and tax-inclusive group, each taxed once. */
+const groups = (invoice: Invoice, rate: Rate): Result<readonly [Group, Group], InvoiceError> => {
+  const p = percent(rate);
+  const exclusiveResult = subtotal(invoice, rate, false);
+  if (exclusiveResult.kind === "Err") return exclusiveResult;
+  const exclusive = exclusiveResult.value;
+  const inclusiveResult = subtotal(invoice, rate, true);
+  if (inclusiveResult.kind === "Err") return inclusiveResult;
+  const inclusive = inclusiveResult.value;
+
+  switch (invoice.method.kind) {
+    case "ToExclusive": {
+      const conversion = invoice.method.conversion;
+      const convertedResult = scale(
+        inclusive,
+        100n as I64,
+        Int.i64.add(100n as I64, p),
+        conversion,
+      );
+      if (convertedResult.kind === "Err") return convertedResult;
+      const converted = convertedResult.value;
+      const addResult = add(exclusive, converted);
+      if (addResult.kind === "Err") return addResult;
+      return both(invoice, rate, addResult.value, 0n as I64);
+    }
+    case "ToInclusive": {
+      const conversion = invoice.method.conversion;
+      const convertedResult = scale(
+        exclusive,
+        Int.i64.add(100n as I64, p),
+        100n as I64,
+        conversion,
+      );
+      if (convertedResult.kind === "Err") return convertedResult;
+      const converted = convertedResult.value;
+      const addResult2 = add(inclusive, converted);
+      if (addResult2.kind === "Err") return addResult2;
+      return both(invoice, rate, 0n as I64, addResult2.value);
+    }
+    case "Separate":
+      return both(invoice, rate, exclusive, inclusive);
     default:
-      return assertNever(line.pricing);
+      return assertNever(invoice.method);
   }
 };
 
-/** One group's total and its tax, rounded once (消令70の10). */
-const taxed = (invoice: Invoice, rate: Rate, apart: boolean): Group => {
-  const base = Iter.sum(
-    Iter.map(invoice.lines, (line: Line): I64 => share(line, rate, apart, invoice.method)),
-    Int.i64.add,
-    0n as I64,
-  );
-  const p = percent(rate);
-  const d: I64 = apart ? Int.i64.add(100n as I64, p) : (100n as I64);
-  return {
-    base: unsafeMakeYen(base),
-    tax: unsafeMakeYen(divide(Int.i64.mul(base, p), d, invoice.rounding)),
-  };
+const both = (
+  invoice: Invoice,
+  rate: Rate,
+  exclusive: I64,
+  inclusive: I64,
+): Result<readonly [Group, Group], InvoiceError> => {
+  const taxedResult = taxed(exclusive, rate, false, invoice.rounding);
+  if (taxedResult.kind === "Err") return taxedResult;
+  const taxedResult2 = taxed(inclusive, rate, true, invoice.rounding);
+  if (taxedResult2.kind === "Err") return taxedResult2;
+  return Result.ok([taxedResult.value, taxedResult2.value]);
 };
 
 export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
   if (invoice.lines.length === 0) return Result.err({ kind: "NoLines" });
-  const standard = taxed(invoice, { kind: "Standard" }, false);
-  const reduced = taxed(invoice, { kind: "Reduced" }, false);
-  const standardInclusive = taxed(invoice, { kind: "Standard" }, true);
-  const reducedInclusive = taxed(invoice, { kind: "Reduced" }, true);
-  const total = Int.i64.add(
-    Int.i64.add(
-      Int.i64.add(Int.i64.add(Int.i64.add(standard.base, standard.tax), reduced.base), reduced.tax),
-      standardInclusive.base,
-    ),
-    reducedInclusive.base,
+  const exclusive = Iter.any(invoice.lines, (line: Line): boolean => !isInclusive(line.pricing));
+  const inclusive = Iter.any(
+    invoice.lines,
+    (line: Line): boolean => line.pricing.kind === "Inclusive",
   );
+  if (invoice.method.kind === "Separate" && exclusive && inclusive)
+    return Result.err({ kind: "MixedPricing" });
+  const result = groups(invoice, { kind: "Standard" });
+  if (result.kind === "Err") return result;
+  const [standard, standardInclusive] = result.value;
+  const result2 = groups(invoice, { kind: "Reduced" });
+  if (result2.kind === "Err") return result2;
+  const [reduced, reducedInclusive] = result2.value;
+  const totalResult = add(standard.base, standard.tax);
+  if (totalResult.kind === "Err") return totalResult;
+  let total: I64 = totalResult.value;
+  const addResult = add(total, reduced.base);
+  if (addResult.kind === "Err") return addResult;
+  total = addResult.value;
+  const addResult2 = add(total, reduced.tax);
+  if (addResult2.kind === "Err") return addResult2;
+  total = addResult2.value;
+  const addResult3 = add(total, standardInclusive.base);
+  if (addResult3.kind === "Err") return addResult3;
+  total = addResult3.value;
+  const addResult4 = add(total, reducedInclusive.base);
+  if (addResult4.kind === "Err") return addResult4;
+  total = addResult4.value;
   return Result.ok({
     standard,
     reduced,

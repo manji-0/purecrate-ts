@@ -30,13 +30,16 @@ export const Yen: z.ZodType<DomainYen> = i64.transform((x, ctx): DomainYen => {
 
 export const Rate: z.ZodType<DomainRate> = unitEnum(["Standard", "Reduced"]);
 
-export const Pricing: z.ZodType<DomainPricing> = unitEnum(["Exclusive", "Inclusive"]);
+export const Pricing: z.ZodType<DomainPricing> = unitEnum([
+  "Exclusive",
+  "Inclusive",
+  "FixedRetail",
+]);
 
 export const Rounding: z.ZodType<DomainRounding> = unitEnum(["Down", "Up", "HalfUp"]);
 
-/** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
+/** 問59: the one basis the invoice's totals are on. */
 export const Method: z.ZodType<DomainMethod> = z.union([
-  unitVariant("Separate").transform((): DomainMethod => ({ kind: "Separate" })),
   z
     .object({ ToExclusive: z.object({ conversion: Rounding }) })
     .strict()
@@ -44,6 +47,14 @@ export const Method: z.ZodType<DomainMethod> = z.union([
       kind: "ToExclusive",
       conversion: x.ToExclusive.conversion,
     })),
+  z
+    .object({ ToInclusive: z.object({ conversion: Rounding }) })
+    .strict()
+    .transform((x): DomainMethod => ({
+      kind: "ToInclusive",
+      conversion: x.ToInclusive.conversion,
+    })),
+  unitVariant("Separate").transform((): DomainMethod => ({ kind: "Separate" })),
 ]);
 
 export const Line: z.ZodType<DomainLine> = z.object({ amount: Yen, rate: Rate, pricing: Pricing });
@@ -54,7 +65,7 @@ export const Invoice: z.ZodType<DomainInvoice> = z.object({
   method: Method,
 });
 
-/** One rate and pricing: the total of its amounts and the tax on it. */
+/** One rate and basis: the total of its amounts and the tax on it. */
 export const Group: z.ZodType<DomainGroup> = z.object({ base: Yen, tax: Yen });
 
 export const Summary: z.ZodType<DomainSummary> = z.object({
@@ -65,7 +76,12 @@ export const Summary: z.ZodType<DomainSummary> = z.object({
   total: Yen,
 });
 
-export const InvoiceError: z.ZodType<DomainInvoiceError> = unitEnum(["NegativeAmount", "NoLines"]);
+export const InvoiceError: z.ZodType<DomainInvoiceError> = unitEnum([
+  "NegativeAmount",
+  "NoLines",
+  "MixedPricing",
+  "Overflow",
+]);
 
 /**
  * Each type read from the JSON text serde_json writes, through `parseJson`;
@@ -92,12 +108,16 @@ export const toJson = {
   Rounding: (x: DomainRounding): string => `"${x.kind}"`,
   Method: (x: DomainMethod): string => {
     switch (x.kind) {
-      case "Separate":
-        return '"Separate"';
       case "ToExclusive":
         return Json.object([
           ["ToExclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
         ]);
+      case "ToInclusive":
+        return Json.object([
+          ["ToInclusive", Json.object([["conversion", toJson.Rounding(x.conversion)]])],
+        ]);
+      case "Separate":
+        return '"Separate"';
       default:
         return assertNever(x);
     }
