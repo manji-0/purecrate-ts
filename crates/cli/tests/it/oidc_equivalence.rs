@@ -10,7 +10,8 @@
 //!   §2 compares against) agree on every request below, under each client,
 //!   session and consent, on every sequence of four events from each start
 //!   and every run of up to five, on runs where a concurrent flow moved the
-//!   subject's OTP record, on each code redemption, and on the S256
+//!   subject's OTP record or another subject's password failed, on each
+//!   code redemption, and on the S256
 //!   transform of every length up to 130 bytes;
 //! - the generated package agrees with Rust on the vectors, on every request
 //!   below, and on every run of up to five events, whole `Flow` compared.
@@ -130,22 +131,34 @@ mod idiomatic {
         (43..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
     }
 
-    fn parse_seconds(s: &str) -> Option<i64> {
-        (!s.is_empty() && s.len() <= 18 && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten()
+    /// 43 base64url characters, the last ending in two zero bits.
+    fn s256_challenge_is_valid(s: &str) -> bool {
+        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let index = |b: u8| ALPHABET.iter().position(|&a| a == b);
+        s.len() == 43
+            && s.bytes().all(|b| index(b).is_some())
+            && s.bytes().last().and_then(index).is_some_and(|i| i % 4 == 0)
     }
 
+    fn parse_seconds(s: &str) -> Option<i64> {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten()
+    }
+
+    /// Unknown values are ignored, but count as another value beside `none`.
     fn parse_prompt(s: &str) -> Option<Prompt> {
         let mut p = Prompt::default();
+        let mut others = false;
         for token in s.split(' ').filter(|t| !t.is_empty()) {
             match token {
                 "none" => p.no_interaction = true,
                 "login" => p.login = true,
                 "consent" => p.consent = true,
                 "select_account" => p.select_account = true,
-                _ => return None,
+                _ => {}
             }
+            others |= token != "none";
         }
-        (!(p.no_interaction && (p.login || p.consent || p.select_account))).then_some(p)
+        (!(p.no_interaction && others)).then_some(p)
     }
 
     pub fn validate_request(
@@ -160,7 +173,7 @@ mod idiomatic {
         if !client.redirect_uris.iter().any(|u| u == redirect_uri) {
             return Err(Display(DisplayError::UnregisteredRedirectUri));
         }
-        let echoed = params.state.as_deref().filter(|s| state_is_valid(s));
+        let echoed = params.state.as_deref();
         let fail = |error| {
             AuthorizationError::Redirect(ErrorRedirect {
                 redirect_uri: redirect_uri.to_owned(),
@@ -175,7 +188,7 @@ mod idiomatic {
         }
         let scope =
             params.scope.as_deref().filter(|s| has_token(s, "openid")).ok_or_else(|| fail(ErrorCode::InvalidScope))?;
-        let state = echoed.ok_or_else(|| fail(ErrorCode::InvalidRequest))?;
+        let state = echoed.filter(|s| state_is_valid(s)).ok_or_else(|| fail(ErrorCode::InvalidRequest))?;
         let nonce = match params.nonce.as_deref() {
             Some(n) if !state_is_valid(n) => return Err(fail(ErrorCode::InvalidRequest)),
             n => n.map(str::to_owned),
@@ -188,7 +201,9 @@ mod idiomatic {
                     Some("plain") | None => PkceMethod::Plain,
                     Some(_) => return Err(fail(ErrorCode::InvalidRequest)),
                 };
-                if method == PkceMethod::Plain && !client.allow_plain_pkce {
+                if method == PkceMethod::Plain && !client.allow_plain_pkce
+                    || method == PkceMethod::S256 && !s256_challenge_is_valid(c)
+                {
                     return Err(fail(ErrorCode::InvalidRequest));
                 }
                 Some(Pkce { challenge: c.to_owned(), method })
@@ -328,17 +343,22 @@ mod idiomatic {
         pub acr: String,
     }
     #[derive(Debug, Clone, PartialEq)]
+    pub struct PasswordFailures {
+        pub subject: String,
+        pub failures: u32,
+    }
+    #[derive(Debug, Clone, PartialEq)]
     pub enum Flow {
         AwaitingPassword {
             request: AuthorizationRequest,
             needs_consent: bool,
-            failures: u32,
+            failures: Vec<PasswordFailures>,
             notice: Notice,
         },
         AwaitingOtp {
             request: AuthorizationRequest,
             needs_consent: bool,
-            subject: String,
+            password: Authentication,
             enrollment: TotpEnrollment,
             notice: Notice,
         },
@@ -353,6 +373,7 @@ mod idiomatic {
         Rejected(ErrorRedirect),
         Locked {
             subject: String,
+            otp: Option<OtpRecord>,
         },
     }
     pub enum SecondFactor {
@@ -434,7 +455,7 @@ mod idiomatic {
             (true, Some(_), true) => Err(redirect(ErrorCode::ConsentRequired)),
             (_, Some(auth), _) => Ok(authenticated(request, needs_consent, auth)),
             (false, None, _) => {
-                Ok(Flow::AwaitingPassword { request, needs_consent, failures: 0, notice: Notice::Clear })
+                Ok(Flow::AwaitingPassword { request, needs_consent, failures: Vec::new(), notice: Notice::Clear })
             }
         }
     }
@@ -442,24 +463,45 @@ mod idiomatic {
     pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError> {
         use Event::*;
         use Flow::*;
+        let otp_locked = |subject, e: &TotpEnrollment| Locked {
+            subject,
+            otp: Some(OtpRecord { failures: e.failures, last_used_step: e.last_used_step }),
+        };
         Ok(match (flow, event) {
-            (AwaitingPassword { failures, .. }, PasswordChecked { subject, verified: false, .. })
-                if failures + 1 >= policy.max_password_failures =>
-            {
-                Locked { subject }
-            }
-            (AwaitingPassword { request, needs_consent, failures, .. }, PasswordChecked { verified: false, .. }) => {
-                AwaitingPassword { request, needs_consent, failures: failures + 1, notice: Notice::WrongPassword }
+            (
+                AwaitingPassword { request, needs_consent, mut failures, .. },
+                PasswordChecked { subject, verified: false, .. },
+            ) => {
+                let count = failures.iter().find(|f| f.subject == subject).map_or(0, |f| f.failures) + 1;
+                if count >= policy.max_password_failures {
+                    return Ok(Locked { subject, otp: None });
+                }
+                match failures.iter_mut().find(|f| f.subject == subject) {
+                    Some(f) => f.failures = count,
+                    None => failures.push(PasswordFailures { subject, failures: count }),
+                }
+                AwaitingPassword { request, needs_consent, failures, notice: Notice::WrongPassword }
             }
             (AwaitingPassword { .. }, PasswordChecked { subject, second_factor: SecondFactor::Totp(e), .. })
                 if e.failures >= policy.max_otp_failures =>
             {
-                Locked { subject }
+                otp_locked(subject, &e)
             }
             (
                 AwaitingPassword { request, needs_consent, .. },
-                PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), .. },
-            ) => AwaitingOtp { request, needs_consent, subject, enrollment, notice: Notice::Clear },
+                PasswordChecked { subject, second_factor: SecondFactor::Totp(enrollment), now, .. },
+            ) => AwaitingOtp {
+                request,
+                needs_consent,
+                password: Authentication {
+                    subject,
+                    auth_time: now,
+                    strength: AuthStrength::PasswordOnly,
+                    totp_step: None,
+                },
+                enrollment,
+                notice: Notice::Clear,
+            },
             (
                 AwaitingPassword { request, needs_consent, .. },
                 PasswordChecked { subject, second_factor: SecondFactor::NotEnrolled, now, .. },
@@ -468,13 +510,8 @@ mod idiomatic {
                 needs_consent,
                 Authentication { subject, auth_time: now, strength: AuthStrength::PasswordOnly, totp_step: None },
             ),
-            (AwaitingOtp { subject, enrollment, .. }, OtpSubmitted { stored, .. })
-                if enrollment.failures.max(stored.failures) >= policy.max_otp_failures =>
-            {
-                Locked { subject }
-            }
             (
-                AwaitingOtp { request, needs_consent, subject, enrollment, .. },
+                AwaitingOtp { request, needs_consent, password, enrollment, .. },
                 OtpSubmitted { code, now, candidates, stored },
             ) => {
                 let enrollment = TotpEnrollment {
@@ -482,10 +519,13 @@ mod idiomatic {
                     last_used_step: enrollment.last_used_step.max(stored.last_used_step),
                     ..enrollment
                 };
+                if enrollment.failures >= policy.max_otp_failures {
+                    return Ok(otp_locked(password.subject, &enrollment));
+                }
                 let notice = match check_totp(&code, now, &enrollment, &candidates) {
                     OtpCheck::Accepted(step) => {
                         let auth = Authentication {
-                            subject,
+                            subject: password.subject,
                             auth_time: now,
                             strength: AuthStrength::PasswordAndTotp,
                             totp_step: Some(step),
@@ -496,7 +536,7 @@ mod idiomatic {
                         return Ok(AwaitingOtp {
                             request,
                             needs_consent,
-                            subject,
+                            password,
                             enrollment,
                             notice: Notice::OtpUnavailable,
                         });
@@ -505,17 +545,11 @@ mod idiomatic {
                     OtpCheck::Malformed => Notice::MalformedOtp,
                     OtpCheck::Mismatch => Notice::WrongOtp,
                 };
-                let failures = enrollment.failures + 1;
-                if failures >= policy.max_otp_failures {
-                    Locked { subject }
+                let enrollment = TotpEnrollment { failures: enrollment.failures + 1, ..enrollment };
+                if enrollment.failures >= policy.max_otp_failures {
+                    otp_locked(password.subject, &enrollment)
                 } else {
-                    AwaitingOtp {
-                        request,
-                        needs_consent,
-                        subject,
-                        enrollment: TotpEnrollment { failures, ..enrollment },
-                        notice,
-                    }
+                    AwaitingOtp { request, needs_consent, password, enrollment, notice }
                 }
             }
             (AwaitingConsent { request, auth }, ConsentGranted) => issue(request, auth),
@@ -916,6 +950,18 @@ fn requests() -> Vec<AuthorizationParams> {
             p.state = some("caf\u{e9}");
             p.response_type = some("token");
         },
+        |p| {
+            p.state = Some("s".repeat(513));
+            p.response_type = some("token");
+        },
+        |p| {
+            p.state = None;
+            p.response_type = some("token");
+        },
+        |p| {
+            p.state = some("");
+            p.scope = None;
+        },
         |p| p.nonce = None,
         |p| p.nonce = some("bad\nnonce"),
         |p| p.nonce = some(""),
@@ -929,6 +975,19 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.code_challenge = Some("a".repeat(42)),
         |p| p.code_challenge = Some("a".repeat(128)),
         |p| p.code_challenge = Some("a".repeat(129)),
+        |p| p.code_challenge = Some("a".repeat(43)),
+        |p| p.code_challenge = Some("A".repeat(43)),
+        |p| p.code_challenge = Some("_".repeat(43)),
+        |p| p.code_challenge = Some(format!("{CHALLENGE}A")),
+        |p| p.code_challenge = some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw.cM"),
+        |p| {
+            p.code_challenge = Some("a".repeat(128));
+            p.code_challenge_method = some("plain");
+        },
+        |p| {
+            p.code_challenge = Some("a".repeat(44));
+            p.code_challenge_method = None;
+        },
         |p| p.code_challenge = some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw+cM"),
         |p| p.code_challenge = some("\u{e9}E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-c"),
         |p| p.code_challenge_method = some("plain"),
@@ -949,6 +1008,13 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.prompt = some("none login"),
         |p| p.prompt = some("none consent"),
         |p| p.prompt = some("bogus"),
+        |p| p.prompt = some("login bogus"),
+        |p| p.prompt = some("none bogus"),
+        |p| p.prompt = some("bogus none"),
+        |p| {
+            p.prompt = some("bogus");
+            p.code_challenge = None;
+        },
         |p| p.max_age = some("0"),
         |p| p.max_age = some("1"),
         |p| {
@@ -959,6 +1025,10 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.max_age = some("100"),
         |p| p.max_age = some("999999999999999999"),
         |p| p.max_age = some("9999999999999999999"),
+        |p| p.max_age = some("1000000000000000000"),
+        |p| p.max_age = some("9223372036854775807"),
+        |p| p.max_age = some("9223372036854775808"),
+        |p| p.max_age = some("00000000000000000000100"),
         |p| p.max_age = some("-1"),
         |p| p.max_age = some("+5"),
         |p| p.max_age = some(""),
@@ -1014,9 +1084,30 @@ fn each_request_error_is_redirected_or_shown() {
     assert_eq!(with(|p| p.response_type = None), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.scope = some("profile")), redirect(E::InvalidScope, Some("xyz")));
     assert_eq!(with(|p| p.state = None), redirect(E::InvalidRequest, None));
+    // A state outside this OP's bound is refused, and still echoed exactly
+    // as received (RFC 6749 §4.1.2.1, OIDC Core §3.1.2.6), whatever error
+    // comes first.
+    assert_eq!(with(|p| p.state = some("caf\u{e9}")), redirect(E::InvalidRequest, Some("caf\u{e9}")));
+    assert_eq!(with(|p| p.state = some("")), redirect(E::InvalidRequest, Some("")));
     assert_eq!(
         with(|p| {
             p.state = some("caf\u{e9}");
+            p.response_type = some("token");
+        }),
+        redirect(E::UnsupportedResponseType, Some("caf\u{e9}"))
+    );
+    let long = "s".repeat(513);
+    assert_eq!(
+        with(|p| {
+            p.state = Some("s".repeat(513));
+            p.response_type = some("token");
+        }),
+        redirect(E::UnsupportedResponseType, Some(&long))
+    );
+    assert_eq!(with(|p| p.state = Some("s".repeat(513))), redirect(E::InvalidRequest, Some(&long)));
+    assert_eq!(
+        with(|p| {
+            p.state = None;
             p.response_type = some("token");
         }),
         redirect(E::UnsupportedResponseType, None)
@@ -1025,9 +1116,48 @@ fn each_request_error_is_redirected_or_shown() {
     assert_eq!(with(|p| p.code_challenge = None), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.code_challenge_method = some("plain")), redirect(E::InvalidRequest, Some("xyz")));
     assert_eq!(with(|p| p.prompt = some("none login")), redirect(E::InvalidRequest, Some("xyz")));
+    // An unknown prompt value is ignored (OIDC Core §3.1.2.1 allows either),
+    // but beside `none` it is still another value, an error.
+    assert_eq!(with(|p| p.prompt = some("bogus")), Ok(()));
+    assert_eq!(with(|p| p.prompt = some("login bogus")), Ok(()));
+    assert_eq!(with(|p| p.prompt = some("none bogus")), redirect(E::InvalidRequest, Some("xyz")));
+    assert_eq!(with(|p| p.prompt = some("none none")), Ok(()));
     assert_eq!(with(|p| p.max_age = some("-1")), redirect(E::InvalidRequest, Some("xyz")));
-    // A confidential client may omit PKCE, or use plain.
+    assert_eq!(with(|p| p.max_age = some("+5")), redirect(E::InvalidRequest, Some("xyz")));
+    // max_age: every i64 value, leading zeros included; past i64::MAX refused.
+    assert_eq!(with(|p| p.max_age = some("1000000000000000000")), Ok(()));
+    assert_eq!(with(|p| p.max_age = some("9223372036854775807")), Ok(()));
+    assert_eq!(with(|p| p.max_age = some("00000000000000000000100")), Ok(()));
+    assert_eq!(with(|p| p.max_age = some("9223372036854775808")), redirect(E::InvalidRequest, Some("xyz")));
+    // An S256 challenge is BASE64URL(SHA256(verifier)) (RFC 7636 §4.2): 43
+    // characters, the last ending in two zero bits; anything else could not
+    // match any verifier and is refused.
+    assert_eq!(with(|p| p.code_challenge = Some("A".repeat(43))), Ok(()));
+    assert_eq!(with(|p| p.code_challenge = some(CHALLENGE)), Ok(()));
+    for refused in [
+        "a".repeat(43),
+        "a".repeat(44),
+        "a".repeat(128),
+        format!("{CHALLENGE}A"),
+        CHALLENGE.replace('-', "."),
+        CHALLENGE.replace('-', "~"),
+    ] {
+        let mut p = base();
+        p.code_challenge = Some(refused.clone());
+        assert_eq!(
+            oidc::validate_request(&p, &strict()).map(|_| ()),
+            redirect(E::InvalidRequest, Some("xyz")),
+            "{refused}"
+        );
+    }
+    // A confidential client may omit PKCE, or use plain, whose challenge is
+    // the verifier itself (43..=128 characters).
     let mut p = base();
+    p.code_challenge = Some("a".repeat(128));
+    p.code_challenge_method = some("plain");
+    assert!(oidc::validate_request(&p, &lax()).is_ok());
+    p.code_challenge_method = None;
+    assert!(oidc::validate_request(&p, &lax()).is_ok());
     p.code_challenge = None;
     p.code_challenge_method = None;
     assert!(oidc::validate_request(&p, &lax()).is_ok());
@@ -1124,7 +1254,8 @@ const OTP_AT: i64 = 59;
 /// MAC is supplied), malformed, and before T0; consent both ways. Past the
 /// alphabet, two submissions of the code for T after a concurrent flow for
 /// the same subject moved the record: one used up the attempts (12), one
-/// accepted the code for T (13).
+/// accepted the code for T (13); and a wrong password for another subject
+/// (14).
 const EVENTS: u8 = 12;
 
 fn password(verified: bool, second_factor: SecondFactor) -> Event {
@@ -1164,7 +1295,13 @@ fn event(code: u8) -> Event {
         10 => Event::ConsentGranted,
         11 => Event::ConsentDenied,
         12 => otp_with("287082", OTP_AT, OtpRecord { failures: 3, last_used_step: None }),
-        _ => otp_with("287082", OTP_AT, OtpRecord { failures: 0, last_used_step: Some(1) }),
+        13 => otp_with("287082", OTP_AT, OtpRecord { failures: 0, last_used_step: Some(1) }),
+        _ => Event::PasswordChecked {
+            subject: "bob".into(),
+            verified: false,
+            second_factor: SecondFactor::NotEnrolled,
+            now: PASSWORD_AT,
+        },
     }
 }
 
@@ -1212,6 +1349,13 @@ fn trace(s: &Setup, codes: &[u8]) -> Result<oidc::Flow, oidc::RunError> {
     oidc::trace(&s.params, &s.client, &s.session, s.consent_on_file, s.now, &s.policy, script(codes))
 }
 
+/// These events from a fresh login, no consent on file.
+fn trace_events(events: Vec<Event>) -> Result<oidc::Flow, oidc::RunError> {
+    let s = setup(&strict(), base(), Start::Fresh);
+    let script = events.into_iter().rev().fold(Script::End, |rest, e| Script::Then(e, Box::new(rest)));
+    oidc::trace(&s.params, &s.client, &s.session, false, s.now, &s.policy, script)
+}
+
 /// The grant of a full two-factor login from `start`.
 fn grant(client: &Option<Client>, params: AuthorizationParams, start: Start) -> oidc::CodeGrant {
     let codes: &[u8] = match start {
@@ -1244,7 +1388,7 @@ fn logins_run_as_the_rfcs_say() {
     );
     // The step accepted is what the caller records.
     let accepted = |codes: &[u8]| match trace(&fresh, codes) {
-        Ok(Flow::AwaitingConsent { auth, .. }) => auth.totp_step,
+        Ok(Flow::AwaitingConsent { auth, .. }) => auth.totp_step(),
         other => panic!("{other:?}"),
     };
     assert_eq!(accepted(&[1, 4]), Some(1));
@@ -1264,14 +1408,48 @@ fn logins_run_as_the_rfcs_say() {
         (Notice::OtpUnavailable, 0),
         "before T0: the server's clock, not the End-User, so not counted"
     );
-    // Attempt limits (RFC 4226 §7.3), then nothing more is accepted.
-    let locked = Ok(Flow::Locked { subject: "alice".into() });
+    // Attempt limits (RFC 4226 §7.3), then nothing more is accepted. An OTP
+    // lock reports the record at the limit, for the caller to store.
+    let at_limit = OtpRecord { failures: 3, last_used_step: None };
+    let locked = Ok(Flow::Locked { subject: "alice".into(), otp: Some(at_limit) });
+    let password_locked = Ok(Flow::Locked { subject: "alice".into(), otp: None });
     assert!(matches!(run(&[1, 7, 8]), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));
     assert_eq!(run(&[1, 7, 8, 7]), locked);
     assert_eq!(run(&[1, 7, 8, 7, 4]), Err(RunError::Step { index: 4, error: oidc::FlowError::InvalidTransition }));
-    assert_eq!(run(&[0, 0, 0]), locked);
+    assert_eq!(run(&[0, 0, 0]), password_locked);
     assert!(matches!(run(&[0, 0, 1]), Ok(Flow::AwaitingOtp { .. })), "failures below the limit do not lock");
-    assert_eq!(trace(&setup(&strict(), base(), Start::Tight), &[0]), locked);
+    assert_eq!(trace(&setup(&strict(), base(), Start::Tight), &[0]), password_locked);
+    // Wrong passwords count per subject: two other accounts' failures do not
+    // lock alice after her first (the review's x1, x2, victim).
+    let wrong = |who: &str| Event::PasswordChecked {
+        subject: who.into(),
+        verified: false,
+        second_factor: SecondFactor::NotEnrolled,
+        now: PASSWORD_AT,
+    };
+    let play = trace_events;
+    let counts = |r: Result<Flow, RunError>| match r {
+        Ok(Flow::AwaitingPassword { failures, notice: Notice::WrongPassword, .. }) => {
+            failures.into_iter().map(|f| (f.subject, f.failures)).collect::<Vec<_>>()
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        counts(play(vec![wrong("x1"), wrong("x2"), wrong("alice")])),
+        [("x1".to_string(), 1), ("x2".to_string(), 1), ("alice".to_string(), 1)]
+    );
+    assert_eq!(
+        counts(play(vec![wrong("x1"), wrong("alice"), wrong("x1"), wrong("alice")])),
+        [("x1".to_string(), 2), ("alice".to_string(), 2)]
+    );
+    assert_eq!(
+        play(vec![wrong("x1"), wrong("alice"), wrong("x1"), wrong("alice"), wrong("x1")]),
+        Ok(Flow::Locked { subject: "x1".into(), otp: None }),
+        "only the subject whose own count reached the limit"
+    );
+    assert_eq!(play(vec![wrong("x1"), wrong("x2"), wrong("alice"), wrong("alice"), wrong("alice")]), password_locked);
+    assert!(matches!(run(&[14, 14, 0, 0, 1]), Ok(Flow::AwaitingOtp { .. })), "bob's failures are bob's");
+    assert_eq!(run(&[14, 0, 14, 0, 0]), password_locked);
     // Failures stored from an earlier flow count: a new flow does not reset them.
     let stored = |failures, wrong_code: bool| {
         let e = TotpEnrollment { failures, ..enrollment(OtpDigits::Six, None) };
@@ -1318,6 +1496,53 @@ fn logins_run_as_the_rfcs_say() {
         )
     };
     assert_eq!(behind(2, None, "969429"), locked, "a record older than the flow's own count does not reset it");
+    // The record a lock reports stops every other flow by itself (the
+    // review's flow B, whose own count was 2, with the right code), and a
+    // new flow at the password check.
+    let reported = match run(&[1, 7, 8, 7]) {
+        Ok(Flow::Locked { otp: Some(r), .. }) => r,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(reported, at_limit);
+    let other_flow = |own: u32| {
+        let s = setup(&strict(), base(), Start::Fresh);
+        let then = |ev, rest| oidc::Script::Then(ev, Box::new(rest));
+        let e = TotpEnrollment { failures: own, ..enrollment(OtpDigits::Six, None) };
+        oidc::trace(
+            &s.params,
+            &s.client,
+            &s.session,
+            false,
+            s.now,
+            &s.policy,
+            then(password(true, SecondFactor::Totp(e)), then(otp_with("287082", OTP_AT, reported), oidc::Script::End)),
+        )
+    };
+    assert_eq!(other_flow(2), locked, "flow B, right code, after A's lock");
+    assert_eq!(other_flow(0), locked);
+    let new_flow = TotpEnrollment { failures: reported.failures, ..enrollment(OtpDigits::Six, None) };
+    assert_eq!(trace_events(vec![password(true, SecondFactor::Totp(new_flow))]), locked);
+    // The authentication record is closed: outside the crate a flow cannot
+    // be assembled with an `Authentication` (rustc E0451, and a brand in
+    // TS); it is read through its accessors.
+    match run(&[1]) {
+        Ok(Flow::AwaitingOtp { password, .. }) => {
+            assert_eq!(
+                (password.subject().as_str(), password.auth_time(), password.strength(), password.totp_step()),
+                ("alice", PASSWORD_AT, AuthStrength::PasswordOnly, None)
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    match run(&[1, 4]) {
+        Ok(Flow::AwaitingConsent { auth, .. }) => {
+            assert_eq!(
+                (auth.subject().as_str(), auth.auth_time(), auth.strength(), auth.totp_step()),
+                ("alice", OTP_AT, AuthStrength::PasswordAndTotp, Some(1))
+            );
+        }
+        other => panic!("{other:?}"),
+    }
     assert!(
         matches!(behind(0, Some(1), "287082"), Ok(Flow::AwaitingOtp { notice: Notice::OtpReplayed, .. })),
         "nor forget the last used step"
@@ -1684,11 +1909,12 @@ fn pkce_inputs() -> Vec<String> {
     out
 }
 
-/// Runs that meet a record another flow moved (events 12 and 13): each
-/// placed after up to two events of the alphabet, then one more event.
+/// Runs that meet a record another flow moved (events 12 and 13), or a
+/// wrong password for another subject (14): each placed after up to two
+/// events of the alphabet, then one more event.
 fn concurrent_runs() -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    for moved in [12u8, 13] {
+    for moved in [12u8, 13, 14] {
         for prefix in sequences(2).chain(sequences(1)) {
             for last in 0..EVENTS {
                 let mut codes = prefix.clone();

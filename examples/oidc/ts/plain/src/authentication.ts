@@ -3,23 +3,47 @@
 import type { I64 } from "./purecrate-runtime.ts";
 import type { AuthStrength } from "./auth-strength.ts";
 
-/** A completed authentication. */
+/**
+ * An authentication the flow performed or a session supplied. Only `begin`
+ * and `step` build one, so a caller cannot assemble a `Flow` that names a
+ * subject or a strength nobody proved (the fields of `Flow`'s variants are
+ * public, as an enum's are).
+ */
+declare class Authentication$brand {
+  private brand: unknown;
+}
 export type Authentication = Readonly<{
   subject: string;
   auth_time: I64;
   strength: AuthStrength;
+  totp_step: I64 | null;
+}> &
+  Authentication$brand;
+
+/**
+ * Makes `Authentication` values without a check.
+ *
+ * Its fields are not `pub` in Rust, so outside the crate a value comes only
+ * from the crate's functions; the generated files build them here, and
+ * `index.ts` does not export it.
+ * @internal
+ */
+export const unsafeMakeAuthentication = (
+  fields: Readonly<{
+    subject: string;
+    auth_time: I64;
+    strength: AuthStrength;
+    totp_step: I64 | null;
+  }>,
+): Authentication => fields as Authentication;
+
+export const Authentication = {
+  subject: (self: Authentication): string => self.subject,
+  authTime: (self: Authentication): I64 => self.auth_time,
+  strength: (self: Authentication): AuthStrength => self.strength,
   /**
    * The TOTP step accepted in this flow; the caller stores it as the new
    * `last_used_step`.
    */
-  totp_step: I64 | null;
-}>;
-
-export const Authentication = {
-  of: (
-    subject: string,
-    authTime: I64,
-    strength: AuthStrength,
-    totpStep: I64 | null,
-  ): Authentication => ({ subject, auth_time: authTime, strength, totp_step: totpStep }),
+  totpStep: (self: Authentication): I64 | null => self.totp_step,
 } as const;

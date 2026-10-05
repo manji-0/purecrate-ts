@@ -7,7 +7,7 @@
 //   §3.1.2.6 error responses.
 // - RFC 6749 §4.1 authorization code grant, §4.1.2.1 error response,
 //   §10.12 CSRF (`state`), Appendix A.5 (`state` syntax).
-// - RFC 7636 PKCE §4.1-§4.6.
+// - RFC 7636 PKCE §4.1-§4.6; RFC 4648 §5 base64url.
 // - RFC 4226 HOTP §5.3 dynamic truncation, §7.3 throttling.
 // - RFC 6238 TOTP §4.2 time step, §5.2 validation window and replay.
 // - RFC 8176 `amr` values.
@@ -18,26 +18,52 @@
 // generates the code, and stores the returned values: the code grant, and
 // per subject the TOTP record (`OtpRecord`: `failures` and `last_used_step`)
 // and the lock a `Locked` flow names. The record is written from each
-// `AwaitingOtp`, and once a code is accepted from the `totp_step` of
+// `AwaitingOtp`, from the `otp` of a `Locked` flow (`failures` at the
+// limit), and once a code is accepted from the `totp_step` of
 // `AwaitingConsent` or `CodeIssued`, whichever the flow reaches first
 // (`failures` back to 0). Each flow reads the record again, at the password
-// check and with every submitted OTP, and counts the larger of its own and
-// the stored values; so neither a new flow nor several concurrent ones grant
-// more OTP attempts than the limit (RFC 4226 §7.3), and a code accepted in
-// one flow is refused in every other (RFC 6238 §5.2). The caller writes the
+// check and with every submitted OTP, counts the larger of its own and the
+// stored values, and locks once that reaches the limit; so the stored record
+// alone stops every other flow and every new one after a lock, and neither a
+// new flow nor several concurrent ones grant more OTP attempts than the
+// limit (RFC 4226 §7.3: "across login sessions"), and a code accepted in one
+// flow is refused in every other (RFC 6238 §5.2). The caller writes the
 // record atomically per subject (one OTP check at a time, or compare-and-set).
 // The PKCE S256 transform (SHA-256, base64url) is computed here, from the
 // verifier itself (RFC 7636 §4.6).
 //
+// `Authentication` is closed: only `begin` and `step` build one, so a `Flow`
+// a caller assembles itself (the variants' fields are public) cannot name a
+// subject past the password check or a strength nobody proved.
+// `AuthorizationRequest` is closed the same way. The counts a variant
+// carries (`AwaitingPassword.failures`, `AwaitingOtp.enrollment`) stay open:
+// a flow assembled with them reset is no more than a new flow, which the
+// stored OTP record and the caller's per-account throttling already bound.
+//
 // Policy choices, not the specifications':
 // - `state` is required, and `state` and `nonce` are each 1 to 512 VSCHAR
-//   (RFC 6749 Appendix A.5); OIDC puts no limit on `nonce`;
+//   (RFC 6749 Appendix A.5); OIDC puts no limit on `nonce`. A `state`
+//   outside that bound is refused with invalid_request, yet every error
+//   redirect still echoes it exactly as received, since RFC 6749 §4.1.2.1
+//   and OIDC §3.1.2.6 require `state` whenever the request carried one; the
+//   caller's HTTP layer bounds the length of the whole request;
+// - a `prompt` value other than none, login, consent, select_account is
+//   ignored (OIDC §3.1.2.1: the OP "MAY return an error or it MAY ignore
+//   it"), but it is still "any other value" beside `none`, an error;
+// - `max_age` is ASCII digits, any value up to i64::MAX (larger ones are
+//   invalid_request; no session can be older than i64::MAX seconds anyway);
+// - an S256 `code_challenge` must be 43 base64url characters whose last
+//   one ends in two zero bits, the only form BASE64URL(SHA256(..)) takes
+//   (RFC 7636 §4.2); any other could never match a verifier;
 // - a session is reused only when it already meets `acr_values=mfa`;
 //   otherwise the End-User logs in again with both factors. A fresh login
 //   without a TOTP enrollment still succeeds with the weaker acr, since
 //   acr_values is voluntary (§3.1.2.1);
-// - the password attempt limit counts within one flow; throttling password
-//   checks per account (NIST SP 800-63B-4 §3.2.2) is the caller's.
+// - wrong passwords count per subject within one flow, and only a subject
+//   whose own count reaches the limit is locked; the list grows by one entry
+//   per distinct subject tried, and guesses spread over many subjects lock
+//   none of them. Throttling password checks per account across flows (NIST SP
+//   800-63B-4 §3.2.2) is the caller's.
 //
 // Left out on purpose:
 // - response types other than `code` (implicit, hybrid), `response_mode`;
@@ -231,7 +257,8 @@ pub const ACR_MFA: &str = "urn:example:acr:mfa";
 /// The acr value this OP asserts for password-only logins.
 pub const ACR_PASSWORD: &str = "urn:example:acr:pwd";
 
-/// The OP bounds `state` so it cannot be used to bloat redirects.
+/// The longest `state` the OP accepts and carries into a grant. An error
+/// redirect echoes whatever was received (see the header).
 const MAX_STATE_LEN: usize = 512;
 
 /// RFC 7636 §4.1: a code verifier (and a plain challenge) is 43..=128
@@ -239,8 +266,9 @@ const MAX_STATE_LEN: usize = 512;
 const PKCE_MIN_LEN: usize = 43;
 const PKCE_MAX_LEN: usize = 128;
 
-/// Decimal digits that always fit in i64.
-const MAX_SECONDS_DIGITS: usize = 18;
+/// An S256 challenge is the base64url of a SHA-256 output, 32 bytes, so 43
+/// characters without padding (RFC 7636 §4.2, RFC 4648 §5).
+const S256_CHALLENGE_LEN: usize = 43;
 
 /// An HMAC-SHA-1 output, the shortest MAC RFC 4226 truncates.
 const SHA1_LEN: usize = 20;
@@ -270,28 +298,49 @@ pub fn pkce_string_is_valid(s: &String) -> bool {
             .all(|b| matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~'))
 }
 
-/// A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1).
-/// At most `MAX_SECONDS_DIGITS` digits so the value fits in i64.
+/// Whether an S256 challenge can be the transform of some verifier: 43
+/// base64url characters, the last of which carries 4 bits of the hash and 2
+/// zero bits (RFC 7636 §4.2, RFC 4648 §3.5, §5). Any other challenge would
+/// be stored and match no verifier at the token endpoint.
+fn s256_challenge_is_valid(s: &String) -> bool {
+    if s.len() != S256_CHALLENGE_LEN
+        || !s.bytes().all(|c| matches!(c, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_'))
+    {
+        return false;
+    }
+    // The last character's value in the base64url alphabet (RFC 4648 §5).
+    let last = s.as_bytes()[S256_CHALLENGE_LEN - 1];
+    let value = match last {
+        b'A'..=b'Z' => last - b'A',
+        b'a'..=b'z' => last - b'a' + 26,
+        b'0'..=b'9' => last - b'0' + 52,
+        b'-' => 62,
+        _ => 63,
+    };
+    value % 4 == 0
+}
+
+/// A non-negative decimal integer such as `max_age` (OIDC Core §3.1.2.1):
+/// ASCII digits only (no sign), leading zeros allowed, at most i64::MAX.
 fn parse_seconds(s: &String) -> Option<i64> {
-    if s.is_empty() || s.len() > MAX_SECONDS_DIGITS || !s.bytes().all(|b| matches!(b, b'0'..=b'9')) {
+    if s.is_empty() || !s.bytes().all(|b| matches!(b, b'0'..=b'9')) {
         return None;
     }
     s.parse::<i64>().ok()
 }
 
-/// Parses `prompt`. Unknown values and `none` combined with anything else
-/// are invalid_request (OIDC Core §3.1.2.1).
+/// Parses `prompt` (OIDC Core §3.1.2.1). `none` with any other value is an
+/// error, as the section requires; a value outside the four defined ones
+/// is ignored, which the section allows ("MAY return an error or it MAY
+/// ignore it"), except that it still counts as another value beside `none`.
 fn parse_prompt(s: &String) -> Option<Prompt> {
-    if !s.split(' ').all(|t| matches!(t, "" | "none" | "login" | "consent" | "select_account")) {
-        return None;
-    }
     let prompt = Prompt {
         no_interaction: has_token(s, "none"),
         login: has_token(s, "login"),
         consent: has_token(s, "consent"),
         select_account: has_token(s, "select_account"),
     };
-    if prompt.no_interaction && (prompt.login || prompt.consent || prompt.select_account) {
+    if prompt.no_interaction && !s.split(' ').all(|t| matches!(t, "" | "none")) {
         return None;
     }
     Some(prompt)
@@ -334,12 +383,11 @@ pub fn validate_request(
     if !redirect_uri_registered(client, redirect_uri) {
         return Err(AuthorizationError::Display(DisplayError::UnregisteredRedirectUri));
     }
-    // From here on the redirect target is trusted. Echo state only if it
-    // is well formed; a malformed state is not reflected.
-    let echoed = match &params.state {
-        Some(s) if state_is_valid(s) => Some(s.clone()),
-        _ => None,
-    };
+    // From here on the redirect target is trusted. Every error echoes the
+    // state exactly as received whenever the request carried one, well
+    // formed or not (RFC 6749 §4.1.2.1, OIDC Core §3.1.2.6: "REQUIRED if
+    // the Authorization Request included the state parameter").
+    let echoed = params.state.clone();
     let fail = |error: ErrorCode| redirect_error(redirect_uri, error, &echoed);
     match &params.response_type {
         Some(rt) if rt == "code" => {}
@@ -352,8 +400,12 @@ pub fn validate_request(
         Some(s) if has_token(s, "openid") => s,
         _ => return Err(fail(ErrorCode::InvalidScope)),
     };
-    // RFC 6749 §10.12: this OP requires state from every client.
-    let state = echoed.clone().ok_or(fail(ErrorCode::InvalidRequest))?;
+    // RFC 6749 §10.12: this OP requires state from every client, and
+    // accepts only 1 to 512 VSCHAR (RFC 6749 Appendix A.5).
+    let state = match &params.state {
+        Some(s) if state_is_valid(s) => s.clone(),
+        _ => return Err(fail(ErrorCode::InvalidRequest)),
+    };
     if matches!(&params.nonce, Some(n) if !state_is_valid(n)) {
         return Err(fail(ErrorCode::InvalidRequest));
     }
@@ -369,6 +421,9 @@ pub fn validate_request(
                 Some(_) => return Err(fail(ErrorCode::InvalidRequest)),
             };
             if matches!(method, PkceMethod::Plain) && !client.allow_plain_pkce {
+                return Err(fail(ErrorCode::InvalidRequest));
+            }
+            if matches!(method, PkceMethod::S256) && !s256_challenge_is_valid(challenge) {
                 return Err(fail(ErrorCode::InvalidRequest));
             }
             Some(Pkce {
@@ -556,15 +611,44 @@ pub enum Notice {
     OtpUnavailable,
 }
 
-/// A completed authentication.
+/// An authentication the flow performed or a session supplied. Only `begin`
+/// and `step` build one, so a caller cannot assemble a `Flow` that names a
+/// subject or a strength nobody proved (the fields of `Flow`'s variants are
+/// public, as an enum's are).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authentication {
-    pub subject: String,
-    pub auth_time: i64,
-    pub strength: AuthStrength,
+    subject: String,
+    auth_time: i64,
+    strength: AuthStrength,
+    totp_step: Option<i64>,
+}
+
+/// Read access for the login UI and the server.
+impl Authentication {
+    pub fn subject(&self) -> &String {
+        &self.subject
+    }
+
+    pub fn auth_time(&self) -> i64 {
+        self.auth_time
+    }
+
+    pub fn strength(&self) -> AuthStrength {
+        self.strength
+    }
+
     /// The TOTP step accepted in this flow; the caller stores it as the new
     /// `last_used_step`.
-    pub totp_step: Option<i64>,
+    pub fn totp_step(&self) -> Option<i64> {
+        self.totp_step
+    }
+}
+
+/// Wrong passwords for one subject within a flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasswordFailures {
+    pub subject: String,
+    pub failures: u32,
 }
 
 /// What the token endpoint needs to redeem the code (RFC 6749 §4.1.3) and
@@ -587,18 +671,20 @@ pub struct CodeGrant {
 pub enum Flow {
     /// `needs_consent`: no consent on file, or `prompt=consent`; without it
     /// the code is issued as soon as the End-User is authenticated.
+    /// `failures`: wrong passwords in this flow, per subject typed.
     AwaitingPassword {
         request: AuthorizationRequest,
         needs_consent: bool,
-        failures: u32,
+        failures: Vec<PasswordFailures>,
         notice: Notice,
     },
-    /// The caller stores `enrollment.failures` and `last_used_step` as the
-    /// subject's `OtpRecord` after each attempt.
+    /// `password`: the password check that passed (strength
+    /// `PasswordOnly`). The caller stores `enrollment.failures` and
+    /// `last_used_step` as the subject's `OtpRecord` after each attempt.
     AwaitingOtp {
         request: AuthorizationRequest,
         needs_consent: bool,
-        subject: String,
+        password: Authentication,
         enrollment: TotpEnrollment,
         notice: Notice,
     },
@@ -613,8 +699,11 @@ pub enum Flow {
     /// Terminal: redirect to the client with an error (e.g. consent denied).
     Rejected(ErrorRedirect),
     /// Terminal: too many failures; shown to the End-User, not redirected.
-    /// The caller locks `subject`.
-    Locked { subject: String },
+    /// The caller locks `subject`. `otp`: after a TOTP lock, the record to
+    /// store, with `failures` at the limit, so that every other flow and
+    /// every new one finds the subject locked from the record alone; `None`
+    /// after a password lock.
+    Locked { subject: String, otp: Option<OtpRecord> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -673,13 +762,48 @@ fn authenticated(request: AuthorizationRequest, needs_consent: bool, auth: Authe
     }
 }
 
-/// One more failure, or `None` at the limit.
-fn counted(failures: u32, limit: u32) -> Option<u32> {
-    let failures = failures + 1;
-    if failures >= limit {
-        None
-    } else {
-        Some(failures)
+/// The wrong passwords counted for `subject` in this flow.
+fn failures_of(list: &Vec<PasswordFailures>, subject: &String) -> u32 {
+    for f in list {
+        if f.subject == *subject {
+            return f.failures;
+        }
+    }
+    0
+}
+
+/// `list` with `subject`'s count set to `failures`, in place or appended.
+fn with_failures(list: &Vec<PasswordFailures>, subject: &String, failures: u32) -> Vec<PasswordFailures> {
+    let mut out: Vec<PasswordFailures> = Vec::new();
+    let mut found = false;
+    for f in list {
+        if f.subject == *subject {
+            out.push(PasswordFailures {
+                subject: subject.clone(),
+                failures,
+            });
+            found = true;
+        } else {
+            out.push(f.clone());
+        }
+    }
+    if !found {
+        out.push(PasswordFailures {
+            subject: subject.clone(),
+            failures,
+        });
+    }
+    out
+}
+
+/// The OTP lock, with the record the caller stores.
+fn otp_locked(subject: String, enrollment: &TotpEnrollment) -> Flow {
+    Flow::Locked {
+        subject,
+        otp: Some(OtpRecord {
+            failures: enrollment.failures,
+            last_used_step: enrollment.last_used_step,
+        }),
     }
 }
 
@@ -757,7 +881,7 @@ pub fn begin(
         None => Ok(Flow::AwaitingPassword {
             request,
             needs_consent,
-            failures: 0,
+            failures: Vec::new(),
             notice: Notice::Clear,
         }),
     }
@@ -776,15 +900,20 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
             Event::PasswordChecked {
                 subject, verified: false, ..
             },
-        ) => match counted(failures, policy.max_password_failures) {
-            Some(failures) => Ok(Flow::AwaitingPassword {
+        ) => {
+            // Counted per subject: a wrong password for one account does
+            // not bring another closer to its lock.
+            let count = failures_of(&failures, &subject) + 1;
+            if count >= policy.max_password_failures {
+                return Ok(Flow::Locked { subject, otp: None });
+            }
+            Ok(Flow::AwaitingPassword {
                 request,
                 needs_consent,
-                failures,
+                failures: with_failures(&failures, &subject, count),
                 notice: Notice::WrongPassword,
-            }),
-            None => Ok(Flow::Locked { subject }),
-        },
+            })
+        }
         (
             Flow::AwaitingPassword {
                 request, needs_consent, ..
@@ -798,12 +927,17 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
         ) => match second_factor {
             // Failures stored from earlier flows count here too.
             SecondFactor::Totp(enrollment) if enrollment.failures >= policy.max_otp_failures => {
-                Ok(Flow::Locked { subject })
+                Ok(otp_locked(subject, &enrollment))
             }
             SecondFactor::Totp(enrollment) => Ok(Flow::AwaitingOtp {
                 request,
                 needs_consent,
-                subject,
+                password: Authentication {
+                    subject,
+                    auth_time: now,
+                    strength: AuthStrength::PasswordOnly,
+                    totp_step: None,
+                },
                 enrollment,
                 notice: Notice::Clear,
             }),
@@ -823,7 +957,7 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
             Flow::AwaitingOtp {
                 request,
                 needs_consent,
-                subject,
+                password,
                 enrollment,
                 ..
             },
@@ -843,12 +977,12 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                 ..enrollment
             };
             if enrollment.failures >= policy.max_otp_failures {
-                return Ok(Flow::Locked { subject });
+                return Ok(otp_locked(password.subject, &enrollment));
             }
             let notice = match check_totp(&code, now, &enrollment, &candidates) {
                 OtpCheck::Accepted(step) => {
                     let auth = Authentication {
-                        subject,
+                        subject: password.subject,
                         auth_time: now,
                         strength: AuthStrength::PasswordAndTotp,
                         totp_step: Some(step),
@@ -859,7 +993,7 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                     return Ok(Flow::AwaitingOtp {
                         request,
                         needs_consent,
-                        subject,
+                        password,
                         enrollment,
                         notice: Notice::OtpUnavailable,
                     });
@@ -868,17 +1002,22 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                 OtpCheck::Malformed => Notice::MalformedOtp,
                 OtpCheck::Mismatch => Notice::WrongOtp,
             };
-            // RFC 4226 §7.3: every rejected value counts toward the limit.
-            match counted(enrollment.failures, policy.max_otp_failures) {
-                Some(failures) => Ok(Flow::AwaitingOtp {
-                    request,
-                    needs_consent,
-                    subject,
-                    enrollment: TotpEnrollment { failures, ..enrollment },
-                    notice,
-                }),
-                None => Ok(Flow::Locked { subject }),
+            // RFC 4226 §7.3: every rejected value counts toward the limit;
+            // the lock reports the count that reached it.
+            let enrollment = TotpEnrollment {
+                failures: enrollment.failures + 1,
+                ..enrollment
+            };
+            if enrollment.failures >= policy.max_otp_failures {
+                return Ok(otp_locked(password.subject, &enrollment));
             }
+            Ok(Flow::AwaitingOtp {
+                request,
+                needs_consent,
+                password,
+                enrollment,
+                notice,
+            })
         }
         (Flow::AwaitingConsent { request, auth }, Event::ConsentGranted) => Ok(issue(request, auth)),
         (Flow::AwaitingConsent { request, .. }, Event::ConsentDenied) => Ok(Flow::Rejected(ErrorRedirect {

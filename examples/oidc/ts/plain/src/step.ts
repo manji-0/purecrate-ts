@@ -2,21 +2,57 @@
 
 import { assertNever, Int, Result, Str, type I64, type U32 } from "./purecrate-runtime.ts";
 import { authenticated } from "./authenticated.ts";
-import type { Authentication } from "./authentication.ts";
+import { unsafeMakeAuthentication, type Authentication } from "./authentication.ts";
 import { checkTotp } from "./check-totp.ts";
 import type { Event } from "./event.ts";
 import type { FlowError } from "./flow-error.ts";
 import type { Flow } from "./flow.ts";
 import { issue } from "./issue.ts";
 import type { Notice } from "./notice.ts";
+import type { PasswordFailures } from "./password-failures.ts";
 import type { Policy } from "./policy.ts";
 import type { TotpEnrollment } from "./totp-enrollment.ts";
 
-/** One more failure, or `None` at the limit. */
-const counted = (failures: U32, limit: U32): U32 | null => {
-  const failures2 = Int.u32.add(failures, 1 as U32);
-  return failures2 >= limit ? null : failures2;
+/** The wrong passwords counted for `subject` in this flow. */
+const failuresOf = (list: ReadonlyArray<PasswordFailures>, subject: string): U32 => {
+  for (const f of list) {
+    if (f.subject === subject) return f.failures;
+  }
+
+  return 0 as U32;
 };
+
+/** `list` with `subject`'s count set to `failures`, in place or appended. */
+const withFailures = (
+  list: ReadonlyArray<PasswordFailures>,
+  subject: string,
+  failures: U32,
+): ReadonlyArray<PasswordFailures> => {
+  const out: Array<PasswordFailures> = [];
+  let found = false;
+
+  for (const f of list) {
+    if (f.subject === subject) {
+      out.push({ subject, failures });
+      found = true;
+    } else {
+      out.push(f);
+    }
+  }
+
+  if (!found) {
+    out.push({ subject, failures });
+  }
+
+  return out;
+};
+
+/** The OTP lock, with the record the caller stores. */
+const otpLocked = (subject: string, enrollment: TotpEnrollment): Flow => ({
+  kind: "Locked",
+  subject,
+  otp: { failures: enrollment.failures, last_used_step: enrollment.last_used_step },
+});
 
 /** The later of two last-used steps. */
 const laterStep = (a: I64 | null, b: I64 | null): I64 | null =>
@@ -38,19 +74,18 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
       const now = event.now;
 
       if (!verified) {
-        const option = counted(failures, policy.max_password_failures);
-        if (option !== null) {
-          const failures2 = option;
-          return Result.ok({
-            kind: "AwaitingPassword",
-            request,
-            needs_consent: needsConsent,
-            failures: failures2,
-            notice: { kind: "WrongPassword" },
-          });
-        }
-
-        return Result.ok({ kind: "Locked", subject });
+        // Counted per subject: a wrong password for one account does
+        // not bring another closer to its lock.
+        const count = Int.u32.add(failuresOf(failures, subject), 1 as U32);
+        if (count >= policy.max_password_failures)
+          return Result.ok({ kind: "Locked", subject, otp: null });
+        return Result.ok({
+          kind: "AwaitingPassword",
+          request,
+          needs_consent: needsConsent,
+          failures: withFailures(failures, subject, count),
+          notice: { kind: "WrongPassword" },
+        });
       }
 
       switch (secondFactor.kind) {
@@ -58,14 +93,19 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           const enrollment = secondFactor.value;
           if (enrollment.failures >= policy.max_otp_failures) {
             // Failures stored from earlier flows count here too.
-            return Result.ok({ kind: "Locked", subject });
+            return Result.ok(otpLocked(subject, enrollment));
           }
 
           return Result.ok({
             kind: "AwaitingOtp",
             request,
             needs_consent: needsConsent,
-            subject,
+            password: unsafeMakeAuthentication({
+              subject,
+              auth_time: now,
+              strength: { kind: "PasswordOnly" },
+              totp_step: null,
+            }),
             enrollment,
             notice: { kind: "Clear" },
           });
@@ -73,12 +113,12 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
         case "NotEnrolled": {
           // acr_values is a voluntary claim (§3.1.2.1): proceed and
           // report the weaker acr rather than fail.
-          const auth: Authentication = {
+          const auth: Authentication = unsafeMakeAuthentication({
             subject,
             auth_time: now,
             strength: { kind: "PasswordOnly" },
             totp_step: null,
-          };
+          });
           return Result.ok(authenticated(request, needsConsent, auth));
         }
         default:
@@ -88,7 +128,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
     case "AwaitingOtp": {
       const request = flow.request;
       const needsConsent = flow.needs_consent;
-      const { subject, enrollment } = flow;
+      const { password, enrollment } = flow;
       if (event.kind !== "OtpSubmitted") return Result.err({ kind: "InvalidTransition" });
       const { code, now, candidates, stored } = event;
 
@@ -101,19 +141,19 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
         last_used_step: laterStep(enrollment.last_used_step, stored.last_used_step),
       };
       if (enrollment2.failures >= policy.max_otp_failures)
-        return Result.ok({ kind: "Locked", subject });
+        return Result.ok(otpLocked(password.subject, enrollment2));
 
       let notice: Notice;
       const otpCheck = checkTotp(code, now, enrollment2, candidates);
       switch (otpCheck.kind) {
         case "Accepted": {
           const step2 = otpCheck.value;
-          const auth: Authentication = {
-            subject,
+          const auth: Authentication = unsafeMakeAuthentication({
+            subject: password.subject,
             auth_time: now,
             strength: { kind: "PasswordAndTotp" },
             totp_step: step2,
-          };
+          });
           return Result.ok(authenticated(request, needsConsent, auth));
         }
         case "ClockBeforeEpoch":
@@ -121,7 +161,7 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
             kind: "AwaitingOtp",
             request,
             needs_consent: needsConsent,
-            subject,
+            password,
             enrollment: enrollment2,
             notice: { kind: "OtpUnavailable" },
           });
@@ -138,21 +178,22 @@ export const step = (flow: Flow, event: Event, policy: Policy): Result<Flow, Flo
           return assertNever(otpCheck);
       }
 
-      // RFC 4226 §7.3: every rejected value counts toward the limit.
-      const option = counted(enrollment2.failures, policy.max_otp_failures);
-      if (option !== null) {
-        const failures = option;
-        return Result.ok({
-          kind: "AwaitingOtp",
-          request,
-          needs_consent: needsConsent,
-          subject,
-          enrollment: { ...enrollment2, failures },
-          notice,
-        });
-      }
-
-      return Result.ok({ kind: "Locked", subject });
+      // RFC 4226 §7.3: every rejected value counts toward the limit;
+      // the lock reports the count that reached it.
+      const enrollment3: TotpEnrollment = {
+        ...enrollment2,
+        failures: Int.u32.add(enrollment2.failures, 1 as U32),
+      };
+      if (enrollment3.failures >= policy.max_otp_failures)
+        return Result.ok(otpLocked(password.subject, enrollment3));
+      return Result.ok({
+        kind: "AwaitingOtp",
+        request,
+        needs_consent: needsConsent,
+        password,
+        enrollment: enrollment3,
+        notice,
+      });
     }
     case "AwaitingConsent": {
       const { request, auth } = flow;

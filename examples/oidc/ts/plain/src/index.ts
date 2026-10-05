@@ -31,6 +31,7 @@ export { OtpCheck } from "./otp-check.ts";
 export { checkTotp } from "./check-totp.ts";
 export { Notice } from "./notice.ts";
 export { Authentication } from "./authentication.ts";
+export { PasswordFailures } from "./password-failures.ts";
 export { CodeGrant } from "./code-grant.ts";
 export { Flow } from "./flow.ts";
 export { SecondFactor } from "./second-factor.ts";

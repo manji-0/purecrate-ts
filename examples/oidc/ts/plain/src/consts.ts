@@ -6,7 +6,10 @@ import type { Usize } from "./purecrate-runtime.ts";
 export const ACR_MFA: string = "urn:example:acr:mfa";
 /** The acr value this OP asserts for password-only logins. */
 export const ACR_PASSWORD: string = "urn:example:acr:pwd";
-/** The OP bounds `state` so it cannot be used to bloat redirects. */
+/**
+ * The longest `state` the OP accepts and carries into a grant. An error
+ * redirect echoes whatever was received (see the header).
+ */
 export const MAX_STATE_LEN = 512 as Usize;
 /**
  * RFC 7636 §4.1: a code verifier (and a plain challenge) is 43..=128
@@ -14,7 +17,10 @@ export const MAX_STATE_LEN = 512 as Usize;
  */
 export const PKCE_MIN_LEN = 43 as Usize;
 export const PKCE_MAX_LEN = 128 as Usize;
-/** Decimal digits that always fit in i64. */
-export const MAX_SECONDS_DIGITS = 18 as Usize;
+/**
+ * An S256 challenge is the base64url of a SHA-256 output, 32 bytes, so 43
+ * characters without padding (RFC 7636 §4.2, RFC 4648 §5).
+ */
+export const S256_CHALLENGE_LEN = 43 as Usize;
 /** An HMAC-SHA-1 output, the shortest MAC RFC 4226 truncates. */
 export const SHA1_LEN = 20 as Usize;
