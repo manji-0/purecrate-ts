@@ -36,6 +36,11 @@ if (parsed.kind === "Ok") {
     const older: Account = Account.birthday(opened.value);
     const years: U8 = older.age;
     void years;
+    // @ts-expect-error: a spread of an `Account` is not one (its brand is a
+    // class's private member, which a spread leaves out), as Rust refuses
+    // `Account { age, ..older }` outside the module
+    const updated: Account = { ...older, age };
+    void updated;
   }
 }
 
@@ -47,8 +52,7 @@ Account.of(parsed, age);
 const e: Email = "x";
 // @ts-expect-error: an object literal is not an `Account`
 const a: Account = { email: e, age };
-// @ts-expect-error: nor is one that writes out a brand key (it is a symbol
-// only the type's own file declares)
+// @ts-expect-error: nor is one that writes out a brand key
 const forged: Account = { email: e, age, "closed.Account": true };
 // @ts-expect-error: the package-internal constructor is not exported
 pkg.Email$of;

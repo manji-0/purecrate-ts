@@ -28,6 +28,9 @@ thread_local! {
     /// Closed structs of the crate `emit` is printing (design/01 §4). The
     /// expression printer has no `Crate`; `emit` sets this for its duration.
     pub(crate) static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// Each closed struct's fields, in order, likewise: an update of one
+    /// names every field (`expr::emit_struct_update`).
+    pub(crate) static CLOSED_FIELDS: RefCell<BTreeMap<String, Vec<String>>> = const { RefCell::new(BTreeMap::new()) };
     /// Structs of the crate, likewise: a place of one needs no `as` to
     /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
     pub(crate) static STRUCTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
@@ -213,6 +216,19 @@ pub(super) fn private_methods(krate: &Crate) -> BTreeSet<(String, String)> {
 /// not from `index.ts`, and the package's `exports` reach no other file.
 pub(crate) fn closed_ctor(name: &str) -> String {
     internal_name(&Internal::Ctor(name.to_string()))
+}
+
+pub(crate) fn closed_fields(krate: &Crate) -> BTreeMap<String, Vec<String>> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(st) if st.closed => {
+                Some((st.name.as_str().to_string(), st.fields.iter().map(|f| f.name.as_str().to_string()).collect()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 pub(crate) fn closed_names(krate: &Crate) -> BTreeSet<String> {

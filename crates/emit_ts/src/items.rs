@@ -191,6 +191,18 @@ fn closed_brand(name: &str) -> (String, String) {
     (format!("declare const {name}$brand: unique symbol;\n"), format!("{{ readonly [{name}$brand]: true }}"))
 }
 
+/// A closed struct's brand: an instance of a class its own file declares,
+/// with a `private` member, which no object but one the package casts can
+/// have. A symbol-keyed brand is a property, which object spread copies
+/// (`{ ...line, qty: 0 }` would be a `Line` with no cast), where Rust refuses
+/// the same update outside the module (E0451); TS leaves a class's private
+/// members out of a spread's type. The class exists only in the types
+/// (a `#brand` would read to oxlint as a member never used).
+/// The declaration, then the brand.
+fn struct_brand(name: &str) -> (String, String) {
+    (format!("declare class {name}$brand {{\n  private brand: unknown;\n}}\n"), format!("{name}$brand"))
+}
+
 /// A newtype is its inner value at runtime (as in serde's JSON), branded so
 /// that `Id` and the bare inner type do not mix.
 pub(crate) fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
@@ -214,8 +226,10 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
     let name = st.name.as_str();
     let shape =
         st.fields.iter().map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty))).collect::<Vec<_>>().join("; ");
-    let (declared, branded) = closed_brand(name);
-    let mut out = format!("{declared}export type {name} = Readonly<{{\n{fields}\n}}> & {branded};\n\n");
+    let (declared, branded) = struct_brand(name);
+    // A type name after a many-line object type goes on a line of its own,
+    // as oxfmt lays out the intersection.
+    let mut out = format!("{declared}export type {name} = Readonly<{{\n{fields}\n}}> &\n  {branded};\n\n");
     out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
     out.push_str(&format!("export const {name} = {{\n"));
     out.push_str(&companion_methods(krate, name));

@@ -7,7 +7,9 @@ import type { Freq } from "./freq.ts";
 import type { RuleEnd } from "./rule-end.ts";
 
 /** A valid recurrence rule. Only [`parse_rrule`] makes one. */
-declare const Rule$brand: unique symbol;
+declare class Rule$brand {
+  private brand: unknown;
+}
 export type Rule = Readonly<{
   freq: Freq;
   interval: I64;
@@ -16,7 +18,8 @@ export type Rule = Readonly<{
   by_month_day: ReadonlyArray<I64>;
   by_month: ReadonlyArray<I64>;
   wkst: DayOfWeek;
-}> & { readonly [Rule$brand]: true };
+}> &
+  Rule$brand;
 
 /**
  * Makes `Rule` values without a check.

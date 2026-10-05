@@ -4,12 +4,15 @@ import type { Instant } from "./instant.ts";
 import type { Offset } from "./offset.ts";
 
 /** A valid RFC 3339 date-time. Only [`parse_rfc3339`] makes one. */
-declare const Timestamp$brand: unique symbol;
+declare class Timestamp$brand {
+  private brand: unknown;
+}
 export type Timestamp = Readonly<{
   instant: Instant;
   offset: Offset;
   leap_second: boolean;
-}> & { readonly [Timestamp$brand]: true };
+}> &
+  Timestamp$brand;
 
 /**
  * Makes `Timestamp` values without a check.

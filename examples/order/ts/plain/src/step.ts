@@ -28,7 +28,7 @@ const addLine = (
     } else {
       const qty = Int.u32.checkedAdd(l.qty, line.qty);
       if (qty === null) return Result.err({ kind: "Overflow" });
-      out.push(unsafeMakeLine({ ...l, qty }));
+      out.push(unsafeMakeLine({ sku: l.sku, unit_price: l.unit_price, qty }));
       merged = true;
     }
   }

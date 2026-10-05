@@ -17,14 +17,17 @@ import type { PreId } from "./pre-id.ts";
 import type { SemverError } from "./semver-error.ts";
 
 /** A valid semantic version. Only [`Version::parse`] makes one. */
-declare const Version$brand: unique symbol;
+declare class Version$brand {
+  private brand: unknown;
+}
 export type Version = Readonly<{
   major: U64;
   minor: U64;
   patch: U64;
   pre: ReadonlyArray<PreId>;
   build: ReadonlyArray<string>;
-}> & { readonly [Version$brand]: true };
+}> &
+  Version$brand;
 
 /**
  * Makes `Version` values without a check.

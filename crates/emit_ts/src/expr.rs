@@ -424,7 +424,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             }
             (None, None) => emit_struct_value(fields),
             (None, Some(base)) if is_closed(ty.as_str()) => {
-                format!("{}{}", closed_ctor(ty.as_str()), emit_struct_update(fields, base))
+                format!("{}{}", closed_ctor(ty.as_str()), emit_closed_update(ty.as_str(), fields, base))
             }
             (None, Some(base)) => emit_struct_update(fields, base),
             (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
@@ -729,6 +729,27 @@ pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
     for (name, expr) in pairs {
         parts.push(field_pair(name.as_str(), emit_item(expr, 0)));
     }
+    format!("({{ {} }})", parts.join(", "))
+}
+
+/// A closed struct's update names every field, `{ sku: l.sku, qty }`, where
+/// the base is a place: the brand is a class's `private` member, and
+/// oxlint refuses a spread of what reads as a class instance (it would lose
+/// the prototype, which this one does not have). A base that is no place is
+/// read once, by the spread.
+fn emit_closed_update(ty: &str, fields: &Fields, base: &Expr) -> String {
+    let names = crate::CLOSED_FIELDS.with(|c| c.borrow().get(ty).cloned());
+    let (Fields::Named(pairs), Some(names), true) = (fields, names, is_place(base)) else {
+        return emit_struct_update(fields, base);
+    };
+    let base = emit_expr(base, 0);
+    let parts: Vec<String> = names
+        .iter()
+        .map(|n| match pairs.iter().find(|(f, _)| f.as_str() == n) {
+            Some((_, e)) => field_pair(n, emit_item(e, 0)),
+            None => field_pair(n, format!("{}.{n}", receiver(Tx::atom(base.clone())))),
+        })
+        .collect();
     format!("({{ {} }})", parts.join(", "))
 }
 

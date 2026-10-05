@@ -10,11 +10,14 @@ import type { UncheckedIntent } from "./unchecked-intent.ts";
  * An intent whose amounts agree with its terms: `PaymentIntent::new`
  * checks them, and `step` keeps them (see `consistent`).
  */
-declare const PaymentIntent$brand: unique symbol;
+declare class PaymentIntent$brand {
+  private brand: unknown;
+}
 export type PaymentIntent = Readonly<{
   terms: Terms;
   status: Status;
-}> & { readonly [PaymentIntent$brand]: true };
+}> &
+  PaymentIntent$brand;
 
 /**
  * Makes `PaymentIntent` values without a check.

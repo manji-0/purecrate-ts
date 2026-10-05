@@ -5,12 +5,15 @@ import type { OrderError } from "./order-error.ts";
 import type { Sku } from "./sku.ts";
 import type { Yen } from "./yen.ts";
 
-declare const Line$brand: unique symbol;
+declare class Line$brand {
+  private brand: unknown;
+}
 export type Line = Readonly<{
   sku: Sku;
   unit_price: Yen;
   qty: U32;
-}> & { readonly [Line$brand]: true };
+}> &
+  Line$brand;
 
 /**
  * Makes `Line` values without a check.
