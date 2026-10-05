@@ -4,11 +4,14 @@
 //!
 //! - the published vectors come out as printed: RFC 4226 Appendix D (the
 //!   ten HMAC-SHA-1 values to HOTP codes), RFC 6238 Appendix B (the SHA-1
-//!   rows, eight digits), RFC 7636 Appendix B (verifier and challenge);
+//!   rows, eight digits), RFC 7636 Appendix B (verifier and challenge,
+//!   through the example's own SHA-256 and base64url);
 //! - the same rules in idiomatic Rust (`idiomatic`, the line count design/07
 //!   §2 compares against) agree on every request below, under each client,
 //!   session and consent, on every sequence of four events from each start
-//!   and every run of up to five, and on each code redemption;
+//!   and every run of up to five, on runs where a concurrent flow moved the
+//!   subject's OTP record, on each code redemption, and on the S256
+//!   transform of every length up to 130 bytes;
 //! - the generated package agrees with Rust on the vectors, on every request
 //!   below, and on every run of up to five events, whole `Flow` compared.
 
@@ -223,6 +226,11 @@ mod idiomatic {
         Seven,
         Eight,
     }
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct OtpRecord {
+        pub failures: u32,
+        pub last_used_step: Option<i64>,
+    }
     #[derive(Debug, Clone, PartialEq)]
     pub struct TotpEnrollment {
         pub t0: i64,
@@ -338,7 +346,10 @@ mod idiomatic {
             request: AuthorizationRequest,
             auth: Authentication,
         },
-        CodeIssued(CodeGrant),
+        CodeIssued {
+            grant: CodeGrant,
+            totp_step: Option<i64>,
+        },
         Rejected(ErrorRedirect),
         Locked {
             subject: String,
@@ -350,7 +361,7 @@ mod idiomatic {
     }
     pub enum Event {
         PasswordChecked { subject: String, verified: bool, second_factor: SecondFactor, now: i64 },
-        OtpSubmitted { code: String, now: i64, candidates: Vec<StepMac> },
+        OtpSubmitted { code: String, now: i64, candidates: Vec<StepMac>, stored: OtpRecord },
         ConsentGranted,
         ConsentDenied,
     }
@@ -372,24 +383,27 @@ mod idiomatic {
             AuthStrength::PasswordOnly => (&["pwd"], ACR_PASSWORD),
             AuthStrength::PasswordAndTotp => (&["pwd", "otp", "mfa"], ACR_MFA),
         };
-        Flow::CodeIssued(CodeGrant {
-            client_id: request.client_id,
-            redirect_uri: request.redirect_uri,
-            scope: request.scope,
-            state: request.state,
-            nonce: request.nonce,
-            pkce: request.pkce,
-            subject: auth.subject,
-            auth_time: auth.auth_time,
-            amr: amr.iter().map(|s| s.to_string()).collect(),
-            acr: acr.to_owned(),
-        })
+        Flow::CodeIssued {
+            grant: CodeGrant {
+                client_id: request.client_id,
+                redirect_uri: request.redirect_uri,
+                scope: request.scope,
+                state: request.state,
+                nonce: request.nonce,
+                pkce: request.pkce,
+                subject: auth.subject,
+                auth_time: auth.auth_time,
+                amr: amr.iter().map(|s| s.to_string()).collect(),
+                acr: acr.to_owned(),
+            },
+            totp_step: auth.totp_step,
+        }
     }
 
     pub fn session_is_usable(request: &AuthorizationRequest, session: &Session, now: i64) -> bool {
         !request.prompt.login
             && !request.prompt.select_account
-            && request.max_age.is_none_or(|m| now - session.auth_time <= m)
+            && request.max_age.is_none_or(|m| m > 0 && now - session.auth_time <= m)
             && (!request.wants_mfa || session.strength == AuthStrength::PasswordAndTotp)
     }
 
@@ -454,10 +468,20 @@ mod idiomatic {
                 needs_consent,
                 Authentication { subject, auth_time: now, strength: AuthStrength::PasswordOnly, totp_step: None },
             ),
+            (AwaitingOtp { subject, enrollment, .. }, OtpSubmitted { stored, .. })
+                if enrollment.failures.max(stored.failures) >= policy.max_otp_failures =>
+            {
+                Locked { subject }
+            }
             (
                 AwaitingOtp { request, needs_consent, subject, enrollment, .. },
-                OtpSubmitted { code, now, candidates },
+                OtpSubmitted { code, now, candidates, stored },
             ) => {
+                let enrollment = TotpEnrollment {
+                    failures: enrollment.failures.max(stored.failures),
+                    last_used_step: enrollment.last_used_step.max(stored.last_used_step),
+                    ..enrollment
+                };
                 let notice = match check_totp(&code, now, &enrollment, &candidates) {
                     OtpCheck::Accepted(step) => {
                         let auth = Authentication {
@@ -510,12 +534,78 @@ mod idiomatic {
         InvalidGrant,
     }
 
+    /// FIPS 180-4 SHA-256.
+    fn sha256(msg: &[u8]) -> [u8; 32] {
+        const K: [u32; 64] = [
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
+            0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+            0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
+            0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+            0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+            0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+            0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+            0xc67178f2,
+        ];
+        let mut h: [u32; 8] =
+            [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+        let mut data = msg.to_vec();
+        data.push(0x80);
+        while data.len() % 64 != 56 {
+            data.push(0);
+        }
+        data.extend_from_slice(&(msg.len() as u64 * 8).to_be_bytes());
+        for chunk in data.chunks(64) {
+            let mut w = [0u32; 64];
+            for t in 0..64 {
+                w[t] = if t < 16 {
+                    u32::from_be_bytes(chunk[t * 4..t * 4 + 4].try_into().expect("4 bytes"))
+                } else {
+                    let s0 = w[t - 15].rotate_right(7) ^ w[t - 15].rotate_right(18) ^ (w[t - 15] >> 3);
+                    let s1 = w[t - 2].rotate_right(17) ^ w[t - 2].rotate_right(19) ^ (w[t - 2] >> 10);
+                    w[t - 16].wrapping_add(s0).wrapping_add(w[t - 7]).wrapping_add(s1)
+                };
+            }
+            let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+            for t in 0..64 {
+                let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+                let ch = (e & f) ^ (!e & g);
+                let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[t]).wrapping_add(w[t]);
+                let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+                let t2 = s0.wrapping_add((a & b) ^ (a & c) ^ (b & c));
+                (hh, g, f, e, d, c, b, a) = (g, f, e, d.wrapping_add(t1), c, b, a, t1.wrapping_add(t2));
+            }
+            for (x, y) in h.iter_mut().zip([a, b, c, d, e, f, g, hh]) {
+                *x = x.wrapping_add(y);
+            }
+        }
+        let mut out = [0u8; 32];
+        for (i, x) in h.iter().enumerate() {
+            out[i * 4..i * 4 + 4].copy_from_slice(&x.to_be_bytes());
+        }
+        out
+    }
+
+    /// RFC 4648 §5 base64url without padding.
+    fn base64url(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let bits: Vec<bool> = bytes.iter().flat_map(|b| (0..8).rev().map(move |i| b >> i & 1 == 1)).collect();
+        bits.chunks(6)
+            .map(|c| {
+                let v = (0..6).fold(0usize, |v, i| v << 1 | usize::from(c.get(i).copied().unwrap_or(false)));
+                char::from(ALPHABET[v])
+            })
+            .collect()
+    }
+
+    pub fn pkce_s256(verifier: &str) -> String {
+        base64url(&sha256(verifier.as_bytes()))
+    }
+
     pub fn check_redemption(
         grant: &CodeGrant,
         client_id: &str,
         redirect_uri: &str,
         code_verifier: Option<&str>,
-        verifier_s256: Option<&str>,
     ) -> Result<(), TokenError> {
         if grant.client_id != client_id || grant.redirect_uri != redirect_uri {
             return Err(TokenError::InvalidGrant);
@@ -527,7 +617,7 @@ mod idiomatic {
             (Some(p), Some(v)) => {
                 let ok = match p.method {
                     PkceMethod::Plain => v == p.challenge,
-                    PkceMethod::S256 => verifier_s256 == Some(p.challenge.as_str()),
+                    PkceMethod::S256 => pkce_s256(v) == p.challenge,
                 };
                 ok.then_some(()).ok_or(TokenError::InvalidGrant)
             }
@@ -567,7 +657,7 @@ const APPENDIX_B: [(i64, &str); 6] = [
 ];
 
 /// RFC 7636 Appendix B: code_verifier and its S256 code_challenge.
-const VERIFIER: &str = "dBjftJeZ4CVP-mJ0DXYvF5Bi6MpSsTr0ArHHf4vk4Yw";
+const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 fn unhex(s: &str) -> Vec<u8> {
@@ -624,7 +714,7 @@ fn mac_for_step(step: i64) -> Vec<u8> {
     sha1(&outer).to_vec()
 }
 
-use oidc::{OtpCheck, OtpDigits, StepMac, TotpEnrollment};
+use oidc::{OtpCheck, OtpDigits, OtpRecord, StepMac, TotpEnrollment};
 
 fn enrollment(digits: OtpDigits, last_used_step: Option<i64>) -> TotpEnrollment {
     TotpEnrollment { t0: 0, period: 30, digits, last_used_step, failures: 0 }
@@ -679,22 +769,43 @@ fn the_published_vectors_come_out_as_printed() {
         assert_eq!(oidc::check_totp(&code, now, &enrollment(OtpDigits::Eight, None), &others), OtpCheck::Mismatch);
     }
 
-    // RFC 7636 Appendix B: both strings are well formed (§4.1, §4.2), and a
-    // grant with the S256 challenge redeems with that verifier (§4.6).
+    // RFC 7636 Appendix B: both strings are well formed (§4.1, §4.2), the
+    // S256 transform of the verifier is the challenge, and a grant with that
+    // challenge redeems with the verifier and nothing else (§4.6).
     assert!(oidc::pkce_string_is_valid(&VERIFIER.to_string()));
     assert!(oidc::pkce_string_is_valid(&CHALLENGE.to_string()));
+    assert_eq!(oidc::pkce_s256(&VERIFIER.to_string()), CHALLENGE);
+    assert_eq!(idiomatic::pkce_s256(VERIFIER), CHALLENGE);
+    for (message, expected) in SHA256_VECTORS {
+        assert_eq!(oidc::pkce_s256(&message.to_string()), expected, "S256 of {message:?}");
+        assert_eq!(idiomatic::pkce_s256(message), expected);
+    }
     let grant = grant(&strict(), base(), Start::Fresh);
-    let verifier = Some(VERIFIER.to_string());
-    assert_eq!(
-        oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &verifier, &Some(CHALLENGE.to_string())),
-        Ok(())
-    );
-    assert_eq!(
-        oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &verifier, &Some(VERIFIER.to_string())),
-        Err(oidc::TokenError::InvalidGrant),
-        "S256 compares the hash, not the verifier"
-    );
+    let redeem = |v: &str| oidc::check_redemption(&grant, &"app".to_string(), &CB.to_string(), &Some(v.to_string()));
+    assert_eq!(redeem(VERIFIER), Ok(()));
+    assert_eq!(redeem(CHALLENGE), Err(oidc::TokenError::InvalidGrant), "the challenge itself is not a verifier");
+    assert_eq!(redeem(&VERIFIER.replace('d', "e")), Err(oidc::TokenError::InvalidGrant));
 }
+
+/// SHA-256 then base64url of FIPS 180-4's examples ("abc", the two-block
+/// message), the empty string, and lengths around a block boundary (55, 56,
+/// 64, 128 bytes), as `pkce_s256` encodes them: computed with Python's
+/// `hashlib.sha256` and `base64.urlsafe_b64encode`, padding removed.
+const SHA256_VECTORS: [(&str, &str); 7] = [
+    ("", "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"),
+    ("abc", "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0"),
+    (
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+        "JI1qYdIGOLjlwCaTDD5gOaM85Flk_yFn9uzt1BnbBsE",
+    ),
+    ("0123456789012345678901234567890123456789012345678901234", "801aD4DAy_hMjAuQIYwiY3q9GZllJJ2nNqIBQ8jJydk"),
+    ("01234567890123456789012345678901234567890123456789012345", "g6oDS9qD5Fig3Jy84NTjVHFqoP93DtN6wO0rKSBS5K8"),
+    ("0123456789012345678901234567890123456789012345678901234567890123", "lnTZ4HhTW3zsQyhDh6buOZVhiOc1qFRSsAULVTQc2lY"),
+    (
+        "01234567890123456789012345678901234567890123456789012345678901230123456789012345678901234567890123456789012345678901234567890123",
+        "j1YJAXdgOlKCInHsUEGgujSWLDQccO_Wu4YnDfJ435E",
+    ),
+];
 
 // ---------------------------------------------------------------------------
 // Requests
@@ -746,13 +857,14 @@ fn session(auth_time: i64, strength: AuthStrength) -> Option<Session> {
 }
 
 /// No session; a password-only one and a two-factor one 100 s old; a
-/// two-factor one from the epoch.
-fn sessions() -> [Option<Session>; 4] {
+/// two-factor one from the epoch; a two-factor one from this second.
+fn sessions() -> [Option<Session>; 5] {
     [
         None,
         session(NOW - 100, AuthStrength::PasswordOnly),
         session(NOW - 100, AuthStrength::PasswordAndTotp),
         session(0, AuthStrength::PasswordAndTotp),
+        session(NOW, AuthStrength::PasswordAndTotp),
     ]
 }
 
@@ -838,6 +950,11 @@ fn requests() -> Vec<AuthorizationParams> {
         |p| p.prompt = some("none consent"),
         |p| p.prompt = some("bogus"),
         |p| p.max_age = some("0"),
+        |p| p.max_age = some("1"),
+        |p| {
+            p.max_age = some("0");
+            p.prompt = some("none");
+        },
         |p| p.max_age = some("99"),
         |p| p.max_age = some("100"),
         |p| p.max_age = some("999999999999999999"),
@@ -952,6 +1069,23 @@ fn prompt_and_max_age_decide_on_the_session() {
     assert!(is(&begin(|p| p.max_age = some("100"), mfa(), true), "CodeIssued"));
     assert!(is(&begin(|p| p.max_age = some("99"), mfa(), true), "AwaitingPassword"));
     assert!(is(&begin(|p| p.max_age = some("0"), mfa(), true), "AwaitingPassword"));
+    // max_age=0 is prompt=login: not even a session from this second is
+    // reused (OIDC Core §3.1.2.1); max_age=1 reuses it.
+    let now = || session(NOW, AuthStrength::PasswordAndTotp);
+    assert!(is(&begin(|_| {}, now(), true), "CodeIssued"));
+    assert!(is(&begin(|p| p.max_age = some("0"), now(), true), "AwaitingPassword"));
+    assert!(is(&begin(|p| p.max_age = some("1"), now(), true), "CodeIssued"));
+    assert_eq!(
+        error(begin(
+            |p| {
+                p.max_age = some("0");
+                p.prompt = some("none");
+            },
+            now(),
+            true
+        )),
+        Some(E::LoginRequired)
+    );
     assert_eq!(
         error(begin(
             |p| {
@@ -968,7 +1102,7 @@ fn prompt_and_max_age_decide_on_the_session() {
     assert!(is(&begin(|p| p.acr_values = some("urn:example:acr:mfa"), mfa(), true), "CodeIssued"));
     // A reused session keeps its auth_time and strength.
     match begin(|_| {}, pwd(), true) {
-        Ok(Flow::CodeIssued(g)) => {
+        Ok(Flow::CodeIssued { grant: g, totp_step: None }) => {
             assert_eq!((g.auth_time, g.acr.as_str()), (NOW - 100, "urn:example:acr:pwd"));
             assert_eq!(g.amr, oidc::amr_values(AuthStrength::PasswordOnly));
         }
@@ -987,19 +1121,31 @@ const OTP_AT: i64 = 59;
 
 /// Each event of the alphabet: passwords wrong and right with each second
 /// factor; codes for T, T-1, T+1, and T+2 (outside the window although its
-/// MAC is supplied), malformed, and before T0; consent both ways.
+/// MAC is supplied), malformed, and before T0; consent both ways. Past the
+/// alphabet, two submissions of the code for T after a concurrent flow for
+/// the same subject moved the record: one used up the attempts (12), one
+/// accepted the code for T (13).
 const EVENTS: u8 = 12;
 
 fn password(verified: bool, second_factor: SecondFactor) -> Event {
     Event::PasswordChecked { subject: "alice".into(), verified, second_factor, now: PASSWORD_AT }
 }
 
-fn otp(code: &str, now: i64) -> Event {
+/// The record as the caller reads it for the submission: what this flow
+/// left, unless another flow for the same subject moved it.
+fn otp_with(code: &str, now: i64, stored: OtpRecord) -> Event {
     Event::OtpSubmitted {
         code: code.into(),
         now,
         candidates: (0..4).map(|s| StepMac { step: s as i64, mac: unhex(APPENDIX_D[s].0) }).collect(),
+        stored,
     }
+}
+
+const UNTOUCHED: OtpRecord = OtpRecord { failures: 0, last_used_step: None };
+
+fn otp(code: &str, now: i64) -> Event {
+    otp_with(code, now, UNTOUCHED)
 }
 
 fn event(code: u8) -> Event {
@@ -1016,7 +1162,9 @@ fn event(code: u8) -> Event {
         8 => otp("12a456", OTP_AT),
         9 => otp("287082", -1),
         10 => Event::ConsentGranted,
-        _ => Event::ConsentDenied,
+        11 => Event::ConsentDenied,
+        12 => otp_with("287082", OTP_AT, OtpRecord { failures: 3, last_used_step: None }),
+        _ => otp_with("287082", OTP_AT, OtpRecord { failures: 0, last_used_step: Some(1) }),
     }
 }
 
@@ -1071,7 +1219,7 @@ fn grant(client: &Option<Client>, params: AuthorizationParams, start: Start) -> 
         _ => &[1, 4, 10],
     };
     match trace(&setup(client, params, start), codes) {
-        Ok(oidc::Flow::CodeIssued(g)) => g,
+        Ok(oidc::Flow::CodeIssued { grant, .. }) => grant,
         other => panic!("no code: {other:?}"),
     }
 }
@@ -1144,14 +1292,62 @@ fn logins_run_as_the_rfcs_say() {
     assert_eq!(stored(3), locked, "at the limit already, before any code");
     assert_eq!(stored(2), locked, "one short, then a wrong code");
     assert!(matches!(stored(1), Ok(Flow::AwaitingOtp { enrollment: TotpEnrollment { failures: 2, .. }, .. })));
-    // Consent on file: the code is issued as soon as both factors pass.
+    // Concurrent flows for one subject share the stored record (RFC 4226
+    // §7.3, RFC 6238 §5.2): attempts another flow used up lock this one
+    // before its code is checked, and a code another flow accepted is a
+    // replay here; the flow's own count is not lowered by a stale record.
+    assert_eq!(run(&[1, 12]), locked, "another flow reached the limit");
+    assert_eq!(run(&[1, 7, 12]), locked);
+    assert_eq!(notice(&[1, 13]), (Notice::OtpReplayed, 1), "another flow accepted step 1");
+    assert_eq!(accepted(&[1, 13, 6]), Some(2), "a later step still passes");
+    // The flow read failures and a last used step at the password check; the
+    // record read at submission is older and holds neither.
+    let behind = |failures, last_used_step, code: &str| {
+        let s = setup(&strict(), base(), Start::Fresh);
+        let then = |ev, rest| oidc::Script::Then(ev, Box::new(rest));
+        let e = TotpEnrollment { failures, last_used_step, ..enrollment(OtpDigits::Six, None) };
+        let code = otp_with(code, OTP_AT, UNTOUCHED);
+        oidc::trace(
+            &s.params,
+            &s.client,
+            &s.session,
+            false,
+            s.now,
+            &s.policy,
+            then(password(true, SecondFactor::Totp(e)), then(code, oidc::Script::End)),
+        )
+    };
+    assert_eq!(behind(2, None, "969429"), locked, "a record older than the flow's own count does not reset it");
+    assert!(
+        matches!(behind(0, Some(1), "287082"), Ok(Flow::AwaitingOtp { notice: Notice::OtpReplayed, .. })),
+        "nor forget the last used step"
+    );
+    // Consent on file: the code is issued as soon as both factors pass, and
+    // the accepted step comes out with it for the caller to record, so the
+    // same code is a replay in the next flow (RFC 6238 §5.2).
     let on_file = Setup { consent_on_file: true, ..setup(&strict(), base(), Start::Fresh) };
-    assert!(matches!(trace(&on_file, &[1, 4]), Ok(Flow::CodeIssued(_))));
+    let issued_step = match trace(&on_file, &[1, 4]) {
+        Ok(Flow::CodeIssued { totp_step, .. }) => totp_step,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(issued_step, Some(1));
+    let next = |codes: &[u8]| match trace(&on_file, codes) {
+        Ok(Flow::AwaitingOtp { notice, .. }) => notice,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(next(&[1, 13]), Notice::OtpReplayed, "the step recorded from CodeIssued");
+    // After consent the step comes out with the code as well.
+    match trace(&fresh, &[1, 4, 10]) {
+        Ok(Flow::CodeIssued { totp_step, .. }) => assert_eq!(totp_step, Some(1)),
+        other => panic!("{other:?}"),
+    }
+    // A password-only login accepted no step.
+    assert!(matches!(trace(&on_file, &[3]), Ok(Flow::CodeIssued { totp_step: None, .. })));
     // Without a second factor: password-only acr and amr, even when MFA was asked for.
     let mut asks_mfa = base();
     asks_mfa.acr_values = some("urn:example:acr:mfa");
     match trace(&setup(&strict(), asks_mfa, Start::Fresh), &[3, 10]) {
-        Ok(Flow::CodeIssued(g)) => {
+        Ok(Flow::CodeIssued { grant: g, totp_step: None }) => {
             assert_eq!((g.auth_time, g.acr.as_str()), (PASSWORD_AT, "urn:example:acr:pwd"));
             assert_eq!(g.amr, oidc::amr_values(AuthStrength::PasswordOnly));
         }
@@ -1172,9 +1368,8 @@ fn logins_run_as_the_rfcs_say() {
 }
 
 /// Token endpoint cases (RFC 6749 §4.1.3, RFC 7636 §4.5-§4.6): each grant
-/// with the client, redirect_uri, verifier and hash the caller passes.
-/// A grant, then client_id, redirect_uri, code_verifier, and the hash.
-type Redemption = (oidc::CodeGrant, String, String, Option<String>, Option<String>);
+/// with the client, redirect_uri, and code_verifier the caller passes.
+type Redemption = (oidc::CodeGrant, String, String, Option<String>);
 
 fn redemptions() -> Vec<Redemption> {
     let mut plain = base();
@@ -1189,21 +1384,21 @@ fn redemptions() -> Vec<Redemption> {
         grant(&lax(), plain, Start::Fresh),
         grant(&lax(), without, Start::Fresh),
     ];
+    // The verifier with one character changed, still well formed.
+    let near = VERIFIER.replace('d', "e");
     let callers = [
-        ("app", CB, Some(VERIFIER), Some(CHALLENGE)),
-        ("app", CB, Some(VERIFIER), Some(VERIFIER)),
-        ("app", CB, Some(VERIFIER), None),
-        ("app", CB, Some(CHALLENGE), Some(CHALLENGE)),
-        ("app", CB, Some("short"), Some(CHALLENGE)),
-        ("app", CB, None, Some(CHALLENGE)),
-        ("app", CB, None, None),
-        ("other", CB, Some(VERIFIER), Some(CHALLENGE)),
-        ("app", "https://app.example/cb2", Some(VERIFIER), Some(CHALLENGE)),
+        ("app", CB, Some(VERIFIER)),
+        ("app", CB, Some(near.as_str())),
+        ("app", CB, Some(CHALLENGE)),
+        ("app", CB, Some("short")),
+        ("app", CB, None),
+        ("other", CB, Some(VERIFIER)),
+        ("app", "https://app.example/cb2", Some(VERIFIER)),
     ];
     let mut out = Vec::new();
     for g in &grants {
-        for (id, uri, v, h) in callers {
-            out.push((g.clone(), id.to_string(), uri.to_string(), v.map(String::from), h.map(String::from)));
+        for (id, uri, v) in callers {
+            out.push((g.clone(), id.to_string(), uri.to_string(), v.map(String::from)));
         }
     }
     out
@@ -1213,29 +1408,27 @@ fn redemptions() -> Vec<Redemption> {
 fn codes_redeem_only_with_their_verifier() {
     use oidc::TokenError::{InvalidGrant, InvalidRequest};
     let verdicts: Vec<Result<(), oidc::TokenError>> =
-        redemptions().iter().map(|(g, id, uri, v, h)| oidc::check_redemption(g, id, uri, v, h)).collect();
-    let (s256, reused, plain, without) = (&verdicts[0..9], &verdicts[9..18], &verdicts[18..27], &verdicts[27..36]);
+        redemptions().iter().map(|(g, id, uri, v)| oidc::check_redemption(g, id, uri, v)).collect();
+    let (s256, reused, plain, without) = (&verdicts[0..7], &verdicts[7..14], &verdicts[14..21], &verdicts[21..28]);
+    // S256: only the verifier whose SHA-256 is the stored challenge; the
+    // challenge itself is refused (RFC 7636 §4.6).
     let expected_s256 = [
         Ok(()),
         Err(InvalidGrant),
         Err(InvalidGrant),
-        Ok(()),
-        Err(InvalidRequest),
         Err(InvalidRequest),
         Err(InvalidRequest),
         Err(InvalidGrant),
         Err(InvalidGrant),
     ];
-    assert_eq!(s256, expected_s256, "row 3: the S256 check trusts the hash the caller computed");
+    assert_eq!(s256, expected_s256);
     assert_eq!(reused, expected_s256);
     assert_eq!(
         plain,
         [
             Ok(()),
-            Ok(()),
-            Ok(()),
             Err(InvalidGrant),
-            Err(InvalidRequest),
+            Err(InvalidGrant),
             Err(InvalidRequest),
             Err(InvalidRequest),
             Err(InvalidGrant),
@@ -1249,8 +1442,6 @@ fn codes_redeem_only_with_their_verifier() {
             Err(InvalidRequest),
             Err(InvalidRequest),
             Err(InvalidRequest),
-            Err(InvalidRequest),
-            Ok(()),
             Ok(()),
             Err(InvalidGrant),
             Err(InvalidGrant)
@@ -1324,10 +1515,11 @@ fn to_event(e: Event) -> idiomatic::Event {
             },
             now,
         },
-        Event::OtpSubmitted { code, now, candidates } => idiomatic::Event::OtpSubmitted {
+        Event::OtpSubmitted { code, now, candidates, stored } => idiomatic::Event::OtpSubmitted {
             code,
             now,
             candidates: candidates.into_iter().map(|c| idiomatic::StepMac { step: c.step, mac: c.mac }).collect(),
+            stored: idiomatic::OtpRecord { failures: stored.failures, last_used_step: stored.last_used_step },
         },
         Event::ConsentGranted => idiomatic::Event::ConsentGranted,
         Event::ConsentDenied => idiomatic::Event::ConsentDenied,
@@ -1422,8 +1614,8 @@ fn constrained_rust_is_the_idiomatic_rules() {
             }
         }
     }
-    for (g, id, uri, v, h) in redemptions() {
-        let constrained = oidc::check_redemption(&g, &id, &uri, &v, &h);
+    for (g, id, uri, v) in redemptions() {
+        let constrained = oidc::check_redemption(&g, &id, &uri, &v);
         let pkce = g.pkce.as_ref().map(|p| idiomatic::Pkce {
             challenge: p.challenge.clone(),
             method: if matches!(p.method, oidc::PkceMethod::S256) {
@@ -1444,9 +1636,24 @@ fn constrained_rust_is_the_idiomatic_rules() {
             amr: g.amr.clone(),
             acr: g.acr.clone(),
         };
-        let r = idiomatic::check_redemption(&ig, &id, &uri, v.as_deref(), h.as_deref());
+        let r = idiomatic::check_redemption(&ig, &id, &uri, v.as_deref());
         if !same(&constrained, &r) {
-            differ.push(format!("redeem {g:?} {id} {uri} {v:?} {h:?}: idiomatic {r:?} / constrained {constrained:?}"));
+            differ.push(format!("redeem {g:?} {id} {uri} {v:?}: idiomatic {r:?} / constrained {constrained:?}"));
+        }
+    }
+    for verifier in pkce_inputs() {
+        if oidc::pkce_s256(&verifier) != idiomatic::pkce_s256(&verifier) {
+            differ.push(format!("pkce_s256 {verifier:?}"));
+        }
+    }
+    for start in STARTS {
+        let s = setup(&strict(), base(), start);
+        for codes in concurrent_runs() {
+            let constrained = trace(&s, &codes);
+            let reference = idiomatic_trace(&s, &codes);
+            if !same(&constrained, &reference) {
+                differ.push(format!("{codes:?}: idiomatic {reference:?} / constrained {constrained:?}"));
+            }
         }
     }
     for (now, _) in APPENDIX_B {
@@ -1465,6 +1672,33 @@ fn constrained_rust_is_the_idiomatic_rules() {
         }
     }
     assert!(differ.is_empty(), "{} differ, first:\n{}", differ.len(), differ[..differ.len().min(10)].join("\n"));
+}
+
+/// Inputs to the S256 transform: the vectors, every length 0..=130 (each
+/// padding case of SHA-256's last block), and non-ASCII bytes.
+fn pkce_inputs() -> Vec<String> {
+    let mut out: Vec<String> = SHA256_VECTORS.iter().map(|(m, _)| m.to_string()).collect();
+    out.push(VERIFIER.to_string());
+    out.extend((0..=130).map(|n| "~a9Z-._".chars().cycle().take(n).collect::<String>()));
+    out.push("caf\u{e9} \u{1f600}".to_string());
+    out
+}
+
+/// Runs that meet a record another flow moved (events 12 and 13): each
+/// placed after up to two events of the alphabet, then one more event.
+fn concurrent_runs() -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    for moved in [12u8, 13] {
+        for prefix in sequences(2).chain(sequences(1)) {
+            for last in 0..EVENTS {
+                let mut codes = prefix.clone();
+                codes.push(moved);
+                codes.push(last);
+                out.push(codes);
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,8 +1798,26 @@ fn generated_oidc_matches_rust() {
                 )));
             }
         }
-        for (g, id, uri, v, h) in redemptions() {
-            cases.push(case!(oidc::check_redemption(&g, &id, &uri, &v, &h)));
+        for (g, id, uri, v) in redemptions() {
+            cases.push(case!(oidc::check_redemption(&g, &id, &uri, &v)));
+        }
+        for verifier in pkce_inputs() {
+            cases.push(case!(oidc::pkce_s256(&verifier)));
+        }
+        // Runs with a record another flow moved, from each start.
+        for start in STARTS {
+            let s = setup(&strict(), base(), start);
+            for codes in concurrent_runs() {
+                cases.push(case!(oidc::trace(
+                    &s.params,
+                    &s.client,
+                    &s.session,
+                    s.consent_on_file,
+                    s.now,
+                    &s.policy,
+                    script(&codes)
+                )));
+            }
         }
         for list in [
             "openid",
@@ -1598,6 +1850,7 @@ fn generated_oidc_matches_rust() {
         "notice: Notice::OtpReplayed",
         "notice: Notice::MalformedOtp",
         "Ok(Flow::AwaitingConsent {",
+        "totp_step: Some(1) })",
         "totp_step: Some(0)",
         "totp_step: Some(2)",
         r#"amr: ["pwd", "otp", "mfa"]"#,

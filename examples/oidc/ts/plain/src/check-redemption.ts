@@ -2,25 +2,25 @@
 
 import { Result, Str } from "./purecrate-runtime.ts";
 import type { CodeGrant } from "./code-grant.ts";
+import { pkceS256 } from "./pkce-s256.ts";
 import { pkceStringIsValid } from "./pkce-string-is-valid.ts";
 import type { TokenError } from "./token-error.ts";
 
 /**
- * Checks a code redemption against its grant. `verifier_s256` is
- * BASE64URL(SHA256(ASCII(code_verifier))), computed by the caller.
+ * Checks a code redemption against its grant. The challenge is computed
+ * from the verifier with the grant's method and compared with the stored
+ * one (RFC 7636 §4.6).
  */
 export const checkRedemption = (
   grant: CodeGrant,
   clientId: string,
   redirectUri: string,
   codeVerifier: string | null,
-  verifierS256: string | null,
 ): Result<undefined, TokenError> => {
   Str.wellFormed(grant);
   Str.wellFormed(clientId);
   Str.wellFormed(redirectUri);
   Str.wellFormed(codeVerifier);
-  Str.wellFormed(verifierS256);
   if (grant.client_id !== clientId || grant.redirect_uri !== redirectUri)
     return Result.err({ kind: "InvalidGrant" });
 
@@ -33,7 +33,7 @@ export const checkRedemption = (
       const matches =
         pkce.method.kind === "Plain"
           ? verifier === pkce.challenge
-          : verifierS256 !== null && verifierS256 === pkce.challenge;
+          : pkceS256(verifier) === pkce.challenge;
       return matches ? Result.ok(undefined) : Result.err({ kind: "InvalidGrant" });
     }
 

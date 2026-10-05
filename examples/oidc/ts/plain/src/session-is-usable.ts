@@ -7,7 +7,9 @@ import type { Session } from "./session.ts";
 /**
  * Whether an existing session satisfies the request without asking the
  * End-User to log in again (OIDC Core §3.1.2.1 prompt, max_age,
- * acr_values; §3.1.2.3).
+ * acr_values; §3.1.2.3). A session older than `max_age` is not reused,
+ * and `max_age=0` is the same as `prompt=login`: never reused, however
+ * recent the session.
  */
 export const sessionIsUsable = (
   request: AuthorizationRequest,
@@ -16,7 +18,9 @@ export const sessionIsUsable = (
 ): boolean => {
   Str.wellFormed(session);
   if (request.prompt.login || request.prompt.select_account) return false;
-  const fresh = request.max_age === null || Int.i64.sub(now, session.auth_time) <= request.max_age;
+  const fresh =
+    request.max_age === null ||
+    (request.max_age > 0n && Int.i64.sub(now, session.auth_time) <= request.max_age);
   const strongEnough = !request.wants_mfa || session.strength.kind === "PasswordAndTotp";
   return fresh && strongEnough;
 };

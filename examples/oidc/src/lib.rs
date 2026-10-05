@@ -14,13 +14,20 @@
 //
 // Everything impure is outside: the caller looks up the client and the
 // session, verifies the password hash, computes HMAC-SHA-1 over each
-// candidate time step, computes BASE64URL(SHA-256(code_verifier)), supplies
-// `now` (seconds since the Unix epoch), generates the code, and stores the
-// returned values: the code grant, and per subject the TOTP enrollment's
-// `failures` and `last_used_step` (from `AwaitingOtp`, and from the
-// `Authentication` once accepted, when `failures` goes back to 0), and the
-// lock a `Locked` flow names. A new flow reads them back, so opening the
-// request again does not grant more OTP attempts (RFC 4226 §7.3).
+// candidate time step, supplies `now` (seconds since the Unix epoch),
+// generates the code, and stores the returned values: the code grant, and
+// per subject the TOTP record (`OtpRecord`: `failures` and `last_used_step`)
+// and the lock a `Locked` flow names. The record is written from each
+// `AwaitingOtp`, and once a code is accepted from the `totp_step` of
+// `AwaitingConsent` or `CodeIssued`, whichever the flow reaches first
+// (`failures` back to 0). Each flow reads the record again, at the password
+// check and with every submitted OTP, and counts the larger of its own and
+// the stored values; so neither a new flow nor several concurrent ones grant
+// more OTP attempts than the limit (RFC 4226 §7.3), and a code accepted in
+// one flow is refused in every other (RFC 6238 §5.2). The caller writes the
+// record atomically per subject (one OTP check at a time, or compare-and-set).
+// The PKCE S256 transform (SHA-256, base64url) is computed here, from the
+// verifier itself (RFC 7636 §4.6).
 //
 // Policy choices, not the specifications':
 // - `state` is required, and `state` and `nonce` are each 1 to 512 VSCHAR
@@ -424,6 +431,15 @@ fn digit_modulus(d: OtpDigits) -> u32 {
     10u32.pow(u32::from(d as u8))
 }
 
+/// What the caller stores per subject between OTP checks, across flows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtpRecord {
+    /// OTPs rejected since the last accepted one (RFC 4226 §7.3).
+    pub failures: u32,
+    /// The step of the last accepted OTP (RFC 6238 §5.2 replay rule).
+    pub last_used_step: Option<i64>,
+}
+
 /// A user's TOTP enrollment, loaded by the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TotpEnrollment {
@@ -577,7 +593,8 @@ pub enum Flow {
         failures: u32,
         notice: Notice,
     },
-    /// The caller stores `enrollment.failures` after each attempt.
+    /// The caller stores `enrollment.failures` and `last_used_step` as the
+    /// subject's `OtpRecord` after each attempt.
     AwaitingOtp {
         request: AuthorizationRequest,
         needs_consent: bool,
@@ -589,7 +606,10 @@ pub enum Flow {
         request: AuthorizationRequest,
         auth: Authentication,
     },
-    CodeIssued(CodeGrant),
+    /// `totp_step`: the TOTP step accepted in this flow, when the code
+    /// follows it directly (consent on file); the caller records it as the
+    /// subject's `last_used_step` before redirecting.
+    CodeIssued { grant: CodeGrant, totp_step: Option<i64> },
     /// Terminal: redirect to the client with an error (e.g. consent denied).
     Rejected(ErrorRedirect),
     /// Terminal: too many failures; shown to the End-User, not redirected.
@@ -612,10 +632,13 @@ pub enum Event {
         second_factor: SecondFactor,
         now: i64,
     },
+    /// `stored`: the subject's record as the caller reads it now, which
+    /// other flows for the same subject may have advanced.
     OtpSubmitted {
         code: String,
         now: i64,
         candidates: Vec<StepMac>,
+        stored: OtpRecord,
     },
     ConsentGranted,
     ConsentDenied,
@@ -661,30 +684,44 @@ fn counted(failures: u32, limit: u32) -> Option<u32> {
 }
 
 fn issue(request: AuthorizationRequest, auth: Authentication) -> Flow {
-    Flow::CodeIssued(CodeGrant {
-        client_id: request.client_id,
-        redirect_uri: request.redirect_uri,
-        scope: request.scope,
-        state: request.state,
-        nonce: request.nonce,
-        pkce: request.pkce,
-        subject: auth.subject,
-        auth_time: auth.auth_time,
-        amr: amr_values(auth.strength),
-        acr: acr_value(auth.strength),
-    })
+    Flow::CodeIssued {
+        grant: CodeGrant {
+            client_id: request.client_id,
+            redirect_uri: request.redirect_uri,
+            scope: request.scope,
+            state: request.state,
+            nonce: request.nonce,
+            pkce: request.pkce,
+            subject: auth.subject,
+            auth_time: auth.auth_time,
+            amr: amr_values(auth.strength),
+            acr: acr_value(auth.strength),
+        },
+        totp_step: auth.totp_step,
+    }
+}
+
+/// The later of two last-used steps.
+fn later_step(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (Some(x), None) => Some(x),
+        (None, y) => y,
+    }
 }
 
 /// Whether an existing session satisfies the request without asking the
 /// End-User to log in again (OIDC Core §3.1.2.1 prompt, max_age,
-/// acr_values; §3.1.2.3).
+/// acr_values; §3.1.2.3). A session older than `max_age` is not reused,
+/// and `max_age=0` is the same as `prompt=login`: never reused, however
+/// recent the session.
 pub fn session_is_usable(request: &AuthorizationRequest, session: &Session, now: i64) -> bool {
     if request.prompt.login || request.prompt.select_account {
         return false;
     }
     let fresh = request
         .max_age
-        .map(|max_age| now - session.auth_time <= max_age)
+        .map(|max_age| max_age > 0 && now - session.auth_time <= max_age)
         .unwrap_or(true);
     let strong_enough = !request.wants_mfa || matches!(session.strength, AuthStrength::PasswordAndTotp);
     fresh && strong_enough
@@ -790,8 +827,24 @@ pub fn step(flow: Flow, event: Event, policy: &Policy) -> Result<Flow, FlowError
                 enrollment,
                 ..
             },
-            Event::OtpSubmitted { code, now, candidates },
+            Event::OtpSubmitted {
+                code,
+                now,
+                candidates,
+                stored,
+            },
         ) => {
+            // Other flows for this subject may have failed or accepted codes
+            // since this one read the record: count both, and lock before
+            // checking the code once the limit is reached (RFC 4226 §7.3).
+            let enrollment = TotpEnrollment {
+                failures: enrollment.failures.max(stored.failures),
+                last_used_step: later_step(enrollment.last_used_step, stored.last_used_step),
+                ..enrollment
+            };
+            if enrollment.failures >= policy.max_otp_failures {
+                return Ok(Flow::Locked { subject });
+            }
             let notice = match check_totp(&code, now, &enrollment, &candidates) {
                 OtpCheck::Accepted(step) => {
                     let auth = Authentication {
@@ -847,14 +900,158 @@ pub enum TokenError {
     InvalidGrant,
 }
 
-/// Checks a code redemption against its grant. `verifier_s256` is
-/// BASE64URL(SHA256(ASCII(code_verifier))), computed by the caller.
+/// SHA-256's round constants (FIPS 180-4 §4.2.2).
+fn sha256_constants() -> Vec<u32> {
+    vec![
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
+        0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
+        0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+        0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ]
+}
+
+/// ROTR^n(x) (FIPS 180-4 §3.2), for 0 < n < 32.
+fn rotr(x: u32, n: u32) -> u32 {
+    (x >> n) | (x << (32 - n))
+}
+
+/// SHA-256 (FIPS 180-4 §5.1.1, §6.2) of a string's bytes, as its eight
+/// words. The bit length is a u32, so the message is under 512 MiB (a
+/// code verifier is at most 128 bytes).
+fn sha256(message: &String) -> Vec<u32> {
+    // The message's bytes, one per u32, padded to a multiple of 64.
+    let mut bytes: Vec<u32> = Vec::new();
+    let mut bits: u32 = 0;
+    for b in message.bytes() {
+        bytes.push(u32::from(b));
+        bits += 8;
+    }
+    bytes.push(0x80);
+    while bytes.len() % 64 != 56 {
+        bytes.push(0);
+    }
+    // The 64-bit length, whose high 32 bits are zero.
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(bits >> 24);
+    bytes.push((bits >> 16) & 0xff);
+    bytes.push((bits >> 8) & 0xff);
+    bytes.push(bits & 0xff);
+    let k = sha256_constants();
+    let mut h0: u32 = 0x6a09e667;
+    let mut h1: u32 = 0xbb67ae85;
+    let mut h2: u32 = 0x3c6ef372;
+    let mut h3: u32 = 0xa54ff53a;
+    let mut h4: u32 = 0x510e527f;
+    let mut h5: u32 = 0x9b05688c;
+    let mut h6: u32 = 0x1f83d9ab;
+    let mut h7: u32 = 0x5be0cd19;
+    let mut block: usize = 0;
+    while block < bytes.len() {
+        let mut w: Vec<u32> = Vec::new();
+        for t in 0..64usize {
+            if t < 16 {
+                let i = block + 4 * t;
+                w.push((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]);
+            } else {
+                let s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >> 3);
+                let s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >> 10);
+                w.push(w[t - 16].wrapping_add(s0).wrapping_add(w[t - 7]).wrapping_add(s1));
+            }
+        }
+        let mut a = h0;
+        let mut b = h1;
+        let mut c = h2;
+        let mut d = h3;
+        let mut e = h4;
+        let mut f = h5;
+        let mut g = h6;
+        let mut h = h7;
+        for t in 0..64usize {
+            let s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            let ch = (e & f) ^ (!e & g);
+            let t1 = h.wrapping_add(s1).wrapping_add(ch).wrapping_add(k[t]).wrapping_add(w[t]);
+            let s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(maj);
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+        h5 = h5.wrapping_add(f);
+        h6 = h6.wrapping_add(g);
+        h7 = h7.wrapping_add(h);
+        block += 64;
+    }
+    vec![h0, h1, h2, h3, h4, h5, h6, h7]
+}
+
+/// The base64url alphabet (RFC 4648 §5) at `v` < 64.
+fn base64url_char(v: u32) -> char {
+    let code = match v {
+        0..=25 => 65 + v,
+        26..=51 => 97 + v - 26,
+        52..=61 => 48 + v - 52,
+        62 => 45,
+        _ => 95,
+    };
+    char::from_u32(code).unwrap_or('_')
+}
+
+/// Base64url without padding (RFC 7636 Appendix A) of words read as
+/// big-endian bytes.
+fn base64url(words: &Vec<u32>) -> String {
+    let mut out = String::new();
+    // `pending` holds the `held` low bits not yet written, fewer than 6.
+    let mut pending: u32 = 0;
+    let mut held: u32 = 0;
+    for word in words {
+        for j in 0..4u32 {
+            pending = (pending << 8) | ((*word >> (24 - 8 * j)) & 0xff);
+            held += 8;
+            while held >= 6 {
+                held -= 6;
+                out.push(base64url_char((pending >> held) & 0x3f));
+            }
+            pending &= (1 << held) - 1;
+        }
+    }
+    if held > 0 {
+        out.push(base64url_char((pending << (6 - held)) & 0x3f));
+    }
+    out
+}
+
+/// The S256 code challenge of a verifier (RFC 7636 §4.2):
+/// BASE64URL-ENCODE(SHA256(ASCII(code_verifier))).
+pub fn pkce_s256(verifier: &String) -> String {
+    base64url(&sha256(verifier))
+}
+
+/// Checks a code redemption against its grant. The challenge is computed
+/// from the verifier with the grant's method and compared with the stored
+/// one (RFC 7636 §4.6).
 pub fn check_redemption(
     grant: &CodeGrant,
     client_id: &String,
     redirect_uri: &String,
     code_verifier: &Option<String>,
-    verifier_s256: &Option<String>,
 ) -> Result<(), TokenError> {
     if grant.client_id != *client_id || grant.redirect_uri != *redirect_uri {
         return Err(TokenError::InvalidGrant);
@@ -866,7 +1063,7 @@ pub fn check_redemption(
         (Some(pkce), Some(verifier)) => {
             let matches = match pkce.method {
                 PkceMethod::Plain => *verifier == pkce.challenge,
-                PkceMethod::S256 => matches!(verifier_s256, Some(h) if *h == pkce.challenge),
+                PkceMethod::S256 => pkce_s256(verifier) == pkce.challenge,
             };
             if matches {
                 Ok(())

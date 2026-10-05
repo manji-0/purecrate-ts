@@ -70,6 +70,8 @@ export type I64 = bigint & { readonly "purecrate.I64": true };
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U32 = number & { readonly "purecrate.U32": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
+/** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
+export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
   throw new Panic(`attempt to ${what}`);
@@ -86,6 +88,7 @@ const small = <T extends number>(min: number, max: number) => {
     of,
     add: (a: T, b: T): T => fit(a + b, "add"),
     sub: (a: T, b: T): T => fit(a - b, "subtract"),
+    mul: (a: T, b: T): T => fit(a * b, "multiply"),
     div: (a: T, b: T): T =>
       b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
     rem: (a: T, b: T): T =>
@@ -103,6 +106,7 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
     of: (value: bigint): T => fit(value, "convert"),
     add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
     sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"),
+    mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
     div: (a: T, b: T): T =>
       n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
     rem: (a: T, b: T): T =>
@@ -123,14 +127,22 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
   const v = (x: T): bigint => BigInt(x);
   const inRange = (n: bigint): boolean => n >= r.lo && n <= r.hi;
   const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? r.to(n) : panic(`${what} with overflow`));
+  const wrap = (n: bigint): T => r.to(r.signed ? BigInt.asIntN(r.bits, n) : BigInt.asUintN(r.bits, n));
   // `a ** e`, or `null` where it is certainly outside the range: a base of
   // magnitude 2 or more to an exponent of `bits` or more.
   const power = (a: bigint, e: number): bigint | null =>
     e === 0 ? 1n : a === 0n || a === 1n ? a : a === -1n ? (e % 2 === 0 ? 1n : -1n) : e >= r.bits ? null : a ** BigInt(e);
   return {
     pow: (a: T, e: U32): T => fit(power(v(a), e), "exponentiate"),
+    wrappingAdd: (a: T, b: T): T => wrap(v(a) + v(b)),
   } as const;
 };
+
+/** `min` and `max`: JS `<=` orders numbers and bigints as Rust orders integers. */
+const minMax = <T extends number | bigint>() =>
+  ({
+    max: (a: T, b: T): T => (a >= b ? a : b),
+  }) as const;
 
 /** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
 export type ParseIntError = { readonly "purecrate.ParseIntError": true };
@@ -259,9 +271,59 @@ const utf8Width = (c: string): number => {
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
 };
 
+const code = (c: Char): number => c.codePointAt(0) as number;
+const within = (c: Char, lo: number, hi: number): boolean => code(c) >= lo && code(c) <= hi;
+const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
+const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
+const digit = (c: Char): boolean => within(c, 0x30, 0x39);
+const radix = (r: U32): number =>
+  r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 const panicWith = (message: string): never => {
   throw new Panic(message);
 };
+const digitValue = (c: Char, r: U32): number | null => {
+  const base = radix(r);
+  const p = code(c);
+  const d = p >= 0x30 && p <= 0x39 ? p - 0x30 : (p | 0x20) >= 0x61 && (p | 0x20) <= 0x7a ? (p | 0x20) - 0x61 + 10 : 99;
+  return d < base ? d : null;
+};
+
+/**
+ * `char` operations (design/01 §6). Ordering and ranges go through `code`:
+ * JS orders strings by UTF-16 unit, which puts U+E000..=U+FFFF above the
+ * supplementary planes. Only ASCII and code-point methods are here; the
+ * Unicode-table ones (`is_alphabetic`, ...) are not.
+ */
+export const Char = {
+  /** `u32::from(c)`: the code point. */
+  code: (c: Char): U32 => code(c) as U32,
+  /** `char::from(b)`: U+0000..=U+00FF. */
+  fromU8: (b: U8): Char => String.fromCharCode(b) as Char,
+  /** `char::from_u32(n)`: `None` for a surrogate or past U+10FFFF. */
+  fromU32: (n: U32): Char | null =>
+    (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff ? null : (String.fromCodePoint(n) as Char),
+  isAscii: (c: Char): boolean => code(c) < 0x80,
+  isAsciiAlphabetic: (c: Char): boolean => upper(c) || lower(c),
+  isAsciiAlphanumeric: (c: Char): boolean => upper(c) || lower(c) || digit(c),
+  isAsciiControl: (c: Char): boolean => code(c) < 0x20 || code(c) === 0x7f,
+  isAsciiDigit: digit,
+  isAsciiGraphic: (c: Char): boolean => within(c, 0x21, 0x7e),
+  isAsciiHexdigit: (c: Char): boolean => digit(c) || within(c, 0x41, 0x46) || within(c, 0x61, 0x66),
+  isAsciiLowercase: lower,
+  isAsciiPunctuation: (c: Char): boolean =>
+    within(c, 0x21, 0x2f) || within(c, 0x3a, 0x40) || within(c, 0x5b, 0x60) || within(c, 0x7b, 0x7e),
+  isAsciiUppercase: upper,
+  /** Space, tab, LF, FF, CR. Not VT (U+000B), unlike JS `\s`. */
+  isAsciiWhitespace: (c: Char): boolean => [0x20, 0x09, 0x0a, 0x0c, 0x0d].includes(code(c)),
+  toAsciiLowercase: (c: Char): Char => (upper(c) ? (String.fromCharCode(code(c) + 32) as Char) : c),
+  toAsciiUppercase: (c: Char): Char => (lower(c) ? (String.fromCharCode(code(c) - 32) as Char) : c),
+  eqIgnoreAsciiCase: (a: Char, b: Char): boolean => Char.toAsciiLowercase(a) === Char.toAsciiLowercase(b),
+  /** `char::len_utf8`: 1 to 4. */
+  lenUtf8: (c: Char): Usize => (code(c) < 0x80 ? 1 : code(c) < 0x800 ? 2 : code(c) < 0x10000 ? 3 : 4) as Usize,
+  /** ASCII digits and letters only, as Rust; panics on a radix outside 2..=36. */
+  isDigit: (c: Char, r: U32): boolean => digitValue(c, r) !== null,
+  toDigit: (c: Char, r: U32): U32 | null => digitValue(c, r) as U32 | null,
+} as const;
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
@@ -272,6 +334,7 @@ export const Int = {
   u32: {
     ...small<U32>(0, 4294967295),
     ...bits32<U32>(32, false),
+    ...minMax<U32>(),
     ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }),
     parse: parser(0n, 4294967295n, false, (n) => Number(n) as U32),
   },
@@ -282,6 +345,7 @@ export const Int = {
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
+    ...minMax<I64>(),
     parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64),
   },
 } as const;
