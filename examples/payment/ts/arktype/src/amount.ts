@@ -3,7 +3,8 @@
 import { Result, type I64 } from "./purecrate-runtime.ts";
 import type { PaymentError } from "./payment-error.ts";
 
-export type Amount = I64 & { readonly "payment.Amount": true };
+declare const Amount$brand: unique symbol;
+export type Amount = I64 & { readonly [Amount$brand]: true };
 
 /**
  * Makes `Amount` values without a check.

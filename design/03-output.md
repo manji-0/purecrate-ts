@@ -109,7 +109,8 @@ impl Meters { pub fn plus(&self, other: &Meters) -> Self { Self(self.0 + other.0
 ```
 
 ```ts
-export type Meters = I32 & { readonly "geo.Meters": true };
+declare const Meters$brand: unique symbol;
+export type Meters = I32 & { readonly [Meters$brand]: true };
 
 /**
  * Makes `Meters` values without a check.
@@ -128,7 +129,7 @@ export const Meters = {
 
 - A newtype's runtime value is its content. This is also serde's JSON for it.
 - `.0` is the value itself.
-- The brand key is a string (`{ readonly "geo.Meters": true }`), so newtypes of newtypes do not collide and two copies of the package exchange values. Closedness is not a type-level guarantee: `unsafeMakeMeters` is a file export, and a vendored import of it builds a value without a cast.
+- A closed type's brand key is a `unique symbol` its own file declares and does not export (`Meters$brand`), so no code outside the package can write it: an object literal with a closed struct's fields, the brand key written out or not, is not one. An open newtype's brand is a string (`{ readonly "geo.Id": true }`), so newtypes of newtypes do not collide and two copies of the package exchange its values; two copies do not exchange closed values, as each may hold its own invariants. Closedness still is not complete: `unsafeMakeMeters` is a file export, and a vendored import of it builds a value without a cast.
 - `Meters` above is closed (its field is not `pub`), so there is no `of`. With `pub struct Meters(pub i32)` the companion would have `of`.
 
 **Methods.** Methods become companion properties with the receiver first. `Self` is replaced by the type name.
@@ -307,7 +308,7 @@ The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can r
 
 **Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files use it, and leaves the markers out (`crates/pack/src/trim.rs`). A use is a member read through a namespace (`Int.<ty>.<op>`, down to each operator and method; `Str.<member>`, `Json`) or an identifier read in code (`Result`, `I32`, `Char`, `Uuid`). What the kept copy reads in turn is kept too, until it reads nothing new (`trim::trim_closed`): `Int.i32.add` keeps `small`, which keeps `panic` and `I32`. An `Int` width is kept when the code reads it or the index exports its brand; `Panic` and `assertNever` always are. A namespace whose members are all trimmed is dropped (`export const Iter = {}` is not kept), and so is all of what the index exports to callers. The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type, `Int` when it holds one of these, `Char` when it holds a `char`, `Uuid` when it holds a `Uuid`, and `parseJson` with `--schema` (`trim::exported`). Why: the runtime's `Int` is one object, so a bundler cannot drop the widths and methods a package does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. Two packages re-exported from one barrel then only share the names both surfaces actually use. payment's copy is 4.5 KB of the runtime's 36 KB, counter's 3.2 KB.
 
-**Brands.** Brands are keyed by string: the runtime's by `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), a crate's newtypes and closed structs by the crate's name and the type (`{ readonly "invoice.Yen": true }`). Packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error.
+**Brands.** The runtime's brands are keyed by string, `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), and so are a crate's open newtypes, by the crate's name and the type (`{ readonly "invoice.Id": true }`): packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error. A closed type (newtype or struct) is keyed by a `unique symbol` its file declares and does not export, so a literal outside the package cannot be one (a string key can be written out); two copies of the package do not exchange closed values.
 
 **Why.** It removes the version skew between generator and runtime. Nothing has to be installed that is not on npm. A peer-installed runtime, the earlier design, had no place in a project that commits generated code, as vendoring into Oxide's console showed ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 

@@ -3,7 +3,8 @@
 import { Iter, Result, type Char } from "./purecrate-runtime.ts";
 import type { PasswordError } from "./password-error.ts";
 
-export type Password = string & { readonly "signup.Password": true };
+declare const Password$brand: unique symbol;
+export type Password = string & { readonly [Password$brand]: true };
 
 /**
  * Makes `Password` values without a check.

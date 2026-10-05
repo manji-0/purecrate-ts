@@ -4,7 +4,8 @@ import { Result, Str } from "./purecrate-runtime.ts";
 import type { PaymentError } from "./payment-error.ts";
 
 /** A payment method ID: `pm_` followed by at least one character. */
-export type PaymentMethodId = string & { readonly "payment.PaymentMethodId": true };
+declare const PaymentMethodId$brand: unique symbol;
+export type PaymentMethodId = string & { readonly [PaymentMethodId$brand]: true };
 
 /**
  * Makes `PaymentMethodId` values without a check.

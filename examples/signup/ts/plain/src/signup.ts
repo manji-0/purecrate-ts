@@ -5,10 +5,11 @@ import { Email } from "./email.ts";
 import { Password } from "./password.ts";
 import type { SignupError } from "./signup-error.ts";
 
+declare const Signup$brand: unique symbol;
 export type Signup = Readonly<{
   email: Email;
   password: Password;
-}> & { readonly "signup.Signup": true };
+}> & { readonly [Signup$brand]: true };
 
 /**
  * Makes `Signup` values without a check.

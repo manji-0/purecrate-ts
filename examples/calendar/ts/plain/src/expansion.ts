@@ -3,10 +3,11 @@
 import type { LocalDateTime } from "./local-date-time.ts";
 import type { Stop } from "./stop.ts";
 
+declare const Expansion$brand: unique symbol;
 export type Expansion = Readonly<{
   occurrences: ReadonlyArray<LocalDateTime>;
   stop: Stop;
-}> & { readonly "calendar.Expansion": true };
+}> & { readonly [Expansion$brand]: true };
 
 /**
  * Makes `Expansion` values without a check.

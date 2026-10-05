@@ -181,11 +181,22 @@ pub(crate) fn brand(krate: &Crate, name: &str) -> String {
     format!("{{ readonly \"{}.{name}\": true }}", krate.name.as_str())
 }
 
+/// A closed type's brand: keyed by a `unique symbol` its own file declares
+/// and does not export, so no code outside the package can write the key,
+/// and an object literal with the type's fields is not one (a string key
+/// could be written out). Two copies of the package do not exchange closed
+/// values: each has its own symbol, as each may hold its own invariants.
+/// The declaration, then the brand.
+fn closed_brand(name: &str) -> (String, String) {
+    (format!("declare const {name}$brand: unique symbol;\n"), format!("{{ readonly [{name}$brand]: true }}"))
+}
+
 /// A newtype is its inner value at runtime (as in serde's JSON), branded so
 /// that `Id` and the bare inner type do not mix.
 pub(crate) fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
     let inner = emit_ty(inner);
-    let mut out = format!("export type {name} = {inner} & {};\n\n", brand(krate, name));
+    let (declared, branded) = if closed { closed_brand(name) } else { (String::new(), brand(krate, name)) };
+    let mut out = format!("{declared}export type {name} = {inner} & {branded};\n\n");
     if closed {
         out.push_str(&closed_ctor_src(name, &format!("value: {inner}"), "value"));
     }
@@ -203,7 +214,8 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
     let name = st.name.as_str();
     let shape =
         st.fields.iter().map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty))).collect::<Vec<_>>().join("; ");
-    let mut out = format!("export type {name} = Readonly<{{\n{fields}\n}}> & {};\n\n", brand(krate, name));
+    let (declared, branded) = closed_brand(name);
+    let mut out = format!("{declared}export type {name} = Readonly<{{\n{fields}\n}}> & {branded};\n\n");
     out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
     out.push_str(&format!("export const {name} = {{\n"));
     out.push_str(&companion_methods(krate, name));

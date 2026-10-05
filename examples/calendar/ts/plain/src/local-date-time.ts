@@ -6,12 +6,13 @@ import { checkedCivil } from "./checked-civil.ts";
 import type { CivilDate } from "./civil-date.ts";
 
 /** A floating local date-time (no time zone), as DTSTART is here. */
+declare const LocalDateTime$brand: unique symbol;
 export type LocalDateTime = Readonly<{
   date: CivilDate;
   hour: I64;
   minute: I64;
   second: I64;
-}> & { readonly "calendar.LocalDateTime": true };
+}> & { readonly [LocalDateTime$brand]: true };
 
 /**
  * Makes `LocalDateTime` values without a check.

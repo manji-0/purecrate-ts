@@ -3,7 +3,8 @@
 import { Int, Result, Slice, Str, type U32, type U8, type Usize } from "./purecrate-runtime.ts";
 import type { IbanError } from "./iban-error.ts";
 
-export type Iban = string & { readonly "iban.Iban": true };
+declare const Iban$brand: unique symbol;
+export type Iban = string & { readonly [Iban$brand]: true };
 
 /**
  * Makes `Iban` values without a check.

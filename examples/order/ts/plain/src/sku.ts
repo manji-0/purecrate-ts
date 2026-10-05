@@ -3,7 +3,8 @@
 import { Result } from "./purecrate-runtime.ts";
 import type { OrderError } from "./order-error.ts";
 
-export type Sku = string & { readonly "order.Sku": true };
+declare const Sku$brand: unique symbol;
+export type Sku = string & { readonly [Sku$brand]: true };
 
 /**
  * Makes `Sku` values without a check.

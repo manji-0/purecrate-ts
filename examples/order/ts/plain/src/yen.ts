@@ -3,7 +3,8 @@
 import { Result, type I64 } from "./purecrate-runtime.ts";
 import type { OrderError } from "./order-error.ts";
 
-export type Yen = I64 & { readonly "order.Yen": true };
+declare const Yen$brand: unique symbol;
+export type Yen = I64 & { readonly [Yen$brand]: true };
 
 /**
  * Makes `Yen` values without a check.

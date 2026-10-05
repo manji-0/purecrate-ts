@@ -8,6 +8,7 @@ import type { Prompt } from "./prompt.ts";
  * A request that passed §3.1.2.2 validation. Only `validate_request`
  * builds one.
  */
+declare const AuthorizationRequest$brand: unique symbol;
 export type AuthorizationRequest = Readonly<{
   client_id: string;
   redirect_uri: string;
@@ -18,7 +19,7 @@ export type AuthorizationRequest = Readonly<{
   prompt: Prompt;
   max_age: I64 | null;
   wants_mfa: boolean;
-}> & { readonly "oidc.AuthorizationRequest": true };
+}> & { readonly [AuthorizationRequest$brand]: true };
 
 /**
  * Makes `AuthorizationRequest` values without a check.

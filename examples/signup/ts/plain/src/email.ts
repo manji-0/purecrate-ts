@@ -3,7 +3,8 @@
 import { Iter, Result, Str, type U8 } from "./purecrate-runtime.ts";
 import type { EmailError } from "./email-error.ts";
 
-export type Email = string & { readonly "signup.Email": true };
+declare const Email$brand: unique symbol;
+export type Email = string & { readonly [Email$brand]: true };
 
 /**
  * Makes `Email` values without a check.

@@ -47,6 +47,9 @@ Account.of(parsed, age);
 const e: Email = "x";
 // @ts-expect-error: an object literal is not an `Account`
 const a: Account = { email: e, age };
+// @ts-expect-error: nor is one that writes out a brand key (it is a symbol
+// only the type's own file declares)
+const forged: Account = { email: e, age, "closed.Account": true };
 // @ts-expect-error: the package-internal constructor is not exported
 pkg.Email$of;
 // @ts-expect-error: a method that is not `pub` is not on the companion
@@ -54,6 +57,7 @@ Email.unchecked("x");
 // @ts-expect-error: nor exported under its internal name
 pkg.Account$with_age;
 void a;
+void forged;
 "#;
 
 #[test]

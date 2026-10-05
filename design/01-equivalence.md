@@ -50,7 +50,7 @@ In Rust, a struct with any non-`pub` field cannot be built by a literal outside 
 
 | Rust struct | Kind | TS companion | Values come from |
 | --- | --- | --- | --- |
-| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, with a string brand (`{ readonly "geo.Meters": true }`) | no `of` | public functions, or the wire (§4.2) |
+| Any non-`pub` field (`pub(crate)` and `pub(super)` count as non-`pub`), including newtypes | **closed**, branded by a `unique symbol` its own file declares and does not export (`{ readonly [Meters$brand]: true }`), so no literal outside the package can be one | no `of` | public functions, or the wire (§4.2) |
 | All fields `pub` | **open** | `of` | anyone, as in Rust |
 
 Which function is the "checked constructor" is not inferred. Whatever public function returns the type is the way in, whether named `new`, `parse`, or `try_from`.
