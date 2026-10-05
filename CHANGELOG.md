@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-10-05
+
+`examples/calendar`, written from the authoring skill alone, and `str::eq_ignore_ascii_case`, added for its rule parsing; the holes the example found in lint and layout are closed. Programs that passed 0.10.5 translate as before; the other examples' output is byte for byte the same.
 
 ### Added
 
