@@ -165,11 +165,21 @@ export const summarize = (invoice: Invoice): Result<Summary, InvoiceError> => {
   const addResult4 = add(total, reducedInclusive.base);
   if (addResult4.kind === "Err") return addResult4;
   total = addResult4.value;
+  const taxResult = add(standard.tax, reduced.tax);
+  if (taxResult.kind === "Err") return taxResult;
+  let tax: I64 = taxResult.value;
+  const addResult5 = add(tax, standardInclusive.tax);
+  if (addResult5.kind === "Err") return addResult5;
+  tax = addResult5.value;
+  const addResult6 = add(tax, reducedInclusive.tax);
+  if (addResult6.kind === "Err") return addResult6;
+  tax = addResult6.value;
   return Result.ok({
     standard,
     reduced,
     standard_inclusive: standardInclusive,
     reduced_inclusive: reducedInclusive,
+    tax: unsafeMakeYen(tax),
     total: unsafeMakeYen(total),
   });
 };

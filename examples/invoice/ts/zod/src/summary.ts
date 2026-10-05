@@ -9,6 +9,9 @@ export type Summary = Readonly<{
   /** Tax-inclusive totals; the tax is contained in `base`. */
   standard_inclusive: Group;
   reduced_inclusive: Group;
+  /** Every group's tax added. */
+  tax: Yen;
+  /** Every group's base plus its tax; see the header. */
   total: Yen;
 }>;
 
@@ -18,12 +21,14 @@ export const Summary = {
     reduced: Group,
     standardInclusive: Group,
     reducedInclusive: Group,
+    tax: Yen,
     total: Yen,
   ): Summary => ({
     standard,
     reduced,
     standard_inclusive: standardInclusive,
     reduced_inclusive: reducedInclusive,
+    tax,
     total,
   }),
 } as const;

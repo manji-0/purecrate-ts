@@ -2,8 +2,11 @@
 //! National Tax Agency's Q&A (問57, 問59):
 //!
 //! - the Q&A's own worked examples come out as printed;
-//! - totals are on one basis, converted once per rate, and an ordinary
-//!   tax-inclusive line among tax-exclusive ones needs a conversion;
+//! - totals are on one basis, converted once per rate (the model's choice;
+//!   the Q&A leaves it open), and an ordinary tax-inclusive line among
+//!   tax-exclusive ones needs a conversion;
+//! - `tax` is the groups' taxes added and `total` the groups' bases and
+//!   taxes, which after a conversion need not be the lines as priced;
 //! - a figure past `i64::MAX` is `Err(Overflow)`, exactly at the boundary;
 //! - the same rules in idiomatic Rust (`idiomatic`, the line count design/07
 //!   §2 compares against, computing in `i128`) agree on every invoice below;
@@ -55,6 +58,7 @@ mod idiomatic {
         pub reduced: Group,
         pub standard_inclusive: Group,
         pub reduced_inclusive: Group,
+        pub tax: i64,
         pub total: i64,
     }
     #[derive(Debug, PartialEq)]
@@ -119,7 +123,8 @@ mod idiomatic {
         let (r, ri) = groups(Rate::Reduced)?;
         let total = [s.base, s.tax, r.base, r.tax, si.base, ri.base].iter().map(|&v| i128::from(v)).sum();
         let total = fit(total)? as i64;
-        Ok(Summary { standard: s, reduced: r, standard_inclusive: si, reduced_inclusive: ri, total })
+        let tax = fit([s.tax, r.tax, si.tax, ri.tax].iter().map(|&v| i128::from(v)).sum())? as i64;
+        Ok(Summary { standard: s, reduced: r, standard_inclusive: si, reduced_inclusive: ri, tax, total })
     }
 }
 
@@ -198,6 +203,7 @@ fn project(s: &Summary) -> idiomatic::Summary {
         reduced: g(&s.reduced),
         standard_inclusive: g(&s.standard_inclusive),
         reduced_inclusive: g(&s.reduced_inclusive),
+        tax: s.tax.value(),
         total: s.total.value(),
     }
 }
@@ -302,7 +308,7 @@ fn the_tax_agencys_examples_come_out_as_printed() {
         let s = summarize(&invoice(month(), Rounding::Down, method)).unwrap();
         assert_eq!(base_and_tax(&s.standard_inclusive), (60_000, 5_454));
         assert_eq!(base_and_tax(&s.reduced_inclusive), (40_000, 2_962));
-        assert_eq!(s.standard_inclusive.tax.value() + s.reduced_inclusive.tax.value(), 8_416);
+        assert_eq!(s.tax.value(), 8_416);
         assert_eq!(s.total.value(), 100_000);
     }
 
@@ -332,6 +338,7 @@ fn the_tax_agencys_examples_come_out_as_printed() {
         assert_eq!(base_and_tax(&one.standard), (745, 74));
         assert_eq!(base_and_tax(&one.reduced), (120, 9));
         assert_eq!(base_and_tax(&one.standard_inclusive), (0, 0));
+        assert_eq!(one.tax.value(), 74 + 9);
         assert_eq!(one.total.value(), 948);
     }
     // 問59 ②, the fixed price not converted: 218 with tax 21, 580 containing
@@ -340,7 +347,17 @@ fn the_tax_agencys_examples_come_out_as_printed() {
     assert_eq!(base_and_tax(&two.standard), (218, 21));
     assert_eq!(base_and_tax(&two.standard_inclusive), (580, 52));
     assert_eq!(base_and_tax(&two.reduced), (120, 9));
+    assert_eq!(two.tax.value(), 21 + 52 + 9);
     assert_eq!(two.total.value(), 948);
+
+    // The conversion's rounding is the seller's; rounded up, 580 × 100/110
+    // ≒ 528, so 746 at 10% with tax 74, and the total is 949, not the
+    // receipt's 948: `total` is the groups' figures, not the lines as priced.
+    let up = Method::ToExclusive { conversion: Rounding::Up };
+    let s = summarize(&invoice(receipt(Pricing::FixedRetail), Rounding::Down, up)).unwrap();
+    assert_eq!(base_and_tax(&s.standard), (746, 74));
+    assert_eq!(s.tax.value(), 74 + 9);
+    assert_eq!(s.total.value(), 949);
 }
 
 /// 問59: the totals are "いずれかに統一して", all tax-exclusive or all
@@ -374,8 +391,9 @@ fn one_basis_unless_the_price_is_fixed() {
     assert_eq!(s.total.value(), 948);
 }
 
-/// The conversion is made once per rate on the total, so its rounding does
-/// not add up over many small lines.
+/// The model converts once per rate on the total (its choice: 問59 leaves
+/// the conversion's rounding to the seller and does not say how lines are
+/// grouped), so its rounding does not add up over many small lines.
 #[test]
 fn many_small_lines_convert_once() {
     // Eleven 1-yen tax-inclusive lines at 10%: 11 × 100/110 = 10, tax 1.

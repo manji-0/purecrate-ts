@@ -4,17 +4,20 @@
 //
 // - 問57: the tax is rounded to a yen once per rate, 10% (standard) and 8%
 //   (reduced), per invoice (消令70の10, 基通1-8-15), on the total of that
-//   rate's amounts. Rounding up, down, or half up is the seller's choice.
-//   Rounding each line and adding the results is not allowed; this type has
-//   no way to do it.
+//   rate's amounts. 問57 leaves the method to the seller (「切上げ、切捨て、
+//   四捨五入などの端数処理の方法については、任意」); this model offers
+//   three of them, rounding down, up, and half up, and no other. Rounding
+//   each line and adding the results is not allowed (問57 (注)); this type
+//   has no way to do it.
 // - 問59: the totals per rate are all tax-exclusive (tax = total × rate) or
 //   all tax-inclusive (tax = total × rate / (100 + rate)), one or the other
 //   for the whole invoice. Lines priced on the other basis are converted
-//   first; that conversion's rounding is the seller's choice and is not the
-//   tax rounding. `Method::ToExclusive` and `Method::ToInclusive` do this.
-//   The conversion is made once per rate on the total of the lines to
-//   convert, not line by line, so its rounding cannot add up over many small
-//   lines either.
+//   first; that conversion's rounding is the seller's choice (「事業者の
+//   任意」) and is not the tax rounding. `Method::ToExclusive` and
+//   `Method::ToInclusive` do this. The Q&A does not say how the conversion
+//   is grouped (問59 ① converts its one tax-inclusive line by itself); this
+//   model chooses to convert once per rate, on the total of that rate's
+//   lines to convert, not line by line.
 // - 問59, ただし: a price the law fixes tax-inclusive (tobacco, designated
 //   garbage bags, goods under resale price maintenance;
 //   `Pricing::FixedRetail`) may instead stay unconverted among tax-exclusive
@@ -22,6 +25,21 @@
 //   (`Method::Separate`), the one case with two roundings in a rate. Under
 //   `Separate` an ordinary tax-inclusive line among tax-exclusive ones is
 //   refused (`MixedPricing`): the exception covers fixed prices only.
+// - 問59 is asked and answered for a retailer's receipt, a simplified
+//   qualified invoice (適格簡易請求書), and its ただし is stated for that case
+//   alone (「一の適格簡易請求書に記載する場合」). The Q&A neither allows nor
+//   forbids it on a full 適格請求書. This model does not tell the two kinds
+//   apart and extends both 問59 rules to every invoice: a seller issuing a
+//   full 適格請求書 who wants only what the Q&A states uses `ToExclusive` or
+//   `ToInclusive` there.
+//
+// `Summary::tax` is the invoice's tax, every group's tax added (問57's
+// 「消費税 8,416円」). `Summary::total` is every group's base plus its tax,
+// a tax-inclusive base counted once as it already contains its tax: the
+// figure the receipts in 問59 print as 合計. After a conversion it is not
+// necessarily what the lines as priced come to: 問59's receipt (218 and 580
+// at 10%, 580 tax-inclusive; 120 at 8%) is 948 converted rounding down, as
+// printed, and 949 converted rounding up (580 × 100/110 ≒ 528).
 //
 // Amounts are yen, an integer; there is no decimal. A sum or a figure that
 // does not fit in an `i64` is refused (`Overflow`), not wrapped or panicked
@@ -123,6 +141,9 @@ pub struct Summary {
     /// Tax-inclusive totals; the tax is contained in `base`.
     pub standard_inclusive: Group,
     pub reduced_inclusive: Group,
+    /// Every group's tax added.
+    pub tax: Yen,
+    /// Every group's base plus its tax; see the header.
     pub total: Yen,
 }
 
@@ -234,5 +255,8 @@ pub fn summarize(invoice: &Invoice) -> Result<Summary, InvoiceError> {
     total = add(total, reduced.tax.0)?;
     total = add(total, standard_inclusive.base.0)?;
     total = add(total, reduced_inclusive.base.0)?;
-    Ok(Summary { standard, reduced, standard_inclusive, reduced_inclusive, total: Yen(total) })
+    let mut tax = add(standard.tax.0, reduced.tax.0)?;
+    tax = add(tax, standard_inclusive.tax.0)?;
+    tax = add(tax, reduced_inclusive.tax.0)?;
+    Ok(Summary { standard, reduced, standard_inclusive, reduced_inclusive, tax: Yen(tax), total: Yen(total) })
 }

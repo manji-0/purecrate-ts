@@ -128,12 +128,13 @@ export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGro
 
 const summaryWire = memo(() =>
   type("unknown").pipe(
-    sequence(["standard", "reduced", "standard_inclusive", "reduced_inclusive", "total"]),
+    sequence(["standard", "reduced", "standard_inclusive", "reduced_inclusive", "tax", "total"]),
     type({
       standard: Group,
       reduced: Group,
       standard_inclusive: Group,
       reduced_inclusive: Group,
+      tax: Yen,
       total: Yen,
     }).narrow(record),
   ),
@@ -146,6 +147,7 @@ export const Summary: Wire<DomainSummary> = type("unknown").pipe((v, ctx): Domai
     reduced: parsed.reduced,
     standard_inclusive: parsed.standard_inclusive,
     reduced_inclusive: parsed.reduced_inclusive,
+    tax: parsed.tax,
     total: parsed.total,
   };
 });
@@ -219,6 +221,7 @@ export const toJson = {
       ["reduced", toJson.Group(x.reduced)],
       ["standard_inclusive", toJson.Group(x.standard_inclusive)],
       ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
+      ["tax", toJson.Yen(x.tax)],
       ["total", toJson.Yen(x.total)],
     ]),
   InvoiceError: (x: DomainInvoiceError): string => `"${x.kind}"`,

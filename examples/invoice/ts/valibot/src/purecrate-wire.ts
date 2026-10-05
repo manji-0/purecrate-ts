@@ -82,6 +82,7 @@ export const Summary: v.GenericSchema<unknown, DomainSummary> = record({
   reduced: Group,
   standard_inclusive: Group,
   reduced_inclusive: Group,
+  tax: Yen,
   total: Yen,
 });
 
@@ -154,6 +155,7 @@ export const toJson = {
       ["reduced", toJson.Group(x.reduced)],
       ["standard_inclusive", toJson.Group(x.standard_inclusive)],
       ["reduced_inclusive", toJson.Group(x.reduced_inclusive)],
+      ["tax", toJson.Yen(x.tax)],
       ["total", toJson.Yen(x.total)],
     ]),
   InvoiceError: (x: DomainInvoiceError): string => `"${x.kind}"`,
