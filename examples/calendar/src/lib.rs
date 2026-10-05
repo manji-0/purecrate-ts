@@ -12,8 +12,10 @@
 //   civil_from_days, weekday_from_days.
 // - ISO 8601 week dates: weeks start on Monday, week 1 is the week with the
 //   year's first Thursday.
-// - RFC 5545 §3.3.10 RECUR and §3.8.5.3 RRULE (a subset, below); §3.1 names
-//   are case-insensitive.
+// - RFC 5545 §3.3.10 RECUR (with erratum 3779: in a YEARLY rule a BYDAY
+//   ordinal counts within the year unless BYMONTH is present) and §3.8.5.3
+//   RRULE (a subset, below); §3.1 names are case-insensitive; §3.3.5 and
+//   §3.3.12 allow second 60 for a positive leap second.
 //
 // Everything impure is outside: the caller reads the clock, chooses a time
 // zone for a floating time, formats dates for display, and stores the
@@ -40,14 +42,32 @@
 //   as if it were floating too (RFC 5545 asks for a local UNTIL in that case;
 //   we accept both). A date-only UNTIL includes every occurrence on that
 //   date.
-// - A floating date-time has no leap second (second 0..=59).
-// - BYDAY with an ordinal used as a limit (MONTHLY or YEARLY with
-//   BYMONTHDAY) counts within the month; in YEARLY without BYMONTH and
-//   BYMONTHDAY it counts within the year.
+// - DTSTART (a `LocalDateTime`) has no leap second (second 0..=59).
+// - UNTIL may have second 60. With "Z" it must be 23:59:60 on June 30 or
+//   December 31, as for RFC 3339 above; floating, any minute may end in a
+//   leap second (the offset is unknown). It is read as second 59 of the same
+//   minute, as §3.3.5 asks of implementations without leap seconds: `Until`
+//   holds :59 (the leap flag is not kept, unlike `Timestamp`), so
+//   "235960Z" and "235959Z" make equal rules, and an occurrence at :59 of
+//   that minute is included.
+// - A BYDAY ordinal counts within the month for MONTHLY, and for YEARLY
+//   with BYMONTH; within the year for YEARLY without BYMONTH, whether
+//   BYDAY expands or (with BYMONTHDAY) limits.
 // - YEARLY with BYMONTHDAY and no BYMONTH applies the month days to every
 //   month.
-// - INTERVAL and COUNT must be at least 1; ordinals are 1..=53, month days
-//   1..=31 (signed).
+// - INTERVAL and COUNT must be 1..=4294967295 (u32); a larger value is
+//   `InvalidValue`, not a wrap. Ordinals are 1..=53, month days 1..=31
+//   (signed).
+//
+// Integer bounds: no input overflows. Every day count and year passes a
+// range check before arithmetic, except `weekday`, which is reduced mod 7
+// first and so is defined for every i64. In `expand`, `k * interval` stays
+// small because the loop stops (`OutOfRange`) at the first period past
+// 9999-12-31, so k * interval days never exceeds the range plus one
+// INTERVAL. The one bound left to the caller: `offset_minutes` of an
+// `Offset::Numeric` built by hand needs `hours * 60 + minutes` to fit in an
+// i64 (it panics otherwise); `parse_rfc3339` only makes hours 0..=23 and
+// minutes 0..=59.
 //
 // Left out on purpose:
 // - FREQ=SECONDLY/MINUTELY/HOURLY, BYSECOND, BYMINUTE, BYHOUR, BYYEARDAY,
@@ -203,8 +223,9 @@ pub fn civil_from_days(days: i64) -> Result<CivilDate, CalendarError> {
 }
 
 /// ISO day number, Monday = 1 .. Sunday = 7. 1970-01-01 was a Thursday.
+/// Reduced before the shift, so no day count overflows.
 fn iso_day_number(days: i64) -> i64 {
-    floor_mod(days + 3, 7) + 1
+    floor_mod(floor_mod(days, 7) + 3, 7) + 1
 }
 
 /// The ISO number of a weekday, Monday = 1 .. Sunday = 7.
@@ -317,7 +338,8 @@ impl Timestamp {
     }
 }
 
-/// Minutes east of UTC.
+/// Minutes east of UTC. For a hand-built offset, `hours * 60 + minutes`
+/// must fit in an i64 (see the header).
 pub fn offset_minutes(o: Offset) -> i64 {
     match o {
         Offset::Utc => 0,
@@ -764,14 +786,26 @@ fn parse_until(v: &str) -> Result<Until, RuleError> {
     let hour = digits_at(b, 9, 2).ok_or(bad)?;
     let minute = digits_at(b, 11, 2).ok_or(bad)?;
     let second = digits_at(b, 13, 2).ok_or(bad)?;
-    let t = LocalDateTime::new(year, month, day, hour, minute, second).map_err(|_| bad)?;
-    if b.len() == 15 {
-        return Ok(Until::Floating(t));
-    }
-    if b[15] != b'Z' && b[15] != b'z' {
+    let utc = b.len() == 16;
+    if utc && b[15] != b'Z' && b[15] != b'z' {
         return Err(bad);
     }
-    Ok(Until::Utc(t))
+    if second > 60 {
+        return Err(bad);
+    }
+    if second == 60 && utc {
+        let half_year_end = (month == 6 && day == 30) || (month == 12 && day == 31);
+        if hour != 23 || minute != 59 || !half_year_end {
+            return Err(bad);
+        }
+    }
+    // A leap second is read as second 59 (RFC 5545 §3.3.5).
+    let t = LocalDateTime::new(year, month, day, hour, minute, second.min(59)).map_err(|_| bad)?;
+    if utc {
+        Ok(Until::Utc(t))
+    } else {
+        Ok(Until::Floating(t))
+    }
 }
 
 /// Parses an RFC 5545 RECUR value such as
@@ -980,13 +1014,21 @@ fn month_days(rule: &Rule, start: &LocalDateTime, year: i64, month: i64) -> Vec<
 
 fn year_days(rule: &Rule, start: &LocalDateTime, year: i64) -> Vec<i64> {
     let mut v: Vec<i64> = Vec::new();
-    if !rule.by_day.is_empty() && rule.by_month.is_empty() && rule.by_month_day.is_empty() {
-        // BYDAY alone expands over the whole year, ordinals counted in it.
+    if !rule.by_day.is_empty() && rule.by_month.is_empty() {
+        // Without BYMONTH, BYDAY ordinals count within the year (erratum
+        // 3779), whether BYDAY expands or BYMONTHDAY makes it a limit.
         let first = civil_to_days(year, 1, 1);
         let last = civil_to_days(year, 12, 31);
-        for day in first..last + 1 {
-            if by_day_matches(&rule.by_day, day, first, last) {
-                v.push(day);
+        for month in 1..13i64 {
+            let len = month_length(year, month);
+            let month_first = civil_to_days(year, month, 1);
+            for dom in 1..len + 1 {
+                let day = month_first + dom - 1;
+                let selected = (rule.by_month_day.is_empty() || month_day_listed(&rule.by_month_day, dom, len))
+                    && by_day_matches(&rule.by_day, day, first, last);
+                if selected {
+                    v.push(day);
+                }
             }
         }
         return v;

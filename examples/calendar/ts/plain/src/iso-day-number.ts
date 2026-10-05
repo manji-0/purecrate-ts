@@ -3,6 +3,9 @@
 import { Int, type I64 } from "./purecrate-runtime.ts";
 import { floorMod } from "./floor-mod.ts";
 
-/** ISO day number, Monday = 1 .. Sunday = 7. 1970-01-01 was a Thursday. */
+/**
+ * ISO day number, Monday = 1 .. Sunday = 7. 1970-01-01 was a Thursday.
+ * Reduced before the shift, so no day count overflows.
+ */
 export const isoDayNumber = (days: I64): I64 =>
-  Int.i64.add(floorMod(Int.i64.add(days, 3n as I64), 7n as I64), 1n as I64);
+  Int.i64.add(floorMod(Int.i64.add(floorMod(days, 7n as I64), 3n as I64), 7n as I64), 1n as I64);

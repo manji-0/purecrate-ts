@@ -3,7 +3,10 @@
 import { assertNever, Int, type I64 } from "./purecrate-runtime.ts";
 import type { Offset } from "./offset.ts";
 
-/** Minutes east of UTC. */
+/**
+ * Minutes east of UTC. For a hand-built offset, `hours * 60 + minutes`
+ * must fit in an i64 (see the header).
+ */
 export const offsetMinutes = (o: Offset): I64 => {
   switch (o.kind) {
     case "Utc":

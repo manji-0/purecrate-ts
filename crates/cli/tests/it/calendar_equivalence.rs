@@ -126,7 +126,7 @@ mod idiomatic {
     }
 
     fn day_index(days: i64) -> i64 {
-        (days + 3).rem_euclid(7)
+        (days.rem_euclid(7) + 3).rem_euclid(7)
     }
 
     pub fn weekday(days: i64) -> DayOfWeek {
@@ -402,12 +402,18 @@ mod idiomatic {
         if !b"Tt".contains(&b[8]) {
             return None;
         }
-        let t = LocalDateTime::new(date.year, date.month, date.day, n(9, 2)?, n(11, 2)?, n(13, 2)?).ok()?;
-        match b.get(15) {
-            None => Some(Until::Floating(t)),
-            Some(b'Z' | b'z') => Some(Until::Utc(t)),
-            _ => None,
+        let (h, mi, sec) = (n(9, 2)?, n(11, 2)?, n(13, 2)?);
+        let utc = match b.get(15) {
+            None => false,
+            Some(b'Z' | b'z') => true,
+            _ => return None,
+        };
+        let leap_ok = !utc || ((h, mi) == (23, 59) && matches!((date.month, date.day), (6, 30) | (12, 31)));
+        if sec > 60 || (sec == 60 && !leap_ok) {
+            return None;
         }
+        let t = LocalDateTime::new(date.year, date.month, date.day, h, mi, sec.min(59)).ok()?;
+        Some(if utc { Until::Utc(t) } else { Until::Floating(t) })
     }
 
     fn list<T>(v: &str, f: impl Fn(&str) -> Option<T>, part: RulePart) -> Result<Vec<T>, RuleError> {
@@ -577,9 +583,14 @@ mod idiomatic {
                     })
                     .collect(),
                 Freq::Monthly => self.month(start, c.year, c.month),
-                Freq::Yearly if !self.by_day.is_empty() && self.by_month.is_empty() && self.by_month_day.is_empty() => {
+                Freq::Yearly if !self.by_day.is_empty() && self.by_month.is_empty() => {
                     let span = (to_days(c.year, 1, 1), to_days(c.year, 12, 31));
-                    (span.0..=span.1).filter(|&d| self.day_ok(d, span)).collect()
+                    (span.0..=span.1)
+                        .filter(|&d| {
+                            let dc = to_civil(d);
+                            self.month_day_ok(dc.day, month_length(dc.year, dc.month)) && self.day_ok(d, span)
+                        })
+                        .collect()
                 }
                 Freq::Yearly => (1..=12)
                     .filter(|&m| !self.by_month.is_empty() || !self.by_month_day.is_empty() || m == start.date.month)
@@ -662,9 +673,14 @@ fn instant(s: &str) -> Result<(i64, u32), calendar::TimestampError> {
     calendar::parse_rfc3339(s).map(|t| (t.instant().seconds, t.instant().millis))
 }
 
-/// The dates of an expansion, as `YYYY-MM-DD`.
+/// The dates of an expansion from 09:00, as `YYYY-MM-DD`.
 fn dates(rule: &str, start: (i64, i64, i64), limit: u32) -> (Vec<String>, Stop) {
-    match calendar::expand_text(rule, start.0, start.1, start.2, 9, 0, 0, limit, 2000) {
+    dates_at(rule, (start.0, start.1, start.2, 9, 0, 0), limit)
+}
+
+/// The dates of an expansion from a date and time, as `YYYY-MM-DD`.
+fn dates_at(rule: &str, start: (i64, i64, i64, i64, i64, i64), limit: u32) -> (Vec<String>, Stop) {
+    match calendar::expand_text(rule, start.0, start.1, start.2, start.3, start.4, start.5, limit, 2000) {
         Expanded::Done(e) => (
             e.occurrences()
                 .iter()
@@ -772,6 +788,106 @@ fn the_published_examples_come_out_as_printed() {
     assert_eq!(dates("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30", (2024, 1, 1), 5), (vec![], Stop::MaxPeriods));
 }
 
+#[test]
+fn leap_second_until_yearly_ordinals_and_integer_bounds() {
+    use calendar::{RuleEnd, RuleError, RulePart, Until};
+    let d = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let end = |r: &str| calendar::parse_rrule(r).map(|r| r.end());
+    let at = |y, mo, d, h, mi, s| calendar::LocalDateTime::new(y, mo, d, h, mi, s).unwrap();
+
+    // RFC 5545 §3.3.5's own leap second, as UNTIL: read as 23:59:59
+    // (§3.3.5: "SHOULD interpret the second 60 as equivalent to the second
+    // 59"), so it makes the same rule as 235959Z.
+    assert_eq!(end("FREQ=DAILY;UNTIL=19970630T235960Z"), Ok(RuleEnd::Until(Until::Utc(at(1997, 6, 30, 23, 59, 59)))));
+    assert_eq!(
+        calendar::parse_rrule("FREQ=DAILY;UNTIL=19970630T235960Z"),
+        calendar::parse_rrule("FREQ=DAILY;UNTIL=19970630T235959Z")
+    );
+    assert_eq!(
+        dates_at("FREQ=DAILY;UNTIL=19970630T235960Z", (1997, 6, 28, 23, 59, 59), 100),
+        (d(&["1997-06-28", "1997-06-29", "1997-06-30"]), Stop::Ended)
+    );
+    // Floating: the offset is unknown, so any minute may end in one.
+    assert_eq!(
+        end("FREQ=DAILY;UNTIL=19970630T120060"),
+        Ok(RuleEnd::Until(Until::Floating(at(1997, 6, 30, 12, 0, 59))))
+    );
+    assert_eq!(
+        dates_at("FREQ=DAILY;UNTIL=19970630T120060", (1997, 6, 29, 12, 0, 59), 100),
+        (d(&["1997-06-29", "1997-06-30"]), Stop::Ended)
+    );
+    assert_eq!(
+        dates_at("FREQ=DAILY;UNTIL=19970630T120060", (1997, 6, 29, 12, 1, 0), 100),
+        (d(&["1997-06-29"]), Stop::Ended)
+    );
+    // With "Z" only where UTC has one (RFC 3339 §5.7); never second 61.
+    let bad_until = Err(RuleError::InvalidValue(RulePart::Until));
+    assert_eq!(end("FREQ=DAILY;UNTIL=19970701T000060Z"), bad_until);
+    assert_eq!(end("FREQ=DAILY;UNTIL=19970630T225960Z"), bad_until);
+    assert_eq!(end("FREQ=DAILY;UNTIL=19970630T235961Z"), bad_until);
+    assert_eq!(end("FREQ=DAILY;UNTIL=19970630T235961"), bad_until);
+
+    // RFC 5545 §3.8.5.3, U.S. Presidential Election day: BYMONTH present, so
+    // BYDAY and BYMONTHDAY work within November.
+    assert_eq!(
+        dates("FREQ=YEARLY;INTERVAL=4;BYMONTH=11;BYDAY=TU;BYMONTHDAY=2,3,4,5,6,7,8", (1996, 11, 5), 3).0,
+        d(&["1996-11-05", "2000-11-07", "2004-11-02"])
+    );
+    // YEARLY without BYMONTH: a BYDAY ordinal counts within the year
+    // (§3.3.10 with erratum 3779), also when BYMONTHDAY makes BYDAY a limit
+    // (the table's Note 2). "1MO" is the year's first Monday, kept only if
+    // it falls on day 1..=7 of its month: in January every year, never the
+    // first Monday of each month. The RFC prints no example of this
+    // combination; the expected values agree with python-dateutil.
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=1MO;COUNT=4", (1997, 9, 2), 100).0,
+        d(&["1998-01-05", "1999-01-04", "2000-01-03", "2001-01-01"])
+    );
+    // Without the ordinal, every Monday on day 1..=7 of any month.
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=MO;COUNT=4", (1997, 9, 2), 100).0,
+        d(&["1997-10-06", "1997-11-03", "1997-12-01", "1998-01-05"])
+    );
+    // The year's last Friday, when it is the last day of a month.
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTHDAY=-1;BYDAY=-1FR;COUNT=4", (1997, 9, 2), 100).0,
+        d(&["1999-12-31", "2004-12-31", "2010-12-31", "2021-12-31"])
+    );
+    // The year's second Friday, when it is a 13th.
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTHDAY=13;BYDAY=2FR;COUNT=4", (1997, 9, 2), 100).0,
+        d(&["2006-01-13", "2012-01-13", "2017-01-13", "2023-01-13"])
+    );
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTHDAY=1,-1;BYDAY=1MO,-1SU;COUNT=6", (1997, 9, 2), 100).0,
+        d(&["2000-12-31", "2001-01-01", "2006-12-31", "2007-01-01", "2017-12-31", "2018-01-01"])
+    );
+    // With BYMONTH the ordinal is the month's: the first Monday of March.
+    assert_eq!(
+        dates("FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=1MO;COUNT=3", (1997, 9, 2), 100).0,
+        d(&["1998-03-02", "1999-03-01", "2000-03-06"])
+    );
+
+    // Integers: `weekday` is defined for every i64 (day 0, 1970-01-01, is a
+    // Thursday; i64::MAX is 0 mod 7, i64::MIN is 6 mod 7).
+    assert_eq!(calendar::weekday(i64::MAX), DayOfWeek::Thursday);
+    assert_eq!(calendar::weekday(i64::MAX - 1), DayOfWeek::Wednesday);
+    assert_eq!(calendar::weekday(i64::MIN), DayOfWeek::Wednesday);
+    // COUNT and INTERVAL past u32 are refused, not wrapped.
+    assert_eq!(end("FREQ=DAILY;COUNT=4294967295"), Ok(RuleEnd::Count(u32::MAX)));
+    assert_eq!(end("FREQ=DAILY;COUNT=4294967296"), Err(RuleError::InvalidValue(RulePart::Count)));
+    assert_eq!(
+        calendar::parse_rrule("FREQ=DAILY;INTERVAL=99999999999999999999"),
+        Err(RuleError::InvalidValue(RulePart::Interval))
+    );
+    // The widest INTERVAL steps out of range after one period, without
+    // overflowing k * INTERVAL.
+    for freq in ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"] {
+        let rule = format!("FREQ={freq};INTERVAL=4294967295");
+        assert_eq!(dates(&rule, (9999, 12, 1), 100), (d(&["9999-12-01"]), Stop::OutOfRange), "{rule}");
+    }
+}
+
 fn rules() -> Vec<&'static str> {
     vec![
         "FREQ=DAILY",
@@ -793,6 +909,16 @@ fn rules() -> Vec<&'static str> {
         "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30",
         "FREQ=YEARLY;BYMONTHDAY=1",
         "FREQ=YEARLY;INTERVAL=4;BYMONTH=11;BYDAY=1TU",
+        "FREQ=YEARLY;INTERVAL=4;BYMONTH=11;BYDAY=TU;BYMONTHDAY=2,3,4,5,6,7,8",
+        "FREQ=YEARLY;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=1MO",
+        "FREQ=YEARLY;BYMONTHDAY=1,-1;BYDAY=1MO,-1SU",
+        "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=1MO",
+        "FREQ=DAILY;UNTIL=19970630T235960Z",
+        "FREQ=DAILY;UNTIL=20241231T235960z",
+        "FREQ=DAILY;UNTIL=20240229T120060",
+        "FREQ=DAILY;COUNT=4294967295",
+        "FREQ=WEEKLY;INTERVAL=4294967295",
+        "FREQ=YEARLY;INTERVAL=4294967295",
         // Refused.
         "",
         "FREQ=DAILY;",
@@ -814,6 +940,11 @@ fn rules() -> Vec<&'static str> {
         "FREQ=MONTHLY;BYMONTH=13",
         "FREQ=DAILY;UNTIL=20240230",
         "FREQ=DAILY;UNTIL=20240101T250000Z",
+        "FREQ=DAILY;UNTIL=19970701T000060Z",
+        "FREQ=DAILY;UNTIL=19970630T235961Z",
+        "FREQ=DAILY;UNTIL=19970630T235961",
+        "FREQ=DAILY;COUNT=4294967296",
+        "FREQ=DAILY;INTERVAL=99999999999999999999",
         "FREQ=DAILY;WKST=XX",
     ]
 }
@@ -826,6 +957,7 @@ fn starts() -> Vec<(i64, i64, i64, i64, i64, i64)> {
         (-1, 12, 31, 0, 0, 0),
         (9999, 12, 1, 12, 0, 0),
         (2023, 2, 29, 0, 0, 0),
+        (1997, 6, 28, 23, 59, 59),
     ]
 }
 
@@ -936,6 +1068,8 @@ fn calendar_matches_rust() {
         let edges = [calendar::MIN_DAYS - 1, calendar::MIN_DAYS, -719_469, -719_468, -146_097, -1, 0, 59, 11_016];
         let ends = [19_722, 19_723, 20_088, calendar::MAX_DAYS, calendar::MAX_DAYS + 1, i64::MIN / 2];
         grid!(cases, [calendar::civil_from_days, calendar::iso_week]; days in edges.iter().chain(&ends).copied());
+        let extremes = [i64::MIN, i64::MIN + 1, i64::MAX - 1, i64::MAX];
+        grid!(cases, calendar::weekday; days in edges.iter().chain(&ends).chain(&extremes).copied());
         for days in (calendar::MIN_DAYS..=calendar::MAX_DAYS).step_by(9_973) {
             cases.push(case!(calendar::civil_from_days(days)));
             cases.push(case!(calendar::iso_week(days)));

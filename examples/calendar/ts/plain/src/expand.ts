@@ -112,13 +112,28 @@ const monthDays = (rule: Rule, start: LocalDateTime, year: I64, month: I64): Rea
 const yearDays = (rule: Rule, start: LocalDateTime, year: I64): ReadonlyArray<I64> => {
   const v: Array<I64> = [];
 
-  if (rule.by_day.length !== 0 && rule.by_month.length === 0 && rule.by_month_day.length === 0) {
-    // BYDAY alone expands over the whole year, ordinals counted in it.
+  if (rule.by_day.length !== 0 && rule.by_month.length === 0) {
+    // Without BYMONTH, BYDAY ordinals count within the year (erratum
+    // 3779), whether BYDAY expands or BYMONTHDAY makes it a limit.
     const first = civilToDays(year, 1n as I64, 1n as I64);
     const last = civilToDays(year, 12n as I64, 31n as I64);
-    for (let day = first, end = Int.i64.add(last, 1n as I64); day < end; day = (day + 1n) as I64) {
-      if (byDayMatches(rule.by_day, day, first, last)) {
-        v.push(day);
+
+    for (let month = 1n as I64; month < 13n; month = (month + 1n) as I64) {
+      const len = monthLength(year, month);
+      const monthFirst = civilToDays(year, month, 1n as I64);
+
+      for (
+        let dom = 1n as I64, end = Int.i64.add(len, 1n as I64);
+        dom < end;
+        dom = (dom + 1n) as I64
+      ) {
+        const day = Int.i64.sub(Int.i64.add(monthFirst, dom), 1n as I64);
+        const selected =
+          (rule.by_month_day.length === 0 || monthDayListed(rule.by_month_day, dom, len)) &&
+          byDayMatches(rule.by_day, day, first, last);
+        if (selected) {
+          v.push(day);
+        }
       }
     }
 

@@ -198,12 +198,28 @@ const parseUntil = (v: string): Result<Until, RuleError> => {
   if (minute === null) return Result.err(bad);
   const second = digitsAt(b, 13 as Usize, 2 as Usize);
   if (second === null) return Result.err(bad);
-  const tResult = LocalDateTime.new(year, month, day, hour, minute, second);
+  const utc = b.length === 16;
+  if (utc && Slice.at(b, 15) !== /* 'Z' */ 90 && Slice.at(b, 15) !== /* 'z' */ 122)
+    return Result.err(bad);
+  if (second > 60n) return Result.err(bad);
+
+  if (second === 60n && utc) {
+    const halfYearEnd = (month === 6n && day === 30n) || (month === 12n && day === 31n);
+    if (hour !== 23n || minute !== 59n || !halfYearEnd) return Result.err(bad);
+  }
+
+  // A leap second is read as second 59 (RFC 5545 §3.3.5).
+  const tResult = LocalDateTime.new(
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    Int.i64.min(second, 59n as I64),
+  );
   if (tResult.kind === "Err") return Result.err(bad);
   const t = tResult.value;
-  if (b.length === 15) return Result.ok({ kind: "Floating", value: t });
-  if (Slice.at(b, 15) !== /* 'Z' */ 90 && Slice.at(b, 15) !== /* 'z' */ 122) return Result.err(bad);
-  return Result.ok({ kind: "Utc", value: t });
+  return utc ? Result.ok({ kind: "Utc", value: t }) : Result.ok({ kind: "Floating", value: t });
 };
 
 /**
