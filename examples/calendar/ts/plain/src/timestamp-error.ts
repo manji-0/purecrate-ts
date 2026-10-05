@@ -21,7 +21,7 @@ export const TimestampError = {
   Hour: (): TimestampError => ({ kind: "Hour" }),
   Minute: (): TimestampError => ({ kind: "Minute" }),
   Second: (): TimestampError => ({ kind: "Second" }),
-  /** Second 60 where the UTC time is not 23:59:60 on June 30 or December 31. */
+  /** Second 60 where the UTC time is not 23:59:60 on a month's last day. */
   LeapSecond: (): TimestampError => ({ kind: "LeapSecond" }),
   OffsetHour: (): TimestampError => ({ kind: "OffsetHour" }),
   OffsetMinute: (): TimestampError => ({ kind: "OffsetMinute" }),

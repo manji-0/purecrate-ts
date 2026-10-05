@@ -18,6 +18,7 @@ import type { DayOfWeek } from "./day-of-week.ts";
 import { digitsAt } from "./digits-at.ts";
 import type { Freq } from "./freq.ts";
 import { LocalDateTime } from "./local-date-time.ts";
+import { monthLength } from "./month-length.ts";
 import type { RuleEnd } from "./rule-end.ts";
 import type { RuleError } from "./rule-error.ts";
 import type { RulePart } from "./rule-part.ts";
@@ -204,8 +205,7 @@ const parseUntil = (v: string): Result<Until, RuleError> => {
   if (second > 60n) return Result.err(bad);
 
   if (second === 60n && utc) {
-    const halfYearEnd = (month === 6n && day === 30n) || (month === 12n && day === 31n);
-    if (hour !== 23n || minute !== 59n || !halfYearEnd) return Result.err(bad);
+    if (hour !== 23n || minute !== 59n || day !== monthLength(year, month)) return Result.err(bad);
   }
 
   // A leap second is read as second 59 (RFC 5545 §3.3.5).

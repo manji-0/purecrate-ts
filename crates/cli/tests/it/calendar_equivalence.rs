@@ -251,7 +251,7 @@ mod idiomatic {
         let minute_of_day = utc_minute.rem_euclid(1440);
         if second == 60 {
             let d = to_civil(utc_days);
-            if minute_of_day != 1439 || !matches!((d.month, d.day), (6, 30) | (12, 31)) {
+            if minute_of_day != 1439 || d.day != month_length(d.year, d.month) {
                 return Err(E::LeapSecond);
             }
         }
@@ -408,7 +408,7 @@ mod idiomatic {
             Some(b'Z' | b'z') => true,
             _ => return None,
         };
-        let leap_ok = !utc || ((h, mi) == (23, 59) && matches!((date.month, date.day), (6, 30) | (12, 31)));
+        let leap_ok = !utc || ((h, mi) == (23, 59) && date.day == month_length(date.year, date.month));
         if sec > 60 || (sec == 60 && !leap_ok) {
             return None;
         }
@@ -701,6 +701,13 @@ fn the_published_examples_come_out_as_printed() {
     assert_eq!(instant("1990-12-31T15:59:60-08:00"), Ok((662_687_999, 0)), "the same leap second");
     assert_eq!(instant("1937-01-01T12:00:27.87+00:20"), Ok((-1_041_337_173, 870)));
     assert_eq!(instant("2016-12-31T23:59:60+01:00"), Err(calendar::TimestampError::LeapSecond));
+    // At the end of any month (§5.7: June and December only "to date").
+    assert_eq!(instant("2024-03-31T23:59:60Z"), Ok((1_711_929_599, 0)));
+    assert_eq!(instant("2024-10-01T08:59:60+09:00"), Ok((1_727_740_799, 0)), "September 30 in UTC");
+    assert_eq!(instant("2024-02-29T23:59:60Z"), Ok((1_709_251_199, 0)));
+    assert_eq!(instant("2023-02-28T23:59:60Z"), Ok((1_677_628_799, 0)));
+    assert_eq!(instant("2024-02-28T23:59:60Z"), Err(calendar::TimestampError::LeapSecond));
+    assert_eq!(instant("2024-03-30T23:59:60Z"), Err(calendar::TimestampError::LeapSecond));
     assert_eq!(instant("1985-04-12 23:20:50Z"), Err(calendar::TimestampError::Syntax(10)));
 
     // Hinnant: 1970-01-01 is day 0, a Thursday; the range ends.
@@ -824,6 +831,8 @@ fn leap_second_until_yearly_ordinals_and_integer_bounds() {
     let bad_until = Err(RuleError::InvalidValue(RulePart::Until));
     assert_eq!(end("FREQ=DAILY;UNTIL=19970701T000060Z"), bad_until);
     assert_eq!(end("FREQ=DAILY;UNTIL=19970630T225960Z"), bad_until);
+    assert_eq!(end("FREQ=DAILY;UNTIL=20240330T235960Z"), bad_until);
+    assert_eq!(end("FREQ=DAILY;UNTIL=20240331T235960Z"), Ok(RuleEnd::Until(Until::Utc(at(2024, 3, 31, 23, 59, 59)))));
     assert_eq!(end("FREQ=DAILY;UNTIL=19970630T235961Z"), bad_until);
     assert_eq!(end("FREQ=DAILY;UNTIL=19970630T235961"), bad_until);
 
@@ -915,6 +924,8 @@ fn rules() -> Vec<&'static str> {
         "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=1MO",
         "FREQ=DAILY;UNTIL=19970630T235960Z",
         "FREQ=DAILY;UNTIL=20241231T235960z",
+        "FREQ=DAILY;UNTIL=20240331T235960Z",
+        "FREQ=DAILY;UNTIL=20230228T235960Z",
         "FREQ=DAILY;UNTIL=20240229T120060",
         "FREQ=DAILY;COUNT=4294967295",
         "FREQ=WEEKLY;INTERVAL=4294967295",
@@ -943,6 +954,8 @@ fn rules() -> Vec<&'static str> {
         "FREQ=DAILY;UNTIL=19970701T000060Z",
         "FREQ=DAILY;UNTIL=19970630T235961Z",
         "FREQ=DAILY;UNTIL=19970630T235961",
+        "FREQ=DAILY;UNTIL=20240330T235960Z",
+        "FREQ=DAILY;UNTIL=20240228T235960Z",
         "FREQ=DAILY;COUNT=4294967296",
         "FREQ=DAILY;INTERVAL=99999999999999999999",
         "FREQ=DAILY;WKST=XX",
@@ -963,7 +976,19 @@ fn starts() -> Vec<(i64, i64, i64, i64, i64, i64)> {
 
 fn timestamps() -> Vec<String> {
     let mut out = Vec::new();
-    for (y, m, d) in [(1990, 12, 31), (2016, 6, 30), (2024, 2, 29), (2023, 2, 29), (0, 1, 1), (9999, 12, 31)] {
+    for (y, m, d) in [
+        (1990, 12, 31),
+        (2016, 6, 30),
+        (2024, 2, 29),
+        (2023, 2, 29),
+        (2023, 2, 28),
+        (2024, 2, 28),
+        (2024, 3, 31),
+        (2024, 3, 30),
+        (2024, 10, 1),
+        (0, 1, 1),
+        (9999, 12, 31),
+    ] {
         for time in ["00:00:00", "23:59:59", "23:59:60", "15:59:60", "08:00:60.5"] {
             for offset in ["Z", "z", "+00:00", "-00:00", "-08:00", "+09:00", "+23:59", "+24:00", "+05:60", ""] {
                 out.push(format!("{y:04}-{m:02}-{d:02}T{time}{offset}"));

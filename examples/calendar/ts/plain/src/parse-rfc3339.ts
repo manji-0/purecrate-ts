@@ -151,8 +151,8 @@ export const parseRfc3339 = (s: string): Result<Timestamp, TimestampError> => {
 
   if (second === 60n) {
     const d = daysToCivil(utcDays);
-    const halfYearEnd = (d.month === 6n && d.day === 30n) || (d.month === 12n && d.day === 31n);
-    if (minuteOfDay !== 1439n || !halfYearEnd) return Result.err({ kind: "LeapSecond" });
+    if (minuteOfDay !== 1439n || d.day !== monthLength(d.year, d.month))
+      return Result.err({ kind: "LeapSecond" });
   }
 
   return Result.ok(

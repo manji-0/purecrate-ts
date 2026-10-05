@@ -5,8 +5,8 @@
 // Specifications:
 // - RFC 3339 §5.6 date-time grammar (`full-date "T" partial-time
 //   time-offset`), its note that "T" and "Z" may be lower case, §5.7 the
-//   leap second (23:59:60 at the end of June 30 or December 31, UTC), and
-//   §4.3 "-00:00".
+//   leap second (second 60 "at the end of months in which a leap second
+//   occurs", at the same instant in every offset), and §4.3 "-00:00".
 // - Howard Hinnant, "chrono-Compatible Low-Level Date Algorithms"
 //   (http://howardhinnant.github.io/date_algorithms.html): days_from_civil,
 //   civil_from_days, weekday_from_days.
@@ -24,6 +24,11 @@
 // Policy choices, not the specifications':
 // - Years are -9999..=9999 for civil dates (RFC 3339 itself only has
 //   0000..=9999). Every date field is an `i64`.
+// - A leap second is accepted at 23:59:60 UTC on the last day of any month.
+//   §5.7 names June and December only as the months used "to date", and
+//   which months will have one is announced weeks ahead, so the model does
+//   not keep a table; second 60 at any other UTC time is `LeapSecond`. A
+//   negative leap second (no 23:59:59) is not checked.
 // - A leap second maps to the same Unix second as 23:59:59 of that UTC day;
 //   the fraction is kept, and `Timestamp::is_leap_second` tells the two apart.
 //   So 23:59:60.500Z and 23:59:59.500Z have the same `Instant`.
@@ -43,8 +48,8 @@
 //   we accept both). A date-only UNTIL includes every occurrence on that
 //   date.
 // - DTSTART (a `LocalDateTime`) has no leap second (second 0..=59).
-// - UNTIL may have second 60. With "Z" it must be 23:59:60 on June 30 or
-//   December 31, as for RFC 3339 above; floating, any minute may end in a
+// - UNTIL may have second 60. With "Z" it must be 23:59:60 on the last day
+//   of a month, as for RFC 3339 above; floating, any minute may end in a
 //   leap second (the offset is unknown). It is read as second 59 of the same
 //   minute, as §3.3.5 asks of implementations without leap seconds: `Until`
 //   holds :59 (the leap flag is not kept, unlike `Timestamp`), so
@@ -289,7 +294,7 @@ pub enum TimestampError {
     Hour,
     Minute,
     Second,
-    /// Second 60 where the UTC time is not 23:59:60 on June 30 or December 31.
+    /// Second 60 where the UTC time is not 23:59:60 on a month's last day.
     LeapSecond,
     OffsetHour,
     OffsetMinute,
@@ -473,8 +478,7 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, TimestampError> {
     let minute_of_day = floor_mod(utc_minute, 1440);
     if second == 60 {
         let d = days_to_civil(utc_days);
-        let half_year_end = (d.month == 6 && d.day == 30) || (d.month == 12 && d.day == 31);
-        if minute_of_day != 1439 || !half_year_end {
+        if minute_of_day != 1439 || d.day != month_length(d.year, d.month) {
             return Err(TimestampError::LeapSecond);
         }
     }
@@ -794,8 +798,7 @@ fn parse_until(v: &str) -> Result<Until, RuleError> {
         return Err(bad);
     }
     if second == 60 && utc {
-        let half_year_end = (month == 6 && day == 30) || (month == 12 && day == 31);
-        if hour != 23 || minute != 59 || !half_year_end {
+        if hour != 23 || minute != 59 || day != month_length(year, month) {
             return Err(bad);
         }
     }
