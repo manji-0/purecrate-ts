@@ -43,6 +43,7 @@ pub(super) fn unread(expr: &mut Expr) {
         unread(child);
     }
     literal_compare(expr);
+    built_test(expr);
     match expr {
         Expr::Match { scrutinee, arms } => {
             for arm in arms.iter_mut() {
@@ -494,5 +495,30 @@ pub(super) fn read_lets(expr: Expr) -> Expr {
             read_lets(crate::expr::subst(&then, &name, &value))
         }
         other => other,
+    }
+}
+
+/// `Some(v).is_some()` (what narrowing made of `r.map(f).ok().is_some()`)
+/// is `true`, and `None.is_some()` `false`, where the value does nothing:
+/// lint refuses `(v as T) !== null` as a test that never changes.
+fn built_test(expr: &mut Expr) {
+    use purecrate_ir::Callee;
+    let Expr::Call { callee: callee @ (Callee::OptionIsSome | Callee::OptionIsNone), args } = expr else { return };
+    let [arg] = args.as_slice() else { return };
+    // Through the bindings a fold leaves (`{ let v = 100; Some(v) }`).
+    let mut built = arg;
+    while let Expr::Let { value, then, .. } = built {
+        if !effectless(value) {
+            return;
+        }
+        built = then;
+    }
+    let some = match constructed_case(built).as_ref().map(Name::as_str) {
+        Some(SOME) => true,
+        Some(NONE) => false,
+        _ => return,
+    };
+    if effectless(built) {
+        *expr = Expr::Lit(Lit::Bool(some == (*callee == Callee::OptionIsSome)));
     }
 }

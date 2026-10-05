@@ -1,6 +1,7 @@
 //! `for i in a..b` (design/02 §2): empty and negative ranges, `i64`,
 //! early `return`, `?` in the body, nesting, a closure over the variable,
-//! bounds read once, shadowing, and panics in the bounds and in the body.
+//! bounds read once, shadowing, and panics in the bounds and in the body;
+//! and a `while` on a flag its body sets.
 
 use crate::support;
 
@@ -21,6 +22,7 @@ fn for_ranges_match_rust() {
         }
         grid!(cases, [loops::table, loops::bound_once, loops::shadow]; n in [0u32, 1, 5, 100, 3000]);
         grid!(cases, loops::captured; n in [0i32, 4, -2]);
+        grid!(cases, [loops::steps_until_past, loops::steps_while_going]; n in [0u32, 1, 4, 1000]);
         for (a, b) in [(10i32, 2i32), (1, 0), (i32::MIN, -1), (10000, 1)] {
             cases.push(case!(loops::bounds_panic(a, b)));
         }

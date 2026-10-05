@@ -86,3 +86,26 @@ pub fn bounds_panic(a: i32, b: i32) -> i32 {
     }
     s
 }
+
+/// A flag the body sets, read by the test at the loop's head: not decided
+/// by its value before the loop.
+pub fn steps_until_past(limit: u32) -> u32 {
+    let mut done = false;
+    let mut steps: u32 = 0;
+    while !done {
+        steps += 1;
+        done = steps > limit;
+    }
+    steps
+}
+
+/// The same with the flag set to go on.
+pub fn steps_while_going(limit: u32) -> u32 {
+    let mut going = true;
+    let mut steps: u32 = 0;
+    while going {
+        steps += 1;
+        going = steps <= limit;
+    }
+    steps
+}

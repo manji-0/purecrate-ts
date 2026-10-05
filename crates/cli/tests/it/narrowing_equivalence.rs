@@ -36,6 +36,10 @@ fn generated_narrowing_matches_rust() {
         let notes = [Note::Stop(3), Note::Wait, Note::Skip, Note::Read(4), Note::Echo];
         grid!(cases, narrowing::past_guard_on_other; g in [Gate::Shut, Gate::Open], n in notes);
         grid!(cases, narrowing::past_negated_matches; n in notes);
+        grid!(cases, narrowing::if_test_needing_statements; o in [None, Some(3i32)], r in [Ok(1i32), Err(2i32)]);
+        grid!(cases, narrowing::carried_bool; c in [false, true]);
+        grid!(cases, narrowing::bool_against_known; c in [false, true], o in [None, Some(1i32)]);
+        grid!(cases, narrowing::literal_beside_case; o in [None, Some(5i32)], b in [2i32, 9]);
         grid!(cases, narrowing::written_past_try; x in [None, Some(1u32), Some(u32::MAX)], y in [None, Some(4u32)]);
         grid!(cases, narrowing::bound_constructor; a in [0i32, 7, i32::MAX], c in [false, true]);
         for r in [Ok(3i32), Err(4i32), Ok(i32::MAX)] {

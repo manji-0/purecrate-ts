@@ -126,12 +126,18 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
     }
     // A side that needs a place to hold only cases it is known not to hold
     // is never taken (as TS has it `never`).
+    KNOWN_BOOLS.with(|k| *k.borrow_mut() = st.0.clone());
     let side = |holds: bool| {
         let mut s = st.clone();
         for (p, cases) in tests(cond, holds) {
+            // A value tested against a literal (`$=7`) and a case of its type
+            // (`$Some`) are known apart: neither rules the other out.
+            let literal = |cs: &Vec<Name>| cs.iter().all(|c| c.as_str().starts_with("$="));
             let left = match s.get(&p) {
-                Some(known) => cases.into_iter().filter(|c| known.contains(c)).collect(),
-                None => cases,
+                Some(known) if literal(&known) == literal(&cases) => {
+                    cases.into_iter().filter(|c| known.contains(c)).collect()
+                }
+                _ => cases,
             };
             if left.is_empty() {
                 return None;
@@ -140,7 +146,10 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
         }
         Some(s)
     };
-    (side(true), side(false))
+    let sides = (side(true), side(false));
+    // Read only while this state is the one tested.
+    KNOWN_BOOLS.with(|k| k.borrow_mut().clear());
+    sides
 }
 
 /// The places `cond` decides where it is `holds`, each with the cases it
@@ -170,8 +179,39 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         {
             tests(&Expr::Binary { op: BinOp::Or, left: cond.clone(), right: else_.clone() }, holds)
         }
+        // An `if` that needs statements prints through `expr::as_tx`, whose
+        // `fold` writes one side's literal as an operator: `if c { a } else
+        // { false }` is `c && a`, `if c { false } else { b }` is `!c && b`,
+        // `if c { a } else { true }` is `!c || a`. Otherwise it is a `?:`,
+        // which TS does not narrow by.
+        e @ Expr::If { cond, then, else_ } if e.needs_statements() && (bool_side(then) || bool_side(else_)) => {
+            let not = |e: &Expr| Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(e.clone()) };
+            let (op, left, right) = match (&**then, &**else_) {
+                (Expr::Lit(Lit::Bool(_)), Expr::Lit(Lit::Bool(_))) => return Vec::new(),
+                (Expr::Lit(Lit::Bool(true)), b) => (BinOp::Or, (**cond).clone(), b.clone()),
+                (Expr::Lit(Lit::Bool(false)), b) => (BinOp::And, not(cond), b.clone()),
+                (a, Expr::Lit(Lit::Bool(false))) => (BinOp::And, (**cond).clone(), a.clone()),
+                (a, _) => (BinOp::Or, not(cond), a.clone()),
+            };
+            tests(&Expr::Binary { op, left: Box::new(left), right: Box::new(right) }, holds)
+        }
         // `t == ","` holding: TS has `t` as the literal `","` (a string, a
         // number, or a char is no union, so failing it narrows nothing).
+        // `b === true`, `b !== c` with `c` a literal or a place of one known
+        // value: TS narrows a `boolean` either way.
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if bool_operand(left).is_some() || bool_operand(right).is_some() =>
+        {
+            let same = holds == (*op == BinOp::Eq);
+            let mut out = Vec::new();
+            for (p, other) in [(left, right), (right, left)] {
+                if let (true, Some(b)) = (is_place(p), bool_operand(other)) {
+                    let case = if b == same { TRUE } else { FALSE };
+                    out.push(((**p).clone(), vec![Name::new(case)]));
+                }
+            }
+            out
+        }
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } if holds == (*op == BinOp::Eq) => {
             match (&**left, &**right) {
                 (p, Expr::Lit(l)) | (Expr::Lit(l), p) if is_place(p) => match literal_case(l) {
@@ -227,6 +267,40 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         },
         _ => Vec::new(),
     }
+}
+
+/// What TS narrows a binding to from a place it is set to: the cases known
+/// of a `bool`, an `Option`, or a `Result` place. (An enum place is printed
+/// with `as T`, which TS does not narrow through.)
+fn carried(value: &Expr, s: &State) -> Option<Vec<Name>> {
+    if !is_place(value) {
+        return None;
+    }
+    s.get(value).filter(|cases| cases.iter().all(|c| c.as_str().starts_with('$')))
+}
+
+thread_local! {
+    /// The state `tests` reads a place of one known `bool` value from.
+    static KNOWN_BOOLS: std::cell::RefCell<Known> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A `bool` literal, or a place the state knows holds one value.
+fn bool_operand(e: &Expr) -> Option<bool> {
+    match e {
+        Expr::Lit(Lit::Bool(b)) => Some(*b),
+        p if is_place(p) => KNOWN_BOOLS.with(|k| {
+            k.borrow().iter().find(|(q, _)| q == p).and_then(|(_, cases)| match cases.as_slice() {
+                [c] if c.as_str() == TRUE => Some(true),
+                [c] if c.as_str() == FALSE => Some(false),
+                _ => None,
+            })
+        }),
+        _ => None,
+    }
+}
+
+fn bool_side(e: &Expr) -> bool {
+    matches!(e, Expr::Lit(Lit::Bool(_)))
 }
 
 /// The case `p == l` narrows `p` to, for a literal TS narrows by
@@ -318,7 +392,9 @@ fn built_option(value: &Expr) -> Option<Name> {
 fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     // A test reads a `bool` place an enclosing test has decided as that
     // value, as TS does: its control flow then matches TS's.
-    if let Expr::If { cond, .. } | Expr::While { cond, .. } = expr {
+    // (A `while` test runs at the loop's head, whose state the body's
+    // writes join into: it is decided there, below.)
+    if let Expr::If { cond, .. } = expr {
         decide(cond, &st.0);
     }
     if rewritten(expr, &st) {
@@ -455,9 +531,12 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             if let Some(e) = constructed_arm(value) {
                 **value = e;
             }
+            let carried = carried(value, &s);
             s.forget(&name);
             if let Some(case) = built_case(value) {
                 s.set(Expr::Var(name.clone()), vec![case]);
+            } else if let Some(cases) = carried {
+                s.set(Expr::Var(name.clone()), cases);
             }
             // TS does not narrow `o` from `Result.ok(a)`, whose type is the
             // whole union: each `match o` is decided on the value itself,
@@ -554,6 +633,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 let (yes, _) = refine(&c, &sc);
                 flow(&mut b, yes?, cx)
             });
+            decide(cond, &head.0);
             cx.loops.push(Jumps::default());
             let sc = flow(cond, head, cx);
             if let Some(yes) = sc.as_ref().and_then(|sc| refine(cond, sc).0) {
@@ -592,9 +672,12 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         }
         Expr::Assign { name, value } => {
             let mut s = flow(value, st, cx)?;
+            let carried = carried(value, &s);
             s.forget(name);
             if let Some(case) = built_case(value) {
                 s.set(Expr::Var(name.clone()), vec![case]);
+            } else if let Some(cases) = carried {
+                s.set(Expr::Var(name.clone()), cases);
             }
             Some(s)
         }

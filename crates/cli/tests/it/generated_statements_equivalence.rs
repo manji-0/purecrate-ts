@@ -118,14 +118,25 @@ impl Body {
                 let k = format!("k{}", self.g.next_name);
                 self.line(&format!("let mut {k}: i32 = 0;"));
                 let bound = self.g.int(e);
-                let test = if self.g.rng.below(2) == 0 {
-                    format!("{k} < ({bound}) % 5")
-                } else {
-                    let more = self.g.without_try(|g| g.boolean(e));
-                    format!("{k} < ({bound}) % 5 && {more}")
+                let mut tail = format!("{k} += 1;");
+                let test = match self.g.rng.below(3) {
+                    0 => format!("{k} < ({bound}) % 5"),
+                    1 => {
+                        let more = self.g.without_try(|g| g.boolean(e));
+                        format!("{k} < ({bound}) % 5 && {more}")
+                    }
+                    // A flag the body sets last, read by the test at the
+                    // loop's head (not as it stood before the loop).
+                    _ => {
+                        let d = format!("d{}", self.g.next_name);
+                        self.line(&format!("let mut {d}: bool = false;"));
+                        let stop = self.g.without_try(|g| g.boolean(e));
+                        tail = format!("{k} += 1; {d} = {stop};");
+                        format!("{k} < ({bound}) % 5 && !{d}")
+                    }
                 };
                 self.loops += 1;
-                self.block_from(&format!("while {test}"), Some(&format!("{k} += 1;")), depth - 1, 4);
+                self.block_from(&format!("while {test}"), Some(&tail), depth - 1, 4);
                 self.loops -= 1;
             }
             8 if self.loops > 0 => {

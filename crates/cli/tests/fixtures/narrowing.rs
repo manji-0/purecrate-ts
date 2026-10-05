@@ -683,3 +683,47 @@ pub fn past_negated_matches(n: Note) -> i32 {
         _ => echo(&n),
     }
 }
+
+/// An `if` that needs statements, tested: printed `o === null && r.kind ===
+/// "Ok"`, which narrows `r` for the body (and its `match r` is decided).
+#[allow(unused_parens)]
+pub fn if_test_needing_statements(o: Option<i32>, r: Result<i32, i32>) -> Option<i32> {
+    if (if o.is_none() { matches!(r, Ok(_)) } else { false }) {
+        if r.map(|_| 100i32).ok().is_some() {
+            return Some(1);
+        }
+    }
+    o
+}
+
+/// A binding set from a place known `false` is `false` to TS too.
+#[allow(clippy::nonminimal_bool, unused_assignments)]
+pub fn carried_bool(c: bool) -> bool {
+    if !c {
+        let mut d: bool = c;
+        d = d == !d;
+        return d;
+    }
+    c
+}
+
+/// `d !== c` where `c` is known `true` narrows `d` to `false`.
+#[allow(clippy::nonminimal_bool, clippy::eq_op)]
+pub fn bool_against_known(c: bool, o: Option<i32>) -> bool {
+    if c {
+        let mut d: bool = o.is_none();
+        d = d != c && d == c;
+        return d;
+    }
+    false
+}
+
+/// `x !== 7` failing says `x` is 7, not that it is `None`: the other side
+/// is still taken.
+pub fn literal_beside_case(o: Option<i32>, b: i32) -> Option<i32> {
+    let x = 3i32.checked_mul(2)?;
+    if x != 7 && o.is_none() {
+        return Some(-7);
+    }
+    Some(o.unwrap_or(b))
+}
