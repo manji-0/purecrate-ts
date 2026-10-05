@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import * as v from "valibot";
-import { Char, Int, JsonFloat, Uuid, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type UuidError } from "./purecrate-runtime.ts";
 
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   v.pipe(v.number(), v.integer(), v.minValue(min), v.maxValue(max), v.transform(of));
@@ -59,14 +59,35 @@ export const f32 = v.pipe(float, v.transform(Int.f32.of));
 export const f64 = v.pipe(float, v.transform(Int.f64.of));
 
 /**
- * serde's struct: a JSON object. `v.object` would also take an array and
- * read every field as missing; serde reads an array as the sequence form,
- * which serde_json never writes, and this refuses it instead.
+ * serde's struct with `entries`: a JSON object, or the sequence form, an
+ * array of the fields in order. A field the JSON holds twice, or a key with a
+ * lone surrogate, is refused as serde refuses it (`structIssue`); an unknown
+ * key is dropped. `v.object` alone would also take an array of another
+ * length and read every field as missing.
  */
-export const record = <const E extends v.ObjectEntries>(entries: E) =>
-  v.pipe(
+export const record = <const E extends v.ObjectEntries>(entries: E) => {
+  const fields = Object.keys(entries);
+  return v.pipe(
+    v.unknown(),
+    v.rawCheck(({ dataset, addIssue }) => {
+      const issue = structIssue(dataset.value, fields);
+      if (issue !== undefined) addIssue({ message: issue });
+    }),
+    v.transform((x) => fromSequence(x, fields)),
     v.custom<Record<string, unknown>>((x) => typeof x === "object" && x !== null && !Array.isArray(x), "an object"),
     v.object(entries),
+  );
+};
+
+/** serde's one-key wrapper of an enum variant: any key twice is refused. */
+export const variant = <const E extends v.ObjectEntries>(entries: E) =>
+  v.pipe(
+    v.unknown(),
+    v.rawCheck(({ dataset, addIssue }) => {
+      const issue = structIssue(dataset.value);
+      if (issue !== undefined) addIssue({ message: issue });
+    }),
+    v.strictObject(entries),
   );
 /** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
@@ -89,7 +110,7 @@ export const unit = v.pipe(v.null(), v.transform(() => undefined));
 export const nullable = <T extends v.GenericSchema>(inner: T) => v.union([inner, v.null()]);
 
 /** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
-export const unitVariant = (name: string) => v.union([v.literal(name), v.strictObject({ [name]: v.null() })]);
+export const unitVariant = (name: string) => v.union([v.literal(name), variant({ [name]: v.null() })]);
 
 /**
  * A fieldless enum: each of `names` read as `unitVariant` reads it, into

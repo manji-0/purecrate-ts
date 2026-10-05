@@ -2,7 +2,7 @@
 
 import { assertNever, Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
-import { i64, unitEnum, unitVariant } from "./purecrate-zod.ts";
+import { i64, record, unitEnum, unitVariant, variant } from "./purecrate-zod.ts";
 import type { Group as DomainGroup } from "./group.ts";
 import { InvoiceError as DomainInvoiceError } from "./invoice-error.ts";
 import type { Invoice as DomainInvoice } from "./invoice.ts";
@@ -40,35 +40,29 @@ export const Rounding: z.ZodType<DomainRounding> = unitEnum(["Down", "Up", "Half
 
 /** 問59: the one basis the invoice's totals are on. */
 export const Method: z.ZodType<DomainMethod> = z.union([
-  z
-    .object({ ToExclusive: z.object({ conversion: Rounding }) })
-    .strict()
-    .transform((x): DomainMethod => ({
-      kind: "ToExclusive",
-      conversion: x.ToExclusive.conversion,
-    })),
-  z
-    .object({ ToInclusive: z.object({ conversion: Rounding }) })
-    .strict()
-    .transform((x): DomainMethod => ({
-      kind: "ToInclusive",
-      conversion: x.ToInclusive.conversion,
-    })),
+  variant({ ToExclusive: record({ conversion: Rounding }) }).transform((x): DomainMethod => ({
+    kind: "ToExclusive",
+    conversion: x.ToExclusive.conversion,
+  })),
+  variant({ ToInclusive: record({ conversion: Rounding }) }).transform((x): DomainMethod => ({
+    kind: "ToInclusive",
+    conversion: x.ToInclusive.conversion,
+  })),
   unitVariant("Separate").transform((): DomainMethod => ({ kind: "Separate" })),
 ]);
 
-export const Line: z.ZodType<DomainLine> = z.object({ amount: Yen, rate: Rate, pricing: Pricing });
+export const Line: z.ZodType<DomainLine> = record({ amount: Yen, rate: Rate, pricing: Pricing });
 
-export const Invoice: z.ZodType<DomainInvoice> = z.object({
+export const Invoice: z.ZodType<DomainInvoice> = record({
   lines: z.array(Line),
   rounding: Rounding,
   method: Method,
 });
 
 /** One rate and basis: the total of its amounts and the tax on it. */
-export const Group: z.ZodType<DomainGroup> = z.object({ base: Yen, tax: Yen });
+export const Group: z.ZodType<DomainGroup> = record({ base: Yen, tax: Yen });
 
-export const Summary: z.ZodType<DomainSummary> = z.object({
+export const Summary: z.ZodType<DomainSummary> = record({
   standard: Group,
   reduced: Group,
   standard_inclusive: Group,

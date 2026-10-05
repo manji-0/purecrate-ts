@@ -2,7 +2,16 @@
 
 import { assertNever, Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
-import { fail, i64, keyed, memo, record, unitEnum, type Wire } from "./purecrate-arktype.ts";
+import {
+  fail,
+  i64,
+  keyed,
+  memo,
+  record,
+  sequence,
+  unitEnum,
+  type Wire,
+} from "./purecrate-arktype.ts";
 import type { Group as DomainGroup } from "./group.ts";
 import { InvoiceError as DomainInvoiceError } from "./invoice-error.ts";
 import type { Invoice as DomainInvoice } from "./invoice.ts";
@@ -34,12 +43,32 @@ export const Pricing: Wire<DomainPricing> = unitEnum("Pricing", [
 export const Rounding: Wire<DomainRounding> = unitEnum("Rounding", ["Down", "Up", "HalfUp"]);
 
 const methodToExclusiveArm = memo(() =>
-  type({ "+": "reject", ToExclusive: type({ conversion: Rounding }).narrow(record) }),
+  type("unknown").pipe(
+    sequence(),
+    type({
+      "+": "reject",
+      ToExclusive: type("unknown").pipe(
+        sequence(["conversion"]),
+        type({ conversion: Rounding }).narrow(record),
+      ),
+    }),
+  ),
 );
 const methodToInclusiveArm = memo(() =>
-  type({ "+": "reject", ToInclusive: type({ conversion: Rounding }).narrow(record) }),
+  type("unknown").pipe(
+    sequence(),
+    type({
+      "+": "reject",
+      ToInclusive: type("unknown").pipe(
+        sequence(["conversion"]),
+        type({ conversion: Rounding }).narrow(record),
+      ),
+    }),
+  ),
 );
-const methodSeparateArm = memo(() => type({ "+": "reject", Separate: "null" }));
+const methodSeparateArm = memo(() =>
+  type("unknown").pipe(sequence(), type({ "+": "reject", Separate: "null" })),
+);
 /** 問59: the one basis the invoice's totals are on. */
 export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainMethod => {
   {
@@ -63,7 +92,12 @@ export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainM
   return ctx.error("Method") as never;
 });
 
-const lineWire = memo(() => type({ amount: Yen, rate: Rate, pricing: Pricing }).narrow(record));
+const lineWire = memo(() =>
+  type("unknown").pipe(
+    sequence(["amount", "rate", "pricing"]),
+    type({ amount: Yen, rate: Rate, pricing: Pricing }).narrow(record),
+  ),
+);
 export const Line: Wire<DomainLine> = type("unknown").pipe((v, ctx): DomainLine => {
   const parsed = lineWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
@@ -71,7 +105,10 @@ export const Line: Wire<DomainLine> = type("unknown").pipe((v, ctx): DomainLine 
 });
 
 const invoiceWire = memo(() =>
-  type({ lines: Line.array(), rounding: Rounding, method: Method }).narrow(record),
+  type("unknown").pipe(
+    sequence(["lines", "rounding", "method"]),
+    type({ lines: Line.array(), rounding: Rounding, method: Method }).narrow(record),
+  ),
 );
 export const Invoice: Wire<DomainInvoice> = type("unknown").pipe((v, ctx): DomainInvoice => {
   const parsed = invoiceWire()(v);
@@ -79,7 +116,9 @@ export const Invoice: Wire<DomainInvoice> = type("unknown").pipe((v, ctx): Domai
   return { lines: parsed.lines, rounding: parsed.rounding, method: parsed.method };
 });
 
-const groupWire = memo(() => type({ base: Yen, tax: Yen }).narrow(record));
+const groupWire = memo(() =>
+  type("unknown").pipe(sequence(["base", "tax"]), type({ base: Yen, tax: Yen }).narrow(record)),
+);
 /** One rate and basis: the total of its amounts and the tax on it. */
 export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGroup => {
   const parsed = groupWire()(v);
@@ -88,13 +127,16 @@ export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGro
 });
 
 const summaryWire = memo(() =>
-  type({
-    standard: Group,
-    reduced: Group,
-    standard_inclusive: Group,
-    reduced_inclusive: Group,
-    total: Yen,
-  }).narrow(record),
+  type("unknown").pipe(
+    sequence(["standard", "reduced", "standard_inclusive", "reduced_inclusive", "total"]),
+    type({
+      standard: Group,
+      reduced: Group,
+      standard_inclusive: Group,
+      reduced_inclusive: Group,
+      total: Yen,
+    }).narrow(record),
+  ),
 );
 export const Summary: Wire<DomainSummary> = type("unknown").pipe((v, ctx): DomainSummary => {
   const parsed = summaryWire()(v);

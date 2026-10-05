@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Char, Int, JsonFloat, Uuid, type F32, type F64, type UuidError } from "purecrate";
+import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type F32, type F64, type UuidError } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, In>;
 
@@ -58,8 +58,31 @@ export const unit = z.null().transform(() => undefined);
 /** serde writes `None` as `null`. A missing field is not `None` unless the Rust type says so. */
 export const nullable = <T extends z.ZodType>(inner: T) => z.union([inner, z.null()]);
 
+/**
+ * serde's struct with `shape`: a JSON object, or the sequence form, an array
+ * of the fields in order. A field the JSON holds twice, or a key with a lone
+ * surrogate, is refused as serde refuses it (`structIssue`); an unknown key
+ * is dropped.
+ */
+export const record = <S extends z.ZodRawShape>(shape: S) => {
+  const fields = Object.keys(shape);
+  return z.preprocess((x, ctx) => {
+    const issue = structIssue(x, fields);
+    if (issue !== undefined) ctx.addIssue({ code: "custom", message: issue, input: x });
+    return fromSequence(x, fields);
+  }, z.object(shape));
+};
+
+/** serde's one-key wrapper of an enum variant: any key twice is refused. */
+export const variant = <S extends z.ZodRawShape>(shape: S) =>
+  z.preprocess((x, ctx) => {
+    const issue = structIssue(x);
+    if (issue !== undefined) ctx.addIssue({ code: "custom", message: issue, input: x });
+    return x;
+  }, z.object(shape).strict());
+
 /** serde's unit variant `V`: the string `"V"`, or `{"V": null}`. */
-export const unitVariant = (name: string) => z.union([z.literal(name), z.object({ [name]: z.null() }).strict()]);
+export const unitVariant = (name: string) => z.union([z.literal(name), variant({ [name]: z.null() })]);
 
 /**
  * A fieldless enum: each of `names` read as `unitVariant` reads it, into

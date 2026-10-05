@@ -120,6 +120,8 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
  * string must be well-formed: a lone surrogate is not a Rust `String`, and
  * its bytes here are not specified.
  */
+/** The objects and arrays `Str.wellFormed` has found free of lone surrogates. */
+const wellFormedSeen = new WeakSet<object>();
 export const Str = {
   /** `str::as_bytes`: the UTF-8 bytes. */
   bytes: (s: string): ReadonlyArray<U8> => {
@@ -171,17 +173,18 @@ export const Str = {
   /**
    * A `pub` function's argument checked on entry: a lone surrogate is in no
    * Rust `str`, so the call panics here, wherever in the value the string
-   * is (a field, a variant's payload, an element, an `Option`).
+   * is (a field, a variant's payload, an element, an `Option`). An object or
+   * array checked once is not walked again (`wellFormedSeen`): a state passed
+   * back on every call costs only its new parts.
    */
   wellFormed: (x: unknown): void => {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
         if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
-      } else if (Array.isArray(v)) {
-        for (const e of v) visit(e);
-      } else if (typeof v === "object" && v !== null) {
-        for (const e of Object.values(v)) visit(e);
+      } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
+        for (const e of Array.isArray(v) ? v : Object.values(v)) visit(e);
+        wellFormedSeen.add(v);
       }
     };
     visit(x);

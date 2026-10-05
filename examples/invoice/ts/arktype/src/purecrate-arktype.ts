@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import { type, type ArkErrors, type Out, type Traversal, type Type } from "arktype";
-import { Char, Int, JsonFloat, Uuid, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type UuidError } from "./purecrate-runtime.ts";
 
 /**
  * A schema that reads unknown JSON into the domain value `T`. Generated
@@ -65,6 +65,8 @@ export const unitEnum = <K extends string>(enumName: string, names: readonly [K,
   return type("unknown").pipe((v, ctx): Readonly<{ kind: K }> => {
     for (const [name, arm] of arms) {
       if (v === name) return { kind: name };
+      const issue = keyed(v, name) ? structIssue(v) : undefined;
+      if (issue !== undefined) return ctx.error(issue) as never;
       const parsed = arm()(v);
       if (!(parsed instanceof type.errors)) return { kind: name };
       if (keyed(v, name)) return fail(ctx, parsed);
@@ -107,11 +109,25 @@ const float = type("number").or(type.instanceOf(JsonFloat).pipe((x) => x.value))
 export const f32 = float.pipe(Int.f32.of);
 export const f64 = float.pipe(Int.f64.of);
 /**
- * serde's struct: a JSON object, not an array. arktype's object shapes also
- * take an array and read every field as missing; serde reads an array as the
- * sequence form, which serde_json never writes, and this refuses it.
+ * serde's struct: after `sequence`, a JSON object, not an array. arktype's
+ * object shapes also take an array and read every field as missing.
  */
 export const record = (x: object, ctx: Traversal): boolean => !Array.isArray(x) || ctx.mustBe("an object");
+
+/**
+ * Before a struct's shape with `fields`: the sequence form, an array of the
+ * fields in order, as the object serde reads it to; and a field the JSON
+ * holds twice, or a key with a lone surrogate, refused as serde refuses it
+ * (`structIssue`). Without `fields`, an enum variant's one-key wrapper, where
+ * any key twice is refused.
+ */
+export const sequence =
+  (fields?: readonly string[]) =>
+  (x: unknown, ctx: Traversal): unknown => {
+    const issue = structIssue(x, fields);
+    if (issue !== undefined) return ctx.error(issue);
+    return fields === undefined ? x : fromSequence(x, fields);
+  };
 /** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 export const str = type("string").narrow((s, ctx) => !LONE_SURROGATE.test(s) || ctx.mustBe("a string without a lone surrogate"));

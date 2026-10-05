@@ -126,38 +126,68 @@ export class JsonFloat {
   }
 }
 
-/** The first object key that appears twice in one object of valid JSON `text`. */
-const duplicateKey = (text: string): string | undefined => {
-  // One entry per open bracket: the keys seen so far in an object, `null`
-  // in an array.
-  const open: (Set<string> | null)[] = [];
+/**
+ * The objects and arrays of valid JSON `text` as a tree that `JSON.parse`'s
+ * result can be walked beside: each node's children by key (the last of a
+ * key written twice, the one `JSON.parse` keeps) or index, and the keys an
+ * object holds twice.
+ */
+type Shape = { twice?: Set<string>; kids: Map<string | number, Shape> };
+const shapeOf = (text: string): Shape | undefined => {
+  // One entry per open bracket: the node, the keys seen in an object (`null`
+  // in an array), the key a value goes under, and an array's index.
+  const open: { node: Shape; seen: Set<string> | null; key: string | number }[] = [];
+  let root: Shape | undefined;
   let atKey = false;
+  const enter = (node: Shape): void => {
+    const top = open[open.length - 1];
+    if (top === undefined) root = node;
+    else top.node.kids.set(top.key, node);
+  };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
+    const top = open[open.length - 1];
     if (c === '"') {
       let j = i + 1;
       while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
-      const keys = open[open.length - 1];
-      if (atKey && keys) {
+      if (atKey && top?.seen) {
         const key = JSON.parse(text.slice(i, j + 1)) as string;
-        if (keys.has(key)) return key;
-        keys.add(key);
+        if (top.seen.has(key)) (top.node.twice ??= new Set()).add(key);
+        top.seen.add(key);
+        top.key = key;
         atKey = false;
       }
       i = j;
-    } else if (c === "{") {
-      open.push(new Set());
-      atKey = true;
-    } else if (c === "[") {
-      open.push(null);
+    } else if (c === "{" || c === "[") {
+      const node: Shape = { kids: new Map() };
+      enter(node);
+      open.push({ node, seen: c === "{" ? new Set() : null, key: 0 });
+      atKey = c === "{";
     } else if (c === "}" || c === "]") {
       open.pop();
-    } else if (c === ",") {
-      atKey = open[open.length - 1] instanceof Set;
+    } else if (c === "," && top !== undefined) {
+      if (top.seen === null) top.key = (top.key as number) + 1;
+      else atKey = true;
     }
   }
-  return undefined;
+  return root;
 };
+
+/** What `parseJson` saw in an object that `JSON.parse` does not keep. */
+export type JsonKeys = Readonly<{ twice: ReadonlySet<string>; lone: boolean }>;
+// A symbol property, not a `WeakMap` entry: arktype runs a morph on a copy
+// of its input, which keeps the property but is not the key of an entry.
+const KEYS: unique symbol = Symbol("purecrate.jsonKeys");
+
+/**
+ * The keys an object `parseJson` read held twice, and whether one held a
+ * lone surrogate. serde refuses either in an object it reads (a field
+ * twice, a key it cannot decode), and reads past both in a value it
+ * ignores; so a schema asks for the objects it reads, and only those.
+ */
+export const jsonKeys = (x: object): JsonKeys | undefined => (x as { [KEYS]?: JsonKeys })[KEYS];
+
+const LONE_KEY = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
  * JSON text read as serde_json reads it, where `JSON.parse` would read it
@@ -167,8 +197,9 @@ const duplicateKey = (text: string): string | undefined => {
  *   would round them);
  * - an integral number written as a float (`50.0`, `5e1`, `-0`) becomes a
  *   `JsonFloat`, which only a float field reads;
- * - a key twice in one object is refused, as serde refuses a duplicate
- *   field (`JSON.parse` keeps the last).
+ * - an object that holds a key twice (`JSON.parse` keeps the last), or a
+ *   key with a lone surrogate, is noted (`jsonKeys`), for the schema that
+ *   reads it to refuse as serde does.
  *
  * The first two need a runtime that passes the literal's source text to the
  * reviver (Node 21+). Elsewhere a large number stays rounded, and the
@@ -181,10 +212,42 @@ export const parseJson = (text: string): unknown => {
     if (integer) return Number.isSafeInteger(v) ? v : BigInt(context.source);
     return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v) : v;
   });
-  const twice = duplicateKey(text);
-  if (twice !== undefined) throw new SyntaxError(`duplicate field \`${twice}\``);
+  const note = (v: unknown, shape: Shape | undefined): void => {
+    if (typeof v !== "object" || v === null || v instanceof JsonFloat || shape === undefined) return;
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => note(x, shape.kids.get(i)));
+      return;
+    }
+    const keys = Object.keys(v);
+    const lone = keys.some((k) => LONE_KEY.test(k));
+    if (shape.twice !== undefined || lone) {
+      Object.defineProperty(v, KEYS, { value: { twice: shape.twice ?? new Set(), lone } satisfies JsonKeys });
+    }
+    for (const k of keys) note((v as Record<string, unknown>)[k], shape.kids.get(k));
+  };
+  note(value, shapeOf(text));
   return value;
 };
+
+/**
+ * Where a schema reads `x` as a struct with `fields`: what serde says of it
+ * that the shape alone does not, or `undefined`. A field twice is refused,
+ * a key that cannot be decoded too; `fields` absent means every key is
+ * read (an enum's one-key wrapper). A JSON array of as many elements as
+ * `fields` is the struct's sequence form, which serde reads in field order.
+ */
+export const structIssue = (x: unknown, fields?: readonly string[]): string | undefined => {
+  if (typeof x !== "object" || x === null) return undefined;
+  const keys = jsonKeys(x);
+  if (keys === undefined) return undefined;
+  if (keys.lone) return "a key with a lone surrogate";
+  for (const k of keys.twice) if (fields === undefined || fields.includes(k)) return `duplicate field \`${k}\``;
+  return undefined;
+};
+
+/** A struct's sequence form, `[a, b]`, as the object serde reads it to. */
+export const fromSequence = (x: unknown, fields: readonly string[]): unknown =>
+  Array.isArray(x) && x.length === fields.length ? Object.fromEntries(fields.map((f, i) => [f, x[i]])) : x;
 
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
@@ -192,23 +255,26 @@ export const parseJson = (text: string): unknown => {
  * string must be well-formed: a lone surrogate is not a Rust `String`, and
  * its bytes here are not specified.
  */
+/** The objects and arrays `Str.wellFormed` has found free of lone surrogates. */
+const wellFormedSeen = new WeakSet<object>();
 export const Str = {
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
   /**
    * A `pub` function's argument checked on entry: a lone surrogate is in no
    * Rust `str`, so the call panics here, wherever in the value the string
-   * is (a field, a variant's payload, an element, an `Option`).
+   * is (a field, a variant's payload, an element, an `Option`). An object or
+   * array checked once is not walked again (`wellFormedSeen`): a state passed
+   * back on every call costs only its new parts.
    */
   wellFormed: (x: unknown): void => {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
         if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
-      } else if (Array.isArray(v)) {
-        for (const e of v) visit(e);
-      } else if (typeof v === "object" && v !== null) {
-        for (const e of Object.values(v)) visit(e);
+      } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
+        for (const e of Array.isArray(v) ? v : Object.values(v)) visit(e);
+        wellFormedSeen.add(v);
       }
     };
     visit(x);

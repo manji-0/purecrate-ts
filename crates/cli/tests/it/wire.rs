@@ -11,7 +11,8 @@
 //! the schema must then reject them. As serde does, the schemas refuse a
 //! decimal string for an integer, an integral number written as a float
 //! (`50.0`, which `parseJson` reads as a `JsonFloat`) for an integer, and an
-//! array where a struct is due; `parseJson` refuses a key twice in an object.
+//! array where a struct is due unless it is the struct's sequence form; a
+//! field twice, or a key with a lone surrogate, where serde reads it.
 
 use crate::support;
 
@@ -95,6 +96,16 @@ const accepts = [
   // serde ignores unknown struct fields by default, inside a variant too.
   ["Chain", { value: 3, extra: true }, { value: 3, next: null }],
   ["Shape", { Named: { label: "x", extra: 1 } }, { kind: "Named", label: "x", tag: null }],
+  // serde reads a struct, or a struct variant, from its sequence form too:
+  // an array of exactly its fields, in order (serde_json never writes one).
+  ["Chain", [3, null], { value: 3, next: null }],
+  ["Shape", { Named: ["x", 3] }, { kind: "Named", label: "x", tag: 3 }],
+  ["Holder", { ...holder, chain: [1, null] }, { ...holderValue, chain: { value: 1, next: null } }],
+  // A field twice is refused only where serde reads it: an unknown one, or
+  // a key it cannot decode inside a value it ignores, is read past.
+  ["Chain", parseJson('{"value":1,"x":1,"x":2}'), { value: 1, next: null }],
+  ["Chain", parseJson('{"value":1,"x":{"\\ud800":1}}'), { value: 1, next: null }],
+  ["Shape", parseJson('{"Named":{"label":"x","q":1,"q":2}}'), { kind: "Named", label: "x", tag: null }],
   // serde_json also reads a unit variant written as a map with a `null` value.
   ["Shape", { Dot: null }, { kind: "Dot" }],
   ["Shape", { Named: { label: "😀\u{10ffff}" } }, { kind: "Named", label: "😀\u{10ffff}", tag: null }],
@@ -123,13 +134,20 @@ const rejects = [
   ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":-0,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Ints", parseJson('{"a":1.0,"b":1,"c":1,"d":1,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Shape", parseJson('{"Tagged":7.0}')],
-  // A struct is a JSON object here, never an array (serde's sequence form,
-  // which serde_json does not write); an array was read as every field missing.
-  ["Chain", [3, null]],
+  // A sequence form of another length (serde: "invalid length"), which an
+  // object shape would read as every field missing.
   ["Chain", []],
-  ["Shape", { Named: ["x", 3] }],
+  ["Chain", [3]],
+  ["Chain", [3, null, 1]],
   ["Shape", { Named: [] }],
-  ["Holder", { ...holder, chain: [1, null] }],
+  ["Shape", { Named: ["x"] }],
+  // A field twice where serde reads it, any key twice in a variant's
+  // wrapper, and a key with a lone surrogate in an object serde reads.
+  ["Chain", parseJson('{"value":1,"value":2}')],
+  ["Shape", parseJson('{"Named":{"label":"x","label":"y"}}')],
+  ["Shape", parseJson('{"Dot":null,"Dot":null}')],
+  ["Shape", parseJson('{"Named":{"label":"x"},"Named":{"label":"y"}}')],
+  ["Chain", parseJson('{"value":1,"\\ud800":1}')],
   ["Ints", { ...ints, a: 128 }],
   ["Ints", { ...ints, d: 1.5 }],
   ["Ints", JSON.parse(intsText)],
@@ -189,16 +207,9 @@ for (const [name, input] of rejects) {
     out.push(`${name}: threw instead of rejecting ${text(input)}: ${e instanceof Error ? e.message : e}`);
   }
 }
-// serde refuses a duplicate field; `JSON.parse` would keep the last.
-for (const twice of ['{"value":1,"value":2}', '{"Named":{"label":"x","label":"y"}}', '{"a":{"k":1},"b":{"k":2},"a":3}']) {
-  try {
-    parseJson(twice);
-    out.push(`parseJson accepted ${twice}`);
-  } catch (e) {
-    if (!(e instanceof SyntaxError)) out.push(`parseJson threw ${e} for ${twice}`);
-  }
-}
-for (const once of ['{"a":{"k":1},"b":{"k":2}}', '[{"k":1},{"k":2}]', '{"a":"\\"k\\":1","k":1}']) {
+// `parseJson` reads valid JSON whatever its keys: a schema refuses what
+// serde refuses in the objects it reads.
+for (const once of ['{"a":{"k":1},"b":{"k":2},"a":3}', '[{"k":1},{"k":2}]', '{"a":"\\"k\\":1","k":1}', '{"\\ud800":1}']) {
   try {
     parseJson(once);
   } catch (e) {

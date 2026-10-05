@@ -2,7 +2,16 @@
 
 import { assertNever, Json, parseJson } from "./purecrate-runtime.ts";
 import { z } from "zod";
-import { i64, nullable, optionalField, str, unitEnum, unitVariant } from "./purecrate-zod.ts";
+import {
+  i64,
+  nullable,
+  optionalField,
+  record,
+  str,
+  unitEnum,
+  unitVariant,
+  variant,
+} from "./purecrate-zod.ts";
 import { Amount as DomainAmount } from "./amount.ts";
 import type { CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
 import type { CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
@@ -52,7 +61,7 @@ export const PaymentMethodId: z.ZodType<DomainPaymentMethodId> = str.transform(
 
 export const MethodKind: z.ZodType<DomainMethodKind> = unitEnum(["Card", "BankDebit"]);
 
-export const PaymentMethod: z.ZodType<DomainPaymentMethod> = z.object({
+export const PaymentMethod: z.ZodType<DomainPaymentMethod> = record({
   id: PaymentMethodId,
   kind: MethodKind,
 });
@@ -64,7 +73,7 @@ export const ConfirmationMethod: z.ZodType<DomainConfirmationMethod> = unitEnum(
   "Manual",
 ]);
 
-export const Terms: z.ZodType<DomainTerms> = z.object({
+export const Terms: z.ZodType<DomainTerms> = record({
   amount: Amount,
   capture: CaptureMethod,
   confirmation: ConfirmationMethod,
@@ -85,55 +94,47 @@ export const CancellationReason: z.ZodType<DomainCancellationReason> = unitEnum(
 ]);
 
 export const Status: z.ZodType<DomainStatus> = z.union([
-  z
-    .object({ RequiresPaymentMethod: z.object({ last_error: optionalField(DeclineCode) }) })
-    .strict()
-    .transform((x): DomainStatus => ({
+  variant({ RequiresPaymentMethod: record({ last_error: optionalField(DeclineCode) }) }).transform(
+    (x): DomainStatus => ({
       kind: "RequiresPaymentMethod",
       last_error: x.RequiresPaymentMethod.last_error,
-    })),
-  z
-    .object({ RequiresConfirmation: z.object({ method: PaymentMethod }) })
-    .strict()
-    .transform((x): DomainStatus => ({
-      kind: "RequiresConfirmation",
-      method: x.RequiresConfirmation.method,
-    })),
-  z
-    .object({ RequiresAction: z.object({ method: PaymentMethod }) })
-    .strict()
-    .transform((x): DomainStatus => ({ kind: "RequiresAction", method: x.RequiresAction.method })),
-  z
-    .object({ Processing: z.object({ method: PaymentMethod }) })
-    .strict()
-    .transform((x): DomainStatus => ({ kind: "Processing", method: x.Processing.method })),
-  z
-    .object({ RequiresCapture: z.object({ method: PaymentMethod, capturable: i64 }) })
-    .strict()
-    .transform((x): DomainStatus => ({
+    }),
+  ),
+  variant({ RequiresConfirmation: record({ method: PaymentMethod }) }).transform(
+    (x): DomainStatus => ({ kind: "RequiresConfirmation", method: x.RequiresConfirmation.method }),
+  ),
+  variant({ RequiresAction: record({ method: PaymentMethod }) }).transform((x): DomainStatus => ({
+    kind: "RequiresAction",
+    method: x.RequiresAction.method,
+  })),
+  variant({ Processing: record({ method: PaymentMethod }) }).transform((x): DomainStatus => ({
+    kind: "Processing",
+    method: x.Processing.method,
+  })),
+  variant({ RequiresCapture: record({ method: PaymentMethod, capturable: i64 }) }).transform(
+    (x): DomainStatus => ({
       kind: "RequiresCapture",
       method: x.RequiresCapture.method,
       capturable: x.RequiresCapture.capturable,
-    })),
-  z
-    .object({ Succeeded: z.object({ received: i64, application_fee: optionalField(i64) }) })
-    .strict()
-    .transform((x): DomainStatus => ({
+    }),
+  ),
+  variant({ Succeeded: record({ received: i64, application_fee: optionalField(i64) }) }).transform(
+    (x): DomainStatus => ({
       kind: "Succeeded",
       received: x.Succeeded.received,
       application_fee: x.Succeeded.application_fee,
-    })),
-  z
-    .object({ Canceled: z.object({ reason: optionalField(CancellationReason) }) })
-    .strict()
-    .transform((x): DomainStatus => ({ kind: "Canceled", reason: x.Canceled.reason })),
+    }),
+  ),
+  variant({ Canceled: record({ reason: optionalField(CancellationReason) }) }).transform(
+    (x): DomainStatus => ({ kind: "Canceled", reason: x.Canceled.reason }),
+  ),
 ]);
 
 /**
  * An intent as it arrives, before `PaymentIntent::new` checks it: the same
  * fields, so the JSON is the same.
  */
-export const UncheckedIntent: z.ZodType<DomainUncheckedIntent> = z.object({
+export const UncheckedIntent: z.ZodType<DomainUncheckedIntent> = record({
   terms: Terms,
   status: Status,
 });
@@ -163,53 +164,46 @@ export const Outcome: z.ZodType<DomainOutcome> = z.union([
   unitVariant("Authorized").transform((): DomainOutcome => ({ kind: "Authorized" })),
   unitVariant("ActionRequired").transform((): DomainOutcome => ({ kind: "ActionRequired" })),
   unitVariant("Pending").transform((): DomainOutcome => ({ kind: "Pending" })),
-  z
-    .object({ Declined: DeclineCode })
-    .strict()
-    .transform((x): DomainOutcome => ({ kind: "Declined", value: x.Declined })),
+  variant({ Declined: DeclineCode }).transform((x): DomainOutcome => ({
+    kind: "Declined",
+    value: x.Declined,
+  })),
 ]);
 
 export const Event: z.ZodType<DomainEvent> = z.union([
-  z
-    .object({ AttachMethod: PaymentMethod })
-    .strict()
-    .transform((x): DomainEvent => ({ kind: "AttachMethod", value: x.AttachMethod })),
-  z
-    .object({ Confirm: z.object({ method: optionalField(PaymentMethod), outcome: Outcome }) })
-    .strict()
-    .transform((x): DomainEvent => ({
-      kind: "Confirm",
-      method: x.Confirm.method,
-      outcome: x.Confirm.outcome,
-    })),
-  z
-    .object({ ActionHandled: Outcome })
-    .strict()
-    .transform((x): DomainEvent => ({ kind: "ActionHandled", value: x.ActionHandled })),
+  variant({ AttachMethod: PaymentMethod }).transform((x): DomainEvent => ({
+    kind: "AttachMethod",
+    value: x.AttachMethod,
+  })),
+  variant({
+    Confirm: record({ method: optionalField(PaymentMethod), outcome: Outcome }),
+  }).transform((x): DomainEvent => ({
+    kind: "Confirm",
+    method: x.Confirm.method,
+    outcome: x.Confirm.outcome,
+  })),
+  variant({ ActionHandled: Outcome }).transform((x): DomainEvent => ({
+    kind: "ActionHandled",
+    value: x.ActionHandled,
+  })),
   unitVariant("ProcessingSucceeded").transform((): DomainEvent => ({
     kind: "ProcessingSucceeded",
   })),
-  z
-    .object({ ProcessingFailed: DeclineCode })
-    .strict()
-    .transform((x): DomainEvent => ({ kind: "ProcessingFailed", value: x.ProcessingFailed })),
-  z
-    .object({
-      Capture: z.object({
-        amount_to_capture: optionalField(i64),
-        application_fee: optionalField(i64),
-      }),
-    })
-    .strict()
-    .transform((x): DomainEvent => ({
-      kind: "Capture",
-      amount_to_capture: x.Capture.amount_to_capture,
-      application_fee: x.Capture.application_fee,
-    })),
-  z
-    .object({ Cancel: nullable(CancellationReason) })
-    .strict()
-    .transform((x): DomainEvent => ({ kind: "Cancel", value: x.Cancel })),
+  variant({ ProcessingFailed: DeclineCode }).transform((x): DomainEvent => ({
+    kind: "ProcessingFailed",
+    value: x.ProcessingFailed,
+  })),
+  variant({
+    Capture: record({ amount_to_capture: optionalField(i64), application_fee: optionalField(i64) }),
+  }).transform((x): DomainEvent => ({
+    kind: "Capture",
+    amount_to_capture: x.Capture.amount_to_capture,
+    application_fee: x.Capture.application_fee,
+  })),
+  variant({ Cancel: nullable(CancellationReason) }).transform((x): DomainEvent => ({
+    kind: "Cancel",
+    value: x.Cancel,
+  })),
 ]);
 
 export const PaymentError: z.ZodType<DomainPaymentError> = z.union([
@@ -222,13 +216,12 @@ export const PaymentError: z.ZodType<DomainPaymentError> = z.union([
   unitVariant("MissingPaymentMethod").transform((): DomainPaymentError => ({
     kind: "MissingPaymentMethod",
   })),
-  z
-    .object({ InvalidCaptureAmount: z.object({ capturable: i64 }) })
-    .strict()
-    .transform((x): DomainPaymentError => ({
+  variant({ InvalidCaptureAmount: record({ capturable: i64 }) }).transform(
+    (x): DomainPaymentError => ({
       kind: "InvalidCaptureAmount",
       capturable: x.InvalidCaptureAmount.capturable,
-    })),
+    }),
+  ),
   unitVariant("NegativeApplicationFee").transform((): DomainPaymentError => ({
     kind: "NegativeApplicationFee",
   })),
