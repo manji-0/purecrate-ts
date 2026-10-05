@@ -46,9 +46,21 @@ pub(crate) fn plain_names(src: &str) -> String {
             .min_by_key(|(open, close)| close - open)
             .copied()
             .unwrap_or((0, src.len()));
+        // The blocks around the region: a name one of them holds before the
+        // region (a local declared there) would be hidden, which oxlint's
+        // `no-shadow` refuses.
+        let outer = blocks
+            .iter()
+            .filter(|(open, close)| *open <= region.0 && region.1 <= *close && (*open, *close) != region)
+            .map(|(open, _)| *open)
+            .min()
+            .unwrap_or(0);
         let taken = |name: &str| {
             RESERVED.contains(&name)
                 || spans.iter().any(|&(start, end)| region.0 <= start && end <= region.1 && &src[start..end] == name)
+                || spans.iter().any(|&(start, end)| {
+                    outer <= start && end <= region.0 && &src[start..end] == name && declares(src, start)
+                })
                 || given.iter().any(|((open, close), n)| n == name && *open < region.1 && region.0 < *close)
         };
         let (base, from) = made(word).expect("a made name");
@@ -246,6 +258,18 @@ const RESERVED: &[&str] = &[
     "with",
     "yield",
 ];
+
+/// Whether the identifier at `start` is declared there: after `const ` or
+/// `let `, inside a `const { .. }` destructuring, or as a parameter.
+fn declares(src: &str, start: usize) -> bool {
+    let line_start = src[..start].rfind('\n').map_or(0, |i| i + 1);
+    let before = src[line_start..start].trim_start();
+    before.starts_with("const ")
+        || before.starts_with("let ")
+        || before.starts_with("export const ")
+        || before.ends_with('(') && src[start..].split_once(':').is_some()
+        || before.ends_with(", ") && before.contains('(')
+}
 
 #[cfg(test)]
 mod tests {

@@ -134,10 +134,13 @@ pub(super) fn wrap_assign_ternary(line: &str, width: usize, out: &mut String) ->
 pub(super) fn wrap_assign_logical(line: &str, width: usize, out: &mut String) -> bool {
     let pad = &line[..line.len() - line.trim_start().len()];
     let rest = line.trim_start();
-    if !(rest.starts_with("const ") || rest.starts_with("let ")) {
+    let Some(eq) = top_assign(rest) else { return false };
+    // A declaration, or an assignment to a name (`strict = a || b;`).
+    let target = &rest[..eq];
+    let name = !target.is_empty() && target.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if !(rest.starts_with("const ") || rest.starts_with("let ") || name) {
         return false;
     }
-    let Some(eq) = top_assign(rest) else { return false };
     let Some(value) = rest[eq + 3..].strip_suffix(';') else { return false };
     let d = depths(value);
     let arrow = (0..value.len()).any(|i| d[i] == Some(0) && value[i..].starts_with(" => "));

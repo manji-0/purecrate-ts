@@ -37,6 +37,29 @@ fn review_holes_match_rust() {
         for b in [vec![], vec![b'A'], vec![b'B'], vec![b'8', 1], vec![b'w']] {
             cases.push(case!(review_holes::zero_low_bits(b)));
         }
+        use review_holes::{Msg, Stage};
+        for (st, ms) in [
+            (Stage::Waiting { count: 4, done: false }, Msg::A),
+            (Stage::Waiting { count: 4, done: true }, Msg::A),
+            (Stage::Waiting { count: 4, done: true }, Msg::C(7)),
+            (Stage::Waiting { count: 4, done: false }, Msg::C(7)),
+            (Stage::Idle, Msg::B),
+            (Stage::Idle, Msg::C(7)),
+        ] {
+            cases.push(case!(review_holes::unshadowed(st, ms)));
+        }
+        for (x, b) in [(63u32, 0u32), (1, 1), (2, 3)] {
+            cases.push(case!(review_holes::wild(x, b)));
+        }
+        cases.push(case!(review_holes::scan(vec![1, 9, 2], vec![1, 5, 2, 3], 9)));
+        cases.push(case!(review_holes::scan(Vec::<u32>::new(), vec![1], 9)));
+        for c in [false, true] {
+            cases.push(case!(review_holes::strictness(vec![1000000001u32], vec![2000000002u32], c)));
+            cases.push(case!(review_holes::strictness(vec![3000000003u32], vec![2000000002u32], c)));
+        }
+        for x in [None, Some(3u32), Some(u32::MAX)] {
+            cases.push(case!(review_holes::tuple_let(x)));
+        }
         for s in [0i64, 59, 60, 61, -1] {
             cases.push(case!(review_holes::clamp(s)));
         }

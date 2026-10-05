@@ -82,12 +82,19 @@ fn paren_head<'a>(line: &'a str, keyword: &str) -> Option<(&'a str, &'a str, &'a
     Some((&line[..pad_len], &rest[1..close], &rest[close + 1..]))
 }
 
-/// `if (cond) {` whose condition does not fit on the line.
+/// `if (cond) {` (or `} else if (cond) {`) whose condition does not fit on
+/// the line: the condition on lines of its own, as oxfmt lays it out.
 pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
-    let Some((pad, cond, " {")) = paren_head(line, "if") else {
+    let trimmed = line.trim_start();
+    let pad = &line[..line.len() - trimmed.len()];
+    let (head, rest) = match trimmed.strip_prefix("} else ") {
+        Some(rest) => ("} else if (", format!("{pad}{rest}")),
+        None => ("if (", line.to_string()),
+    };
+    let Some((_, cond, " {")) = paren_head(&rest, "if") else {
         return false;
     };
-    wrap_line(&format!("{pad}if ("), width, out);
+    wrap_line(&format!("{pad}{head}"), width, out);
     wrap_line(&format!("{pad}  {cond}"), width, out);
     wrap_line(&format!("{pad}) {{"), width, out);
     true

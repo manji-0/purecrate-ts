@@ -24,9 +24,41 @@ pub(crate) use scan::*;
 pub(crate) fn wrap(src: &str, width: usize) -> String {
     let mut out = String::with_capacity(src.len());
     for line in src.lines() {
-        wrap_line(line, width, &mut out);
+        wrap_line(&comments_before_groups(line), width, &mut out);
     }
     out
+}
+
+/// `(/* '?' */ 63 as U8)` as `/* '?' */ (63 as U8)`: oxfmt moves a comment
+/// that opens a parenthesized expression in front of the parenthesis. A
+/// call's or a statement's parenthesis keeps it (`f(/* 'a' */ 97)`).
+fn comments_before_groups(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.contains("(/*") || is_comment(line) {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find("(/*") {
+        let before = &rest[..at];
+        let group = !before.ends_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | ')' | ']' | '>'))
+            && !["if ", "while ", "for "].iter().any(|k| before.trim_end().ends_with(k.trim_end()));
+        let after = &rest[at + 1..];
+        match (group, after.find("*/")) {
+            (true, Some(end)) if !after[..end].contains('\n') => {
+                let comment = &after[..end + 2];
+                out.push_str(before);
+                out.push_str(comment);
+                out.push_str(" (");
+                rest = after[end + 2..].trim_start();
+            }
+            _ => {
+                out.push_str(&rest[..at + 1]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
 }
 
 fn emit_raw(line: &str, out: &mut String) {
@@ -98,6 +130,16 @@ mod tests {
         assert_eq!(strip_outer("(a) || (b)"), "(a) || (b)");
         assert_eq!(strip_outer("(\")\" + x)"), "\")\" + x");
         assert_eq!(strip_outer("f(x)"), "f(x)");
+    }
+
+    #[test]
+    fn a_comment_opening_a_group_goes_before_it_as_oxfmt_moves_it() {
+        assert_eq!(
+            wrap("  x === (/* '?' */ 63 as U8 as number as U32) || y;", 100),
+            "  x === /* '?' */ (63 as U8 as number as U32) || y;\n"
+        );
+        assert_eq!(wrap("  f(/* 'a' */ 97);", 100), "  f(/* 'a' */ 97);\n");
+        assert_eq!(wrap("  if (/* 'a' */ 97 === x) {", 100), "  if (/* 'a' */ 97 === x) {\n");
     }
 
     #[test]

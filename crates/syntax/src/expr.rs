@@ -510,6 +510,19 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
                     value: Box::new(value),
                     then: Box::new(tuple.bind(Expr::Var(name), then)),
                 },
+                // `let (a, b) = match x { .., None => return 0 };`: a
+                // `return` may end a `let`'s value but not a `match`'s
+                // scrutinee, so the value is bound first.
+                None if value.any(|e| matches!(e, Expr::Return(_))) => {
+                    let name = cx.fresh("pair");
+                    Expr::Let {
+                        name: name.clone(),
+                        mutable: false,
+                        ty: None,
+                        value: Box::new(value),
+                        then: Box::new(tuple.bind(Expr::Var(name), then)),
+                    }
+                }
                 None => tuple.bind(value, then),
             },
             Stmt::Effect(first) => Expr::Seq { first: Box::new(first), then: Box::new(then) },

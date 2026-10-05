@@ -136,3 +136,80 @@ pub fn zero_low_bits(b: Vec<u8>) -> bool {
             b'A' | b'E' | b'I' | b'M' | b'Q' | b'U' | b'Y' | b'c' | b'g' | b'k' | b'o' | b's' | b'w' | b'0' | b'4' | b'8'
         )
 }
+
+pub enum Stage {
+    Waiting { count: u32, done: bool },
+    Idle,
+}
+
+pub enum Msg {
+    A,
+    B,
+    C(u32),
+}
+
+/// A field tested by a literal pattern, named like an outer local: the
+/// field's read takes another name, so it hides nothing (`no-shadow`).
+pub fn unshadowed(stage: Stage, m: Msg) -> u32 {
+    let done = matches!(stage, Stage::Waiting { done: true, .. });
+    let busy = !done;
+    match (stage, m) {
+        (Stage::Waiting { count, done: false }, Msg::A) => count,
+        (Stage::Idle, Msg::B) => 1,
+        (_, Msg::C(n)) => {
+            if busy {
+                n
+            } else {
+                0
+            }
+        }
+        (_, _) => 2,
+    }
+}
+
+/// A byte literal's comment before the parentheses of its cast.
+pub fn wild(x: u32, b: u32) -> bool {
+    x == u32::from(b'?') || x == b
+}
+
+/// A long `else if` test, and a long logical value assigned to a name, laid
+/// out as oxfmt lays them out.
+pub fn scan(pattern: Vec<u32>, name: Vec<u32>, any: u32) -> u32 {
+    let mut p: usize = 0;
+    let mut n: usize = 0;
+    let mut k: u32 = 0;
+    while n < name.len() && k < 100 {
+        k += 1;
+        if p >= pattern.len() {
+            n += 1;
+        } else if p < pattern.len() && (pattern[p] == any || pattern[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else {
+            n += 1;
+        }
+    }
+    k
+}
+
+fn listed(xs: &Vec<u32>, x: u32) -> bool {
+    xs.iter().any(|y| *y == x)
+}
+
+pub fn strictness(ours: Vec<u32>, theirs: Vec<u32>, c: bool) -> bool {
+    let mut strict = false;
+    if c {
+        strict = (listed(&ours, 1000000001) && listed(&theirs, 2000000002))
+            || (listed(&ours, 3000000003) && listed(&theirs, 4000000004));
+    }
+    strict
+}
+
+/// A tuple `let` whose value returns in one arm.
+pub fn tuple_let(x: Option<u32>) -> u32 {
+    let (a, b) = match x {
+        Some(v) => (v, v + 1),
+        None => return 0,
+    };
+    a + b
+}
