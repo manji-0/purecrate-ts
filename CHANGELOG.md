@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`examples/calendar`**, written from the authoring skill alone: RFC 3339 timestamps (leap seconds by §5.7, "-00:00"), Hinnant's civil-date algorithms over years -9999 to 9999, ISO 8601 week dates, and RFC 5545 RRULE parsing and expansion (DAILY to YEARLY, INTERVAL, COUNT, UNTIL, BYDAY with ordinals, BYMONTHDAY, BYMONTH, WKST). Its test reproduces RFC 3339 §5.8 and RFC 5545 §3.8.5.3's examples, agrees with an idiomatic-Rust reference on every day count in range, and compares the package with Rust. Its logic is 1.8× the idiomatic reference's, rule parsing 2.0× (design/07 §2.2).
+
+### Fixed
+
+- **oxlint refused an `else` after `return`** where a `match` ending a loop's body leaves in one arm (`None => return e`); the exit is printed first, as elsewhere.
+- **oxlint refused the cast in `BigInt(o ?? (1 as U32))`** (`i64::from(o.unwrap_or(1))`).
+- **oxfmt rewrote** a `while` test that calls a function in place, a `?:` branch too long for its line, and a parenthesized `||` or `?:` group.
+
+### Changed
+
+- The authoring skill: `for` ranges are half-open only; a range of two bare literals needs a suffix; integers never narrow; a method may share a type's file name.
+
 ## 0.10.5 — 2026-10-05
 
 `examples/ssh`, and three holes it found in accepted code (a `case` tsc refused, an `as` oxlint refused, long logical lines oxfmt rewrote). Nothing on the stable surface changes; the other examples' output is byte for byte the same.
