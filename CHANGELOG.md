@@ -1,21 +1,44 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 — 2026-10-06
+
+Every example was reviewed independently twice, each reviewer driving the generated package and the Rust model with its own scenarios from the primary specifications (RFCs, the NTA Q&A, Stripe's documentation, SemVer, the SWIFT registry, WHATWG and NIST). The domain logic agreed byte for byte on every scenario both times (millions in all). What did not hold was at the edges of the generated package: the JSON wire, the TS type boundary, and the layout oxfmt and oxlint ask for. Those are fixed, as is every departure of the examples' models from their specifications, or it is declared. `Vec::insert` and `as usize` join the subset, for punycode. Several changes are breaking for code that relied on the old behaviour: see Changed.
+
+### Added
+
+- **`v.insert(i, x)`** on a local `let mut v: Vec<T>`, as `push` is: `Slice.insert` panics as Rust does past the end, then `splice`s (design/01 §7.14). Taken off "Not doing" (design/07 §6) by decision, for punycode, whose decoding of 16,000 CJK characters went from 337 ms to 17 ms.
+- **`x as usize`** from a `u8`, `u16`, or `u32`, which holds every value on every target; std has no `usize::from(u32)`. Every other `as` stays refused.
+- **`for _ in ..`** over a range or a `Vec`.
 
 ### Changed
 
-- **`examples/ssh`, after an independent review** that drove the generated package and the Rust model with its own scenarios from RFC 4253, RFC 4252, RFC 8308, and OpenSSH's sources: the two agreed byte for byte on every one (about 31,000), and the model's departures from the specifications are fixed or declared:
-  - after the server's wrong guess, the next packet of any kind is dropped, not the next key exchange reply (RFC 4253 §7.1);
-  - a later EXT_INFO replaces an earlier one (RFC 8308 §2.4);
-  - known_hosts names are matched as OpenSSH writes them: bare for port 22, `[host]:port` in plain decimal, without ASCII case;
-  - the standard strict-kex marker `kex-strict-s` is recognised;
-  - PK_OK must echo the queried key's blob (RFC 4252 §7): identities are now `Identity { key_type, public_key }`;
-  - with no server-sig-algs, an RSA key is tried with each signature algorithm in turn (RFC 8308 §3.1);
-  - @revoked applying to every host is declared as a policy.
+- **The wire reads JSON as serde_json does** (checked against serde_json 1.0.145 on each case): an integer refuses a digit string, a float written as `50.0` / `5e1` / `-0`, and a number past 2^53 read without `parseJson`; a struct is an object or its sequence form, an array of exactly its fields (`[3,null]`), never an array of another length (valibot and arktype had read every field as missing); a field twice, or a key with a lone surrogate, is refused where serde reads the object, and read past where it ignores it; a string with a lone surrogate is refused. `parseJson` no longer throws on a duplicate key: it notes it for the schema that reads the object.
+- **A closed type cannot be built outside the package without a cast.** A newtype's brand is a `unique symbol` its file does not export; a struct's is a class with a `private` member, which an object spread does not copy (`{ ...line, qty: 0 }` had been a `Line`). Two copies of one package no longer exchange closed values.
+- **A `pub` function panics on a lone surrogate** anywhere in an argument that may hold a string (a field of an open type, a variant, an `Option`, a `Vec`, a tuple), which no Rust `str` holds; an object checked once is not walked again.
+- **design/01 §2, §4.3, 03 §5.6**: mutation in place is outside the guarantee with a cast or without one (`Object.assign` needs none), and values are shared, not copied.
 
 ### Fixed
 
-- **oxlint refused an empty `else`** where a statement `match` of one variant had `_ => {}` (found by the ssh changes).
+What tsc, oxlint, or oxfmt refused in generated code, or `check` refused where rustc accepts, found by the fixes; each is in `fixtures/review_holes.rs`:
+
+- `enumerate` over enum elements cast each one; the loop now iterates the element itself.
+- `a && x.cmp(y).is_eq()` and other operands that need statements printed inline functions oxfmt lays out otherwise: an `Ordering` test reads `call.kind` once, and such an operand is an `if` where a statement stands (not in a test, which keeps TS's narrowing).
+- `s.push(match ..)` printed `s = s + ..`; a long logical `return`, `} else if (..)`, and assignment broke inside a call; an array of number literals broke one per line; a byte literal's comment sat inside its cast's parentheses; a returned `?:` from a `let` was not parenthesized.
+- `for x in v.clone()` printed a spread oxlint refuses (the copy is named when the body grows `v`); `for _high` printed a name oxlint refuses (a local drops its leading `_`; an unread `for..of` variable is `_`).
+- A guarded arm that returns printed an `else` oxlint refuses; a field read by a literal pattern hid an outer local (`no-shadow`).
+- `let x = if c { 59 } else { second };` could not type `59`; `let (a, b) = match x { .., None => return 0 };` was refused.
+- A statement `match` of one variant and `_ => {}` printed an empty `else`.
+
+### Examples
+
+- **ssh**, after two reviews: the next packet is dropped after a wrong guess; a later EXT_INFO replaces an earlier one, and it is accepted only where RFC 8308 §2.4 puts it; strict KEX follows draft-ietf-sshm-strict-kex-02 (both client names offered, a matching pair needed, no non-KEX message until both NEWKEYS); PK_OK must echo the key (`Identity { key_type, public_key }`); RSA tries each signature algorithm; empty name-lists and packets under 16 bytes are refused; known_hosts matching handles negation, `*`/`?` wildcards, and hashed names (HMAC-SHA1 written in the example), and fails closed on a line it cannot read.
+- **oidc**: an OTP accepted in one flow is recorded and refused in others, and the lockout holds across flows; `max_age=0` re-authenticates; the PKCE challenge is computed from the verifier (SHA-256 and base64url written in the example; `check_redemption` takes only the verifier); error redirects echo `state`; password failures count per subject; unknown `prompt` values are ignored; an S256 challenge must be 43 characters; `Authentication` is closed.
+- **invoice**: tax is rounded once per rate on converted totals (問57, 問59), mixed bases are refused, overflow is an error, and `Summary` reports the tax.
+- **payment**: an intent read from JSON goes through a checked constructor (`UncheckedIntent`); a bank debit under manual capture is refused.
+- **order**: the types are closed, `step` takes `&Order` so a refusal keeps it, and a cancel's reason is tied to the status.
+- **calendar**: UNTIL may end at second 60; a YEARLY BYDAY ordinal counts within the year without BYMONTH (erratum 3779); a leap second is taken at the end of any month.
+- **punycode**: uses `Vec::insert`; `xn--é` is refused both ways; the dead round-trip check is removed.
+- **semver** formats a version and compares two; **iban** counts characters and reads its value back; **signup** refuses the e-mail as the password and reads its values back; **counter** states its rules. Every header now states what the model leaves out, and why.
 
 ## 0.12.0 — 2026-10-05
 
