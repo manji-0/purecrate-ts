@@ -55,7 +55,7 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | payment | 61 | 103 | 1.7× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
 | semver | 75 | 123 | 1.6× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
-**punycode**, as written, sat at the threshold in both parts (the core 99 / 193, the domain layer 55 / 109), and for one reason more than any other: the results are `Vec<char>` pushed one character at a time, where idiomatic code builds a `String` (`collect`, `push`, `format!("xn--{p}")`, `labels.join(".")`). The rest is `Vec::insert` rebuilt by hand, a `min` over a filter written as a scan, and counters kept beside the `Vec`s because no integer converts to `usize`. With `String` building the results are `String`s pushed to directly (302 to 285 lines); what is left is the `insert` and the scan.
+**punycode**, as written, sat at the threshold in both parts (the core 99 / 193, the domain layer 55 / 109), and for one reason more than any other: the results are `Vec<char>` pushed one character at a time, where idiomatic code builds a `String` (`collect`, `push`, `format!("xn--{p}")`, `labels.join(".")`). The rest is `Vec::insert` rebuilt by hand, a `min` over a filter written as a scan, and counters kept beside the `Vec`s because no integer converts to `usize`. With `String` building the results are `String`s pushed to directly (302 to 285 lines); what is left is the `insert` and the scan. An independent review then measured the rebuilt `Vec`: decoding 16,000 CJK characters took 337 ms against Node's 6 ms, the array copied twice per code point. `Vec::insert` on a local and `u32 as usize` (std has no `usize::from(u32)`) closed it (17 ms); what is left is the scan.
 
 **calendar by section** (both sides rustfmt'd): civil dates 103 / 150 (1.5×), timestamps 114 / 162 (1.4×), rule types 82 / 121 (1.5×), rule parsing 139 / 274 (2.0×), expansion 138 / 204 (1.5×). With `str::eq_ignore_ascii_case` (added for it), rule parsing is 254 (1.8×), and 226 (1.6×) once the names are looked up in tables (`position`, then a `vec![..]` indexed) as the idiomatic side does. As written, rule parsing carried the gap: names compared without case by a byte loop and an `if` per name (idiomatic code looks them up in a table with `eq_ignore_ascii_case`), and one `Option` local per part with its own repeat check (idiomatic code keeps a list of the parts seen). Expansion stayed close because the constrained side generates candidates in order, so it needs no `sort` / `dedup`.
 
@@ -184,7 +184,7 @@ Waits for an example that cannot be written without it.
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Mutating a `Vec` other than a local's `push`: through a field, an element, a parameter, or `pop` / `insert` / `remove` / `extend`. `split` on a `&str`.
+- Mutating a `Vec` other than a local's `push` and `insert`: through a field, an element, a parameter, or `pop` / `remove` / `extend`. `split` on a `&str`.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.

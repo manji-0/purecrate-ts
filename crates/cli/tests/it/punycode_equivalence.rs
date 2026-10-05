@@ -163,11 +163,12 @@ mod idiomatic {
     }
 
     fn a_label(label: &str) -> Result<String, DomainError> {
-        if !label.is_ascii() {
-            return Ok(format!("xn--{}", encode(label).map_err(DomainError::Punycode)?));
-        }
         if label.starts_with("xn--") {
             u_label_of(label)?;
+            return Ok(label.to_string());
+        }
+        if !label.is_ascii() {
+            return Ok(format!("xn--{}", encode(label).map_err(DomainError::Punycode)?));
         }
         Ok(label.to_string())
     }
@@ -367,6 +368,10 @@ fn the_published_samples_come_out_as_printed() {
     assert_eq!(punycode::to_ascii("a..b"), Err(D::EmptyLabel));
     assert_eq!(punycode::to_ascii(&"a".repeat(64)), Err(D::LabelTooLong));
     assert_eq!(punycode::to_ascii("xn--abc-"), Err(D::AsciiOnly));
+    // Refused both ways: no A-label, and "--" in positions 3 and 4 of a
+    // U-label (RFC 5891 §4.2.3.1).
+    assert_eq!(punycode::to_ascii("xn--é"), Err(D::Punycode(P::NonBasic)));
+    assert_eq!(punycode::to_unicode("xn--é"), Err(D::Punycode(P::NonBasic)));
     let at_limit = [&"a".repeat(63)[..], &"a".repeat(63), &"a".repeat(63), &"a".repeat(61)].join(".");
     assert_eq!(at_limit.len(), 253);
     assert!(punycode::to_ascii(&at_limit).is_ok());

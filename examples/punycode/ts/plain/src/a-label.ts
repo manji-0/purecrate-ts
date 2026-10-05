@@ -9,15 +9,15 @@ import { isAsciiLabel } from "./is-ascii-label.ts";
 
 /** The A-label (ASCII form) of one label. */
 export const aLabel = (label: string): Result<string, DomainError> => {
-  if (isAsciiLabel(label)) {
-    if (label.startsWith(ACE_PREFIX)) {
-      const checkedULabelResult = checkedULabel(label);
-      if (checkedULabelResult.kind === "Err") return checkedULabelResult;
-    }
-
+  // An "xn--" label is an A-label or nothing, non-ASCII too (`xn--é` is no
+  // U-label either: RFC 5891 §4.2.3.1 refuses "--" in positions 3 and 4).
+  if (label.startsWith(ACE_PREFIX)) {
+    const checkedULabelResult = checkedULabel(label);
+    if (checkedULabelResult.kind === "Err") return checkedULabelResult;
     return Result.ok(label);
   }
 
+  if (isAsciiLabel(label)) return Result.ok(label);
   const pResult = encode(label);
   if (pResult.kind === "Err") return Result.err({ kind: "Punycode", value: pResult.error });
   const p = pResult.value;

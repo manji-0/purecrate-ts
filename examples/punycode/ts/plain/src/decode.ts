@@ -30,27 +30,6 @@ const digitValue = (c: Char): U32 | null => {
   return null;
 };
 
-/** `out` with `cp` inserted before index `at` (`at == len` appends). */
-const insertAt = (out: ReadonlyArray<U32>, at: U32, cp: U32): ReadonlyArray<U32> => {
-  const v: Array<U32> = [];
-  let j = 0 as U32;
-
-  for (const c of out) {
-    if (j === at) {
-      v.push(cp);
-    }
-
-    v.push(c);
-    j = Int.u32.add(j, 1 as U32);
-  }
-
-  if (j === at) {
-    v.push(cp);
-  }
-
-  return v;
-};
-
 /** §6.2, on characters already known to be ASCII. */
 const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, PunycodeError> => {
   // The basic code points are those before the last delimiter.
@@ -67,7 +46,7 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
     }
   }
 
-  let out: Array<U32> = [];
+  const out: Array<U32> = [];
   let outLen = 0 as U32;
   let pos = 0 as Usize;
 
@@ -121,7 +100,7 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
     i = Int.u32.rem(i, Int.u32.add(outLen, 1 as U32));
     const option = Char.fromU32(n);
     if (option === null) return Result.err({ kind: "InvalidCodePoint" });
-    out = [...insertAt(out, i, n)];
+    Slice.insert(out, i as number as Usize, n);
     outLen = Int.u32.add(outLen, 1 as U32);
     i = Int.u32.add(i, 1 as U32);
   }

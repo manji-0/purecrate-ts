@@ -216,6 +216,11 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `v.insert(i, x)` on a local's own array. */
+  insert: <T>(xs: T[], i: Usize, x: T): void => {
+    if (i > xs.length) throw new Panic(`insertion index (is ${i}) should be <= len (is ${xs.length})`);
+    xs.splice(i, 0, x);
+  },
 } as const;
 
 /**

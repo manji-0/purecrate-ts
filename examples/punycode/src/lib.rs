@@ -26,10 +26,12 @@
 //   annotation (§A); basic code points are copied as they are.
 // - Domains: every ASCII letter of every label is lower-cased before
 //   conversion, in both directions; nothing else is mapped or normalized.
-// - An "xn--" label must decode, must re-encode to the same text, and must
-//   decode to at least one non-ASCII code point (RFC 5891 §5.4: an A-label
-//   is the ASCII form of a U-label). `to_ascii` checks this too, and keeps
-//   the label as it is.
+// - An "xn--" label must decode, must re-encode to the same text (RFC 5891
+//   §5.3), and must decode to at least one non-ASCII code point (RFC 5890
+//   §2.3.2.1: an A-label is the ASCII form of a U-label). `to_ascii` checks
+//   this too, and keeps the label as it is. A non-ASCII label that starts
+//   with "xn--" is refused both ways, as the decoder refuses non-ASCII
+//   input (`Punycode(NonBasic)`).
 // - Lengths are counted on the ASCII form in both directions: each label
 //   1..=63 octets, the whole name at most 253 octets without the trailing
 //   root dot. A single trailing dot is kept; any other empty label
@@ -115,23 +117,6 @@ fn digit_char(d: u32) -> char {
 
 fn is_basic(cp: u32) -> bool {
     cp < 0x80
-}
-
-/// `out` with `cp` inserted before index `at` (`at == len` appends).
-fn insert_at(out: &Vec<u32>, at: u32, cp: u32) -> Vec<u32> {
-    let mut v: Vec<u32> = Vec::new();
-    let mut j: u32 = 0;
-    for c in out {
-        if j == at {
-            v.push(cp);
-        }
-        v.push(*c);
-        j += 1;
-    }
-    if j == at {
-        v.push(cp);
-    }
-    v
 }
 
 /// §6.3, on code points. The result is ASCII.
@@ -249,7 +234,7 @@ fn decode_chars(input: &Vec<char>) -> Result<Vec<u32>, PunycodeError> {
         if matches!(char::from_u32(n), None) {
             return Err(PunycodeError::InvalidCodePoint);
         }
-        out = insert_at(&out, i, n);
+        out.insert(i as usize, n);
         out_len += 1;
         i += 1;
     }
@@ -345,10 +330,13 @@ fn checked_u_label(label: &str) -> Result<String, DomainError> {
 
 /// The A-label (ASCII form) of one label.
 fn a_label(label: &str) -> Result<String, DomainError> {
+    // An "xn--" label is an A-label or nothing, non-ASCII too (`xn--é` is no
+    // U-label either: RFC 5891 §4.2.3.1 refuses "--" in positions 3 and 4).
+    if label.starts_with(ACE_PREFIX) {
+        checked_u_label(label)?;
+        return Ok(String::from(label));
+    }
     if is_ascii_label(label) {
-        if label.starts_with(ACE_PREFIX) {
-            checked_u_label(label)?;
-        }
         return Ok(String::from(label));
     }
     let p = encode(label).map_err(|e| DomainError::Punycode(e))?;
