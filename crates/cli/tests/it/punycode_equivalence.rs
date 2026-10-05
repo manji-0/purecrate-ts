@@ -36,7 +36,6 @@ mod idiomatic {
         LabelTooLong,
         DomainTooLong,
         Punycode(PunycodeError),
-        NotRoundTrip,
         AsciiOnly,
     }
 
@@ -155,9 +154,6 @@ mod idiomatic {
         let u = decode(payload).map_err(DomainError::Punycode)?;
         if u.is_ascii() {
             return Err(DomainError::AsciiOnly);
-        }
-        if encode(&u).map_err(DomainError::Punycode)? != payload {
-            return Err(DomainError::NotRoundTrip);
         }
         Ok(u)
     }
@@ -368,10 +364,17 @@ fn the_published_samples_come_out_as_printed() {
     assert_eq!(punycode::to_ascii("a..b"), Err(D::EmptyLabel));
     assert_eq!(punycode::to_ascii(&"a".repeat(64)), Err(D::LabelTooLong));
     assert_eq!(punycode::to_ascii("xn--abc-"), Err(D::AsciiOnly));
-    // Refused both ways: no A-label, and "--" in positions 3 and 4 of a
-    // U-label (RFC 5891 §4.2.3.1).
+    // Refused both ways as an A-label whose payload is not ASCII (the
+    // "--" rule of RFC 5891 §5.4 is not checked as such).
     assert_eq!(punycode::to_ascii("xn--é"), Err(D::Punycode(P::NonBasic)));
     assert_eq!(punycode::to_unicode("xn--é"), Err(D::Punycode(P::NonBasic)));
+    // Left out: a leading combining mark (RFC 5891 §4.2.3.2, §5.4).
+    assert_eq!(punycode::to_ascii("\u{301}a").map(text), Ok("xn--a-wbb".to_string()));
+    assert_eq!(punycode::to_unicode("xn--a-wbb").map(text), Ok("\u{301}a".to_string()));
+    // Only ASCII letters are lower-cased: "Ü" and "ü" make different names.
+    assert_eq!(punycode::to_ascii("Ü.DE").map(text), Ok("xn--wca.de".to_string()));
+    assert_eq!(punycode::to_ascii("ü.de").map(text), Ok("xn--tda.de".to_string()));
+    assert_eq!(punycode::to_unicode("XN--WCA.de").map(text), Ok("Ü.de".to_string()));
     let at_limit = [&"a".repeat(63)[..], &"a".repeat(63), &"a".repeat(63), &"a".repeat(61)].join(".");
     assert_eq!(at_limit.len(), 253);
     assert!(punycode::to_ascii(&at_limit).is_ok());
@@ -431,6 +434,11 @@ fn names() -> Vec<String> {
             "xn--BCHER-KVA",
             "xn--zz",
             "xn---xrpdc.x",
+            "\u{301}a",
+            "xn--a-wbb",
+            "Ü.DE",
+            "ü.de",
+            "xn--wca.de",
         ]
         .map(String::from),
     );
@@ -458,6 +466,11 @@ fn constrained_rust_is_the_idiomatic_rules() {
     }
     for p in payloads() {
         assert_eq!(dbg(&punycode::decode(&p).map(text)), dbg(&idiomatic::decode(&p)), "decode {p:?}");
+        // Why the model has no re-encoding check (RFC 5891 §5.3): a
+        // lower-case payload is the only text that decodes to its result.
+        if let Ok(u) = idiomatic::decode(&p) {
+            assert_eq!(idiomatic::encode(&u), Ok(p.clone()), "re-encode {p:?}");
+        }
         let label = format!("xn--{p}");
         assert_eq!(dbg(&punycode::to_unicode(&label).map(text)), dbg(&idiomatic::to_unicode(&label)), "{label}");
     }

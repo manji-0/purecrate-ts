@@ -3,10 +3,12 @@
 import { Result, Str, type Usize } from "./purecrate-runtime.ts";
 import { decode } from "./decode.ts";
 import type { DomainError } from "./domain-error.ts";
-import { encode } from "./encode.ts";
 import { isAsciiLabel } from "./is-ascii-label.ts";
 
-/** The U-label an "xn--" label stands for, after the round-trip check. */
+/**
+ * The U-label an "xn--" label stands for. No re-encoding check: the
+ * payload is lower-case, so it is the only text that decodes to `u`.
+ */
 export const checkedULabel = (label: string): Result<string, DomainError> => {
   // "xn--" is ASCII, so byte 4 is a character boundary.
   const payload = Str.slice(label, 4 as Usize);
@@ -14,9 +16,5 @@ export const checkedULabel = (label: string): Result<string, DomainError> => {
   if (uResult.kind === "Err") return Result.err({ kind: "Punycode", value: uResult.error });
   const u = uResult.value;
   if (isAsciiLabel(u)) return Result.err({ kind: "AsciiOnly" });
-  const againResult = encode(u);
-  if (againResult.kind === "Err") return Result.err({ kind: "Punycode", value: againResult.error });
-  const again = againResult.value;
-  if (again !== payload) return Result.err({ kind: "NotRoundTrip" });
   return Result.ok(u);
 };

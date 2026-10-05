@@ -9,8 +9,8 @@ import { isAsciiLabel } from "./is-ascii-label.ts";
 
 /** The A-label (ASCII form) of one label. */
 export const aLabel = (label: string): Result<string, DomainError> => {
-  // An "xn--" label is an A-label or nothing, non-ASCII too (`xn--é` is no
-  // U-label either: RFC 5891 §4.2.3.1 refuses "--" in positions 3 and 4).
+  // An "xn--" label is read as an A-label only, non-ASCII too: `xn--é`
+  // fails as its payload is not ASCII (`Punycode(NonBasic)`).
   if (label.startsWith(ACE_PREFIX)) {
     const checkedULabelResult = checkedULabel(label);
     if (checkedULabelResult.kind === "Err") return checkedULabelResult;

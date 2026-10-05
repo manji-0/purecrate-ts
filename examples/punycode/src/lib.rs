@@ -26,21 +26,39 @@
 //   annotation (§A); basic code points are copied as they are.
 // - Domains: every ASCII letter of every label is lower-cased before
 //   conversion, in both directions; nothing else is mapped or normalized.
-// - An "xn--" label must decode, must re-encode to the same text (RFC 5891
-//   §5.3), and must decode to at least one non-ASCII code point (RFC 5890
-//   §2.3.2.1: an A-label is the ASCII form of a U-label). `to_ascii` checks
-//   this too, and keeps the label as it is. A non-ASCII label that starts
-//   with "xn--" is refused both ways, as the decoder refuses non-ASCII
-//   input (`Punycode(NonBasic)`).
+//   So a non-ASCII letter keeps its case, and names that differ only in it
+//   are different names: "Ü.de" is "xn--wca.de" and "ü.de" is "xn--tda.de".
+//   IDNA2008 proper would refuse "Ü" (DISALLOWED as Unstable, RFC 5892
+//   §2.2: case folding changes it); the mapping that lowers it before
+//   conversion (RFC 5895, UTS #46) is left out, below.
+// - Any label that starts with "xn--" is read as an A-label only: its
+//   payload must decode (RFC 3492 §6.2) and must decode to at least one
+//   non-ASCII code point (RFC 5890 §2.3.2.1: an A-label is the ASCII form
+//   of a U-label). `to_ascii` checks this too, and keeps the label as it
+//   is. A non-ASCII label that starts with "xn--" is so refused both ways
+//   because the decoder refuses non-ASCII input (`Punycode(NonBasic)`); the
+//   rule that names it ("--" in positions 3 and 4 of a U-label, RFC 5891
+//   §4.2.3.1, §5.4) is not checked as such.
+// - RFC 5891 §5.3's test that the decoded label re-encodes to the same
+//   A-label is not written: it cannot fail here. The payload is lower-cased
+//   first, and Punycode decoding of lower-case digits is one-to-one (RFC
+//   3492 §2, "Uniqueness"), so re-encoding gives the payload back. The test
+//   matters where the U-label is normalized or validated between the two
+//   steps, which this model leaves out.
 // - Lengths are counted on the ASCII form in both directions: each label
 //   1..=63 octets, the whole name at most 253 octets without the trailing
 //   root dot. A single trailing dot is kept; any other empty label
 //   (including the names "" and ".") is rejected.
 //
 // Left out on purpose:
-// - Unicode normalization, IDNA mapping tables, the code point validity
-//   rules of RFC 5892, the bidi rule (RFC 5893), hyphen placement rules
-//   (RFC 5891 §4.2.3.1), and the mixed-case annotation of RFC 3492 §A.
+// - Unicode normalization, IDNA mapping (RFC 5895, UTS #46), the code
+//   point validity rules of RFC 5892, the contextual rules (RFC 5891
+//   §4.2.3.3), the bidi rule (RFC 5893), hyphen placement rules (RFC 5891
+//   §4.2.3.1, §5.4), and the mixed-case annotation of RFC 3492 §A.
+// - The leading combining mark rule (RFC 5891 §4.2.3.2, §5.4: a U-label
+//   must not begin with a character of General_Category M). It needs the
+//   Unicode category tables, which Rust's std does not have; so
+//   `to_ascii("\u{301}a")` is `Ok("xn--a-wbb")`.
 
 // ---------------------------------------------------------------------------
 // Punycode (RFC 3492)
@@ -281,10 +299,9 @@ pub enum DomainError {
     LabelTooLong,
     /// The name is longer than 253 octets in its ASCII form.
     DomainTooLong,
-    /// An "xn--" label does not decode.
+    /// The payload of an "xn--" label is not Punycode (`NonBasic` for a
+    /// non-ASCII label).
     Punycode(PunycodeError),
-    /// An "xn--" label decodes, but does not re-encode to the same text.
-    NotRoundTrip,
     /// An "xn--" label decodes to ASCII only.
     AsciiOnly,
 }
@@ -313,7 +330,8 @@ fn split_labels(domain: &str) -> Result<(Vec<String>, bool), DomainError> {
     Ok((labels, rooted))
 }
 
-/// The U-label an "xn--" label stands for, after the round-trip check.
+/// The U-label an "xn--" label stands for. No re-encoding check: the
+/// payload is lower-case, so it is the only text that decodes to `u`.
 fn checked_u_label(label: &str) -> Result<String, DomainError> {
     // "xn--" is ASCII, so byte 4 is a character boundary.
     let payload = &label[4..];
@@ -321,17 +339,13 @@ fn checked_u_label(label: &str) -> Result<String, DomainError> {
     if is_ascii_label(&u) {
         return Err(DomainError::AsciiOnly);
     }
-    let again = encode(&u).map_err(|e| DomainError::Punycode(e))?;
-    if again != payload {
-        return Err(DomainError::NotRoundTrip);
-    }
     Ok(u)
 }
 
 /// The A-label (ASCII form) of one label.
 fn a_label(label: &str) -> Result<String, DomainError> {
-    // An "xn--" label is an A-label or nothing, non-ASCII too (`xn--é` is no
-    // U-label either: RFC 5891 §4.2.3.1 refuses "--" in positions 3 and 4).
+    // An "xn--" label is read as an A-label only, non-ASCII too: `xn--é`
+    // fails as its payload is not ASCII (`Punycode(NonBasic)`).
     if label.starts_with(ACE_PREFIX) {
         checked_u_label(label)?;
         return Ok(String::from(label));

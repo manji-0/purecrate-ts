@@ -7,7 +7,6 @@ export type DomainError =
   | Readonly<{ kind: "LabelTooLong" }>
   | Readonly<{ kind: "DomainTooLong" }>
   | Readonly<{ kind: "Punycode"; value: PunycodeError }>
-  | Readonly<{ kind: "NotRoundTrip" }>
   | Readonly<{ kind: "AsciiOnly" }>;
 
 export const DomainError = {
@@ -20,10 +19,11 @@ export const DomainError = {
   LabelTooLong: (): DomainError => ({ kind: "LabelTooLong" }),
   /** The name is longer than 253 octets in its ASCII form. */
   DomainTooLong: (): DomainError => ({ kind: "DomainTooLong" }),
-  /** An "xn--" label does not decode. */
+  /**
+   * The payload of an "xn--" label is not Punycode (`NonBasic` for a
+   * non-ASCII label).
+   */
   Punycode: (value: PunycodeError): DomainError => ({ kind: "Punycode", value }),
-  /** An "xn--" label decodes, but does not re-encode to the same text. */
-  NotRoundTrip: (): DomainError => ({ kind: "NotRoundTrip" }),
   /** An "xn--" label decodes to ASCII only. */
   AsciiOnly: (): DomainError => ({ kind: "AsciiOnly" }),
 } as const;
