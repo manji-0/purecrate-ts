@@ -126,3 +126,13 @@ pub fn narrowed(e: Option<i32>, c: bool, b: i32) -> Result<i32, i32> {
         None => Err(b),
     }
 }
+
+/// A `matches!` of many byte literals inside `&&`: an array of numbers,
+/// filled as oxfmt fills it.
+pub fn zero_low_bits(b: Vec<u8>) -> bool {
+    !b.is_empty()
+        && matches!(
+            b[0],
+            b'A' | b'E' | b'I' | b'M' | b'Q' | b'U' | b'Y' | b'c' | b'g' | b'k' | b'o' | b's' | b'w' | b'0' | b'4' | b'8'
+        )
+}

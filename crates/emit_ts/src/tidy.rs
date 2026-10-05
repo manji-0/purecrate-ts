@@ -101,6 +101,17 @@ mod tests {
     }
 
     #[test]
+    fn an_array_of_numbers_fills_its_lines_as_oxfmt_lays_it_out() {
+        let line = "  return [/* 'A' */ 65, /* 'E' */ 69, /* 'I' */ 73, -1, 2n, 300].includes(x);";
+        assert_eq!(
+            wrap(line, 40),
+            "  return [\n    /* 'A' */ 65, /* 'E' */ 69,\n    /* 'I' */ 73, -1, 2n, 300,\n  ].includes(x);\n"
+        );
+        // A cast is no number literal: one item per line.
+        assert!(wrap("  return [65 as U8, 69 as U8, 73 as U8, 77 as U8].includes(x);", 30).contains("    65 as U8,\n"));
+    }
+
+    #[test]
     fn a_long_logical_return_is_parenthesized_as_oxfmt_lays_it_out() {
         let line = "  return aaaaaaaaaaaa && bbbbbbbbbbbbbbbbbb && cccccccccc(s);";
         assert_eq!(wrap(line, 60), "  return (\n    aaaaaaaaaaaa && bbbbbbbbbbbbbbbbbb && cccccccccc(s)\n  );\n");

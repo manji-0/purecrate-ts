@@ -55,6 +55,24 @@ pub(super) fn wrap_bracket(line: &str, width: usize, require_excess: bool, out: 
         }
     }
     wrap_line(&line[..=open], width, out);
+    // An array of number literals fills its lines, as oxfmt prints one.
+    if line.as_bytes().get(open) == Some(&b'[') && items.iter().all(|i| number_item(i)) {
+        let mut row = String::new();
+        for item in &items {
+            let piece = format!("{item},");
+            if !row.is_empty() && cols(&format!("{pad}  {row} {piece}")) > width {
+                emit_raw(&format!("{pad}  {row}"), out);
+                row.clear();
+            }
+            if !row.is_empty() {
+                row.push(' ');
+            }
+            row.push_str(&piece);
+        }
+        emit_raw(&format!("{pad}  {row}"), out);
+        wrap_line(&format!("{pad}{}", &line[close..]), width, out);
+        return true;
+    }
     let generic = line.as_bytes().get(open) == Some(&b'<');
     let n = items.len();
     for (i, item) in items.into_iter().enumerate() {
@@ -322,4 +340,18 @@ fn split_point(line: &str, excess: Option<usize>, from: usize) -> Option<(usize,
         items.push(last.to_string());
     }
     Some((open, close, items, ','))
+}
+
+/// A number literal, signed or not, after any `/* .. */` comments: an array
+/// of these is one oxfmt fills rather than breaking one per line.
+fn number_item(item: &str) -> bool {
+    let mut rest = item.trim();
+    while let Some(r) = rest.strip_prefix("/*") {
+        let Some(end) = r.find("*/") else { return false };
+        rest = r[end + 2..].trim_start();
+    }
+    let rest = rest.strip_prefix('-').unwrap_or(rest);
+    !rest.is_empty()
+        && rest.starts_with(|c: char| c.is_ascii_digit())
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
 }

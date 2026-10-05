@@ -34,6 +34,9 @@ fn review_holes_match_rust() {
         for (e, c) in [(None, true), (Some(7i32), true), (Some(7), false), (Some(-1), true)] {
             cases.push(case!(review_holes::narrowed(e, c, 3)));
         }
+        for b in [vec![], vec![b'A'], vec![b'B'], vec![b'8', 1], vec![b'w']] {
+            cases.push(case!(review_holes::zero_low_bits(b)));
+        }
         for s in [0i64, 59, 60, 61, -1] {
             cases.push(case!(review_holes::clamp(s)));
         }
