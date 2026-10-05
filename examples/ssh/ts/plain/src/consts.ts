@@ -18,5 +18,11 @@ export const MIN_PADDING = 4 as U32;
 export const MIN_BLOCK = 8 as U32;
 export const STRICT_KEX_CLIENT: string = "kex-strict-c-v00@openssh.com";
 export const STRICT_KEX_SERVER: string = "kex-strict-s-v00@openssh.com";
+/**
+ * The standard name for the same marker (draft-miller-sshm-strict-kex
+ * §5.1), equivalent when received; OpenSSH still sends only the v00 names,
+ * and so does this client.
+ */
+export const STRICT_KEX_SERVER_STANDARD: string = "kex-strict-s";
 export const EXT_INFO_CLIENT: string = "ext-info-c";
 export const USERAUTH_SERVICE: string = "ssh-userauth";

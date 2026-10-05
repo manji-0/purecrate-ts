@@ -14,7 +14,12 @@ import type { Action } from "./action.ts";
 import type { Algorithms } from "./algorithms.ts";
 import type { Auth } from "./auth.ts";
 import type { Connection } from "./connection.ts";
-import { MAX_PREAMBLE_LINES, STRICT_KEX_SERVER, USERAUTH_SERVICE } from "./consts.ts";
+import {
+  MAX_PREAMBLE_LINES,
+  STRICT_KEX_SERVER,
+  STRICT_KEX_SERVER_STANDARD,
+  USERAUTH_SERVICE,
+} from "./consts.ts";
 import type { Event } from "./event.ts";
 import type { Failure } from "./failure.ts";
 import { hostKeyOrder } from "./host-key-order.ts";
@@ -26,7 +31,6 @@ import type { KexReply } from "./kex-reply.ts";
 import type { KexStage } from "./kex-stage.ts";
 import type { KexState } from "./kex-state.ts";
 import { keyTypeName } from "./key-type-name.ts";
-import type { KeyType } from "./key-type.ts";
 import { listed } from "./listed.ts";
 import { messageNumber } from "./message-number.ts";
 import type { Message } from "./message.ts";
@@ -301,9 +305,10 @@ const onKexInit = (
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
   let strict;
   if (kx.initial) {
-    const nameListResult = nameList(peer.kex);
-    if (nameListResult.kind === "Err") return nameListResult;
-    strict = listed(nameListResult.value, STRICT_KEX_SERVER);
+    const kexResult = nameList(peer.kex);
+    if (kexResult.kind === "Err") return kexResult;
+    const kex = kexResult.value;
+    strict = listed(kex, STRICT_KEX_SERVER) || listed(kex, STRICT_KEX_SERVER_STANDARD);
   } else {
     strict = c.strict;
   }
@@ -340,6 +345,17 @@ const inKex = (
   m: Message,
   seq: U32,
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
+  // The server guessed wrong and sent a guessed packet: the next packet,
+  // whatever it is, is dropped unread (RFC 4253 §7.1).
+  if (kx.stage.kind === "AwaitingReply") {
+    const algorithms = kx.stage.algorithms;
+    const ignoreNext = kx.stage.ignore_next;
+    if (ignoreNext) {
+      const stage: KexStage = { kind: "AwaitingReply", algorithms, ignore_next: false };
+      return Result.ok([{ ...c, phase: { kind: "KeyExchange", value: { ...kx, stage } } }, []]);
+    }
+  }
+
   const peerNewKeys = kx.stage.kind === "AwaitingApproval" && kx.stage.peer_new_keys;
   const kexMessage = m.kind === "KexInit" || m.kind === "KexReply" || m.kind === "NewKeys";
   if (c.strict && kx.initial && !peerNewKeys && !kexMessage)
@@ -407,16 +423,9 @@ const inKex = (
         }
         case "KexReply": {
           const reply = m.value;
-
-          if (ignoreNext) {
-            const stage: KexStage = { kind: "AwaitingReply", algorithms, ignore_next: false };
-            return Result.ok([
-              { ...c, phase: { kind: "KeyExchange", value: { ...kx, stage } } },
-              [],
-            ]);
-          }
-
-          return onReply(c, kx, algorithms, reply);
+          if (!ignoreNext) return onReply(c, kx, algorithms, reply);
+          const m2 = m as Message;
+          return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
         }
         case "Other": {
           const n = m.value;
@@ -654,13 +663,14 @@ const extInfo = (
   c: Connection,
   serverSigAlgs: string | null,
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
+  // A later EXT_INFO replaces what an earlier one said (RFC 8308 §2.4).
   let algs: ReadonlyArray<string> | null;
   if (serverSigAlgs !== null) {
     const nameListResult = nameList(serverSigAlgs);
     if (nameListResult.kind === "Err") return nameListResult;
     algs = nameListResult.value;
   } else {
-    algs = c.server_sig_algs;
+    algs = null;
   }
 
   return Result.ok([{ ...c, server_sig_algs: algs }, []]);
@@ -678,6 +688,7 @@ const inService = (
       const auth: Auth = {
         pending: { kind: "Probe" },
         next_key: 0 as Usize,
+        next_alg: 0 as Usize,
         password_tries: 0 as U32,
         partial_successes: 0 as U32,
       };
@@ -716,16 +727,31 @@ const inService = (
 };
 
 /**
- * The first of the key's signature algorithms the server accepts, or
- * its first when the server did not say (policy above).
+ * The next (identity, algorithm) to try from `auth`: with server-sig-algs,
+ * the first of each key's algorithms the server lists, once per key; with
+ * none, each of the key's algorithms in turn (RFC 8308 §3.1's trial and
+ * error, as an RSA key may be refused with rsa-sha2-512 and taken with
+ * rsa-sha2-256). The next position to try after it comes with it.
  */
-const signatureFor = (
-  t: KeyType,
-  serverSigAlgs: ReadonlyArray<string> | null,
-): SignatureAlgorithm | null => {
-  for (const a of signatureAlgorithms(t)) {
-    if (serverSigAlgs === null) return a;
-    if (listed(serverSigAlgs, signatureName(a))) return a;
+const nextKeyAttempt = (
+  c: Connection,
+  auth: Auth,
+): readonly [Usize, SignatureAlgorithm, Usize, Usize] | null => {
+  let i: Usize = auth.next_key;
+  let j: Usize = auth.next_alg;
+
+  while (i < c.config.identities.length) {
+    const algs = signatureAlgorithms(Slice.at(c.config.identities, i).key_type);
+    while (j < algs.length) {
+      const a: SignatureAlgorithm = Slice.at(algs, j);
+      if (c.server_sig_algs === null) return [i, a, i, Int.usize.add(j, 1 as Usize)];
+      if (listed(c.server_sig_algs, signatureName(a)))
+        return [i, a, Int.usize.add(i, 1 as Usize), 0 as Usize];
+      j = Int.usize.add(j, 1 as Usize);
+    }
+
+    i = Int.usize.add(i, 1 as Usize);
+    j = 0 as Usize;
   }
 
   return null;
@@ -741,17 +767,15 @@ const nextAttempt = (
   methods: ReadonlyArray<string>,
 ): Result<readonly [Auth, Action], Failure> => {
   if (listed(methods, "publickey")) {
-    let i: Usize = auth.next_key;
-    while (i < c.config.identities.length) {
-      const option = signatureFor(Slice.at(c.config.identities, i), c.server_sig_algs);
-      if (option !== null) {
-        const algorithm = option;
-        const pending: Pending = { kind: "KeyQuery", key: i, algorithm };
-        const action: Action = { kind: "AuthPublicKey", key: i, algorithm, signed: false };
-        return Result.ok([{ ...auth, pending, next_key: Int.usize.add(i, 1 as Usize) }, action]);
-      }
-
-      i = Int.usize.add(i, 1 as Usize);
+    const option = nextKeyAttempt(c, auth);
+    if (option !== null) {
+      const key = option[0];
+      const algorithm = option[1];
+      const nextKey = option[2];
+      const nextAlg = option[3];
+      const pending: Pending = { kind: "KeyQuery", key, algorithm };
+      const action: Action = { kind: "AuthPublicKey", key, algorithm, signed: false };
+      return Result.ok([{ ...auth, pending, next_key: nextKey, next_alg: nextAlg }, action]);
     }
   }
 
@@ -812,7 +836,7 @@ const inAuth = (
       return Result.ok([c, [{ kind: "Show", value: text }]]);
     }
     case "Userauth60": {
-      const first = m.first;
+      const { first, second } = m;
 
       switch (auth.pending.kind) {
         case "Probe":
@@ -823,8 +847,11 @@ const inAuth = (
         case "KeyQuery": {
           const { key, algorithm } = auth.pending;
 
-          // PK_OK names the algorithm of the query it answers.
-          if (first !== signatureName(algorithm))
+          // PK_OK echoes the algorithm and the key of the query it answers.
+          if (
+            first !== signatureName(algorithm) ||
+            second !== Slice.at(c.config.identities, key).public_key
+          )
             return Result.err({ kind: "UnexpectedMessage", value: 60 as U8 });
           const auth2: Auth = { ...auth, pending: { kind: "KeySigned", key, algorithm } };
           return Result.ok([

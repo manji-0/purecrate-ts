@@ -17,7 +17,7 @@ purecrate_canon::fixture!(mod ssh = "../../../examples/ssh/src/lib.rs", "fixture
 
 use ssh::{
     Action, Cipher, Config, ConfigError, Connection, Direction, Event, Failure, FramingError, HostKey, HostKeyPolicy,
-    KexInit, KexMethod, KexReply, KeyType, KnownHost, Mac, Message, Outcome, Phase, SignatureAlgorithm,
+    Identity, KexInit, KexMethod, KexReply, KeyType, KnownHost, Mac, Message, Outcome, Phase, SignatureAlgorithm,
 };
 
 const OUR_ID: &str = "SSH-2.0-purecrate_0.1";
@@ -45,7 +45,10 @@ fn config(policy: HostKeyPolicy, known: Vec<KnownHost>, guess: bool) -> Config {
         guess,
         policy,
         known_hosts: known,
-        identities: vec![KeyType::Rsa, KeyType::Ed25519],
+        identities: vec![
+            Identity { key_type: KeyType::Rsa, public_key: s(RSA_BLOB) },
+            Identity { key_type: KeyType::Ed25519, public_key: s(ED_BLOB) },
+        ],
         password: true,
         password_prompts: 2,
     }
@@ -108,8 +111,13 @@ fn failure(methods: &str, partial: bool) -> Event {
     packet(Message::UserauthFailure { can_continue: s(methods), partial_success: partial })
 }
 
+const RSA_BLOB: &str = "AAAAB3NzaC1yc2EAAAADAQABAAABAQ";
+const ED_BLOB: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIG";
+
+/// PK_OK for the key the algorithm signs with.
 fn pk_ok(algorithm: &str) -> Event {
-    packet(Message::Userauth60 { first: s(algorithm), second: s("key blob") })
+    let blob = if algorithm.starts_with("rsa") { RSA_BLOB } else { ED_BLOB };
+    packet(Message::Userauth60 { first: s(algorithm), second: s(blob) })
 }
 
 /// The events of a handshake through `upto` of: identification, KEXINIT,
@@ -261,6 +269,54 @@ fn scenarios() -> Vec<(Config, Vec<Event>)> {
     out.push((usual(), with(handshake(7), vec![packet(Message::KexInit(server()))])));
     out.push((usual(), vec![Event::Rekey]));
     out.push((usual(), with(handshake(9), vec![packet(Message::Disconnect { code: 11, description: s("bye") })])));
+    // From the independent review: the server's wrong guess drops the next
+    // packet of any kind; a later EXT_INFO replaces the first; known_hosts
+    // names as OpenSSH writes them; the standard strict marker; PK_OK's key;
+    // RSA tried with each algorithm when the server lists none.
+    let server_guess =
+        KexInit { first_kex_packet_follows: true, ..openssh("ecdh-sha2-nistp256", HOST_KEYS, CIPHERS, MACS) };
+    for between in [Message::Ignore, Message::Other(30)] {
+        out.push((
+            usual(),
+            vec![
+                line(SERVER_ID),
+                packet(Message::KexInit(server_guess.clone())),
+                packet(between),
+                packet(Message::KexReply(reply(ED25519, true))),
+            ],
+        ));
+    }
+    out.push((
+        usual(),
+        with(
+            handshake(5),
+            vec![packet(Message::ExtInfo { server_sig_algs: None }), packet(Message::ServiceAccept(s("ssh-userauth")))],
+        ),
+    ));
+    for hosts in ["[example.com]:22", "[example.com]:022", "[example.com]:+2222", "EXAMPLE.com", "[Example.COM]:2222"] {
+        for port in [22, 2222] {
+            out.push((
+                Config { port, ..config(HostKeyPolicy::Strict, vec![known(hosts, ED25519, false)], false) },
+                handshake(3),
+            ));
+        }
+    }
+    let standard = openssh("curve25519-sha256,kex-strict-s", HOST_KEYS, CIPHERS, MACS);
+    out.push((usual(), vec![line(SERVER_ID), packet(Message::Ignore), packet(Message::KexInit(standard))]));
+    out.push((
+        usual(),
+        with(handshake(7), vec![packet(Message::Userauth60 { first: s("rsa-sha2-256"), second: s(ED_BLOB) })]),
+    ));
+    let no_sig_algs = with(
+        handshake(4),
+        vec![
+            packet(Message::ServiceAccept(s("ssh-userauth"))),
+            failure("publickey", false),
+            failure("publickey", false),
+            failure("publickey", false),
+        ],
+    );
+    out.push((usual(), no_sig_algs));
     // Configurations refused.
     out.push((Config { identification: s("SSH-2.0-bad-name"), ..usual() }, vec![]));
     out.push((Config { identification: s("SSH-1.99-x"), ..usual() }, vec![]));
@@ -511,6 +567,80 @@ fn the_handshake_follows_the_specifications() {
     };
     assert_eq!(refused(Config { identification: s("SSH-2.0-bad-name"), ..usual() }), ConfigError::BadIdentification);
     assert_eq!(refused(Config { kex: vec![], ..usual() }), ConfigError::NoKex);
+}
+
+#[test]
+fn the_independent_review_findings_hold() {
+    // RFC 4253 §7.1: after the server's wrong guess, the next packet of any
+    // kind is dropped; the reply after it is read.
+    let server_guess =
+        KexInit { first_kex_packet_follows: true, ..openssh("ecdh-sha2-nistp256", HOST_KEYS, CIPHERS, MACS) };
+    for between in [Message::Ignore, Message::Other(30)] {
+        let o = ssh::connect(
+            usual(),
+            vec![
+                line(SERVER_ID),
+                packet(Message::KexInit(server_guess.clone())),
+                packet(between),
+                packet(Message::KexReply(reply(ED25519, true))),
+            ],
+        );
+        assert_eq!(ran(&o).1.last(), Some(&Action::NewKeys), "the reply after the dropped packet is read");
+        assert!(!ran(&o).1.iter().any(|a| matches!(a, Action::Unimplemented(_))), "dropped silently");
+    }
+
+    // RFC 8308 §2.4: a later EXT_INFO replaces the first.
+    let o = ssh::connect(usual(), with(handshake(5), vec![packet(Message::ExtInfo { server_sig_algs: None })]));
+    assert_eq!(ran(&o).0.server_sig_algs, None);
+
+    // known_hosts as OpenSSH writes names: bare for port 22, `[host]:port`
+    // in plain decimal otherwise; host names without ASCII case.
+    let trust = |hosts: &str, port: u16| {
+        let key = reply(ED25519, true).host_key;
+        ssh::judge_host_key(&vec![known(hosts, ED25519, false)], "example.com", port, &key)
+    };
+    assert_eq!(trust("[example.com]:22", 22), ssh::Trust::Unknown);
+    assert_eq!(trust("[example.com]:022", 22), ssh::Trust::Unknown);
+    assert_eq!(trust("[example.com]:+2222", 2222), ssh::Trust::Unknown);
+    assert_eq!(trust("[example.com]:02222", 2222), ssh::Trust::Unknown);
+    assert_eq!(trust("[Example.COM]:2222", 2222), ssh::Trust::Known);
+    assert_eq!(trust("EXAMPLE.com", 22), ssh::Trust::Known);
+
+    // The standard strict marker is the v00 one (draft §5.1).
+    let standard = openssh("curve25519-sha256,kex-strict-s", HOST_KEYS, CIPHERS, MACS);
+    let o = ssh::connect(usual(), vec![line(SERVER_ID), packet(Message::KexInit(standard.clone()))]);
+    assert!(ran(&o).0.strict);
+    let o = ssh::connect(usual(), vec![line(SERVER_ID), packet(Message::Ignore), packet(Message::KexInit(standard))]);
+    assert_eq!(failed(&o).1, &Failure::StrictKexViolation(20));
+
+    // RFC 4252 §7: PK_OK echoes the key queried, not another.
+    let wrong_key = vec![packet(Message::Userauth60 { first: s("rsa-sha2-256"), second: s(ED_BLOB) })];
+    assert_eq!(failed(&ssh::connect(usual(), with(handshake(7), wrong_key))).1, &Failure::UnexpectedMessage(60));
+
+    // RFC 8308 §3.1: with no server-sig-algs, an RSA key refused with
+    // rsa-sha2-512 is tried with rsa-sha2-256, then the next key.
+    let attempts = with(
+        handshake(4),
+        vec![
+            packet(Message::ServiceAccept(s("ssh-userauth"))),
+            failure("publickey", false),
+            failure("publickey", false),
+            failure("publickey", false),
+        ],
+    );
+    let o = ssh::connect(usual(), attempts);
+    let queries: Vec<(usize, SignatureAlgorithm)> = ran(&o)
+        .1
+        .iter()
+        .filter_map(|a| match a {
+            Action::AuthPublicKey { key, algorithm, signed: false } => Some((*key, *algorithm)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        queries,
+        [(0, SignatureAlgorithm::RsaSha512), (0, SignatureAlgorithm::RsaSha256), (1, SignatureAlgorithm::Ed25519)]
+    );
 }
 
 #[test]

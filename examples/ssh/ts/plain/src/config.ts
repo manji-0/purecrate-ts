@@ -3,8 +3,8 @@
 import type { U16, U32 } from "./purecrate-runtime.ts";
 import type { Cipher } from "./cipher.ts";
 import type { HostKeyPolicy } from "./host-key-policy.ts";
+import type { Identity } from "./identity.ts";
 import type { KexMethod } from "./kex-method.ts";
-import type { KeyType } from "./key-type.ts";
 import type { KnownHost } from "./known-host.ts";
 import type { Mac } from "./mac.ts";
 import type { SignatureAlgorithm } from "./signature-algorithm.ts";
@@ -23,7 +23,7 @@ export type Config = Readonly<{
   policy: HostKeyPolicy;
   known_hosts: ReadonlyArray<KnownHost>;
   /** The user's keys, tried in order. */
-  identities: ReadonlyArray<KeyType>;
+  identities: ReadonlyArray<Identity>;
   password: boolean;
   password_prompts: U32;
 }>;
@@ -40,7 +40,7 @@ export const Config = {
     guess: boolean,
     policy: HostKeyPolicy,
     knownHosts: ReadonlyArray<KnownHost>,
-    identities: ReadonlyArray<KeyType>,
+    identities: ReadonlyArray<Identity>,
     password: boolean,
     passwordPrompts: U32,
   ): Config => ({

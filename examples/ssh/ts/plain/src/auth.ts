@@ -5,16 +5,27 @@ import type { Pending } from "./pending.ts";
 
 export type Auth = Readonly<{
   pending: Pending;
-  /** The first identity not yet tried. */
+  /**
+   * The first identity not yet tried, and the first of its signature
+   * algorithms not yet tried with it.
+   */
   next_key: Usize;
+  next_alg: Usize;
   password_tries: U32;
   partial_successes: U32;
 }>;
 
 export const Auth = {
-  of: (pending: Pending, nextKey: Usize, passwordTries: U32, partialSuccesses: U32): Auth => ({
+  of: (
+    pending: Pending,
+    nextKey: Usize,
+    nextAlg: Usize,
+    passwordTries: U32,
+    partialSuccesses: U32,
+  ): Auth => ({
     pending,
     next_key: nextKey,
+    next_alg: nextAlg,
     password_tries: passwordTries,
     partial_successes: partialSuccesses,
   }),

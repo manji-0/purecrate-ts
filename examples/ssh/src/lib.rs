@@ -42,8 +42,11 @@
 //   looked up, so the user is never asked about a key the server did not
 //   prove it holds (OpenSSH asks first);
 // - a user key is tried with the first of its signature algorithms the
-//   server lists in server-sig-algs, or with its first one when the server
-//   sent none; a key with no such algorithm is skipped;
+//   server lists in server-sig-algs, or, when the server sent none, with
+//   each of them in turn (RFC 8308 §3.1); a key with no listed algorithm is
+//   skipped. A later EXT_INFO replaces an earlier one;
+// - @revoked refuses the key for every host, whatever the line's host list
+//   (stricter than OpenSSH, which scopes it to the hosts the line names);
 // - at most 1024 lines before the identification (OpenSSH's limit) and
 //   packets of at most 256 KiB (OpenSSH's PACKET_MAX_SIZE).
 //
@@ -77,6 +80,10 @@ pub const MIN_BLOCK: u32 = 8;
 
 pub const STRICT_KEX_CLIENT: &str = "kex-strict-c-v00@openssh.com";
 pub const STRICT_KEX_SERVER: &str = "kex-strict-s-v00@openssh.com";
+/// The standard name for the same marker (draft-miller-sshm-strict-kex
+/// §5.1), equivalent when received; OpenSSH still sends only the v00 names,
+/// and so does this client.
+pub const STRICT_KEX_SERVER_STANDARD: &str = "kex-strict-s";
 pub const EXT_INFO_CLIENT: &str = "ext-info-c";
 pub const USERAUTH_SERVICE: &str = "ssh-userauth";
 
@@ -187,6 +194,14 @@ pub enum KeyType {
     Ed25519,
     EcdsaNistp256,
     Rsa,
+}
+
+/// A user key: its type, and its public key blob as the caller encodes it
+/// in a publickey request (PK_OK echoes it, RFC 4252 §7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Identity {
+    pub key_type: KeyType,
+    pub public_key: String,
 }
 
 /// The signature algorithms a user key can sign with, preferred first.
@@ -652,14 +667,20 @@ fn names_host(hosts: &str, host: &str, port: u16) -> bool {
     hosts.split(',').any(|pattern| names_one(pattern, host, port))
 }
 
+/// As OpenSSH writes and reads a name (`misc.c` put_host_port, `match.c`):
+/// the bare host for port 22, `[host]:port` for any other in plain decimal;
+/// host names compared without ASCII case.
 fn names_one(pattern: &str, host: &str, port: u16) -> bool {
     match pattern.strip_prefix("[") {
-        None => port == 22 && pattern == host,
+        None => port == 22 && pattern.eq_ignore_ascii_case(host),
         Some(rest) => match rest.split_once("]:") {
-            Some((h, p)) => match p.parse::<u16>() {
-                Ok(n) => h == host && n == port,
-                Err(_) => false,
-            },
+            Some((h, p)) => {
+                let plain = !p.is_empty() && p.bytes().all(|b| matches!(b, b'0'..=b'9')) && !p.starts_with("0");
+                match p.parse::<u16>() {
+                    Ok(n) => plain && port != 22 && n == port && h.eq_ignore_ascii_case(host),
+                    Err(_) => false,
+                }
+            }
             None => false,
         },
     }
@@ -702,7 +723,7 @@ pub struct Config {
     pub policy: HostKeyPolicy,
     pub known_hosts: Vec<KnownHost>,
     /// The user's keys, tried in order.
-    pub identities: Vec<KeyType>,
+    pub identities: Vec<Identity>,
     pub password: bool,
     pub password_prompts: u32,
 }
@@ -764,8 +785,10 @@ pub enum Pending {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auth {
     pub pending: Pending,
-    /// The first identity not yet tried.
+    /// The first identity not yet tried, and the first of its signature
+    /// algorithms not yet tried with it.
     pub next_key: usize,
+    pub next_alg: usize,
     pub password_tries: u32,
     pub partial_successes: u32,
 }
@@ -1108,7 +1131,12 @@ fn on_kex_init(
     seq: u32,
     sent_before: Vec<Action>,
 ) -> Result<(Connection, Vec<Action>), Failure> {
-    let strict = if kx.initial { listed(&name_list(&peer.kex)?, STRICT_KEX_SERVER) } else { c.strict };
+    let strict = if kx.initial {
+        let kex = name_list(&peer.kex)?;
+        listed(&kex, STRICT_KEX_SERVER) || listed(&kex, STRICT_KEX_SERVER_STANDARD)
+    } else {
+        c.strict
+    };
     // Strict key exchange: KEXINIT is the first packet received.
     if strict && kx.initial && seq != 0 {
         return Err(Failure::StrictKexViolation(20));
@@ -1124,6 +1152,15 @@ fn on_kex_init(
 }
 
 fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connection, Vec<Action>), Failure> {
+    // The server guessed wrong and sent a guessed packet: the next packet,
+    // whatever it is, is dropped unread (RFC 4253 §7.1).
+    match kx.stage.clone() {
+        KexStage::AwaitingReply { algorithms, ignore_next: true } => {
+            let stage = KexStage::AwaitingReply { algorithms, ignore_next: false };
+            return Ok((Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c }, Vec::new()));
+        }
+        _ => {}
+    }
     let peer_new_keys = matches!(kx.stage, KexStage::AwaitingApproval { peer_new_keys: true, .. });
     let kex_message = matches!(m, Message::KexInit(_) | Message::KexReply(_) | Message::NewKeys);
     if c.strict && kx.initial && !peer_new_keys && !kex_message {
@@ -1135,10 +1172,6 @@ fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connecti
     match (kx.stage.clone(), m) {
         (KexStage::AwaitingKexInit { guessed }, Message::KexInit(peer)) => {
             on_kex_init(c, kx, guessed, peer, seq, Vec::new())
-        }
-        (KexStage::AwaitingReply { algorithms, ignore_next: true }, Message::KexReply(_)) => {
-            let stage = KexStage::AwaitingReply { algorithms, ignore_next: false };
-            Ok((Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c }, Vec::new()))
         }
         (KexStage::AwaitingReply { algorithms, ignore_next: false }, Message::KexReply(reply)) => {
             on_reply(c, kx, algorithms, reply)
@@ -1266,9 +1299,10 @@ fn on_answer(c: Connection, yes: bool) -> Result<(Connection, Vec<Action>), Fail
 }
 
 fn ext_info(c: Connection, server_sig_algs: Option<String>) -> Result<(Connection, Vec<Action>), Failure> {
+    // A later EXT_INFO replaces what an earlier one said (RFC 8308 §2.4).
     let algs = match server_sig_algs {
         Some(s) => Some(name_list(&s)?),
-        None => c.server_sig_algs.clone(),
+        None => None,
     };
     Ok((Connection { server_sig_algs: algs, ..c }, Vec::new()))
 }
@@ -1279,7 +1313,7 @@ fn in_service(c: Connection, m: Message, seq: u32) -> Result<(Connection, Vec<Ac
             if name.as_str() != USERAUTH_SERVICE {
                 return Err(Failure::WrongService);
             }
-            let auth = Auth { pending: Pending::Probe, next_key: 0, password_tries: 0, partial_successes: 0 };
+            let auth = Auth { pending: Pending::Probe, next_key: 0, next_alg: 0, password_tries: 0, partial_successes: 0 };
             Ok((Connection { phase: Phase::Authenticating(auth), ..c }, vec![Action::AuthNone]))
         }
         Message::ExtInfo { server_sig_algs } => ext_info(c, server_sig_algs),
@@ -1290,18 +1324,30 @@ fn in_service(c: Connection, m: Message, seq: u32) -> Result<(Connection, Vec<Ac
     }
 }
 
-/// The first of the key's signature algorithms the server accepts, or
-/// its first when the server did not say (policy above).
-fn signature_for(t: KeyType, server_sig_algs: &Option<Vec<String>>) -> Option<SignatureAlgorithm> {
-    for a in signature_algorithms(t).iter() {
-        match server_sig_algs {
-            None => return Some(*a),
-            Some(list) => {
-                if listed(list, &signature_name(*a)) {
-                    return Some(*a);
+/// The next (identity, algorithm) to try from `auth`: with server-sig-algs,
+/// the first of each key's algorithms the server lists, once per key; with
+/// none, each of the key's algorithms in turn (RFC 8308 §3.1's trial and
+/// error, as an RSA key may be refused with rsa-sha2-512 and taken with
+/// rsa-sha2-256). The next position to try after it comes with it.
+fn next_key_attempt(c: &Connection, auth: &Auth) -> Option<(usize, SignatureAlgorithm, usize, usize)> {
+    let mut i = auth.next_key;
+    let mut j = auth.next_alg;
+    while i < c.config.identities.len() {
+        let algs = signature_algorithms(c.config.identities[i].key_type);
+        while j < algs.len() {
+            let a = algs[j];
+            match &c.server_sig_algs {
+                None => return Some((i, a, i, j + 1)),
+                Some(list) => {
+                    if listed(list, &signature_name(a)) {
+                        return Some((i, a, i + 1, 0));
+                    }
                 }
             }
+            j += 1;
         }
+        i += 1;
+        j = 0;
     }
     None
 }
@@ -1310,14 +1356,10 @@ fn signature_for(t: KeyType, server_sig_algs: &Option<Vec<String>>) -> Option<Si
 /// password, among the methods that can continue (RFC 4252 §5.1).
 fn next_attempt(c: &Connection, auth: Auth, methods: &Vec<String>) -> Result<(Auth, Action), Failure> {
     if listed(methods, "publickey") {
-        let mut i = auth.next_key;
-        while i < c.config.identities.len() {
-            if let Some(algorithm) = signature_for(c.config.identities[i], &c.server_sig_algs) {
-                let pending = Pending::KeyQuery { key: i, algorithm };
-                let action = Action::AuthPublicKey { key: i, algorithm, signed: false };
-                return Ok((Auth { pending, next_key: i + 1, ..auth }, action));
-            }
-            i += 1;
+        if let Some((key, algorithm, next_key, next_alg)) = next_key_attempt(c, &auth) {
+            let pending = Pending::KeyQuery { key, algorithm };
+            let action = Action::AuthPublicKey { key, algorithm, signed: false };
+            return Ok((Auth { pending, next_key, next_alg, ..auth }, action));
         }
     }
     if listed(methods, "password") && c.config.password && auth.password_tries < c.config.password_prompts {
@@ -1336,9 +1378,9 @@ fn in_auth(c: Connection, auth: Auth, m: Message, seq: u32) -> Result<(Connectio
                 next_attempt(&c, Auth { partial_successes: partial, ..auth }, &name_list(&can_continue)?)?;
             Ok((Connection { phase: Phase::Authenticating(auth), ..c }, vec![action]))
         }
-        (Pending::KeyQuery { key, algorithm }, Message::Userauth60 { first, .. }) => {
-            // PK_OK names the algorithm of the query it answers.
-            if first != signature_name(algorithm) {
+        (Pending::KeyQuery { key, algorithm }, Message::Userauth60 { first, second }) => {
+            // PK_OK echoes the algorithm and the key of the query it answers.
+            if first != signature_name(algorithm) || second != c.config.identities[key].public_key {
                 return Err(Failure::UnexpectedMessage(60));
             }
             let auth = Auth { pending: Pending::KeySigned { key, algorithm }, ..auth };

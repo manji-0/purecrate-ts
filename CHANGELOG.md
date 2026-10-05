@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`examples/ssh`, after an independent review** that drove the generated package and the Rust model with its own scenarios from RFC 4253, RFC 4252, RFC 8308, and OpenSSH's sources: the two agreed byte for byte on every one (about 31,000), and the model's departures from the specifications are fixed or declared:
+  - after the server's wrong guess, the next packet of any kind is dropped, not the next key exchange reply (RFC 4253 §7.1);
+  - a later EXT_INFO replaces an earlier one (RFC 8308 §2.4);
+  - known_hosts names are matched as OpenSSH writes them: bare for port 22, `[host]:port` in plain decimal, without ASCII case;
+  - the standard strict-kex marker `kex-strict-s` is recognised;
+  - PK_OK must echo the queried key's blob (RFC 4252 §7): identities are now `Identity { key_type, public_key }`;
+  - with no server-sig-algs, an RSA key is tried with each signature algorithm in turn (RFC 8308 §3.1);
+  - @revoked applying to every host is declared as a policy.
+
+### Fixed
+
+- **oxlint refused an empty `else`** where a statement `match` of one variant had `_ => {}` (found by the ssh changes).
+
 ## 0.12.0 — 2026-10-05
 
 Building a `String`, and `examples/punycode`, written from the authoring skill alone, which found a `while` that ran forever in TS where Rust returned: a loop on a flag its body sets. That is fixed, and the statements generator now writes such loops; the narrowing they reached is closed too. Programs that passed 0.11.0 translate as before, but for that loop; the other examples' output is byte for byte the same.
