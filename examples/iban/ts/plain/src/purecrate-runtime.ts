@@ -69,6 +69,8 @@ export const assertNever = (_x: never): never => {
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U32 = number & { readonly "purecrate.U32": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
+/** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
+export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
   throw new Panic(`attempt to ${what}`);
@@ -129,6 +131,23 @@ export const Str = {
       }
     };
     visit(x);
+  },
+} as const;
+
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  count: (xs: Iterable<unknown>): Usize => {
+    let n = 0;
+    for (const x of xs) {
+      void x;
+      n++;
+    }
+    return n as Usize;
   },
 } as const;
 

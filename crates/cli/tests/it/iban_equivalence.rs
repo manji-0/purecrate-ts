@@ -10,7 +10,7 @@ purecrate_canon::fixture!(mod iban = "../../../examples/iban/src/lib.rs", "fixtu
 /// ISO 13616-1 electronic format with MOD 97-10, as one would write it
 /// without the subset's constraints. Not converted; the reference only.
 mod idiomatic {
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
     pub enum IbanError {
         Length,
         Country,
@@ -20,10 +20,10 @@ mod idiomatic {
     }
 
     pub fn check(s: &str) -> Result<(), IbanError> {
-        let b = s.as_bytes();
-        if b.len() < 15 || b.len() > 34 {
+        if !(15..=34).contains(&s.chars().count()) {
             return Err(IbanError::Length);
         }
+        let b = s.as_bytes();
         if !b[..2].iter().all(u8::is_ascii_uppercase) {
             return Err(IbanError::Country);
         }
@@ -89,7 +89,38 @@ fn inputs() -> Vec<String> {
         .map(|s| s.to_string()),
     );
     out.push(format!("GB82{}", "A".repeat(31)));
+    out.extend(non_ascii().into_iter().map(|(s, _)| s));
     out
+}
+
+/// Input whose length in characters and in UTF-8 bytes fall on different
+/// sides of a bound, and non-ASCII in each field, with the error ISO
+/// 13616's character counts give.
+fn non_ascii() -> Vec<(String, idiomatic::IbanError)> {
+    use idiomatic::IbanError as I;
+    vec![
+        // 34 characters, 35 bytes: within the length, then not a BBAN character.
+        (format!("GB82{}é", "A".repeat(29)), I::Bban),
+        // 14 characters, 15 bytes: too short.
+        (format!("NO93{}é", "1".repeat(9)), I::Length),
+        // 15 characters, 16 bytes; 34 characters, 36 bytes (a 3-byte character).
+        (format!("NO93{}é", "1".repeat(10)), I::Bban),
+        (format!("GB82{}€", "A".repeat(29)), I::Bban),
+        // 35 characters: too long, whatever they are.
+        (format!("GB82{}é", "A".repeat(30)), I::Length),
+        // 34 characters, 37 bytes: a 4-byte character in the country, an
+        // accented one in the check digits.
+        (format!("😀B82{}", "A".repeat(30)), I::Country),
+        (format!("GBé2{}", "A".repeat(30)), I::CheckDigits),
+    ]
+}
+
+#[test]
+fn length_counts_characters() {
+    for (s, want) in non_ascii() {
+        assert_eq!(idiomatic::check(&s), Err(want), "{s:?}");
+        assert!(same_verdict(&iban::Iban::parse(s.clone()), &Err(want)), "{s:?}: want {want:?}");
+    }
 }
 
 fn same_verdict(a: &Result<iban::Iban, iban::IbanError>, b: &Result<(), idiomatic::IbanError>) -> bool {
