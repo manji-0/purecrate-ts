@@ -40,6 +40,7 @@ export const Email = {
 
     return Result.ok(unsafeMakeEmail(raw));
   },
+  asStr: (self: Email): string => self,
 } as const;
 
 const isAlnum = (b: U8): boolean =>

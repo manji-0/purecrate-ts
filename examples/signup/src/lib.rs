@@ -3,7 +3,18 @@
 // - `Email`: the WHATWG HTML "valid e-mail address"
 //   (<https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address>).
 //   The spec states it as a regular expression; this is the same language,
-//   split at the first `@` and at each `.` of the domain.
+//   split at the first `@` and at each `.` of the domain. The address is
+//   checked as given: a browser's `<input type=email>` strips newlines and
+//   leading and trailing ASCII whitespace first (the spec's value
+//   sanitization algorithm), and this does not, so a caller taking raw
+//   input trims it before calling (`" a@b"` is `BadLocal`).
+//   The grammar sets no length but a domain label's 63; neither does this.
+//   RFC 5321 §4.5.3.1.1–3 gives 64 octets for a local part, 255 for a
+//   domain, and 256 for a path (with its `<>`, so 254 for the address), but
+//   as sizes every SMTP implementation MUST be able to receive, with larger
+//   ones to be avoided and possibly refused, not as part of an address's
+//   syntax. An address past them is accepted here and may not be
+//   deliverable everywhere.
 // - `Password`: the length rules of NIST SP 800-63B-4 §3.1.1.2 for a password
 //   that is the only factor. Length counts code points; at least 15, and at
 //   most 64 accepted (as one factor of several, the minimum would be 8). A
@@ -13,20 +24,27 @@
 //   normalization, so this does not normalize: the length is counted on
 //   the password as given, and a caller that wants the SHOULD normalizes
 //   before calling, and does the same before hashing or comparing it later.
-//   An `é` written as `e` and a combining accent is two code points here.
+//   What that changes: `é` written as `e` and a combining accent is two
+//   code points here, so seven of them and an `e` (15 code points) pass
+//   where NFC gives 8 and `TooShort`; and a password that is the e-mail but
+//   for a `K` written as the Kelvin sign (U+212A) is not `PasswordIsEmail`,
+//   where NFC makes it `K` and the comparison below would refuse it.
 // - `Signup`: both, and a password that is not the e-mail address. The
 //   e-mail is the username here, and §3.1.1.2 lists the username among the
 //   context-specific words a blocklist may hold. The comparison ignores
-//   ASCII case: the domain is case-insensitive, RFC 5321 lets a server
-//   treat the local part's case as it likes and most ignore it, and
-//   someone guessing from the address would try its case variants. An
-//   address is ASCII (the WHATWG grammar), so ASCII case is all the case it
-//   has. Only equality is checked, not a password that contains the
-//   address or its local part. A password that is too short or blocked
-//   gets that error first.
+//   ASCII case. RFC 5321 §2.4 has the domain case-insensitive and the local
+//   part case-sensitive (SMTP MUST preserve its case, as some hosts tell
+//   `smith` from `Smith`, though exploiting that is discouraged); ignoring
+//   case in the local part too refuses more, which is the safe side for a
+//   blocklist, and someone guessing from the address would try its case
+//   variants. An address is ASCII (the WHATWG grammar), so ASCII case is
+//   all the case it has. Only equality is checked, not a password that
+//   contains the address or its local part. A password that is too short
+//   or blocked gets that error first.
 //
 // All three are closed types: the fields are not `pub`, so the value comes only
-// from `parse` (design/01 §4).
+// from `parse` (design/01 §4). `Email::as_str`, `Password::as_str`,
+// `Signup::email`, and `Signup::password` read them back.
 
 pub struct Email(String);
 
@@ -86,6 +104,10 @@ impl Email {
         }
         Ok(Email(raw))
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 fn blocked(raw: &str) -> bool {
@@ -106,6 +128,10 @@ impl Password {
         }
         Ok(Password(raw))
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Signup {
@@ -116,5 +142,13 @@ impl Signup {
             return Err(SignupError::PasswordIsEmail);
         }
         Ok(Signup { email, password })
+    }
+
+    pub fn email(&self) -> &Email {
+        &self.email
+    }
+
+    pub fn password(&self) -> &Password {
+        &self.password
     }
 }

@@ -38,6 +38,11 @@ fn emails() -> Vec<String> {
         "a\"b@c",
         "a@1.2.3.4",
         "A@B",
+        // Not trimmed: a browser strips these before checking, this does not.
+        " a@b",
+        "a@b ",
+        "a@b\n",
+        "\ta@b",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -46,7 +51,47 @@ fn emails() -> Vec<String> {
     out.push(format!("a@{label64}"));
     out.push(format!("a@{label63}.{label63}"));
     out.push(format!("a@b.{label64}"));
+    // Past RFC 5321's sizes (local part 64 octets, domain 255, path 256),
+    // which the WHATWG grammar does not apply: accepted.
+    for local in [64, 65] {
+        out.push(format!("{}@b", "a".repeat(local)));
+    }
+    out.push(long_domain());
     out
+}
+
+/// A 64-octet local part and a 255-octet domain of 63-octet labels:
+/// 320 octets, past RFC 5321's 254 for an address in a path.
+fn long_domain() -> String {
+    let label = "a".repeat(63);
+    format!("{}@{label}.{label}.{label}.{}", "a".repeat(64), "b".repeat(63))
+}
+
+#[test]
+fn email_is_checked_as_given() {
+    // The value sanitization of `<input type=email>` is the caller's.
+    for raw in [" a@b", "a@b ", "\ta@b"] {
+        assert!(signup::Email::parse(raw.to_string()).is_err(), "{raw:?}");
+    }
+    assert!(matches!(signup::Email::parse(" a@b".to_string()), Err(signup::EmailError::BadLocal)));
+    assert!(matches!(signup::Email::parse("a@b\n".to_string()), Err(signup::EmailError::BadDomain)));
+    // RFC 5321 §4.5.3.1's sizes are not applied.
+    let local65 = format!("{}@b", "a".repeat(65));
+    assert_eq!(signup::Email::parse(local65.clone()).ok().map(|e| e.as_str().to_string()), Some(local65));
+    let long = long_domain();
+    assert_eq!(long.split_once('@').map(|(_, d)| d.len()), Some(255));
+    assert!(signup::Email::parse(long).is_ok());
+}
+
+#[test]
+fn the_values_read_back() {
+    let e = "Someone@Example.com";
+    let p = "correct horse battery staple";
+    let signup = signup::Signup::parse(e.to_string(), p.to_string()).ok().expect("valid");
+    assert_eq!(signup.email().as_str(), e);
+    assert_eq!(signup.password().as_str(), p);
+    assert_eq!(signup::Email::parse(e.to_string()).ok().map(|x| x.as_str().to_string()), Some(e.to_string()));
+    assert_eq!(signup::Password::parse(p.to_string()).ok().map(|x| x.as_str().to_string()), Some(p.to_string()));
 }
 
 fn passwords() -> Vec<String> {
@@ -81,6 +126,12 @@ fn signup_matches_rust() {
             cases.push(case!(signup::parse_signup(e.to_string(), p.to_string())));
         }
         cases.push(case!(signup::parse_signup(SHORT_EMAIL.to_string(), SHORT_EMAIL.to_string())));
+        for (e, p) in [("Someone@Example.com", "correct horse battery staple"), ("a@b", "x")] {
+            cases.push(case!(signup::signup_fields(e.to_string(), p.to_string())));
+        }
+        for (e, p, _) in PASSWORD_IS_EMAIL {
+            cases.push(case!(signup::signup_fields(e.to_string(), p.to_string())));
+        }
     });
 }
 
@@ -94,7 +145,8 @@ const PASSWORD_IS_EMAIL: [(&str, &str, bool); 8] = [
     ("someone@example.com", "someone@example.co", false),
     ("someone@example.com", "someone@example.com.", false),
     ("someone@example.com", "someone@exämple.com", false),
-    // `K` and the Kelvin sign fold together in Unicode, not in ASCII.
+    // `K` and the Kelvin sign fold together in Unicode, not in ASCII, and
+    // NFC would make U+212A `K` (the header: not normalized).
     ("kelvin@example.com", "\u{212a}elvin@example.com", false),
     ("someone@example.com", "xsomeone@example.comx", false),
 ];

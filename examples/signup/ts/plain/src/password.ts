@@ -25,6 +25,7 @@ export const Password = {
     if (blocked(raw)) return Result.err({ kind: "Blocked" });
     return Result.ok(unsafeMakePassword(raw));
   },
+  asStr: (self: Password): string => self,
 } as const;
 
 const blocked = (raw: string): boolean =>

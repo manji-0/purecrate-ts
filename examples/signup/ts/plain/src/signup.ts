@@ -40,4 +40,6 @@ export const Signup = {
     if (Str.eqIgnoreAsciiCase(password2, email2)) return Result.err({ kind: "PasswordIsEmail" });
     return Result.ok(unsafeMakeSignup({ email: email2, password: password2 }));
   },
+  email: (self: Signup): Email => self.email,
+  password: (self: Signup): Password => self.password,
 } as const;
