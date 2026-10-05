@@ -57,6 +57,36 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
             }
         }
+        // `s.push(c)` / `s.push_str(t)` on a local `let mut s: String`: the
+        // assignment `s = s + c`, so every pass sees a write it knows.
+        if matches!(name.as_str(), "push" | "push_str")
+            && matches!(rt.as_ref().map(|t| self.norm(t)), Some(Ty::Prim(Prim::String)))
+        {
+            let failed = (Expr::Lit(Lit::Unit), None);
+            let [arg] = args else {
+                self.error(Reason::ConstructShape, format!("`{}` takes 1 argument, got {}", name.as_str(), args.len()));
+                return failed;
+            };
+            let Expr::Var(target) = recv.unpositioned() else {
+                self.error(Reason::MethodCall, format!("`{}` grows a local `let mut s: String` in v0, not a field or an element: build the new `String` and put it in a new value (design/02 §3.1)", name.as_str()));
+                return failed;
+            };
+            let piece = if name.as_str() == "push" { Ty::Prim(Prim::Char) } else { Ty::Prim(Prim::Str) };
+            let (arg, at) = self.expr(arg, None);
+            let fits = match at.map(|t| self.norm(&t)) {
+                Some(Ty::Prim(Prim::String | Prim::Str)) => piece == Ty::Prim(Prim::Str),
+                Some(Ty::Prim(Prim::Char)) => piece == Ty::Prim(Prim::Char),
+                _ => true,
+            };
+            if !fits {
+                let want = if piece == Ty::Prim(Prim::Char) { "a `char`" } else { "a `&str`" };
+                self.error(Reason::TypeMismatch, format!("`String::{}` takes {want}", name.as_str()));
+                return failed;
+            }
+            let value = Expr::Call { callee: Callee::StrConcat, args: vec![Expr::Var(target.clone()), arg] };
+            let e = Expr::Assign { name: target.clone(), value: Box::new(value) };
+            return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
+        }
         if name.as_str() == "len" && args.is_empty() {
             if let Some(rt) = &rt {
                 if matches!(self.norm(rt), Ty::Vec(_)) {

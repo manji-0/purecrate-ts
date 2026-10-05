@@ -500,6 +500,17 @@ pub enum Callee {
     /// `v.push(x)` on a local `let mut v: Vec<T>`, of type `()`: the one
     /// write to an array (design/01 §7.14). Prints as `v.push(x)`.
     VecPush,
+    /// `String::new()`: the empty `String`. Prints as `""`.
+    StringNew,
+    /// `a` with `b` (a `char` or a `&str`) after it, a new `String`:
+    /// `check::accept` writes `s.push(c)` and `s.push_str(t)` on a local `let
+    /// mut s: String` as `s = StrConcat(s, c)`, an assignment like any other
+    /// (design/01 §7.14). UTF-8 and UTF-16 both concatenate by code point.
+    /// Prints as `a + b`.
+    StrConcat,
+    /// A `Vec<char>`'s chars as one `String`, what `collect::<String>()`
+    /// gives over a sequence of `char`s. Prints as `v.join("")`.
+    StrFromChars,
     /// `Option::is_some` / `is_none`. `Option<T>` is `T | null` (no nested
     /// `Option`), so each is one comparison with `null`.
     OptionIsSome,

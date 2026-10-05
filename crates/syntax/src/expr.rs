@@ -869,6 +869,8 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 Callee::ResultErr
             } else if segs == ["String", "from"] {
                 Callee::StringFrom
+            } else if segs == ["String", "new"] {
+                Callee::StringNew
             } else if segs == ["char", "from"] {
                 Callee::CharFromU8
             } else if segs == ["char", "from_u32"] {

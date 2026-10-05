@@ -315,6 +315,10 @@ Tested with empty pieces, a non-ASCII separator, a function name and a closure, 
 
 `let mut v: Vec<T>` is the one array the output writes, by `v.push(x)`. It is bound to an array of its own: `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make one; any other value is copied when bound or assigned (`[...xs]`), because a TS caller may still hold the array a parameter, a field, or a returned value is. No closure captures it, and nothing pushes to a field, an element, or a parameter. So every other array is never written after it is made, and sharing one is unobservable, as before: `clone` of a `Vec` copies its elements (`[...xs]`, shallow, since the elements are not written either), and `clone` of anything else is the value.
 
+### 7.15 Building a `String`
+
+`String::new()` is `""`. `s.push(c)` and `s.push_str(t)` on a local `let mut s: String` are written by `check` as the assignment `s = s + c`, so every later pass sees an ordinary write of `s` (narrowing forgets what it knew, a loop's head joins it); nothing pushes to a field, an element, or a parameter. JS strings are values, so `+` makes a new one and no other holder of the old string sees a change, as no other holder of a Rust `String` does. Both languages concatenate by code point: UTF-8 bytes and UTF-16 units of the parts in order are those of the whole. A push prints as `s += c` where the piece needs no statements. `collect::<String>()` over a sequence of `char`s collects them as a `Vec<char>` and joins it (`.join("")`); nothing else collects into a `String`. Tested with empty, ASCII, two- to four-byte, and surrogate-edge text, separators of every UTF-8 length, and the length of what was built (`string_build_equivalence.rs`).
+
 ## 8. Verification
 
 | Check | Mechanism |

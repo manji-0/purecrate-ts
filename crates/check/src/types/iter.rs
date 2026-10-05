@@ -157,8 +157,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             return Some(failed);
         }
         let target = want.map(|t| self.norm(t));
+        // Into a `String`: the chars collected, then joined.
+        let into_string = matches!(target, Some(Ty::Prim(Prim::String)));
         let (result, elem, err) = match target {
             Some(Ty::Vec(t)) => (false, *t, None),
+            Some(Ty::Prim(Prim::String)) => (false, Ty::Prim(Prim::Char), None),
             Some(Ty::Result { ok, err }) if matches!(self.norm(&ok), Ty::Vec(_)) => {
                 let Ty::Vec(t) = self.norm(&ok) else { unreachable!("matched above") };
                 (true, *t, Some(*err))
@@ -189,6 +192,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some(failed);
             }
             let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source] };
+            if into_string {
+                return Some(self.joined_chars(e, &item));
+            }
             // The items are what the sequence gives, whatever the target says.
             let pieces = Ty::Vec(Box::new(item));
             return Some((e, self.expect(want.filter(|t| !super::has_hole(t)), Some(pieces))));
@@ -240,12 +246,27 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (closure, _) = self.expr(&closure, None);
         let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source, closure] };
+        if into_string {
+            return Some(self.joined_chars(e, &elem));
+        }
         let filled = if result {
             Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) }
         } else {
             Ty::Vec(Box::new(elem))
         };
         Some((e, Some(filled)))
+    }
+
+    /// `chars` (a `Vec<char>`) as one `String`; `item` must be `char`.
+    fn joined_chars(&mut self, chars: Expr, item: &Ty) -> Typed {
+        if self.norm(item) != Ty::Prim(Prim::Char) {
+            self.error(
+                Reason::TypeMismatch,
+                format!("`collect` builds a `String` from `char`s in v0, not `{}`", show(item)),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        }
+        (Expr::Call { callee: Callee::StrFromChars, args: vec![chars] }, Some(Ty::Prim(Prim::String)))
     }
 
     /// What a consumer or `collect` walks: `s.chars()`, `s.bytes()`,

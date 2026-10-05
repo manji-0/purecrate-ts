@@ -215,6 +215,15 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
             Tx::bin(Op::Eq, Tx::atom(format!("{}.length", receiver(emit_tx(&args[0], indent)))), Tx::atom("0"))
         }
         Expr::Call { callee: Callee::OptionSome | Callee::StringFrom, args } => emit_tx(&args[0], indent),
+        // A `string` and a `Char` or `string`: JS `+` joins them.
+        Expr::Call { callee: Callee::StrConcat, args } => {
+            // A `char` literal needs no `as Char` to be joined.
+            let piece = match &args[1] {
+                Expr::Lit(Lit::Char(c)) => Tx::atom(js_string(&c.to_string())),
+                other => emit_tx(other, indent),
+            };
+            Tx::bin(Op::Add, emit_tx(&args[0], indent), piece)
+        }
         Expr::Call { callee: Callee::IntFrom { from: Some(from), to }, args } if from == to => {
             emit_tx(&args[0], indent)
         }
@@ -354,6 +363,11 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
+                purecrate_ir::Callee::StringNew => return "\"\"".into(),
+                purecrate_ir::Callee::StrFromChars => {
+                    return format!("{}.join(\"\")", receiver(emit_tx(&args[0], indent)));
+                }
+                purecrate_ir::Callee::StrConcat => unreachable!("`emit_tx` prints `+`"),
                 purecrate_ir::Callee::VecLen
                 | purecrate_ir::Callee::VecPush
                 | purecrate_ir::Callee::VecIsEmpty

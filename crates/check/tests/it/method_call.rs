@@ -67,6 +67,24 @@ fn long_method_chains_type_in_linear_time() {
 /// The `str` allow-list (design/01 §6): the methods, receivers and needles
 /// it names, and nothing else.
 #[test]
+fn a_string_grows_as_a_local() {
+    assert_clean("pub fn f(s: &str) -> String { let mut o = String::new(); o.push('x'); o.push_str(s); o }");
+    assert_clean("pub fn f(s: &str) -> String { s.chars().map(|c| c.to_ascii_uppercase()).collect() }");
+    assert_rejects(
+        "pub struct W { pub s: String } pub fn f(w: W) -> String { let mut v = w; v.s.push('x'); v.s }",
+        "`push` grows a local `let mut s: String` in v0",
+    );
+    assert_rejects(
+        "pub fn f() -> String { let mut o = String::new(); o.push(\"x\"); o }",
+        "`String::push` takes a `char`",
+    );
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> String { xs.iter().collect::<String>() }",
+        "`collect` builds a `String` from `char`s in v0, not `u8`",
+    );
+}
+
+#[test]
 fn str_methods_come_from_the_allow_list() {
     assert_clean("pub fn f(s: String, t: &str) -> bool { s.starts_with(t) && t.ends_with(\"x\") && s.contains(&s) && !t.is_empty() }");
     assert_clean("pub fn f(s: &str) -> usize { s.len() }");

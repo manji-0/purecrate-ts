@@ -290,6 +290,19 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
             emit_branches(&branches, indent, sink, tail, out);
         }
+        // `s.push(x)` / `s.push_str(x)`, as `check` writes them.
+        Expr::Assign { name, value }
+            if matches!(&**value, Expr::Call { callee: purecrate_ir::Callee::StrConcat, args }
+                if args[0] == Expr::Var(name.clone()) && !args[1].needs_statements()) =>
+        {
+            let Expr::Call { args, .. } = &**value else { unreachable!("matched above") };
+            let piece = match &args[1] {
+                Expr::Lit(Lit::Char(c)) => crate::expr::js_string(&c.to_string()),
+                other => crate::tidy::strip_outer(&crate::expr::emit_item(other, indent)).to_string(),
+            };
+            out.push_str(&format!("{pad}{} += {piece};\n", name.as_str()));
+            sink.finish("undefined", &pad, out);
+        }
         Expr::Assign { name, value } => {
             if value.needs_statements() {
                 emit_stmts(value, indent, Sink::Assign(name.as_str()), out);
