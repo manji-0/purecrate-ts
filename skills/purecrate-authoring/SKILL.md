@@ -8,7 +8,7 @@ description: How to write Rust that purecrate-ts accepts and translates to TypeS
 
 purecrate-ts translates a small, pure subset of Rust into a TypeScript package that returns the same result as a Rust debug build. Anything whose meaning it cannot preserve is rejected with a location, and nothing is written. So the job is: write the domain logic in the accepted subset, run `check`, and fix what it names. Do not try to make arbitrary Rust pass; the subset is the point.
 
-The authoritative rules are in [design/02-authoring.md](https://github.com/manji-0/purecrate-ts/blob/main/design/02-authoring.md). Read it when this skill is not enough (§2 capability table, §3.5 `match` arms, §4 rewrites). Working code to copy from is in [examples/](https://github.com/manji-0/purecrate-ts/blob/main/examples) (`counter`, `order`, `signup`, `iban`, `invoice`, `payment`, `oidc`, `semver`, `ssh`, `calendar`). When the repository is checked out, read those files locally; otherwise fetch them from the links here.
+The authoritative rules are in [design/02-authoring.md](https://github.com/manji-0/purecrate-ts/blob/main/design/02-authoring.md). Read it when this skill is not enough (§2 capability table, §3.5 `match` arms, §4 rewrites). Working code to copy from is in [examples/](https://github.com/manji-0/purecrate-ts/blob/main/examples) (`counter`, `order`, `signup`, `iban`, `invoice`, `payment`, `oidc`, `semver`, `ssh`, `calendar`, `punycode`). When the repository is checked out, read those files locally; otherwise fetch them from the links here.
 
 ## Loop
 
@@ -58,6 +58,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | `b.is_ascii_digit()` on a `u8` | `matches!(b, b'0'..=b'9')` |
 | `impl Ord`, `derive(PartialOrd, Ord)` then `<` on your type, `cmp` on floats, tuples, `Option`, or a `Vec` of the crate's types; `cmp::Ordering` via `use std::cmp;`, `use std::cmp::Ordering::*` | a compare function over the parts chained with `then` / `then_with`; `use std::cmp::Ordering;` and write `Ordering::Less` |
 | `format!`, `.to_string()`, `.to_owned()`, `.into()` | return numbers/ADTs and let the caller format; copy a `String` with `String::from(&s)` or `s.clone()`, an `Option<String>` with `o.clone()` (`as_ref()` / `as_deref()` read it) |
+| `String::new()`, `s.push(c)`, `s.push_str(t)`, `a + &b`, `String::from(c)` on a `char`, `collect::<String>()`, `format!` (`[expr/external-path]`, `[check/type-mismatch]`, `[check/numeric-op]`) | there is no way to build a `String` from computed text: return a `Vec<char>` (or the pieces) and let the caller join it |
 | `Vec::from`, `vec![x; n]`, returning `[a, b]`, `s.items.push(x)` | `vec![a, b]` for a fixed list; a local `let mut v: Vec<T> = Vec::new(); v.push(x);` returned as the new list (`order` adds a line this way) |
 | generics, traits, `HashMap`, `Rc`/`Cell`/`RefCell`/`Mutex` | concrete types, functions, `Vec`s, recursive enums |
 | `static`, `const` inside `impl` | a crate-level `const` (a `const` inside a function body is fine from 0.4.0) |

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A `while` on a flag its body sets ran forever in TS.** `let mut done = false; while !done { ..; done = c; }` had its test decided by the flag's value before the loop, as an `if` is, so the body's write was dropped and the loop never ended (Rust returned). A `while` test is now decided at the loop's head, where the body's writes join. The statements generator now writes such loops (a flag the body sets last), which it never did; seeds 1 to 120 of all five generators pass.
+- **oxfmt rewrote a signature** whose `=>` fits the width but whose `=> {` does not: the parameters open, not the return type.
+- **What tsc refused in generated code the new loops reached** (values agreed; seeds 7, 12, 70, 92, and 112 of the statements generator once it writes flags). Narrowing now follows TS in four more places: an `if` used as a test that prints as `c && a` or `!c || a` (one that needs statements) narrows as those; a binding set from a `bool`, `Option`, or `Result` place known to hold one case holds it too; `b === c` and `b !== c` narrow a `bool` against a literal or a place of one known value; and a value tested against a literal (`x !== 7`) is no longer taken to contradict its type's case (`Some`), which had made the other side look never taken.
+
+### Added
+
+- **`examples/punycode`**, written from the authoring skill alone: RFC 3492 Punycode with §6.4 overflow, and a simplified IDNA layer. It found the `while` hole above. Its results are `Vec<char>`: the subset cannot build a `String` from computed characters (design/07 §2.1); its logic is 2.0× the idiomatic reference's.
+
 ## 0.11.0 — 2026-10-05
 
 `examples/calendar`, written from the authoring skill alone, and `str::eq_ignore_ascii_case`, added for its rule parsing; the holes the example found in lint and layout are closed. Programs that passed 0.10.5 translate as before; the other examples' output is byte for byte the same.
