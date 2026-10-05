@@ -227,14 +227,16 @@ pub(crate) fn emit_switch_in(
                     Branch { test: None, prelude, body: &a.body },
                 ]
             } else {
-                vec![
-                    Branch {
-                        test: Some(Tx::bin(Op::Eq, Tx::atom(kind.clone()), Tx::atom(lit.clone()))),
-                        prelude,
-                        body: &a.body,
-                    },
-                    Branch { test: None, prelude: String::new(), body: &b.body },
-                ]
+                let mut branches = vec![Branch {
+                    test: Some(Tx::bin(Op::Eq, Tx::atom(kind.clone()), Tx::atom(lit.clone()))),
+                    prelude,
+                    body: &a.body,
+                }];
+                // `_ => {}` as a statement: no `else` (lint refuses an empty one).
+                if !(matches!(sink, Sink::Effect) && b.body == Expr::Lit(Lit::Unit)) {
+                    branches.push(Branch { test: None, prelude: String::new(), body: &b.body });
+                }
+                branches
             };
             emit_branches(&branches, indent, sink, tail, out);
             return;
