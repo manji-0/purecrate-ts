@@ -89,6 +89,7 @@ fn inputs() -> Vec<String> {
         .map(|s| s.to_string()),
     );
     out.push(format!("GB82{}", "A".repeat(31)));
+    out.extend(UNSEEN.iter().flat_map(|(wrong, right)| [wrong.to_string(), right.to_string()]));
     out.extend(non_ascii().into_iter().map(|(s, _)| s));
     out
 }
@@ -151,9 +152,44 @@ fn constrained_rust_is_the_idiomatic_rules() {
     assert!(differ.is_empty(), "the constrained Rust differs:\n{}", differ.join("\n"));
 }
 
+/// Errors in the BBAN that MOD 97-10 alone does not see (the header's
+/// cost of not checking the registry's lengths and formats): each wrong
+/// IBAN beside the registry example it was made from.
+const UNSEEN: [(&str, &str); 3] = [
+    // A leading zero added to Andorra's BBAN: 25 characters, Andorra's are 24.
+    ("AD12000012030200359100100", "AD1200012030200359100100"),
+    // `D` for the digits `13`: one character shorter, and a German BBAN has no letters.
+    ("DE893704004405320D000", "DE89370400440532013000"),
+    // Letter `O` for the digit `3`: not every such swap passes, this one does.
+    ("AE0703O1234567890123456", "AE070331234567890123456"),
+];
+
+#[test]
+fn mod_97_alone_misses_these() {
+    for (wrong, right) in UNSEEN {
+        assert!(iban::Iban::parse(right.to_string()).is_ok(), "{right}");
+        assert!(iban::Iban::parse(wrong.to_string()).is_ok(), "{wrong} is accepted, as the header says");
+    }
+    assert_eq!(UNSEEN[0].0.len(), 25);
+    assert_eq!(UNSEEN[1].0.len(), 21);
+}
+
+#[test]
+fn the_value_reads_back() {
+    for v in VALID.iter().chain(UNSEEN.iter().map(|(w, _)| w)) {
+        let iban = iban::Iban::parse(v.to_string()).ok().expect("valid");
+        assert_eq!(iban.as_str(), *v);
+        assert_eq!(iban.to_string(), *v);
+    }
+}
+
 #[test]
 fn iban_matches_rust() {
-    let cases =
-        support::quietly(|| inputs().into_iter().map(|s| case!(iban::parse_iban(s.clone()))).collect::<Vec<_>>());
+    let cases = support::quietly(|| {
+        inputs()
+            .into_iter()
+            .flat_map(|s| [case!(iban::parse_iban(s.clone())), case!(iban::iban_text(s.clone()))])
+            .collect::<Vec<_>>()
+    });
     support::assert_equivalent("iban", iban::SOURCE, &cases);
 }

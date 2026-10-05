@@ -61,6 +61,7 @@ export const Iban = {
     if (acc !== 1) return Result.err({ kind: "Checksum" });
     return Result.ok(unsafeMakeIban(raw));
   },
+  asStr: (self: Iban): string => self,
 } as const;
 
 const isDigit = (b: U8): boolean => b >= /* '0' */ 48 && b <= /* '9' */ 57;

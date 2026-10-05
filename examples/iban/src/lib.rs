@@ -17,7 +17,24 @@
 // checked: a well-formed IBAN with the right checksum for an unknown
 // country, or of the wrong length for its country, is accepted.
 //
-// `Iban` is a closed type: the value comes only from `parse`.
+// What that costs: MOD 97-10 alone does not see these errors in the BBAN,
+// which the registry's length and format per country would.
+//
+// - A zero added or dropped at the BBAN's start. The BBAN comes first in the
+//   number checked, so a leading zero does not change it:
+//   `AD12000012030200359100100` (25 characters; Andorra's are 24) is
+//   accepted.
+// - A letter for digits. A letter counts as two digits (A = 10 … Z = 35),
+//   so a letter in place of the two digits it stands for leaves the number
+//   unchanged (`DE893704004405320D000`, `D` for `13` in
+//   `DE89370400440532013000`: 21 characters, and a German BBAN has no
+//   letters). A letter in place of one digit changes the number's length,
+//   which MOD 97-10 does not guarantee to catch, and some such swaps it
+//   does not: `AE0703O1234567890123456`, letter `O` for the digit `3` of
+//   `AE070331234567890123456`, is accepted.
+//
+// `Iban` is a closed type: the value comes only from `parse`. `as_str` reads
+// it back: the input as given, in the electronic format (no spaces).
 
 pub struct Iban(String);
 
@@ -81,5 +98,17 @@ impl Iban {
             return Err(IbanError::Checksum);
         }
         Ok(Iban(raw))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Rust only: an `impl Display` that writes a field is not translated
+/// (design/02); in TS an `Iban` is a branded string already.
+impl std::fmt::Display for Iban {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
