@@ -2,7 +2,17 @@
 
 import { assertNever, Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
-import { fail, i64, keyed, memo, nullable, str, unitEnum, type Wire } from "./purecrate-arktype.ts";
+import {
+  fail,
+  i64,
+  keyed,
+  memo,
+  nullable,
+  record,
+  str,
+  unitEnum,
+  type Wire,
+} from "./purecrate-arktype.ts";
 import { Amount as DomainAmount } from "./amount.ts";
 import type { CancellationReason as DomainCancellationReason } from "./cancellation-reason.ts";
 import type { CaptureMethod as DomainCaptureMethod } from "./capture-method.ts";
@@ -43,7 +53,9 @@ export const PaymentMethodId: Wire<DomainPaymentMethodId> = type("unknown").pipe
 
 export const MethodKind: Wire<DomainMethodKind> = unitEnum("MethodKind", ["Card", "BankDebit"]);
 
-const paymentMethodWire = memo(() => type({ id: PaymentMethodId, kind: MethodKind }));
+const paymentMethodWire = memo(() =>
+  type({ id: PaymentMethodId, kind: MethodKind }).narrow(record),
+);
 export const PaymentMethod: Wire<DomainPaymentMethod> = type("unknown").pipe(
   (v, ctx): DomainPaymentMethod => {
     const parsed = paymentMethodWire()(v);
@@ -63,7 +75,7 @@ export const ConfirmationMethod: Wire<DomainConfirmationMethod> = unitEnum("Conf
 ]);
 
 const termsWire = memo(() =>
-  type({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }),
+  type({ amount: Amount, capture: CaptureMethod, confirmation: ConfirmationMethod }).narrow(record),
 );
 export const Terms: Wire<DomainTerms> = type("unknown").pipe((v, ctx): DomainTerms => {
   const parsed = termsWire()(v);
@@ -88,29 +100,35 @@ export const CancellationReason: Wire<DomainCancellationReason> = unitEnum("Canc
 const statusRequiresPaymentMethodArm = memo(() =>
   type({
     "+": "reject",
-    RequiresPaymentMethod: { last_error: nullable(DeclineCode).default(null) },
+    RequiresPaymentMethod: type({ last_error: nullable(DeclineCode).default(null) }).narrow(record),
   }),
 );
 const statusRequiresConfirmationArm = memo(() =>
-  type({ "+": "reject", RequiresConfirmation: { method: PaymentMethod } }),
+  type({ "+": "reject", RequiresConfirmation: type({ method: PaymentMethod }).narrow(record) }),
 );
 const statusRequiresActionArm = memo(() =>
-  type({ "+": "reject", RequiresAction: { method: PaymentMethod } }),
+  type({ "+": "reject", RequiresAction: type({ method: PaymentMethod }).narrow(record) }),
 );
 const statusProcessingArm = memo(() =>
-  type({ "+": "reject", Processing: { method: PaymentMethod } }),
+  type({ "+": "reject", Processing: type({ method: PaymentMethod }).narrow(record) }),
 );
 const statusRequiresCaptureArm = memo(() =>
-  type({ "+": "reject", RequiresCapture: { method: PaymentMethod, capturable: i64 } }),
+  type({
+    "+": "reject",
+    RequiresCapture: type({ method: PaymentMethod, capturable: i64 }).narrow(record),
+  }),
 );
 const statusSucceededArm = memo(() =>
   type({
     "+": "reject",
-    Succeeded: { received: i64, application_fee: nullable(i64).default(null) },
+    Succeeded: type({ received: i64, application_fee: nullable(i64).default(null) }).narrow(record),
   }),
 );
 const statusCanceledArm = memo(() =>
-  type({ "+": "reject", Canceled: { reason: nullable(CancellationReason).default(null) } }),
+  type({
+    "+": "reject",
+    Canceled: type({ reason: nullable(CancellationReason).default(null) }).narrow(record),
+  }),
 );
 export const Status: Wire<DomainStatus> = type("unknown").pipe((v, ctx): DomainStatus => {
   {
@@ -166,7 +184,7 @@ export const Status: Wire<DomainStatus> = type("unknown").pipe((v, ctx): DomainS
   return ctx.error("Status") as never;
 });
 
-const paymentIntentWire = memo(() => type({ terms: Terms, status: Status }));
+const paymentIntentWire = memo(() => type({ terms: Terms, status: Status }).narrow(record));
 export const PaymentIntent: Wire<DomainPaymentIntent> = type("unknown").pipe(
   (v, ctx): DomainPaymentIntent => {
     const parsed = paymentIntentWire()(v);
@@ -211,7 +229,9 @@ const eventAttachMethodArm = memo(() => type({ "+": "reject", AttachMethod: Paym
 const eventConfirmArm = memo(() =>
   type({
     "+": "reject",
-    Confirm: { method: nullable(PaymentMethod).default(null), outcome: Outcome },
+    Confirm: type({ method: nullable(PaymentMethod).default(null), outcome: Outcome }).narrow(
+      record,
+    ),
   }),
 );
 const eventActionHandledArm = memo(() => type({ "+": "reject", ActionHandled: Outcome }));
@@ -222,10 +242,10 @@ const eventProcessingFailedArm = memo(() => type({ "+": "reject", ProcessingFail
 const eventCaptureArm = memo(() =>
   type({
     "+": "reject",
-    Capture: {
+    Capture: type({
       amount_to_capture: nullable(i64).default(null),
       application_fee: nullable(i64).default(null),
-    },
+    }).narrow(record),
   }),
 );
 const eventCancelArm = memo(() => type({ "+": "reject", Cancel: nullable(CancellationReason) }));
@@ -288,7 +308,7 @@ const paymentErrorMissingPaymentMethodArm = memo(() =>
   type({ "+": "reject", MissingPaymentMethod: "null" }),
 );
 const paymentErrorInvalidCaptureAmountArm = memo(() =>
-  type({ "+": "reject", InvalidCaptureAmount: { capturable: i64 } }),
+  type({ "+": "reject", InvalidCaptureAmount: type({ capturable: i64 }).narrow(record) }),
 );
 const paymentErrorNegativeApplicationFeeArm = memo(() =>
   type({ "+": "reject", NegativeApplicationFee: "null" }),

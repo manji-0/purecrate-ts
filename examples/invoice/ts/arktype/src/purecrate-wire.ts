@@ -2,7 +2,7 @@
 
 import { assertNever, Json, parseJson } from "./purecrate-runtime.ts";
 import { type } from "arktype";
-import { fail, i64, keyed, memo, unitEnum, type Wire } from "./purecrate-arktype.ts";
+import { fail, i64, keyed, memo, record, unitEnum, type Wire } from "./purecrate-arktype.ts";
 import type { Group as DomainGroup } from "./group.ts";
 import { InvoiceError as DomainInvoiceError } from "./invoice-error.ts";
 import type { Invoice as DomainInvoice } from "./invoice.ts";
@@ -31,7 +31,7 @@ export const Rounding: Wire<DomainRounding> = unitEnum("Rounding", ["Down", "Up"
 
 const methodSeparateArm = memo(() => type({ "+": "reject", Separate: "null" }));
 const methodToExclusiveArm = memo(() =>
-  type({ "+": "reject", ToExclusive: { conversion: Rounding } }),
+  type({ "+": "reject", ToExclusive: type({ conversion: Rounding }).narrow(record) }),
 );
 /** 問59: what to do with tax-inclusive lines among tax-exclusive ones. */
 export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainMethod => {
@@ -50,21 +50,23 @@ export const Method: Wire<DomainMethod> = type("unknown").pipe((v, ctx): DomainM
   return ctx.error("Method") as never;
 });
 
-const lineWire = memo(() => type({ amount: Yen, rate: Rate, pricing: Pricing }));
+const lineWire = memo(() => type({ amount: Yen, rate: Rate, pricing: Pricing }).narrow(record));
 export const Line: Wire<DomainLine> = type("unknown").pipe((v, ctx): DomainLine => {
   const parsed = lineWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return { amount: parsed.amount, rate: parsed.rate, pricing: parsed.pricing };
 });
 
-const invoiceWire = memo(() => type({ lines: Line.array(), rounding: Rounding, method: Method }));
+const invoiceWire = memo(() =>
+  type({ lines: Line.array(), rounding: Rounding, method: Method }).narrow(record),
+);
 export const Invoice: Wire<DomainInvoice> = type("unknown").pipe((v, ctx): DomainInvoice => {
   const parsed = invoiceWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
   return { lines: parsed.lines, rounding: parsed.rounding, method: parsed.method };
 });
 
-const groupWire = memo(() => type({ base: Yen, tax: Yen }));
+const groupWire = memo(() => type({ base: Yen, tax: Yen }).narrow(record));
 /** One rate and pricing: the total of its amounts and the tax on it. */
 export const Group: Wire<DomainGroup> = type("unknown").pipe((v, ctx): DomainGroup => {
   const parsed = groupWire()(v);
@@ -79,7 +81,7 @@ const summaryWire = memo(() =>
     standard_inclusive: Group,
     reduced_inclusive: Group,
     total: Yen,
-  }),
+  }).narrow(record),
 );
 export const Summary: Wire<DomainSummary> = type("unknown").pipe((v, ctx): DomainSummary => {
   const parsed = summaryWire()(v);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Char, Int, Uuid, type F32, type F64, type UuidError } from "purecrate";
+import { Char, Int, JsonFloat, Uuid, type F32, type F64, type UuidError } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, In>;
 
@@ -16,26 +16,25 @@ export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
 /**
- * A JSON number that is a safe integer, a bigint (`parseJson` reads larger
- * literals as one), or decimal text. A number past 2^53 was already rounded
- * by `JSON.parse`, so it is rejected rather than read as a wrong value.
+ * A JSON number that is a safe integer, or a bigint (`parseJson` reads larger
+ * literals as one). A number past 2^53 was already rounded by `JSON.parse`,
+ * so it is rejected rather than read as a wrong value; so is a string, and a
+ * float (`50.0`, which `parseJson` reads as a `JsonFloat`), as serde does.
  */
-const big = <T>(pattern: RegExp, min: bigint, max: bigint, of: (n: bigint) => T): Out<T, bigint | number | string> =>
+const big = <T>(min: bigint, max: bigint, of: (n: bigint) => T): Out<T, bigint | number> =>
   z
-    .union([
-      z.bigint(),
-      z.number().refine(Number.isSafeInteger, "a safe integer; read larger integers with parseJson"),
-      z.string().regex(pattern),
-    ])
+    .union([z.bigint(), z.number().refine(Number.isSafeInteger, "a safe integer; read larger integers with parseJson")])
     .transform((v) => BigInt(v))
     .refine((n) => n >= min && n <= max, `between ${min} and ${max}`)
-    .transform(of) as unknown as Out<T, bigint | number | string>;
+    .transform(of) as unknown as Out<T, bigint | number>;
 
-export const i64 = big(/^-?(?:0|[1-9]\d*)$/, -9223372036854775808n, 9223372036854775807n, Int.i64.of);
-export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of);
+export const i64 = big(-9223372036854775808n, 9223372036854775807n, Int.i64.of);
+export const u64 = big(0n, 18446744073709551615n, Int.u64.of);
 
-export const f32: Out<F32, number> = z.number().transform(Int.f32.of) as unknown as Out<F32, number>;
-export const f64: Out<F64, number> = z.number().transform(Int.f64.of) as unknown as Out<F64, number>;
+/** A JSON number, or one `parseJson` read as a `JsonFloat` (`2.0`). */
+const float = z.union([z.number(), z.instanceof(JsonFloat).transform((x) => x.value)]);
+export const f32: Out<F32, number> = float.transform(Int.f32.of) as unknown as Out<F32, number>;
+export const f64: Out<F64, number> = float.transform(Int.f64.of) as unknown as Out<F64, number>;
 
 export const str = z.string();
 /** serde reads a `char` from a string of exactly one scalar value. */

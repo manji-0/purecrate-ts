@@ -389,9 +389,9 @@ fn try_from_reads_what_the_checked_constructor_accepts() {
     }
     // The wrong shape fails before `try_from`.
     row("PaymentMethodId", "7".into(), "Err".into());
-    // `i64` also reads digit strings (design/04 §3 rule 1), which serde_json
-    // does not; `try_from` still runs on the value.
-    row("Amount", "\"50\"".into(), "50".into());
+    // `i64` reads a JSON integer only, as serde_json does: not a digit
+    // string, not a float (design/04 §3 rule 1).
+    row("Amount", "\"50\"".into(), "Err".into());
     row("Amount", "\"49\"".into(), "Err".into());
     row("Amount", "50.5".into(), "Err".into());
     let rows = rows.join(",");

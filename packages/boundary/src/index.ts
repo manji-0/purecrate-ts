@@ -282,27 +282,82 @@ const bits64 = <T extends bigint>(signed: boolean) => {
 };
 // #endregion
 
-// #region parseJson
+// #region parseJson JsonFloat
 const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
 
 /**
- * JSON text read as `JSON.parse` reads it, except that an integer literal
- * outside ±(2^53−1) becomes a `bigint` with its exact value. serde_json writes
- * `i64` and `u64` as JSON numbers; `JSON.parse` would round them.
- *
- * Needs a runtime that passes the literal's source text to the reviver
- * (Node 21+). Elsewhere the number stays rounded, and the `i64`/`u64`
- * schemas reject it instead of reading a wrong value.
+ * A JSON number written with a fraction or an exponent, or `-0`, whose value
+ * is integral (`50.0`, `5e1`). serde_json reads such a number as a float
+ * only, so an integer field refuses it; `JSON.parse` gives `50` for `50.0`
+ * and `50`, so `parseJson` hands it on in this box, which the `f32` / `f64`
+ * schemas open and the integer schemas refuse.
  */
-export const parseJson = (text: string): unknown =>
-  JSON.parse(text, (_key: string, value: unknown, context?: { source?: string }) =>
-    typeof value === "number" &&
-    !Number.isSafeInteger(value) &&
-    context?.source !== undefined &&
-    INTEGER_LITERAL.test(context.source)
-      ? BigInt(context.source)
-      : value,
-  );
+export class JsonFloat {
+  readonly value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+
+/** The first object key that appears twice in one object of valid JSON `text`. */
+const duplicateKey = (text: string): string | undefined => {
+  // One entry per open bracket: the keys seen so far in an object, `null`
+  // in an array.
+  const open: (Set<string> | null)[] = [];
+  let atKey = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      const keys = open[open.length - 1];
+      if (atKey && keys) {
+        const key = JSON.parse(text.slice(i, j + 1)) as string;
+        if (keys.has(key)) return key;
+        keys.add(key);
+        atKey = false;
+      }
+      i = j;
+    } else if (c === "{") {
+      open.push(new Set());
+      atKey = true;
+    } else if (c === "[") {
+      open.push(null);
+    } else if (c === "}" || c === "]") {
+      open.pop();
+    } else if (c === ",") {
+      atKey = open[open.length - 1] instanceof Set;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * JSON text read as serde_json reads it, where `JSON.parse` would read it
+ * differently:
+ * - an integer literal outside ±(2^53−1) becomes a `bigint` with its exact
+ *   value (serde_json writes `i64` and `u64` as JSON numbers; `JSON.parse`
+ *   would round them);
+ * - an integral number written as a float (`50.0`, `5e1`, `-0`) becomes a
+ *   `JsonFloat`, which only a float field reads;
+ * - a key twice in one object is refused, as serde refuses a duplicate
+ *   field (`JSON.parse` keeps the last).
+ *
+ * The first two need a runtime that passes the literal's source text to the
+ * reviver (Node 21+). Elsewhere a large number stays rounded, and the
+ * `i64`/`u64` schemas reject it instead of reading a wrong value.
+ */
+export const parseJson = (text: string): unknown => {
+  const value: unknown = JSON.parse(text, (_key: string, v: unknown, context?: { source?: string }) => {
+    if (typeof v !== "number" || context?.source === undefined) return v;
+    const integer = INTEGER_LITERAL.test(context.source) && context.source !== "-0";
+    if (integer) return Number.isSafeInteger(v) ? v : BigInt(context.source);
+    return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v) : v;
+  });
+  const twice = duplicateKey(text);
+  if (twice !== undefined) throw new SyntaxError(`duplicate field \`${twice}\``);
+  return value;
+};
 // #endregion
 
 /**

@@ -427,11 +427,11 @@ import { bool, char, f32, f64, i16, i32, i64, i8, nullable, optionalField, str, 
 ",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
-import { bool, char, f32, f64, i16, i32, i64, i8, nullable, str, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError } from \"purecrate-valibot\";
+import { bool, char, f32, f64, i16, i32, i64, i8, nullable, record, str, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError } from \"purecrate-valibot\";
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, str, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
+import { bool, char, f32, f64, fail, i16, i32, i64, i8, keyed, memo, nullable, record, str, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{own}")
@@ -469,9 +469,11 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
     let built = s.closed
         || s.fields.iter().any(|f| unit(&f.ty))
         || (schema == WireSchema::Valibot && s.fields.iter().any(|f| matches!(f.ty, Ty::Option(_))));
+    // valibot's `v.object` takes an array too (each field missing); `record`
+    // refuses one, as zod's object does.
     let object = match schema {
         WireSchema::Zod => call_path("z.object", vec![fields]),
-        _ => call_path("v.object", vec![fields]),
+        _ => call_path("record", vec![fields]),
     };
     if !built {
         return object;
@@ -622,7 +624,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &Vari
             let fields = Js::Object(object_fields(schema, fs));
             let inner = match schema {
                 WireSchema::Zod => call_path("z.object", vec![fields]),
-                _ => call_path("v.object", vec![fields]),
+                _ => call_path("record", vec![fields]),
             };
             (inner, fill(schema, fs, &format!("x.{variant}")))
         }
@@ -691,7 +693,9 @@ fn ark_struct(s: &Struct, refused: &Refusal, doc: &str, chunks: &mut Vec<Chunk>)
                 .map(|f| (f.name.as_str().to_string(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
                 .collect();
             let build = record_build(s, fill(WireSchema::Arktype, &s.fields, "parsed"));
-            (call_path("type", vec![Js::Object(fields)]), vec![Stmt::Return(build)])
+            // An arktype object shape takes an array too; `record` refuses one.
+            let shape = method(call_path("type", vec![Js::Object(fields)]), "narrow", vec![raw("record")]);
+            (shape, vec![Stmt::Return(build)])
         }
     };
     let mut body = ark_parsed(&wire);
@@ -751,7 +755,8 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, Js, Vec<St
                 .iter()
                 .map(|f| (f.name.as_str().to_string(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
                 .collect();
-            (Js::Object(inner), fill(WireSchema::Arktype, fields, &format!("parsed.{name}")))
+            let shape = method(call_path("type", vec![Js::Object(inner)]), "narrow", vec![raw("record")]);
+            (shape, fill(WireSchema::Arktype, fields, &format!("parsed.{name}")))
         }
     };
     (arm, shape, vec![Stmt::Block(vec![parsed, accepted(variant_value(name, rest)), keyed])])

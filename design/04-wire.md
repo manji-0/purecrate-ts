@@ -63,13 +63,17 @@ Each adapter's library is a peer dependency of the generated package:
 
 These follow serde's default behavior. Other sections refer to them by number.
 
-1. **Integers and parsing.** Input is an already-parsed value. `i64` / `u64` accept safe-integer numbers, `bigint`, and digit strings; out-of-range values are schema failures, not throws. A rounded `JSON.parse` value always lies outside the safe range and is rejected, so a wrong value is never read. To read large integers, parse the text with `parseJson`, which uses the `JSON.parse` reviver's source text (Node 21+) to turn only out-of-range integer literals into `bigint`. `f64` is unaffected because serde_json always writes `.` or an exponent.
+1. **Integers and parsing.** Input is an already-parsed value. `i64` / `u64` accept safe-integer numbers and `bigint`, not strings (serde_json refuses `"50"` for an integer); out-of-range values are schema failures, not throws. A rounded `JSON.parse` value always lies outside the safe range and is rejected, so a wrong value is never read. To read JSON text, use `parseJson` (`fromJson.T` does), which reads it as serde_json does where `JSON.parse` would not, from the reviver's source text (Node 21+):
+   - an integer literal outside ±(2^53−1) becomes a `bigint` with its exact value;
+   - an integral number written as a float (`50.0`, `5e1`, `-0`) becomes a `JsonFloat`, which the `f32` / `f64` schemas read and every integer schema refuses, as serde reads such a number as a float only;
+   - a key twice in one object throws, as serde refuses a duplicate field (`JSON.parse` keeps the last). It is refused in any object, also one whose type ignores that field, where serde would not notice.
+   Without `parseJson` (an already-parsed value), `50.0` cannot be told from `50` and is read as an integer.
 2. **`Option`.** A missing `Option` field and `null` are both `None`.
 3. **`char` and `Uuid`.**
    - A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"e\u0301"`, and a lone surrogate are rejected, as serde_json rejects them.
    - A `Uuid` is read from any string `Uuid::parse_str` accepts and becomes the canonical form; anything else, and a JSON array of bytes (which serde_json never passes to `Uuid`), is rejected. `toJson` writes the canonical form, as serde does.
    - `uuid::Error` has no JSON form in Rust; its schema rejects every value.
-4. **Enum objects and struct fields.** The object wrapping a variant has exactly one key; extra keys are rejected. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`.
+4. **Enum objects and struct fields.** The object wrapping a variant has exactly one key; extra keys are rejected. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`. A struct (and a struct variant's fields) is a JSON object only: serde also reads a struct from an array of its fields in order (the sequence form, which serde_json never writes), and the schemas refuse that instead. valibot's and arktype's object shapes would otherwise take an array and read every field as missing; the adapters' `record` refuses one.
 
 ### 3.4 Per-library notes
 

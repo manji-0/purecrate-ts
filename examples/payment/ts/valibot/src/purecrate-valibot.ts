@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import * as v from "valibot";
-import { Char, Int, Uuid, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, type UuidError } from "./purecrate-runtime.ts";
 
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   v.pipe(v.number(), v.integer(), v.minValue(min), v.maxValue(max), v.transform(of));
@@ -36,24 +36,38 @@ export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
 /**
- * A JSON number that is a safe integer, a bigint (`parseJson` reads larger
- * literals as one), or decimal text. A number past 2^53 was already rounded
- * by `JSON.parse`, so it is rejected rather than read as a wrong value.
+ * A JSON number that is a safe integer, or a bigint (`parseJson` reads larger
+ * literals as one). A number past 2^53 was already rounded by `JSON.parse`,
+ * so it is rejected rather than read as a wrong value; so is a string, and a
+ * float (`50.0`, which `parseJson` reads as a `JsonFloat`), as serde does.
  */
-const big = <T>(pattern: RegExp, min: bigint, max: bigint, of: (n: bigint) => T) =>
+const big = <T>(min: bigint, max: bigint, of: (n: bigint) => T) =>
   v.pipe(
-    v.union([v.bigint(), v.pipe(v.number(), v.safeInteger()), v.pipe(v.string(), v.regex(pattern))]),
+    v.union([v.bigint(), v.pipe(v.number(), v.safeInteger())]),
     v.transform((value) => BigInt(value)),
     v.minValue(min),
     v.maxValue(max),
     v.transform(of),
   );
 
-export const i64 = big(/^-?(?:0|[1-9]\d*)$/, -9223372036854775808n, 9223372036854775807n, Int.i64.of);
-export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of);
+export const i64 = big(-9223372036854775808n, 9223372036854775807n, Int.i64.of);
+export const u64 = big(0n, 18446744073709551615n, Int.u64.of);
 
-export const f32 = v.pipe(v.number(), v.transform(Int.f32.of));
-export const f64 = v.pipe(v.number(), v.transform(Int.f64.of));
+/** A JSON number, or one `parseJson` read as a `JsonFloat` (`2.0`). */
+const float = v.union([v.number(), v.pipe(v.instance(JsonFloat), v.transform((x) => x.value))]);
+export const f32 = v.pipe(float, v.transform(Int.f32.of));
+export const f64 = v.pipe(float, v.transform(Int.f64.of));
+
+/**
+ * serde's struct: a JSON object. `v.object` would also take an array and
+ * read every field as missing; serde reads an array as the sequence form,
+ * which serde_json never writes, and this refuses it instead.
+ */
+export const record = <const E extends v.ObjectEntries>(entries: E) =>
+  v.pipe(
+    v.custom<Record<string, unknown>>((x) => typeof x === "object" && x !== null && !Array.isArray(x), "an object"),
+    v.object(entries),
+  );
 export const str = v.string();
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = v.pipe(v.string(), v.check(Char.is, "a single character"), v.transform((s) => s as Char));

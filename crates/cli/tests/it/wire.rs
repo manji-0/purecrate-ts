@@ -8,7 +8,10 @@
 //!
 //! 64-bit integers come as serde_json writes them, JSON numbers, read from
 //! the text with `parseJson`; a plain `JSON.parse` rounds those past 2^53 and
-//! the schema must then reject them. Decimal strings are accepted too.
+//! the schema must then reject them. As serde does, the schemas refuse a
+//! decimal string for an integer, an integral number written as a float
+//! (`50.0`, which `parseJson` reads as a `JsonFloat`) for an integer, and an
+//! array where a struct is due; `parseJson` refuses a key twice in an object.
 
 use crate::support;
 
@@ -46,8 +49,8 @@ const show = (x) =>
   : JSON.stringify(x);
 
 const ints = {
-  a: -128, b: 32767, c: -2147483648, d: "-9223372036854775808",
-  e: 255, f: 65535, g: 4294967295, h: "18446744073709551615", i: 9007199254740991,
+  a: -128, b: 32767, c: -2147483648, d: -9223372036854775808n,
+  e: 255, f: 65535, g: 4294967295, h: 18446744073709551615n, i: 9007199254740991,
 };
 const intsValue = {
   a: -128, b: 32767, c: -2147483648, d: -9223372036854775808n,
@@ -55,11 +58,11 @@ const intsValue = {
 };
 const holder = {
   tree: { Node: ["Leaf", 1, { Node: ["Leaf", 2, "Leaf"] }] },
-  shapes: ["Dot", { Circle: 1.5 }, { Rect: [1, 2] }, { Named: { label: "x", tag: 3 } }, { Named: { label: "y" } }, { Tagged: "7" }],
+  shapes: ["Dot", { Circle: 1.5 }, { Rect: [1, 2] }, { Named: { label: "x", tag: 3 } }, { Named: { label: "y" } }, { Tagged: 7 }],
   first: null,
   chain: { value: 1, next: { value: 2 } },
   floats: { x: 0.1, y: 2.25 },
-  misc: { flag: true, text: "t", unit: null, list: [1, 2], pair: [3, "p"], id: "9007199254740993", labels: ["a"], ints },
+  misc: { flag: true, text: "t", unit: null, list: [1, 2], pair: [3, "p"], id: 9007199254740993n, labels: ["a"], ints },
 };
 const holderValue = {
   tree: { kind: "Node", content: [{ kind: "Leaf" }, 1, { kind: "Node", content: [{ kind: "Leaf" }, 2, { kind: "Leaf" }] }] },
@@ -102,10 +105,30 @@ const accepts = [
   ["Letters", { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }, { one: "a", maybe: "😀", many: ["é", "\u{10ffff}", "\u{ffff}"] }],
   ["Letters", { one: "\n", many: [] }, { one: "\n", maybe: null, many: [] }],
   // serde reads a `Uuid` from any form `Uuid::parse_str` takes; the value is canonical.
+  // A float field reads an integral number written as a float.
+  ["Floats", parseJson('{"x":1.0,"y":-0}'), { x: 1, y: -0 }],
+  ["Floats", parseJson('{"x":2,"y":5e1}'), { x: 2, y: 50 }],
   ["Ids", { one: "67E55044-10B1-426F-9247-BB680E5FE0C8", maybe: "{67e55044-10b1-426f-9247-bb680e5fe0c8}", many: ["urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8", "67e5504410b1426f9247bb680e5fe0c8"] },
     { one: "67e55044-10b1-426f-9247-bb680e5fe0c8", maybe: "67e55044-10b1-426f-9247-bb680e5fe0c8", many: ["67e55044-10b1-426f-9247-bb680e5fe0c8", "67e55044-10b1-426f-9247-bb680e5fe0c8"] }],
 ];
 const rejects = [
+  // serde reads an integer from a JSON integer only: not a string, not a
+  // number written as a float.
+  ["Ints", { ...ints, d: "-5" }],
+  ["Ints", { ...ints, h: "18446744073709551615" }],
+  ["Shape", { Tagged: "7" }],
+  ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":50.0,"e":1,"f":1,"g":1,"h":1,"i":1}')],
+  ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":5e1,"e":1,"f":1,"g":1,"h":1,"i":1}')],
+  ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":-0,"e":1,"f":1,"g":1,"h":1,"i":1}')],
+  ["Ints", parseJson('{"a":1.0,"b":1,"c":1,"d":1,"e":1,"f":1,"g":1,"h":1,"i":1}')],
+  ["Shape", parseJson('{"Tagged":7.0}')],
+  // A struct is a JSON object here, never an array (serde's sequence form,
+  // which serde_json does not write); an array was read as every field missing.
+  ["Chain", [3, null]],
+  ["Chain", []],
+  ["Shape", { Named: ["x", 3] }],
+  ["Shape", { Named: [] }],
+  ["Holder", { ...holder, chain: [1, null] }],
   ["Ints", { ...ints, a: 128 }],
   ["Ints", { ...ints, d: 1.5 }],
   ["Ints", JSON.parse(intsText)],
@@ -160,6 +183,22 @@ for (const [name, input] of rejects) {
     if (valid(w[name], input)) out.push(`${name}: accepted ${text(input)}`);
   } catch (e) {
     out.push(`${name}: threw instead of rejecting ${text(input)}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+// serde refuses a duplicate field; `JSON.parse` would keep the last.
+for (const twice of ['{"value":1,"value":2}', '{"Named":{"label":"x","label":"y"}}', '{"a":{"k":1},"b":{"k":2},"a":3}']) {
+  try {
+    parseJson(twice);
+    out.push(`parseJson accepted ${twice}`);
+  } catch (e) {
+    if (!(e instanceof SyntaxError)) out.push(`parseJson threw ${e} for ${twice}`);
+  }
+}
+for (const once of ['{"a":{"k":1},"b":{"k":2}}', '[{"k":1},{"k":2}]', '{"a":"\\"k\\":1","k":1}']) {
+  try {
+    parseJson(once);
+  } catch (e) {
+    out.push(`parseJson refused ${once}: ${e}`);
   }
 }
 console.log(out.length === 0 ? "ok" : out.join("\n"));

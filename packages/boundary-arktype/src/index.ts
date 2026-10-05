@@ -1,5 +1,5 @@
 import { type, type ArkErrors, type Out, type Traversal, type Type } from "arktype";
-import { Char, Int, Uuid, type UuidError } from "purecrate";
+import { Char, Int, JsonFloat, Uuid, type UuidError } from "purecrate";
 
 /**
  * A schema that reads unknown JSON into the domain value `T`. Generated
@@ -64,23 +64,31 @@ export const u32 = small(0, 4294967295, Int.u32.of);
 export const usize = small(0, 9007199254740991, Int.usize.of);
 
 /**
- * A JSON number that is a safe integer, a bigint (`parseJson` reads larger
- * literals as one), or decimal text. A number past 2^53 was already rounded
- * by `JSON.parse`, so it is rejected rather than read as a wrong value.
+ * A JSON number that is a safe integer, or a bigint (`parseJson` reads larger
+ * literals as one). A number past 2^53 was already rounded by `JSON.parse`,
+ * so it is rejected rather than read as a wrong value; so is a string, and a
+ * float (`50.0`, which `parseJson` reads as a `JsonFloat`), as serde does.
  */
-const big = <T>(pattern: RegExp, min: bigint, max: bigint, of: (n: bigint) => T) =>
-  type("bigint | number | string").pipe((value, ctx) => {
+const big = <T>(min: bigint, max: bigint, of: (n: bigint) => T) =>
+  type("bigint | number").pipe((value, ctx) => {
     if (typeof value === "number" && !Number.isSafeInteger(value)) return ctx.error("a safe integer");
-    if (typeof value === "string" && !pattern.test(value)) return ctx.error("an integer string");
     const n = BigInt(value);
     if (n < min || n > max) return ctx.error(`between ${min} and ${max}`);
     return of(n);
   });
 
-export const i64 = big(/^-?(?:0|[1-9]\d*)$/, -9223372036854775808n, 9223372036854775807n, Int.i64.of);
-export const u64 = big(/^(?:0|[1-9]\d*)$/, 0n, 18446744073709551615n, Int.u64.of);
-export const f32 = type("number").pipe(Int.f32.of);
-export const f64 = type("number").pipe(Int.f64.of);
+export const i64 = big(-9223372036854775808n, 9223372036854775807n, Int.i64.of);
+export const u64 = big(0n, 18446744073709551615n, Int.u64.of);
+/** A JSON number, or one `parseJson` read as a `JsonFloat` (`2.0`). */
+const float = type("number").or(type.instanceOf(JsonFloat).pipe((x) => x.value));
+export const f32 = float.pipe(Int.f32.of);
+export const f64 = float.pipe(Int.f64.of);
+/**
+ * serde's struct: a JSON object, not an array. arktype's object shapes also
+ * take an array and read every field as missing; serde reads an array as the
+ * sequence form, which serde_json never writes, and this refuses it.
+ */
+export const record = (x: object, ctx: Traversal): boolean => !Array.isArray(x) || ctx.mustBe("an object");
 export const str = type("string");
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
