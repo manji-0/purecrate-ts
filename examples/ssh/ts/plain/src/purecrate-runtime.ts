@@ -88,6 +88,7 @@ const small = <T extends number>(min: number, max: number) => {
     of,
     add: (a: T, b: T): T => fit(a + b, "add"),
     sub: (a: T, b: T): T => fit(a - b, "subtract"),
+    mul: (a: T, b: T): T => fit(a * b, "multiply"),
     div: (a: T, b: T): T =>
       b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
     rem: (a: T, b: T): T =>
@@ -118,24 +119,33 @@ const minMax = <T extends number | bigint>() =>
     max: (a: T, b: T): T => (a >= b ? a : b),
   }) as const;
 
-/** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
-export type ParseIntError = { readonly "purecrate.ParseIntError": true };
-
-const PARSE_INT_ERROR = Object.freeze({}) as ParseIntError;
+/**
+ * The amount of a shift, of any integer type. A debug build panics unless it
+ * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
+ * bits shifted out of the result are dropped without a panic.
+ */
+const shiftAmount = (n: number | bigint, bits: number, what: string): number =>
+  n < 0 || n >= bits ? panic(`shift ${what} with overflow`) : Number(n);
 
 /**
- * `s.parse::<T>()` into an integer: Rust's `from_str_radix(s, 10)`. An
- * optional `+`, or `-` for a signed type, then one or more ASCII digits,
- * in `lo..=hi`; `to` makes the runtime value. Anything else is `Err`.
+ * `& | ^ ! << >>` on a width of at most 32 bits. The JS operators work on
+ * int32; `wrap` sign- or zero-extends the low `bits` back into the width.
  */
-const parser =
-  <T>(lo: bigint, hi: bigint, signed: boolean, to: (n: bigint) => T) =>
-  (s: string): Result<T, ParseIntError> => {
-    const digits = s.startsWith("+") || (signed && s.startsWith("-")) ? s.slice(1) : s;
-    if (!/^[0-9]+$/.test(digits)) return { kind: "Err", error: PARSE_INT_ERROR };
-    const n = s.startsWith("-") ? -BigInt(digits) : BigInt(digits);
-    return n < lo || n > hi ? { kind: "Err", error: PARSE_INT_ERROR } : { kind: "Ok", value: to(n) };
-  };
+const bits32 = <T extends number>(bits: number, signed: boolean) => {
+  const s = 32 - bits;
+  const wrap = (n: number): T => (signed ? (n << s) >> s : (n << s) >>> s) as T;
+  return {
+    and: (a: T, b: T): T => wrap(a & b),
+    or: (a: T, b: T): T => wrap(a | b),
+    xor: (a: T, b: T): T => wrap(a ^ b),
+    not: (a: T): T => wrap(~a),
+    shl: (a: T, n: number | bigint): T => wrap(a << shiftAmount(n, bits, "left")),
+    shr: (a: T, n: number | bigint): T => {
+      const k = shiftAmount(n, bits, "right");
+      return wrap(signed ? a >> k : a >>> k);
+    },
+  } as const;
+};
 
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
@@ -186,18 +196,6 @@ export const Str = {
     const i = s.indexOf(p);
     return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
   },
-  /**
-   * `str::eq_ignore_ascii_case`: equal once ASCII `A`..=`Z` are folded to
-   * lower case; every other unit compares as it is (no Unicode folding).
-   */
-  eqIgnoreAsciiCase: (a: string, b: string): boolean => {
-    if (a.length !== b.length) return false;
-    const fold = (u: number): number => (u >= 65 && u <= 90 ? u + 32 : u);
-    for (let i = 0; i < a.length; i++) {
-      if (fold(a.charCodeAt(i)) !== fold(b.charCodeAt(i))) return false;
-    }
-    return true;
-  },
 } as const;
 
 /**
@@ -222,6 +220,10 @@ export const Iter = {
       n++;
     }
     return n as Usize;
+  },
+  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
+  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
+    for (const x of xs) yield f(x);
   },
   /** `.filter(p)`: lazy, as `map`. */
   filter: function* <T>(xs: Iterable<T>, p: (x: T) => boolean): Generator<T, void, undefined> {
@@ -327,10 +329,10 @@ export const Int = {
   },
   u16: {
     ...small<U16>(0, 65535),
-    parse: parser(0n, 65535n, false, (n) => Number(n) as U16),
   },
   u32: {
     ...small<U32>(0, 4294967295),
+    ...bits32<U32>(32, false),
     ...minMax<U32>(),
     ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }),
   },

@@ -16,13 +16,17 @@ export const MAX_PACKET_LEN = 262144 as U32;
 /** RFC 4253 §6. */
 export const MIN_PADDING = 4 as U32;
 export const MIN_BLOCK = 8 as U32;
+/** RFC 4253 §6: the smallest packet, its length field included. */
+export const MIN_PACKET = 16 as U32;
+/** The pre-standard strict markers OpenSSH sends. */
 export const STRICT_KEX_CLIENT: string = "kex-strict-c-v00@openssh.com";
 export const STRICT_KEX_SERVER: string = "kex-strict-s-v00@openssh.com";
 /**
- * The standard name for the same marker (draft-miller-sshm-strict-kex
- * §5.1), equivalent when received; OpenSSH still sends only the v00 names,
- * and so does this client.
+ * The standard names (draft-ietf-sshm-strict-kex-02 §3.1). Each pairs only
+ * with its own kind: the standard name on one side and only the v00 name
+ * on the other MUST NOT enable strict key exchange.
  */
+export const STRICT_KEX_CLIENT_STANDARD: string = "kex-strict-c";
 export const STRICT_KEX_SERVER_STANDARD: string = "kex-strict-s";
 export const EXT_INFO_CLIENT: string = "ext-info-c";
 export const USERAUTH_SERVICE: string = "ssh-userauth";

@@ -16,12 +16,23 @@
 // - RFC 5656 §4 and RFC 8731 ECDH; RFC 8731 §3 the all-zero shared secret.
 // - mlkem768x25519-sha256 (draft-ietf-sshm-mlkem-hybrid-kex) and
 //   sntrup761x25519-sha512: hybrid methods whose K is encoded as a string.
-// - RFC 8308 §2 ext-info-c, §3.1 server-sig-algs.
+// - RFC 8308 §2 ext-info-c, §2.4 when EXT_INFO may come, §3.1
+//   server-sig-algs.
 // - RFC 8332 rsa-sha2-256 / rsa-sha2-512 over "ssh-rsa" keys.
-// - OpenSSH PROTOCOL: strict key exchange (kex-strict-c/s-v00, the
-//   Terrapin fix, CVE-2023-48795), chacha20-poly1305 and aes-gcm, whose
-//   MAC is not negotiated; PROTOCOL / sshd(8): known_hosts host lists,
-//   "[host]:port", @revoked.
+// - Strict key exchange (the Terrapin fix, CVE-2023-48795):
+//   draft-ietf-sshm-strict-kex-02 §3 and OpenSSH PROTOCOL. §3.1: the client
+//   offers both "kex-strict-c" and "kex-strict-c-v00@openssh.com", and
+//   strict mode is on only for a matching pair (standard with standard,
+//   v00 with v00), so offering both makes either server name enough.
+// - OpenSSH PROTOCOL: chacha20-poly1305 and aes-gcm, whose MAC is not
+//   negotiated.
+// - sshd(8) SSH_KNOWN_HOSTS FILE FORMAT: comma-separated patterns with '*'
+//   and '?', '!' negation (a negated match means the line does not apply),
+//   "[host]:port", hashed names ("|1|salt|hash", HMAC-SHA1 of the name
+//   keyed by the salt, as OpenSSH's hostfile.c computes it), @revoked.
+//   As OpenSSH does, a pattern is matched, without ASCII case, against the
+//   name as written for the port: "host" for 22, "[host]:port" otherwise,
+//   so "*" names every port and "*.com" only port 22.
 //
 // Everything impure is outside: the caller reads and writes the socket,
 // strips CR LF from the lines before the identification, decodes and
@@ -47,6 +58,30 @@
 //   skipped. A later EXT_INFO replaces an earlier one;
 // - @revoked refuses the key for every host, whatever the line's host list
 //   (stricter than OpenSSH, which scopes it to the hosts the line names);
+// - a hashed known_hosts line that cannot be read (not "|1|", bad base64,
+//   a salt or hash that is not 20 bytes) for the key's type makes a key
+//   no readable line names undecidable: refused under StrictHostKeyChecking
+//   yes and accept-new (never learned), asked about under ask. OpenSSH
+//   skips such a line, and accept-new would then learn a key the line may
+//   have recorded otherwise;
+// - strict key exchange lasts, for the client, until both NEWKEYS are
+//   through: a non-KEX message after the server's NEWKEYS while the user
+//   is still asked about the host key is refused, except EXT_INFO as the
+//   packet right after that NEWKEYS (RFC 8308 §2.4 puts it there; it
+//   arrives under the new keys and asks for no answer). OpenSSH's client
+//   never reaches this point: it asks before sending its NEWKEYS;
+// - EXT_INFO is accepted in two places only: as the first packet after
+//   the server's first NEWKEYS, and during authentication. RFC 8308 §2.4's
+//   second opportunity is "immediately preceding" USERAUTH_SUCCESS, which a
+//   client cannot see coming, so any EXT_INFO while authenticating is
+//   taken (a later one replaces an earlier one); in the service request,
+//   after a re-exchange's NEWKEYS, or once established, it is refused;
+// - a server's empty name-list is read as offering nothing (RFC 4253 §7.1
+//   asks the sender for at least one name; an empty MAC list beside an
+//   AEAD cipher costs nothing); the client never sends one: the
+//   configuration must name at least one of each;
+// - packets under 16 bytes with the length field are refused (RFC 4253
+//   §6), under EtM and AEAD too (OpenSSH accepts 12 there);
 // - at most 1024 lines before the identification (OpenSSH's limit) and
 //   packets of at most 256 KiB (OpenSSH's PACKET_MAX_SIZE).
 //
@@ -54,8 +89,7 @@
 // - the connection protocol (RFC 4254): a message numbered 80 or more after
 //   authentication is the connection layer's, and the state machine only
 //   counts it;
-// - hashed known_hosts names, wildcards and negation, @cert-authority,
-//   CheckHostIP; the caller lower-cases the host name;
+// - @cert-authority, CheckHostIP; the caller lower-cases the host name;
 // - compression other than "none", Diffie-Hellman group exchange, GSSAPI,
 //   keyboard-interactive, host-based authentication;
 // - re-exchange started by the client before authentication, and data or
@@ -77,12 +111,16 @@ pub const MAX_PACKET_LEN: u32 = 256 * 1024;
 /// RFC 4253 §6.
 pub const MIN_PADDING: u32 = 4;
 pub const MIN_BLOCK: u32 = 8;
+/// RFC 4253 §6: the smallest packet, its length field included.
+pub const MIN_PACKET: u32 = 16;
 
+/// The pre-standard strict markers OpenSSH sends.
 pub const STRICT_KEX_CLIENT: &str = "kex-strict-c-v00@openssh.com";
 pub const STRICT_KEX_SERVER: &str = "kex-strict-s-v00@openssh.com";
-/// The standard name for the same marker (draft-miller-sshm-strict-kex
-/// §5.1), equivalent when received; OpenSSH still sends only the v00 names,
-/// and so does this client.
+/// The standard names (draft-ietf-sshm-strict-kex-02 §3.1). Each pairs only
+/// with its own kind: the standard name on one side and only the v00 name
+/// on the other MUST NOT enable strict key exchange.
+pub const STRICT_KEX_CLIENT_STANDARD: &str = "kex-strict-c";
 pub const STRICT_KEX_SERVER_STANDARD: &str = "kex-strict-s";
 pub const EXT_INFO_CLIENT: &str = "ext-info-c";
 pub const USERAUTH_SERVICE: &str = "ssh-userauth";
@@ -364,6 +402,9 @@ pub enum Failure {
     HostKeyUnknown,
     HostKeyChanged,
     HostKeyRevoked,
+    /// A hashed known_hosts line for the key's type could not be read, and
+    /// no other line decides (see `Trust::Undecidable`).
+    KnownHostsUnreadable,
     HostKeyRejected,
     HostKeyChangedOnRekey,
     WrongService,
@@ -382,6 +423,7 @@ pub fn reason_for(f: &Failure) -> DisconnectReason {
         Failure::HostKeyUnknown
         | Failure::HostKeyChanged
         | Failure::HostKeyRevoked
+        | Failure::KnownHostsUnreadable
         | Failure::HostKeyRejected
         | Failure::HostKeyChangedOnRekey => DisconnectReason::HostKeyNotVerifiable,
         Failure::WrongService => DisconnectReason::ServiceNotAvailable,
@@ -495,11 +537,11 @@ fn host_key_order(c: &Connection, initial: bool) -> Vec<SignatureAlgorithm> {
     let mut rest: Vec<SignatureAlgorithm> = Vec::new();
     for a in c.config.host_keys.iter() {
         let key_type = key_type_name(*a);
-        let has_key = c
-            .config
-            .known_hosts
-            .iter()
-            .any(|k| !k.revoked && k.key_type == key_type && names_host(&k.hosts, &c.config.host, c.config.port));
+        let has_key = c.config.known_hosts.iter().any(|k| {
+            !k.revoked
+                && k.key_type == key_type
+                && matches!(names_host(&k.hosts, &c.config.host, c.config.port), LineMatch::Names)
+        });
         if has_key {
             known.push(*a);
         } else {
@@ -512,12 +554,20 @@ fn host_key_order(c: &Connection, initial: bool) -> Vec<SignatureAlgorithm> {
     known
 }
 
+/// The strict markers the initial KEXINIT offers: both, for the widest
+/// reach (draft-ietf-sshm-strict-kex-02 §3.1).
+fn strict_markers() -> Vec<String> {
+    vec![String::from(STRICT_KEX_CLIENT_STANDARD), String::from(STRICT_KEX_CLIENT)]
+}
+
 /// `guess`: a guessed KEX_ECDH_INIT follows.
 pub fn our_offer(c: &Connection, initial: bool, guess: bool) -> Offer {
     let mut kex: Vec<String> = c.config.kex.iter().map(|k| kex_name(*k)).collect();
     if initial {
         kex.push(String::from(EXT_INFO_CLIENT));
-        kex.push(String::from(STRICT_KEX_CLIENT));
+        for marker in strict_markers() {
+            kex.push(marker);
+        }
     }
     Offer {
         kex,
@@ -653,6 +703,9 @@ pub enum Trust {
     /// A key of the same type is listed for this host, and it is another.
     Changed,
     Revoked,
+    /// No readable line names this host with a key of this type, and a
+    /// hashed line for the type could not be read.
+    Undecidable,
 }
 
 /// StrictHostKeyChecking yes, accept-new, ask.
@@ -663,27 +716,304 @@ pub enum HostKeyPolicy {
     Ask,
 }
 
-fn names_host(hosts: &str, host: &str, port: u16) -> bool {
-    hosts.split(',').any(|pattern| names_one(pattern, host, port))
+/// Whether a known_hosts line's host list names the host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineMatch {
+    Names,
+    Other,
+    /// A hashed name that is not "|1|salt|hash" with a 20-byte salt and
+    /// hash in base64.
+    Unreadable,
 }
 
-/// As OpenSSH writes and reads a name (`misc.c` put_host_port, `match.c`):
-/// the bare host for port 22, `[host]:port` for any other in plain decimal;
-/// host names compared without ASCII case.
-fn names_one(pattern: &str, host: &str, port: u16) -> bool {
-    match pattern.strip_prefix("[") {
-        None => port == 22 && pattern.eq_ignore_ascii_case(host),
-        Some(rest) => match rest.split_once("]:") {
-            Some((h, p)) => {
-                let plain = !p.is_empty() && p.bytes().all(|b| matches!(b, b'0'..=b'9')) && !p.starts_with("0");
-                match p.parse::<u16>() {
-                    Ok(n) => plain && port != 22 && n == port && h.eq_ignore_ascii_case(host),
-                    Err(_) => false,
+/// sshd(8): each pattern in turn; a negated one that matches means the
+/// line does not apply, whatever else matched (OpenSSH `match_hostname`).
+/// A hashed name is the whole field and takes no operators.
+fn names_host(hosts: &str, host: &str, port: u16) -> LineMatch {
+    let name = lookup_name(host, port);
+    if hosts.starts_with("|") {
+        return hashed_names(hosts, &name);
+    }
+    let mut positive = false;
+    for pattern in hosts.split(',') {
+        match pattern.strip_prefix("!") {
+            Some(negated) => {
+                if glob(&lowered(negated), &name) {
+                    return LineMatch::Other;
                 }
             }
-            None => false,
-        },
+            None => {
+                if glob(&lowered(pattern), &name) {
+                    positive = true;
+                }
+            }
+        }
     }
+    if positive {
+        LineMatch::Names
+    } else {
+        LineMatch::Other
+    }
+}
+
+fn lower(b: u32) -> u32 {
+    if matches!(b, 65..=90) {
+        b + 32
+    } else {
+        b
+    }
+}
+
+fn lowered(s: &str) -> Vec<u32> {
+    s.bytes().map(|b| lower(u32::from(b))).collect()
+}
+
+/// The name as OpenSSH writes and looks it up (`misc.c` put_host_port):
+/// the host for port 22, `[host]:port` in plain decimal for any other; its
+/// bytes, ASCII lower-cased.
+fn lookup_name(host: &str, port: u16) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    if port != 22 {
+        out.push(u32::from(b'['));
+    }
+    for b in host.bytes() {
+        out.push(lower(u32::from(b)));
+    }
+    if port != 22 {
+        out.push(u32::from(b']'));
+        out.push(u32::from(b':'));
+        let p = u32::from(port);
+        let mut div: u32 = 1;
+        while div * 10 <= p {
+            div *= 10;
+        }
+        while div > 0 {
+            out.push(u32::from(b'0') + (p / div) % 10);
+            div /= 10;
+        }
+    }
+    out
+}
+
+/// `*` any run of bytes, `?` one byte, anything else itself (OpenSSH
+/// `match_pattern`), with the last `*` backtracked to.
+fn glob(pattern: &Vec<u32>, name: &Vec<u32>) -> bool {
+    let star = u32::from(b'*');
+    let mut p: usize = 0;
+    let mut n: usize = 0;
+    let mut last_star: Option<usize> = None;
+    let mut resume: usize = 0;
+    while n < name.len() {
+        if p < pattern.len() && pattern[p] == star {
+            last_star = Some(p);
+            resume = n;
+            p += 1;
+        } else if matches_one(pattern, p, name[n]) {
+            p += 1;
+            n += 1;
+        } else {
+            match last_star {
+                Some(s) => {
+                    p = s + 1;
+                    resume += 1;
+                    n = resume;
+                }
+                None => return false,
+            }
+        }
+    }
+    while p < pattern.len() && pattern[p] == star {
+        p += 1;
+    }
+    p == pattern.len()
+}
+
+/// Whether `pattern[p]` exists and matches the byte `b` alone.
+fn matches_one(pattern: &Vec<u32>, p: usize, b: u32) -> bool {
+    if p >= pattern.len() {
+        return false;
+    }
+    let any = u32::from(b'?');
+    pattern[p] == any || pattern[p] == b
+}
+
+/// "|1|" base64(salt) "|" base64(HMAC-SHA1(salt, name)) (OpenSSH
+/// hostfile.c `host_hash`, salt and hash 20 bytes each).
+fn hashed_names(field: &str, name: &Vec<u32>) -> LineMatch {
+    let parts = match field.strip_prefix("|1|") {
+        Some(rest) => rest.split_once('|'),
+        None => None,
+    };
+    let decoded = match parts {
+        Some((s, h)) => (base64_decode(s), base64_decode(h)),
+        None => return LineMatch::Unreadable,
+    };
+    match decoded {
+        (Some(salt), Some(hash)) => {
+            if salt.len() != 20 || hash.len() != 20 {
+                return LineMatch::Unreadable;
+            }
+            let mac = hmac_sha1(&salt, name);
+            for i in 0..20usize {
+                if mac[i] != hash[i] {
+                    return LineMatch::Other;
+                }
+            }
+            LineMatch::Names
+        }
+        _ => LineMatch::Unreadable,
+    }
+}
+
+/// The base64 alphabet (RFC 4648 §4).
+fn base64_value(b: u8) -> Option<u32> {
+    match b {
+        b'A'..=b'Z' => Some(u32::from(b - b'A')),
+        b'a'..=b'z' => Some(u32::from(b - b'a') + 26),
+        b'0'..=b'9' => Some(u32::from(b - b'0') + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
+}
+
+/// Base64 with padding (RFC 4648 §4) to bytes, one per u32; None when the
+/// length is not a multiple of 4 or a character is out of place.
+fn base64_decode(s: &str) -> Option<Vec<u32>> {
+    if s.len() % 4 != 0 {
+        return None;
+    }
+    let mut out: Vec<u32> = Vec::new();
+    let mut acc: u32 = 0;
+    let mut held: u32 = 0;
+    let mut padding: usize = 0;
+    for b in s.bytes() {
+        if b == b'=' {
+            padding += 1;
+            continue;
+        }
+        if padding > 0 {
+            return None;
+        }
+        let v = base64_value(b)?;
+        acc = (acc << 6) | v;
+        held += 6;
+        if held >= 8 {
+            held -= 8;
+            out.push((acc >> held) & 0xff);
+            acc &= (1 << held) - 1;
+        }
+    }
+    if padding > 2 {
+        return None;
+    }
+    Some(out)
+}
+
+/// ROTL^n(x) (FIPS 180-4 §3.2), for 0 < n < 32.
+fn rotl(x: u32, n: u32) -> u32 {
+    (x << n) | (x >> (32 - n))
+}
+
+/// SHA-1 (FIPS 180-4 §5.1.1, §6.1) of bytes held one per u32, as its 20
+/// bytes. The bit length is a u32: the messages here are under 400 bytes.
+fn sha1(message: &Vec<u32>) -> Vec<u32> {
+    let mut bytes: Vec<u32> = Vec::new();
+    let mut bits: u32 = 0;
+    for b in message.iter() {
+        bytes.push(*b);
+        bits += 8;
+    }
+    bytes.push(0x80);
+    while bytes.len() % 64 != 56 {
+        bytes.push(0);
+    }
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(0);
+    bytes.push(bits >> 24);
+    bytes.push((bits >> 16) & 0xff);
+    bytes.push((bits >> 8) & 0xff);
+    bytes.push(bits & 0xff);
+    let mut h0: u32 = 0x67452301;
+    let mut h1: u32 = 0xefcdab89;
+    let mut h2: u32 = 0x98badcfe;
+    let mut h3: u32 = 0x10325476;
+    let mut h4: u32 = 0xc3d2e1f0;
+    let mut block: usize = 0;
+    while block < bytes.len() {
+        let mut w: Vec<u32> = Vec::new();
+        for t in 0..80usize {
+            if t < 16 {
+                let i = block + 4 * t;
+                w.push((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]);
+            } else {
+                w.push(rotl(w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16], 1));
+            }
+        }
+        let mut a = h0;
+        let mut b = h1;
+        let mut c = h2;
+        let mut d = h3;
+        let mut e = h4;
+        for t in 0..80usize {
+            let f = if t < 20 {
+                (b & c) | (!b & d)
+            } else if t < 40 || t >= 60 {
+                b ^ c ^ d
+            } else {
+                (b & c) | (b & d) | (c & d)
+            };
+            let k: u32 = if t < 20 {
+                0x5a827999
+            } else if t < 40 {
+                0x6ed9eba1
+            } else if t < 60 {
+                0x8f1bbcdc
+            } else {
+                0xca62c1d6
+            };
+            let temp = rotl(a, 5).wrapping_add(f).wrapping_add(e).wrapping_add(k).wrapping_add(w[t]);
+            e = d;
+            d = c;
+            c = rotl(b, 30);
+            b = a;
+            a = temp;
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+        block += 64;
+    }
+    let mut out: Vec<u32> = Vec::new();
+    for h in vec![h0, h1, h2, h3, h4] {
+        out.push(h >> 24);
+        out.push((h >> 16) & 0xff);
+        out.push((h >> 8) & 0xff);
+        out.push(h & 0xff);
+    }
+    out
+}
+
+/// HMAC-SHA1 (RFC 2104) with a key of at most 64 bytes.
+fn hmac_sha1(key: &Vec<u32>, message: &Vec<u32>) -> Vec<u32> {
+    let mut inner: Vec<u32> = Vec::new();
+    let mut outer: Vec<u32> = Vec::new();
+    for i in 0..64usize {
+        let k = if i < key.len() { key[i] } else { 0 };
+        inner.push(k ^ 0x36);
+        outer.push(k ^ 0x5c);
+    }
+    for b in message.iter() {
+        inner.push(*b);
+    }
+    for b in sha1(&inner) {
+        outer.push(b);
+    }
+    sha1(&outer)
 }
 
 /// A revoked key is refused for every host (sshd(8), @revoked).
@@ -693,13 +1023,23 @@ pub fn judge_host_key(known: &Vec<KnownHost>, host: &str, port: u16, key: &HostK
         return Trust::Revoked;
     }
     let mut trust = Trust::Unknown;
+    let mut unreadable = false;
     for k in known.iter() {
-        if !k.revoked && k.key_type == key.key_type && names_host(&k.hosts, host, port) {
-            if k.fingerprint == key.fingerprint {
-                return Trust::Known;
+        if !k.revoked && k.key_type == key.key_type {
+            match names_host(&k.hosts, host, port) {
+                LineMatch::Names => {
+                    if k.fingerprint == key.fingerprint {
+                        return Trust::Known;
+                    }
+                    trust = Trust::Changed;
+                }
+                LineMatch::Unreadable => unreadable = true,
+                LineMatch::Other => {}
             }
-            trust = Trust::Changed;
         }
+    }
+    if unreadable && matches!(trust, Trust::Unknown) {
+        return Trust::Undecidable;
     }
     trust
 }
@@ -734,6 +1074,9 @@ pub enum ConfigError {
     NoKex,
     NoHostKeys,
     NoCiphers,
+    /// RFC 4253 §7.1: each name-list holds at least one name, the MAC
+    /// list included (it is sent even when every cipher is AEAD).
+    NoMacs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -829,6 +1172,9 @@ pub struct Connection {
     pub inbound: Option<Transform>,
     /// RFC 8308 §3.1, once the server sends EXT_INFO.
     pub server_sig_algs: Option<Vec<String>>,
+    /// The next packet is the first after the server's first NEWKEYS, where
+    /// EXT_INFO may come (RFC 8308 §2.4).
+    pub ext_info_next: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -968,6 +1314,9 @@ pub fn start(config: Config) -> Result<(Connection, Vec<Action>), ConfigError> {
     if config.ciphers.is_empty() {
         return Err(ConfigError::NoCiphers);
     }
+    if config.macs.is_empty() {
+        return Err(ConfigError::NoMacs);
+    }
     let line = config.identification.clone();
     let c = Connection {
         config,
@@ -982,6 +1331,7 @@ pub fn start(config: Config) -> Result<(Connection, Vec<Action>), ConfigError> {
         outbound: None,
         inbound: None,
         server_sig_algs: None,
+        ext_info_next: false,
     };
     Ok((c, vec![Action::Identify(line)]))
 }
@@ -1063,11 +1413,15 @@ fn on_packet(c: Connection, m: Message) -> Result<(Connection, Vec<Action>), Fai
         _ => {}
     }
     let seq = c.recv_seq;
-    let c = Connection { recv_seq: seq.wrapping_add(1), ..c };
+    let window = c.ext_info_next;
+    let c = Connection { recv_seq: seq.wrapping_add(1), ext_info_next: false, ..c };
     match m {
         Message::Disconnect { code, description } => {
             Ok((Connection { phase: Phase::Closed { code, description }, ..c }, Vec::new()))
         }
+        // RFC 8308 §2.4's first opportunity; the second, during
+        // authentication, is `in_auth`'s.
+        Message::ExtInfo { server_sig_algs } if window => ext_info(c, server_sig_algs),
         _ => in_phase(c, m, seq),
     }
 }
@@ -1132,8 +1486,12 @@ fn on_kex_init(
     sent_before: Vec<Action>,
 ) -> Result<(Connection, Vec<Action>), Failure> {
     let strict = if kx.initial {
-        let kex = name_list(&peer.kex)?;
-        listed(&kex, STRICT_KEX_SERVER) || listed(&kex, STRICT_KEX_SERVER_STANDARD)
+        let theirs = name_list(&peer.kex)?;
+        let ours = strict_markers();
+        // draft-ietf-sshm-strict-kex-02 §3.1: a matching pair only.
+        let standard = listed(&ours, STRICT_KEX_CLIENT_STANDARD) && listed(&theirs, STRICT_KEX_SERVER_STANDARD);
+        let v00 = listed(&ours, STRICT_KEX_CLIENT) && listed(&theirs, STRICT_KEX_SERVER);
+        standard || v00
     } else {
         c.strict
     };
@@ -1161,13 +1519,16 @@ fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connecti
         }
         _ => {}
     }
-    let peer_new_keys = matches!(kx.stage, KexStage::AwaitingApproval { peer_new_keys: true, .. });
+    let server_keyed = matches!(kx.stage, KexStage::AwaitingApproval { peer_new_keys: true, .. });
     let kex_message = matches!(m, Message::KexInit(_) | Message::KexReply(_) | Message::NewKeys);
-    if c.strict && kx.initial && !peer_new_keys && !kex_message {
+    // Until our own NEWKEYS too (draft-ietf-sshm-strict-kex-02 §3.2): the
+    // server's NEWKEYS does not end the initial exchange while the user is
+    // asked. The EXT_INFO allowed right after it is taken in `on_packet`.
+    if c.strict && kx.initial && !kex_message {
         return Err(Failure::StrictKexViolation(message_number(&m)));
     }
     // The server is between its KEXINIT and its NEWKEYS.
-    let peer_in_kex = !peer_new_keys && !matches!(kx.stage, KexStage::AwaitingKexInit { .. });
+    let peer_in_kex = !server_keyed && !matches!(kx.stage, KexStage::AwaitingKexInit { .. });
     let established = matches!(kx.resume, Resume::Established);
     match (kx.stage.clone(), m) {
         (KexStage::AwaitingKexInit { guessed }, Message::KexInit(peer)) => {
@@ -1184,7 +1545,6 @@ fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connecti
         (KexStage::AwaitingNewKeys { algorithms }, Message::NewKeys) => {
             Ok(finish_kex(peer_keyed(c, &algorithms), kx, Vec::new()))
         }
-        (_, Message::ExtInfo { server_sig_algs }) if peer_new_keys => ext_info(c, server_sig_algs),
         (_, Message::Ignore | Message::Debug | Message::Unimplemented { .. }) => Ok((c, Vec::new())),
         (_, Message::Other(n)) => other(c, n, seq, peer_in_kex, established && !peer_in_kex),
         (_, m) => Err(Failure::UnexpectedMessage(message_number(&m))),
@@ -1194,7 +1554,8 @@ fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connecti
 /// The server's NEWKEYS: what it sends next is under the new keys.
 fn peer_keyed(c: Connection, algorithms: &Algorithms) -> Connection {
     let recv_seq: u32 = if c.strict { 0 } else { c.recv_seq };
-    Connection { inbound: Some(algorithms.server_to_client), recv_seq, ..c }
+    let first = c.inbound.is_none();
+    Connection { inbound: Some(algorithms.server_to_client), recv_seq, ext_info_next: first, ..c }
 }
 
 fn on_reply(
@@ -1236,15 +1597,18 @@ fn on_reply(
         Trust::Unknown => match c.config.policy {
             HostKeyPolicy::Strict => Err(Failure::HostKeyUnknown),
             HostKeyPolicy::AcceptNew => Ok(keyed(c, kx, algorithms, vec![Action::Learn(key)])),
-            HostKeyPolicy::Ask => {
-                let stage = KexStage::AwaitingApproval { algorithms, host_key: key.clone(), peer_new_keys: false };
-                Ok((
-                    Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c },
-                    vec![Action::AskHostKey(key)],
-                ))
-            }
+            HostKeyPolicy::Ask => Ok(ask(c, kx, algorithms, key)),
+        },
+        Trust::Undecidable => match c.config.policy {
+            HostKeyPolicy::Strict | HostKeyPolicy::AcceptNew => Err(Failure::KnownHostsUnreadable),
+            HostKeyPolicy::Ask => Ok(ask(c, kx, algorithms, key)),
         },
     }
+}
+
+fn ask(c: Connection, kx: KexState, algorithms: Algorithms, key: HostKey) -> (Connection, Vec<Action>) {
+    let stage = KexStage::AwaitingApproval { algorithms, host_key: key.clone(), peer_new_keys: false };
+    (Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c }, vec![Action::AskHostKey(key)])
 }
 
 /// Our NEWKEYS: what we send next is under the new keys.
@@ -1313,10 +1677,10 @@ fn in_service(c: Connection, m: Message, seq: u32) -> Result<(Connection, Vec<Ac
             if name.as_str() != USERAUTH_SERVICE {
                 return Err(Failure::WrongService);
             }
-            let auth = Auth { pending: Pending::Probe, next_key: 0, next_alg: 0, password_tries: 0, partial_successes: 0 };
+            let auth =
+                Auth { pending: Pending::Probe, next_key: 0, next_alg: 0, password_tries: 0, partial_successes: 0 };
             Ok((Connection { phase: Phase::Authenticating(auth), ..c }, vec![Action::AuthNone]))
         }
-        Message::ExtInfo { server_sig_algs } => ext_info(c, server_sig_algs),
         Message::KexInit(peer) => peer_kex(c, Resume::Service, peer, seq),
         Message::Ignore | Message::Debug | Message::Unimplemented { .. } => Ok((c, Vec::new())),
         Message::Other(n) => other(c, n, seq, false, false),
@@ -1435,7 +1799,10 @@ pub fn check_packet(c: &Connection, d: Direction, packet_length: u32, padding_le
     if padding < MIN_PADDING {
         return Err(FramingError::PaddingTooShort);
     }
-    if packet_length < padding + 2 {
+    // The whole packet, length field included, is at least 16 bytes or a
+    // block, whichever is larger (§6); under EtM and AEAD too, where the
+    // alignment alone would let 12 through.
+    if packet_length < padding + 2 || packet_length + 4 < block.max(MIN_PACKET) {
         return Err(FramingError::TooShort);
     }
     let covered = if length_in_clear { packet_length } else { packet_length + 4 };

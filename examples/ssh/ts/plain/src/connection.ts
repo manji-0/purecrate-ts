@@ -28,6 +28,11 @@ export type Connection = Readonly<{
   inbound: Transform | null;
   /** RFC 8308 §3.1, once the server sends EXT_INFO. */
   server_sig_algs: ReadonlyArray<string> | null;
+  /**
+   * The next packet is the first after the server's first NEWKEYS, where
+   * EXT_INFO may come (RFC 8308 §2.4).
+   */
+  ext_info_next: boolean;
 }>;
 
 export const Connection = {
@@ -44,6 +49,7 @@ export const Connection = {
     outbound: Transform | null,
     inbound: Transform | null,
     serverSigAlgs: ReadonlyArray<string> | null,
+    extInfoNext: boolean,
   ): Connection => ({
     config,
     phase,
@@ -57,5 +63,6 @@ export const Connection = {
     outbound,
     inbound,
     server_sig_algs: serverSigAlgs,
+    ext_info_next: extInfoNext,
   }),
 } as const;

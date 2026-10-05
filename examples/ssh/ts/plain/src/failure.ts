@@ -23,6 +23,7 @@ export type Failure =
   | Readonly<{ kind: "HostKeyUnknown" }>
   | Readonly<{ kind: "HostKeyChanged" }>
   | Readonly<{ kind: "HostKeyRevoked" }>
+  | Readonly<{ kind: "KnownHostsUnreadable" }>
   | Readonly<{ kind: "HostKeyRejected" }>
   | Readonly<{ kind: "HostKeyChangedOnRekey" }>
   | Readonly<{ kind: "WrongService" }>
@@ -50,6 +51,11 @@ export const Failure = {
   HostKeyUnknown: (): Failure => ({ kind: "HostKeyUnknown" }),
   HostKeyChanged: (): Failure => ({ kind: "HostKeyChanged" }),
   HostKeyRevoked: (): Failure => ({ kind: "HostKeyRevoked" }),
+  /**
+   * A hashed known_hosts line for the key's type could not be read, and
+   * no other line decides (see `Trust::Undecidable`).
+   */
+  KnownHostsUnreadable: (): Failure => ({ kind: "KnownHostsUnreadable" }),
   HostKeyRejected: (): Failure => ({ kind: "HostKeyRejected" }),
   HostKeyChangedOnRekey: (): Failure => ({ kind: "HostKeyChangedOnRekey" }),
   WrongService: (): Failure => ({ kind: "WrongService" }),

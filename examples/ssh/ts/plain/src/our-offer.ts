@@ -3,12 +3,13 @@
 import { Str } from "./purecrate-runtime.ts";
 import { cipherName } from "./cipher-name.ts";
 import type { Connection } from "./connection.ts";
-import { EXT_INFO_CLIENT, STRICT_KEX_CLIENT } from "./consts.ts";
+import { EXT_INFO_CLIENT } from "./consts.ts";
 import { hostKeyOrder } from "./host-key-order.ts";
 import { kexName } from "./kex-name.ts";
 import { macName } from "./mac-name.ts";
 import type { Offer } from "./offer.ts";
 import { signatureName } from "./signature-name.ts";
+import { strictMarkers } from "./strict-markers.ts";
 
 /** `guess`: a guessed KEX_ECDH_INIT follows. */
 export const ourOffer = (c: Connection, initial: boolean, guess: boolean): Offer => {
@@ -17,7 +18,10 @@ export const ourOffer = (c: Connection, initial: boolean, guess: boolean): Offer
 
   if (initial) {
     kex.push(EXT_INFO_CLIENT);
-    kex.push(STRICT_KEX_CLIENT);
+
+    for (const marker of strictMarkers()) {
+      kex.push(marker);
+    }
   }
 
   return {

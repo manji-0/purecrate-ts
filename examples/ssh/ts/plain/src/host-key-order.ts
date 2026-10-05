@@ -27,11 +27,16 @@ export const hostKeyOrder = (
 
   for (const a of c.config.host_keys) {
     const keyType = keyTypeName(a);
-    const hasKey = Iter.any(
-      c.config.known_hosts,
-      (k: KnownHost): boolean =>
-        !k.revoked && k.key_type === keyType && namesHost(k.hosts, c.config.host, c.config.port),
-    );
+
+    const hasKey = Iter.any(c.config.known_hosts, (k: KnownHost): boolean => {
+      if (!k.revoked && k.key_type === keyType) {
+        const lineMatch = namesHost(k.hosts, c.config.host, c.config.port);
+        return lineMatch.kind === "Names";
+      }
+
+      return false;
+    });
+
     if (hasKey) {
       known.push(a);
     } else {

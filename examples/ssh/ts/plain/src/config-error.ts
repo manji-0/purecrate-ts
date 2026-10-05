@@ -4,11 +4,17 @@ export type ConfigError =
   | Readonly<{ kind: "BadIdentification" }>
   | Readonly<{ kind: "NoKex" }>
   | Readonly<{ kind: "NoHostKeys" }>
-  | Readonly<{ kind: "NoCiphers" }>;
+  | Readonly<{ kind: "NoCiphers" }>
+  | Readonly<{ kind: "NoMacs" }>;
 
 export const ConfigError = {
   BadIdentification: (): ConfigError => ({ kind: "BadIdentification" }),
   NoKex: (): ConfigError => ({ kind: "NoKex" }),
   NoHostKeys: (): ConfigError => ({ kind: "NoHostKeys" }),
   NoCiphers: (): ConfigError => ({ kind: "NoCiphers" }),
+  /**
+   * RFC 4253 §7.1: each name-list holds at least one name, the MAC
+   * list included (it is sent even when every cipher is AEAD).
+   */
+  NoMacs: (): ConfigError => ({ kind: "NoMacs" }),
 } as const;

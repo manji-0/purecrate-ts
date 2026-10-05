@@ -293,6 +293,7 @@ fn scenarios() -> Vec<(Config, Vec<Event>)> {
             vec![packet(Message::ExtInfo { server_sig_algs: None }), packet(Message::ServiceAccept(s("ssh-userauth")))],
         ),
     ));
+    out.push((usual(), with(handshake(6), vec![packet(Message::ExtInfo { server_sig_algs: None })])));
     for hosts in ["[example.com]:22", "[example.com]:022", "[example.com]:+2222", "EXAMPLE.com", "[Example.COM]:2222"] {
         for port in [22, 2222] {
             out.push((
@@ -322,6 +323,109 @@ fn scenarios() -> Vec<(Config, Vec<Event>)> {
     out.push((Config { identification: s("SSH-1.99-x"), ..usual() }, vec![]));
     out.push((Config { kex: vec![], ..usual() }, vec![]));
     out.push((Config { ciphers: vec![], ..usual() }, vec![]));
+    out.push((Config { macs: vec![], ..usual() }, vec![]));
+    for (config, events) in second_review() {
+        out.push((config, events));
+    }
+    out
+}
+
+/// A server that offers strict key exchange and only curve25519-sha256,
+/// under the given marker.
+fn strict_server(marker: &str) -> KexInit {
+    openssh(&format!("curve25519-sha256,{marker}"), HOST_KEYS, CIPHERS, MACS)
+}
+
+/// The asking client up to the server's NEWKEYS, before the user answers.
+fn asked_until_newkeys(marker: &str) -> Vec<Event> {
+    vec![
+        line(SERVER_ID),
+        packet(Message::KexInit(strict_server(marker))),
+        packet(Message::KexReply(reply(ED25519, true))),
+        packet(Message::NewKeys),
+    ]
+}
+
+/// `ssh-keygen -H` of "example.com ssh-ed25519 ..." (OpenSSH 9).
+const HASHED_EXAMPLE: &str = "|1|i5wVoPL3NMHPjE2M7VS9F9cdyWI=|FnOLpAkxRvln2GNDFqo6MDaYbCs=";
+/// HMAC-SHA1 under the salt 01..14 (hex) of "[example.com]:2222" and of
+/// "other.com" (Python's hmac).
+const HASHED_EXAMPLE_2222: &str = "|1|AQIDBAUGBwgJCgsMDQ4PEBESExQ=|uVLj+YL3GsbtNOcCoC7AMM/WVh0=";
+const HASHED_OTHER: &str = "|1|AQIDBAUGBwgJCgsMDQ4PEBESExQ=|2hzofD67+kU8Bf7yIZLme35XOuQ=";
+
+/// known_hosts host fields from the second review, with whether each names
+/// example.com on port 22 and on port 2222.
+fn host_fields() -> Vec<(&'static str, bool, bool)> {
+    vec![
+        ("!example.com,example.com", false, false),
+        ("example.com,!example.com", false, false),
+        ("!other.com,example.com", true, false),
+        ("*", true, true),
+        ("*.com", true, false),
+        ("exam?le.com", true, false),
+        ("EXAM*.COM", true, false),
+        ("ex*e.c?m", true, false),
+        ("*.org", false, false),
+        ("example.co?", true, false),
+        ("example.com?", false, false),
+        ("[*]:2222", false, true),
+        ("[example.com]:*", false, true),
+        ("![example.com]:2222,*", true, false),
+        (HASHED_EXAMPLE, true, false),
+        (HASHED_EXAMPLE_2222, false, true),
+        (HASHED_OTHER, false, false),
+    ]
+}
+
+/// Hashed fields that cannot be read: another magic, bad base64, a salt
+/// of 19 bytes, a missing hash.
+const UNREADABLE: [&str; 4] = [
+    "|2|i5wVoPL3NMHPjE2M7VS9F9cdyWI=|FnOLpAkxRvln2GNDFqo6MDaYbCs=",
+    "|1|i5wVoPL3NMHPjE2M7VS9F9cdyWI|FnOLpAkxRvln2GNDFqo6MDaYbCs=",
+    "|1|AQIDBAUGBwgJCgsMDQ4PEBESEw==|FnOLpAkxRvln2GNDFqo6MDaYbCs=",
+    "|1|i5wVoPL3NMHPjE2M7VS9F9cdyWI=",
+];
+
+fn second_review() -> Vec<(Config, Vec<Event>)> {
+    let mut out = Vec::new();
+    let ask = config(HostKeyPolicy::Ask, vec![], false);
+    for marker in ["kex-strict-s-v00@openssh.com", "kex-strict-s", "ext-info-s", "kex-strict-c"] {
+        for more in [
+            vec![packet(Message::Other(5))],
+            vec![packet(Message::Ignore)],
+            vec![packet(Message::ExtInfo { server_sig_algs: None }), packet(Message::Debug)],
+            vec![packet(Message::ExtInfo { server_sig_algs: None }), Event::HostKeyAnswer(true)],
+            vec![Event::HostKeyAnswer(true), packet(Message::Other(5))],
+        ] {
+            out.push((ask.clone(), with(asked_until_newkeys(marker), more)));
+        }
+    }
+    // EXT_INFO out of place: in the service request after the first, after
+    // a re-exchange's NEWKEYS, once established.
+    let rekeyed = vec![
+        packet(Message::KexInit(server())),
+        packet(Message::KexReply(reply(ED25519, true))),
+        packet(Message::NewKeys),
+        packet(Message::ExtInfo { server_sig_algs: None }),
+    ];
+    out.push((usual(), with(handshake(5), rekeyed.clone())));
+    out.push((usual(), with(handshake(9), rekeyed)));
+    for (hosts, _, _) in host_fields() {
+        for port in [22, 2222] {
+            for fingerprint in [ED25519, OTHER] {
+                let c =
+                    Config { port, ..config(HostKeyPolicy::AcceptNew, vec![known(hosts, fingerprint, false)], false) };
+                out.push((c, handshake(3)));
+            }
+        }
+    }
+    for hosts in UNREADABLE {
+        for policy in [HostKeyPolicy::Strict, HostKeyPolicy::AcceptNew, HostKeyPolicy::Ask] {
+            out.push((config(policy, vec![known(hosts, ED25519, false)], false), handshake(3)));
+            let decided = vec![known(hosts, ED25519, false), known("example.com", ED25519, false)];
+            out.push((config(policy, decided, false), handshake(3)));
+        }
+    }
     out
 }
 
@@ -365,7 +469,11 @@ fn the_handshake_follows_the_specifications() {
     assert_eq!(a.client_to_server.mac, None, "an AEAD cipher's MAC is not negotiated");
     // Our offer carries the pseudo-algorithms in the initial KEXINIT only.
     let Action::KexInit(offer) = &actions[1] else { panic!("KEXINIT second") };
-    assert_eq!(offer.kex[offer.kex.len() - 2..], [s("ext-info-c"), s("kex-strict-c-v00@openssh.com")]);
+    assert_eq!(
+        offer.kex[offer.kex.len() - 3..],
+        [s("ext-info-c"), s("kex-strict-c"), s("kex-strict-c-v00@openssh.com")],
+        "both strict names, standard and pre-standard (draft-ietf-sshm-strict-kex-02 §3.1)"
+    );
     assert!(offer.first_kex_packet_follows);
 
     let all = scenarios();
@@ -567,6 +675,115 @@ fn the_handshake_follows_the_specifications() {
     };
     assert_eq!(refused(Config { identification: s("SSH-2.0-bad-name"), ..usual() }), ConfigError::BadIdentification);
     assert_eq!(refused(Config { kex: vec![], ..usual() }), ConfigError::NoKex);
+    // RFC 4253 §7.1: each name-list MUST contain at least one name.
+    assert_eq!(refused(Config { macs: vec![], ..usual() }), ConfigError::NoMacs);
+}
+
+#[test]
+fn the_second_review_findings_hold() {
+    let ask = config(HostKeyPolicy::Ask, vec![], false);
+    let run = |marker: &str, more: Vec<Event>| ssh::connect(ask.clone(), with(asked_until_newkeys(marker), more));
+
+    // draft-ietf-sshm-strict-kex-02 §3.2: the initial exchange lasts until
+    // our NEWKEYS too; a non-KEX message after the server's NEWKEYS while
+    // the user is asked ends the connection, and nothing goes out before
+    // our NEWKEYS.
+    for marker in ["kex-strict-s-v00@openssh.com", "kex-strict-s"] {
+        let o = run(marker, vec![packet(Message::Other(5))]);
+        assert_eq!(failed(&o), (4, &Failure::StrictKexViolation(5), 2));
+        let o = run(marker, vec![packet(Message::Ignore)]);
+        assert_eq!(failed(&o).1, &Failure::StrictKexViolation(2));
+        // RFC 8308 §2.4: EXT_INFO right after the server's NEWKEYS is taken,
+        // and the user's answer completes the exchange.
+        let o = run(marker, vec![packet(Message::ExtInfo { server_sig_algs: None }), Event::HostKeyAnswer(true)]);
+        let (c, actions) = ran(&o);
+        assert!(c.strict);
+        assert!(matches!(c.phase, Phase::Service));
+        assert_eq!(actions.last(), Some(&Action::ServiceRequest));
+        let o = run(marker, vec![packet(Message::ExtInfo { server_sig_algs: None }), packet(Message::Debug)]);
+        assert_eq!(failed(&o).1, &Failure::StrictKexViolation(4), "only the EXT_INFO right after NEWKEYS");
+        // Once both NEWKEYS are through, an unknown number is answered with
+        // its sequence number, which restarted at the server's NEWKEYS.
+        let o = run(marker, vec![Event::HostKeyAnswer(true), packet(Message::Other(5))]);
+        assert_eq!(ran(&o).1.last(), Some(&Action::Unimplemented(0)));
+    }
+    // Without strict key exchange, RFC 4253 §7.1 lets UNIMPLEMENTED go out
+    // before our NEWKEYS.
+    let o = run("ext-info-s", vec![packet(Message::Other(5))]);
+    assert!(!ran(&o).0.strict);
+    // Only a server name pairs with ours; a client name from the server
+    // enables nothing (§3.1).
+    let o = run("kex-strict-c", vec![packet(Message::Other(5))]);
+    assert!(!ran(&o).0.strict);
+    assert_eq!(ran(&o).1.last(), Some(&Action::Unimplemented(3)));
+
+    // RFC 8308 §2.4: EXT_INFO only right after the first NEWKEYS or while
+    // authenticating; not in the service request after the first, not
+    // after a re-exchange's NEWKEYS, not once established.
+    let o = ssh::connect(usual(), with(handshake(5), vec![packet(Message::ExtInfo { server_sig_algs: None })]));
+    assert_eq!(failed(&o).1, &Failure::UnexpectedMessage(7));
+    let rekeyed = vec![
+        packet(Message::KexInit(server())),
+        packet(Message::KexReply(reply(ED25519, true))),
+        packet(Message::NewKeys),
+        packet(Message::ExtInfo { server_sig_algs: None }),
+    ];
+    let o = ssh::connect(usual(), with(handshake(5), rekeyed.clone()));
+    assert_eq!(failed(&o), (8, &Failure::UnexpectedMessage(7), 2));
+    let o = ssh::connect(usual(), with(handshake(9), rekeyed));
+    assert_eq!(failed(&o), (12, &Failure::UnexpectedMessage(7), 2));
+    let o = ssh::connect(
+        usual(),
+        with(handshake(4), vec![packet(Message::Ignore), packet(Message::ExtInfo { server_sig_algs: None })]),
+    );
+    assert_eq!(failed(&o).1, &Failure::UnexpectedMessage(7), "not the next packet after NEWKEYS");
+
+    // sshd(8) known_hosts: '!' negation, '*' and '?', hashed names, all
+    // against "host" for port 22 and "[host]:port" otherwise.
+    let key = reply(ED25519, true).host_key;
+    let trust = |hosts: &str, fingerprint: &str, port: u16| {
+        ssh::judge_host_key(&vec![known(hosts, fingerprint, false)], "example.com", port, &key)
+    };
+    for (hosts, on_22, on_2222) in host_fields() {
+        for (port, names) in [(22, on_22), (2222, on_2222)] {
+            let (same, other) = if names {
+                (ssh::Trust::Known, ssh::Trust::Changed)
+            } else {
+                (ssh::Trust::Unknown, ssh::Trust::Unknown)
+            };
+            assert_eq!(trust(hosts, ED25519, port), same, "{hosts} on {port}");
+            assert_eq!(trust(hosts, OTHER, port), other, "{hosts} on {port}, another key");
+        }
+    }
+    // A host recorded only by a wildcard or a hash, with another key: a
+    // changed key under accept-new, not learned.
+    for hosts in ["*.com", HASHED_EXAMPLE] {
+        let c = config(HostKeyPolicy::AcceptNew, vec![known(hosts, OTHER, false)], false);
+        let o = ssh::connect(c, handshake(3));
+        assert_eq!(failed(&o).1, &Failure::HostKeyChanged, "{hosts}");
+    }
+    // A negated host is not named by the line, so its key is new.
+    let c = config(HostKeyPolicy::Strict, vec![known("!example.com,example.com", ED25519, false)], false);
+    assert_eq!(failed(&ssh::connect(c, handshake(3))).1, &Failure::HostKeyUnknown);
+
+    // A hashed line that cannot be read: never learned over, never taken
+    // as known; asked about under ask; a readable line still decides.
+    for hosts in UNREADABLE {
+        assert_eq!(trust(hosts, ED25519, 22), ssh::Trust::Undecidable, "{hosts}");
+        for policy in [HostKeyPolicy::Strict, HostKeyPolicy::AcceptNew] {
+            let o = ssh::connect(config(policy, vec![known(hosts, ED25519, false)], false), handshake(3));
+            assert_eq!(failed(&o), (2, &Failure::KnownHostsUnreadable, 9));
+        }
+        let o = ssh::connect(config(HostKeyPolicy::Ask, vec![known(hosts, ED25519, false)], false), handshake(3));
+        assert!(matches!(ran(&o).1.last(), Some(Action::AskHostKey(_))));
+        let decided = vec![known(hosts, ED25519, false), known("example.com", ED25519, false)];
+        let o = ssh::connect(config(HostKeyPolicy::AcceptNew, decided, false), handshake(3));
+        assert_eq!(ran(&o).1.last(), Some(&Action::NewKeys));
+    }
+    // An unreadable line of another key type does not count.
+    let rsa_line = KnownHost { key_type: s("ssh-rsa"), ..known(UNREADABLE[0], ED25519, false) };
+    let o = ssh::connect(config(HostKeyPolicy::AcceptNew, vec![rsa_line], false), handshake(3));
+    assert!(ran(&o).1.iter().any(|a| matches!(a, Action::Learn(_))));
 }
 
 #[test]
@@ -589,8 +806,9 @@ fn the_independent_review_findings_hold() {
         assert!(!ran(&o).1.iter().any(|a| matches!(a, Action::Unimplemented(_))), "dropped silently");
     }
 
-    // RFC 8308 §2.4: a later EXT_INFO replaces the first.
-    let o = ssh::connect(usual(), with(handshake(5), vec![packet(Message::ExtInfo { server_sig_algs: None })]));
+    // RFC 8308 §2.4: a later EXT_INFO, at the second opportunity (while
+    // authenticating), replaces the first.
+    let o = ssh::connect(usual(), with(handshake(6), vec![packet(Message::ExtInfo { server_sig_algs: None })]));
     assert_eq!(ran(&o).0.server_sig_algs, None);
 
     // known_hosts as OpenSSH writes names: bare for port 22, `[host]:port`
@@ -606,7 +824,9 @@ fn the_independent_review_findings_hold() {
     assert_eq!(trust("[Example.COM]:2222", 2222), ssh::Trust::Known);
     assert_eq!(trust("EXAMPLE.com", 22), ssh::Trust::Known);
 
-    // The standard strict marker is the v00 one (draft §5.1).
+    // The standard server marker enables strict key exchange: the client
+    // also offers the standard client name (draft-ietf-sshm-strict-kex-02
+    // §3.1).
     let standard = openssh("curve25519-sha256,kex-strict-s", HOST_KEYS, CIPHERS, MACS);
     let o = ssh::connect(usual(), vec![line(SERVER_ID), packet(Message::KexInit(standard.clone()))]);
     assert!(ran(&o).0.strict);
@@ -660,6 +880,8 @@ fn framing_and_keys_follow_the_specifications() {
 
     // §7.2: chacha20-poly1305 under mlkem768x25519-sha256 needs two 64-byte
     // keys, two SHA-256 rounds each, and nothing else.
+    // §6: at least 16 bytes with the length field, under AEAD too.
+    assert_eq!(ssh::check_packet(keyed, Direction::ServerToClient, 8, 4), Err(FramingError::TooShort));
     let plan = ssh::key_plan(&keyed.algorithms.expect("negotiated"));
     let lengths: Vec<(char, usize, usize)> = plan.iter().map(|k| (k.letter, k.length, k.rounds)).collect();
     assert_eq!(lengths, [('A', 0, 0), ('B', 0, 0), ('C', 64, 2), ('D', 64, 2), ('E', 0, 0), ('F', 0, 0)]);
@@ -715,7 +937,9 @@ fn ssh_matches_rust() {
         };
         for c in [&opened, &keyed] {
             for d in [Direction::ClientToServer, Direction::ServerToClient] {
-                for (length, padding) in [(12, 4), (12, 3), (13, 4), (16, 4), (5, 4), (262_144, 15), (262_148, 4)] {
+                for (length, padding) in
+                    [(8, 4), (12, 4), (12, 3), (13, 4), (16, 4), (24, 4), (5, 4), (262_144, 15), (262_148, 4)]
+                {
                     cases.push(case!(ssh::check_packet(c, d, length, padding)));
                 }
             }

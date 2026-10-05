@@ -4,7 +4,8 @@ export type Trust =
   | Readonly<{ kind: "Known" }>
   | Readonly<{ kind: "Unknown" }>
   | Readonly<{ kind: "Changed" }>
-  | Readonly<{ kind: "Revoked" }>;
+  | Readonly<{ kind: "Revoked" }>
+  | Readonly<{ kind: "Undecidable" }>;
 
 export const Trust = {
   Known: (): Trust => ({ kind: "Known" }),
@@ -12,4 +13,9 @@ export const Trust = {
   /** A key of the same type is listed for this host, and it is another. */
   Changed: (): Trust => ({ kind: "Changed" }),
   Revoked: (): Trust => ({ kind: "Revoked" }),
+  /**
+   * No readable line names this host with a key of this type, and a
+   * hashed line for the type could not be read.
+   */
+  Undecidable: (): Trust => ({ kind: "Undecidable" }),
 } as const;

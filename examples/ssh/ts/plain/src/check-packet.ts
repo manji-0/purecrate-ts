@@ -3,7 +3,7 @@
 import { Int, Result, Str, type U32, type U8 } from "./purecrate-runtime.ts";
 import { cipherParams } from "./cipher-params.ts";
 import type { Connection } from "./connection.ts";
-import { MAX_PACKET_LEN, MIN_BLOCK, MIN_PADDING } from "./consts.ts";
+import { MAX_PACKET_LEN, MIN_BLOCK, MIN_PACKET, MIN_PADDING } from "./consts.ts";
 import type { Direction } from "./direction.ts";
 import type { FramingError } from "./framing-error.ts";
 import { macIsEtm } from "./mac-is-etm.ts";
@@ -41,7 +41,15 @@ export const checkPacket = (
   const padding = paddingLength as number as U32;
   if (packetLength > MAX_PACKET_LEN) return Result.err({ kind: "TooLong" });
   if (padding < MIN_PADDING) return Result.err({ kind: "PaddingTooShort" });
-  if (packetLength < Int.u32.add(padding, 2 as U32)) return Result.err({ kind: "TooShort" });
+
+  // The whole packet, length field included, is at least 16 bytes or a
+  // block, whichever is larger (§6); under EtM and AEAD too, where the
+  // alignment alone would let 12 through.
+  if (
+    packetLength < Int.u32.add(padding, 2 as U32) ||
+    Int.u32.add(packetLength, 4 as U32) < Int.u32.max(block, MIN_PACKET)
+  )
+    return Result.err({ kind: "TooShort" });
   const covered: U32 = lengthInClear ? packetLength : Int.u32.add(packetLength, 4 as U32);
   if (Int.u32.rem(covered, block) !== 0) return Result.err({ kind: "Misaligned" });
   return Result.ok(Int.u32.sub(Int.u32.sub(packetLength, padding), 1 as U32));

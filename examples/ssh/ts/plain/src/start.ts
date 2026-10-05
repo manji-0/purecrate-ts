@@ -23,6 +23,7 @@ export const start = (
   if (config.kex.length === 0) return Result.err({ kind: "NoKex" });
   if (config.host_keys.length === 0) return Result.err({ kind: "NoHostKeys" });
   if (config.ciphers.length === 0) return Result.err({ kind: "NoCiphers" });
+  if (config.macs.length === 0) return Result.err({ kind: "NoMacs" });
   const line = config.identification;
   const c: Connection = {
     config,
@@ -37,6 +38,7 @@ export const start = (
     outbound: null,
     inbound: null,
     server_sig_algs: null,
+    ext_info_next: false,
   };
   return Result.ok([c, [{ kind: "Identify", value: line }]]);
 };

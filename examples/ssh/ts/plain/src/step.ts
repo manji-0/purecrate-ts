@@ -17,6 +17,8 @@ import type { Auth } from "./auth.ts";
 import type { Connection } from "./connection.ts";
 import {
   MAX_PREAMBLE_LINES,
+  STRICT_KEX_CLIENT,
+  STRICT_KEX_CLIENT_STANDARD,
   STRICT_KEX_SERVER,
   STRICT_KEX_SERVER_STANDARD,
   USERAUTH_SERVICE,
@@ -24,6 +26,7 @@ import {
 import type { Event } from "./event.ts";
 import type { Failure } from "./failure.ts";
 import { hostKeyOrder } from "./host-key-order.ts";
+import type { HostKey } from "./host-key.ts";
 import { judgeHostKey } from "./judge-host-key.ts";
 import type { KexInit } from "./kex-init.ts";
 import type { KexMethod } from "./kex-method.ts";
@@ -45,6 +48,7 @@ import type { Resume } from "./resume.ts";
 import type { SignatureAlgorithm } from "./signature-algorithm.ts";
 import { signatureAlgorithms } from "./signature-algorithms.ts";
 import { signatureName } from "./signature-name.ts";
+import { strictMarkers } from "./strict-markers.ts";
 
 /**
  * Methods with an X25519 part, whose shared secret must not be all zeros
@@ -203,10 +207,25 @@ const onPacket = (
   }
 
   const seq = c.recv_seq;
-  const c2: Connection = { ...c, recv_seq: Int.u32.wrappingAdd(seq, 1 as U32) };
-  if (m.kind !== "Disconnect") return inPhase(c2, m, seq);
-  const { code, description } = m;
-  return Result.ok([{ ...c2, phase: { kind: "Closed", code, description } }, []]);
+  const window = c.ext_info_next;
+  const c2: Connection = {
+    ...c,
+    recv_seq: Int.u32.wrappingAdd(seq, 1 as U32),
+    ext_info_next: false,
+  };
+
+  switch (m.kind) {
+    case "Disconnect": {
+      const { code, description } = m;
+      return Result.ok([{ ...c2, phase: { kind: "Closed", code, description } }, []]);
+    }
+    case "ExtInfo": {
+      const serverSigAlgs = m.server_sig_algs;
+      return window ? extInfo(c2, serverSigAlgs) : inPhase(c2, m, seq);
+    }
+    default:
+      return inPhase(c2, m, seq);
+  }
 };
 
 const inPhase = (
@@ -308,10 +327,16 @@ const onKexInit = (
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
   let strict;
   if (kx.initial) {
-    const kexResult = nameList(peer.kex);
-    if (kexResult.kind === "Err") return kexResult;
-    const kex = kexResult.value;
-    strict = listed(kex, STRICT_KEX_SERVER) || listed(kex, STRICT_KEX_SERVER_STANDARD);
+    const theirsResult = nameList(peer.kex);
+    if (theirsResult.kind === "Err") return theirsResult;
+    const theirs = theirsResult.value;
+    const ours = strictMarkers();
+
+    // draft-ietf-sshm-strict-kex-02 §3.1: a matching pair only.
+    const standard =
+      listed(ours, STRICT_KEX_CLIENT_STANDARD) && listed(theirs, STRICT_KEX_SERVER_STANDARD);
+    const v00 = listed(ours, STRICT_KEX_CLIENT) && listed(theirs, STRICT_KEX_SERVER);
+    strict = standard || v00;
   } else {
     strict = c.strict;
   }
@@ -359,13 +384,17 @@ const inKex = (
     }
   }
 
-  const peerNewKeys = kx.stage.kind === "AwaitingApproval" && kx.stage.peer_new_keys;
+  const serverKeyed = kx.stage.kind === "AwaitingApproval" && kx.stage.peer_new_keys;
   const kexMessage = m.kind === "KexInit" || m.kind === "KexReply" || m.kind === "NewKeys";
-  if (c.strict && kx.initial && !peerNewKeys && !kexMessage)
+
+  // Until our own NEWKEYS too (draft-ietf-sshm-strict-kex-02 §3.2): the
+  // server's NEWKEYS does not end the initial exchange while the user is
+  // asked. The EXT_INFO allowed right after it is taken in `on_packet`.
+  if (c.strict && kx.initial && !kexMessage)
     return Result.err({ kind: "StrictKexViolation", value: messageNumber(m) });
 
   // The server is between its KEXINIT and its NEWKEYS.
-  const peerInKex = !peerNewKeys && kx.stage.kind !== "AwaitingKexInit";
+  const peerInKex = !serverKeyed && kx.stage.kind !== "AwaitingKexInit";
   const established = kx.resume.kind === "Established";
 
   switch (kx.stage.kind) {
@@ -375,18 +404,13 @@ const inKex = (
       switch (m.kind) {
         case "Disconnect":
         case "ServiceAccept":
+        case "ExtInfo":
         case "NewKeys":
         case "KexReply":
         case "UserauthFailure":
         case "UserauthSuccess":
         case "UserauthBanner":
         case "Userauth60": {
-          const m2 = m as Message;
-          return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
-        }
-        case "ExtInfo": {
-          const serverSigAlgs = m.server_sig_algs;
-          if (peerNewKeys) return extInfo(c, serverSigAlgs);
           const m2 = m as Message;
           return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
         }
@@ -409,18 +433,13 @@ const inKex = (
       switch (m.kind) {
         case "Disconnect":
         case "ServiceAccept":
+        case "ExtInfo":
         case "KexInit":
         case "NewKeys":
         case "UserauthFailure":
         case "UserauthSuccess":
         case "UserauthBanner":
         case "Userauth60": {
-          const m2 = m as Message;
-          return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
-        }
-        case "ExtInfo": {
-          const serverSigAlgs = m.server_sig_algs;
-          if (peerNewKeys) return extInfo(c, serverSigAlgs);
           const m2 = m as Message;
           return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
         }
@@ -441,11 +460,12 @@ const inKex = (
     case "AwaitingApproval": {
       const algorithms = kx.stage.algorithms;
       const hostKey = kx.stage.host_key;
-      const peerNewKeys2 = kx.stage.peer_new_keys;
+      const peerNewKeys = kx.stage.peer_new_keys;
 
       switch (m.kind) {
         case "Disconnect":
         case "ServiceAccept":
+        case "ExtInfo":
         case "KexInit":
         case "KexReply":
         case "UserauthFailure":
@@ -455,14 +475,8 @@ const inKex = (
           const m2 = m as Message;
           return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
         }
-        case "ExtInfo": {
-          const serverSigAlgs = m.server_sig_algs;
-          if (peerNewKeys) return extInfo(c, serverSigAlgs);
-          const m2 = m as Message;
-          return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
-        }
         case "NewKeys": {
-          if (!peerNewKeys2) {
+          if (!peerNewKeys) {
             const c2 = peerKeyed(c, algorithms);
             const stage: KexStage = {
               kind: "AwaitingApproval",
@@ -493,18 +507,13 @@ const inKex = (
       switch (m.kind) {
         case "Disconnect":
         case "ServiceAccept":
+        case "ExtInfo":
         case "KexInit":
         case "KexReply":
         case "UserauthFailure":
         case "UserauthSuccess":
         case "UserauthBanner":
         case "Userauth60": {
-          const m2 = m as Message;
-          return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
-        }
-        case "ExtInfo": {
-          const serverSigAlgs = m.server_sig_algs;
-          if (peerNewKeys) return extInfo(c, serverSigAlgs);
           const m2 = m as Message;
           return Result.err({ kind: "UnexpectedMessage", value: messageNumber(m2) });
         }
@@ -526,7 +535,8 @@ const inKex = (
 /** The server's NEWKEYS: what it sends next is under the new keys. */
 const peerKeyed = (c: Connection, algorithms: Algorithms): Connection => {
   const recvSeq: U32 = c.strict ? (0 as U32) : c.recv_seq;
-  return { ...c, inbound: algorithms.server_to_client, recv_seq: recvSeq };
+  const first = c.inbound === null;
+  return { ...c, inbound: algorithms.server_to_client, recv_seq: recvSeq, ext_info_next: first };
 };
 
 const onReply = (
@@ -569,24 +579,35 @@ const onReply = (
           return Result.err({ kind: "HostKeyUnknown" });
         case "AcceptNew":
           return Result.ok(keyed(c3, kx, algorithms, [{ kind: "Learn", value: key }]));
-        case "Ask": {
-          const stage: KexStage = {
-            kind: "AwaitingApproval",
-            algorithms,
-            host_key: key,
-            peer_new_keys: false,
-          };
-          return Result.ok([
-            { ...c3, phase: { kind: "KeyExchange", value: { ...kx, stage } } },
-            [{ kind: "AskHostKey", value: key }],
-          ]);
-        }
+        case "Ask":
+          return Result.ok(ask(c3, kx, algorithms, key));
         default:
           return assertNever(c3.config.policy);
       }
+    case "Undecidable":
+      if (c3.config.policy.kind === "Ask") return Result.ok(ask(c3, kx, algorithms, key));
+      return Result.err({ kind: "KnownHostsUnreadable" });
     default:
       return assertNever(trust);
   }
+};
+
+const ask = (
+  c: Connection,
+  kx: KexState,
+  algorithms: Algorithms,
+  key: HostKey,
+): readonly [Connection, ReadonlyArray<Action>] => {
+  const stage: KexStage = {
+    kind: "AwaitingApproval",
+    algorithms,
+    host_key: key,
+    peer_new_keys: false,
+  };
+  return [
+    { ...c, phase: { kind: "KeyExchange", value: { ...kx, stage } } },
+    [{ kind: "AskHostKey", value: key }],
+  ];
 };
 
 /** Our NEWKEYS: what we send next is under the new keys. */
@@ -700,10 +721,6 @@ const inService = (
         [{ kind: "AuthNone" }],
       ]);
     }
-    case "ExtInfo": {
-      const serverSigAlgs = m.server_sig_algs;
-      return extInfo(c, serverSigAlgs);
-    }
     case "KexInit": {
       const peer = m.value;
       return peerKex(c, { kind: "Service" }, peer, seq);
@@ -717,6 +734,7 @@ const inService = (
       return other(c, n, seq, false, false);
     }
     case "Disconnect":
+    case "ExtInfo":
     case "NewKeys":
     case "KexReply":
     case "UserauthFailure":

@@ -16,6 +16,7 @@ export const reasonFor = (f: Failure): DisconnectReason => {
     case "HostKeyUnknown":
     case "HostKeyChanged":
     case "HostKeyRevoked":
+    case "KnownHostsUnreadable":
     case "HostKeyRejected":
     case "HostKeyChangedOnRekey":
       return { kind: "HostKeyNotVerifiable" };
