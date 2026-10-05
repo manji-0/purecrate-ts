@@ -1,8 +1,10 @@
 //! `examples/semver` agrees with the generated package, and with the same
 //! rules written in idiomatic Rust (`idiomatic`, the line count design/07
 //! §2 compares against), on the spec's examples, one-character edits of
-//! them, `u64` edges, and every pair's precedence. The spec's own ordered
-//! chain (SemVer 2.0.0 §11) is asserted on both Rust sides.
+//! them, `u64` edges, every version written back, and every pair's
+//! precedence and equality. The spec's own ordered chain (SemVer 2.0.0 §11),
+//! parse→format→parse, and the two equalities are asserted on both Rust
+//! sides.
 
 use crate::support;
 
@@ -12,6 +14,7 @@ purecrate_canon::fixture!(mod semver = "../../../examples/semver/src/lib.rs", "f
 /// Not converted; the reference only.
 mod idiomatic {
     use std::cmp::Ordering;
+    use std::fmt;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum CorePart {
@@ -132,6 +135,32 @@ mod idiomatic {
                 (PreId::Alpha(x), PreId::Alpha(y)) => x.cmp(y),
             }
         }
+    }
+
+    /// §2, §9, §10: `MAJOR.MINOR.PATCH[-PRE][+BUILD]`.
+    impl fmt::Display for Version {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
+            let pre: Vec<&str> = self
+                .pre
+                .iter()
+                .map(|p| match p {
+                    PreId::Numeric(s) | PreId::Alpha(s) => s.as_str(),
+                })
+                .collect();
+            if !pre.is_empty() {
+                write!(f, "-{}", pre.join("."))?;
+            }
+            if !self.build.is_empty() {
+                write!(f, "+{}", self.build.join("."))?;
+            }
+            Ok(())
+        }
+    }
+
+    /// Equal precedence; `==` is equality in every part.
+    pub fn same_precedence(a: &Version, b: &Version) -> bool {
+        compare(a, b).is_eq()
     }
 
     /// §11: core numerically, then a pre-release below none, then the
@@ -273,6 +302,48 @@ fn the_spec_chain_is_increasing() {
 }
 
 #[test]
+fn format_writes_back_what_parse_read() {
+    let v = semver::Version::parse("1.2.3-alpha.1+build.5").unwrap();
+    assert_eq!(v.format(), "1.2.3-alpha.1+build.5");
+    assert_eq!(v.to_string(), "1.2.3-alpha.1+build.5", "Display is format");
+    let max = semver::Version::parse("18446744073709551615.0.10").unwrap();
+    assert_eq!(max.format(), "18446744073709551615.0.10");
+    // Every valid string is canonical (no leading zero is accepted), so
+    // format is parse's inverse on all of them.
+    for s in accepted() {
+        let v = semver::Version::parse(&s).unwrap();
+        assert_eq!(v.format(), s, "parse then format");
+        assert_eq!(semver::Version::parse(&v.format()), Ok(v), "parse, format, parse: {s}");
+        assert_eq!(idiomatic::Version::parse(&s).unwrap().to_string(), s, "idiomatic {s}");
+    }
+}
+
+#[test]
+fn equal_and_same_precedence_are_the_two_equalities() {
+    let p = |s: &str| semver::Version::parse(s).unwrap();
+    assert!(semver::equal(&p("1.0.0-alpha+001"), &p("1.0.0-alpha+001")));
+    assert!(!semver::equal(&p("1.0.0-alpha"), &p("1.0.0-alpha+001")), "build metadata counts");
+    assert!(!semver::equal(&p("1.0.0+a.b"), &p("1.0.0+a")));
+    assert!(semver::same_precedence(&p("1.0.0-alpha"), &p("1.0.0-alpha+001")), "build metadata is ignored");
+    assert!(semver::same_precedence(&p("1.0.0+x"), &p("1.0.0+y")));
+    assert!(!semver::same_precedence(&p("1.0.0-alpha"), &p("1.0.0")));
+    assert!(!semver::same_precedence(&p("1.0.0-1"), &p("1.0.0-01a")));
+    // `equal` is Rust's `==` on `Version`; `same_precedence` is `compare`
+    // returning `Equal`, on both Rust sides.
+    let versions = accepted();
+    for a in &versions {
+        for b in &versions {
+            let (x, y) = (p(a), p(b));
+            let (i, j) = (idiomatic::Version::parse(a).unwrap(), idiomatic::Version::parse(b).unwrap());
+            assert_eq!(semver::equal(&x, &y), x == y, "{a} == {b}");
+            assert_eq!(semver::equal(&x, &y), i == j, "{a} == {b}, idiomatic");
+            assert_eq!(semver::same_precedence(&x, &y), semver::compare(&x, &y).is_eq(), "{a} ~ {b}");
+            assert_eq!(semver::same_precedence(&x, &y), idiomatic::same_precedence(&i, &j), "{a} ~ {b}, idiomatic");
+        }
+    }
+}
+
+#[test]
 fn constrained_rust_is_the_idiomatic_rules() {
     let differ: Vec<String> = inputs()
         .iter()
@@ -301,9 +372,11 @@ fn semver_matches_rust() {
     let versions: Vec<&str> = CHAIN.iter().chain(&VALID).copied().collect();
     let cases = support::quietly(|| {
         let mut cases: Vec<_> = inputs.iter().map(|s| case!(semver::parse_version(s.clone()))).collect();
+        cases.extend(inputs.iter().map(|s| case!(semver::format_version(s.clone()))));
         for a in &versions {
             for b in &versions {
                 cases.push(case!(semver::compare_versions(a.to_string(), b.to_string())));
+                cases.push(case!(semver::equal_versions(a.to_string(), b.to_string())));
             }
         }
         cases

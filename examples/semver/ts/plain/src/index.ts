@@ -7,4 +7,6 @@ export { SemverError } from "./semver-error.ts";
 export { PreId } from "./pre-id.ts";
 export { Version } from "./version.ts";
 export { compare } from "./compare.ts";
+export { samePrecedence } from "./same-precedence.ts";
+export { equal } from "./equal.ts";
 export { Ordering } from "./ordering.ts";

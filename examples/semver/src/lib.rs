@@ -1,11 +1,17 @@
 // Semantic Versioning 2.0.0 (https://semver.org/spec/v2.0.0.html):
-// parsing `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]` and precedence (§11).
+// parsing `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`, writing it back
+// (`Version::format`, which `parse` reads to an equal version), and
+// precedence (§11).
 //
 // The grammar puts no bound on a number. A numeric pre-release identifier
 // is kept as its digits, so any length is accepted and compared exactly;
 // the three core numbers are `u64`, as the `semver` crate keeps them, and a
-// larger one is refused (`NumberTooLarge`). `==` on `Version` compares the
-// build metadata too; precedence, which ignores it, is `compare`.
+// larger one is refused (`NumberTooLarge`).
+//
+// Two equalities, as the `semver` crate has them: `equal` compares every
+// part, build metadata included (what `==` on `Version` does in Rust, which
+// the subset does not translate); `same_precedence` ignores build metadata
+// (§10, §11), as `compare` does.
 
 use std::cmp::Ordering;
 
@@ -135,6 +141,60 @@ impl Version {
     pub fn is_pre_release(&self) -> bool {
         !self.pre.is_empty()
     }
+
+    /// The version as SemVer writes it (§2, §9, §10): `1.2.3-alpha.1+build.5`.
+    pub fn format(&self) -> String {
+        let mut s = decimal(self.major);
+        s.push('.');
+        s.push_str(&decimal(self.minor));
+        s.push('.');
+        s.push_str(&decimal(self.patch));
+        for i in 0..self.pre.len() {
+            s.push(if i == 0 { '-' } else { '.' });
+            s.push_str(pre_id_text(&self.pre[i]));
+        }
+        for (i, b) in self.build.iter().enumerate() {
+            s.push(if i == 0 { '+' } else { '.' });
+            s.push_str(b);
+        }
+        s
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.format())
+    }
+}
+
+fn pre_id_text(p: &PreId) -> &str {
+    match p {
+        PreId::Numeric(x) => x,
+        PreId::Alpha(x) => x,
+    }
+}
+
+/// `n` in decimal, without a leading zero.
+fn decimal(n: u64) -> String {
+    let mut s = if n >= 10 { decimal(n / 10) } else { String::new() };
+    s.push(digit(n % 10));
+    s
+}
+
+/// The character of a digit below 10.
+fn digit(d: u64) -> char {
+    match d {
+        0 => '0',
+        1 => '1',
+        2 => '2',
+        3 => '3',
+        4 => '4',
+        5 => '5',
+        6 => '6',
+        7 => '7',
+        8 => '8',
+        _ => '9',
+    }
 }
 
 fn is_ident_char(c: u8) -> bool {
@@ -210,4 +270,19 @@ pub fn compare(a: &Version, b: &Version) -> Ordering {
             (false, true) => Ordering::Less,
             (false, false) => compare_pre_ids(&a.pre, &b.pre),
         })
+}
+
+/// Equal precedence (§11): every part but build metadata is equal.
+pub fn same_precedence(a: &Version, b: &Version) -> bool {
+    compare(a, b).is_eq()
+}
+
+/// Equal in every part, build metadata included: Rust's `==` on `Version`.
+/// Precedence is equal only when the pre-release identifiers are the same,
+/// so it is that and the same build identifiers.
+pub fn equal(a: &Version, b: &Version) -> bool {
+    if !same_precedence(a, b) {
+        return false;
+    }
+    a.build.cmp(&b.build).is_eq()
 }

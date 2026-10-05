@@ -69,6 +69,8 @@ export const assertNever = (_x: never): never => {
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U64 = bigint & { readonly "purecrate.U64": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
+/** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
+export type Char = string & { readonly "purecrate.Char": true };
 
 const panic = (what: string): never => {
   throw new Panic(`attempt to ${what}`);
@@ -83,14 +85,29 @@ const small = <T extends number>(min: number, max: number) => {
   };
   return {
     of,
+    add: (a: T, b: T): T => fit(a + b, "add"),
+    div: (a: T, b: T): T =>
+      b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
+    rem: (a: T, b: T): T =>
+      b === 0
+        ? panic("calculate the remainder with a divisor of zero")
+        : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
   } as const;
 };
 
 const big = <T extends bigint>(min: bigint, max: bigint) => {
   const fit = (n: bigint, what: string): T =>
     (n < min || n > max ? panic(`${what} with overflow`) : n) as T;
+  const n = (x: T): bigint => x as bigint;
   return {
     of: (value: bigint): T => fit(value, "convert"),
+    add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
+    div: (a: T, b: T): T =>
+      n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
+    rem: (a: T, b: T): T =>
+      n(b) === 0n
+        ? panic("calculate the remainder with a divisor of zero")
+        : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
   } as const;
 };
 
@@ -192,6 +209,18 @@ export const Ord = {
   cmp: <T extends number | bigint | boolean>(a: T, b: T): Ordering => ORDERINGS[a < b ? 0 : a === b ? 1 : 2],
   /** `a.cmp(&b)` on a `char`, a string, or a `Uuid`: by code point. */
   cmpStr: (a: string, b: string): Ordering => ORDERINGS[Str.cmp(a, b) + 1],
+  /**
+   * `a.cmp(&b)` on two `Vec`s: the first pair of elements `by` does not find
+   * equal decides, else the shorter is less, as std orders slices.
+   */
+  cmpList: <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>, by: (x: T, y: T) => Ordering): Ordering => {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const o = by(a[i] as T, b[i] as T);
+      if (o.kind !== "Equal") return o;
+    }
+    return ORDERINGS[a.length < b.length ? 0 : a.length === b.length ? 1 : 2];
+  },
   /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
   then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
 } as const;
