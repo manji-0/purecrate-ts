@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.5 — 2026-10-05
+
+`examples/ssh`, and three holes it found in accepted code (a `case` tsc refused, an `as` oxlint refused, long logical lines oxfmt rewrote). Nothing on the stable surface changes; the other examples' output is byte for byte the same.
 
 ### Added
 

@@ -1,6 +1,6 @@
 # Generated TypeScript
 
-Status: current (2026-10-05, 0.10.4)
+Status: current (2026-10-05, 0.10.5)
 
 <!-- constrained-by ./01-equivalence.md -->
 
