@@ -118,9 +118,12 @@ pub(super) fn wrap_sole_item(line: &str, width: usize, out: &mut String) -> bool
     let after = &line[close + 1..];
     // Parameters open only where the arrow's head does not fit; else its
     // body breaks (`wrap_arrow_first`, `wrap_bracket`).
+    // A block body (`=> {`) never moves to the next line: its head is the
+    // whole line.
+    let block_body = line.trim_end().ends_with(" => {") && cols(line) > width;
     let params = before.ends_with('=')
         && (after.starts_with(": ") || after.starts_with(" =>"))
-        && arrow_split(line, width).is_none();
+        && (arrow_split(line, width).is_none() || block_body);
     if !(call || params) || open + 1 > width {
         return false;
     }

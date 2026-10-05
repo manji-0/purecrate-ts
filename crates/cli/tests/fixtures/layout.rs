@@ -246,3 +246,21 @@ pub fn limits_agree_with_the_record(
             == candidate_limit
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutProblem {
+    Overflow,
+}
+
+/// A signature whose `=>` fits but whose `=> {` does not: the parameters
+/// open (a block body never moves to the next line), not the return type.
+fn encode_code_points(input: Vec<u32>) -> Result<Vec<char>, LayoutProblem> {
+    if input.is_empty() {
+        return Err(LayoutProblem::Overflow);
+    }
+    Ok(Vec::new())
+}
+
+pub fn encode_every_code_point(input: Vec<u32>) -> Result<Vec<char>, LayoutProblem> {
+    encode_code_points(input)
+}
