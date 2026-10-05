@@ -85,7 +85,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     // the end expression wraps, or on its own line when the header opens.
     let for_step = line.contains("for (let ")
         || (line.contains("; ") && line.trim_end().ends_with(") {"))
-        || line.trim_start().starts_with("i = (i + 1");
+        || line.trim_start().split_once(" = (").is_some_and(|(v, rest)| rest.starts_with(&format!("{v} + 1")));
     if NUMERIC.contains(&target_name) && (value.ends_with(" + 1)") || value.ends_with(" + 1n)")) && for_step {
         return Some("for counter below its bound");
     }

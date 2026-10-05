@@ -11,6 +11,7 @@ mod bits_equivalence;
 mod bool_patterns_equivalence;
 mod borrow_equivalence;
 mod build;
+mod calendar_equivalence;
 mod casts;
 mod chars_equivalence;
 mod closed_equivalence;
