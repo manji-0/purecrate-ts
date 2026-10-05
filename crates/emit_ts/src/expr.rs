@@ -450,6 +450,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::StrMethod::SplitOnce => {
                         format!("Str.splitOnce({s}, {})", needle())
                     }
+                    purecrate_ir::StrMethod::EqIgnoreAsciiCase => {
+                        format!("Str.eqIgnoreAsciiCase({s}, {})", needle())
+                    }
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {

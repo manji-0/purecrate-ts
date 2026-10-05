@@ -52,3 +52,13 @@ pub fn classify(s: &str) -> u32 {
 pub fn last_byte(s: &str) -> u8 {
     s.as_bytes()[s.len() - 1usize]
 }
+
+/// Equal once ASCII letters are folded; nothing else folds (`é` / `É`).
+pub fn same_ignoring_case(s: &str, t: &str) -> bool {
+    s.eq_ignore_ascii_case(t)
+}
+
+/// An owned needle, and a literal one.
+pub fn owned_same_ignoring_case(s: String, t: String) -> bool {
+    s.eq_ignore_ascii_case(&t) || s.eq_ignore_ascii_case("PM_CARD")
+}

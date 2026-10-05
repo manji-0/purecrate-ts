@@ -1,5 +1,6 @@
 //! The allow-listed `str` methods (design/01 §6): `len` counts UTF-8 bytes,
-//! and `is_empty`, `starts_with`, `ends_with`, `contains` agree with Rust on
+//! and `is_empty`, `starts_with`, `ends_with`, `contains`, and
+//! `eq_ignore_ascii_case` (`@` and `` ` `` sit beside the letters) agree with Rust on
 //! every pairing of empty, ASCII, two- to four-byte, and mixed strings,
 //! including needles that share a lead byte or a surrogate half with the
 //! haystack.
@@ -8,8 +9,28 @@ use crate::support;
 
 purecrate_canon::fixture!(mod strs = "fixtures/str_methods.rs");
 
-const TEXTS: [&str; 14] =
-    ["", "a", "pm_", "pm_card", "é", "e\u{301}", "日本", "日", "😀", "😁", "a😀é日", "\u{10ffff}", "\u{ffff}", "aa"];
+const TEXTS: [&str; 20] = [
+    "",
+    "a",
+    "pm_",
+    "pm_card",
+    "é",
+    "e\u{301}",
+    "日本",
+    "日",
+    "😀",
+    "😁",
+    "a😀é日",
+    "\u{10ffff}",
+    "\u{ffff}",
+    "aa",
+    "A",
+    "PM_Card",
+    "É",
+    "AA",
+    "@",
+    "`",
+];
 
 #[test]
 fn str_methods_match_rust() {
@@ -25,6 +46,8 @@ fn str_methods_match_rust() {
                 cases.push(case!(strs::ends(s, t)));
                 cases.push(case!(strs::has(s, t)));
                 cases.push(case!(strs::owned_needle(String::from(s), String::from(t))));
+                cases.push(case!(strs::same_ignoring_case(s, t)));
+                cases.push(case!(strs::owned_same_ignoring_case(String::from(s), String::from(t))));
             }
         }
     });

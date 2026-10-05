@@ -138,7 +138,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             StrMethod::AsStr => Ty::Prim(Prim::Str),
             StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
             StrMethod::SplitOnce => split_once_ty(),
-            StrMethod::IsEmpty | StrMethod::StartsWith | StrMethod::EndsWith | StrMethod::Contains => Ty::bool(),
+            StrMethod::IsEmpty
+            | StrMethod::StartsWith
+            | StrMethod::EndsWith
+            | StrMethod::Contains
+            | StrMethod::EqIgnoreAsciiCase => Ty::bool(),
         };
         let e = Expr::Call { callee: Callee::Str(m), args: typed };
         (e, self.expect(want, Some(ret)))

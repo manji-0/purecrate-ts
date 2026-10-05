@@ -295,10 +295,15 @@ pub enum StrMethod {
     /// UTF-16 units, both sides are on char boundaries, and an empty needle
     /// matches at 0 in both. Prints as `Str.splitOnce`.
     SplitOnce,
+    /// Takes a `&str`. Equal once ASCII `A`..=`Z` are folded to lower case,
+    /// every other byte as it is: folding maps ASCII to ASCII and leaves the
+    /// rest, so comparing folded UTF-16 units agrees with folded UTF-8
+    /// bytes. Prints as `Str.eqIgnoreAsciiCase`.
+    EqIgnoreAsciiCase,
 }
 
 impl StrMethod {
-    pub const ALL: [StrMethod; 9] = [
+    pub const ALL: [StrMethod; 10] = [
         StrMethod::Len,
         StrMethod::IsEmpty,
         StrMethod::StartsWith,
@@ -308,6 +313,7 @@ impl StrMethod {
         StrMethod::StripPrefix,
         StrMethod::StripSuffix,
         StrMethod::SplitOnce,
+        StrMethod::EqIgnoreAsciiCase,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -325,6 +331,7 @@ impl StrMethod {
             Self::StripPrefix => "strip_prefix",
             Self::StripSuffix => "strip_suffix",
             Self::SplitOnce => "split_once",
+            Self::EqIgnoreAsciiCase => "eq_ignore_ascii_case",
         }
     }
 
@@ -337,7 +344,8 @@ impl StrMethod {
             | Self::Contains
             | Self::StripPrefix
             | Self::StripSuffix
-            | Self::SplitOnce => 1,
+            | Self::SplitOnce
+            | Self::EqIgnoreAsciiCase => 1,
         }
     }
 }

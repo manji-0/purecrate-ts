@@ -70,6 +70,13 @@ fn long_method_chains_type_in_linear_time() {
 fn str_methods_come_from_the_allow_list() {
     assert_clean("pub fn f(s: String, t: &str) -> bool { s.starts_with(t) && t.ends_with(\"x\") && s.contains(&s) && !t.is_empty() }");
     assert_clean("pub fn f(s: &str) -> usize { s.len() }");
+    assert_clean(
+        "pub fn f(s: &str, t: String) -> bool { s.eq_ignore_ascii_case(&t) || s.eq_ignore_ascii_case(\"FREQ\") }",
+    );
+    assert_rejects(
+        "pub fn f(s: &str) -> bool { s.eq_ignore_ascii_case('a') }",
+        "`str::eq_ignore_ascii_case` takes a `&str` pattern in v0, found `char`",
+    );
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.starts_with(1u8) }",
         "`str::starts_with` takes a `&str` pattern in v0, found `u8`",
@@ -85,7 +92,7 @@ fn str_methods_come_from_the_allow_list() {
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
-        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
+        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
     );
 }
 

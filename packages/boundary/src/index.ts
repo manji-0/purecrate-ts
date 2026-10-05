@@ -380,6 +380,20 @@ export const Str = {
     return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
   },
   // #endregion
+  // #region str.eqIgnoreAsciiCase
+  /**
+   * `str::eq_ignore_ascii_case`: equal once ASCII `A`..=`Z` are folded to
+   * lower case; every other unit compares as it is (no Unicode folding).
+   */
+  eqIgnoreAsciiCase: (a: string, b: string): boolean => {
+    if (a.length !== b.length) return false;
+    const fold = (u: number): number => (u >= 65 && u <= 90 ? u + 32 : u);
+    for (let i = 0; i < a.length; i++) {
+      if (fold(a.charCodeAt(i)) !== fold(b.charCodeAt(i))) return false;
+    }
+    return true;
+  },
+  // #endregion
   // #region str.cmp ord.cmpStr
   /**
    * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.

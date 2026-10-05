@@ -484,7 +484,8 @@ impl Refs {
                     | Callee::Str(
                         purecrate_ir::StrMethod::StripPrefix
                         | purecrate_ir::StrMethod::StripSuffix
-                        | purecrate_ir::StrMethod::SplitOnce,
+                        | purecrate_ir::StrMethod::SplitOnce
+                        | purecrate_ir::StrMethod::EqIgnoreAsciiCase,
                     ) => self.str = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
