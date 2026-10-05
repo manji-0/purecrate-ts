@@ -399,6 +399,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::AsFloat(_) => self.arity("`as float`", 1, argc),
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
             Callee::VecPush => self.arity("`Vec::push`", 2, argc),
+            Callee::VecInsert => self.arity("`Vec::insert`", 3, argc),
             Callee::VecIsEmpty => self.arity("`Vec::is_empty`", 1, argc),
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),

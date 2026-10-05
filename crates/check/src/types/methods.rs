@@ -57,6 +57,23 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
             }
         }
+        if name.as_str() == "insert" {
+            if let Some(Ty::Vec(item)) = rt.as_ref().map(|t| self.norm(t)) {
+                let failed = (Expr::Lit(Lit::Unit), None);
+                let [at, arg] = args else {
+                    self.error(Reason::ConstructShape, format!("`insert` takes 2 arguments, got {}", args.len()));
+                    return failed;
+                };
+                if !matches!(recv.unpositioned(), Expr::Var(_)) {
+                    self.error(Reason::MethodCall, "`insert` grows a local `let mut v: Vec<T>` in v0, not a field or an element: build the new `Vec` and put it in a new value (design/02 §3.1)".to_string());
+                    return failed;
+                }
+                let (at, _) = self.expr(at, Some(&Ty::Prim(Prim::Usize)));
+                let (arg, _) = self.expr(arg, Some(&item));
+                let e = Expr::Call { callee: Callee::VecInsert, args: vec![recv, at, arg] };
+                return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
+            }
+        }
         // `s.push(c)` / `s.push_str(t)` on a local `let mut s: String`: the
         // assignment `s = s + c`, so every pass sees a write it knows.
         if matches!(name.as_str(), "push" | "push_str")
@@ -244,9 +261,11 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
-    /// `e as T`: only a fieldless enum to an integer type that holds every
-    /// discriminant, looked up in a table. Everything else keeps its old
-    /// rejection.
+    /// `e as T`: a fieldless enum to an integer type that holds every
+    /// discriminant, looked up in a table, or an unsigned integer of 32 bits
+    /// or fewer to `usize`, which holds every value on every target (std has
+    /// no `usize::from(u32)`, so `as` is how Rust writes it). Everything else
+    /// keeps its old rejection.
     pub(super) fn cast(&mut self, inner: &Expr, to: &Ty, want: Option<&Ty>) -> Typed {
         let (e, t) = self.expr(inner, None);
         let target = match to {
@@ -257,6 +276,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             Ty::Named(n) => self.defs.enums.get(n.as_str()).copied(),
             _ => None,
         });
+        let source = t.as_ref().and_then(|t| match self.norm(t) {
+            Ty::Prim(p) => p.int(),
+            _ => None,
+        });
+        if let (Some(from @ (IntTy::U8 | IntTy::U16 | IntTy::U32)), Some(IntTy::Usize)) = (source, target) {
+            let e = Expr::Call { callee: Callee::IntFrom { from: Some(from), to: IntTy::Usize }, args: vec![e] };
+            return (e, self.expect(want, Some(to.clone())));
+        }
         match (enum_def, target) {
             (Some(en), Some(it)) if crate::consts::is_fieldless(en) => {
                 match crate::consts::discriminants(self.defs, en) {

@@ -392,6 +392,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::StrConcat => unreachable!("`emit_tx` prints `+`"),
                 purecrate_ir::Callee::VecLen
                 | purecrate_ir::Callee::VecPush
+                | purecrate_ir::Callee::VecInsert
                 | purecrate_ir::Callee::VecIsEmpty
                 | purecrate_ir::Callee::OptionIsSome
                 | purecrate_ir::Callee::OptionIsNone
@@ -496,6 +497,14 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             }
             if matches!(callee, purecrate_ir::Callee::VecPush) {
                 return format!("{}.push({})", receiver(emit_tx(&args[0], indent)), emit_item(&args[1], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecInsert) {
+                return format!(
+                    "Slice.insert({}, {}, {})",
+                    emit_expr(&args[0], indent),
+                    emit_item(&args[1], indent),
+                    emit_item(&args[2], indent)
+                );
             }
             if matches!(callee, purecrate_ir::Callee::Fround) {
                 return format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent));

@@ -392,6 +392,7 @@ mod tests {
             "str.cmp",
             "slice.at",
             "slice.range",
+            "slice.insert",
             "ord.cmp",
             "ord.cmpStr",
             "ord.cmpList",

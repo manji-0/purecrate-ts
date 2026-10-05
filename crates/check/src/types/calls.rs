@@ -296,7 +296,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::VecLen => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Usize))),
             // Written only by `method_call`, typed.
-            Callee::VecPush => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
+            Callee::VecPush | Callee::VecInsert => {
+                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))
+            }
             Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))
             }

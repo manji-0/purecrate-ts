@@ -623,6 +623,13 @@ export const Slice = {
     return xs.slice(a ?? 0, b ?? xs.length);
   },
   // #endregion
+  // #region slice.insert
+  /** `v.insert(i, x)` on a local's own array. */
+  insert: <T>(xs: T[], i: Usize, x: T): void => {
+    if (i > xs.length) throw new Panic(`insertion index (is ${i}) should be <= len (is ${xs.length})`);
+    xs.splice(i, 0, x);
+  },
+  // #endregion
 } as const;
 
 // #region str.slice

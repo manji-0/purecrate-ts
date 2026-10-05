@@ -359,7 +359,24 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish("undefined", &pad, out);
         }
         Expr::ForEach { var, over, source: string, body } => {
-            let iterable = iterable(*over, emit_tx(string, indent));
+            // `for x in v.clone()` iterates a copy only where the body grows
+            // `v`: JS `for..of` would meet what the body pushes, Rust's loop
+            // does not. Otherwise nothing writes the array while the loop
+            // reads it, and the copy is a useless spread.
+            // The copy a loop needs is named first: oxlint refuses a spread
+            // as the iterable of `for..of` whatever the body does.
+            let iterable = match string.as_ref() {
+                Expr::Call { callee: Callee::Collect { result: false, over: purecrate_ir::Over::Items }, args } => {
+                    if grows(body, &args[0]) {
+                        let copy = temp("copy");
+                        out.push_str(&format!("{pad}const {copy} = {};\n", emit_expr(string, indent)));
+                        copy
+                    } else {
+                        iterable(*over, emit_tx(&args[0], indent))
+                    }
+                }
+                s => iterable(*over, emit_tx(s, indent)),
+            };
             emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
@@ -591,4 +608,12 @@ fn emit_try_test(tmp: &str, on: Option<TryOn>, indent: usize, out: &mut String) 
         Some(TryOn::Option) => out.push_str(&format!("{pad}if ({tmp} === null) return null;\n")),
         Some(TryOn::Result) | None => out.push_str(&format!("{pad}if ({tmp}.kind === \"Err\") return {tmp};\n")),
     }
+}
+
+/// Whether `body` grows the local `source` is (`push` or `insert`).
+fn grows(body: &Expr, source: &Expr) -> bool {
+    let Expr::Var(name) = source else { return false };
+    let mut found = false;
+    body.walk(|e| found |= e.grown() == Some(name));
+    found
 }

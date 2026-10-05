@@ -500,14 +500,17 @@ pub enum Callee {
     /// `v.push(x)` on a local `let mut v: Vec<T>`, of type `()`: the one
     /// write to an array (design/01 §7.14). Prints as `v.push(x)`.
     VecPush,
+    /// `v.insert(i, x)` on a local `let mut v: Vec<T>`, of type `()`: like
+    /// `push`, a write to the local's own array, panicking past its end.
+    /// Prints as `Slice.insert(v, i, x)`.
+    VecInsert,
     /// `String::new()`: the empty `String`. Prints as `""`.
     StringNew,
-    /// A `String` / `&str` argument of a `pub` function checked on entry: a
-    /// JS string may hold a lone surrogate, which no Rust `str` does, so it
-    /// panics there rather than meeting the encoding later (design/01 §6).
-    /// The argument is the parameter (a string, `Option`, or `Vec` of
-    /// strings); `emit` writes it, never `check`. Prints as
-    /// `Str.wellFormed(s)`.
+    /// A `pub` function's argument that may hold a string, checked on
+    /// entry: a JS string may hold a lone surrogate, which no Rust `str`
+    /// does, so it panics there rather than meeting the encoding later
+    /// (design/01 §6). `emit` writes it, never `check`. Prints as
+    /// `Str.wellFormed(x)`.
     StrWellFormed,
     /// `a` with `b` (a `char` or a `&str`) after it, a new `String`:
     /// `check::accept` writes `s.push(c)` and `s.push_str(t)` on a local `let
@@ -1224,10 +1227,10 @@ impl Expr {
         }
     }
 
-    /// The local a `v.push(x)` grows.
+    /// The local a `v.push(x)` or a `v.insert(i, x)` grows.
     pub fn grown(&self) -> Option<&Name> {
         match self {
-            Expr::Call { callee: Callee::VecPush, args } => match args.first() {
+            Expr::Call { callee: Callee::VecPush | Callee::VecInsert, args } => match args.first() {
                 Some(Expr::Var(n)) => Some(n),
                 _ => None,
             },

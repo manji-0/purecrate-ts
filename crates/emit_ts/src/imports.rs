@@ -488,6 +488,7 @@ impl Refs {
                         | purecrate_ir::StrMethod::EqIgnoreAsciiCase,
                     )
                     | Callee::StrWellFormed => self.str = true,
+                    Callee::VecInsert => self.slice = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;
