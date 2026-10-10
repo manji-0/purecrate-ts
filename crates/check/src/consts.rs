@@ -134,6 +134,8 @@ impl Folder<'_, '_> {
         let fits = |v: i128| -> Result<i128, String> {
             if (lo..=hi).contains(&v) {
                 Ok(v)
+            } else if it == IntTy::U128 && v > hi {
+                Err(TOO_WIDE.into())
             } else {
                 Err(format!("{v} does not fit `{}`; rustc rejects the overflow", it.as_str()))
             }
@@ -170,6 +172,8 @@ impl Folder<'_, '_> {
                 }
                 fits(-self.int(it, expr)?)
             }
+            // `!x` on a `u128` below 2^127 is 2^127 or more.
+            Expr::Unary { op: UnOp::Not, .. } if it == IntTy::U128 => Err(TOO_WIDE.into()),
             Expr::Unary { op: UnOp::Not, expr } => {
                 let v = self.int(it, expr)?;
                 let (_, full) = if it == IntTy::Usize { (0, u64::MAX.into()) } else { it.bounds() };
@@ -183,15 +187,30 @@ impl Folder<'_, '_> {
                     return Err(format!("shift by {amount} overflows a `{}`; rustc rejects it", it.as_str()));
                 }
                 let shifted = if *op == BinOp::Shl { v << amount } else { v >> amount };
+                // An `i128` keeps 128 bits as `<<` leaves them; a `u128` at
+                // 2^127 or more has its sign bit set there.
+                if it == IntTy::U128 && shifted < 0 {
+                    return Err(TOO_WIDE.into());
+                }
                 fits(wrap(it, shifted))
             }
             Expr::Binary { op, left, right } => {
                 let l = self.int(it, left)?;
                 let r = self.int(it, right)?;
                 match op {
-                    BinOp::Add => fits(l + r),
-                    BinOp::Sub => fits(l - r),
-                    BinOp::Mul => fits(l.checked_mul(r).ok_or("overflow")?),
+                    // Past an `i128`, only a `u128` may still be in range.
+                    BinOp::Add | BinOp::Sub | BinOp::Mul => {
+                        let v = match op {
+                            BinOp::Add => l.checked_add(r),
+                            BinOp::Sub => l.checked_sub(r),
+                            _ => l.checked_mul(r),
+                        };
+                        match v {
+                            Some(v) => fits(v),
+                            None if it == IntTy::U128 && l >= 0 && r >= 0 && *op != BinOp::Sub => Err(TOO_WIDE.into()),
+                            None => Err("overflow".into()),
+                        }
+                    }
                     BinOp::Div | BinOp::Rem if r == 0 => Err("division by zero; rustc rejects it".into()),
                     BinOp::Div => fits(l / r),
                     BinOp::Rem => fits(l % r),
@@ -263,9 +282,16 @@ impl Folder<'_, '_> {
     }
 }
 
+/// A folded value is an `i128`, so a `u128` const stops below 2^127.
+const TOO_WIDE: &str = "a `u128` const of 2^127 or more is not in v0, as folded values are `i128`s; write a hex literal below that, or compute it in a function";
+
 /// Keeps the low `bits` of `v`, read as `it` (two's complement if signed).
+/// 128 bits are all of an `i128`.
 fn wrap(it: IntTy, v: i128) -> i128 {
     let bits = it.bits();
+    if bits >= 128 {
+        return v;
+    }
     let masked = v & ((1i128 << bits) - 1);
     if it.is_signed() && masked >= 1i128 << (bits - 1) {
         masked - (1i128 << bits)

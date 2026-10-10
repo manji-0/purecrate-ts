@@ -109,3 +109,15 @@ fn byte_strings_and_wide_literals() {
         "is 2^127 or more, which v0 does not hold",
     );
 }
+
+/// 128-bit consts fold in `i128`: a `u128` at 2^127 or more is refused, not
+/// a crash.
+#[test]
+fn wide_consts_fold_or_say_why_not() {
+    assert_clean(
+        "const R: u128 = (1 << 80) - 1;\nconst S: i128 = !0 << 100;\npub fn f(x: u128) -> (u128, i128) { (x & R, S) }",
+    );
+    for src in ["const R: u128 = !0 >> 48;", "const R: u128 = 1 << 127;", "const R: u128 = (1 << 126) * 2;"] {
+        assert_rejects(&format!("{src}\npub fn f() -> u128 {{ R }}"), "a `u128` const of 2^127 or more is not in v0");
+    }
+}

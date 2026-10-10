@@ -40,7 +40,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
 | Release wrapping | Not matched, unless `[profile.release] overflow-checks = true` (the server's usual `--release` build wraps; generated TS always panics). `check` warns when the crate's release profile leaves the default |
 | Non-finite `f64` over JSON | serde_json and `toJson` both write `NaN` and infinities as `null`, and neither reads `null` back as a float. Same bytes, same asymmetry ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
-| `u128` literals ≥ 2^127 | Literals and folded constants are held as `i128`, so a `u128` literal at 2^127 or above is refused (build it as `!0`, or from shifts); values of the type reach 2^128−1 at run time |
+| `u128` literals and consts ≥ 2^127 | Literals and folded constants are held as `i128`, so a `u128` literal or `const` at 2^127 or above is refused with a message (in a function, build it as `!0` or by shifts); values of the type reach 2^128−1 at run time |
 | `sort_by` with an inconsistent comparator | Rust's sort may panic ("user-provided comparison function does not correctly implement a total order") or leave any order; JS `sort` never panics and leaves its own order. Equal for a comparator that is a total order, as `cmp` and `then` chains are |
 | Unicode-table methods | If added, equivalence holds only for code points assigned in both toolchains' Unicode versions (both 17.0 as of 2026-09-27) |
 
