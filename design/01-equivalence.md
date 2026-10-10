@@ -97,7 +97,7 @@ Verified by per-operator differential tests: 59 cases, floats included (`arith_e
 
 ### 5.1 Type inference
 
-Inference is bidirectional and closed within the expression tree. It does not use rustc's later-use inference or the `i32`/`f64` defaults, so an untyped literal is rejected with a request for a suffix or annotation. Comparisons whose result differs between JS and Rust (struct/enum `==`, ordering on `bool` or the crate's types) are rejected; `String` ordering goes through the runtime (§6.1).
+Inference is bidirectional and closed within the expression tree. It does not use rustc's later-use inference or the `i32`/`f64` defaults, so an untyped literal is rejected with a request for a suffix or annotation. Comparisons whose result differs between JS and Rust (ordering on `bool` or the crate's types, `==` on a value holding `ParseIntError` or `uuid::Error`, which are opaque here while Rust compares their kinds) are rejected; `String` ordering goes through the runtime (§6.1). `==` and `!=` on the crate's structs and enums (whose `PartialEq` rustc requires to be derived, as no trait `impl` is in the subset), `Option`, `Result`, `Vec`, and tuples compare part by part as the derived `eq` does: `Eq.deep(a, b)` takes `===` on numbers, `bigint`s, strings, and `boolean`s (NaN unequal to itself, `-0.0` equal to `0.0`, as Rust's `==`), `null` only to itself, arrays element by element, and objects key by key, a variant's `kind` among them. A closed type's brand is a type only, so its value compares as any other. Tested on every pair of a recursive JSON tree's values, structs with float fields, every variant shape, and `Option` / `Result` / tuples of them (`deep_eq_equivalence.rs`).
 
 ### 5.2 Integer arithmetic
 

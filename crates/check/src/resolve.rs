@@ -432,6 +432,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity("`as`", 1, argc)
             }
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
+            Callee::DeepEq => self.arity("`==`", 2, argc),
             Callee::VecPush => self.arity("`Vec::push`", 2, argc),
             Callee::VecInsert => self.arity("`Vec::insert`", 3, argc),
             Callee::VecRemove => self.arity("`Vec::remove`", 2, argc),

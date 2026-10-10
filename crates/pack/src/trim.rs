@@ -79,6 +79,7 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
         for (prefix, name) in [
             ("Str.", "str"),
             ("Slice.", "slice"),
+            ("Eq.", "eq"),
             ("Ord.", "ord"),
             ("Iter.", "iter"),
             ("Char.", "char"),
@@ -91,7 +92,7 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 }
                 let member = ident(&source[at + prefix.len()..]);
                 out.insert(match name {
-                    "str" | "slice" | "ord" | "iter" => format!("{name}.{member}"),
+                    "str" | "slice" | "eq" | "ord" | "iter" => format!("{name}.{member}"),
                     "char" if member == "is" => "char.is".to_string(),
                     other => other.to_string(),
                 });
@@ -407,6 +408,7 @@ mod tests {
             "slice.insert",
             "slice.remove",
             "slice.set",
+            "eq.deep",
             "ord.cmp",
             "ord.cmpStr",
             "ord.cmpList",

@@ -347,6 +347,7 @@ pub(crate) struct Refs {
     str: bool,
     /// `Slice` from `./str.ts`, for indexing and slicing a `Vec`.
     slice: bool,
+    eq: bool,
     /// `Ord` from `./str.ts`, for `cmp` and `Ordering::then`.
     ord: bool,
     /// `Iter` from `./str.ts`, for `all`, `any`, `position`, `count`, `sum`.
@@ -489,6 +490,7 @@ impl Refs {
                     )
                     | Callee::StrWellFormed => self.str = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet => self.slice = true,
+                    Callee::DeepEq => self.eq = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;
@@ -659,6 +661,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.uuid_value.then_some("Uuid"),
         refs.str.then_some("Str"),
         refs.slice.then_some("Slice"),
+        refs.eq.then_some("Eq"),
         refs.ord.then_some("Ord"),
         refs.iter.then_some("Iter"),
     ];

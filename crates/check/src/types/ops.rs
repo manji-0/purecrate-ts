@@ -147,19 +147,30 @@ impl<'d, 'a> Typer<'d, 'a> {
                         Ty::Prim(Prim::Bool) => !ordered,
                         // std's derived `PartialEq`: the same variant.
                         Ty::Named(_) if self.is_ordering(t) => !ordered,
+                        // A derived `PartialEq` (rustc refuses `==` without
+                        // one), compared part by part.
+                        Ty::Named(_) | Ty::Option(_) | Ty::Result { .. } | Ty::Vec(_) | Ty::Tuple(_)
+                            if !ordered && self.deep_comparable(t, &mut Vec::new()) =>
+                        {
+                            let eq = Expr::Call { callee: Callee::DeepEq, args: vec![l, r] };
+                            let e =
+                                if op == BinOp::Ne { Expr::Unary { op: UnOp::Not, expr: Box::new(eq) } } else { eq };
+                            return (e, self.expect(want, Some(Ty::bool())));
+                        }
                         _ => false,
                     };
                     if !ok {
                         let what = if ordered { "ordering" } else { "equality" };
                         let instead = match self.norm(t) {
-                            Ty::Option(_) => {
-                                "use `is_some()`/`is_none()`, `matches!(x, Some(..))`, or a `match`".into()
+                            _ if !ordered => {
+                                "it holds a value JS cannot compare as Rust does (`ParseIntError`, `uuid::Error`, a function); compare the parts with a `match`".into()
                             }
                             Ty::Prim(Prim::Bool) => "use `a.cmp(&b)`, which orders `false` first".into(),
-                            Ty::Named(n) => {
-                                format!("use `matches!(x, {}::Variant)`, a `match`, or an `eq` method", n.as_str())
-                            }
-                            _ => "compare the parts with a `match` or an `eq` method".into(),
+                            Ty::Named(n) => format!(
+                                "use `matches!(x, {}::Variant)`, a `match`, or compare the parts and chain them with `then`",
+                                n.as_str()
+                            ),
+                            _ => "compare the parts and chain them with `then` / `then_with`".into(),
                         };
                         self.error(
                             Reason::Comparison,
@@ -226,6 +237,42 @@ impl<'d, 'a> Typer<'d, 'a> {
                     }
                 }
             }
+        }
+    }
+
+    /// Equality on `t` is the derived one, part by part, and each part's
+    /// JS value compares as Rust's `==` does: numbers, `bool`, strings,
+    /// `char`, `Uuid`, `()`, and the crate's types and std's containers of
+    /// them. `ParseIntError` and `uuid::Error` are opaque here, while Rust
+    /// compares their kinds; `seen` stops a recursive type.
+    pub(super) fn deep_comparable(&self, t: &Ty, seen: &mut Vec<Name>) -> bool {
+        match self.norm(t) {
+            _ if self.num(t).is_some() => true,
+            Ty::Prim(Prim::ParseIntError | Prim::UuidError) => false,
+            Ty::Prim(_) => true,
+            Ty::Option(x) | Ty::Vec(x) => self.deep_comparable(&x, seen),
+            Ty::Result { ok, err } => self.deep_comparable(&ok, seen) && self.deep_comparable(&err, seen),
+            Ty::Tuple(xs) => xs.iter().all(|x| self.deep_comparable(x, seen)),
+            Ty::Named(n) if seen.contains(&n) => true,
+            Ty::Named(n) => {
+                seen.push(n.clone());
+                let fields: Vec<Ty> = if let Some(s) = self.defs.structs.get(n.as_str()) {
+                    s.fields.iter().map(|f| f.ty.clone()).collect()
+                } else if let Some(e) = self.defs.enums.get(n.as_str()) {
+                    e.variants
+                        .iter()
+                        .flat_map(|v| match &v.fields {
+                            VariantFields::Unit => Vec::new(),
+                            VariantFields::Tuple(ts) => ts.clone(),
+                            VariantFields::Struct(fs) => fs.iter().map(|f| f.ty.clone()).collect(),
+                        })
+                        .collect()
+                } else {
+                    return false;
+                };
+                fields.iter().all(|f| self.deep_comparable(f, seen))
+            }
+            _ => false,
         }
     }
 

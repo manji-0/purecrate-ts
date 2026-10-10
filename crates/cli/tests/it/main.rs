@@ -21,6 +21,7 @@ mod comments;
 mod consumers_equivalence;
 mod control_equivalence;
 mod counter_equivalence;
+mod deep_eq_equivalence;
 mod destructure_equivalence;
 mod display_equivalence;
 mod empty_arm_equivalence;

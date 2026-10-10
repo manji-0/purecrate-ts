@@ -601,6 +601,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::UuidNil => "Uuid.nil".into(),
                 purecrate_ir::Callee::StrParse(t) => format!("Int.{}.parse", t.as_str()),
                 purecrate_ir::Callee::StrCmp => "Str.cmp".into(),
+                purecrate_ir::Callee::DeepEq => "Eq.deep".into(),
                 purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
                 purecrate_ir::Callee::OrdThen => "Ord.then".into(),
@@ -708,7 +709,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             }
             if let purecrate_ir::Callee::Float { ty, m } = callee {
                 use purecrate_ir::FloatMethod as F;
-                let x = || emit_expr(&args[0], indent);
+                let x = || emit_item(&args[0], indent);
                 let t = ty.ts_name();
                 return match m {
                     F::Round => format!("Int.{}.round({})", ty.as_str(), x()),
@@ -735,7 +736,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 return format!("(globalThis.Number.{v} as {})", ty.ts_name());
             }
             if let purecrate_ir::Callee::IntToFloat { from, to } = callee {
-                let x = emit_expr(&args[0], indent);
+                let x = emit_item(&args[0], indent);
                 return match (from.is_big(), to) {
                     (false, purecrate_ir::FloatTy::F64) => {
                         format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
@@ -751,7 +752,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                         format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
                     }
                     purecrate_ir::FloatTy::F32 => {
-                        format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent))
+                        format!("(globalThis.Math.fround({}) as F32)", emit_item(&args[0], indent))
                     }
                 };
             }
@@ -1377,15 +1378,25 @@ fn is_cast(expr: &Expr) -> bool {
     match peel_identity(expr) {
         Expr::Ignored { expr, .. } => is_cast(expr),
         Expr::Lit(Lit::Int { ty: Some(_), .. } | Lit::Float { ty: Some(_), .. } | Lit::Char(_)) => true,
-        Expr::Call { callee, .. } => matches!(
-            callee,
-            purecrate_ir::Callee::VecLen
-                | purecrate_ir::Callee::AsFloat(_)
-                | purecrate_ir::Callee::Fround
-                | purecrate_ir::Callee::IntFrom { .. }
-                | purecrate_ir::Callee::Discriminant { .. }
-                | purecrate_ir::Callee::CharCode(_)
-        ),
+        Expr::Call { callee, .. } => {
+            matches!(
+                callee,
+                purecrate_ir::Callee::VecLen
+                    | purecrate_ir::Callee::AsFloat(_)
+                    | purecrate_ir::Callee::Fround
+                    | purecrate_ir::Callee::IntFrom { .. }
+                    | purecrate_ir::Callee::Discriminant { .. }
+                    | purecrate_ir::Callee::CharCode(_)
+                    | purecrate_ir::Callee::FloatConst { .. }
+                    | purecrate_ir::Callee::FloatToFloat { .. }
+            ) || matches!(
+                callee,
+                purecrate_ir::Callee::Float { m, .. } if !m.is_test() && *m != purecrate_ir::FloatMethod::Round
+            ) || matches!(
+                callee,
+                purecrate_ir::Callee::IntToFloat { from, to } if !(from.is_big() && *to == purecrate_ir::FloatTy::F32)
+            )
+        }
         _ => false,
     }
 }

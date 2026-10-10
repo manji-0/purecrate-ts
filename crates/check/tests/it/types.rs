@@ -85,18 +85,22 @@ fn mismatched_types_are_rejected() {
 
 #[test]
 fn comparisons_js_gets_wrong_are_rejected() {
-    assert_rejects(
-        "pub struct P { pub x: i32 }\npub fn f(a: P, b: P) -> bool { a == b }",
-        "equality on `P` is not in v0",
-    );
+    // A derived `==` compares part by part (`deep_eq_equivalence.rs`).
+    assert_clean("#[derive(PartialEq)]\npub struct P { pub x: i32 }\npub fn f(a: P, b: P) -> bool { a == b }");
     assert_rejects("pub fn f(a: bool, b: bool) -> bool { a < b }", "ordering on `bool` is not in v0");
     assert_rejects("pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a < b }", "ordering on `(i32, i32)` is not in v0");
     // By code point, through the runtime (`ordering`).
     assert_clean("pub fn f(a: String, b: String) -> bool { a < b }");
     assert_clean("pub fn f(a: String, b: String) -> bool { a == b }");
-    assert_rejects("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }", "use `matches!(x, M::Variant)`");
-    assert_rejects("pub fn f(a: Option<i32>) -> bool { a == None }", "use `is_some()`/`is_none()`");
-    let found = diagnostics("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a != b }");
+    assert_clean("#[derive(PartialEq)]\npub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a != b }");
+    assert_clean("pub fn f(a: Option<i32>, b: Vec<(u8, String)>) -> bool { a == None || b != vec![] }");
+    assert_rejects("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a < b }", "use `matches!(x, M::Variant)`");
+    // `ParseIntError` and `uuid::Error` are opaque here; Rust compares their kinds.
+    assert_rejects(
+        "pub fn f(a: &str, b: &str) -> bool { a.parse::<u8>() == b.parse::<u8>() }",
+        "equality on `Result<u8, ParseIntError>` is not in v0",
+    );
+    let found = diagnostics("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a > b }");
     assert_eq!(found.iter().map(|d| d.reason.code()).collect::<Vec<_>>(), ["check/comparison"]);
 }
 

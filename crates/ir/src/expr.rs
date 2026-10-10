@@ -588,6 +588,11 @@ pub enum Callee {
     ResultErr,
     OptionSome,
     OptionNone,
+    /// `a == b` on values whose `PartialEq` std or `derive` makes
+    /// structural: the crate's structs and enums, `Option`, `Result`, `Vec`,
+    /// and tuples of them. Prints as `Eq.deep(a, b)`, which compares the JS
+    /// values part by part as the derived `eq` compares fields and variants.
+    DeepEq,
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
     /// `Vec::is_empty`. Prints as `.length === 0`.

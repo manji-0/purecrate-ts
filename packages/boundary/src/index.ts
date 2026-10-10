@@ -708,6 +708,30 @@ export const Iter = {
   // #endregion
 } as const;
 
+// #region eq.deep
+/** Rust's `==` where `derive(PartialEq)` (or std) compares part by part. */
+export const Eq = {
+  /**
+   * The values compare equal as the derived `eq` does: a number, `bigint`,
+   * string, `boolean`, or `undefined` by `===` (so NaN is unequal to itself,
+   * and `-0.0` equal to `0.0`, as in Rust), `null` (`None`) only to itself,
+   * an array element by element, and an object (a struct, or a variant with
+   * its `kind`) key by key.
+   */
+  deep: (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (Array.isArray(a)) {
+      return Array.isArray(b) && a.length === b.length && a.every((x, i) => Eq.deep(x, b[i]));
+    }
+    const x = a as Record<string, unknown>;
+    const y = b as Record<string, unknown>;
+    const keys = Object.keys(x);
+    return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
+  },
+} as const;
+// #endregion
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
   // #region slice.at

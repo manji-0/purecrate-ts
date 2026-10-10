@@ -311,6 +311,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed_args(self, vec![Ty::Prim(from.into())]), Some(Ty::Prim((*to).into())))
             }
             Callee::VecLen => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Usize))),
+            // Written only by `binary`, typed.
+            Callee::DeepEq => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool())),
             // Written only by `method_call`, typed.
             Callee::VecPush | Callee::VecInsert => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))

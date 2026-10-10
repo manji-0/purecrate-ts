@@ -336,7 +336,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
 | `?` inside a guard, in `matches!`'s first argument inside a test (`if matches!(x?, p)`), or on the right of `&&` / `\|\|`; `?` or `return` in an arm of a `match` bound by a tuple `let` (`let (a, b) = match ..`); `\|` arms that bind names | bind the `?` result with `let` first (the tuple too, then take it apart); split the match |
 | `format!("{}", n)` | return numbers and ADTs; the caller formats |
-| `a == b` on structs/enums/`Option` (even with `derive(PartialEq)`) | `matches!(a, M::A)` for a fieldless variant; `match` for `Option`; otherwise an `eq` method (JS structural comparison differs) |
+| `a == b` on a value holding `ParseIntError` or `uuid::Error` | compare with a `match`; `==` on the crate's types, `Option`, `Result`, `Vec`, and tuples is the derived one (from 0.13.1) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
 | `static N: u32 = 3;`, `impl T { const N: u32 = 3; }` | a crate-level `const N: u32 = 3;` |

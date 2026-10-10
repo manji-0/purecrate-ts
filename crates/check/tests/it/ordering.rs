@@ -192,5 +192,10 @@ fn equality_on_ordering_is_its_variant() {
     assert_clean(
         "use std::cmp::Ordering;\npub fn f(a: Ordering, b: Ordering) -> bool { a == b || a != Ordering::Greater }",
     );
-    assert_rejects("pub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }", "equality on `M` is not in v0");
+    // A crate enum's derived `==` is part by part (`deep_eq_equivalence.rs`); its ordering stays refused.
+    assert_clean("#[derive(PartialEq)]\npub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a == b }");
+    assert_rejects(
+        "#[derive(PartialEq, PartialOrd)]\npub enum M { A, B }\npub fn f(a: M, b: M) -> bool { a < b }",
+        "ordering on `M` is not in v0",
+    );
 }
