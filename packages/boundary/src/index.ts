@@ -595,11 +595,116 @@ export const Str = {
     return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
   },
   // #endregion
+  // #region str.toAsciiLowercase
+  /** `str::to_ascii_lowercase`: ASCII `A`..=`Z` only (`toLowerCase` folds all of Unicode). */
+  toAsciiLowercase: (s: string): string => s.replace(/[A-Z]+/g, (m) => m.toLowerCase()),
+  // #endregion
+  // #region str.toAsciiUppercase
+  /** `str::to_ascii_uppercase`: ASCII `a`..=`z` only. */
+  toAsciiUppercase: (s: string): string => s.replace(/[a-z]+/g, (m) => m.toUpperCase()),
+  // #endregion
+  // #region str.trim
+  /** `str::trim`: Rust's whitespace, which is not JS `trim`'s (U+0085 is; U+FEFF is not). */
+  trim: (s: string): string => s.replace(WHITESPACE_START, "").replace(WHITESPACE_END, ""),
+  // #endregion
+  // #region str.trimStart
+  trimStart: (s: string): string => s.replace(WHITESPACE_START, ""),
+  // #endregion
+  // #region str.trimEnd
+  trimEnd: (s: string): string => s.replace(WHITESPACE_END, ""),
+  // #endregion
+  // #region str.trimMatches
+  /** `str::trim_matches` with a `char` or a closure on one. */
+  trimMatches: (s: string, p: string | ((c: Char) => boolean)): string => trimEnd(trimStart(s, p), p),
+  // #endregion
+  // #region str.trimStartMatches
+  /** `str::trim_start_matches` with a `char`, a `&str`, or a closure on a `char`. */
+  trimStartMatches: (s: string, p: string | ((c: Char) => boolean)): string => trimStart(s, p),
+  // #endregion
+  // #region str.trimEndMatches
+  trimEndMatches: (s: string, p: string | ((c: Char) => boolean)): string => trimEnd(s, p),
+  // #endregion
+  // #region str.find
+  /**
+   * `str::find` with a `char`, a `&str`, or a closure on a `char`: the UTF-8
+   * byte offset of the first match (`indexOf` counts UTF-16 units).
+   */
+  find: (s: string, p: string | ((c: Char) => boolean)): Usize | null => {
+    if (typeof p === "string") {
+      const i = s.indexOf(p);
+      return i < 0 ? null : utf8Len(s.slice(0, i));
+    }
+    let n = 0;
+    for (const c of s) {
+      if (p(c as Char)) return n as Usize;
+      n += utf8Width(c);
+    }
+    return null;
+  },
+  // #endregion
+  // #region str.splitBy
+  /** `s.split(f)` with a closure on a `char`: the pieces between matches, empty ones kept. */
+  splitBy: (s: string, f: (c: Char) => boolean): string[] => {
+    const out: string[] = [];
+    let piece = "";
+    for (const c of s) {
+      if (f(c as Char)) {
+        out.push(piece);
+        piece = "";
+      } else {
+        piece += c;
+      }
+    }
+    out.push(piece);
+    return out;
+  },
+  // #endregion
 } as const;
 
-// #region ord.cmp ord.cmpStr ord.then ord.cmpList
+// #region str.trim str.trimStart str.trimEnd
+/** `char::is_whitespace`: Unicode White_Space. */
+const WHITESPACE_START = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u;
+const WHITESPACE_END = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/u;
+// #endregion
+
+// #region str.trimMatches str.trimStartMatches str.trimEndMatches
+/** `s` without every leading match of `p`: a string as a whole, or a `char` the closure takes. */
+const trimStart = (s: string, p: string | ((c: Char) => boolean)): string => {
+  if (typeof p === "string") {
+    if (p === "") return s;
+    while (s.startsWith(p)) s = s.slice(p.length);
+    return s;
+  }
+  let i = 0;
+  for (const c of s) {
+    if (!p(c as Char)) break;
+    i += c.length;
+  }
+  return s.slice(i);
+};
+
+/** `s` without every trailing match of `p`. */
+const trimEnd = (s: string, p: string | ((c: Char) => boolean)): string => {
+  if (typeof p === "string") {
+    if (p === "") return s;
+    while (s.endsWith(p)) s = s.slice(0, s.length - p.length);
+    return s;
+  }
+  const cs = Array.from(s);
+  let end = cs.length;
+  while (end > 0 && p(cs[end - 1] as Char)) end--;
+  return cs.slice(0, end).join("");
+};
+// #endregion
+
+// #region ord.cmp ord.cmpStr ord.then ord.cmpList slice.sortBy slice.sortByKey iter.maxBy iter.minBy iter.maxByKey iter.minByKey
 /** std's `Ordering`, as the crate's `Ordering` declares it. */
 type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
+// #endregion
+
+// #region slice.sortBy slice.sortByKey
+/** An `Ordering` as a comparator's number. */
+const ORDER = { Less: -1, Equal: 0, Greater: 1 } as const;
 // #endregion
 
 // #region ord.cmp ord.cmpStr ord.cmpList
@@ -680,6 +785,51 @@ export const Iter = {
     let total = zero;
     for (const x of xs) total = add(total, x);
     return total;
+  },
+  // #endregion
+  // #region iter.find
+  /** `find(f)`: the first item `f` takes. The items are never `null` (no `Option<Option<_>>`). */
+  find: <T>(xs: Iterable<T>, f: (x: T) => boolean): T | null => {
+    for (const x of xs) if (f(x)) return x;
+    return null;
+  },
+  // #endregion
+  // #region iter.maxBy
+  /** `max()` / `max_by(f)`: the last of the greatest, as std keeps the later of equals. */
+  maxBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => {
+    let best: T | null = null;
+    for (const x of xs) if (best === null || f(best, x).kind !== "Greater") best = x;
+    return best;
+  },
+  // #endregion
+  // #region iter.minBy
+  /** `min()` / `min_by(f)`: the first of the least. */
+  minBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => {
+    let best: T | null = null;
+    for (const x of xs) if (best === null || f(best, x).kind === "Greater") best = x;
+    return best;
+  },
+  // #endregion
+  // #region iter.maxByKey
+  /** `max_by_key(f)`: each key computed once, in order; the last of the greatest. */
+  maxByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null => {
+    let best: { x: T; k: K } | null = null;
+    for (const x of xs) {
+      const k = f(x);
+      if (best === null || cmp(best.k, k).kind !== "Greater") best = { x, k };
+    }
+    return best === null ? null : best.x;
+  },
+  // #endregion
+  // #region iter.minByKey
+  /** `min_by_key(f)`: the first of the least. */
+  minByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null => {
+    let best: { x: T; k: K } | null = null;
+    for (const x of xs) {
+      const k = f(x);
+      if (best === null || cmp(best.k, k).kind === "Greater") best = { x, k };
+    }
+    return best === null ? null : best.x;
   },
   // #endregion
   // #region iter.map
@@ -776,6 +926,21 @@ export const Slice = {
     xs[i] = x;
   },
   // #endregion
+  // #region slice.sortBy
+  /**
+   * `v.sort()` / `v.sort_by(f)` on a local's own array: stable, as JS `sort`
+   * is since ES2019, so equal elements keep their order as in Rust.
+   */
+  sortBy: <T>(xs: T[], f: (a: T, b: T) => Ordering): void => {
+    xs.sort((a, b) => ORDER[f(a, b).kind]);
+  },
+  // #endregion
+  // #region slice.sortByKey
+  /** `v.sort_by_key(f)`: stable, by each key's `cmp`. */
+  sortByKey: <T, K>(xs: T[], f: (x: T) => K, cmp: (a: K, b: K) => Ordering): void => {
+    xs.sort((a, b) => ORDER[cmp(f(a), f(b)).kind]);
+  },
+  // #endregion
 } as const;
 
 // #region str.slice
@@ -795,7 +960,7 @@ const debugChar = (c: string): string =>
 let escaped: RegExp | undefined;
 // #endregion
 
-// #region str.len str.slice
+// #region str.len str.slice str.find
 const utf8Len = (s: string): Usize => {
   let n = 0;
   for (const c of s) n += utf8Width(c);

@@ -535,6 +535,15 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                             hex: false
                         }))
                     ),
+                    purecrate_ir::Consume::Max { text } | purecrate_ir::Consume::Min { text } => {
+                        format!("Iter.{}({source}, {})", method.ts_name(), if *text { "Ord.cmpStr" } else { "Ord.cmp" })
+                    }
+                    purecrate_ir::Consume::MaxByKey { text } | purecrate_ir::Consume::MinByKey { text } => format!(
+                        "Iter.{}({source}, {}, {})",
+                        method.ts_name(),
+                        emit_item(&args[1], indent),
+                        if *text { "Ord.cmpStr" } else { "Ord.cmp" }
+                    ),
                     m => format!("Iter.{}({source}, {})", m.ts_name(), emit_item(&args[1], indent)),
                 };
             }
@@ -588,7 +597,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::CharCode(_) => String::new(),
                 purecrate_ir::Callee::IntCast { to, .. } => format!("Int.{}.cast", to.as_str()),
-                purecrate_ir::Callee::FloatToInt { to, .. } => format!("Int.{}.castFloat", to.as_str()),
+                purecrate_ir::Callee::FloatToInt { to, .. } => {
+                    return format!("Int.{}.castFloat({})", to.as_str(), float_arg(&args[0], indent));
+                }
                 purecrate_ir::Callee::FloatFrom(_) => unreachable!("`check::accept` rewrites `from`"),
                 purecrate_ir::Callee::Float { .. }
                 | purecrate_ir::Callee::FloatConst { .. }
@@ -602,6 +613,17 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::StrParse(t) => format!("Int.{}.parse", t.as_str()),
                 purecrate_ir::Callee::StrCmp => "Str.cmp".into(),
                 purecrate_ir::Callee::DeepEq => "Eq.deep".into(),
+                purecrate_ir::Callee::VecSort(sort) => {
+                    let by = |text: bool| if text { "Ord.cmpStr" } else { "Ord.cmp" };
+                    let v = emit_expr(&args[0], indent);
+                    return match sort {
+                        purecrate_ir::Sort::Natural { text } => format!("Slice.sortBy({v}, {})", by(*text)),
+                        purecrate_ir::Sort::By => format!("Slice.sortBy({v}, {})", emit_item(&args[1], indent)),
+                        purecrate_ir::Sort::ByKey { text } => {
+                            format!("Slice.sortByKey({v}, {}, {})", emit_item(&args[1], indent), by(*text))
+                        }
+                    };
+                }
                 purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
                 purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
                 purecrate_ir::Callee::OrdThen => "Ord.then".into(),
@@ -639,6 +661,11 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             }
             if let purecrate_ir::Callee::Slice { of, start, end } = callee {
                 return emit_slice(of.expect("check::accept sets what is sliced"), *start, *end, args, indent);
+            }
+            if matches!(callee, purecrate_ir::Callee::StrSplit)
+                && matches!(peel_identity(&args[1]), Expr::Closure { .. })
+            {
+                return format!("Str.splitBy({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
             }
             if matches!(callee, purecrate_ir::Callee::StrSplit) {
                 // JS `split` takes a string; the `char` needs no brand.
@@ -680,6 +707,8 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     purecrate_ir::StrMethod::EqIgnoreAsciiCase => {
                         format!("Str.eqIgnoreAsciiCase({s}, {})", needle())
                     }
+                    m if m.needles() == 0 => format!("Str.{}({s})", m.ts_name()),
+                    m => format!("Str.{}({s}, {})", m.ts_name(), needle()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::VecLen) {
@@ -709,7 +738,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             }
             if let purecrate_ir::Callee::Float { ty, m } = callee {
                 use purecrate_ir::FloatMethod as F;
-                let x = || emit_item(&args[0], indent);
+                let x = || float_arg(&args[0], indent);
                 let t = ty.ts_name();
                 return match m {
                     F::Round => format!("Int.{}.round({})", ty.as_str(), x()),
@@ -741,7 +770,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     (false, purecrate_ir::FloatTy::F64) => {
                         format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
                     }
-                    (false, purecrate_ir::FloatTy::F32) => format!("(globalThis.Math.fround({x}) as F32)"),
+                    (false, purecrate_ir::FloatTy::F32) => {
+                        format!("(globalThis.Math.fround({}) as F32)", emit_item(&args[0], indent))
+                    }
                     (true, purecrate_ir::FloatTy::F64) => format!("(globalThis.Number({x}) as F64)"),
                     (true, purecrate_ir::FloatTy::F32) => format!("Int.f32.ofBig({x})"),
                 };
@@ -1498,5 +1529,17 @@ mod tests {
         assert_eq!(emit_lit(&byte(48)), "(/* '0' */ 48 as U8)");
         let plain = Lit::Int { value: 48, ty: Some(purecrate_ir::IntTy::U8), byte: false, hex: false };
         assert_eq!(bare_lit(&plain), "48");
+    }
+}
+
+/// A float argument to a function that takes a plain `number` (`Math`'s,
+/// the runtime's `round` and `castFloat`): without the `as F64` that
+/// arithmetic carries, which would be an unnecessary assertion there.
+fn float_arg(e: &Expr, indent: usize) -> String {
+    match peel_identity(e) {
+        Expr::Call { callee: purecrate_ir::Callee::AsFloat(_), args } => {
+            crate::tidy::strip_outer(&emit_expr(&args[0], indent)).to_string()
+        }
+        _ => emit_item(e, indent),
     }
 }

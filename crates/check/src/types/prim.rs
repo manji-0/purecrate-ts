@@ -122,10 +122,17 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut typed = vec![recv];
         for a in args {
+            // A closure pattern takes a `char` and says whether it matches.
+            if m.takes_pattern() && matches!(a.unpositioned(), Expr::Closure { .. }) {
+                let f = Ty::Fn { params: vec![Ty::Prim(Prim::Char)], ret: Box::new(Ty::bool()) };
+                let (e, _) = self.expr(a, Some(&f));
+                typed.push(e);
+                continue;
+            }
             let (e, t) = self.expr(a, None);
             match t.map(|t| self.norm(&t)) {
                 Some(Ty::Prim(Prim::String | Prim::Str)) | Some(Ty::Never) | None => {}
-                Some(Ty::Prim(Prim::Char)) if m == StrMethod::SplitOnce => {}
+                Some(Ty::Prim(Prim::Char)) if m == StrMethod::SplitOnce || m.takes_pattern() => {}
                 Some(other) => self.error(
                     Reason::TypeMismatch,
                     format!("`str::{}` takes a `&str` pattern in v0, found `{}`", m.name(), show(&other)),
@@ -138,6 +145,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             StrMethod::AsStr => Ty::Prim(Prim::Str),
             StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
             StrMethod::SplitOnce => split_once_ty(),
+            StrMethod::ToAsciiLowercase | StrMethod::ToAsciiUppercase => Ty::Prim(Prim::String),
+            StrMethod::Trim
+            | StrMethod::TrimStart
+            | StrMethod::TrimEnd
+            | StrMethod::TrimMatches
+            | StrMethod::TrimStartMatches
+            | StrMethod::TrimEndMatches => Ty::Prim(Prim::Str),
+            StrMethod::Find => Ty::option(Ty::Prim(Prim::Usize)),
             StrMethod::IsEmpty
             | StrMethod::StartsWith
             | StrMethod::EndsWith

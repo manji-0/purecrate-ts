@@ -12,7 +12,7 @@ mod ty;
 
 pub use expr::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, FloatConst, FloatMethod, IntMethod, IntOp,
-    Lit, Over, Pattern, Pos, SliceOf, StrMethod, TryOn, UnOp, VariantBind,
+    Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TryOn, UnOp, VariantBind,
 };
 pub use item::{
     tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Variant, VariantFields, Vis, CONSTS_STEM,

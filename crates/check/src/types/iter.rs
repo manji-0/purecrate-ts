@@ -14,8 +14,8 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// on integers only, since float `Sum` starts from `-0.0`.
     pub(super) fn consume(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let takes = match name {
-            "all" | "any" | "position" => 1,
-            "count" | "sum" => 0,
+            "all" | "any" | "position" | "find" | "max_by_key" | "min_by_key" | "max_by" | "min_by" => 1,
+            "count" | "sum" | "max" | "min" => 0,
             _ => return None,
         };
         let failed = (Expr::Lit(Lit::Unit), None);
@@ -29,56 +29,147 @@ impl<'d, 'a> Typer<'d, 'a> {
         let Some((source, over, item)) = self.sequence(receiver, name) else {
             return Some(failed);
         };
-        let pred = match args.first() {
-            None => None,
-            Some(arg) => match self.one_param_fn(name, arg) {
-                Some(f) => Some(f),
-                None => return Some(failed),
-            },
-        };
+        if matches!(name, "find" | "max" | "min" | "max_by_key" | "min_by_key" | "max_by" | "min_by")
+            && matches!(self.norm(&item), Ty::Option(_))
+        {
+            self.error(
+                Reason::NestedOption,
+                format!(
+                    "`{name}` over `{}` items is `Option<Option<_>>`, and both `None`s are `null` in TS",
+                    show(&item)
+                ),
+            );
+            return Some(failed);
+        }
+        let mut call_args = vec![source];
         let method = match name {
-            "all" => Consume::All,
-            "any" => Consume::Any,
-            "position" => Consume::Position,
-            "count" => Consume::Count,
-            _ => match self.norm(&item) {
-                Ty::Prim(p) if p.int().is_some() => Consume::Sum(p.int().expect("checked")),
-                _ => {
+            "max_by" | "min_by" => {
+                let ordering = Ty::named(purecrate_ir::ORDERING);
+                let f = Ty::Fn { params: vec![item.clone(), item.clone()], ret: Box::new(ordering) };
+                if !matches!(args[0].unpositioned(), Expr::Closure { params, .. } if params.len() == 2) {
+                    self.error(Reason::Closure, format!("`{name}` takes a closure `|a, b| ..` in v0"));
+                    return Some(failed);
+                }
+                if args[0].exits() {
                     self.error(
-                        Reason::TypeMismatch,
-                        format!("`sum` adds integers in v0, found `{}` (a float sum starts from `-0.0`)", show(&item)),
+                        Reason::Closure,
+                        format!("a closure passed to `{name}` may not use `?` or `return` in v0; write the loop"),
                     );
                     return Some(failed);
                 }
-            },
-        };
-        let mut call_args = vec![source];
-        if let Some((param, ty, body)) = pred {
-            if let Some(written) = &ty {
-                if self.norm(written) != self.norm(&item) {
-                    self.error(
-                        Reason::TypeMismatch,
-                        format!("`{name}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
-                    );
-                    return Some(failed);
+                let (closure, _) = self.expr(&args[0], Some(&f));
+                call_args.push(closure);
+                if name == "max_by" {
+                    Consume::MaxBy
+                } else {
+                    Consume::MinBy
                 }
             }
-            let closure = Expr::Closure {
-                params: vec![ClosureParam { name: param, ty: Some(item.clone()) }],
-                ret: Some(Ty::bool()),
-                body: Box::new(body),
-            };
-            let (closure, _) = self.expr(&closure, None);
-            call_args.push(closure);
-        }
+            "max" | "min" => {
+                let Some(text) = self.ordered_by(&item, name) else { return Some(failed) };
+                if name == "max" {
+                    Consume::Max { text }
+                } else {
+                    Consume::Min { text }
+                }
+            }
+            _ => {
+                let pred = match args.first() {
+                    None => None,
+                    Some(arg) => match self.one_param_fn(name, arg) {
+                        Some(f) => Some(f),
+                        None => return Some(failed),
+                    },
+                };
+                let keyed = matches!(name, "max_by_key" | "min_by_key");
+                let mut key = None;
+                if let Some((param, ty, body)) = pred {
+                    if let Some(written) = &ty {
+                        if self.norm(written) != self.norm(&item) {
+                            self.error(
+                                Reason::TypeMismatch,
+                                format!(
+                                    "`{name}`'s closure takes `{}`, the items are `{}`",
+                                    show(written),
+                                    show(&item)
+                                ),
+                            );
+                            return Some(failed);
+                        }
+                    }
+                    let closure = Expr::Closure {
+                        params: vec![ClosureParam { name: param, ty: Some(item.clone()) }],
+                        ret: if keyed { None } else { Some(Ty::bool()) },
+                        body: Box::new(body),
+                    };
+                    let (closure, ct) = self.expr(&closure, None);
+                    key = match ct.map(|t| self.norm(&t)) {
+                        Some(Ty::Fn { ret, .. }) => Some(*ret),
+                        _ => None,
+                    };
+                    call_args.push(closure);
+                }
+                match name {
+                    "all" => Consume::All,
+                    "any" => Consume::Any,
+                    "position" => Consume::Position,
+                    "find" => Consume::Find,
+                    "count" => Consume::Count,
+                    "max_by_key" | "min_by_key" => {
+                        let Some(key) = key else { return Some(failed) };
+                        let Some(text) = self.ordered_by(&key, name) else { return Some(failed) };
+                        if name == "max_by_key" {
+                            Consume::MaxByKey { text }
+                        } else {
+                            Consume::MinByKey { text }
+                        }
+                    }
+                    _ => match self.norm(&item) {
+                        Ty::Prim(p) if p.int().is_some() => Consume::Sum(p.int().expect("checked")),
+                        _ => {
+                            self.error(
+                                Reason::TypeMismatch,
+                                format!(
+                                    "`sum` adds integers in v0, found `{}` (a float sum starts from `-0.0`)",
+                                    show(&item)
+                                ),
+                            );
+                            return Some(failed);
+                        }
+                    },
+                }
+            }
+        };
         let ty = match method {
             Consume::All | Consume::Any => Ty::bool(),
             Consume::Position => Ty::option(Ty::Prim(Prim::Usize)),
             Consume::Count => Ty::Prim(Prim::Usize),
             Consume::Sum(_) => item.clone(),
+            _ => Ty::option(item.clone()),
         };
         let e = Expr::Call { callee: Callee::Consume { method, over }, args: call_args };
         Some((e, self.expect(want, Some(ty))))
+    }
+
+    /// Whether `t` orders by `cmp` (`Ord.cmp`, `false`) or by code point
+    /// (`Ord.cmpStr`, `true`), as `name` needs; `None` once reported.
+    pub(super) fn ordered_by(&mut self, t: &Ty, name: &str) -> Option<bool> {
+        match self.norm(t) {
+            Ty::Prim(Prim::Bool) => Some(false),
+            Ty::Prim(p) if p.int().is_some() => Some(false),
+            Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid) => Some(true),
+            Ty::Never => None,
+            other => {
+                self.error(
+                    Reason::Comparison,
+                    format!(
+                        "`{name}` orders by `cmp`, which v0 has on integers, `bool`, `char`, strings, and `Uuid`, found `{}`; use the `_by` form with a closure giving an `Ordering`",
+                        show(&other)
+                    ),
+                );
+                None
+            }
+        }
     }
 
     /// What an iterator method takes as its function: a closure of one

@@ -109,8 +109,8 @@ fn str_methods_come_from_the_allow_list() {
     );
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
-        "pub fn f(s: &str) -> bool { s.trim() == \"\" }",
-        "`.trim()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
+        "pub fn f(s: &str) -> bool { s.trim_ascii() == \"\" }",
+        "`.trim_ascii()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `to_ascii_lowercase`, `to_ascii_uppercase`, `trim`, `trim_start`, `trim_end`, `trim_matches`, `trim_start_matches`, `trim_end_matches`, `find`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
     );
 }
 
@@ -120,9 +120,9 @@ fn str_methods_come_from_the_allow_list() {
 fn std_rejections_list_what_the_receiver_allows() {
     assert_rejects(
         "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
-        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`, `clone`, `as_ref`, `as_deref`",
+        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`, `clone`, `cloned`, `copied`, `as_ref`, `as_deref`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, and `xs[i] = x` (on a `let mut` local), indexing `xs[i]`");
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local), indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
     assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
 }
@@ -183,4 +183,28 @@ fn vec_edits_are_on_a_local() {
         "`v[i] = x` writes an element of a local `let mut v: Vec<T>` in v0",
     );
     assert_rejects("pub fn f(v: Vec<u32>) -> Vec<u32> { let mut w = v; w[0] = 1u8; w }", "expected `u32`, found `u8`");
+}
+
+/// `sort*` sorts a local's own array by what `cmp` orders; the consumers
+/// that pick an item give an `Option` of it.
+#[test]
+fn sorting_and_picking() {
+    assert_clean("pub fn f(v: Vec<u32>) -> Vec<u32> { let mut w = v; w.sort(); w.sort_by(|a, b| b.cmp(a)); w.sort_by_key(|x| *x); w }");
+    assert_clean("pub fn f(v: Vec<String>) -> (Option<String>, Option<String>) { (v.iter().cloned().max(), v.iter().find(|s| s.is_empty()).cloned()) }");
+    assert_rejects(
+        "pub struct S { pub xs: Vec<u32> }\npub fn f(s: S) -> S { let mut t = s; t.xs.sort(); t }",
+        "`sort` sorts a local `let mut v: Vec<T>` in v0",
+    );
+    assert_rejects(
+        "pub fn f(v: Vec<f64>) -> Vec<f64> { let mut w = v; w.sort_by_key(|x| *x); w }",
+        "`sort_by_key` orders by `cmp`",
+    );
+    assert_rejects(
+        "pub fn f(v: Vec<u32>) -> Vec<u32> { let mut w = v; w.sort_unstable(); w }",
+        "`.sort_unstable()` on `Vec<u32>` is not on the std allow-list",
+    );
+    assert_rejects(
+        "pub fn f(v: Vec<Option<u8>>) -> bool { v.iter().copied().max().is_some() }",
+        "`max` over `Option<u8>` items is `Option<Option<_>>`",
+    );
 }

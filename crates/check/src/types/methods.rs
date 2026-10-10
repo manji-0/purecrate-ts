@@ -23,7 +23,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         // `clone` is a new array for a `Vec`, which a local may push to, and
         // the value itself for anything else, which nothing writes; `as_ref`
         // and `as_deref` on an `Option` are the option (design/01 §7.14).
-        if args.is_empty() && matches!(name.as_str(), "clone" | "as_ref" | "as_deref") {
+        if args.is_empty() && matches!(name.as_str(), "clone" | "as_ref" | "as_deref" | "cloned" | "copied") {
             if let Some(rt) = &rt {
                 match (name.as_str(), self.norm(rt)) {
                     ("clone", Ty::Vec(_)) => {
@@ -33,7 +33,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                         };
                         return (e, self.expect(want, Some(rt.clone())));
                     }
-                    ("clone", _) | ("as_ref", Ty::Option(_)) => return (recv, self.expect(want, Some(rt.clone()))),
+                    // `Option<&T>` from `find`, `max`, and the others is
+                    // `Option<T>` here, as every reference is the value.
+                    ("clone", _) | ("as_ref" | "cloned" | "copied", Ty::Option(_)) => {
+                        return (recv, self.expect(want, Some(rt.clone())))
+                    }
                     ("as_deref", Ty::Option(inner)) if matches!(self.norm(&inner), Ty::Prim(Prim::String)) => {
                         return (recv, self.expect(want, Some(Ty::option(Ty::Prim(Prim::Str)))));
                     }
@@ -71,6 +75,59 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (at, _) = self.expr(at, Some(&Ty::Prim(Prim::Usize)));
                 let (arg, _) = self.expr(arg, Some(&item));
                 let e = Expr::Call { callee: Callee::VecInsert, args: vec![recv, at, arg] };
+                return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
+            }
+        }
+        if matches!(name.as_str(), "sort" | "sort_by" | "sort_by_key") {
+            if let Some(Ty::Vec(item)) = rt.as_ref().map(|t| self.norm(t)) {
+                let failed = (Expr::Lit(Lit::Unit), None);
+                let method = name.as_str();
+                let takes = usize::from(method != "sort");
+                if args.len() != takes {
+                    self.error(
+                        Reason::ConstructShape,
+                        format!("`{method}` takes {takes} argument(s), got {}", args.len()),
+                    );
+                    return failed;
+                }
+                if !matches!(recv.unpositioned(), Expr::Var(_)) {
+                    self.error(Reason::MethodCall, format!("`{method}` sorts a local `let mut v: Vec<T>` in v0, not a field or an element: build the new `Vec` and put it in a new value (design/02 §3.1)"));
+                    return failed;
+                }
+                if args.first().is_some_and(|a| !matches!(a.unpositioned(), Expr::Closure { .. }) || a.exits()) {
+                    self.error(Reason::Closure, format!("`{method}` takes a closure without `?` or `return` in v0"));
+                    return failed;
+                }
+                let (sort, args) = match method {
+                    "sort" => {
+                        let Some(text) = self.ordered_by(&item, method) else { return failed };
+                        (Sort::Natural { text }, vec![recv])
+                    }
+                    "sort_by" => {
+                        let ordering = Ty::named(purecrate_ir::ORDERING);
+                        let f = Ty::Fn { params: vec![(*item).clone(), (*item).clone()], ret: Box::new(ordering) };
+                        let (closure, _) = self.expr(&args[0], Some(&f));
+                        (Sort::By, vec![recv, closure])
+                    }
+                    _ => {
+                        // The parameter takes the item where its type is not written.
+                        let Expr::Closure { params, body, ret } = args[0].unpositioned().clone() else {
+                            unreachable!("checked above")
+                        };
+                        let params = params
+                            .into_iter()
+                            .map(|p| ClosureParam { ty: p.ty.or(Some((*item).clone())), ..p })
+                            .collect();
+                        let (closure, ct) = self.expr(&Expr::Closure { params, body, ret }, None);
+                        let key = match ct.map(|t| self.norm(&t)) {
+                            Some(Ty::Fn { ret, .. }) => *ret,
+                            _ => return failed,
+                        };
+                        let Some(text) = self.ordered_by(&key, method) else { return failed };
+                        (Sort::ByKey { text }, vec![recv, closure])
+                    }
+                };
+                let e = Expr::Call { callee: Callee::VecSort(sort), args };
                 return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
             }
         }
@@ -446,11 +503,13 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "clone",
             "iter",
             "into_iter",
-            "push, insert, remove, and `xs[i] = x` (on a `let mut` local)",
+            "push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local)",
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
         ],
-        Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "as_ref", "as_deref"],
+        Ty::Option(_) => {
+            vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "cloned", "copied", "as_ref", "as_deref"]
+        }
         Ty::Result { .. } => vec!["ok", "map", "map_err"],
         Ty::Prim(p) if p.float().is_some() => FloatMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL

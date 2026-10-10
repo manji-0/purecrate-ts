@@ -364,10 +364,30 @@ pub enum StrMethod {
     /// rest, so comparing folded UTF-16 units agrees with folded UTF-8
     /// bytes. Prints as `Str.eqIgnoreAsciiCase`.
     EqIgnoreAsciiCase,
+    /// A new `String` with ASCII `A`..=`Z` (or `a`..=`z`) folded, every
+    /// other character as it is (JS `toLowerCase` folds all of Unicode).
+    /// Prints as `Str.toAsciiLowercase` / `Str.toAsciiUppercase`.
+    ToAsciiLowercase,
+    ToAsciiUppercase,
+    /// Without leading and trailing `char::is_whitespace` (Unicode
+    /// White_Space, which JS `trim` does not match: it trims U+FEFF and not
+    /// U+0085). Prints as `Str.trim` / `Str.trimStart` / `Str.trimEnd`.
+    Trim,
+    TrimStart,
+    TrimEnd,
+    /// Take a `char`, a `&str` (start or end only, as std's searchers), or
+    /// a closure on a `char`; the rest of the string once every leading
+    /// (trailing) match is gone. Print as `Str.trimMatches` and so on.
+    TrimMatches,
+    TrimStartMatches,
+    TrimEndMatches,
+    /// Takes a `char`, a `&str`, or a closure on a `char`; the UTF-8 byte
+    /// offset of the first match, as `Option<usize>`. Prints as `Str.find`.
+    Find,
 }
 
 impl StrMethod {
-    pub const ALL: [StrMethod; 10] = [
+    pub const ALL: [StrMethod; 19] = [
         StrMethod::Len,
         StrMethod::IsEmpty,
         StrMethod::StartsWith,
@@ -378,6 +398,15 @@ impl StrMethod {
         StrMethod::StripSuffix,
         StrMethod::SplitOnce,
         StrMethod::EqIgnoreAsciiCase,
+        StrMethod::ToAsciiLowercase,
+        StrMethod::ToAsciiUppercase,
+        StrMethod::Trim,
+        StrMethod::TrimStart,
+        StrMethod::TrimEnd,
+        StrMethod::TrimMatches,
+        StrMethod::TrimStartMatches,
+        StrMethod::TrimEndMatches,
+        StrMethod::Find,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -396,20 +425,70 @@ impl StrMethod {
             Self::StripSuffix => "strip_suffix",
             Self::SplitOnce => "split_once",
             Self::EqIgnoreAsciiCase => "eq_ignore_ascii_case",
+            Self::ToAsciiLowercase => "to_ascii_lowercase",
+            Self::ToAsciiUppercase => "to_ascii_uppercase",
+            Self::Trim => "trim",
+            Self::TrimStart => "trim_start",
+            Self::TrimEnd => "trim_end",
+            Self::TrimMatches => "trim_matches",
+            Self::TrimStartMatches => "trim_start_matches",
+            Self::TrimEndMatches => "trim_end_matches",
+            Self::Find => "find",
         }
+    }
+
+    /// The runtime's name, `Str.<ts_name>`.
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Self::Len => "len",
+            Self::IsEmpty => "isEmpty",
+            Self::StartsWith => "startsWith",
+            Self::EndsWith => "endsWith",
+            Self::Contains => "includes",
+            Self::AsStr => "asStr",
+            Self::StripPrefix => "stripPrefix",
+            Self::StripSuffix => "stripSuffix",
+            Self::SplitOnce => "splitOnce",
+            Self::EqIgnoreAsciiCase => "eqIgnoreAsciiCase",
+            Self::ToAsciiLowercase => "toAsciiLowercase",
+            Self::ToAsciiUppercase => "toAsciiUppercase",
+            Self::Trim => "trim",
+            Self::TrimStart => "trimStart",
+            Self::TrimEnd => "trimEnd",
+            Self::TrimMatches => "trimMatches",
+            Self::TrimStartMatches => "trimStartMatches",
+            Self::TrimEndMatches => "trimEndMatches",
+            Self::Find => "find",
+        }
+    }
+
+    /// Takes a pattern: a `char`, a `&str`, or a closure on a `char`.
+    pub fn takes_pattern(self) -> bool {
+        matches!(self, Self::TrimMatches | Self::TrimStartMatches | Self::TrimEndMatches | Self::Find)
     }
 
     /// Arguments after the receiver.
     pub fn needles(self) -> usize {
         match self {
-            Self::Len | Self::IsEmpty | Self::AsStr => 0,
+            Self::Len
+            | Self::IsEmpty
+            | Self::AsStr
+            | Self::ToAsciiLowercase
+            | Self::ToAsciiUppercase
+            | Self::Trim
+            | Self::TrimStart
+            | Self::TrimEnd => 0,
             Self::StartsWith
             | Self::EndsWith
             | Self::Contains
             | Self::StripPrefix
             | Self::StripSuffix
             | Self::SplitOnce
-            | Self::EqIgnoreAsciiCase => 1,
+            | Self::EqIgnoreAsciiCase
+            | Self::TrimMatches
+            | Self::TrimStartMatches
+            | Self::TrimEndMatches
+            | Self::Find => 1,
         }
     }
 }
@@ -608,6 +687,11 @@ pub enum Callee {
     /// the local's own array, panicking at or past its end. Prints as
     /// `Slice.remove(v, i)`.
     VecRemove,
+    /// `v.sort()`, `v.sort_by(f)`, or `v.sort_by_key(f)` on a local `let mut
+    /// v: Vec<T>`, of type `()`: a stable sort of the local's own array, as
+    /// JS `sort` is. The closure, if any, is the second argument. Prints as
+    /// `Slice.sortBy(v, ..)` or `Slice.sortByKey(v, f, ..)`.
+    VecSort(Sort),
     /// `v[i] = x` on a local `let mut v: Vec<T>`, of type `()`: a write to
     /// the local's own array, panicking at or past its end (JS would grow
     /// it). `v[i] op= x` is `v[i] = v[i] op x`. Rust evaluates `x` before
@@ -971,6 +1055,26 @@ pub enum Consume {
     Count,
     /// Adds the items of this integer type from zero, panicking on overflow.
     Sum(IntTy),
+    /// The first item the closure takes, as an `Option`.
+    Find,
+    /// The greatest item (the last of equals) or the least (the first), by
+    /// `cmp`, by a key's `cmp`, or by a closure giving an `Ordering`. `text`
+    /// is `true` where the item or key is ordered by code point (`char`, a
+    /// string, a `Uuid`).
+    Max {
+        text: bool,
+    },
+    Min {
+        text: bool,
+    },
+    MaxByKey {
+        text: bool,
+    },
+    MinByKey {
+        text: bool,
+    },
+    MaxBy,
+    MinBy,
 }
 
 impl Consume {
@@ -981,8 +1085,24 @@ impl Consume {
             Consume::Position => "position",
             Consume::Count => "count",
             Consume::Sum(_) => "sum",
+            Consume::Find => "find",
+            Consume::Max { .. } | Consume::MaxBy => "maxBy",
+            Consume::Min { .. } | Consume::MinBy => "minBy",
+            Consume::MaxByKey { .. } => "maxByKey",
+            Consume::MinByKey { .. } => "minByKey",
         }
     }
+}
+
+/// How `v.sort*()` orders a local's own array, stably.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sort {
+    /// `sort()`: by `cmp`; `text` as in `Consume::Max`.
+    Natural { text: bool },
+    /// `sort_by(|a, b| ..)`: by the closure's `Ordering`.
+    By,
+    /// `sort_by_key(|x| ..)`: by the key's `cmp`.
+    ByKey { text: bool },
 }
 
 /// What a `for` walks.
@@ -1349,12 +1469,13 @@ impl Expr {
     /// x` writes.
     pub fn grown(&self) -> Option<&Name> {
         match self {
-            Expr::Call { callee: Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet, args } => {
-                match args.first() {
-                    Some(Expr::Var(n)) => Some(n),
-                    _ => None,
-                }
-            }
+            Expr::Call {
+                callee: Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecSort(_),
+                args,
+            } => match args.first() {
+                Some(Expr::Var(n)) => Some(n),
+                _ => None,
+            },
             _ => None,
         }
     }

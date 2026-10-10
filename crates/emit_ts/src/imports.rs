@@ -465,6 +465,15 @@ impl Refs {
                         if matches!(method, purecrate_ir::Consume::Position | purecrate_ir::Consume::Count) {
                             self.nums.insert("Usize".into());
                         }
+                        if matches!(
+                            method,
+                            purecrate_ir::Consume::Max { .. }
+                                | purecrate_ir::Consume::Min { .. }
+                                | purecrate_ir::Consume::MaxByKey { .. }
+                                | purecrate_ir::Consume::MinByKey { .. }
+                        ) {
+                            self.ord = true;
+                        }
                     }
                     Callee::Int { ty, .. } => {
                         self.int = true;
@@ -486,10 +495,27 @@ impl Refs {
                         purecrate_ir::StrMethod::StripPrefix
                         | purecrate_ir::StrMethod::StripSuffix
                         | purecrate_ir::StrMethod::SplitOnce
-                        | purecrate_ir::StrMethod::EqIgnoreAsciiCase,
+                        | purecrate_ir::StrMethod::EqIgnoreAsciiCase
+                        | purecrate_ir::StrMethod::ToAsciiLowercase
+                        | purecrate_ir::StrMethod::ToAsciiUppercase
+                        | purecrate_ir::StrMethod::Trim
+                        | purecrate_ir::StrMethod::TrimStart
+                        | purecrate_ir::StrMethod::TrimEnd
+                        | purecrate_ir::StrMethod::TrimMatches
+                        | purecrate_ir::StrMethod::TrimStartMatches
+                        | purecrate_ir::StrMethod::TrimEndMatches
+                        | purecrate_ir::StrMethod::Find,
                     )
-                    | Callee::StrWellFormed => self.str = true,
+                    | Callee::StrWellFormed
+                    // `Str.splitBy` for a closure; an unused import is pruned.
+                    | Callee::StrSplit => self.str = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet => self.slice = true,
+                    Callee::VecSort(sort) => {
+                        self.slice = true;
+                        if !matches!(sort, purecrate_ir::Sort::By) {
+                            self.ord = true;
+                        }
+                    }
                     Callee::DeepEq => self.eq = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);

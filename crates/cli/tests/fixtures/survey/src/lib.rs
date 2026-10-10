@@ -44,10 +44,10 @@ pub fn sign_of(n: i32) -> i32 {
 }
 
 /// Four causes: two the parser meets (`format!`, `loop`) and two the type
-/// check meets (`trim`, `as` on an integer).
+/// check meets (`trim_ascii`, a widening `as`).
 pub fn many(n: i32, s: &str) -> i64 {
     let text = format!("{n}");
-    let k = s.trim().len();
+    let k = s.trim_ascii().len();
     loop {
         break;
     }

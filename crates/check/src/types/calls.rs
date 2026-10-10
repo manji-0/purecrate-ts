@@ -314,6 +314,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             // Written only by `binary`, typed.
             Callee::DeepEq => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool())),
             // Written only by `method_call`, typed.
+            Callee::VecSort(_) => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
             Callee::VecPush | Callee::VecInsert => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))
             }
@@ -362,15 +363,18 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed.into_iter().map(|(e, _)| e).collect(), item.map(|t| Ty::Vec(Box::new(t))))
             }
             // Written only by `consume`, typed.
-            Callee::Consume { method, .. } => (
-                args.iter().map(|a| self.expr(a, None).0).collect(),
-                Some(match method {
-                    purecrate_ir::Consume::All | purecrate_ir::Consume::Any => Ty::bool(),
-                    purecrate_ir::Consume::Position => Ty::option(Ty::Prim(Prim::Usize)),
-                    purecrate_ir::Consume::Count => Ty::Prim(Prim::Usize),
-                    purecrate_ir::Consume::Sum(int) => Ty::Prim(Prim::from(*int)),
-                }),
-            ),
+            Callee::Consume { method, over } => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let item = typed[0].1.as_ref().and_then(|t| self.walked(*over, t));
+                let t = match method {
+                    purecrate_ir::Consume::All | purecrate_ir::Consume::Any => Some(Ty::bool()),
+                    purecrate_ir::Consume::Position => Some(Ty::option(Ty::Prim(Prim::Usize))),
+                    purecrate_ir::Consume::Count => Some(Ty::Prim(Prim::Usize)),
+                    purecrate_ir::Consume::Sum(int) => Some(Ty::Prim(Prim::from(*int))),
+                    _ => item.map(Ty::option),
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), t)
+            }
             // Written only by `collect`, typed: the source, then `f` if mapped.
             Callee::Collect { result, over } => {
                 let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
@@ -401,6 +405,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                     self.error(
                         Reason::TypeMismatch,
                         format!("`split` takes a `String` or `&str`, found `{}`", show(t)),
+                    );
+                }
+                // A closure on a `char` says where to split.
+                if matches!(args[1].unpositioned(), Expr::Closure { .. }) {
+                    let f = Ty::Fn { params: vec![Ty::Prim(Prim::Char)], ret: Box::new(Ty::bool()) };
+                    let (sep, _) = self.expr(&args[1], Some(&f));
+                    return (
+                        Expr::Call { callee: callee.clone(), args: vec![s, sep] },
+                        self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str))))),
                     );
                 }
                 let (sep, sept) = self.expr(&args[1], Some(&Ty::Prim(Prim::Char)));

@@ -113,7 +113,8 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 - It also builds one from text, once: `s.split(c).collect()` or `s.split(c).map(f).collect()`, into the `Vec<T>` or `Result<Vec<T>, E>` the context names. `c` is a `char`. The length is the input's, so this is not a sequence that grows with the state. A `Result` stops at the first `Err`.
 - From a `Vec`, a string's `chars()` / `bytes()`, or `s.split(c)`, through any `map(f)` and `filter(p)`, with `collect()`; and `v.clone()`.
 - A local grows: `let mut v: Vec<T> = Vec::new();` (or `vec![..]`, or any `Vec`), then `v.push(x)` or `v.insert(i, x)`, and is edited in place by `v.remove(i)`, `v[i] = x`, and `v[i] op= x`. Only a local declared `let mut` is written; a field (`s.items.push(x)`), an element's array (`v[i][j] = x`), and a parameter are not, and no closure captures such a local.
-- Rejected: `vec![x; n]`, `Vec::from`, `to_vec`, `extend`, `pop`, `truncate`, and the other mutating methods.
+- It is sorted in place by `v.sort()`, `v.sort_by(|a, b| ..)`, and `v.sort_by_key(|x| ..)`, stably.
+- Rejected: `vec![x; n]`, `Vec::from`, `to_vec`, `extend`, `pop`, `truncate`, `sort_unstable`, and the other mutating methods.
 
 Why the rest of the output stays immutable: a local that is pushed to is bound to an array of its own. `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make a new array; any other value (a parameter, a field, what a function returns) is copied when bound (`let v: T[] = [...xs]`), since in TS the caller may still hold it. So the arrays in states, fields, and parameters are never written, and `clone` of anything but a `Vec` is the value itself ([01 §7.14](./01-equivalence.md#714-growing-and-editing-a-vec)).
 - `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
