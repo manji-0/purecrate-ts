@@ -29,7 +29,10 @@ fn unknown_types_are_rejected_wherever_they_appear() {
 fn calls_must_resolve_with_the_right_arity() {
     assert_rejects("pub fn f(n: i32) -> i32 { g(n) }", "function `g` is not defined");
     assert_rejects("pub fn f(n: i32) -> i32 { f(n, n) }", "`f` takes 1 argument(s), got 2");
-    assert_rejects("pub fn f() -> i32 { i32::MAX }", "function `i32::MAX` is not defined");
+    assert_rejects(
+        "pub fn f() -> i32 { i32::MAX }",
+        "`i32::MAX` is not in v0: std's associated functions and constants",
+    );
     assert_rejects("pub fn f(n: i32) -> Option<i32> { Some(n, n) }", "`Some` takes 1");
 }
 

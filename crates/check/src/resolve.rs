@@ -360,11 +360,37 @@ impl<'a> Cx<'_, 'a> {
             Callee::Local(_) => {}
             Callee::Fn(n) => match self.defs.free_fns.get(n.as_str()) {
                 Some(f) => self.arity(&format!("`{}`", n.as_str()), f.params.len(), argc),
-                None => self.error_about(
-                    Reason::UndefinedFn,
-                    n.as_str(),
-                    format!("function `{}` is not defined in this crate", n.as_str()),
-                ),
+                None => {
+                    // `f64::NAN`, `u32::MAX`, `f64::from(x)`: std's, not the crate's.
+                    let std = n.as_str().split_once("::").is_some_and(|(head, _)| {
+                        matches!(
+                            head,
+                            "i8" | "i16"
+                                | "i32"
+                                | "i64"
+                                | "u8"
+                                | "u16"
+                                | "u32"
+                                | "u64"
+                                | "usize"
+                                | "isize"
+                                | "f32"
+                                | "f64"
+                                | "char"
+                                | "bool"
+                                | "str"
+                        )
+                    });
+                    let message = if std {
+                        format!(
+                            "`{}` is not in v0: std's associated functions and constants are not on the allow-list",
+                            n.as_str()
+                        )
+                    } else {
+                        format!("function `{}` is not defined in this crate", n.as_str())
+                    };
+                    self.error_about(Reason::UndefinedFn, n.as_str(), message)
+                }
             },
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
                 Some(f) => self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc),

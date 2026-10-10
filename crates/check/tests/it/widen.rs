@@ -23,3 +23,19 @@ fn integer_from_needs_a_typed_integer() {
     assert_rejects("pub fn f(x: f64) -> i64 { i64::from(x) }", "takes an integer in v0");
     assert_rejects("pub fn f(n: u8) -> u8 { u16::from(n) }", "expected `u8`, found `u16`");
 }
+
+#[test]
+fn a_refused_cast_names_what_as_does() {
+    let float = "no conversion between a float and an integer";
+    assert_rejects("pub fn f(x: f64) -> i64 { x as i64 }", float);
+    assert_rejects("pub fn f(n: i64) -> f64 { n as f64 }", float);
+    assert_rejects("pub fn f(n: i64) -> i32 { n as i32 }", "or widens a `u8`, `u16`, or `u32` to `usize`");
+}
+
+#[test]
+fn a_std_constant_is_not_called_a_function() {
+    assert_rejects(
+        "pub fn f() -> f64 { f64::NAN }",
+        "`f64::NAN` is not in v0: std's associated functions and constants",
+    );
+}

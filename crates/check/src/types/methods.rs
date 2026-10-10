@@ -320,8 +320,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             _ => {
                 let what = t.as_ref().map(show).unwrap_or_else(|| "?".into());
+                let float = |t: &Ty| matches!(self.norm(t), Ty::Prim(p) if p.float().is_some());
+                let instead = if t.as_ref().is_some_and(float) || float(to) {
+                    "no conversion between a float and an integer is"
+                } else {
+                    "widen other integers with `T::from(x)`; nothing narrows, as nothing else is"
+                };
                 self.error(Reason::Cast, format!(
-                    "`{what} as {}` is not in v0: `as` reads only a fieldless enum's discriminant; widen integers with `T::from(x)`",
+                    "`{what} as {}` is not in v0: `as` reads a fieldless enum's discriminant, or widens a `u8`, `u16`, or `u32` to `usize`; {instead}",
                     show(to)
                 ));
                 (e, None)
