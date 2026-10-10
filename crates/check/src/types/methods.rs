@@ -360,7 +360,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "clone",
             "iter",
             "into_iter",
-            "push (on a `let mut` local)",
+            "push and insert (on a `let mut` local)",
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
         ],
