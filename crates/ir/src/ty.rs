@@ -176,6 +176,13 @@ impl FloatTy {
             FloatTy::F64 => "F64",
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FloatTy::F32 => "f32",
+            FloatTy::F64 => "f64",
+        }
+    }
 }
 
 impl From<IntTy> for Prim {

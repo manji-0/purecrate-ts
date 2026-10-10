@@ -148,13 +148,57 @@ impl<'d, 'a> Typer<'d, 'a> {
         (e, self.expect(want, Some(ret)))
     }
 
+    /// `f64::from(x)` / `f32::from(x)`: what std's `From` takes, each exact.
+    /// An integer becomes `IntToFloat`, an `f32` to `f64` `FloatToFloat`.
+    pub(super) fn float_from(&mut self, to: FloatTy, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let (arg, t) = self.expr(&args[0], None);
+        let want_ty = Ty::Prim(to.into());
+        let callee = match t.as_ref().and_then(|t| self.num(t)) {
+            Some(Num::Int(from)) if float_widens(from, to) => Some(Callee::IntToFloat { from, to }),
+            Some(Num::Float(from)) if from == to => return (arg, self.expect(want, Some(want_ty))),
+            Some(Num::Float(FloatTy::F32)) => Some(Callee::FloatToFloat { to }),
+            Some(Num::Int(from)) => {
+                self.error(
+                    Reason::NumericOp,
+                    format!(
+                        "`{}::from` does not take `{}`: std has no lossless conversion; `x as {}` rounds to the nearest",
+                        to.as_str(),
+                        from.as_str(),
+                        to.as_str()
+                    ),
+                );
+                None
+            }
+            Some(Num::Float(from)) => {
+                self.error(
+                    Reason::NumericOp,
+                    format!("`{}::from` does not take `{}`: `x as {}` rounds", to.as_str(), from.as_str(), to.as_str()),
+                );
+                None
+            }
+            None => {
+                if let Some(t) = t.as_ref().filter(|t| **t != Ty::Never) {
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("`{}::from` takes a number in v0, found `{}`", to.as_str(), show(t)),
+                    );
+                }
+                None
+            }
+        };
+        match callee {
+            Some(callee) => (Expr::Call { callee, args: vec![arg] }, self.expect(want, Some(want_ty))),
+            None => (arg, None),
+        }
+    }
+
     /// `to::from(x)`: the argument is typed on its own, then must widen to
     /// `to` without loss. Narrowing has no `From` in std and stays rejected.
     pub(super) fn int_from(&mut self, to: IntTy, args: &[Expr], want: Option<&Ty>) -> Typed {
         let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
         let arg = typed.first().and_then(|(_, t)| t.clone()).map(|t| self.norm(&t));
         if arg == Some(Ty::Prim(Prim::Char)) {
-            if !matches!(to, IntTy::U32 | IntTy::U64) {
+            if !matches!(to, IntTy::U32 | IntTy::U64 | IntTy::U128) {
                 self.error(
                     Reason::NumericOp,
                     format!(
@@ -192,6 +236,14 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: Callee::IntFrom { from, to }, args: typed.into_iter().map(|(e, _)| e).collect() };
         (e, self.expect(want, Some(Ty::Prim(to.into()))))
+    }
+}
+
+/// std implements `From<from> for to`: the integers a float holds exactly.
+pub(super) fn float_widens(from: IntTy, to: FloatTy) -> bool {
+    match to {
+        FloatTy::F64 => matches!(from, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::U8 | IntTy::U16 | IntTy::U32),
+        FloatTy::F32 => matches!(from, IntTy::I8 | IntTy::I16 | IntTy::U8 | IntTy::U16),
     }
 }
 

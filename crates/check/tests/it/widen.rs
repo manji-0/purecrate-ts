@@ -26,16 +26,27 @@ fn integer_from_needs_a_typed_integer() {
 
 #[test]
 fn a_refused_cast_names_what_as_does() {
-    let float = "no conversion between a float and an integer";
-    assert_rejects("pub fn f(x: f64) -> i64 { x as i64 }", float);
-    assert_rejects("pub fn f(n: i64) -> f64 { n as f64 }", float);
-    assert_rejects("pub fn f(b: bool) -> u8 { b as u8 }", "or converts between integer types; nothing else is");
+    assert_rejects("pub fn f(b: bool) -> u8 { b as u8 }", "or converts between numeric types; nothing else is");
+}
+
+/// Floats and integers convert by `as` where std has no `From`, and by
+/// `from` where it has one, as between integers.
+#[test]
+fn floats_convert_as_rust_does() {
+    assert_clean("pub fn f(x: f64, n: i64, y: f32) -> (i64, f64, u8, f32) { (x as i64, n as f64, y as u8, x as f32) }");
+    assert_clean("pub fn f(n: i32, b: u16, y: f32) -> (f64, f32, f64) { (f64::from(n), f32::from(b), f64::from(y)) }");
+    assert_rejects("pub fn f(n: i32) -> f64 { n as f64 }", "`i32 as f64` widens, which v0 writes `f64::from(x)`");
+    assert_rejects("pub fn f(y: f32) -> f64 { y as f64 }", "`f32 as f64` widens");
+    assert_rejects("pub fn f(n: i64) -> f64 { f64::from(n) }", "`f64::from` does not take `i64`");
+    assert_rejects("pub fn f(x: f64) -> f32 { f32::from(x) }", "`f32::from` does not take `f64`");
+    assert_clean("pub fn f(x: f64) -> (bool, bool, f64, f64) { (x.is_nan(), x.is_finite(), x.round(), f64::NAN) }");
+    assert_rejects("pub fn f(x: f64) -> f64 { x.sqrt() }", "allowed: `round`, `floor`, `ceil`, `trunc`, `abs`");
 }
 
 #[test]
 fn a_std_constant_is_not_called_a_function() {
     assert_rejects(
-        "pub fn f() -> f64 { f64::NAN }",
-        "`f64::NAN` is not in v0: std's associated functions and constants",
+        "pub fn f() -> f64 { f64::EPSILON }",
+        "`f64::EPSILON` is not in v0: std's associated functions and constants",
     );
 }

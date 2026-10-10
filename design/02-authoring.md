@@ -136,7 +136,8 @@ Why the rest of the output stays immutable: a local that is pushed to is bound t
 2. `i32` and `f64` are both `number` at runtime, but `I32` and `F64` in types.
 3. Undetermined literals need a suffix or `let x: T`.
 4. Widening via `T::from(x)` is limited to what std provides: `u8`/`u16`/`u32` to wider unsigned or signed, `i8`/`i16`/`i32` to wider signed, and only `u8`/`u16` to `usize`. Every other conversion between integer types is `x as T`, which wraps as Rust's does (`Int.<t>.cast(x)`, the low bits read signed or not; into `usize`, Rust's 64 bits, then the 2^53 check every `usize` makes); `as` on a pair `From` takes is refused, so a lossless conversion keeps its one spelling. `u8`/`u16`/`u32` `as usize` stays accepted, as Rust has no `usize::from(u32)`.
-5. Narrowing, `as`, `.into()`, and `try_from` are rejected.
+5. A float converts the same way: `f64::from(x)` from `f32` and the integers std's `From` takes (`i8`–`i32`, `u8`–`u32`; for `f32`, `i8`/`i16`/`u8`/`u16`), and `x as T` otherwise: a float to an integer toward zero and saturating, NaN to 0; an integer to a float, or `f64` to `f32`, rounded once to the nearest, ties to even.
+6. `.into()` and `try_from` are rejected.
 
 ### 3.3 Names are unique across the crate
 

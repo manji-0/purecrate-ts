@@ -372,6 +372,8 @@ impl<'a> Cx<'_, 'a> {
                                 | "u16"
                                 | "u32"
                                 | "u64"
+                                | "i128"
+                                | "u128"
                                 | "usize"
                                 | "isize"
                                 | "f32"
@@ -423,6 +425,12 @@ impl<'a> Cx<'_, 'a> {
             Callee::Int { ty, op } => self.arity(&format!("`{}` {}", ty.as_str(), op.as_str()), op.arity(), argc),
             Callee::Fround => self.arity("`Math.fround`", 1, argc),
             Callee::AsFloat(_) => self.arity("`as float`", 1, argc),
+            Callee::Float { m, .. } => self.arity(&format!("`{}`", m.name()), 1, argc),
+            Callee::FloatConst { .. } => self.arity("a float constant", 0, argc),
+            Callee::FloatFrom(to) => self.arity(&format!("`{}::from`", to.as_str()), 1, argc),
+            Callee::FloatToInt { .. } | Callee::IntToFloat { .. } | Callee::FloatToFloat { .. } => {
+                self.arity("`as`", 1, argc)
+            }
             Callee::VecLen => self.arity("`Vec::len`", 1, argc),
             Callee::VecPush => self.arity("`Vec::push`", 2, argc),
             Callee::VecInsert => self.arity("`Vec::insert`", 3, argc),

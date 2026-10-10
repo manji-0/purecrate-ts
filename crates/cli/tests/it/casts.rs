@@ -96,7 +96,13 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     // `x * -1` is how a float is negated: the sign flips exactly, so an
     // `f32` stays one.
     let negated = value.trim_end_matches(')').ends_with(" * -1");
-    if target_name == "F64" || (target_name == "F32" && (value.starts_with("globalThis.Math.fround(") || negated)) {
+    // `floor`, `ceil`, `trunc`, and `abs` of an `f32` are `f32`s, and NaN and
+    // the infinities are values of every float type.
+    let kept = ["floor", "ceil", "trunc", "abs"].iter().any(|f| value.starts_with(&format!("globalThis.Math.{f}(")))
+        || ["NaN", "POSITIVE_INFINITY", "NEGATIVE_INFINITY"].iter().any(|c| value == format!("globalThis.Number.{c}"));
+    if target_name == "F64"
+        || (target_name == "F32" && (value.starts_with("globalThis.Math.fround(") || negated || kept))
+    {
         return Some("float");
     }
     if (value == "value" || value == "fields")

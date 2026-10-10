@@ -1,6 +1,6 @@
 use purecrate_ir::{
-    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim, Reason, Ty,
-    UnOp, VariantBind, Wrapper, NEWTYPE_FIELD,
+    Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatConst, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim,
+    Reason, Ty, UnOp, VariantBind, Wrapper, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Item as SynItem, Member, Pat, UnOp as SynUnOp};
@@ -772,6 +772,13 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
         [ty, var] if ty == "Result" && (var == "err" || var == "Err") => {
             Ok(Expr::Call { callee: Callee::ResultErr, args: vec![] })
         }
+        [_, c] if float_of(&segs, c).is_some() && FloatConst::of_name(c).is_some() => Ok(Expr::Call {
+            callee: Callee::FloatConst {
+                ty: float_of(&segs, c).expect("checked by the guard"),
+                c: FloatConst::of_name(c).expect("checked by the guard"),
+            },
+            args: vec![],
+        }),
         [a, b] => Ok(Expr::Call { callee: Callee::Fn(Name::new(format!("{a}::{b}"))), args: vec![] }),
         _ => Err(path_error(&segs, format!("unsupported path {}", segs.join("::")))),
     }
@@ -885,6 +892,15 @@ fn wrapper_new(segs: &[String]) -> Option<Wrapper> {
     }
 }
 
+/// `f64::<name>` / `f32::<name>`: the float type.
+fn float_of(segs: &[String], name: &str) -> Option<FloatTy> {
+    match segs {
+        [ty, n] if n == name && ty == "f64" => Some(FloatTy::F64),
+        [ty, n] if n == name && ty == "f32" => Some(FloatTy::F32),
+        _ => None,
+    }
+}
+
 fn int_from(segs: &[String]) -> Option<IntTy> {
     match segs {
         [ty, from] if from == "from" => IntTy::of_suffix(ty),
@@ -947,6 +963,8 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 callee
             } else if let Some(to) = int_from(&segs) {
                 Callee::IntFrom { from: None, to }
+            } else if let Some(to) = float_of(&segs, "from") {
+                Callee::FloatFrom(to)
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
             } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {

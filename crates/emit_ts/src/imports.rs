@@ -506,6 +506,28 @@ impl Refs {
                         self.nums.insert(to.ts_name().to_string());
                     }
                     Callee::IntCast { .. } => self.int = true,
+                    Callee::Float { ty, m } => {
+                        if *m == purecrate_ir::FloatMethod::Round {
+                            self.int = true;
+                        }
+                        if !m.is_test() {
+                            self.nums.insert(ty.ts_name().to_string());
+                        }
+                    }
+                    Callee::FloatConst { ty, .. } => {
+                        self.nums.insert(ty.ts_name().to_string());
+                    }
+                    Callee::FloatToInt { .. } => self.int = true,
+                    Callee::IntToFloat { from, to } => {
+                        if from.is_big() && *to == purecrate_ir::FloatTy::F32 {
+                            self.int = true;
+                        } else {
+                            self.nums.insert(to.ts_name().to_string());
+                        }
+                    }
+                    Callee::FloatToFloat { to } => {
+                        self.nums.insert(to.ts_name().to_string());
+                    }
                     Callee::CharCode(to) => {
                         self.char_value = true;
                         if to.is_big() {

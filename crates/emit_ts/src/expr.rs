@@ -588,6 +588,12 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::CharCode(_) => String::new(),
                 purecrate_ir::Callee::IntCast { to, .. } => format!("Int.{}.cast", to.as_str()),
+                purecrate_ir::Callee::FloatToInt { to, .. } => format!("Int.{}.castFloat", to.as_str()),
+                purecrate_ir::Callee::FloatFrom(_) => unreachable!("`check::accept` rewrites `from`"),
+                purecrate_ir::Callee::Float { .. }
+                | purecrate_ir::Callee::FloatConst { .. }
+                | purecrate_ir::Callee::IntToFloat { .. }
+                | purecrate_ir::Callee::FloatToFloat { .. } => String::new(),
                 purecrate_ir::Callee::CharFromU8 => "Char.fromU8".into(),
                 purecrate_ir::Callee::CharFromU32 => "Char.fromU32".into(),
                 purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),
@@ -699,6 +705,55 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     emit_item(&args[1], indent),
                     emit_item(&args[2], indent)
                 );
+            }
+            if let purecrate_ir::Callee::Float { ty, m } = callee {
+                use purecrate_ir::FloatMethod as F;
+                let x = || emit_expr(&args[0], indent);
+                let t = ty.ts_name();
+                return match m {
+                    F::Round => format!("Int.{}.round({})", ty.as_str(), x()),
+                    F::Floor | F::Ceil | F::Trunc | F::Abs => {
+                        let f = match m {
+                            F::Floor => "floor",
+                            F::Ceil => "ceil",
+                            F::Trunc => "trunc",
+                            _ => "abs",
+                        };
+                        format!("(globalThis.Math.{f}({}) as {t})", x())
+                    }
+                    F::IsNan => format!("globalThis.Number.isNaN({})", x()),
+                    F::IsFinite => format!("globalThis.Number.isFinite({})", x()),
+                    F::IsInfinite => format!("globalThis.Math.abs({}) === globalThis.Infinity", x()),
+                };
+            }
+            if let purecrate_ir::Callee::FloatConst { ty, c } = callee {
+                let v = match c {
+                    purecrate_ir::FloatConst::Nan => "NaN",
+                    purecrate_ir::FloatConst::Infinity => "POSITIVE_INFINITY",
+                    purecrate_ir::FloatConst::NegInfinity => "NEGATIVE_INFINITY",
+                };
+                return format!("(globalThis.Number.{v} as {})", ty.ts_name());
+            }
+            if let purecrate_ir::Callee::IntToFloat { from, to } = callee {
+                let x = emit_expr(&args[0], indent);
+                return match (from.is_big(), to) {
+                    (false, purecrate_ir::FloatTy::F64) => {
+                        format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
+                    }
+                    (false, purecrate_ir::FloatTy::F32) => format!("(globalThis.Math.fround({x}) as F32)"),
+                    (true, purecrate_ir::FloatTy::F64) => format!("(globalThis.Number({x}) as F64)"),
+                    (true, purecrate_ir::FloatTy::F32) => format!("Int.f32.ofBig({x})"),
+                };
+            }
+            if let purecrate_ir::Callee::FloatToFloat { to } = callee {
+                return match to {
+                    purecrate_ir::FloatTy::F64 => {
+                        format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
+                    }
+                    purecrate_ir::FloatTy::F32 => {
+                        format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent))
+                    }
+                };
             }
             if matches!(callee, purecrate_ir::Callee::Fround) {
                 return format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent));

@@ -111,6 +111,13 @@ Inference is bidirectional and closed within the expression tree. It does not us
 - **Refused.** `usize`: Rust gives it 64 bits, the TS `number` 53. `& | ^` on `bool`, in favor of `&& || !=`.
 - **Verified by** `bits_equivalence.rs`: every width, operator, and amount type, boundary values, compound assignment, RFC 4226 truncation.
 
+### 5.4 Floats
+
+- **Methods.** `floor`, `ceil`, `trunc`, and `abs` are `Math`'s, which IEEE fixes as Rust's; an `f32` result is already an `f32`. `round` is half away from zero, where `Math.round` takes half up: `Int.f64.round` rounds the magnitude and gives the sign back (`x * -1`, so `-0.4` stays `-0.0`). `is_nan`, `is_finite`, `is_infinite` are `Number.isNaN`, `Number.isFinite`, and `Math.abs(x) === Infinity`. `f64::NAN`, `INFINITY`, `NEG_INFINITY` (and `f32`'s) are `Number`'s.
+- **Float to integer.** `x as T` truncates toward zero and saturates at `T`'s bounds, NaN to 0, as Rust's `as` has since 1.45: `Int.<t>.castFloat(x)` compares with the bounds as floats (each is exact, or rounds up to the next power of two, which no float below it reaches) and truncates the rest exactly into a `bigint`. Into `usize`, a result above 2^53−1 panics (§3).
+- **Integer to float.** `f64::from(x)` from `i8`–`i32` / `u8`–`u32` is exact (the `number` it is); `x as f64` from a 64- or 128-bit `bigint` is `Number(x)`, the nearest double, ties to even, as Rust rounds. `x as f32` rounds once: `Math.fround` of a value below 2^53 (exact as a double), and above that `Int.f32.ofBig`, which rounds the `bigint` to 24 significant bits itself, since rounding to a double first could round twice. `f64` to `f32` is `Math.fround`; `f64::from(x)` from `f32` is the value.
+- Tested bit for bit at every half, `-0.0`, the edges of each integer width, 2^24 and 2^53 with their neighbours, and values that round once differently from twice (`float_conv_equivalence.rs`).
+
 ## 6. Strings, `char`, `usize`, std methods
 
 <!-- derived-from #3-known-non-equivalences -->

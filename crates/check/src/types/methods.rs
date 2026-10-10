@@ -185,6 +185,22 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return self.int_method(it, m, recv, args, want);
             }
         }
+        if let Some(m) = FloatMethod::ALL.into_iter().find(|m| m.name() == name.as_str()) {
+            if let Some(ft) = rt.as_ref().and_then(|t| match self.norm(t) {
+                Ty::Prim(p) => p.float(),
+                _ => None,
+            }) {
+                if !args.is_empty() {
+                    self.error(
+                        Reason::ConstructShape,
+                        format!("`{}::{}` takes no argument, got {}", ft.as_str(), m.name(), args.len()),
+                    );
+                }
+                let t = Ty::Prim(ft.into());
+                let e = Expr::Call { callee: Callee::Float { ty: ft, m }, args: vec![recv] };
+                return (e, self.expect(want, Some(if m.is_test() { Ty::bool() } else { t })));
+            }
+        }
         if let Some(m) = CharMethod::from_name(name.as_str()) {
             if rt.as_ref().is_some_and(|t| self.norm(t) == Ty::Prim(Prim::Char)) {
                 return self.char_method(m, recv, args, want);
@@ -302,6 +318,36 @@ impl<'d, 'a> Typer<'d, 'a> {
             let e = Expr::Call { callee: Callee::IntFrom { from: Some(from), to: IntTy::Usize }, args: vec![e] };
             return (e, self.expect(want, Some(to.clone())));
         }
+        // With a float on either side: toward zero and saturating into an
+        // integer, to the nearest into a float; what std's `From` takes is
+        // written `T::from(x)`, as between integers.
+        let to_num = match to {
+            Ty::Prim(p) => p.int().map(Num::Int).or(p.float().map(Num::Float)),
+            _ => None,
+        };
+        let from_num = t.as_ref().and_then(|t| self.num(t));
+        let floats = (matches!(from_num, Some(Num::Float(_))), matches!(to_num, Some(Num::Float(_))));
+        if let (Some(from), Some(into), (true, _) | (_, true)) = (from_num, to_num, floats) {
+            let callee = match (from, into) {
+                (Num::Float(f), Num::Int(i)) => Some(Callee::FloatToInt { from: f, to: i }),
+                (Num::Int(i), Num::Float(f)) if super::prim::float_widens(i, f) => None,
+                (Num::Int(i), Num::Float(f)) => Some(Callee::IntToFloat { from: i, to: f }),
+                (Num::Float(a), Num::Float(b)) if a == b => return (e, self.expect(want, Some(to.clone()))),
+                (Num::Float(_), Num::Float(FloatTy::F32)) => Some(Callee::FloatToFloat { to: FloatTy::F32 }),
+                _ => None,
+            };
+            return match callee {
+                Some(callee) => (Expr::Call { callee, args: vec![e] }, self.expect(want, Some(to.clone()))),
+                None => {
+                    let (fs, ts) = (num_name(from), num_name(into));
+                    self.error(
+                        Reason::Cast,
+                        format!("`{fs} as {ts}` widens, which v0 writes `{ts}::from(x)`; `as` is for what `from` does not take"),
+                    );
+                    (e, None)
+                }
+            };
+        }
         // Between integers: what std widens is written `T::from(x)`, the one
         // spelling of a lossless conversion; everything else wraps as Rust's
         // `as` does.
@@ -360,14 +406,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             _ => {
                 let what = t.as_ref().map(show).unwrap_or_else(|| "?".into());
-                let float = |t: &Ty| matches!(self.norm(t), Ty::Prim(p) if p.float().is_some());
-                let instead = if t.as_ref().is_some_and(float) || float(to) {
-                    "no conversion between a float and an integer is"
-                } else {
-                    "nothing else is"
-                };
                 self.error(Reason::Cast, format!(
-                    "`{what} as {}` is not in v0: `as` reads a fieldless enum's discriminant, or converts between integer types; {instead}",
+                    "`{what} as {}` is not in v0: `as` reads a fieldless enum's discriminant, or converts between numeric types; nothing else is",
                     show(to)
                 ));
                 (e, None)
@@ -412,6 +452,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
         ],
         Ty::Option(_) => vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "as_ref", "as_deref"],
         Ty::Result { .. } => vec!["ok", "map", "map_err"],
+        Ty::Prim(p) if p.float().is_some() => FloatMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()
             .filter(|m| **m != IntMethod::Abs || p.int().is_some_and(IntTy::is_signed))
@@ -441,4 +482,11 @@ fn std_methods(ty: &Ty) -> Option<String> {
 /// `Ordering`'s allow-list, for a rejection message.
 fn ordering_methods() -> String {
     ORDERING_METHODS.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
+}
+
+fn num_name(n: Num) -> &'static str {
+    match n {
+        Num::Int(t) => t.as_str(),
+        Num::Float(t) => t.as_str(),
+    }
 }

@@ -316,3 +316,4 @@ macro_rules! show_tuple {
 show_tuple!(A 0, B 1);
 show_tuple!(A 0, B 1, C 2);
 show_tuple!(A 0, B 1, C 2, D 3);
+show_tuple!(A 0, B 1, C 2, D 3, E 4);

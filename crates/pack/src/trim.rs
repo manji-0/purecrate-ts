@@ -66,6 +66,10 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 out.insert(format!("parse.{ty}"));
             } else if op == "cast" {
                 out.insert(format!("cast.{ty}"));
+            } else if op == "castFloat" {
+                out.insert(format!("castFloat.{ty}"));
+            } else if matches!(op, "round" | "ofBig") && matches!(ty, "f32" | "f64") {
+                out.insert(format!("float.{op}"));
             } else if IntMethod::ALL.iter().any(|m| m.ts_name() == op) {
                 let factory = if matches!(op, "min" | "max") { "minmax" } else { "methods" };
                 out.insert(format!("{factory}.{ty}"));
@@ -484,6 +488,12 @@ mod tests {
                 .iter()
                 .map(|t| format!("cast.{t}")),
         );
+        all.extend(
+            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
+                .iter()
+                .map(|t| format!("castFloat.{t}")),
+        );
+        all.extend(["float.round".to_string(), "float.ofBig".to_string(), "panicWith".to_string()]);
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
         let mut bare: String = RUNTIME

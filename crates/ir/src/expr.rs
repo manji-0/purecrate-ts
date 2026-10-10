@@ -97,6 +97,70 @@ pub enum IntOp {
     Method(IntMethod),
 }
 
+/// A method of `f32` / `f64` from the allow-list (design/01 §5.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloatMethod {
+    /// Half away from zero, as Rust rounds (`Math.round` rounds half up).
+    Round,
+    Floor,
+    Ceil,
+    Trunc,
+    Abs,
+    IsNan,
+    IsFinite,
+    IsInfinite,
+}
+
+impl FloatMethod {
+    pub const ALL: [FloatMethod; 8] = [
+        FloatMethod::Round,
+        FloatMethod::Floor,
+        FloatMethod::Ceil,
+        FloatMethod::Trunc,
+        FloatMethod::Abs,
+        FloatMethod::IsNan,
+        FloatMethod::IsFinite,
+        FloatMethod::IsInfinite,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            FloatMethod::Round => "round",
+            FloatMethod::Floor => "floor",
+            FloatMethod::Ceil => "ceil",
+            FloatMethod::Trunc => "trunc",
+            FloatMethod::Abs => "abs",
+            FloatMethod::IsNan => "is_nan",
+            FloatMethod::IsFinite => "is_finite",
+            FloatMethod::IsInfinite => "is_infinite",
+        }
+    }
+
+    /// A test, of type `bool`, rather than a float of the receiver's type.
+    pub fn is_test(self) -> bool {
+        matches!(self, FloatMethod::IsNan | FloatMethod::IsFinite | FloatMethod::IsInfinite)
+    }
+}
+
+/// `f64::NAN`, `f64::INFINITY`, `f64::NEG_INFINITY` (and `f32`'s).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloatConst {
+    Nan,
+    Infinity,
+    NegInfinity,
+}
+
+impl FloatConst {
+    pub fn of_name(name: &str) -> Option<FloatConst> {
+        match name {
+            "NAN" => Some(FloatConst::Nan),
+            "INFINITY" => Some(FloatConst::Infinity),
+            "NEG_INFINITY" => Some(FloatConst::NegInfinity),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntMethod {
     Min,
@@ -480,6 +544,37 @@ pub enum Callee {
     Fround,
     /// Cast a JS number that is already the right width (`(x) as F64`).
     AsFloat(FloatTy),
+    /// A float method from the allow-list; the receiver is the argument.
+    Float {
+        ty: FloatTy,
+        m: FloatMethod,
+    },
+    /// `f64::NAN` and the infinities, of `ty`.
+    FloatConst {
+        ty: FloatTy,
+        c: FloatConst,
+    },
+    /// `f64::from(x)` / `f32::from(x)` as written; `check::accept` rewrites
+    /// it to `IntToFloat` or `FloatToFloat` by the argument's type.
+    FloatFrom(FloatTy),
+    /// `x as T` from a float to an integer: toward zero, saturating at
+    /// `T`'s bounds, NaN to 0, as Rust's `as` does. Prints as
+    /// `Int.<t>.castFloat(x)`.
+    FloatToInt {
+        from: FloatTy,
+        to: IntTy,
+    },
+    /// An integer to a float, by `as` or `from`: the nearest value, ties to
+    /// even, rounded once, as Rust does.
+    IntToFloat {
+        from: IntTy,
+        to: FloatTy,
+    },
+    /// `x as f32` from an `f64` (rounded, `Math.fround`), or `f64::from(x)`
+    /// from an `f32` (exact).
+    FloatToFloat {
+        to: FloatTy,
+    },
     Method {
         ty: Name,
         name: Name,

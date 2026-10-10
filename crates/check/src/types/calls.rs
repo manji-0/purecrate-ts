@@ -294,6 +294,22 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let t = Ty::Prim((*ft).into());
                 (typed_args(self, vec![t.clone()]), Some(t))
             }
+            Callee::Float { ty, m } => {
+                let t = Ty::Prim((*ty).into());
+                (typed_args(self, vec![t.clone()]), Some(if m.is_test() { Ty::bool() } else { t }))
+            }
+            Callee::FloatConst { ty, .. } => (typed_args(self, Vec::new()), Some(Ty::Prim((*ty).into()))),
+            Callee::FloatFrom(to) => return self.float_from(*to, args, want),
+            Callee::FloatToInt { from, to } => {
+                (typed_args(self, vec![Ty::Prim((*from).into())]), Some(Ty::Prim((*to).into())))
+            }
+            Callee::IntToFloat { from, to } => {
+                (typed_args(self, vec![Ty::Prim((*from).into())]), Some(Ty::Prim((*to).into())))
+            }
+            Callee::FloatToFloat { to } => {
+                let from = if *to == FloatTy::F64 { FloatTy::F32 } else { FloatTy::F64 };
+                (typed_args(self, vec![Ty::Prim(from.into())]), Some(Ty::Prim((*to).into())))
+            }
             Callee::VecLen => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Usize))),
             // Written only by `method_call`, typed.
             Callee::VecPush | Callee::VecInsert => {
