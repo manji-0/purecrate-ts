@@ -26,7 +26,7 @@ macro_rules! js_bigint {
         }
     )*};
 }
-js_bigint!(i64, u64);
+js_bigint!(i64, u64, i128, u128);
 
 /// `{:?}` writes `NaN`, `inf`, and `-inf`; JS spells the last two
 /// `Infinity` and `-Infinity`.
@@ -179,7 +179,7 @@ macro_rules! show_plain {
         }
     )*};
 }
-show_plain!(i8, i16, i32, i64, u8, u16, u32, u64, usize, bool);
+show_plain!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, usize, bool);
 
 impl Show for f32 {
     fn show(&self) -> String {

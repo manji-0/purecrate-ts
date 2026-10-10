@@ -74,6 +74,8 @@ export type U8 = number & { readonly "purecrate.U8": true };
 export type U16 = number & { readonly "purecrate.U16": true };
 export type U32 = number & { readonly "purecrate.U32": true };
 export type U64 = bigint & { readonly "purecrate.U64": true };
+export type I128 = bigint & { readonly "purecrate.I128": true };
+export type U128 = bigint & { readonly "purecrate.U128": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
 export type F32 = number & { readonly "purecrate.F32": true };
 export type F64 = number & { readonly "purecrate.F64": true };
@@ -434,6 +436,12 @@ export const Int = {
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
+  },
+  i128: {
+    ...big<I128>(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n),
+  },
+  u128: {
+    ...big<U128>(0n, 340282366920938463463374607431768211455n),
   },
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,

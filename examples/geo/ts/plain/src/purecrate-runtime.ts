@@ -147,17 +147,17 @@ const bits32 = <T extends number>(bits: number, signed: boolean) => {
   } as const;
 };
 
-/** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
-const bits64 = <T extends bigint>(signed: boolean) => {
-  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+/** `& | ^ ! << >>` on 64 or 128 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
+const bitsBig = <T extends bigint>(bits: number, signed: boolean) => {
+  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n)) as T;
   const v = (x: T): bigint => x as bigint;
   return {
     and: (a: T, b: T): T => wrap(v(a) & v(b)),
     or: (a: T, b: T): T => wrap(v(a) | v(b)),
     xor: (a: T, b: T): T => wrap(v(a) ^ v(b)),
     not: (a: T): T => wrap(~v(a)),
-    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, 64, "left"))),
-    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
+    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, bits, "left"))),
+    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, bits, "right"))),
   } as const;
 };
 
@@ -284,7 +284,7 @@ export const Int = {
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
-    ...bits64<I64>(true),
+    ...bitsBig<I64>(64, true),
   },
   f64: {
     of: (value: number): F64 => value as F64,

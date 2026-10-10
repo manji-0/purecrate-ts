@@ -53,6 +53,8 @@ export type U8 = number & { readonly "purecrate.U8": true }; // #needs U8
 export type U16 = number & { readonly "purecrate.U16": true }; // #needs U16
 export type U32 = number & { readonly "purecrate.U32": true }; // #needs U32
 export type U64 = bigint & { readonly "purecrate.U64": true }; // #needs U64
+export type I128 = bigint & { readonly "purecrate.I128": true }; // #needs I128
+export type U128 = bigint & { readonly "purecrate.U128": true }; // #needs U128
 export type Usize = number & { readonly "purecrate.Usize": true }; // #needs Usize
 export type F32 = number & { readonly "purecrate.F32": true }; // #needs F32
 export type F64 = number & { readonly "purecrate.F64": true }; // #needs F64
@@ -120,7 +122,7 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
 };
 // #endregion
 
-// #region methods.i8 methods.i16 methods.i32 methods.u8 methods.u16 methods.u32 methods.usize methods.i64 methods.u64
+// #region methods.i8 methods.i16 methods.i32 methods.u8 methods.u16 methods.u32 methods.usize methods.i64 methods.u64 methods.i128 methods.u128
 /**
  * The integer methods, from the exact result: `x.checked_add(y)` is it or
  * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
@@ -196,7 +198,7 @@ const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: n
 };
 // #endregion
 
-// #region minmax.i8 minmax.i16 minmax.i32 minmax.u8 minmax.u16 minmax.u32 minmax.usize minmax.i64 minmax.u64
+// #region minmax.i8 minmax.i16 minmax.i32 minmax.u8 minmax.u16 minmax.u32 minmax.usize minmax.i64 minmax.u64 minmax.i128 minmax.u128
 /** `min` and `max`: JS `<=` orders numbers and bigints as Rust orders integers. */
 const minMax = <T extends number | bigint>() =>
   ({
@@ -222,13 +224,13 @@ const cast32 =
   };
 // #endregion
 
-// #region cast.i64 cast.u64
-/** `x as T` to a 64-bit type: the low 64 bits, read signed or not. */
-const cast64 =
-  <T extends bigint>(signed: boolean) =>
+// #region cast.i64 cast.u64 cast.i128 cast.u128
+/** `x as T` to a 64- or 128-bit type: the low `bits` bits, read signed or not. */
+const castBig =
+  <T extends bigint>(bits: number, signed: boolean) =>
   (x: number | bigint): T => {
     const n = typeof x === "bigint" ? x : BigInt(x);
-    return (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+    return (signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n)) as T;
   };
 // #endregion
 
@@ -237,7 +239,7 @@ const cast64 =
 export type ParseIntError = { readonly "purecrate.ParseIntError": true };
 // #endregion
 
-// #region parse.i8 parse.i16 parse.i32 parse.u8 parse.u16 parse.u32 parse.usize parse.i64 parse.u64
+// #region parse.i8 parse.i16 parse.i32 parse.u8 parse.u16 parse.u32 parse.usize parse.i64 parse.u64 parse.i128 parse.u128
 const PARSE_INT_ERROR = Object.freeze({}) as ParseIntError;
 
 /**
@@ -255,7 +257,7 @@ const parser =
   };
 // #endregion
 
-// #region bits.i8 bits.i16 bits.i32 bits.u8 bits.u16 bits.u32 bits.i64 bits.u64
+// #region bits.i8 bits.i16 bits.i32 bits.u8 bits.u16 bits.u32 bits.i64 bits.u64 bits.i128 bits.u128
 /**
  * The amount of a shift, of any integer type. A debug build panics unless it
  * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
@@ -287,18 +289,18 @@ const bits32 = <T extends number>(bits: number, signed: boolean) => {
 };
 // #endregion
 
-// #region bits.i64 bits.u64
-/** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
-const bits64 = <T extends bigint>(signed: boolean) => {
-  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+// #region bits.i64 bits.u64 bits.i128 bits.u128
+/** `& | ^ ! << >>` on 64 or 128 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
+const bitsBig = <T extends bigint>(bits: number, signed: boolean) => {
+  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n)) as T;
   const v = (x: T): bigint => x as bigint;
   return {
     and: (a: T, b: T): T => wrap(v(a) & v(b)),
     or: (a: T, b: T): T => wrap(v(a) | v(b)),
     xor: (a: T, b: T): T => wrap(v(a) ^ v(b)),
     not: (a: T): T => wrap(~v(a)),
-    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, 64, "left"))),
-    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
+    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, bits, "left"))),
+    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, bits, "right"))),
   } as const;
 };
 // #endregion
@@ -968,21 +970,41 @@ export const Int = {
   // #region int.i64
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
-    ...bits64<I64>(true), // #needs bits.i64
+    ...bitsBig<I64>(64, true), // #needs bits.i64
     ...minMax<I64>(), // #needs minmax.i64
     ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }), // #needs methods.i64
     parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64), // #needs parse.i64
-    cast: cast64<I64>(true), // #needs cast.i64
+    cast: castBig<I64>(64, true), // #needs cast.i64
   },
   // #endregion
   // #region int.u64
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...bits64<U64>(false), // #needs bits.u64
+    ...bitsBig<U64>(64, false), // #needs bits.u64
     ...minMax<U64>(), // #needs minmax.u64
     ...methods({ lo: 0n, hi: 18446744073709551615n, bits: 64, signed: false, to: (n) => n as U64 }), // #needs methods.u64
     parse: parser(0n, 18446744073709551615n, false, (n) => n as U64), // #needs parse.u64
-    cast: cast64<U64>(false), // #needs cast.u64
+    cast: castBig<U64>(64, false), // #needs cast.u64
+  },
+  // #endregion
+  // #region int.i128
+  i128: {
+    ...big<I128>(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n),
+    ...bitsBig<I128>(128, true), // #needs bits.i128
+    ...minMax<I128>(), // #needs minmax.i128
+    ...methods({ lo: -170141183460469231731687303715884105728n, hi: 170141183460469231731687303715884105727n, bits: 128, signed: true, to: (n) => n as I128 }), // #needs methods.i128
+    parse: parser(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n, true, (n) => n as I128), // #needs parse.i128
+    cast: castBig<I128>(128, true), // #needs cast.i128
+  },
+  // #endregion
+  // #region int.u128
+  u128: {
+    ...big<U128>(0n, 340282366920938463463374607431768211455n),
+    ...bitsBig<U128>(128, false), // #needs bits.u128
+    ...minMax<U128>(), // #needs minmax.u128
+    ...methods({ lo: 0n, hi: 340282366920938463463374607431768211455n, bits: 128, signed: false, to: (n) => n as U128 }), // #needs methods.u128
+    parse: parser(0n, 340282366920938463463374607431768211455n, false, (n) => n as U128), // #needs parse.u128
+    cast: castBig<U128>(128, false), // #needs cast.u128
   },
   // #endregion
   // #region int.f32

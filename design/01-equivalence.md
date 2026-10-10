@@ -40,6 +40,7 @@ The domain is **the image of Rust values under the TS representation**, not ever
 | JSON nesting depth | serde_json rejects nesting deeper than 128; the wire schemas have no limit |
 | Release wrapping | Not matched, unless `[profile.release] overflow-checks = true` (the server's usual `--release` build wraps; generated TS always panics). `check` warns when the crate's release profile leaves the default |
 | Non-finite `f64` over JSON | serde_json and `toJson` both write `NaN` and infinities as `null`, and neither reads `null` back as a float. Same bytes, same asymmetry ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
+| `u128` literals ≥ 2^127 | Literals and folded constants are held as `i128`, so a `u128` literal at 2^127 or above is refused (build it as `!0`, or from shifts); values of the type reach 2^128−1 at run time |
 | Unicode-table methods | If added, equivalence holds only for code points assigned in both toolchains' Unicode versions (both 17.0 as of 2026-09-27) |
 
 ## 4. Closed types
@@ -88,8 +89,9 @@ Error messages are therefore not shared; the `Err` variant and payload are. A co
 | integer `& \| ^`, `!`, `<< >>` | `Int.<ty>.and(a, b)`, `or`, `xor`, `not`, `shl`, `shr` | §5.3 |
 | `f32` arithmetic | `Math.fround(a op b)`. `f32` literals are rounded once from decimal by the converter (not via `f64`) | |
 | `f64` arithmetic | JS operators | |
-| `i64` / `u64` literals | `5n` | |
+| `i64` / `u64` / `i128` / `u128` literals | `5n` | 128-bit integers are `bigint`s as 64-bit ones are, with `Int.i128` / `Int.u128` checking 128 bits (`wide_int_equivalence.rs`) |
 | widening `i64::from(x)` | value unchanged; `BigInt(x)` when crossing to `bigint` | |
+| byte string `b".."` | `Str.bytes("..")` where the bytes are UTF-8 (the same bytes `"..".as_bytes()` gives), else an array of byte literals | as a `&[u8]` const or in an expression; `wide_int_equivalence.rs` |
 
 Verified by per-operator differential tests: 59 cases, floats included (`arith_equivalence.rs`); bitwise operators and shifts in §5.3.
 

@@ -35,7 +35,7 @@ pub fn exported(index: &str) -> BTreeSet<String> {
         out.insert("parseJson".to_string());
     }
     // A brand the index exports: callers make its values with `Int.<ty>.of`.
-    for ty in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64"] {
+    for ty in ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64"] {
         if brand(ty).is_some_and(|b| names.contains(b)) {
             out.insert(format!("int.{ty}"));
         }
@@ -114,6 +114,8 @@ fn brand(ty: &str) -> Option<&'static str> {
         "u16" => "U16",
         "u32" => "U32",
         "u64" => "U64",
+        "i128" => "I128",
+        "u128" => "U128",
         "usize" => "Usize",
         "f32" => "F32",
         "f64" => "F64",
@@ -374,6 +376,8 @@ mod tests {
             "bits.u32",
             "bits.i64",
             "bits.u64",
+            "bits.i128",
+            "bits.u128",
             "methods.i8",
             "methods.i16",
             "methods.i32",
@@ -383,6 +387,8 @@ mod tests {
             "methods.usize",
             "methods.i64",
             "methods.u64",
+            "methods.i128",
+            "methods.u128",
             "str.bytes",
             "str.len",
             "str.slice",
@@ -424,6 +430,8 @@ mod tests {
             "parse.usize",
             "parse.i64",
             "parse.u64",
+            "parse.i128",
+            "parse.u128",
             "Result",
             "Char",
             "Uuid",
@@ -445,6 +453,8 @@ mod tests {
             "U16",
             "U32",
             "U64",
+            "I128",
+            "U128",
             "Usize",
             "F32",
             "F64",
@@ -456,6 +466,8 @@ mod tests {
             "int.u16",
             "int.u32",
             "int.u64",
+            "int.i128",
+            "int.u128",
             "int.usize",
             "int.f32",
             "int.f64",
@@ -463,9 +475,15 @@ mod tests {
         let mut all = all;
         all.extend(IntMethod::ALL.iter().map(|m| format!("m.{}", m.ts_name())));
         all.extend(
-            ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("minmax.{t}")),
+            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
+                .iter()
+                .map(|t| format!("minmax.{t}")),
         );
-        all.extend(["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("cast.{t}")));
+        all.extend(
+            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
+                .iter()
+                .map(|t| format!("cast.{t}")),
+        );
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
         let mut bare: String = RUNTIME

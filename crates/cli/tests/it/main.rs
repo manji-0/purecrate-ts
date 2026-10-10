@@ -88,6 +88,7 @@ mod vec_equivalence;
 mod vec_insert_equivalence;
 mod vending_equivalence;
 mod while_break_equivalence;
+mod wide_int_equivalence;
 mod widen_equivalence;
 mod wire;
 mod wire_write;

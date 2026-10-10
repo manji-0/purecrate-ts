@@ -20,6 +20,25 @@ pub fn fold(defs: &Defs<'_>, ty: &Ty, value: &Expr) -> Result<Lit, String> {
     Folder { defs, depth: 0 }.value(ty, value)
 }
 
+/// A `&[u8]` const's value: a byte string, as `syntax` writes one (the
+/// bytes of UTF-8 text, or a list of byte literals), typed.
+pub fn bytes(value: &Expr) -> Option<Expr> {
+    match value.unpositioned() {
+        Expr::MethodCall { receiver, name, args } if name.as_str() == "as_bytes" && args.is_empty() => {
+            match receiver.unpositioned() {
+                Expr::Lit(text @ Lit::Str(_)) => {
+                    Some(Expr::Call { callee: purecrate_ir::Callee::StrBytes, args: vec![Expr::Lit(text.clone())] })
+                }
+                _ => None,
+            }
+        }
+        Expr::Array(xs) if xs.iter().all(|x| matches!(x, Expr::Lit(Lit::Int { byte: true, .. }))) => {
+            Some(value.unpositioned().clone())
+        }
+        _ => None,
+    }
+}
+
 /// Each variant's discriminant: explicit ones folded, the others one past
 /// the previous (the first `0`), in the `repr` type (`isize` without one).
 pub fn discriminants(defs: &Defs<'_>, e: &Enum) -> Result<Vec<(Name, i128)>, String> {

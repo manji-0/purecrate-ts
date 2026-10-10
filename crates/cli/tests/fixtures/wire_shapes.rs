@@ -22,6 +22,12 @@ pub struct Ints {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct Wide {
+    pub a: i128,
+    pub b: u128,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Floats {
     pub x: f32,
     pub y: f64,

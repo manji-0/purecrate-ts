@@ -11,7 +11,7 @@ use crate::support;
 
 use std::collections::BTreeSet;
 
-const NUMERIC: &[&str] = &["I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Usize", "F32", "F64"];
+const NUMERIC: &[&str] = &["I8", "I16", "I32", "I64", "I128", "U8", "U16", "U32", "U64", "U128", "Usize", "F32", "F64"];
 
 /// The text before `at` back to the `(` that opens the group ending there,
 /// or the identifier, path, or literal ending there.
@@ -74,9 +74,10 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target_name == "Usize" && value.trim_end_matches(')').ends_with(".length") {
         return Some("length");
     }
-    // `x as number as U32`: both halves.
+    // `x as number as U32` / `x as bigint as U128`: both halves.
     if target.starts_with("number as ")
-        || (value == "number" && NUMERIC.contains(&target_name))
+        || target.starts_with("bigint as ")
+        || ((value == "number" || value == "bigint") && NUMERIC.contains(&target_name))
         || (NUMERIC.contains(&target_name) && value.starts_with("globalThis.BigInt("))
     {
         return Some("lossless widening");

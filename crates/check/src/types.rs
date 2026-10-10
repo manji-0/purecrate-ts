@@ -42,6 +42,19 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
         .enumerate()
         .map(|(i, item)| match item {
             Item::Fn(f) => Item::Fn(Typer::new(&defs, i, &mut out).func(f)),
+            Item::Const(c) if matches!(&c.ty, Ty::Vec(t) if **t == Ty::Prim(Prim::U8)) => {
+                match crate::consts::bytes(&c.value) {
+                    Some(value) => Item::Const(Const { value, ..c.clone() }),
+                    None => {
+                        out.push(Diagnostic::at(
+                            i,
+                            Reason::ConstExpr,
+                            format!("const `{}`: a `&[u8]` const is a byte string `b\"..\"` in v0", c.name.as_str()),
+                        ));
+                        item.clone()
+                    }
+                }
+            }
             Item::Const(c) => match crate::consts::fold(&defs, &c.ty, &c.value) {
                 Ok(lit) => Item::Const(Const { value: Expr::Lit(lit), ..c.clone() }),
                 Err(m) => {

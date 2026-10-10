@@ -112,17 +112,17 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
 const shiftAmount = (n: number | bigint, bits: number, what: string): number =>
   n < 0 || n >= bits ? panic(`shift ${what} with overflow`) : Number(n);
 
-/** `& | ^ ! << >>` on 64 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
-const bits64 = <T extends bigint>(signed: boolean) => {
-  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+/** `& | ^ ! << >>` on 64 or 128 bits. `bigint` `>>` is arithmetic, as Rust's is on `i64`. */
+const bitsBig = <T extends bigint>(bits: number, signed: boolean) => {
+  const wrap = (n: bigint): T => (signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n)) as T;
   const v = (x: T): bigint => x as bigint;
   return {
     and: (a: T, b: T): T => wrap(v(a) & v(b)),
     or: (a: T, b: T): T => wrap(v(a) | v(b)),
     xor: (a: T, b: T): T => wrap(v(a) ^ v(b)),
     not: (a: T): T => wrap(~v(a)),
-    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, 64, "left"))),
-    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, 64, "right"))),
+    shl: (a: T, n: number | bigint): T => wrap(v(a) << BigInt(shiftAmount(n, bits, "left"))),
+    shr: (a: T, n: number | bigint): T => wrap(v(a) >> BigInt(shiftAmount(n, bits, "right"))),
   } as const;
 };
 
@@ -259,7 +259,7 @@ export const Int = {
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...bits64<U64>(false),
+    ...bitsBig<U64>(64, false),
   },
 } as const;
 

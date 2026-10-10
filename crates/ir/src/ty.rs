@@ -7,10 +7,14 @@ pub enum Prim {
     I16,
     I32,
     I64,
+    /// A `bigint` as `i64` is, in 128 bits.
+    I128,
     U8,
     U16,
     U32,
     U64,
+    /// A `bigint` as `u64` is, in 128 bits.
+    U128,
     /// 64-bit Rust `usize`, printed as `number` and checked only up to
     /// 2^53−1. Past that, Rust debug does not panic and the generated code
     /// does. A stated non-equivalence (design/01 §3).
@@ -40,16 +44,29 @@ pub enum IntTy {
     I16,
     I32,
     I64,
+    I128,
     U8,
     U16,
     U32,
     U64,
+    U128,
     Usize,
 }
 
 impl IntTy {
-    pub const ALL: [IntTy; 9] =
-        [IntTy::I8, IntTy::I16, IntTy::I32, IntTy::I64, IntTy::U8, IntTy::U16, IntTy::U32, IntTy::U64, IntTy::Usize];
+    pub const ALL: [IntTy; 11] = [
+        IntTy::I8,
+        IntTy::I16,
+        IntTy::I32,
+        IntTy::I64,
+        IntTy::I128,
+        IntTy::U8,
+        IntTy::U16,
+        IntTy::U32,
+        IntTy::U64,
+        IntTy::U128,
+        IntTy::Usize,
+    ];
 
     /// TypeScript brand name. Distinct from `as_str`, which is the Rust name.
     pub fn ts_name(self) -> &'static str {
@@ -58,10 +75,12 @@ impl IntTy {
             IntTy::I16 => "I16",
             IntTy::I32 => "I32",
             IntTy::I64 => "I64",
+            IntTy::I128 => "I128",
             IntTy::U8 => "U8",
             IntTy::U16 => "U16",
             IntTy::U32 => "U32",
             IntTy::U64 => "U64",
+            IntTy::U128 => "U128",
             IntTy::Usize => "Usize",
         }
     }
@@ -72,10 +91,12 @@ impl IntTy {
             IntTy::I16 => "i16",
             IntTy::I32 => "i32",
             IntTy::I64 => "i64",
+            IntTy::I128 => "i128",
             IntTy::U8 => "u8",
             IntTy::U16 => "u16",
             IntTy::U32 => "u32",
             IntTy::U64 => "u64",
+            IntTy::U128 => "u128",
             IntTy::Usize => "usize",
         }
     }
@@ -90,6 +111,10 @@ impl IntTy {
             IntTy::U16 => (0, u16::MAX.into()),
             IntTy::U32 => (0, u32::MAX.into()),
             IntTy::U64 => (0, u64::MAX.into()),
+            IntTy::I128 => (i128::MIN, i128::MAX),
+            // A literal or folded constant is an `i128`: one at 2^127 or
+            // above is refused, though the type holds it (design/01 §3).
+            IntTy::U128 => (0, i128::MAX),
             // `Number.MAX_SAFE_INTEGER`, not `usize::MAX`.
             IntTy::Usize => (0, 9_007_199_254_740_991),
         }
@@ -106,12 +131,13 @@ impl IntTy {
             IntTy::I16 | IntTy::U16 => 16,
             IntTy::I32 | IntTy::U32 => 32,
             IntTy::I64 | IntTy::U64 | IntTy::Usize => 64,
+            IntTy::I128 | IntTy::U128 => 128,
         }
     }
 
     /// Printed as TS `bigint` rather than `number`.
     pub fn is_big(self) -> bool {
-        matches!(self, IntTy::I64 | IntTy::U64)
+        matches!(self, IntTy::I64 | IntTy::U64 | IntTy::I128 | IntTy::U128)
     }
 
     pub fn of_suffix(suffix: &str) -> Option<IntTy> {
@@ -125,12 +151,14 @@ impl IntTy {
         self == to
             || matches!(
                 (self, to),
-                (U8, U16 | U32 | U64 | Usize | I16 | I32 | I64)
-                    | (U16, U32 | U64 | Usize | I32 | I64)
-                    | (U32, U64 | I64)
-                    | (I8, I16 | I32 | I64)
-                    | (I16, I32 | I64)
-                    | (I32, I64)
+                (U8, U16 | U32 | U64 | U128 | Usize | I16 | I32 | I64 | I128)
+                    | (U16, U32 | U64 | U128 | Usize | I32 | I64 | I128)
+                    | (U32, U64 | U128 | I64 | I128)
+                    | (U64, U128 | I128)
+                    | (I8, I16 | I32 | I64 | I128)
+                    | (I16, I32 | I64 | I128)
+                    | (I32, I64 | I128)
+                    | (I64, I128)
             )
     }
 }
@@ -161,6 +189,8 @@ impl From<IntTy> for Prim {
             IntTy::U16 => Prim::U16,
             IntTy::U32 => Prim::U32,
             IntTy::U64 => Prim::U64,
+            IntTy::I128 => Prim::I128,
+            IntTy::U128 => Prim::U128,
             IntTy::Usize => Prim::Usize,
         }
     }

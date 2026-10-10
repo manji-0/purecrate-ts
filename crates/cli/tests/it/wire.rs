@@ -89,6 +89,13 @@ const accepts = [
   ["Ints", ints, intsValue],
   ["Ints", parseJson(intsText), intsValue],
   ["Ints", { ...ints, d: -5, h: 9007199254740991 }, { ...intsValue, d: -5n, h: 9007199254740991n }],
+  // 128-bit integers are JSON numbers too, read whole by `parseJson`.
+  [
+    "Wide",
+    parseJson('{"a":-170141183460469231731687303715884105728,"b":340282366920938463463374607431768211455}'),
+    { a: -170141183460469231731687303715884105728n, b: 340282366920938463463374607431768211455n },
+  ],
+  ["Wide", { a: -1, b: 0 }, { a: -1n, b: 0n }],
   ["Shape", parseJson('{"Tagged":9007199254740993}'), { kind: "Tagged", value: 9007199254740993n }],
   ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", value: 7n }],
   ["Shape", { Rect: [-1, 0] }, { kind: "Rect", content: [-1, 0] }],
@@ -153,6 +160,9 @@ const rejects = [
   ["Ints", JSON.parse(intsText)],
   ["Shape", JSON.parse('{"Tagged":9007199254740993}')],
   ["Ints", { ...ints, h: -1 }],
+  ["Wide", parseJson('{"a":170141183460469231731687303715884105728,"b":0}')],
+  ["Wide", parseJson('{"a":0,"b":340282366920938463463374607431768211456}')],
+  ["Wide", { a: 0, b: -1 }],
   ["Ints", { ...ints, h: "18446744073709551616" }],
   ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":9223372036854775808,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Shape", { Unknown: 1 }],

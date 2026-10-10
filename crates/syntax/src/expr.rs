@@ -21,6 +21,21 @@ pub fn lower_expr(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
 
 fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
     match expr {
+        // `b".."` is the bytes of the text where they are UTF-8, as
+        // `"..".as_bytes()` gives them; otherwise the list of byte literals.
+        SynExpr::Lit(syn::ExprLit { lit: syn::Lit::ByteStr(b), .. }) => Ok(match String::from_utf8(b.value()) {
+            Ok(text) => Expr::MethodCall {
+                receiver: Box::new(Expr::Lit(Lit::Str(text))),
+                name: Name::new("as_bytes"),
+                args: Vec::new(),
+            },
+            Err(e) => Expr::Array(
+                e.into_bytes()
+                    .into_iter()
+                    .map(|b| Expr::Lit(Lit::Int { value: b.into(), ty: Some(IntTy::U8), byte: true, hex: false }))
+                    .collect(),
+            ),
+        }),
         SynExpr::Lit(l) => Ok(Expr::Lit(lower_lit(&l.lit)?)),
         SynExpr::Path(p) => lower_path_expr(cx, &p.path),
         SynExpr::Field(f) => match &f.member {
@@ -1006,8 +1021,12 @@ fn lower_lit(lit: &syn::Lit) -> Result<Lit, ParseError> {
                     ParseError::new(Reason::LiteralSuffix, format!("integer suffix `{s}` is not in v0"))
                 })?),
             };
-            let value =
-                i.base10_parse::<i128>().map_err(|e| ParseError::new(Reason::UnsupportedLiteral, e.to_string()))?;
+            let value = i.base10_parse::<i128>().map_err(|_| {
+                ParseError::new(
+                    Reason::UnsupportedLiteral,
+                    format!("integer literal `{i}` is 2^127 or more, which v0 does not hold; build it from smaller parts (a mask of all ones is `!0`)"),
+                )
+            })?;
             let hex = i.to_string().starts_with("0x") || i.to_string().starts_with("0X");
             Ok(Lit::Int { value, ty, byte: false, hex })
         }

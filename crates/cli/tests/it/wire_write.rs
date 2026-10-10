@@ -233,6 +233,8 @@ fn shape_values() -> Vec<(&'static str, String)> {
         ("Misc", serde_json::to_string(&misc("", None, None)).unwrap()),
         ("Misc", serde_json::to_string(&misc("\"\\\n\t\u{1}\u{7f}é😀\u{2028}", Some(0), Some(vec![]))).unwrap()),
         ("Ints", serde_json::to_string(&ints()).unwrap()),
+        ("Wide", serde_json::to_string(&Wide { a: i128::MIN, b: u128::MAX }).unwrap()),
+        ("Wide", serde_json::to_string(&Wide { a: -1, b: 0 }).unwrap()),
         ("Floats", serde_json::to_string(&Floats { x: f32::NAN, y: f64::INFINITY }).unwrap()),
         ("Floats", serde_json::to_string(&Floats { x: 1e-7, y: 1e-7 }).unwrap()),
         ("Tree", serde_json::to_string(&Tree::Leaf).unwrap()),

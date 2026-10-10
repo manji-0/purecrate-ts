@@ -93,3 +93,19 @@ fn a_local_const_is_a_let_at_the_top_of_its_block() {
         "items inside blocks other than `const` are not in v0",
     );
 }
+
+/// A `&[u8]` const is a byte string; a `u128` literal stops below 2^127, as
+/// literals are held as `i128`.
+#[test]
+fn byte_strings_and_wide_literals() {
+    assert_clean("const A: &[u8] = b\"0123\";\nconst B: &[u8] = b\"\\xff\\x00\";\npub fn f(i: usize) -> (u8, u8) { (A[i], B[i]) }");
+    assert_rejects(
+        "const A: &[u8] = &[1, 2];\npub fn f() -> u8 { A[0] }",
+        "a `&[u8]` const is a byte string `b\"..\"` in v0",
+    );
+    assert_clean("pub fn f(x: u128) -> u128 { x ^ 170141183460469231731687303715884105727 }");
+    assert_parse_rejects(
+        "pub fn f() -> u128 { 170141183460469231731687303715884105728 }",
+        "is 2^127 or more, which v0 does not hold",
+    );
+}

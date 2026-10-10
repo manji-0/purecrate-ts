@@ -623,6 +623,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 return match (from.is_big(), to.is_big()) {
                     _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
                     (false, true) => format!("(globalThis.BigInt({}) as {})", uncast_default(&x.print()), to.ts_name()),
+                    (true, true) => format!("({} as bigint as {})", cast_operand(x), to.ts_name()),
                     _ => format!("({} as number as {})", cast_operand(x), to.ts_name()),
                 };
             }
