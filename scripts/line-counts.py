@@ -27,7 +27,9 @@ def strip(src):
                 j+=2 if src[j]=='\\' else 1
             res.append(src[i:j+1]); i=j+1; continue
         if c=="'" and re.match(r"'(\\.|[^\\'])'", src[i:i+4]) :
-            m=re.match(r"'(\\u\{[0-9a-fA-F]+\}|\\.|[^\\'])'", src[i:]); res.append(m.group(0)); i+=len(m.group(0)); continue
+            # A literal's text could be a brace (`b'{'`); `items` counts
+            # braces, so it stands as a letter.
+            m=re.match(r"'(\\u\{[0-9a-fA-F]+\}|\\.|[^\\'])'", src[i:]); res.append("'c'"); i+=len(m.group(0)); continue
         res.append(c); i+=1
     return ''.join(res)
 

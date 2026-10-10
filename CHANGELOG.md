@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A `let` of an enum-typed place was cast back to its type even where nothing had narrowed it (a parameter, a `?`'s value), which oxlint refuses as unnecessary; only a place a `match` tests, a name its arm binds, or a copy of one is cast now.
+- A `while (..) {` whose test does not fit opened as oxfmt does not; it opens as an `if`'s.
+- `[expr/method-call]` on a `Vec` lists `insert` beside `push`.
+
+### Documentation
+
+- The authoring skill caught up with 0.13.0: `Vec::insert`, `x as usize` from `u8` / `u16` / `u32`, and `for _ in`; `Vec::remove` named as refused.
+
+### Examples
+
+- **jsonpatch**: RFC 8259 text, RFC 6901 JSON Pointer, and RFC 6902 JSON Patch, written from the authoring skill alone; checked against RFC 6902 Appendix A, RFC 6901 §5, and an idiomatic reference over serde_json (design/07 §2).
+
 ## 0.13.0 — 2026-10-06
 
 Every example was reviewed independently twice, each reviewer driving the generated package and the Rust model with its own scenarios from the primary specifications (RFCs, the NTA Q&A, Stripe's documentation, SemVer, the SWIFT registry, WHATWG and NIST). The domain logic agreed byte for byte on every scenario both times (millions in all). What did not hold was at the edges of the generated package: the JSON wire, the TS type boundary, and the layout oxfmt and oxlint ask for. Those are fixed, as is every departure of the examples' models from their specifications, or it is declared. `Vec::insert` and `as usize` join the subset, for punycode. Several changes are breaking for code that relied on the old behaviour: see Changed.

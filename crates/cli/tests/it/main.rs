@@ -38,6 +38,7 @@ mod iban_equivalence;
 mod int_methods_equivalence;
 mod int_patterns_equivalence;
 mod invoice_equivalence;
+mod jsonpatch_equivalence;
 mod line_width;
 mod local_consts_equivalence;
 mod lone_surrogate;
