@@ -456,6 +456,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity("slicing", 1 + usize::from(*start) + usize::from(*end), argc)
             }
             Callee::Str(m) => self.arity(&format!("`str::{}`", m.name()), 1 + m.needles(), argc),
+            Callee::IntCast { to, .. } => self.arity(&format!("`as {}`", to.as_str()), 1, argc),
             Callee::IntFrom { to, .. } | Callee::CharCode(to) => {
                 self.arity(&format!("`{}::from`", to.as_str()), 1, argc)
             }

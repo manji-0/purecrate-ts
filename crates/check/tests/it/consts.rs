@@ -45,13 +45,16 @@ fn const_expressions_outside_v0_are_refused() {
 
 #[test]
 fn as_reads_only_a_fieldless_enums_discriminant() {
-    assert_rejects("pub fn f(x: u8) -> u32 { x as u32 }", "`u8 as u32` is not in v0");
+    // A widening std's `From` takes has that one spelling.
+    assert_rejects("pub fn f(x: u8) -> u32 { x as u32 }", "`u8 as u32` widens, which v0 writes `u32::from(x)`");
+    assert_rejects("pub fn f(x: i32) -> i64 { x as i64 }", "`i32 as i64` widens");
     // Unsigned to `usize` within 32 bits holds every value: Rust has no
-    // `usize::from(u32)`, so `as` is accepted there and nowhere wider.
+    // `usize::from(u32)`, so `as` is how Rust writes it.
     assert_clean("pub fn f(a: u8, b: u16, c: u32) -> usize { a as usize + b as usize + c as usize }");
-    assert_rejects("pub fn f(x: u64) -> usize { x as usize }", "`u64 as usize` is not in v0");
-    assert_rejects("pub fn f(x: i32) -> usize { x as usize }", "`i32 as usize` is not in v0");
-    assert_rejects("pub fn f(x: usize) -> u32 { x as u32 }", "`usize as u32` is not in v0");
+    // Every other pair of integer types wraps, as Rust's `as` does.
+    assert_clean("pub fn f(x: u64, y: i32, z: usize) -> (usize, usize, u32) { (x as usize, y as usize, z as u32) }");
+    assert_clean("pub fn f(x: u64, y: i64) -> (i64, u64, u8, i8) { (x as i64, y as u64, x as u8, y as i8) }");
+    assert_clean("pub fn f(x: u32) -> u32 { x as u32 }");
     assert_rejects("pub enum E { A(i32), B }\npub fn f(e: E) -> u8 { e as u8 }", "`E as u8` is not in v0");
     assert_rejects(
         "#[derive(Clone, Copy)]\npub enum E { A = 1, B = 300 }\npub fn f(e: E) -> u8 { e as u8 }",

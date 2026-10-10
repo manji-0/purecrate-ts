@@ -418,7 +418,7 @@ fn module_trees_are_flattened() {
     // A rejection inside a module file names that file.
     fs::write(
         src.join("money/rounding.rs"),
-        "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen(y.0 as i64)\n}\n",
+        "use super::Yen;\n\npub fn half(y: Yen) -> Yen {\n    Yen((y.0 > 0) as i64)\n}\n",
     )
     .expect("write");
     let bad = check(&[dir.as_os_str()]);

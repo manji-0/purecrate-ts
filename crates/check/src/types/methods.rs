@@ -278,10 +278,12 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `e as T`: a fieldless enum to an integer type that holds every
-    /// discriminant, looked up in a table, or an unsigned integer of 32 bits
-    /// or fewer to `usize`, which holds every value on every target (std has
-    /// no `usize::from(u32)`, so `as` is how Rust writes it). Everything else
-    /// keeps its old rejection.
+    /// discriminant, looked up in a table; an unsigned integer of 32 bits or
+    /// fewer to `usize`, which holds every value on every target (std has no
+    /// `usize::from(u32)`, so `as` is how Rust writes it); or one integer type
+    /// to another that std does not widen to with `From`, wrapping as Rust
+    /// does. A widening `From` takes is written `T::from(x)`, its one
+    /// spelling. Everything else keeps its old rejection.
     pub(super) fn cast(&mut self, inner: &Expr, to: &Ty, want: Option<&Ty>) -> Typed {
         let (e, t) = self.expr(inner, None);
         let target = match to {
@@ -298,6 +300,28 @@ impl<'d, 'a> Typer<'d, 'a> {
         });
         if let (Some(from @ (IntTy::U8 | IntTy::U16 | IntTy::U32)), Some(IntTy::Usize)) = (source, target) {
             let e = Expr::Call { callee: Callee::IntFrom { from: Some(from), to: IntTy::Usize }, args: vec![e] };
+            return (e, self.expect(want, Some(to.clone())));
+        }
+        // Between integers: what std widens is written `T::from(x)`, the one
+        // spelling of a lossless conversion; everything else wraps as Rust's
+        // `as` does.
+        if let (Some(from), Some(it)) = (source, target) {
+            if from == it {
+                return (e, self.expect(want, Some(to.clone())));
+            }
+            if from.widens_to(it) {
+                self.error(
+                    Reason::Cast,
+                    format!(
+                        "`{} as {}` widens, which v0 writes `{}::from(x)`; `as` between integers is for what `from` does not take",
+                        from.as_str(),
+                        it.as_str(),
+                        it.as_str()
+                    ),
+                );
+                return (e, None);
+            }
+            let e = Expr::Call { callee: Callee::IntCast { from, to: it }, args: vec![e] };
             return (e, self.expect(want, Some(to.clone())));
         }
         match (enum_def, target) {
@@ -340,10 +364,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let instead = if t.as_ref().is_some_and(float) || float(to) {
                     "no conversion between a float and an integer is"
                 } else {
-                    "widen other integers with `T::from(x)`; nothing narrows, as nothing else is"
+                    "nothing else is"
                 };
                 self.error(Reason::Cast, format!(
-                    "`{what} as {}` is not in v0: `as` reads a fieldless enum's discriminant, or widens a `u8`, `u16`, or `u32` to `usize`; {instead}",
+                    "`{what} as {}` is not in v0: `as` reads a fieldless enum's discriminant, or converts between integer types; {instead}",
                     show(to)
                 ));
                 (e, None)

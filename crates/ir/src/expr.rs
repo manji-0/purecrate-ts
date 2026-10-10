@@ -618,6 +618,14 @@ pub enum Callee {
         from: Option<IntTy>,
         to: IntTy,
     },
+    /// `x as to` between integer types where std has no `From`: the value
+    /// modulo 2^bits of `to`, read as `to` reads it, as Rust's `as` wraps
+    /// (to `usize`, Rust's 64 bits, then the 2^53 check every `usize`
+    /// makes). Prints as `Int.<to>.cast(x)`.
+    IntCast {
+        from: IntTy,
+        to: IntTy,
+    },
     /// `u32::from(c)` / `u64::from(c)`: the code point. `check::accept`
     /// rewrites an `IntFrom` on a `char` to this, and wraps both sides of a
     /// `char` ordering in it: JS orders strings by UTF-16 unit, which puts

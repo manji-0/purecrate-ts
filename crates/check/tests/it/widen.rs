@@ -29,7 +29,7 @@ fn a_refused_cast_names_what_as_does() {
     let float = "no conversion between a float and an integer";
     assert_rejects("pub fn f(x: f64) -> i64 { x as i64 }", float);
     assert_rejects("pub fn f(n: i64) -> f64 { n as f64 }", float);
-    assert_rejects("pub fn f(n: i64) -> i32 { n as i32 }", "or widens a `u8`, `u16`, or `u32` to `usize`");
+    assert_rejects("pub fn f(b: bool) -> u8 { b as u8 }", "or converts between integer types; nothing else is");
 }
 
 #[test]

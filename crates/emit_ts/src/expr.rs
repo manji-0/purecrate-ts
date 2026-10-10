@@ -587,6 +587,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::Str(_)
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::CharCode(_) => String::new(),
+                purecrate_ir::Callee::IntCast { to, .. } => format!("Int.{}.cast", to.as_str()),
                 purecrate_ir::Callee::CharFromU8 => "Char.fromU8".into(),
                 purecrate_ir::Callee::CharFromU32 => "Char.fromU32".into(),
                 purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),

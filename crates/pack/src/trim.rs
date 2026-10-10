@@ -64,6 +64,8 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 out.insert(format!("bits.{ty}"));
             } else if op == "parse" {
                 out.insert(format!("parse.{ty}"));
+            } else if op == "cast" {
+                out.insert(format!("cast.{ty}"));
             } else if IntMethod::ALL.iter().any(|m| m.ts_name() == op) {
                 let factory = if matches!(op, "min" | "max") { "minmax" } else { "methods" };
                 out.insert(format!("{factory}.{ty}"));
@@ -463,6 +465,7 @@ mod tests {
         all.extend(
             ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("minmax.{t}")),
         );
+        all.extend(["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize"].iter().map(|t| format!("cast.{t}")));
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
         let mut bare: String = RUNTIME

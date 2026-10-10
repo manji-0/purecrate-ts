@@ -206,9 +206,30 @@ const minMax = <T extends number | bigint>() =>
 
 // #endregion
 
-// #region methods.usize parse.usize
+// #region methods.usize parse.usize cast.usize
 const small64 = (n: bigint): Usize =>
   n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+// #endregion
+
+// #region cast.i8 cast.i16 cast.i32 cast.u8 cast.u16 cast.u32
+/** `x as T` to a type of 32 bits or fewer: the low `bits` bits, read signed or not, as Rust's `as` wraps. */
+const cast32 =
+  <T extends number>(bits: number, signed: boolean) =>
+  (x: number | bigint): T => {
+    if (typeof x === "bigint") return Number(signed ? BigInt.asIntN(bits, x) : BigInt.asUintN(bits, x)) as T;
+    const s = 32 - bits;
+    return (signed ? (x << s) >> s : (x << s) >>> s) as T;
+  };
+// #endregion
+
+// #region cast.i64 cast.u64
+/** `x as T` to a 64-bit type: the low 64 bits, read signed or not. */
+const cast64 =
+  <T extends bigint>(signed: boolean) =>
+  (x: number | bigint): T => {
+    const n = typeof x === "bigint" ? x : BigInt(x);
+    return (signed ? BigInt.asIntN(64, n) : BigInt.asUintN(64, n)) as T;
+  };
 // #endregion
 
 // #region parseIntError parse.i8 parse.i16 parse.i32 parse.u8 parse.u16 parse.u32 parse.usize parse.i64 parse.u64
@@ -880,6 +901,7 @@ export const Int = {
     ...minMax<I8>(), // #needs minmax.i8
     ...methods({ lo: -128n, hi: 127n, bits: 8, signed: true, to: (n) => Number(n) as I8 }), // #needs methods.i8
     parse: parser(-128n, 127n, true, (n) => Number(n) as I8), // #needs parse.i8
+    cast: cast32<I8>(8, true), // #needs cast.i8
   },
   // #endregion
   // #region int.i16
@@ -889,6 +911,7 @@ export const Int = {
     ...minMax<I16>(), // #needs minmax.i16
     ...methods({ lo: -32768n, hi: 32767n, bits: 16, signed: true, to: (n) => Number(n) as I16 }), // #needs methods.i16
     parse: parser(-32768n, 32767n, true, (n) => Number(n) as I16), // #needs parse.i16
+    cast: cast32<I16>(16, true), // #needs cast.i16
   },
   // #endregion
   // #region int.i32
@@ -898,6 +921,7 @@ export const Int = {
     ...minMax<I32>(), // #needs minmax.i32
     ...methods({ lo: -2147483648n, hi: 2147483647n, bits: 32, signed: true, to: (n) => Number(n) as I32 }), // #needs methods.i32
     parse: parser(-2147483648n, 2147483647n, true, (n) => Number(n) as I32), // #needs parse.i32
+    cast: cast32<I32>(32, true), // #needs cast.i32
   },
   // #endregion
   // #region int.u8
@@ -907,6 +931,7 @@ export const Int = {
     ...minMax<U8>(), // #needs minmax.u8
     ...methods({ lo: 0n, hi: 255n, bits: 8, signed: false, to: (n) => Number(n) as U8 }), // #needs methods.u8
     parse: parser(0n, 255n, false, (n) => Number(n) as U8), // #needs parse.u8
+    cast: cast32<U8>(8, false), // #needs cast.u8
   },
   // #endregion
   // #region int.u16
@@ -916,6 +941,7 @@ export const Int = {
     ...minMax<U16>(), // #needs minmax.u16
     ...methods({ lo: 0n, hi: 65535n, bits: 16, signed: false, to: (n) => Number(n) as U16 }), // #needs methods.u16
     parse: parser(0n, 65535n, false, (n) => Number(n) as U16), // #needs parse.u16
+    cast: cast32<U16>(16, false), // #needs cast.u16
   },
   // #endregion
   // #region int.u32
@@ -925,6 +951,7 @@ export const Int = {
     ...minMax<U32>(), // #needs minmax.u32
     ...methods({ lo: 0n, hi: 4294967295n, bits: 32, signed: false, to: (n) => Number(n) as U32 }), // #needs methods.u32
     parse: parser(0n, 4294967295n, false, (n) => Number(n) as U32), // #needs parse.u32
+    cast: cast32<U32>(32, false), // #needs cast.u32
   },
   // #endregion
   // #region int.usize
@@ -935,6 +962,7 @@ export const Int = {
     ...minMax<Usize>(), // #needs minmax.usize
     ...methods({ lo: 0n, hi: 18446744073709551615n, bits: 64, signed: false, to: small64 }), // #needs methods.usize
     parse: parser(0n, 18446744073709551615n, false, small64), // #needs parse.usize
+    cast: (x: number | bigint): Usize => (typeof x === "number" && x >= 0 ? (x as Usize) : small64(BigInt.asUintN(64, BigInt(x)))), // #needs cast.usize
   },
   // #endregion
   // #region int.i64
@@ -944,6 +972,7 @@ export const Int = {
     ...minMax<I64>(), // #needs minmax.i64
     ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }), // #needs methods.i64
     parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64), // #needs parse.i64
+    cast: cast64<I64>(true), // #needs cast.i64
   },
   // #endregion
   // #region int.u64
@@ -953,6 +982,7 @@ export const Int = {
     ...minMax<U64>(), // #needs minmax.u64
     ...methods({ lo: 0n, hi: 18446744073709551615n, bits: 64, signed: false, to: (n) => n as U64 }), // #needs methods.u64
     parse: parser(0n, 18446744073709551615n, false, (n) => n as U64), // #needs parse.u64
+    cast: cast64<U64>(false), // #needs cast.u64
   },
   // #endregion
   // #region int.f32

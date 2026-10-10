@@ -430,6 +430,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }),
             ),
             Callee::IntFrom { to, .. } => return self.int_from(*to, args, want),
+            Callee::IntCast { from, to } => {
+                (typed_args(self, vec![Ty::Prim((*from).into())]), Some(Ty::Prim((*to).into())))
+            }
             Callee::CharCode(to) => (typed_args(self, vec![Ty::Prim(Prim::Char)]), Some(Ty::Prim((*to).into()))),
             Callee::CharFromU8 => (typed_args(self, vec![Ty::Prim(Prim::U8)]), Some(Ty::Prim(Prim::Char))),
             Callee::CharFromU32 => {

@@ -505,6 +505,7 @@ impl Refs {
                     Callee::IntFrom { to, .. } => {
                         self.nums.insert(to.ts_name().to_string());
                     }
+                    Callee::IntCast { .. } => self.int = true,
                     Callee::CharCode(to) => {
                         self.char_value = true;
                         if to.is_big() {
