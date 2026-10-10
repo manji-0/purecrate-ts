@@ -68,6 +68,12 @@ fn generated_arithmetic_matches_rust_debug_build() {
             case!(arith::poly_f64(0.1f64)),
             case!(arith::div_f64(1.0f64, 0.0f64)),
             case!(arith::div_f64(-1.0f64, 3.0f64)),
+            case!(arith::neg_f64(-2.0f64)),
+            case!(arith::neg_f64(0.0f64)),
+            case!(arith::neg_f64(0.25f64)),
+            case!(arith::neg_f32(0.1f32)),
+            case!(arith::pick(vec![7u8, 8u8, 9u8], 2u32)),
+            case!(arith::pick(vec![7u8], 1u32)),
         ]);
     });
 }

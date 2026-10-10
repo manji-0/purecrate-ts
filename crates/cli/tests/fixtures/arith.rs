@@ -117,3 +117,22 @@ pub fn tie_f32_inferred(a: f32) -> f32 {
     let x: f32 = 1.0000000596046447753906250001;
     a + x
 }
+
+/// `-` on a float: a literal bare (`-1.5`), a value times `-1` (lint
+/// refuses `-` on a brand). `-(0.0 * 2.0)` is `-0.0`.
+pub fn neg_f64(x: f64) -> f64 {
+    if x < -1.5 {
+        -x
+    } else {
+        -(x * 2.0)
+    }
+}
+
+pub fn neg_f32(x: f32) -> f32 {
+    -x
+}
+
+/// An index widened from `u32` is read as the `number` it is.
+pub fn pick(xs: Vec<u8>, i: u32) -> u8 {
+    xs[i as usize]
+}

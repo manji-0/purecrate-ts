@@ -1,7 +1,7 @@
 //! Every `as` the generator prints is one of the kinds design/03 §1.1 lists,
 //! each sound for a reason outside TS: a literal rustc has range-checked, a
 //! `.length`, a lossless widening, a `for` counter below its bound, a folded
-//! discriminant, a float, the crate's own constructor, or a union given back
+//! discriminant, a float (an `f32` rounded by `fround` or negated), the crate's own constructor, or a union given back
 //! its declared type. A brand (a newtype or closed struct of the crate) is
 //! cast to only in its constructor. Read over the output of every example
 //! and every test fixture the subset accepts, without a schema and with each
@@ -92,7 +92,10 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("Record<string, ") || (NUMERIC.contains(&target_name) && value.ends_with(".kind]")) {
         return Some("folded discriminant");
     }
-    if target_name == "F64" || (target_name == "F32" && value.starts_with("globalThis.Math.fround(")) {
+    // `x * -1` is how a float is negated: the sign flips exactly, so an
+    // `f32` stays one.
+    let negated = value.trim_end_matches(')').ends_with(" * -1");
+    if target_name == "F64" || (target_name == "F32" && (value.starts_with("globalThis.Math.fround(") || negated)) {
         return Some("float");
     }
     if (value == "value" || value == "fields")

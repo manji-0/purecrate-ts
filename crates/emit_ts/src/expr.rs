@@ -362,7 +362,16 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
             Tx::bin(tx_op(*op), side(left), side(right))
         }
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => emit_tx(expr, indent).not(),
-        Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => Tx::Neg(Box::new(emit_tx(expr, indent))),
+        // Only a float is negated here (an integer is `Int.*.neg`): a
+        // literal bare, as `-90.0`; a value multiplied by `-1`, which flips
+        // its sign exactly, `-0.0` included (lint refuses `-` on a brand).
+        // The `AsFloat` around it brands it back.
+        Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => match peel_identity(expr) {
+            Expr::Lit(Lit::Float { digits, ty: Some(FloatTy::F64) | None }) => {
+                Tx::Neg(Box::new(Tx::atom(digits.clone())))
+            }
+            e => Tx::bin(Op::Mul, emit_tx(e, indent), Tx::atom("-1")),
+        },
         Expr::Match { .. } | Expr::Let { .. } => {
             as_tx(expr, indent).unwrap_or_else(|| Tx::atom(emit_iife(expr, indent)))
         }
@@ -432,12 +441,18 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             format!("{}{}", emit_expr(base, indent), name.as_str())
         }
         Expr::Field { base, name } => format!("{}.{n}", receiver(emit_tx(base, indent)), n = name.as_str()),
-        // `Slice.at` takes a plain `number`: a literal index needs no brand.
+        // `Slice.at` takes a plain `number`: a literal index needs no brand,
+        // nor a `u32 as usize`, whose value is already that `number`.
         Expr::Index { base, index } => format!(
             "Slice.at({}, {})",
             emit_expr(base, indent),
             match peel_identity(index) {
                 Expr::Lit(lit @ Lit::Int { .. }) => bare_lit(lit),
+                Expr::Call { callee: purecrate_ir::Callee::IntFrom { from: Some(from), to }, args }
+                    if !from.is_big() && !to.is_big() =>
+                {
+                    emit_item(&args[0], indent)
+                }
                 _ => emit_item(index, indent),
             }
         ),

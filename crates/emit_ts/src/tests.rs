@@ -357,9 +357,9 @@ fn nested_operators_keep_their_grouping() {
     assert!(src.contains("=> (x + x) * x;"), "{src}");
     let neg = |e| Expr::Unary { op: UnOp::Neg, expr: Box::new(e) };
     let src = f64_fn(neg(neg(Expr::var("x"))));
-    assert!(src.contains("=> -(-x);"), "{src}");
+    assert!(src.contains("=> x * -1 * -1;"), "{src}");
     let src = f64_fn(neg(sum.clone()));
-    assert!(src.contains("=> -(x + x);"), "{src}");
+    assert!(src.contains("=> (x + x) * -1;"), "{src}");
     let src = f64_fn(bin(BinOp::Add, sum, Expr::var("x")));
     assert!(src.contains("=> x + x + x;"), "{src}");
     let src = f64_fn(bin(BinOp::Sub, Expr::var("x"), bin(BinOp::Sub, Expr::var("x"), Expr::var("x"))));
