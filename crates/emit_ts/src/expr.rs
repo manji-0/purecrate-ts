@@ -1515,6 +1515,18 @@ pub(crate) fn bare_lit(lit: &Lit) -> String {
     }
 }
 
+/// A float argument to a function that takes a plain `number` (`Math`'s,
+/// the runtime's `round` and `castFloat`): without the `as F64` that
+/// arithmetic carries, which would be an unnecessary assertion there.
+fn float_arg(e: &Expr, indent: usize) -> String {
+    match peel_identity(e) {
+        Expr::Call { callee: purecrate_ir::Callee::AsFloat(_), args } => {
+            crate::tidy::strip_outer(&emit_expr(&args[0], indent)).to_string()
+        }
+        _ => emit_item(e, indent),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1529,17 +1541,5 @@ mod tests {
         assert_eq!(emit_lit(&byte(48)), "(/* '0' */ 48 as U8)");
         let plain = Lit::Int { value: 48, ty: Some(purecrate_ir::IntTy::U8), byte: false, hex: false };
         assert_eq!(bare_lit(&plain), "48");
-    }
-}
-
-/// A float argument to a function that takes a plain `number` (`Math`'s,
-/// the runtime's `round` and `castFloat`): without the `as F64` that
-/// arithmetic carries, which would be an unnecessary assertion there.
-fn float_arg(e: &Expr, indent: usize) -> String {
-    match peel_identity(e) {
-        Expr::Call { callee: purecrate_ir::Callee::AsFloat(_), args } => {
-            crate::tidy::strip_outer(&emit_expr(&args[0], indent)).to_string()
-        }
-        _ => emit_item(e, indent),
     }
 }
