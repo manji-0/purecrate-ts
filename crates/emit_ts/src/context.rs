@@ -48,6 +48,10 @@ thread_local! {
     /// The locals of the function being printed that `push` grows: the one
     /// array the output writes, typed `Array<T>` (design/01 §7.14).
     pub(crate) static PUSHED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    /// The places of the function being printed that a `match` tests, and
+    /// the names its arms bind or that copy one of those: only these can be
+    /// narrowed in TS, so only a `let` of one needs `as T` (`tested`).
+    pub(crate) static TESTED: RefCell<Vec<Expr>> = const { RefCell::new(Vec::new()) };
     /// Helpers printed in another item's file (`Crate::homes`), likewise.
     pub(crate) static HOSTED: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Whether the statement `stmt::emit_stmts` prints next is the last of

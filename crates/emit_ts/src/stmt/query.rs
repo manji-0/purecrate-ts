@@ -12,6 +12,13 @@ pub(crate) fn is_place(expr: &Expr) -> bool {
     }
 }
 
+/// `place` is `of` or a field reached through it (`s.method` within `s`),
+/// read through `clone()`.
+pub(crate) fn within(place: &Expr, of: &Expr) -> bool {
+    let place = peel_identity(place);
+    place == of || matches!(place, Expr::Field { base, .. } if within(base, of))
+}
+
 pub(crate) fn peel(expr: &Expr) -> &Expr {
     match expr {
         Expr::Ignored { expr, .. } => peel(expr),

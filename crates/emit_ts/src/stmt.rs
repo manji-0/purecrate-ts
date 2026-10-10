@@ -472,8 +472,12 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
         // A place in a `switch` arm is a narrowed union; the annotation
         // alone does not widen it for TS, so `as T` gives back the type. A
         // struct is no union: narrowing only drops a `null`, which the
-        // annotation already says.
-        v if is_place(v) && matches!(ty, Some(Ty::Named(n)) if !crate::is_struct(n.as_str())) => {
+        // annotation already says. A place no `match` tests is not
+        // narrowed, and the cast would be one lint refuses.
+        v if is_place(v)
+            && matches!(ty, Some(Ty::Named(n)) if !crate::is_struct(n.as_str()))
+            && crate::TESTED.with(|t| t.borrow().iter().any(|t| within(v, t))) =>
+        {
             let t = emit_ty(ty.unwrap());
             out.push_str(&format!("{pad}{keyword} {name} = {} as {t};\n", emit_expr(v, indent)));
         }

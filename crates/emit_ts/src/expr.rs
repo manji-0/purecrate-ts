@@ -27,7 +27,43 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
-    crate::scoped(&crate::PUSHED, pushed, || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
+    crate::scoped(&crate::PUSHED, pushed, || {
+        crate::scoped(&crate::TESTED, tested(&f.body), || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
+    })
+}
+
+/// The places `body` tests with a `match` (a tuple's elements each), the
+/// names its arms bind, and the locals bound to one of those, to a fixed
+/// point: what TS may narrow (`context::TESTED`).
+fn tested(body: &Expr) -> Vec<Expr> {
+    let mut out: Vec<Expr> = Vec::new();
+    body.walk(|e| {
+        if let Expr::Match { scrutinee, arms } = e {
+            let parts = match &**scrutinee {
+                Expr::Tuple(xs) => xs.iter().collect(),
+                s => vec![s],
+            };
+            out.extend(parts.into_iter().filter(|p| is_place(p)).cloned());
+            for arm in arms {
+                out.extend(arm.pattern.bindings().into_iter().map(|n| Expr::Var(n.clone())));
+            }
+        }
+    });
+    loop {
+        let mut grew = false;
+        body.walk(|e| {
+            if let Expr::Let { name, value, .. } = e {
+                let copy = Expr::Var(name.clone());
+                if !out.contains(&copy) && out.iter().any(|t| crate::stmt::within(value, t)) {
+                    out.push(copy);
+                    grew = true;
+                }
+            }
+        });
+        if !grew {
+            return out;
+        }
+    }
 }
 
 /// `f` with each parameter that may hold a string checked on entry, where

@@ -264,3 +264,18 @@ fn encode_code_points(input: Vec<u32>) -> Result<Vec<char>, LayoutProblem> {
 pub fn encode_every_code_point(input: Vec<u32>) -> Result<Vec<char>, LayoutProblem> {
     encode_code_points(input)
 }
+
+/// A `while` whose test does not fit: the test on lines of its own, as an
+/// `if`'s, a parenthesized `||` inside it hugged.
+pub fn skip_whitespace_from(bytes_of_the_text: &[u8], start: usize) -> usize {
+    let mut i = start;
+    while i < bytes_of_the_text.len()
+        && (bytes_of_the_text[i] == b' '
+            || bytes_of_the_text[i] == b'\t'
+            || bytes_of_the_text[i] == b'\n'
+            || bytes_of_the_text[i] == b'\r')
+    {
+        i += 1;
+    }
+    i
+}

@@ -727,3 +727,36 @@ pub fn literal_beside_case(o: Option<i32>, b: i32) -> Option<i32> {
     }
     Some(o.unwrap_or(b))
 }
+
+fn read_gate(open: bool) -> Result<Gate, i32> {
+    if open {
+        Ok(Gate::Open)
+    } else {
+        Err(1)
+    }
+}
+
+/// A place no `match` tests is not narrowed, so a `let` of it takes no
+/// `as` (lint refuses one): a parameter, and a `?`'s value.
+pub fn untested_places(g: Gate, open: bool) -> Result<i32, i32> {
+    let mut current = g;
+    let read = read_gate(open).map_err(|e| e + 1)?;
+    if open {
+        current = read;
+    }
+    match current {
+        Gate::Shut => Ok(0),
+        Gate::Open => Ok(1),
+    }
+}
+
+/// A tested place is narrowed in its arm; a copy of it takes its type back.
+pub fn tested_place(n: Note) -> i32 {
+    match n {
+        Note::Wait => {
+            let m: Note = n;
+            echo(&m)
+        }
+        _ => 0,
+    }
+}
