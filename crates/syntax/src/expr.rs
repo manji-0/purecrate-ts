@@ -32,6 +32,22 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             }
             Member::Unnamed(_) => Err(ParseError::new(Reason::TupleField, "tuple field access is not in v0")),
         },
+        SynExpr::Assign(a) if element_target(&a.left).is_some() => {
+            let (v, at) = element_target(&a.left).expect("checked by the guard");
+            let at = lower_expr(cx, at)?;
+            let value = lower_expr(cx, &a.right)?;
+            Ok(Expr::Call { callee: Callee::VecSet, args: vec![Expr::Var(v), at, value] })
+        }
+        // `v[i] op= x` as `v[i] = v[i] op x`; `emit` evaluates `x` first, as
+        // Rust does for primitives.
+        SynExpr::Binary(b) if compound_op(b.op).is_some() && element_target(&b.left).is_some() => {
+            let (v, at) = element_target(&b.left).expect("checked by the guard");
+            let op = lower_bin(compound_op(b.op).expect("checked by the guard"))?;
+            let at = lower_expr(cx, at)?;
+            let read = Expr::Index { base: Box::new(Expr::Var(v.clone())), index: Box::new(at.clone()) };
+            let value = Expr::Binary { op, left: Box::new(read), right: Box::new(lower_expr(cx, &b.right)?) };
+            Ok(Expr::Call { callee: Callee::VecSet, args: vec![Expr::Var(v), at, value] })
+        }
         SynExpr::Assign(a) => {
             Ok(Expr::Assign { name: assign_target(&a.left)?, value: Box::new(lower_expr(cx, &a.right)?) })
         }
@@ -671,6 +687,18 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
     Ok(Stmt::Let { name, mutable, ty, value: lower_expr(cx, &init.expr)? })
 }
 
+/// `v[i]` as the place of an assignment: the local and the index.
+fn element_target(place: &SynExpr) -> Option<(Name, &SynExpr)> {
+    let SynExpr::Index(i) = place else { return None };
+    if matches!(&*i.index, SynExpr::Range(_)) {
+        return None;
+    }
+    match &*i.expr {
+        SynExpr::Path(p) if p.qself.is_none() => p.path.get_ident().map(|id| (Name::new(id.to_string()), &*i.index)),
+        _ => None,
+    }
+}
+
 fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
     match place {
         SynExpr::Path(p) if p.qself.is_none() => p
@@ -681,6 +709,10 @@ fn assign_target(place: &SynExpr) -> Result<Name, ParseError> {
         SynExpr::Field(_) => Err(ParseError::new(
             Reason::PlaceAssign,
             "assigning to a field is not in v0; build a new struct with `..` or all fields",
+        )),
+        SynExpr::Index(_) => Err(ParseError::new(
+            Reason::PlaceAssign,
+            "`v[i] = x` writes an element of a local `let mut v: Vec<T>` in v0, not of a field or an element; build the new value",
         )),
         _ => Err(ParseError::new(Reason::PlaceAssign, "only a local variable can be assigned in v0")),
     }

@@ -572,6 +572,8 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::VecLen
                 | purecrate_ir::Callee::VecPush
                 | purecrate_ir::Callee::VecInsert
+                | purecrate_ir::Callee::VecRemove
+                | purecrate_ir::Callee::VecSet
                 | purecrate_ir::Callee::VecIsEmpty
                 | purecrate_ir::Callee::OptionIsSome
                 | purecrate_ir::Callee::OptionIsNone
@@ -680,6 +682,17 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             if matches!(callee, purecrate_ir::Callee::VecInsert) {
                 return format!(
                     "Slice.insert({}, {}, {})",
+                    emit_expr(&args[0], indent),
+                    emit_item(&args[1], indent),
+                    emit_item(&args[2], indent)
+                );
+            }
+            if matches!(callee, purecrate_ir::Callee::VecRemove) {
+                return format!("Slice.remove({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecSet) {
+                return format!(
+                    "Slice.set({}, {}, {})",
                     emit_expr(&args[0], indent),
                     emit_item(&args[1], indent),
                     emit_item(&args[2], indent)

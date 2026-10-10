@@ -1,4 +1,4 @@
-use crate::common::{assert_clean, assert_rejects};
+use crate::common::{assert_clean, assert_parse_rejects, assert_rejects};
 
 const HAND: &str = "pub enum Suit { Hearts, Spades }
      pub struct Card { pub rank: i32, pub suit: Suit }
@@ -122,7 +122,7 @@ fn std_rejections_list_what_the_receiver_allows() {
         "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
         "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`, `clone`, `as_ref`, `as_deref`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push and insert (on a `let mut` local), indexing `xs[i]`");
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, and `xs[i] = x` (on a `let mut` local), indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
     assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
 }
@@ -163,4 +163,24 @@ fn option_combinators_are_checked() {
         "pub enum E { A(u8, u8) } pub fn f(x: Option<u8>) -> Option<E> { x.map(E::A) }",
         "constructed with the wrong shape",
     );
+}
+
+/// `remove` and `v[i] = x` write a local `let mut` array, as `push` and
+/// `insert` grow one; a field's or an element's array is refused.
+#[test]
+fn vec_edits_are_on_a_local() {
+    assert_clean("pub fn f(v: Vec<u32>) -> (Vec<u32>, u32) { let mut w = v; let x = w.remove(0); w[0] = x; w[1] += 2u32; (w, x) }");
+    assert_rejects(
+        "pub struct S { pub xs: Vec<u32> }\npub fn f(s: S) -> u32 { let mut t = s; t.xs.remove(0) }",
+        "`remove` takes from a local `let mut v: Vec<T>` in v0",
+    );
+    assert_parse_rejects(
+        "pub struct S { pub xs: Vec<u32> }\npub fn f(s: S) -> S { let mut t = s; t.xs[0] = 1u32; t }",
+        "`v[i] = x` writes an element of a local `let mut v: Vec<T>` in v0",
+    );
+    assert_parse_rejects(
+        "pub fn f(v: Vec<Vec<u32>>) -> Vec<Vec<u32>> { let mut w = v; w[0][0] = 1u32; w }",
+        "`v[i] = x` writes an element of a local `let mut v: Vec<T>` in v0",
+    );
+    assert_rejects("pub fn f(v: Vec<u32>) -> Vec<u32> { let mut w = v; w[0] = 1u8; w }", "expected `u32`, found `u8`");
 }

@@ -82,6 +82,7 @@ mod unused_equivalence;
 mod update_equivalence;
 mod uuid_equivalence;
 mod vec_build_equivalence;
+mod vec_edit_equivalence;
 mod vec_equivalence;
 mod vec_insert_equivalence;
 mod vending_equivalence;

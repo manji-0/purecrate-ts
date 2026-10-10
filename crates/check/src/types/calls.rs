@@ -299,6 +299,33 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::VecPush | Callee::VecInsert => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))
             }
+            Callee::VecRemove => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let item = match typed[0].1.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(item)) => Some(*item),
+                    _ => None,
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), item)
+            }
+            // Written by `syntax` for `v[i] = x`: only a local's own array.
+            Callee::VecSet => {
+                let [v, at, value] = args else { unreachable!("`syntax` writes three arguments") };
+                let (v, vt) = self.expr(v, None);
+                let item = match vt.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(item)) => Some(*item),
+                    Some(other) => {
+                        self.error(Reason::Index, format!("cannot index `{}`", show(&other)));
+                        None
+                    }
+                    None => None,
+                };
+                if !matches!(v.unpositioned(), Expr::Var(_)) {
+                    self.error(Reason::PlaceAssign, "`v[i] = x` writes a local `let mut v: Vec<T>` in v0, not a field or an element: build the new `Vec` and put it in a new value (design/02 §3.1)".to_string());
+                }
+                let (at, _) = self.expr(at, Some(&Ty::Prim(Prim::Usize)));
+                let (value, _) = self.expr(value, item.as_ref());
+                (vec![v, at, value], Some(Ty::Prim(Prim::Unit)))
+            }
             Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))
             }

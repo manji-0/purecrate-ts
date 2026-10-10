@@ -504,6 +504,16 @@ pub enum Callee {
     /// `push`, a write to the local's own array, panicking past its end.
     /// Prints as `Slice.insert(v, i, x)`.
     VecInsert,
+    /// `v.remove(i)` on a local `let mut v: Vec<T>`, of type `T`: a write to
+    /// the local's own array, panicking at or past its end. Prints as
+    /// `Slice.remove(v, i)`.
+    VecRemove,
+    /// `v[i] = x` on a local `let mut v: Vec<T>`, of type `()`: a write to
+    /// the local's own array, panicking at or past its end (JS would grow
+    /// it). `v[i] op= x` is `v[i] = v[i] op x`. Rust evaluates `x` before
+    /// the place, so `emit` binds it first where both may panic. Prints as
+    /// `Slice.set(v, i, x)`.
+    VecSet,
     /// `String::new()`: the empty `String`. Prints as `""`.
     StringNew,
     /// A `pub` function's argument that may hold a string, checked on
@@ -1227,13 +1237,16 @@ impl Expr {
         }
     }
 
-    /// The local a `v.push(x)` or a `v.insert(i, x)` grows.
+    /// The local a `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, or `v[i] =
+    /// x` writes.
     pub fn grown(&self) -> Option<&Name> {
         match self {
-            Expr::Call { callee: Callee::VecPush | Callee::VecInsert, args } => match args.first() {
-                Some(Expr::Var(n)) => Some(n),
-                _ => None,
-            },
+            Expr::Call { callee: Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet, args } => {
+                match args.first() {
+                    Some(Expr::Var(n)) => Some(n),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }

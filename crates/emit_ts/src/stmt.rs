@@ -290,6 +290,26 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
             emit_branches(&branches, indent, sink, tail, out);
         }
+        // `v[i] = x`: Rust evaluates `x` (for `v[i] op= x`, the `x`) before
+        // the place. `Slice.set(v, i, x)` reads `i` first, so where both may
+        // panic `x` is bound before it.
+        Expr::Call { callee: Callee::VecSet, args } if set_first(args).is_some() => {
+            let first = set_first(args).expect("checked by the guard");
+            let tmp = Name::new(temp("value"));
+            let mut set = args.clone();
+            set[2] = match compound(args) {
+                Some(k) => with_operand(&args[2], k, Expr::Var(tmp.clone())),
+                None => Expr::Var(tmp.clone()),
+            };
+            let bound = Expr::Let {
+                name: tmp,
+                mutable: false,
+                ty: None,
+                value: Box::new(first.clone()),
+                then: Box::new(Expr::Call { callee: Callee::VecSet, args: set }),
+            };
+            emit_stmts(&bound, indent, sink, out);
+        }
         // `s.push(x)` / `s.push_str(x)`, as `check` writes them. JS `+=`
         // reads `s` before the piece, as `s = s + x` does, so a piece that
         // needs statements is the same `(() => { .. })()` either way; one
@@ -623,4 +643,54 @@ fn grows(body: &Expr, source: &Expr) -> bool {
     let mut found = false;
     body.walk(|e| found |= e.grown() == Some(name));
     found
+}
+
+/// What `v[i] = x` must bind before `Slice.set` reads `i`: `x` (in `v[i] op=
+/// x`, the `x`) where it may panic and something read before it in JS may
+/// too. `Slice.set` itself checks the bounds after its arguments, as Rust
+/// does after `x`; `v[i] op x` reads `v[i]` first.
+fn set_first(args: &[Expr]) -> Option<&Expr> {
+    match compound(args) {
+        Some(k) => {
+            let x = operands(&args[2]).expect("checked by `compound`")[k];
+            (!x.is_inlinable()).then_some(x)
+        }
+        None => (!args[2].is_inlinable() && !args[1].is_inlinable()).then_some(&args[2]),
+    }
+}
+
+/// `v[i] op x` (an operator, or the checked `Int` call `check` writes for
+/// one) as the value of `v[i] = ..`: the index of `x` among its operands.
+fn compound(args: &[Expr]) -> Option<usize> {
+    let ops = operands(&args[2])?;
+    let read = matches!(ops[0].unpositioned(), Expr::Index { base, index }
+        if bare(base) == bare(&args[0]) && bare(index) == bare(&args[1]));
+    (read && ops.len() == 2).then_some(1)
+}
+
+fn operands(e: &Expr) -> Option<Vec<&Expr>> {
+    match e.unpositioned() {
+        Expr::Binary { left, right, .. } => Some(vec![&**left, &**right]),
+        Expr::Call { callee: Callee::Int { .. }, args } => Some(args.iter().collect()),
+        _ => None,
+    }
+}
+
+/// `value` with its operand `k` (`compound`) replaced by `x`.
+fn with_operand(value: &Expr, k: usize, x: Expr) -> Expr {
+    match value.unpositioned() {
+        Expr::Binary { op, left, .. } => Expr::Binary { op: *op, left: left.clone(), right: Box::new(x) },
+        Expr::Call { callee, args } => {
+            let mut args = args.clone();
+            args[k] = x;
+            Expr::Call { callee: callee.clone(), args }
+        }
+        _ => unreachable!("`compound` matched an operator"),
+    }
+}
+
+fn bare(e: &Expr) -> Expr {
+    let mut e = e.clone();
+    e.strip_positions();
+    e
 }

@@ -1,5 +1,6 @@
 //! The one array the output writes: a local `let mut v: Vec<T>` that
-//! `v.push(x)` grows (design/01 §7.14). Run after `rename`, so a name is one
+//! `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, or `v[i] = x` writes
+//! (design/01 §7.14). Run after `rename`, so a name is one
 //! binding in its function.
 //!
 //! Such a local is bound to an array of its own: a value that is not a new
@@ -28,7 +29,7 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
                 i,
                 Reason::Closure,
                 format!(
-                    "a closure reads `{}`, which `push` grows; read it outside the closure, or push to a copy",
+                    "a closure reads `{}`, which the function writes in place; read it outside the closure, or write a copy",
                     n.as_str()
                 ),
             ));

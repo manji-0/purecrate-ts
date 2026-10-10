@@ -698,6 +698,20 @@ export const Slice = {
     xs.splice(i, 0, x);
   },
   // #endregion
+  // #region slice.remove
+  /** `v.remove(i)` on a local's own array. */
+  remove: <T>(xs: T[], i: Usize): T => {
+    if (i >= xs.length) throw new Panic(`removal index (is ${i}) should be < len (is ${xs.length})`);
+    return xs.splice(i, 1)[0] as T;
+  },
+  // #endregion
+  // #region slice.set
+  /** `v[i] = x` on a local's own array, which JS would grow past its end. */
+  set: <T>(xs: T[], i: Usize, x: T): void => {
+    if (i >= xs.length) throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    xs[i] = x;
+  },
+  // #endregion
 } as const;
 
 // #region str.slice

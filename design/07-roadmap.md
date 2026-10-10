@@ -214,7 +214,7 @@ Waits for an example that cannot be written without it.
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Mutating a `Vec` other than a local's `push` and `insert`: through a field, an element, a parameter, or `pop` / `remove` / `extend`. `split` on a `&str`.
+- Mutating a `Vec` other than a local's `push`, `insert`, `remove`, and `v[i] = x`: through a field, an element's array, a parameter, or `pop` / `truncate` / `extend`. `split` on a `&str`.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - WASM. The IR does not preclude a second backend, but the path is TS source.
