@@ -32,6 +32,7 @@ mod generated_patterns_equivalence;
 mod generated_statements_equivalence;
 mod generated_text_equivalence;
 mod generated_widths_equivalence;
+mod geo_equivalence;
 mod grow_equivalence;
 mod guards_equivalence;
 mod iban_equivalence;

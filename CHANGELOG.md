@@ -7,14 +7,19 @@
 - A `let` of an enum-typed place was cast back to its type even where nothing had narrowed it (a parameter, a `?`'s value), which oxlint refuses as unnecessary; only a place a `match` tests, a name its arm binds, or a copy of one is cast now.
 - A `while (..) {` whose test does not fit opened as oxfmt does not; it opens as an `if`'s.
 - `[expr/method-call]` on a `Vec` lists `insert` beside `push`.
+- `-x` on an `f64` printed `-` on a brand, which oxlint refuses; a value is multiplied by `-1`, which flips the sign exactly, and a literal is bare (`-90.0 as F64`).
+- `xs[i as usize]` with `i: u32` printed a cast `Slice.at` does not need, which oxlint refuses.
+- `[expr/cast]` says what `as` allows (a discriminant, `u8`/`u16`/`u32` to `usize`) and that no float converts to or from an integer, instead of advising `T::from(x)`; `f64::NAN` and other std paths are no longer called undefined functions.
 
 ### Documentation
 
 - The authoring skill caught up with 0.13.0: `Vec::insert`, `x as usize` from `u8` / `u16` / `u32`, and `for _ in`; `Vec::remove` named as refused.
+- The authoring skill says what floats take and that none converts to or from an integer.
 
 ### Examples
 
 - **jsonpatch**: RFC 8259 text, RFC 6901 JSON Pointer, and RFC 6902 JSON Patch, written from the authoring skill alone; checked against RFC 6902 Appendix A, RFC 6901 §5, and an idiomatic reference over serde_json (design/07 §2).
+- **geo**: Google's Encoded Polyline and Geohash on `f64`, written from the authoring skill alone; with no float rounding or conversion in the subset, it rounds exactly by subtracting powers of two.
 
 ## 0.13.0 — 2026-10-06
 

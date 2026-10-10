@@ -28,15 +28,25 @@ macro_rules! js_bigint {
 }
 js_bigint!(i64, u64);
 
+/// `{:?}` writes `NaN`, `inf`, and `-inf`; JS spells the last two
+/// `Infinity` and `-Infinity`.
+fn js_float(x: f64) -> String {
+    if x.is_infinite() {
+        if x > 0.0 { "Infinity" } else { "-Infinity" }.into()
+    } else {
+        format!("{x:?}")
+    }
+}
+
 impl Js for f32 {
     fn js(&self) -> String {
-        format!("Math.fround({:?})", f64::from(*self))
+        format!("Math.fround({})", js_float(f64::from(*self)))
     }
 }
 
 impl Js for f64 {
     fn js(&self) -> String {
-        format!("{self:?}")
+        js_float(*self)
     }
 }
 
