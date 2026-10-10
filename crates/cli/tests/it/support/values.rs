@@ -58,9 +58,13 @@ impl<T: Js + ?Sized> Js for &T {
 
 /// `{:?}` is a JS string literal too: JS reads its `\u{…}` escapes, and a
 /// code point Rust prints as is stays as is.
+/// Rust's escapes, but U+0000 as `\u{0}`: `{:?}` writes `\0`, which
+/// before a digit is a legacy octal escape node refuses.
 impl Js for str {
     fn js(&self) -> String {
-        format!("{self:?}")
+        let body: String =
+            self.chars().map(|c| if c == '\0' { "\\u{0}".to_string() } else { c.escape_debug().to_string() }).collect();
+        format!("\"{body}\"")
     }
 }
 
