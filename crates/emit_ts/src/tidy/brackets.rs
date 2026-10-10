@@ -318,10 +318,11 @@ fn split_point(line: &str, excess: Option<usize>, from: usize) -> Option<(usize,
             continue;
         };
         let top = |c: u8| (i + 1..close).any(|j| bytes[j] == c && d[j] == Some(level + 1));
-        let long_enough = excess.is_none_or(|e| close - i > e);
         // An arrow's object body opens with one field too (`=> ({` then
-        // `kind: "A",`), as oxfmt prints it.
+        // `kind: "A",`), as oxfmt prints it, and however short it is: the
+        // head up to it fits (`arrow_body`), and each field goes on a line.
         let body_object = from > 0 && b == b'{' && (i == from || i == from + 1) && close > i + 2;
+        let long_enough = body_object || excess.is_none_or(|e| close - i > e);
         if (top(b',') || body_object) && !top(b';') && long_enough && best.is_none_or(|(_, _, l)| level < l) {
             best = Some((i, close, level));
         }

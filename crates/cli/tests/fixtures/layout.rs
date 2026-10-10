@@ -279,3 +279,39 @@ pub fn skip_whitespace_from(bytes_of_the_text: &[u8], start: usize) -> usize {
     }
     i
 }
+
+/// A companion `of` whose head up to `=> ({` fits but whose short object
+/// body does not: the object opens, the parameters stay on the line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaRangeOfLayout {
+    pub ty: String,
+    pub subtype: String,
+    pub params: Vec<String>,
+    pub q: u32,
+}
+
+/// An `if` whose test fits alone but not with `if (` and `) {`: opened,
+/// its `||` broken with the parentheses, one operand a line.
+pub fn first_mismatch(existing_terms: &[u64], incoming_terms: &[u64], prev: usize) -> usize {
+    let count = incoming_terms.len();
+    let mut first = count;
+    for k in 0..count {
+        if first == count {
+            let pos = prev + k;
+            if pos >= existing_terms.len() || existing_terms[pos] != incoming_terms[k] + 1000000000000 {
+                first = k;
+            }
+        }
+    }
+    first
+}
+
+/// A range `for` whose two declarators do not fit on a line: the second
+/// one goes under the first, one indent further.
+pub fn applied_between(last_applied_index_of_this_node: usize, committed_index_of_this_node: usize) -> usize {
+    let mut n: usize = 0;
+    for i in last_applied_index_of_this_node + 1..committed_index_of_this_node + 1 {
+        n += i;
+    }
+    n
+}

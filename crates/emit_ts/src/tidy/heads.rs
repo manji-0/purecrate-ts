@@ -53,11 +53,36 @@ pub(super) fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool
         wrap_line(&header, width, out);
     } else {
         wrap_line(&format!("{pad}if ("), width, out);
-        wrap_line(&format!("{pad}  {cond}"), width, out);
+        opened_test(pad, cond, width, out);
         wrap_line(&format!("{pad})"), width, out);
     }
     wrap_line(&format!("{pad}  return {val};"), width, out);
     true
+}
+
+/// A test between an opened `(` and its `)`: its top-level `||` (else
+/// `&&`) breaks with the parentheses, one operand a line, though the test
+/// would fit on one, as oxfmt prints it.
+/// An operand that does not fit breaks after its comparison, the right
+/// side one indent further.
+fn opened_test(pad: &str, cond: &str, width: usize, out: &mut String) {
+    let parts = split_at_op(cond, " || ", 0).or_else(|| split_at_op(cond, " && ", 0));
+    for part in parts.unwrap_or_else(|| vec![cond.to_string()]) {
+        let line = format!("{pad}  {}", part.trim_end());
+        let (body, tail) = match ["||", "&&"].iter().find_map(|op| part.trim_end().strip_suffix(op)) {
+            Some(b) => (b.trim_end(), &part.trim_end()[b.trim_end().len()..]),
+            None => (part.trim_end(), ""),
+        };
+        let ops = [" === ", " !== ", " <= ", " >= ", " < ", " > "];
+        let compared = ops.iter().find_map(|op| split_at_op(body, op, 0).filter(|p| p.len() == 2));
+        match compared {
+            Some(sides) if cols(&line) > width => {
+                wrap_line(&format!("{pad}  {}", sides[0].trim_end()), width, out);
+                wrap_line(&format!("{pad}    {}{tail}", sides[1].trim_end()), width, out);
+            }
+            _ => wrap_line(&line, width, out),
+        }
+    }
 }
 
 fn parse_if_return(line: &str) -> Option<(&str, &str, &str)> {
@@ -97,7 +122,7 @@ pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     };
     wrap_line(&format!("{pad}{head}"), width, out);
-    wrap_line(&format!("{pad}  {cond}"), width, out);
+    opened_test(pad, cond, width, out);
     wrap_line(&format!("{pad}) {{"), width, out);
     true
 }
@@ -124,7 +149,23 @@ pub(super) fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
         return false;
     }
     wrap_line(&format!("{pad}for ("), width, out);
-    wrap_line(&format!("{pad}  {};", parts[0]), width, out);
+    // Declarators that do not fit on a line break after each comma, the
+    // later ones one indent further (`let i = ..,` then `end = ..;`).
+    let init = format!("{pad}  {};", parts[0]);
+    let d0 = depths(&parts[0]);
+    let commas: Vec<usize> =
+        (0..parts[0].len()).filter(|&j| d0[j] == Some(0) && parts[0][j..].starts_with(", ")).collect();
+    if cols(&init) > width && !commas.is_empty() {
+        let mut start = 0;
+        for (n, &c) in commas.iter().enumerate() {
+            let more = if n == 0 { "" } else { "  " };
+            wrap_line(&format!("{pad}  {more}{},", parts[0][start..c].trim()), width, out);
+            start = c + 2;
+        }
+        wrap_line(&format!("{pad}    {};", parts[0][start..].trim()), width, out);
+    } else {
+        wrap_line(&init, width, out);
+    }
     wrap_line(&format!("{pad}  {};", parts[1]), width, out);
     wrap_line(&format!("{pad}  {}", parts[2]), width, out);
     wrap_line(&format!("{pad}) {{"), width, out);
