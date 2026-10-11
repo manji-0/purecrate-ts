@@ -535,7 +535,7 @@ impl Refs {
                     }
                     Callee::IntCast { .. } => self.int = true,
                     Callee::Float { ty, m } => {
-                        if *m == purecrate_ir::FloatMethod::Round {
+                        if matches!(m, purecrate_ir::FloatMethod::Round | purecrate_ir::FloatMethod::IsInfinite) {
                             self.int = true;
                         }
                         if !m.is_test() {

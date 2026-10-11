@@ -175,3 +175,28 @@ pub fn scaled(x: f64, places: i32) -> i64 {
     }
     (x * f).round() as i64
 }
+
+/// `!` before a test printed as a comparison would take only its left side.
+pub fn not_infinite(x: f64) -> (bool, bool) {
+    (!x.is_infinite(), !(x * 2.0).is_nan())
+}
+
+/// An unused `let` of an `if` keeps its test's effects, the test negated.
+pub fn kept_test(x: f64, k: i32) -> i32 {
+    let _v: i32 = if x.is_infinite() { 0 } else { 1 / k };
+    1
+}
+
+/// Shapes lint once refused: a branded float into `round` and `castFloat`,
+/// a negated `f32` literal, a literal more precise than a double, and an
+/// unused conversion.
+pub fn lint_shapes(z: f32, x: f64, b: bool, m: u32) -> (f32, f64, i64, f32, bool) {
+    let _w: f64 = f64::from(m);
+    (
+        (z * z).round(),
+        (if b { x * x } else { 1e10 }).round(),
+        (if b { x.abs() } else { x }) as i64,
+        z * -0.0,
+        x >= 9223372036854775807.0,
+    )
+}

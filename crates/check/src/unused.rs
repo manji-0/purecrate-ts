@@ -307,6 +307,18 @@ fn is_pure(expr: &Expr) -> bool {
     match expr {
         Expr::Var(_) | Expr::Lit(_) | Expr::Closure { .. } => true,
         Expr::Field { base, .. } => is_pure(base),
+        // Conversions that cannot panic (into `usize` they may, past 2^53).
+        Expr::Call { callee, args } if args.iter().all(is_pure) => match callee {
+            Callee::IntToFloat { .. }
+            | Callee::FloatToFloat { .. }
+            | Callee::FloatConst { .. }
+            | Callee::Float { .. }
+            | Callee::AsFloat(_)
+            | Callee::Fround => true,
+            Callee::IntCast { to, .. } | Callee::FloatToInt { to, .. } => *to != purecrate_ir::IntTy::Usize,
+            Callee::IntFrom { to, .. } => *to != purecrate_ir::IntTy::Usize,
+            _ => false,
+        },
         _ => false,
     }
 }

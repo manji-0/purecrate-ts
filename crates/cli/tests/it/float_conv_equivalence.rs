@@ -62,6 +62,13 @@ fn float_conversions_match_rust() {
             cases.push(case!(float_conv::tests(x)));
             cases.push(case!(float_conv::tests32(y)));
             cases.push(case!(float_conv::narrowed(x)));
+            cases.push(case!(float_conv::not_infinite(x)));
+            for k in [0i32, 1] {
+                cases.push(case!(float_conv::kept_test(x, k)));
+            }
+            for b in [false, true] {
+                cases.push(case!(float_conv::lint_shapes(y, x, b, 7)));
+            }
             for places in [5, 6] {
                 cases.push(case!(float_conv::scaled(x, places)));
             }

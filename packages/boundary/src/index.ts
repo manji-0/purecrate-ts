@@ -237,7 +237,7 @@ const roundHalfAway = (x: number): number => (x < 0 ? Math.round(x * -1) * -1 : 
  */
 const castFloat =
   <T>(lo: bigint, hi: bigint, to: (n: bigint) => T) =>
-  (x: number): T =>
+  (x: F32 | F64): T =>
     to(Number.isNaN(x) ? 0n : x <= Number(lo) ? lo : x >= Number(hi) ? hi : BigInt(Math.trunc(x)));
 // #endregion
 
@@ -1229,7 +1229,8 @@ export const Int = {
   // #region int.f32
   f32: {
     of: (value: number): F32 => Math.fround(value) as F32,
-    round: (x: number): F32 => roundHalfAway(x) as F32, // #needs float.round
+    round: (x: F32): F32 => roundHalfAway(x) as F32, // #needs float.round
+    isInfinite: (x: number): boolean => x === Infinity || x === -Infinity, // #needs float.isInfinite
     // #region float.ofBig
     /**
      * `n as f32` from a `bigint`: the nearest `f32`, ties to even, rounded
@@ -1252,7 +1253,8 @@ export const Int = {
   // #region int.f64
   f64: {
     of: (value: number): F64 => value as F64,
-    round: (x: number): F64 => roundHalfAway(x) as F64, // #needs float.round
+    round: (x: F64): F64 => roundHalfAway(x) as F64, // #needs float.round
+    isInfinite: (x: number): boolean => x === Infinity || x === -Infinity, // #needs float.isInfinite
   },
   // #endregion
 } as const;

@@ -368,7 +368,16 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
         // The `AsFloat` around it brands it back.
         Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => match peel_identity(expr) {
             Expr::Lit(Lit::Float { digits, ty: Some(FloatTy::F64) | None }) => {
-                Tx::Neg(Box::new(Tx::atom(digits.clone())))
+                Tx::Neg(Box::new(Tx::atom(f64_digits(digits))))
+            }
+            // An `f32` literal is its rounded value; rounding is symmetric in
+            // sign, so its negation is the negated value (no `* -1` on a
+            // literal, which lint refuses as an erasing operation on `0.0`).
+            Expr::Lit(Lit::Float { digits, ty: Some(FloatTy::F32) })
+                if digits.parse::<f32>().is_ok_and(f32::is_finite) =>
+            {
+                let v = digits.parse::<f32>().expect("checked by the guard");
+                Tx::Neg(Box::new(Tx::atom(format!("{:?}", f64::from(v)))))
             }
             e => Tx::bin(Op::Mul, emit_tx(e, indent), Tx::atom("-1")),
         },
@@ -603,7 +612,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     return format!("Int.{}.cast({x})", to.as_str());
                 }
                 purecrate_ir::Callee::FloatToInt { to, .. } => {
-                    return format!("Int.{}.castFloat({})", to.as_str(), float_arg(&args[0], indent));
+                    return format!("Int.{}.castFloat({})", to.as_str(), emit_item(&args[0], indent));
                 }
                 purecrate_ir::Callee::FloatFrom(_) => unreachable!("`check::accept` rewrites `from`"),
                 purecrate_ir::Callee::Float { .. }
@@ -746,7 +755,8 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 let x = || float_arg(&args[0], indent);
                 let t = ty.ts_name();
                 return match m {
-                    F::Round => format!("Int.{}.round({})", ty.as_str(), x()),
+                    // `round` takes the branded float, so the value's cast stays.
+                    F::Round => format!("Int.{}.round({})", ty.as_str(), emit_item(&args[0], indent)),
                     F::Floor | F::Ceil | F::Trunc | F::Abs => {
                         let f = match m {
                             F::Floor => "floor",
@@ -758,7 +768,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     }
                     F::IsNan => format!("globalThis.Number.isNaN({})", x()),
                     F::IsFinite => format!("globalThis.Number.isFinite({})", x()),
-                    F::IsInfinite => format!("globalThis.Math.abs({}) === globalThis.Infinity", x()),
+                    // A call, not `Math.abs(x) === Infinity`: a `!` before it
+                    // would take only the left side.
+                    F::IsInfinite => format!("Int.{}.isInfinite({})", ty.as_str(), x()),
                 };
             }
             if let purecrate_ir::Callee::FloatConst { ty, c } = callee {
@@ -1310,8 +1322,8 @@ pub(crate) fn emit_lit(lit: &Lit) -> String {
         }
         Lit::Float { digits, ty } => match ty {
             Some(FloatTy::F32) => f32_literal(digits),
-            Some(FloatTy::F64) => format!("({digits} as F64)"),
-            None => digits.clone(),
+            Some(FloatTy::F64) => format!("({} as F64)", f64_digits(digits)),
+            None => f64_digits(digits),
         },
         Lit::Str(s) => js_string(s),
         Lit::Char(c) => format!("({} as Char)", js_string(&c.to_string())),
@@ -1327,6 +1339,19 @@ fn byte_note(value: i128, byte: bool) -> String {
     match u8::try_from(value) {
         Ok(b) if byte => format!("/* '{}' */ ", b.escape_ascii()),
         _ => String::new(),
+    }
+}
+
+/// An `f64` literal as written where it has 15 significant digits or fewer,
+/// which every such decimal keeps through a double; else the shortest text
+/// of the same double, so lint does not read a precision the value lacks
+/// (`9223372036854775807.0` is `9.223372036854776e18`).
+pub(crate) fn f64_digits(digits: &str) -> String {
+    let mantissa = digits.split(['e', 'E']).next().unwrap_or(digits);
+    let significant = mantissa.trim_start_matches(['-', '+', '0', '.']).replace('.', "");
+    match digits.parse::<f64>() {
+        Ok(v) if v.is_finite() && significant.trim_end_matches('0').len() > 15 => format!("{v:?}"),
+        _ => digits.to_string(),
     }
 }
 
@@ -1525,12 +1550,15 @@ pub(crate) fn bare_lit(lit: &Lit) -> String {
 }
 
 /// A float argument to a function that takes a plain `number` (`Math`'s,
-/// the runtime's `round` and `castFloat`): without the `as F64` that
+/// `Number`'s, `isInfinite`): without the `as F64` / `as F32` that
 /// arithmetic carries, which would be an unnecessary assertion there.
 fn float_arg(e: &Expr, indent: usize) -> String {
     match peel_identity(e) {
         Expr::Call { callee: purecrate_ir::Callee::AsFloat(_), args } => {
             crate::tidy::strip_outer(&emit_expr(&args[0], indent)).to_string()
+        }
+        Expr::Call { callee: purecrate_ir::Callee::Fround, args } => {
+            format!("globalThis.Math.fround({})", emit_expr(&args[0], indent))
         }
         _ => emit_item(e, indent),
     }
