@@ -137,7 +137,14 @@ pub(super) fn unread(expr: &mut Expr) {
         Expr::Seq { first, .. } if ends(first) => *expr = (**first).clone(),
         Expr::Let { value, .. } if ends(value) => *expr = (**value).clone(),
         // A `let mut` nothing reads: its writes run their values alone.
-        Expr::Let { name, value, then, .. } if !mentions(then, name) => {
+        // A name read only to decide its own `x = x || r` (the flow decided
+        // its other reads away): `if (!x) x = r;`, the same writes, which
+        // lint does not take for a name never used.
+        Expr::Let { name, then, .. } if !read_outside_own_writes(then, name) && guards_itself(then, name) => {
+            let name = name.clone();
+            gate_own_writes(then, &name);
+        }
+        Expr::Let { name, value, then, .. } if !read_past_writes(then, name) => {
             let then = unassigned((**then).clone(), name);
             *expr = sequence(effects((**value).clone()), then);
         }
@@ -245,6 +252,64 @@ pub(super) fn effects(expr: Expr) -> Expr {
             }
         }
         other => other,
+    }
+}
+
+/// Whether `name` is read in `expr` outside the values written to it.
+fn read_outside_own_writes(expr: &Expr, name: &Name) -> bool {
+    match expr {
+        Expr::Assign { name: n, .. } if n == name => false,
+        Expr::Var(n) => n == name,
+        Expr::Call { callee: purecrate_ir::Callee::Local(n), args } => {
+            n == name || args.iter().any(|a| read_outside_own_writes(a, name))
+        }
+        other => other.children().into_iter().any(|c| read_outside_own_writes(c, name)),
+    }
+}
+
+/// Whether `expr` writes `name = name || r` or `name = name && r`.
+fn guards_itself(expr: &Expr, name: &Name) -> bool {
+    expr.any(|e| matches!(e, Expr::Assign { name: n, value } if n == name && own_guard(value, name).is_some()))
+}
+
+/// `(is &&, r)` of `name || r` / `name && r`.
+fn own_guard<'e>(value: &'e Expr, name: &Name) -> Option<(bool, &'e Expr)> {
+    match value {
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } if **left == Expr::Var(name.clone()) => {
+            Some((*op == BinOp::And, right))
+        }
+        _ => None,
+    }
+}
+
+/// Each `name = name || r` in `expr` as `if (!name) name = r`.
+fn gate_own_writes(expr: &mut Expr, name: &Name) {
+    for child in expr.children_mut() {
+        gate_own_writes(child, name);
+    }
+    if let Expr::Assign { name: n, value } = expr {
+        if n == name {
+            if let Some((and, r)) = own_guard(value, name) {
+                let test = Expr::Var(name.clone());
+                let cond = if and { test } else { Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(test) } };
+                let write = Expr::Assign { name: name.clone(), value: Box::new(r.clone()) };
+                *expr = Expr::If { cond: Box::new(cond), then: Box::new(write), else_: Box::new(Expr::Lit(Lit::Unit)) };
+            }
+        }
+    }
+}
+
+/// Whether `name` is read in `expr` other than by a write of it that is
+/// kept only for its effects: `flag = !flag`, whose other reads the flow
+/// decided away, reads it only to write it.
+fn read_past_writes(expr: &Expr, name: &Name) -> bool {
+    match expr {
+        Expr::Assign { name: n, value } if n == name => mentions(&effects((**value).clone()), name),
+        Expr::Var(n) => n == name,
+        Expr::Call { callee: purecrate_ir::Callee::Local(n), args } => {
+            n == name || args.iter().any(|a| read_past_writes(a, name))
+        }
+        other => other.children().into_iter().any(|c| read_past_writes(c, name)),
     }
 }
 

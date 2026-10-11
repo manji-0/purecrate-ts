@@ -216,3 +216,22 @@ pub fn loop_value2(a: i32, c: bool) -> i32 {
     }
     h
 }
+
+// A name read only to decide its own `x = x || r`, and a choice of plain
+// numbers widened to `f64`.
+
+#[allow(unused_assignments)]
+pub fn guards_itself(xs: Vec<i32>, i: usize, k: i32, c: bool) -> bool {
+    let mut flag: bool = false;
+    if c {
+        return false;
+    }
+    flag = flag || xs[i] > k;
+    flag = flag && xs[i % 2] < k;
+    true
+}
+
+pub fn choice_of_numbers(a: f32, z: f32) -> f64 {
+    let r: f64 = f64::from(if a == 2.0 * z { -(a % z) } else { 2.5 - a / z });
+    r
+}

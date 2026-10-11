@@ -58,6 +58,14 @@ fn lint_holes_match_rust() {
                 cases.push(case!(lint_holes::loop_value2(a, c)));
             }
         }
+        for (i, k) in [(0usize, 0), (1, 5), (7, -1)] {
+            for c in [true, false] {
+                cases.push(case!(lint_holes::guards_itself(vec![3, 9], i, k, c)));
+            }
+        }
+        for (a, z) in [(1.5f32, 0.75f32), (2.0, 3.0), (f32::NAN, 1.0), (0.0, 1.0)] {
+            cases.push(case!(lint_holes::choice_of_numbers(a, z)));
+        }
         let px = |c: u8| lint_holes::Px { c, f: 1.5 };
         cases.push(case!(lint_holes::deep_literal(vec![px(3), px(4), px(3)])));
         for k in [0, i32::MAX] {

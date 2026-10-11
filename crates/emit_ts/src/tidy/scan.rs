@@ -241,10 +241,21 @@ pub(crate) fn uncast(s: &str) -> String {
     }
 }
 
+/// Whether TS types `s` as a plain `number`, as printed: an assertion of
+/// what asserts nothing (`2.5 as F32`, which a brand only renames), a sum
+/// or a product (`x * -1`), or a `Math` function's result.
+pub(crate) fn plainly_number(s: &str) -> bool {
+    let s = strip_outer(s);
+    if let Some((inner, _)) = split_cast(s) {
+        return split_cast(inner).is_none();
+    }
+    matches!(top_prec(s), PREC_MUL | PREC_ADD) || (s.starts_with("globalThis.Math.") && top_prec(s) == PREC_ATOMIC)
+}
+
 /// The test and the sides of a choice printed on one line, `t ? a : b`,
 /// its `?` and `:` at the top level (a nested choice on either side
 /// counted).
-fn choice(s: &str) -> Option<(&str, &str, &str)> {
+pub(crate) fn choice(s: &str) -> Option<(&str, &str, &str)> {
     if s.contains('\n') {
         return None;
     }

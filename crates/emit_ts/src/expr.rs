@@ -1552,6 +1552,12 @@ fn as_number_as(x: String, to: &str) -> String {
         Some((inner, _)) if crate::tidy::split_cast(inner).is_none() => format!("({inner} as {to})"),
         // A choice: what its sides assert gives way to the `number`.
         _ if crate::tidy::top_prec(&x) == crate::tidy::PREC_TERNARY || x.starts_with('(') => {
+            // Every side already a plain `number` (asserted, or a sum): the
+            // `as number` asserts nothing, which lint refuses.
+            let sides = crate::tidy::choice(crate::tidy::strip_outer(&x));
+            if sides.is_some_and(|(_, a, b)| crate::tidy::plainly_number(a) && crate::tidy::plainly_number(b)) {
+                return format!("(({}) as {to})", crate::tidy::uncast(&x));
+            }
             let plain = crate::tidy::uncast(&x);
             let plain =
                 if crate::tidy::top_prec(&plain) < crate::tidy::PREC_UNARY { format!("({plain})") } else { plain };
