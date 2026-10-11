@@ -460,6 +460,17 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     // `collect::<T>()` and `sum::<T>()` are a typed `let` whose body is the
     // binding. Nested under another `let`, that binding is only a copy.
     let value = peel_identity(value);
+    // A struct or variant written out, bound with no type (a temporary the
+    // printer made): without one TS widens its `kind` to `string`.
+    let constructed = match value {
+        Expr::Construct { ty, .. } => Some(Ty::Named(ty.clone())),
+        Expr::Call { callee: Callee::OptionSome, args } => match peel_identity(&args[0]) {
+            Expr::Construct { ty, .. } => Some(Ty::option(Ty::Named(ty.clone()))),
+            _ => None,
+        },
+        _ => None,
+    };
+    let ty = ty.or(constructed.as_ref());
     let pad = "  ".repeat(indent);
     let keyword = if mutable { "let" } else { "const" };
     // An arrow states its own type, and a `let` of `true` or `false` is a

@@ -462,7 +462,8 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 {
                     emit_item(&args[0], indent)
                 }
-                _ => emit_item(index, indent),
+                // A length (`xs[ys.len()]`) without its `as Usize`.
+                e => bare(e, indent).unwrap_or_else(|| emit_item(index, indent)),
             }
         ),
         Expr::Binary { .. } | Expr::Unary { .. } => unreachable!("`emit_tx` prints operators"),

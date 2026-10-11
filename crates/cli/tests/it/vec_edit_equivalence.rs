@@ -24,6 +24,14 @@ fn vec_edit_matches_rust() {
             cases.push(case!(vec_edit::ordered(at, j)));
             cases.push(case!(vec_edit::stepped(at, j)));
         }
+        for (xs, i) in [(vec![i32::MAX], 3usize), (vec![], 3), (vec![2i32], 0), (vec![i32::MIN], 0)] {
+            cases.push(case!(vec_edit::stepped_by_max(xs.clone(), i)));
+            cases.push(case!(vec_edit::set_after_value(xs.clone(), i)));
+            cases.push(case!(vec_edit::set_at_position(xs, 1)));
+        }
+        cases.push(case!(vec_edit::set_after_value(vec![i32::MIN], 0)));
+        cases.push(case!(vec_edit::set_after_value(vec![3i32], 1)));
+        cases.push(case!(vec_edit::set_at_position(vec![1i32, 2, 3, 4, 5, 6], -2)));
         for xs in [vec![], vec![1i32, 2, 1, 1, 3, 1], vec![1, 1, 1]] {
             cases.push(case!(vec_edit::without(xs, 1)));
         }

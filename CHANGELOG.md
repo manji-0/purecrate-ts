@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Four seeded generators over 0.13.1's additions (floats, collections, strings, and every integer width with folded consts), each run over seeds 1 to 120, found what follows; each is fixed with a fixture or a test.
+
+### Fixed
+
+- **Wrong values, with no error:** `const M: i128 = !0;` folded as unsigned and printed 2^127 − 1 (`IntTy::is_signed` left out `i128`); `!x.is_infinite()` printed `!Math.abs(x) === Infinity`, always `false`; `v[i] op= x` and `v[i] = x` evaluated the place before an `x` that needed statements, so the first panic differed; `Eq.deep` took one object on both sides as equal, so a struct holding NaN compared equal to its `clone()`.
+- **Refused or crashed where rustc accepts:** `-x`, `abs`, and negative consts on `i128`; `const A: i8 = -128;`; `i128::MIN / -1` in a const crashed `check`; a function's name or a local closure as a string pattern.
+- **Refused by tsc or oxlint:** a variant literal bound to a temporary lost its `kind` literal type; a `String` only pushed to and dropped; casts on `round` / `castFloat` arguments and on a length used as an index; a negated `f32` literal; an `f64` literal more precise than a double; an unused conversion or array copy left as a statement.
+
+### Documentation
+
+- design/01 §3: a sort whose key or comparator may panic more than one way can panic first on a different pair past about 20 elements.
+
 ## 0.13.1 — 2026-10-11
 
 Every capability the five new examples asked for, taken by decision in one patch series (design/07 §8.18): they stood at 2.2× to 3.5× their idiomatic references, and in each case the excess was something the subset lacked rather than the domain.

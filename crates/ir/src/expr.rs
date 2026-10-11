@@ -1541,7 +1541,7 @@ impl Expr {
             Expr::Construct { fields, base, .. } => {
                 base.as_ref().is_none_or(|b| b.is_inlinable()) && fields.is_inlinable()
             }
-            Expr::Call { callee: Callee::OptionNone, .. } => true,
+            Expr::Call { callee: Callee::OptionNone | Callee::StringNew, .. } => true,
             Expr::Call { callee: Callee::OptionSome | Callee::ResultOk | Callee::ResultErr, args } => {
                 args.iter().all(Self::is_inlinable)
             }

@@ -343,7 +343,28 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 let (at, _) = self.expr(at, Some(&Ty::Prim(Prim::Usize)));
                 let (value, _) = self.expr(value, item.as_ref());
-                (vec![v, at, value], Some(Ty::Prim(Prim::Unit)))
+                // Rust evaluates the value before the place, and in `v[i] op=
+                // x` on a primitive the `x` before `v[i]`: that part is bound
+                // first, so every later pass (a lifted block included) keeps
+                // the order. `emit` puts a name or literal back in place.
+                let reads_place = |e: &Expr| matches!(e.unpositioned(), Expr::Index { base, .. } if base.unpositioned() == v.unpositioned());
+                let name = self.fresh_name("value");
+                let placeholder = Box::new(Expr::Var(name.clone()));
+                let (bound, set_value, ty) = match value {
+                    Expr::Binary { op, left, right } if reads_place(&left) => {
+                        (*right, Expr::Binary { op, left, right: placeholder }, None)
+                    }
+                    Expr::Call { callee: callee @ Callee::Int { .. }, args }
+                        if args.len() == 2 && reads_place(&args[0]) =>
+                    {
+                        let [read, right]: [Expr; 2] = args.try_into().expect("two arguments");
+                        (right, Expr::Call { callee, args: vec![read, *placeholder] }, None)
+                    }
+                    value => (value, *placeholder, item.clone()),
+                };
+                let set = Expr::Call { callee: Callee::VecSet, args: vec![v, at, set_value] };
+                let e = Expr::Let { name, mutable: false, ty, value: Box::new(bound), then: Box::new(set) };
+                return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
             }
             Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))

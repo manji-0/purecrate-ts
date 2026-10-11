@@ -97,3 +97,25 @@ pub fn stepped(i: usize, j: usize) -> Vec<u8> {
     v[i + 0] = by[j] - 1;
     v
 }
+
+/// `v[i] += x` where `x` needs statements (a `match` lifted out): still
+/// evaluated before the place.
+pub fn stepped_by_max(xs: Vec<i32>, i: usize) -> Vec<i32> {
+    let mut v: Vec<i32> = vec![0];
+    v[i] += xs.iter().copied().max_by_key(|x| *x * 2).unwrap_or(0);
+    v
+}
+
+/// `v[n - 1] = x` where the index may overflow and `x` may panic first.
+pub fn set_after_value(xs: Vec<i32>, n: usize) -> Vec<Vec<i32>> {
+    let mut v: Vec<Vec<i32>> = vec![vec![]];
+    v[n - 1] = xs.iter().map(|x| -*x).collect::<Vec<i32>>();
+    v
+}
+
+/// The index computed by a consumer, the value read past the end.
+pub fn set_at_position(xs: Vec<i32>, k: i32) -> Vec<i32> {
+    let mut v = xs.clone();
+    v[xs.iter().position(|x| *x + k < 0).unwrap_or(0)] = xs[5];
+    v
+}

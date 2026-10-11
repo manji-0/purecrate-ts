@@ -871,8 +871,9 @@ export const Eq = {
    * its `kind`) key by key.
    */
   deep: (a: unknown, b: unknown): boolean => {
-    if (a === b) return true;
-    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    // Not `a === b` first: `clone()` of a struct is the same object here, and
+    // one holding NaN is still unequal to itself in Rust.
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return a === b;
     if (Array.isArray(a)) {
       return Array.isArray(b) && a.length === b.length && a.every((x, i) => Eq.deep(x, b[i]));
     }
