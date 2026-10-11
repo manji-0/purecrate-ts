@@ -95,6 +95,7 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
 /// The ways to break a long line, tried in order. Each writes nothing
 /// where it does not apply.
 const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
+    wrap_cast_sum,
     wrap_if_return,
     wrap_if_open,
     wrap_for,
@@ -124,6 +125,27 @@ const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_sum_under_an_assertion_stays_open_after_its_first_operand() {
+        let line =
+            "  const a = ((globalThis.Math.abs(globalThis.Number(7n)) as F64) + (globalThis.Number(n) as F64)) as F64;";
+        assert_eq!(
+            wrap(line, 100),
+            "  const a = ((globalThis.Math.abs(globalThis.Number(7n)) as F64) +\n    (globalThis.Number(n) as F64)) as F64;\n"
+        );
+        let line = "  const c = (globalThis.Math.abs(globalThis.Number(7n)) + globalThis.Number(n) + globalThis.Number(x)) as F64;";
+        assert_eq!(
+            wrap(line, 100),
+            "  const c = (globalThis.Math.abs(globalThis.Number(7n)) +\n    globalThis.Number(n) +\n    globalThis.Number(x)) as F64;\n"
+        );
+        let line =
+            "  return ((globalThis.Math.abs(globalThis.Number(7n)) as F64) + (globalThis.Number(n) as F64)) as F64;";
+        assert_eq!(
+            wrap(line, 100),
+            "  return ((globalThis.Math.abs(globalThis.Number(7n)) as F64) +\n    (globalThis.Number(n) as F64)) as F64;\n"
+        );
+    }
 
     #[test]
     fn strips_only_a_pair_around_everything() {

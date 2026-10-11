@@ -183,6 +183,67 @@ pub(super) fn wrap_assign_logical(line: &str, width: usize, out: &mut String) ->
     true
 }
 
+/// `const a = (x + y) as T;` or `return (x + y) as T;` that does not fit:
+/// the group stays open after its first operand, each operand after it on
+/// a line of its own one indent in, the `)` and the assertion after the
+/// last, as oxfmt hugs a sum under an assertion.
+pub(super) fn wrap_cast_sum(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    let head = if rest.starts_with("return ") {
+        "return ".len()
+    } else if rest.starts_with("const ") || rest.starts_with("let ") {
+        match top_assign(rest) {
+            Some(eq) => eq + 3,
+            None => return false,
+        }
+    } else {
+        return false;
+    };
+    let Some(value) = rest[head..].strip_suffix(';') else { return false };
+    if !value.starts_with('(') {
+        return false;
+    }
+    let d = depths(value);
+    let Some(close) = (1..value.len()).find(|&i| d[i] == Some(0) && value.as_bytes()[i] == b')') else { return false };
+    let (inner, after) = (&value[1..close], &value[close + 1..]);
+    // Only an assertion follows the group: `) as F64`, `) as number as U8`.
+    let mut types = after.split(" as ");
+    if types.next() != Some("") || !types.all(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric())) {
+        return false;
+    }
+    let di = depths(inner);
+    let top = |i: usize| di[i] == Some(0);
+    let at = |ops: &[&str]| -> Vec<usize> {
+        (0..inner.len()).filter(|&i| top(i) && ops.iter().any(|op| inner[i..].starts_with(op))).collect()
+    };
+    let mut cuts = at(&[" + ", " - "]);
+    if cuts.is_empty() {
+        cuts = at(&[" * ", " / ", " % "]);
+    }
+    if cuts.is_empty()
+        || find_ternary(inner).is_some()
+        || [" && ", " || ", " ?? ", " === ", " !== "].iter().any(|op| !at(&[op]).is_empty())
+    {
+        return false;
+    }
+    // Each operand with the operator that follows it.
+    let mut parts = Vec::new();
+    let mut from = 0;
+    for &c in &cuts {
+        parts.push(format!("{} {}", &inner[from..c], &inner[c + 1..c + 2]));
+        from = c + 3;
+    }
+    parts.push(inner[from..].to_string());
+    let last = parts.len() - 1;
+    for (i, part) in parts.iter().enumerate() {
+        let lead = if i == 0 { format!("{pad}{}(", &rest[..head]) } else { format!("{pad}  ") };
+        let tail = if i == last { format!("){after};") } else { String::new() };
+        wrap_line(&format!("{lead}{part}{tail}"), width, out);
+    }
+    true
+}
+
 /// `return a && b;` that does not fit: the value in parentheses, one
 /// indent in on a line of its own where it fits there, else one operand of
 /// its top-level `||` (else `&&`, else `??`) per line, as oxfmt lays out a
