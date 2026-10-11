@@ -4,6 +4,10 @@
 
 oxlint over the generators' output, which the sweep does not lint, found what follows; each is fixed with a fixture (`lint_holes`).
 
+### Changed
+
+- **`build` and `check --out` lay the generated files out with oxfmt** (0.71.0, width 100), run as a program: `PURECRATE_OXFMT`, else `node_modules/.bin/oxfmt` beside the output or above it or the working directory, else `oxfmt` on `PATH`; without one they stop and write nothing (`check` alone does not need it). Another oxfmt version is used with a warning, since it may lay a line out otherwise. The copied runtime and adapters are left as written. The differential tests lay out what they run the same way.
+
 ### Fixed
 
 - **Refused by oxlint:** what an unread value leaves for its effects kept a comparison, a `!`, an `is_some()` / `is_none()`, a `Some` / `Ok` / `Err`, or an integer method that cannot panic (`checked_*`, `saturating_*`, `min`, ..) standing as a statement (`Int.i32.checkedSub(a, b) !== null;`), and an `if` whose two sides both run printed as a `?:` statement; `a || f()` left alone is now `if (!a) { f(); }`. A name read only to write itself (`f = c && f`) stayed declared and unread. A `for` whose body an unread `let` emptied, or whose `?` the flow decides, printed an empty body. `if !c {} else { .. }` printed `if (!(!c))`. An unread closure parameter renamed for shadowing lost its `_` (`_a$1` printed `a2`). An `else` after a branch that returns once the flow decides its test, an `else` that is one guard (`if (c) return v;`) or one `if` whose test spans lines, an arm left empty (an `else` or an `if` with nothing to do once the flow decides its code away), a decided `if` that declares nothing printed as a lone block, and a closure or a test left as a statement by an unread `let` the flow dropped.

@@ -14,18 +14,19 @@ fn scratch(tag: &str) -> PathBuf {
     support::scratch(&format!("build-{tag}"))
 }
 
+/// The binary, finding the oxfmt the tests use.
+fn cli() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"));
+    command.env("PURECRATE_OXFMT", support::oxfmt());
+    command
+}
+
 fn build(src: &Path, out: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
-        .args(["build"])
-        .arg(src)
-        .args(["--name", "fixture", "--out"])
-        .arg(out)
-        .output()
-        .expect("run purecrate-ts")
+    cli().args(["build"]).arg(src).args(["--name", "fixture", "--out"]).arg(out).output().expect("run purecrate-ts")
 }
 
 fn check(args: &[&std::ffi::OsStr]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_purecrate-ts")).arg("check").args(args).output().expect("run purecrate-ts")
+    cli().arg("check").args(args).output().expect("run purecrate-ts")
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -138,7 +139,7 @@ fn rustc_rejects_what_the_subset_checks_let_through() {
 
 #[test]
 fn check_fails_closed_without_rustc() {
-    let result = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+    let result = cli()
         .arg("check")
         .arg(support::repo().join("examples/counter"))
         .env("RUSTC", "/nonexistent/rustc")
@@ -213,6 +214,26 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// `build` and `check --out` need oxfmt and say so, writing nothing;
+/// `check` alone does not.
+#[test]
+fn build_without_oxfmt_writes_nothing() {
+    let dir = scratch("no-oxfmt");
+    let out = dir.join("pkg");
+    let src = support::repo().join("examples/counter");
+    let missing = dir.join("no-oxfmt");
+    let built = cli().env("PURECRATE_OXFMT", &missing).arg("build").arg(&src).arg("--out").arg(&out).output();
+    let built = built.expect("run purecrate-ts");
+    let stderr = String::from_utf8_lossy(&built.stderr);
+    assert!(!built.status.success() && stderr.contains("oxfmt not found"), "{stderr}");
+    assert!(!out.exists());
+    let drift = cli().env("PURECRATE_OXFMT", &missing).arg("check").arg(&src).arg("--out").arg(&out).output();
+    assert!(String::from_utf8_lossy(&drift.expect("run purecrate-ts").stderr).contains("oxfmt not found"));
+    let checked = cli().env("PURECRATE_OXFMT", &missing).arg("check").arg(&src).output().expect("run purecrate-ts");
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+    fs::remove_dir_all(&dir).ok();
+}
+
 /// A rebuild keeps `node_modules/` (an `npm install` in the package) and
 /// drops `dist/` (stale `npm run build` output). `check --out` already
 /// skips both.
@@ -278,10 +299,7 @@ fn raw_module_names_find_their_files() {
     let result = check(&[dir.as_os_str()]);
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
 
-    let survey = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
-        .args(["survey".as_ref(), dir.as_os_str(), "--json".as_ref()])
-        .output()
-        .expect("run survey");
+    let survey = cli().args(["survey".as_ref(), dir.as_os_str(), "--json".as_ref()]).output().expect("run survey");
     let json = String::from_utf8_lossy(&survey.stdout);
     assert!(json.contains("src/impl.rs"), "{json}");
     assert!(json.contains("\"missing_modules\":[]"), "{json}");
@@ -398,10 +416,8 @@ fn module_trees_are_flattened() {
     .expect("write");
 
     let out = dir.join("out");
-    let built = Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
-        .args(["build".as_ref(), dir.as_os_str(), "--out".as_ref(), out.as_os_str()])
-        .output()
-        .expect("run");
+    let built =
+        cli().args(["build".as_ref(), dir.as_os_str(), "--out".as_ref(), out.as_os_str()]).output().expect("run");
     assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
     let index = fs::read_to_string(out.join("src/index.ts")).expect("index");
     for name in ["total", "Yen", "half", "apply", "shown"] {
@@ -444,7 +460,7 @@ fn build_with(flags: &[&str], out: &Path) -> Output {
 }
 
 fn build_example(example: &str, flags: &[&str], out: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_purecrate-ts"))
+    cli()
         .arg("build")
         .arg(support::repo().join("examples").join(example))
         .args(flags)

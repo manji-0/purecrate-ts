@@ -1,6 +1,7 @@
 mod args;
 mod drift;
 mod files;
+mod oxfmt;
 mod rustc;
 mod survey;
 
@@ -42,6 +43,7 @@ fn execute(command: Command) -> Result<(), String> {
         Command::Build { input, out, schema, publishable } => {
             let schema = parse_schema(schema)?;
             load(&input, "nothing written", schema, access(publishable))
+                .and_then(|pkg| laid_out(pkg, &out))
                 .and_then(|pkg| write_replacing(&out, &pkg.files))
         }
         Command::Check { input, out: None, schema, publishable } => {
@@ -50,7 +52,9 @@ fn execute(command: Command) -> Result<(), String> {
         }
         Command::Check { input, out: Some(out), schema, publishable } => {
             let schema = parse_schema(schema)?;
-            load(&input, "", schema, access(publishable)).and_then(|pkg| check_drift(&input, &out, &pkg))
+            load(&input, "", schema, access(publishable))
+                .and_then(|pkg| laid_out(pkg, &out))
+                .and_then(|pkg| check_drift(&input, &out, &pkg))
         }
         Command::Survey { inputs, json, all_causes } => run_survey(&inputs, json, all_causes),
         Command::Version => {
@@ -159,6 +163,24 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Ac
     }
     report.push(summary(diagnostics.len(), consequence));
     Err(report.join("\n"))
+}
+
+/// `pkg` laid out by the oxfmt found from `out` or the working directory.
+fn laid_out(mut pkg: Package, out: &Path) -> Result<Package, String> {
+    let above = out.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let found = oxfmt::locate(&[above, &cwd])?;
+    match oxfmt::version(&found) {
+        Some(v) if v == oxfmt::VERSION => {}
+        v => eprintln!(
+            "warning: {} is oxfmt {}, not {}; a line may be laid out otherwise than the committed output expects",
+            found.display(),
+            v.as_deref().unwrap_or("of an unknown version"),
+            oxfmt::VERSION
+        ),
+    }
+    oxfmt::format(&mut pkg, &found, &sibling(out, "fmt"))?;
+    Ok(pkg)
 }
 
 fn summary(errors: usize, consequence: &str) -> String {

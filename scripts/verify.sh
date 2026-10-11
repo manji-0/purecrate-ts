@@ -41,6 +41,18 @@ for p in packages/boundary-zod packages/boundary-valibot packages/boundary-arkty
   fi
 done
 
+# `build` lays the output out with oxfmt (crates/cli/src/oxfmt.rs) and warns
+# when its version is not the one the committed output was made with.
+pinned=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";$/\1/p' crates/cli/src/oxfmt.rs)
+installed=$(sed -n 's/.*"oxfmt": "\([^"]*\)".*/\1/p' examples/package.json)
+if [ "$pinned" != "$installed" ]; then
+  echo "verify: crates/cli/src/oxfmt.rs expects oxfmt $pinned, examples/package.json installs $installed" >&2
+  exit 1
+fi
+# The fixtures below are built outside examples/, where `build` would not
+# find it.
+export PURECRATE_OXFMT="$PWD/examples/node_modules/.bin/oxfmt"
+
 TS_MAJORS=(6 7)
 
 # Format and lints. CI runs them in a job of their own (verify.yml, lint)
@@ -85,7 +97,8 @@ done
 # from examples/node_modules.
 (cd examples && npx --no-install oxlint --type-aware --deny-warnings .) \
   || { echo "verify: oxlint rejects the generated output" >&2; exit 1; }
-# ..and is laid out as oxfmt lays it out (examples/.oxfmtrc.json).
+# ..and is laid out as oxfmt lays it out (examples/.oxfmtrc.json): `build`
+# ran it, and a second run must change nothing.
 (cd examples && npx --no-install oxfmt --check '*/ts/*/src/**/*.ts') \
   || { echo "verify: oxfmt would reformat the generated output" >&2; exit 1; }
 # So is the output of each test fixture that builds, with each schema where it

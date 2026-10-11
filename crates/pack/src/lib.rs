@@ -112,9 +112,7 @@ pub fn assemble_with_license(
         // Rewriting `from "purecrate"` to `from "./purecrate-runtime.ts"` can
         // push an import over the width; wrap again after the paths are final.
         // Copied runtime and adapters are hand-written and must not be rewrapped.
-        let copied =
-            file.stem == "purecrate-runtime" || (file.stem.starts_with("purecrate-") && file.stem != "purecrate-wire");
-        if !copied && !file.stem.contains('.') {
+        if generated(&file.stem) {
             file.source = wrap_source(&file.source);
         }
     }
@@ -162,6 +160,13 @@ const MIT_NOTICE: &str = "\
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 ";
+
+/// Whether the file `stem` is generated TS, not the copied runtime or
+/// adapter (hand-written) nor a manifest.
+pub fn generated(stem: &str) -> bool {
+    let copied = stem == RUNTIME_STEM || (stem.starts_with("purecrate-") && stem != "purecrate-wire");
+    !copied && !stem.contains('.')
+}
 
 pub fn disk_path(stem: &str) -> String {
     if stem.ends_with(".json") {

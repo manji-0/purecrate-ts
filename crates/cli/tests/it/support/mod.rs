@@ -18,6 +18,8 @@ use purecrate_syntax::parse_source;
 pub mod corpus;
 mod driver;
 pub mod generated;
+#[path = "../../../src/oxfmt.rs"]
+mod oxfmt;
 mod values;
 
 use driver::driver;
@@ -199,6 +201,17 @@ pub fn tsc(major: &str) -> &'static std::path::Path {
     })
 }
 
+/// The oxfmt of `examples/node_modules`, the version `build` expects.
+pub fn oxfmt() -> &'static std::path::Path {
+    static FOUND: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    FOUND.get_or_init(|| {
+        let found =
+            oxfmt::locate(&[&repo().join("examples")]).unwrap_or_else(|e| panic!("{e} (run `npm ci` in examples/)"));
+        assert_eq!(oxfmt::version(&found).as_deref(), Some(oxfmt::VERSION), "{}", found.display());
+        found
+    })
+}
+
 /// The repository's root.
 pub fn repo() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -211,8 +224,14 @@ pub fn emitted(name: &str, source: &str, stem: &str) -> String {
     assemble(&typed).files.into_iter().find(|f| f.stem == stem).unwrap_or_else(|| panic!("missing {stem}")).source
 }
 
-/// Writes each file of `package` under `dir`.
+/// Writes each file of `package` under `dir`, laid out by oxfmt as `build`
+/// lays it out (without node, as emitted).
 pub fn write_package(dir: &std::path::Path, package: &purecrate_emit_ts::Package) {
+    let mut package = package.clone();
+    if std::env::var_os("PURECRATE_SKIP_NODE").is_none() {
+        let fmt = dir.with_file_name(format!("{}-fmt", dir.file_name().expect("a name").to_string_lossy()));
+        oxfmt::format(&mut package, oxfmt(), &fmt).unwrap_or_else(|e| panic!("{e}"));
+    }
     for file in &package.files {
         let path = dir.join(disk_path(&file.stem));
         fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
