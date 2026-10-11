@@ -175,3 +175,44 @@ pub fn unread_collect(ps: Vec<Px>, k: i32) -> usize {
     kept = ps.iter().filter(|p| i32::from(p.c) * 16777216 > k).cloned().collect::<Vec<Px>>();
     ps.len()
 }
+
+// An assignment that keeps the name on a side the flow leaves, an
+// assignment of a name to itself, a loop emptied by the flow whose bounds
+// were named first, and a temporary inside a loop whose variable looks
+// like one.
+
+#[allow(clippy::self_assignment, clippy::nonminimal_bool)]
+pub fn keeps_on_a_side(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Option<i32> {
+    let mut v: Option<i32> = o;
+    let mut f: bool = c;
+    if o.is_some() {
+        v = if v.map(|x| x).is_none() { Some(a.checked_add(1)?) } else { v.map(|x| x) };
+        f = !(!f);
+    }
+    v = match r {
+        Ok(_) => v,
+        Err(e) => Some(e.checked_mul(2)?),
+    };
+    if f { v } else { None }
+}
+
+#[allow(unused_variables)]
+pub fn emptied_named_loop(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    let k: i32 = r?;
+    for v in a.wrapping_mul(3) % 4..(r? % 6) {
+        let x: i32 = r?;
+    }
+    Ok(a.wrapping_add(k))
+}
+
+#[allow(unused_parens)]
+pub fn loop_value2(a: i32, c: bool) -> i32 {
+    let value: i32 = a % 5;
+    let mut h: i32 = value;
+    for value2 in 0..(a % 4) {
+        if (if !c { matches!(a % 7, 0..=9 | 100) } else { a > 0 }) {
+            h += value2;
+        }
+    }
+    h
+}

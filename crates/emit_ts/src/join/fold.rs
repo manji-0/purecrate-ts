@@ -97,6 +97,42 @@ pub(super) fn unread(expr: &mut Expr) {
         Expr::While { cond, .. } if matches!(constant(cond), Some((_, false))) => {
             *expr = constant(cond).expect("checked above").0;
         }
+        // `x = x` does nothing (what a decided `x = if c { y } else { x }`
+        // leaves); lint refuses it.
+        Expr::Assign { name, value } if printed_as(value) == Some(&*name) => *expr = Expr::Lit(Lit::Unit),
+        // `x = if c { y } else { x }` printed as statements writes `x` on
+        // each side: the side that keeps `x` writes nothing. (As a `?:` it
+        // stays, read in place.)
+        Expr::Assign { name, value } if value.needs_statements() && keeps_on_a_side(value, name) => {
+            let write = |side: Expr| {
+                if printed_as(&side) == Some(&*name) {
+                    Expr::Lit(Lit::Unit)
+                } else {
+                    Expr::Assign { name: name.clone(), value: Box::new(side) }
+                }
+            };
+            *expr = match std::mem::replace(&mut **value, Expr::Lit(Lit::Unit)) {
+                Expr::If { cond, then, else_ } => {
+                    Expr::If { cond, then: Box::new(write(*then)), else_: Box::new(write(*else_)) }
+                }
+                Expr::Match { scrutinee, arms } => Expr::Match {
+                    scrutinee,
+                    arms: arms
+                        .into_iter()
+                        .map(|a| {
+                            // An arm binding `name` reads its own, not `name`.
+                            let body = if a.pattern.bindings().iter().any(|b| b.as_str() == name.as_str()) {
+                                Expr::Assign { name: name.clone(), value: Box::new(a.body) }
+                            } else {
+                                write(a.body)
+                            };
+                            Arm { body, ..a }
+                        })
+                        .collect(),
+                },
+                _ => unreachable!("`keeps_on_a_side` holds only of an `if` or a `match`"),
+            };
+        }
         // What follows a statement that always leaves never runs.
         Expr::Seq { first, .. } if ends(first) => *expr = (**first).clone(),
         Expr::Let { value, .. } if ends(value) => *expr = (**value).clone(),
@@ -108,6 +144,11 @@ pub(super) fn unread(expr: &mut Expr) {
         // A statement's value nothing reads: only what it does is left.
         Expr::Seq { first, then } => {
             *expr = sequence(effects((**first).clone()), (**then).clone());
+        }
+        // A `for` whose body does nothing is its bounds, run once, in order
+        // (oxfmt writes an empty body on two lines, which lint refuses).
+        Expr::For { start, end, body, .. } if effects((**body).clone()) == Expr::Lit(Lit::Unit) => {
+            *expr = in_turn(effects((**start).clone()), effects((**end).clone()));
         }
         // A loop's body is run for what it does: its value is unread too.
         Expr::While { body, .. } | Expr::For { body, .. } | Expr::ForEach { body, .. } => {
@@ -204,6 +245,36 @@ pub(super) fn effects(expr: Expr) -> Expr {
             }
         }
         other => other,
+    }
+}
+
+/// The name `value` prints as, where it is one read as it is: through an
+/// identity `map`, a `!!`, a `Some` (which TS writes as its payload), or a
+/// made binding of it.
+fn printed_as(value: &Expr) -> Option<&Name> {
+    match crate::peel_identity(value) {
+        Expr::Var(n) => Some(n),
+        Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => match &**expr {
+            Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => printed_as(expr),
+            _ => None,
+        },
+        Expr::Call { callee: purecrate_ir::Callee::OptionSome, args } if args.len() == 1 => printed_as(&args[0]),
+        Expr::Let { name, value, then, .. } if name.as_str().starts_with('$') && printed_as(then) == Some(name) => {
+            printed_as(value)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `value` is an `if` or a `match` one of whose sides is `name`
+/// read as it is.
+fn keeps_on_a_side(value: &Expr, name: &Name) -> bool {
+    match value {
+        Expr::If { then, else_, .. } => [then, else_].iter().any(|s| printed_as(s) == Some(name)),
+        Expr::Match { arms, .. } => {
+            arms.iter().any(|a| printed_as(&a.body) == Some(name) && !a.pattern.bindings().contains(&name))
+        }
+        _ => false,
     }
 }
 

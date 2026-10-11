@@ -269,6 +269,8 @@ fn declares(src: &str, start: usize) -> bool {
     let before = src[line_start..start].trim_start();
     before.starts_with("const ")
         || before.starts_with("let ")
+        || before.ends_with("for (let ")
+        || before.ends_with("for (const ")
         || before.starts_with("export const ")
         || before.ends_with('(') && src[start..].split_once(':').is_some()
         || before.ends_with(", ") && before.contains('(')

@@ -45,6 +45,19 @@ fn lint_holes_match_rust() {
         for k in [0, 255, -1, i32::MAX] {
             cases.push(case!(lint_holes::literal_cast(k)));
         }
+        for a in [3, i32::MAX, -9] {
+            for o in [None, Some(4), Some(-7)] {
+                for r in [Ok(2), Err(3), Err(i32::MAX)] {
+                    for c in [true, false] {
+                        cases.push(case!(lint_holes::keeps_on_a_side(a, o, r, c)));
+                    }
+                    cases.push(case!(lint_holes::emptied_named_loop(a, r)));
+                }
+            }
+            for c in [true, false] {
+                cases.push(case!(lint_holes::loop_value2(a, c)));
+            }
+        }
         let px = |c: u8| lint_holes::Px { c, f: 1.5 };
         cases.push(case!(lint_holes::deep_literal(vec![px(3), px(4), px(3)])));
         for k in [0, i32::MAX] {
