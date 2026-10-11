@@ -406,11 +406,19 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
             let Expr::Unary { expr: positive, .. } = peel_identity(cond) else { unreachable!("matched above") };
             emit_tx(&Expr::If { cond: positive.clone(), then: else_.clone(), else_: then.clone() }, indent)
         }
-        // `c ? true : false` is `c`, as oxlint's `no-unneeded-ternary` asks.
+        // `c ? true : false` is `c`, as oxlint's `no-unneeded-ternary` asks,
+        // and `c ? true : b` is `c || b` (`c ? a : false`, `c && a`), which TS
+        // narrows by (`join::flow` takes it so).
         Expr::If { cond, then, else_ }
-            if bool_lit(then).is_some() && bool_lit(else_).is_some() && bool_lit(then) != bool_lit(else_) =>
+            if (bool_lit(then).is_some() && bool_lit(else_).is_some() && bool_lit(then) != bool_lit(else_))
+                || bool_lit(then) == Some(true)
+                || bool_lit(else_) == Some(false) =>
         {
-            fold(emit_tx(cond, indent), (Tx::atom(""), bool_lit(then)), (Tx::atom(""), bool_lit(else_)))
+            fold(
+                emit_tx(cond, indent),
+                (emit_tx(then, indent), bool_lit(then)),
+                (emit_tx(else_, indent), bool_lit(else_)),
+            )
         }
         Expr::If { cond, then, else_ } => Tx::Cond(
             CondStyle::Plain,

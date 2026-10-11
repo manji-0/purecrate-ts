@@ -134,6 +134,20 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
             }
         }
         Expr::Closure { body, .. } => visit(body, Ctx::Stmt, at, report),
+        // A test or a scrutinee runs whenever the `if` or `match` does:
+        // `lift` binds a `?` there first, as in a statement.
+        Expr::If { cond, then, else_ } if ctx == Ctx::Strict => {
+            visit(cond, Ctx::Strict, at, report);
+            visit(then, Ctx::Nested, at, report);
+            visit(else_, Ctx::Nested, at, report);
+        }
+        Expr::Match { scrutinee, arms } if ctx == Ctx::Strict => {
+            visit(scrutinee, Ctx::Strict, at, report);
+            for a in arms {
+                a.guard.iter().for_each(|g| visit(g, Ctx::Nested, at, report));
+                visit(&a.body, Ctx::Nested, at, report);
+            }
+        }
         Expr::Let { .. } | Expr::If { .. } | Expr::Match { .. } | Expr::Seq { .. } => {
             expr.children().into_iter().for_each(|c| visit(c, Ctx::Nested, at, report))
         }

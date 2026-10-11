@@ -430,6 +430,9 @@ impl Lifter {
             Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
                 Expr::Binary { op, left: self.boxed(left, out), right }
             }
+            // A test and a scrutinee run first, as `&&`'s left side does.
+            Expr::If { cond, then, else_ } => Expr::If { cond: self.boxed(cond, out), then, else_ },
+            Expr::Match { scrutinee, arms } => Expr::Match { scrutinee: self.boxed(scrutinee, out), arms },
             Expr::Binary { op, left, right } => {
                 let mut xs = self.in_order(vec![*left, *right], out);
                 let right = xs.pop().expect("two");

@@ -345,11 +345,26 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             emit_tail(&subst(rest, name, value), indent, sink, out, tail);
         }
         Expr::Seq { first, then } => {
-            emit_stmts(first, indent, Sink::Effect, out);
+            let mut head = String::new();
+            emit_stmts(first, indent, Sink::Effect, &mut head);
             let dead = ends_in_jump(first) && **then == Expr::Lit(Lit::Unit);
+            let mut rest = String::new();
             if !dead {
-                emit_tail(then, indent, sink, out, tail);
+                emit_tail(then, indent, sink, &mut rest, tail);
             }
+            // A statement printed flat (a Rust block, or the arm narrowing
+            // took of a `match`) that declares a name what follows declares
+            // again keeps a block of its own; one that declares is no lone
+            // block.
+            let again = declared(&head, &pad);
+            if declared(&rest, &pad).iter().any(|n| again.contains(n)) {
+                out.push_str(&format!("{pad}{{\n"));
+                emit_stmts(first, indent + 1, Sink::Effect, out);
+                out.push_str(&format!("{pad}}}\n"));
+            } else {
+                out.push_str(&head);
+            }
+            out.push_str(&rest);
         }
         // A predicate (`matches!`) or `unwrap_or` / `ok_or` on a place is one
         // expression (`x ?? d`, a `?:`); anything larger is a `switch`.
@@ -678,4 +693,13 @@ fn set_in_place(name: &Name, value: &Expr, then: &Expr) -> bool {
         }
         _ => false,
     }
+}
+
+/// The names `text`'s statements at `pad` declare (`const x`, `let x`).
+fn declared(text: &str, pad: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| l.strip_prefix(pad).filter(|r| !r.starts_with(' ')))
+        .filter_map(|r| r.strip_prefix("const ").or_else(|| r.strip_prefix("let ")))
+        .map(|r| r.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$').collect())
+        .collect()
 }

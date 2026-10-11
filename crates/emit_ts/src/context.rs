@@ -5,8 +5,9 @@
 
 use super::*;
 
-/// The printer's temporaries start with `$`, which no Rust identifier has,
-/// and end in `_<n>`, a count of them, so no two are one name before
+/// The printer's temporaries start with `$$` (no Rust identifier has `$`,
+/// and `check`'s made names, `$base_<n>`, have one) and end in `_<n>`, a
+/// count of them, so no two are one name before
 /// `plain::plain_names` gives each a plain name that no other in an
 /// overlapping block has. The final text does not depend on the count.
 pub(super) fn temp(base: &str) -> String {
@@ -15,7 +16,7 @@ pub(super) fn temp(base: &str) -> String {
         t.set(n);
         n
     });
-    format!("${base}_{n}")
+    format!("$${base}_{n}")
 }
 
 /// A discriminant table: its enum and whether it holds `bigint`s, then its

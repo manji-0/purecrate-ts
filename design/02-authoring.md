@@ -160,7 +160,7 @@ Rules:
 
 | Kind | Reserved |
 | --- | --- |
-| Names | `Result`, `Int`, `Str`, `Slice`, `Ord`, `Iter`, `Char`, the numeric brands, `assertNever`, `Readonly`, `ReadonlyArray`, `globalThis`, `Uuid` ([§3.7](#37-types)) |
+| Names | `Result`, `Int`, `Str`, `Slice`, `Ord`, `Iter`, `Char`, the numeric brands, `assertNever`, `Array`, `Readonly`, `ReadonlyArray`, `Record`, `globalThis`, `Uuid` ([§3.7](#37-types)); `NaN` and `Infinity`, which no binding may shadow |
 | File stems | `index`, `purecrate-runtime`, `purecrate-wire`, `purecrate-zod` / `-valibot` / `-arktype`; `consts` when the crate has a `const` |
 | Field | `kind` |
 | Companion member | `of` |

@@ -31,7 +31,11 @@
 //! inline function, and the `Err` arm ran), a temporary declared twice,
 //! and output tsc refused (`order_of_eval.rs`, `narrowing.rs`). Seeds 1 to
 //! 120 agree on every value and type-check (60 did before narrowing
-//! followed TS's control flow, roadmap §8.16 and §8.17).
+//! followed TS's control flow, roadmap §8.16 and §8.17). Drawing blocks,
+//! shadowing, and made-up names, it found a block's binding that outlived
+//! the block or was declared twice, a closure dropped where its block
+//! folded, and narrowing TS keeps in a closure or through a `bool` that
+//! decides only when it fails (`review_holes3.rs`).
 
 use std::fmt::Write as _;
 

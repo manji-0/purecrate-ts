@@ -37,5 +37,17 @@ fn review_holes3_match_rust() {
         for a in [3, i32::MAX] {
             cases.push(case!(review_holes3::failing_try(a)));
         }
+        for (a, b) in [(5, None), (5, Some(1)), (i32::MAX, None)] {
+            cases.push(case!(review_holes3::decided_arm_flat(a, b)));
+        }
+        for o in [None, Some(4), Some(0)] {
+            cases.push(case!(review_holes3::two_temporaries(o, 2)));
+            for c in [true, false] {
+                cases.push(case!(review_holes3::or_narrows(o, c)));
+            }
+            for b in [0, 4] {
+                cases.push(case!(review_holes3::try_in_test(o, b)));
+            }
+        }
     });
 }
