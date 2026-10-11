@@ -151,11 +151,12 @@ pub(super) fn effects(expr: Expr) -> Expr {
                 | purecrate_ir::Callee::Float { .. },
             args,
         } => args.into_iter().map(effects).fold(unit.clone(), in_turn),
-        // A copy of an array (`v.clone()`).
+        // A copy of an array (`v.clone()`) does nothing. (Collecting what an
+        // iterator stage yields runs the stage, which is lazy: it stays.)
         Expr::Call {
             callee: purecrate_ir::Callee::Collect { result: false, over: purecrate_ir::Over::Items },
-            mut args,
-        } if args.len() == 1 => effects(args.remove(0)),
+            args,
+        } if args.len() == 1 && effectless(&args[0]) => unit,
         Expr::Tuple(items) | Expr::Array(items) => items.into_iter().map(effects).fold(unit.clone(), in_turn),
         Expr::Field { base, .. } => effects(*base),
         Expr::Construct { fields, base, .. } => {

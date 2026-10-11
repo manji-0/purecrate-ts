@@ -167,3 +167,11 @@ pub fn unread_float(x: f64, y: f64, m: u32, xs: Vec<i32>) -> f64 {
     let copy: Vec<i32> = xs.clone();
     x
 }
+
+// An unread collect runs the stage it collects, whose closure may panic.
+#[allow(unused_assignments)]
+pub fn unread_collect(ps: Vec<Px>, k: i32) -> usize {
+    let mut kept: Vec<Px> = Vec::new();
+    kept = ps.iter().filter(|p| i32::from(p.c) * 16777216 > k).cloned().collect::<Vec<Px>>();
+    ps.len()
+}

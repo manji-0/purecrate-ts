@@ -47,5 +47,9 @@ fn lint_holes_match_rust() {
         }
         let px = |c: u8| lint_holes::Px { c, f: 1.5 };
         cases.push(case!(lint_holes::deep_literal(vec![px(3), px(4), px(3)])));
+        for k in [0, i32::MAX] {
+            cases.push(case!(lint_holes::unread_collect(vec![px(3), px(200)], k)));
+            cases.push(case!(lint_holes::unread_collect(vec![px(3)], k)));
+        }
     });
 }
