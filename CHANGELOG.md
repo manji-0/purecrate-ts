@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.2 — 2026-10-11
 
 Four seeded generators over 0.13.1's additions (floats, collections, strings, and every integer width with folded consts), each run over seeds 1 to 120, an independent review of 0.13.1's diff, and the statements generator widened to blocks, shadowing, and the names the translator makes up found what follows; each is fixed with a fixture or a test.
 
