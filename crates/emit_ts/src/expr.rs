@@ -596,7 +596,12 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::Str(_)
                 | purecrate_ir::Callee::IntFrom { .. }
                 | purecrate_ir::Callee::CharCode(_) => String::new(),
-                purecrate_ir::Callee::IntCast { to, .. } => format!("Int.{}.cast", to.as_str()),
+                // `cast` takes any `number` or `bigint`: a literal or a length
+                // is read without its brand.
+                purecrate_ir::Callee::IntCast { to, .. } => {
+                    let x = bare(&args[0], indent).unwrap_or_else(|| emit_item(&args[0], indent));
+                    return format!("Int.{}.cast({x})", to.as_str());
+                }
                 purecrate_ir::Callee::FloatToInt { to, .. } => {
                     return format!("Int.{}.castFloat({})", to.as_str(), float_arg(&args[0], indent));
                 }
@@ -1382,9 +1387,13 @@ fn emit_slice(of: purecrate_ir::SliceOf, start: bool, end: bool, args: &[Expr], 
                 None => format!("Str.slice({base}, {a})"),
             }
         }
+        // `Slice.range` takes plain numbers: a literal or a length is read
+        // without its brand, which would be an unnecessary assertion there.
         purecrate_ir::SliceOf::Items => {
-            let a = if start { emit_item(&args[1], indent) } else { "null".into() };
-            format!("Slice.range({base}, {a}, {})", b.unwrap_or_else(|| "null".into()))
+            let bound = |e: &Expr| bare(e, indent).unwrap_or_else(|| emit_item(e, indent));
+            let a = if start { bound(&args[1]) } else { "null".into() };
+            let b = if end { bound(&args[args.len() - 1]) } else { "null".into() };
+            format!("Slice.range({base}, {a}, {b})")
         }
     }
 }

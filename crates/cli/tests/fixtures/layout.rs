@@ -315,3 +315,98 @@ pub fn applied_between(last_applied_index_of_this_node: usize, committed_index_o
     }
     n
 }
+
+#[derive(Clone)]
+pub struct Member {
+    pub key: String,
+    pub value: i64,
+}
+
+/// A logical `return` whose last operand opens a closure's block: one
+/// operand per line inside `return (` .. `);`, the block one indent in.
+pub fn same_members(xs: Vec<Member>, ys: Vec<Member>) -> bool {
+    xs.len() == ys.len()
+        && xs.iter().all(|m| match ys.iter().position(|y| y.key == m.key) {
+            Some(j) => ys[j].value == m.value,
+            None => false,
+        })
+}
+
+/// The same as a `let`: broken after `=`.
+pub fn kept_members(xs: Vec<Member>, ys: Vec<Member>) -> bool {
+    let ok = xs.len() == ys.len()
+        && xs.iter().all(|m| match ys.iter().position(|y| y.key == m.key) {
+            Some(j) => ys[j].value == m.value,
+            None => false,
+        });
+    ok
+}
+
+/// A slice's bounds are plain numbers to `Slice.range`: a literal and a
+/// length carry no brand there.
+pub fn proper_prefix(a: Vec<String>, b: Vec<String>) -> bool {
+    a.len() < b.len() && a[0..a.len()] == b[0..a.len()]
+}
+
+/// `len() as u32` reads the length bare; `Int.u32.cast` takes a `number`.
+pub fn counted(xs: Vec<String>) -> u32 {
+    xs.len() as u32
+}
+
+/// Only a one-sided trim: the runtime keeps no helper for the other side.
+pub fn after_spaces(s: &str) -> usize {
+    s.len() - s.trim_start_matches(|c: char| c == ' ').len()
+}
+
+#[derive(Clone)]
+pub struct MediaParameter {
+    pub name: String,
+    pub value: String,
+}
+
+/// A closure's body on its own line under `=>` that does not fit: one
+/// operand of its `&&` per line, at the body's indent.
+pub fn has_parameter(params: Vec<MediaParameter>, p: MediaParameter) -> bool {
+    params.iter().any(|x| {
+        x.name == p.name && (x.value == p.value || (p.name == "charset" && x.value.eq_ignore_ascii_case(&p.value)))
+    })
+}
+
+#[derive(Clone)]
+pub enum TokenError {
+    Malformed { offset: usize },
+}
+
+/// A last-argument closure whose body is a `?:` that does not fit: the
+/// head hugs the call, and the `?:` breaks below it.
+pub fn checked_heads(heads: Vec<String>, tails: Vec<String>) -> Result<Vec<String>, TokenError> {
+    heads.iter().map(|h| if h == "*" && tails.len() != heads.len() { Err(TokenError::Malformed { offset: h.len() }) } else { Ok(h.clone()) }).collect()
+}
+
+/// A private helper's body under `=>`, a logical chain whose last operand
+/// opens a closure's block: one operand per line, the block one indent in.
+fn members_match(xs: Vec<MediaParameter>, ys: Vec<MediaParameter>) -> bool {
+    xs.len() == ys.len()
+        && xs.iter().all(|m| match ys.iter().position(|y| y.name == m.name) {
+            Some(j) => ys[j].value == m.value,
+            None => false,
+        })
+}
+
+pub fn same_parameters(xs: Vec<MediaParameter>, ys: Vec<MediaParameter>) -> bool {
+    members_match(xs, ys)
+}
+
+/// `if (..) continue;` that does not fit: the test on the `if` line where it
+/// fits there, `continue` one indent in.
+pub fn separators(text_of_the_header_field: &str) -> usize {
+    let mut n: usize = 0;
+    for i in 0..text_of_the_header_field.len() {
+        if i == 0 || text_of_the_header_field[i..].starts_with(";") || text_of_the_header_field[i..].starts_with(",") {
+            continue;
+        }
+        n += 1;
+    }
+    n
+}
+

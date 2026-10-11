@@ -128,6 +128,11 @@ pub(super) fn wrap_last_arrow(line: &str, width: usize, out: &mut String) -> boo
         return false;
     };
     let body = &last[arrow + 4..];
+    // `=> (a ? b : c)`: oxfmt drops the parentheses once the body breaks.
+    let body = match strip_outer(body) {
+        inner if inner.len() < body.len() && find_ternary(inner).is_some() => inner,
+        _ => body,
+    };
     if body.starts_with(['{', '(', '[']) || rest.iter().any(|a| a.contains(" => ")) || !expandable(body) {
         return false;
     }
@@ -139,11 +144,14 @@ pub(super) fn wrap_last_arrow(line: &str, width: usize, out: &mut String) -> boo
     head.push_str(&last[..arrow]);
     head.push_str(" =>");
     let below = format!("{pad}  {body},");
-    if cols(&head) > width || cols(&below) > width {
+    // A `?:` body breaks on its own lines under the hugged head, as oxfmt
+    // prints it; anything else must fit there.
+    let ternary = find_ternary(body).is_some();
+    if cols(&head) > width || (cols(&below) > width && !ternary) {
         return false;
     }
     emit_raw(&head, out);
-    emit_raw(&below, out);
+    wrap_line(&below, width, out);
     emit_raw(&format!("{pad}){end}"), out);
     true
 }

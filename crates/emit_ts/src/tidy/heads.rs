@@ -42,9 +42,26 @@ pub(super) fn wrap_after_assign(line: &str, width: usize, out: &mut String) -> b
     true
 }
 
-/// `if (cond) return value;` when it does not fit: the condition on its
-/// own `if` line when that fits, else opened, then `return` one indent in.
+/// `if (cond) return value;` (or `continue;`, `break;`) when it does not
+/// fit: the condition on its own `if` line when that fits, else opened,
+/// then the statement one indent in.
 pub(super) fn wrap_if_return(line: &str, width: usize, out: &mut String) -> bool {
+    let jump = paren_head(line, "if").and_then(|(pad, cond, after)| match after {
+        " continue;" | " break;" => Some((pad, cond, after.trim_start())),
+        _ => None,
+    });
+    if let Some((pad, cond, stmt)) = jump {
+        let header = format!("{pad}if ({cond})");
+        if cols(&header) <= width {
+            wrap_line(&header, width, out);
+        } else {
+            wrap_line(&format!("{pad}if ("), width, out);
+            opened_test(pad, cond, width, out);
+            wrap_line(&format!("{pad})"), width, out);
+        }
+        wrap_line(&format!("{pad}  {stmt}"), width, out);
+        return true;
+    }
     let Some((pad, cond, val)) = parse_if_return(line) else {
         return false;
     };

@@ -667,7 +667,7 @@ const WHITESPACE_START = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u2
 const WHITESPACE_END = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/u;
 // #endregion
 
-// #region str.trimMatches str.trimStartMatches str.trimEndMatches
+// #region str.trimMatches str.trimStartMatches
 /** `s` without every leading match of `p`: a string as a whole, or a `char` the closure takes. */
 const trimStart = (s: string, p: string | ((c: Char) => boolean)): string => {
   if (typeof p === "string") {
@@ -682,7 +682,9 @@ const trimStart = (s: string, p: string | ((c: Char) => boolean)): string => {
   }
   return s.slice(i);
 };
+// #endregion
 
+// #region str.trimMatches str.trimEndMatches
 /** `s` without every trailing match of `p`. */
 const trimEnd = (s: string, p: string | ((c: Char) => boolean)): string => {
   if (typeof p === "string") {

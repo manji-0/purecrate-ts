@@ -1,8 +1,9 @@
 //! Integer expressions generated from a seed across widths: `u8`, `i16`,
 //! `u32` (numbers in TS), `i64`, and `u64` (`bigint`), each with its own
 //! operators, shifts, `checked_*` / `wrapping_*` / `saturating_*`, `min` /
-//! `max`, `pow`, `abs` and `-` on the signed, and `T::from(x)` from every
-//! narrower type std widens, in `if`s on comparisons and `let`s. Overflow,
+//! `max`, `pow`, `abs` and `-` on the signed, `T::from(x)` from every
+//! narrower type std widens, and `x as T` from every width std does not,
+//! in `if`s on comparisons and `let`s. Overflow,
 //! division by zero, and a shift past the width panic as in Rust, and are
 //! compared as panics.
 //!
@@ -106,7 +107,7 @@ impl G {
             return self.leaf(w);
         }
         let d = d - 1;
-        match self.rng.below(14) {
+        match self.rng.below(15) {
             0..=3 => {
                 let op = self.rng.pick(&["+", "-", "*", "/", "%", "&", "|", "^"]);
                 format!("({} {op} {})", self.int(w, d), self.int(w, d))
@@ -144,6 +145,12 @@ impl G {
             9 if !w.from().is_empty() => {
                 let from = self.rng.pick(w.from());
                 format!("{}::from({})", w.rust(), self.int(from, d))
+            }
+            // `as` wraps; a pair std's `From` takes is written that way.
+            12 => {
+                let others: Vec<W> = ALL.into_iter().filter(|o| *o != w && !w.from().contains(o)).collect();
+                let from = self.rng.pick(&others);
+                format!("(({}) as {})", self.int(from, d), w.rust())
             }
             10 => {
                 let cw = self.rng.pick(&ALL);

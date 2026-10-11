@@ -31,6 +31,25 @@ pub(super) fn wrap_condition(line: &str, width: usize, out: &mut String) -> bool
     let d = depths(expr);
     let arrow = (0..expr.len()).any(|i| d[i] == Some(0) && expr[i..].starts_with(" => "));
     let ternary = find_ternary(expr).is_some();
+    // An arrow's body on its own line under `=>`, as the last argument of
+    // a call that opened (`f(xs, (x) =>` then `a && b,`): its operands go one
+    // per line at its own indent, as a condition's do, the comma after the
+    // last.
+    let body_line = out.trim_end_matches('\n').rsplit('\n').next().is_some_and(|l| l.trim_end().ends_with(" =>"));
+    if body_line && !statement && !arrow && !ternary && top_assign(expr).is_none() {
+        if let Some(core) = expr.strip_suffix(',') {
+            let ops = [" || ", " && "];
+            if let Some(parts) = ops.iter().find_map(|op| split_at_op(core, op, 0)) {
+                let pad = &line[..line.len() - expr.len()];
+                let last = parts.len() - 1;
+                for (i, part) in parts.into_iter().enumerate() {
+                    let end = if i == last { "," } else { "" };
+                    wrap_line(&format!("{pad}{}{end}", part.trim_end()), width, out);
+                }
+                return true;
+            }
+        }
+    }
     // A `;` ends an arrow's body that `wrap_arrow` moved to its own line.
     if statement || arrow || ternary || expr.ends_with(['{', ',', '(']) || top_assign(expr).is_some() {
         return false;
@@ -372,7 +391,7 @@ fn top_assign(s: &str) -> Option<usize> {
     last
 }
 
-fn find_ternary(s: &str) -> Option<(&str, &str, &str)> {
+pub(super) fn find_ternary(s: &str) -> Option<(&str, &str, &str)> {
     let d = depths(s);
     let mut q = None;
     let mut i = 0;
@@ -405,4 +424,109 @@ fn find_ternary(s: &str) -> Option<(&str, &str, &str)> {
     }
     let c = c?;
     Some((s[..q].trim(), s[q + 3..c].trim(), s[c + 3..].trim()))
+}
+
+/// `return a && f(xs, (m) => {` whose last operand opens a block that runs
+/// to a later line, as oxfmt lays it out: one operand of the top-level `||`
+/// (else `&&`) per line, the block and its closing line one indent further
+/// in, inside `return (` .. `);`, or after `const x =`. Applied until no
+/// such line is left, so a block inside one is laid out too. A last operand
+/// that is itself parenthesized stays as it is.
+pub(super) fn open_logical_blocks(src: &str) -> String {
+    let mut lines: Vec<String> = src.lines().map(str::to_string).collect();
+    while let Some((i, j, head)) = find_logical_block(&lines) {
+        let pad = lines[i][..lines[i].len() - lines[i].trim_start().len()].to_string();
+        let (value, ret) = match &head {
+            Head::Return(v) => (v.clone(), true),
+            Head::Assign(_, v) | Head::Body(v) | Head::Arrow(_, v) => (v.clone(), false),
+        };
+        let parts = split_at_op(&value, " || ", 0).or_else(|| split_at_op(&value, " && ", 0)).expect("found");
+        let mut out: Vec<String> = Vec::new();
+        // A body under `=>` keeps its indent; the others go one in.
+        let inner = if matches!(head, Head::Body(_)) { pad.clone() } else { format!("{pad}  ") };
+        match &head {
+            Head::Return(_) => out.push(format!("{pad}return (")),
+            Head::Assign(target, _) => out.push(format!("{pad}{target} =")),
+            Head::Arrow(head, _) => out.push(format!("{pad}{head} =>")),
+            Head::Body(_) => {}
+        }
+        out.extend(parts.iter().map(|p| format!("{inner}{}", p.trim_end())));
+        for line in &lines[i + 1..j] {
+            out.push(if line.trim().is_empty() { String::new() } else { format!("  {line}") });
+        }
+        let closer = lines[j].trim();
+        if ret {
+            out.push(format!("{pad}  {}", closer.trim_end_matches(';')));
+            out.push(format!("{pad});"));
+        } else if matches!(head, Head::Body(_)) {
+            out.push(format!("{pad}{closer}"));
+        } else {
+            out.push(format!("{pad}  {closer}"));
+        }
+        lines.splice(i..=j, out);
+    }
+    let mut text = lines.join("\n");
+    if src.ends_with('\n') {
+        text.push('\n');
+    }
+    text
+}
+
+enum Head {
+    Return(String),
+    /// An arrow's body alone on its line, under `=>`.
+    Body(String),
+    /// `): T => value`: what comes before ` => `, and the value.
+    Arrow(String, String),
+    /// The target with its keyword (`const ok`), and the value.
+    Assign(String, String),
+}
+
+/// The first line that `open_logical_blocks` lays out, the line that closes
+/// its block, and what it is.
+fn find_logical_block(lines: &[String]) -> Option<(usize, usize, Head)> {
+    for (i, line) in lines.iter().enumerate() {
+        let rest = line.trim_start();
+        if !rest.ends_with(" => {") || is_comment(line) {
+            continue;
+        }
+        // A body alone under `=>` (`(a) =>` then `x && f(xs, (m) => {`).
+        let body = i > 0 && lines[i - 1].trim_end().ends_with(" =>");
+        let head = if let Some(v) = rest.strip_prefix("return ") {
+            Head::Return(v.to_string())
+        } else if body {
+            Head::Body(rest.to_string())
+        } else if let Some(at) = rest.starts_with(')').then(|| rest.find(" => ")).flatten() {
+            // The last line of opened parameters, `): T => value`.
+            Head::Arrow(rest[..at].to_string(), rest[at + 4..].to_string())
+        } else if let Some(eq) = top_assign(rest).filter(|_| rest.starts_with("const ") || rest.starts_with("let ")) {
+            Head::Assign(rest[..eq].to_string(), rest[eq + 3..].to_string())
+        } else {
+            continue;
+        };
+        let value = match &head {
+            Head::Return(v) | Head::Assign(_, v) | Head::Body(v) | Head::Arrow(_, v) => v,
+        };
+        let Some(parts) = split_at_op(value, " || ", 0).or_else(|| split_at_op(value, " && ", 0)) else {
+            continue;
+        };
+        let (last, before) = parts.split_last().expect("two or more");
+        if last.starts_with('(') || before.iter().any(|p| p.contains(" => ")) {
+            continue;
+        }
+        // The block closes at the line's indent; under `=>` the printer puts
+        // the block's lines at the body's indent and closes one less.
+        let pad = line.len() - rest.len();
+        let under = matches!(head, Head::Body(_));
+        let indent = |l: &String| l.len() - l.trim_start().len();
+        let closer = lines[i + 1..]
+            .iter()
+            .position(|l| !l.trim().is_empty() && if under { indent(l) < pad } else { indent(l) <= pad })?;
+        let j = i + 1 + closer;
+        let at = if under { pad.checked_sub(2) } else { Some(pad) };
+        if Some(indent(&lines[j])) == at && lines[j].trim_start().starts_with('}') && lines[j].ends_with(';') {
+            return Some((i, j, head));
+        }
+    }
+    None
 }

@@ -23,6 +23,7 @@ pub(crate) use scan::*;
 /// long `&&` / `||` / `?:`, or an arrow body. Comment lines stay as they are.
 pub(crate) fn wrap(src: &str, width: usize) -> String {
     let mut out = String::with_capacity(src.len());
+    let src = open_logical_blocks(src);
     for line in src.lines() {
         wrap_line(&comments_before_groups(line), width, &mut out);
     }
