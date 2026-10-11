@@ -406,7 +406,10 @@ impl G {
     /// Draws this seed's consts, each one rustc and the folder both accept.
     fn draw_consts(&mut self, seed: u64, out: &mut String) {
         for n in 0..14 {
-            let w = if n < ALL.len() { ALL[n] } else { self.rng.pick(&[W::U128, W::I128, W::U32]) };
+            let w = match ALL.get(n) {
+                Some(w) => *w,
+                None => self.rng.pick(&[W::U128, W::I128, W::U32]),
+            };
             let name = format!("K{seed}_{n}");
             let mut found = None;
             for _ in 0..40 {

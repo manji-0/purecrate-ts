@@ -58,3 +58,16 @@ pub fn by_name(s: &str) -> (Option<usize>, String, usize) {
     let pieces = s.split(is_separator).count();
     (s.find(is_separator), String::from(s.trim_matches(space)), pieces)
 }
+
+/// A `String` built in a loop and never read: the loop stays (its pieces
+/// may panic), its variable unread once the appends go.
+pub fn built_unread(s: &str, n: usize) -> usize {
+    let _v: String = {
+        let mut w = String::new();
+        for p in s.split(|x: char| x == ',') {
+            w.push_str(s.trim_end_matches(p));
+        }
+        w
+    };
+    n
+}

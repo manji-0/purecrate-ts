@@ -13,5 +13,7 @@ export const encodeCoordinate = (value: F64, precision: Precision): Result<strin
   if (checkFiniteResult.kind === "Err") return checkFiniteResult;
   if (value < (-180.0 as F64) || value > (180.0 as F64))
     return Result.err({ kind: "LongitudeOutOfRange" });
-  return Result.ok(encodeValue(Int.i64.castFloat(Int.f64.round(value * factor(precision)))));
+  return Result.ok(
+    encodeValue(Int.i64.castFloat(Int.f64.round((value * factor(precision)) as F64))),
+  );
 };

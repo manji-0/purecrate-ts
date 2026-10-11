@@ -314,7 +314,8 @@ fn is_pure(expr: &Expr) -> bool {
             | Callee::FloatConst { .. }
             | Callee::Float { .. }
             | Callee::AsFloat(_)
-            | Callee::Fround => true,
+            | Callee::Fround
+            | Callee::StringNew => true,
             Callee::IntCast { to, .. } | Callee::FloatToInt { to, .. } => *to != purecrate_ir::IntTy::Usize,
             Callee::IntFrom { to, .. } => *to != purecrate_ir::IntTy::Usize,
             // A copy of an array (`v.clone()`, a `Vec` bound to a grown local).

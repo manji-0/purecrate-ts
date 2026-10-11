@@ -31,6 +31,7 @@ fn str_methods_match_rust() {
             cases.push(case!(str_more::pieces(s)));
             cases.push(case!(str_more::collected(s)));
             cases.push(case!(str_more::dropped(s, 3)));
+            cases.push(case!(str_more::built_unread(s, 3)));
             cases.push(case!(str_more::by_name(s)));
             for c in ['-', ' ', '😀', '\u{85}'] {
                 cases.push(case!(str_more::trimmed_by(s, c)));

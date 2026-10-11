@@ -165,6 +165,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 out.push_str(&prelude);
                 out.push_str(&format!("{pad}const [{pattern}]{annotation} = {};\n", crate::tidy::strip_outer(&s)));
                 emit_tail(rest, indent, sink, out, tail);
+            } else if !*mutable && name.as_str().starts_with('$') && set_in_place(name, value, then) {
+                // `v[i] = x` with `i` a name or literal: JS reads `i` first, to
+                // no effect, then `x`, as Rust evaluates `x` first.
+                emit_tail(&subst(then, name, value), indent, sink, out, tail);
             } else if !*mutable && name.as_str().starts_with('$') && value.is_inlinable() {
                 // `$opt = x` / `$optOr = d` around `unwrap_or` / `ok_or`: the
                 // names and variant literals cannot panic, so the uses read
@@ -704,4 +708,18 @@ fn bare(e: &Expr) -> Expr {
     let mut e = e.clone();
     e.strip_positions();
     e
+}
+
+/// `let $x = value; v[i] = $x` where nothing JS reads before `value` can
+/// panic or needs statements: the value goes back in place.
+fn set_in_place(name: &Name, value: &Expr, then: &Expr) -> bool {
+    match then {
+        Expr::Call { callee: Callee::VecSet, args } => {
+            matches!(&args[2], Expr::Var(n) if n == name)
+                && args[0].is_inlinable()
+                && args[1].is_inlinable()
+                && !value.needs_statements()
+        }
+        _ => false,
+    }
 }

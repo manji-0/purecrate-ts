@@ -70,6 +70,7 @@ export type I64 = bigint & { readonly "purecrate.I64": true };
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U32 = number & { readonly "purecrate.U32": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
+export type F32 = number & { readonly "purecrate.F32": true };
 export type F64 = number & { readonly "purecrate.F64": true };
 /** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
 export type Char = string & { readonly "purecrate.Char": true };
@@ -136,7 +137,7 @@ const roundHalfAway = (x: number): number => (x < 0 ? Math.round(x * -1) * -1 : 
  */
 const castFloat =
   <T>(lo: bigint, hi: bigint, to: (n: bigint) => T) =>
-  (x: number): T =>
+  (x: F32 | F64): T =>
     to(Number.isNaN(x) ? 0n : x <= Number(lo) ? lo : x >= Number(hi) ? hi : BigInt(Math.trunc(x)));
 
 /**
@@ -328,7 +329,8 @@ export const Int = {
   },
   f64: {
     of: (value: number): F64 => value as F64,
-    round: (x: number): F64 => roundHalfAway(x) as F64,
+    round: (x: F64): F64 => roundHalfAway(x) as F64,
+    isInfinite: (x: number): boolean => x === Infinity || x === -Infinity,
   },
 } as const;
 

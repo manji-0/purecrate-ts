@@ -43,13 +43,30 @@ pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String
     let pad = "  ".repeat(indent);
     let label = jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop") } else { String::new() });
     let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
-    out.push_str(&format!("{pad}{prefix}{head} {{\n"));
     LOOPS.with(|l| l.borrow_mut().push(label));
     // The body is a block of its own: nothing after it meets its names.
     crate::TAIL.with(|t| t.set(true));
-    emit_stmts(body, indent + 1, Sink::Effect, out);
+    let mut inner = String::new();
+    emit_stmts(body, indent + 1, Sink::Effect, &mut inner);
     LOOPS.with(|l| l.borrow_mut().pop());
+    // A `for..of` variable the printed body no longer reads (what read it
+    // was dropped as an unused value's effect-free part) is `_`, which TS
+    // and oxlint exempt.
+    let head = match head.strip_prefix("for (const ").and_then(|h| h.split_once(" of ")) {
+        Some((var, rest)) if var != "_" && !reads_word(&inner, var) => format!("for (const _ of {rest}"),
+        _ => head.to_string(),
+    };
+    out.push_str(&format!("{pad}{prefix}{head} {{\n"));
+    out.push_str(&inner);
     out.push_str(&format!("{pad}}}\n"));
+}
+
+/// Whether `text` has `word` as an identifier, not inside a longer one.
+fn reads_word(text: &str, word: &str) -> bool {
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    text.match_indices(word).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(ident) && !text[at + word.len()..].chars().next().is_some_and(ident)
+    })
 }
 
 /// Printed statements that never fall through: a `break;` after them would
