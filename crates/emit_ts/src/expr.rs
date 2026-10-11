@@ -642,7 +642,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 // is read without its brand.
                 purecrate_ir::Callee::IntCast { to, .. } => {
                     let x = bare(&args[0], indent).unwrap_or_else(|| emit_item(&args[0], indent));
-                    return format!("Int.{}.cast({x})", to.as_str());
+                    return format!("Int.{}.cast({})", to.as_str(), crate::tidy::uncast(&x));
                 }
                 purecrate_ir::Callee::FloatToInt { to, .. } => {
                     return format!("Int.{}.castFloat({})", to.as_str(), emit_item(&args[0], indent));
@@ -677,6 +677,14 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 purecrate_ir::Callee::OrdCmpList { .. } => "Ord.cmpList".into(),
                 purecrate_ir::Callee::Consume { .. } => unreachable!("printed above"),
             };
+            // `Eq.deep` takes `unknown`: an operand's brand is no use to it.
+            if matches!(callee, purecrate_ir::Callee::DeepEq) {
+                return format!(
+                    "Eq.deep({}, {})",
+                    crate::tidy::uncast(&emit_item(&args[0], indent)),
+                    crate::tidy::uncast(&emit_item(&args[1], indent))
+                );
+            }
             if let purecrate_ir::Callee::OrdCmpList { text } = callee {
                 let by = if *text { "Ord.cmpStr" } else { "Ord.cmp" };
                 return format!("Ord.cmpList({}, {}, {by})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
@@ -698,9 +706,13 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 let from = from.expect("check::accept sets the source width");
                 return match (from.is_big(), to.is_big()) {
                     _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
-                    (false, true) => format!("(globalThis.BigInt({}) as {})", uncast_default(&x.print()), to.ts_name()),
+                    (false, true) => format!(
+                        "(globalThis.BigInt({}) as {})",
+                        crate::tidy::uncast(&uncast_default(&x.print())),
+                        to.ts_name()
+                    ),
                     (true, true) => format!("({} as bigint as {})", cast_operand(x), to.ts_name()),
-                    _ => format!("({} as number as {})", cast_operand(x), to.ts_name()),
+                    _ => as_number_as(cast_operand(x), to.ts_name()),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::StrBytes) {
@@ -817,28 +829,30 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             if let purecrate_ir::Callee::IntToFloat { from, to } = callee {
                 let x = emit_item(&args[0], indent);
                 return match (from.is_big(), to) {
-                    (false, purecrate_ir::FloatTy::F64) => {
-                        format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
-                    }
+                    (false, purecrate_ir::FloatTy::F64) => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
                     (false, purecrate_ir::FloatTy::F32) => {
-                        format!("(globalThis.Math.fround({}) as F32)", emit_item(&args[0], indent))
+                        format!("(globalThis.Math.fround({}) as F32)", crate::tidy::uncast(&x))
                     }
-                    (true, purecrate_ir::FloatTy::F64) => format!("(globalThis.Number({x}) as F64)"),
-                    (true, purecrate_ir::FloatTy::F32) => format!("Int.f32.ofBig({x})"),
+                    (true, purecrate_ir::FloatTy::F64) => {
+                        format!("(globalThis.Number({}) as F64)", crate::tidy::uncast(&x))
+                    }
+                    (true, purecrate_ir::FloatTy::F32) => format!("Int.f32.ofBig({})", crate::tidy::uncast(&x)),
                 };
             }
             if let purecrate_ir::Callee::FloatToFloat { to } = callee {
                 return match to {
-                    purecrate_ir::FloatTy::F64 => {
-                        format!("({} as number as F64)", cast_operand(emit_tx(&args[0], indent)))
-                    }
-                    purecrate_ir::FloatTy::F32 => {
-                        format!("(globalThis.Math.fround({}) as F32)", emit_item(&args[0], indent))
-                    }
+                    purecrate_ir::FloatTy::F64 => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
+                    purecrate_ir::FloatTy::F32 => format!(
+                        "(globalThis.Math.fround({}) as F32)",
+                        crate::tidy::uncast(&emit_item(&args[0], indent))
+                    ),
                 };
             }
             if matches!(callee, purecrate_ir::Callee::Fround) {
-                return format!("(globalThis.Math.fround({}) as F32)", emit_expr(&args[0], indent));
+                return format!(
+                    "(globalThis.Math.fround({}) as F32)",
+                    crate::tidy::uncast(&emit_expr(&args[0], indent))
+                );
             }
             if let purecrate_ir::Callee::AsFloat(ft) = callee {
                 return format!("({} as {})", cast_operand(emit_tx(&args[0], indent)), ft.ts_name());
@@ -1529,6 +1543,24 @@ pub(crate) fn if_test(test: &str, pad: &str) -> String {
 /// The operand of `as`: parenthesized where it is a binary expression or a
 /// `?:` (`(a / b) as F64`), as oxfmt prints it; a cast already in its own
 /// parentheses loses them (`x as number as U8`).
+/// `(x as number as T)`, the brand of `x` dropped on the way: where `x`
+/// is itself an assertion (`fround(..) as F32`, `7 as U8`) of what is a
+/// plain `number`, that one, which lint takes as unneeded, gives way.
+fn as_number_as(x: String, to: &str) -> String {
+    match crate::tidy::split_cast(&x) {
+        Some((_, "number")) => format!("({x} as {to})"),
+        Some((inner, _)) if crate::tidy::split_cast(inner).is_none() => format!("({inner} as {to})"),
+        // A choice: what its sides assert gives way to the `number`.
+        _ if crate::tidy::top_prec(&x) == crate::tidy::PREC_TERNARY || x.starts_with('(') => {
+            let plain = crate::tidy::uncast(&x);
+            let plain =
+                if crate::tidy::top_prec(&plain) < crate::tidy::PREC_UNARY { format!("({plain})") } else { plain };
+            format!("({plain} as number as {to})")
+        }
+        _ => format!("({x} as number as {to})"),
+    }
+}
+
 fn cast_operand(x: Tx) -> String {
     match x {
         Tx::Atom(s) => crate::tidy::strip_outer(&s).to_string(),
@@ -1597,9 +1629,9 @@ fn float_arg(e: &Expr, indent: usize) -> String {
             crate::tidy::strip_outer(&emit_expr(&args[0], indent)).to_string()
         }
         Expr::Call { callee: purecrate_ir::Callee::Fround, args } => {
-            format!("globalThis.Math.fround({})", emit_expr(&args[0], indent))
+            format!("globalThis.Math.fround({})", crate::tidy::uncast(&emit_expr(&args[0], indent)))
         }
-        _ => emit_item(e, indent),
+        _ => crate::tidy::uncast(&emit_item(e, indent)),
     }
 }
 

@@ -209,6 +209,69 @@ pub(crate) fn cast_type(s: &str) -> Option<&str> {
     (top_prec(&s[..at]) == PREC_ATOMIC).then(|| s[at + 4..].trim())
 }
 
+/// `s` as the value its last top-level assertion asserts, and the type:
+/// `7 as U8` is `("7", "U8")`.
+pub(crate) fn split_cast(s: &str) -> Option<(&str, &str)> {
+    let s = strip_outer(s);
+    let d = depths(s);
+    let at = (0..s.len()).rev().find(|&i| d[i] == Some(0) && s[i..].starts_with(" as "))?;
+    (top_prec(&s[..at]) == PREC_ATOMIC).then(|| (&s[..at], s[at + 4..].trim()))
+}
+
+/// `s` without the assertions it ends in (`(7n as I64)` is `7n`, `x as
+/// number as F64` is `x`), or, where `s` is a choice, without those its
+/// sides end in (`c ? (0 as I8) : z` is `c ? 0 : z`): what a function taking
+/// any `number` or `bigint` (`Math.abs`, `Number`, `BigInt`) or an
+/// assertion through `number` is given, where lint refuses an assertion it
+/// does not need.
+pub(crate) fn uncast(s: &str) -> String {
+    let mut s = s;
+    loop {
+        s = strip_outer(s);
+        if top_prec(s) == PREC_TERNARY {
+            return match choice(s) {
+                Some((test, then, else_)) => format!("{test} ? {} : {}", uncast(then), uncast(else_)),
+                None => s.to_string(),
+            };
+        }
+        match split_cast(s) {
+            Some((inner, _)) => s = inner,
+            None => return s.to_string(),
+        }
+    }
+}
+
+/// The test and the sides of a choice printed on one line, `t ? a : b`,
+/// its `?` and `:` at the top level (a nested choice on either side
+/// counted).
+fn choice(s: &str) -> Option<(&str, &str, &str)> {
+    if s.contains('\n') {
+        return None;
+    }
+    let d = depths(s);
+    let top = |i: usize| d.get(i) == Some(&Some(0));
+    let q = (0..s.len()).find(|&i| top(i) && s[i..].starts_with(" ? "))?;
+    let mut open = 0;
+    let mut i = q + 3;
+    while i < s.len() {
+        if top(i) && s[i..].starts_with(" ? ") {
+            open += 1;
+            i += 3;
+            continue;
+        }
+        if top(i) && s[i..].starts_with(" : ") {
+            if open == 0 {
+                return Some((&s[..q], &s[q + 3..i], &s[i + 3..]));
+            }
+            open -= 1;
+            i += 3;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
 /// The columns `s` takes, as oxfmt counts them: a wide East Asian character
 /// takes two (`金` is two, `a` one).
 pub(crate) fn cols(s: &str) -> usize {

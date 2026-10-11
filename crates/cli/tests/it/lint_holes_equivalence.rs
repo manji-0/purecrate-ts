@@ -29,5 +29,23 @@ fn lint_holes_match_rust() {
                 cases.push(case!(lint_holes::unread_try_last(a, r)));
             }
         }
+        for (x, n) in [(1.5, 3i64), (-0.0, -9), (f64::NAN, i64::MAX), (f64::INFINITY, i64::MIN)] {
+            cases.push(case!(lint_holes::literal_to_float(x, n)));
+            cases.push(case!(lint_holes::small_big_float(n)));
+            for m in [0u32, 7, u32::MAX] {
+                cases.push(case!(lint_holes::unread_float(x, 2.0, m, vec![1, 2])));
+                for c in [true, false] {
+                    cases.push(case!(lint_holes::choice_cast(c, m)));
+                }
+            }
+        }
+        for b in [0u8, 91, 255] {
+            cases.push(case!(lint_holes::byte_widened(b)));
+        }
+        for k in [0, 255, -1, i32::MAX] {
+            cases.push(case!(lint_holes::literal_cast(k)));
+        }
+        let px = |c: u8| lint_holes::Px { c, f: 1.5 };
+        cases.push(case!(lint_holes::deep_literal(vec![px(3), px(4), px(3)])));
     });
 }

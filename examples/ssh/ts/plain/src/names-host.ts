@@ -49,7 +49,7 @@ const lookupName = (host: string, port: U16): ReadonlyArray<U32> => {
   const out: Array<U32> = [];
 
   if (port !== 22) {
-    out.push(/* '[' */ 91 as U8 as number as U32);
+    out.push(/* '[' */ 91 as U32);
   }
 
   for (const b of Str.bytes(host)) {
@@ -57,8 +57,8 @@ const lookupName = (host: string, port: U16): ReadonlyArray<U32> => {
   }
 
   if (port !== 22) {
-    out.push(/* ']' */ 93 as U8 as number as U32);
-    out.push(/* ':' */ 58 as U8 as number as U32);
+    out.push(/* ']' */ 93 as U32);
+    out.push(/* ':' */ 58 as U32);
     const p = port as number as U32;
     let div = 1 as U32;
     while (Int.u32.mul(div, 10 as U32) <= p) {
@@ -66,12 +66,7 @@ const lookupName = (host: string, port: U16): ReadonlyArray<U32> => {
     }
 
     while (div > 0) {
-      out.push(
-        Int.u32.add(
-          /* '0' */ 48 as U8 as number as U32,
-          Int.u32.rem(Int.u32.div(p, div), 10 as U32),
-        ),
-      );
+      out.push(Int.u32.add(/* '0' */ 48 as U32, Int.u32.rem(Int.u32.div(p, div), 10 as U32)));
       div = Int.u32.div(div, 10 as U32);
     }
   }
@@ -84,7 +79,7 @@ const lookupName = (host: string, port: U16): ReadonlyArray<U32> => {
  * `match_pattern`), with the last `*` backtracked to.
  */
 const glob = (pattern: ReadonlyArray<U32>, name: ReadonlyArray<U32>): boolean => {
-  const star = /* '*' */ 42 as U8 as number as U32;
+  const star = /* '*' */ 42 as U32;
   let p = 0 as Usize;
   let n = 0 as Usize;
   let lastStar: Usize | null = null;
@@ -116,7 +111,7 @@ const glob = (pattern: ReadonlyArray<U32>, name: ReadonlyArray<U32>): boolean =>
 /** Whether `pattern[p]` exists and matches the byte `b` alone. */
 const matchesOne = (pattern: ReadonlyArray<U32>, p: Usize, b: U32): boolean => {
   if (p >= pattern.length) return false;
-  const any = /* '?' */ 63 as U8 as number as U32;
+  const any = /* '?' */ 63 as U32;
   return Slice.at(pattern, p) === any || Slice.at(pattern, p) === b;
 };
 

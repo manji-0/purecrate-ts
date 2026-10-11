@@ -119,3 +119,51 @@ pub fn closure_param_decided(a: i32, b: i32, c: bool) -> i32 {
     };
     if c { f(a) } else { b }
 }
+
+// Assertions lint takes as unneeded: on what a function taking any number
+// is passed, on a value asserted again through `number`, and on the sides
+// of a choice asserted so; and unread `f64` sums, conversions, and copies.
+
+pub fn literal_to_float(x: f64, n: i64) -> f64 {
+    let a: f64 = (7i64 as f64).abs() + (n as f64);
+    let r: f64 = f64::from((1.5f32).abs());
+    a + r + x
+}
+
+pub fn byte_widened(b: u8) -> u32 {
+    let open: u32 = u32::from(b'[');
+    open + u32::from(b)
+}
+
+pub fn literal_cast(k: i32) -> u8 {
+    (300i32 as u8).wrapping_add(k as u8)
+}
+
+pub fn choice_cast(c: bool, m: u32) -> usize {
+    (if c { m } else { 100u32 }) as usize
+}
+
+pub fn small_big_float(n: i64) -> f32 {
+    (n as f32) + (7i64 as f32)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Px {
+    pub c: u8,
+    pub f: f64,
+}
+
+pub fn deep_literal(ps: Vec<Px>) -> usize {
+    ps.iter().filter(|p| p.c == 3u8).count()
+}
+
+#[allow(unused_variables, unused_assignments)]
+pub fn unread_float(x: f64, y: f64, m: u32, xs: Vec<i32>) -> f64 {
+    let mut a: f64 = 100.0;
+    a = y + (a % y);
+    let b: f64 = x * 1e300;
+    let n: f64 = f64::NAN;
+    let w: f64 = f64::from(m);
+    let copy: Vec<i32> = xs.clone();
+    x
+}

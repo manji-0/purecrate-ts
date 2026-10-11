@@ -129,6 +129,43 @@ pub(super) fn effects(expr: Expr) -> Expr {
         // order (`k < Int.i32.div(100, n);` is only the division).
         Expr::Binary { op, left, right } if is_compare(op) => sequence(effects(*left), effects(*right)),
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => effects(*expr),
+        // An `f64` sum (integer and `f32` arithmetic, which may panic, is a
+        // call by now), `-`, a conversion to a float, or a value built of
+        // parts: its parts, in order.
+        Expr::Binary { op, left, right } if !matches!(op, BinOp::And | BinOp::Or) => {
+            sequence(effects(*left), effects(*right))
+        }
+        Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => effects(*expr),
+        Expr::Call {
+            callee:
+                purecrate_ir::Callee::OptionSome
+                | purecrate_ir::Callee::ResultOk
+                | purecrate_ir::Callee::ResultErr
+                | purecrate_ir::Callee::OptionIsSome
+                | purecrate_ir::Callee::OptionIsNone
+                | purecrate_ir::Callee::AsFloat(_)
+                | purecrate_ir::Callee::Fround
+                | purecrate_ir::Callee::IntToFloat { .. }
+                | purecrate_ir::Callee::FloatToFloat { .. }
+                | purecrate_ir::Callee::FloatConst { .. }
+                | purecrate_ir::Callee::Float { .. },
+            args,
+        } => args.into_iter().map(effects).fold(unit.clone(), in_turn),
+        // A copy of an array (`v.clone()`).
+        Expr::Call {
+            callee: purecrate_ir::Callee::Collect { result: false, over: purecrate_ir::Over::Items },
+            mut args,
+        } if args.len() == 1 => effects(args.remove(0)),
+        Expr::Tuple(items) | Expr::Array(items) => items.into_iter().map(effects).fold(unit.clone(), in_turn),
+        Expr::Field { base, .. } => effects(*base),
+        Expr::Construct { fields, base, .. } => {
+            let parts: Vec<Expr> = match fields {
+                purecrate_ir::Fields::Unit => Vec::new(),
+                purecrate_ir::Fields::Positional(xs) => xs,
+                purecrate_ir::Fields::Named(xs) => xs.into_iter().map(|(_, x)| x).collect(),
+            };
+            parts.into_iter().chain(base.map(|b| *b)).map(effects).fold(unit.clone(), in_turn)
+        }
         // `a && b` runs `b` only where `a` holds.
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
             let right = effects(*right);
@@ -202,6 +239,15 @@ fn is_compare(op: BinOp) -> bool {
 }
 
 /// `first; then`, without a `first` that is `()`.
+/// `first; then`, leaving out a side that is `()`.
+fn in_turn(first: Expr, then: Expr) -> Expr {
+    if then == Expr::Lit(Lit::Unit) {
+        first
+    } else {
+        sequence(first, then)
+    }
+}
+
 pub(super) fn sequence(first: Expr, then: Expr) -> Expr {
     if first == Expr::Lit(Lit::Unit) {
         then

@@ -298,9 +298,19 @@ fn effects(expr: Expr) -> Expr {
         }
         // A test or a sum that cannot panic leaves its operands' effects,
         // in order: `x.checked_sub(y).is_some()` as a statement is nothing,
-        // and TS refuses a comparison standing as one.
-        Expr::Binary { op: BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, left, right } => {
+        // and TS refuses a comparison standing as one. What is still a
+        // `Binary` here cannot panic: integer and `f32` arithmetic is a
+        // `Callee::Int` / `Fround` call by now, so this is `f64`'s, or a
+        // comparison.
+        Expr::Binary { op, left, right } if !matches!(op, BinOp::And | BinOp::Or) => {
             seq(effects(*left), effects(*right))
+        }
+        Expr::Unary { op: UnOp::Neg, expr } => effects(*expr),
+        // A tuple or an array built only to be dropped: its elements, in order.
+        Expr::Tuple(items) | Expr::Array(items) => items.into_iter().map(effects).fold(unit(), seq),
+        Expr::Field { base, .. } => effects(*base),
+        Expr::Call { callee: Callee::AsFloat(_) | Callee::Fround, args } => {
+            args.into_iter().map(effects).fold(unit(), seq)
         }
         // The right side runs only sometimes: with nothing to run, the left
         // side is all; otherwise an `if`, which TS takes as a statement.
@@ -346,6 +356,14 @@ fn cannot_panic(callee: &Callee) -> bool {
     use purecrate_ir::IntMethod as M;
     match callee {
         Callee::OptionSome | Callee::ResultOk | Callee::ResultErr | Callee::OptionIsSome | Callee::OptionIsNone => true,
+        // Conversions to a float, which saturate or round.
+        Callee::IntToFloat { .. } | Callee::FloatToFloat { .. } | Callee::FloatConst { .. } | Callee::Float { .. } => {
+            true
+        }
+        // Widening, except into `usize` from what may pass 2^53.
+        Callee::IntFrom { from, to } => {
+            *to != purecrate_ir::IntTy::Usize || from.is_some_and(|f| !f.is_big() && f != purecrate_ir::IntTy::Usize)
+        }
         Callee::Int { op, .. } => match op {
             IntOp::And | IntOp::Or | IntOp::Xor | IntOp::Not => true,
             IntOp::Method(m) => matches!(
