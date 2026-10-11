@@ -63,7 +63,7 @@
 // - A present but empty `Accept` or `Accept-Language` matches nothing.
 // - Ties: the sorted list orders by q, then by the specificity of the range
 //   that matched, then by server order; `choose_*` is its head, so server
-//   order is the last tie-break. The sort is a stable insertion sort.
+//   order is the last tie-break (the sort is stable).
 // - Not modelled: `Accept-Charset`, reactive negotiation, `Vary`, and
 //   charset/encoding aliases (`x-gzip` is not `gzip`).
 
@@ -121,262 +121,166 @@ const FULL: u32 = 1000;
 
 // ---- scanning ----
 
-fn is_tchar(b: u8) -> bool {
-    matches!(
-        b,
-        b'a'..=b'z'
-            | b'A'..=b'Z'
-            | b'0'..=b'9'
-            | b'!'
-            | b'#'
-            | b'$'
-            | b'%'
-            | b'&'
-            | b'\''
-            | b'*'
-            | b'+'
-            | b'-'
-            | b'.'
-            | b'^'
-            | b'_'
-            | b'`'
-            | b'|'
-            | b'~'
-    )
+fn malformed(offset: usize) -> NegotiationError {
+    NegotiationError::Malformed { offset }
 }
 
-fn skip_ows(b: &[u8], start: usize) -> usize {
-    let mut i: usize = start;
-    while i < b.len() && (b[i] == b' ' || b[i] == b'\t') {
-        i += 1;
+fn is_tchar(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+        || matches!(c, '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~')
+}
+
+fn is_ctl(b: u8) -> bool {
+    (b < 0x20 && b != b'\t') || b == 0x7f
+}
+
+// The position after the optional whitespace (space and tab) at `start`.
+fn skip_ows(s: &str, start: usize) -> usize {
+    s.len() - s[start..].trim_start_matches(|c: char| c == ' ' || c == '\t').len()
+}
+
+// The end of the token at `start`, which must not be empty.
+fn token_end(s: &str, start: usize) -> Result<usize, NegotiationError> {
+    let end = s.len() - s[start..].trim_start_matches(|c: char| is_tchar(c)).len();
+    if end == start {
+        return Err(malformed(start));
     }
-    i
+    Ok(end)
 }
 
-fn token_end(b: &[u8], start: usize) -> usize {
-    let mut i: usize = start;
-    while i < b.len() && is_tchar(b[i]) {
-        i += 1;
+// Reads a parameter value at `start`, a token or a quoted-string; returns it
+// (unescaped) and the position after it.
+fn read_value(s: &str, start: usize) -> Result<(String, usize), NegotiationError> {
+    if !s[start..].starts_with("\"") {
+        let end = token_end(s, start)?;
+        return Ok((String::from(&s[start..end]), end));
     }
-    i
-}
-
-fn lower(s: &str) -> String {
-    s.chars().map(|c| c.to_ascii_lowercase()).collect::<String>()
-}
-
-// Reads a quoted-string starting at the opening `"`; returns its unescaped
-// contents and the position after the closing `"`.
-fn read_quoted(s: &str, start: usize) -> Result<(String, usize), NegotiationError> {
     let b = s.as_bytes();
     let mut out = String::new();
-    let mut i: usize = start + 1;
-    let mut chunk: usize = i;
-    while i < b.len() {
-        let c = b[i];
-        if c == b'"' {
-            out.push_str(&s[chunk..i]);
-            return Ok((out, i + 1));
-        }
-        if c == b'\\' {
-            if i + 1 >= b.len() {
-                return Err(NegotiationError::Malformed { offset: i });
-            }
-            let e = b[i + 1];
-            if !(e == b'\t' || e >= 0x20) || e == 0x7f {
-                return Err(NegotiationError::Malformed { offset: i + 1 });
+    let mut chunk: usize = start + 1;
+    let mut i: usize = chunk;
+    while i < b.len() && b[i] != b'"' {
+        if b[i] == b'\\' {
+            if i + 1 == b.len() {
+                return Err(malformed(i));
             }
             out.push_str(&s[chunk..i]);
             chunk = i + 1;
-            i += 2;
-            continue;
+            i += 1;
         }
-        if !(c == b'\t' || c >= 0x20) || c == 0x7f {
-            return Err(NegotiationError::Malformed { offset: i });
+        if is_ctl(b[i]) {
+            return Err(malformed(i));
         }
         i += 1;
     }
-    Err(NegotiationError::Malformed { offset: i })
+    if i == b.len() {
+        return Err(malformed(i));
+    }
+    out.push_str(&s[chunk..i]);
+    Ok((out, i + 1))
 }
 
 // qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] ), in thousandths.
 fn read_qvalue(v: &str) -> Option<u32> {
-    let b = v.as_bytes();
-    if b.is_empty() || b.len() > 5 {
+    let (whole, frac) = v.split_once('.').unwrap_or((v, ""));
+    if frac.len() > 3 {
         return None;
     }
-    let whole: u32 = match b[0] {
-        b'0' => 0,
-        b'1' => 1,
-        _ => return None,
-    };
-    if b.len() == 1 {
-        return Some(whole * FULL);
-    }
-    if b[1] != b'.' {
-        return None;
-    }
-    let mut frac: u32 = 0;
+    let mut q: u32 = 0;
     let mut scale: u32 = 100;
-    let mut i: usize = 2;
-    while i < b.len() {
-        let d = b[i];
-        if !matches!(d, b'0'..=b'9') {
-            return None;
-        }
-        frac += u32::from(d - b'0') * scale;
+    for c in frac.chars() {
+        q += c.to_digit(10)? * scale;
         scale /= 10;
-        i += 1;
     }
-    if whole == 1 && frac != 0 {
-        return None;
+    match whole {
+        "0" => Some(q),
+        "1" if q == 0 => Some(FULL),
+        _ => None,
     }
-    Some(whole * FULL + frac)
 }
 
 // Scans one comma list. With `slashed`, each element head is
-// `token "/" token`; otherwise a single token.
+// `token "/" token`; otherwise a single token. Positions are byte offsets
+// into `s`, so a quoted comma never ends an element.
 fn scan_list(s: &str, slashed: bool) -> Result<Vec<Element>, NegotiationError> {
-    let b = s.as_bytes();
-    let n = b.len();
     let mut out: Vec<Element> = Vec::new();
-    let mut i: usize = 0;
-    while i < n {
-        i = skip_ows(b, i);
-        if i >= n {
-            break;
-        }
-        if b[i] == b',' {
-            i += 1;
+    let mut i = skip_ows(s, 0);
+    while i < s.len() {
+        if s[i..].starts_with(",") {
+            i = skip_ows(s, i + 1);
             continue;
         }
         let at = i;
-        let head_end = token_end(b, i);
-        if head_end == i {
-            return Err(NegotiationError::Malformed { offset: i });
-        }
-        let head = lower(&s[i..head_end]);
-        i = head_end;
+        i = token_end(s, at)?;
+        let head = s[at..i].to_ascii_lowercase();
         let mut tail = String::new();
         if slashed {
-            if i >= n || b[i] != b'/' {
-                return Err(NegotiationError::Malformed { offset: i });
+            if !s[i..].starts_with("/") {
+                return Err(malformed(i));
             }
-            let tail_end = token_end(b, i + 1);
-            if tail_end == i + 1 {
-                return Err(NegotiationError::Malformed { offset: i + 1 });
-            }
-            tail = lower(&s[i + 1..tail_end]);
-            i = tail_end;
+            let start = i + 1;
+            i = token_end(s, start)?;
+            tail = s[start..i].to_ascii_lowercase();
         }
         let mut params: Vec<MediaParameter> = Vec::new();
-        let mut q: u32 = FULL;
-        let mut weighted = false;
-        let mut more = true;
-        while more {
-            let j = skip_ows(b, i);
-            if j < n && b[j] == b';' {
-                i = skip_ows(b, j + 1);
-                if i >= n || b[i] == b';' || b[i] == b',' {
-                    continue;
-                }
-                let name_end = token_end(b, i);
-                if name_end == i {
-                    return Err(NegotiationError::Malformed { offset: i });
-                }
-                let name = lower(&s[i..name_end]);
-                if name_end >= n || b[name_end] != b'=' {
-                    return Err(NegotiationError::Malformed { offset: name_end });
-                }
-                let vstart = name_end + 1;
-                let mut quoted = false;
-                let mut value = String::new();
-                if vstart < n && b[vstart] == b'"' {
-                    let r = read_quoted(s, vstart)?;
-                    let (v, after) = r;
-                    value = v;
-                    i = after;
-                    quoted = true;
-                } else {
-                    let vend = token_end(b, vstart);
-                    if vend == vstart {
-                        return Err(NegotiationError::Malformed { offset: vstart });
-                    }
-                    value.push_str(&s[vstart..vend]);
-                    i = vend;
-                }
-                if name == "q" {
-                    if weighted || quoted {
-                        return Err(NegotiationError::Malformed { offset: vstart });
-                    }
-                    match read_qvalue(&value) {
-                        Some(w) => q = w,
-                        None => return Err(NegotiationError::Malformed { offset: vstart }),
-                    }
-                    weighted = true;
-                } else {
-                    params.push(MediaParameter { name, value });
-                }
-            } else {
-                more = false;
+        let mut q: Option<u32> = None;
+        while s[skip_ows(s, i)..].starts_with(";") {
+            i = skip_ows(s, skip_ows(s, i) + 1);
+            if i == s.len() || s[i..].starts_with(";") || s[i..].starts_with(",") {
+                continue;
             }
+            let name_end = token_end(s, i)?;
+            let name = s[i..name_end].to_ascii_lowercase();
+            if !s[name_end..].starts_with("=") {
+                return Err(malformed(name_end));
+            }
+            let start = name_end + 1;
+            let (value, after) = read_value(s, start)?;
+            i = after;
+            if name != "q" {
+                params.push(MediaParameter { name, value });
+                continue;
+            }
+            if q.is_some() || s[start..].starts_with("\"") {
+                return Err(malformed(start));
+            }
+            q = Some(read_qvalue(&value).ok_or(malformed(start))?);
         }
-        i = skip_ows(b, i);
-        if i < n && b[i] != b',' {
-            return Err(NegotiationError::Malformed { offset: i });
+        i = skip_ows(s, i);
+        if i < s.len() && !s[i..].starts_with(",") {
+            return Err(malformed(i));
         }
-        out.push(Element {
-            head,
-            tail,
-            params,
-            q,
-            weighted,
-            at,
-        });
+        out.push(Element { head, tail, params, q: q.unwrap_or(FULL), weighted: q.is_some(), at });
     }
     Ok(out)
 }
 
 // ---- parsing the three fields ----
 
+fn media_of(e: &Element) -> MediaRange {
+    MediaRange { ty: e.head.clone(), subtype: e.tail.clone(), params: e.params.clone(), q: e.q }
+}
+
 pub fn parse_accept(field: &str) -> Result<Vec<MediaRange>, NegotiationError> {
     let elements = scan_list(field, true)?;
-    let mut out: Vec<MediaRange> = Vec::new();
-    for e in &elements {
-        if e.head == "*" && e.tail != "*" {
-            return Err(NegotiationError::Malformed { offset: e.at });
-        }
-        out.push(MediaRange {
-            ty: e.head.clone(),
-            subtype: e.tail.clone(),
-            params: e.params.clone(),
-            q: e.q,
-        });
-    }
-    Ok(out)
+    elements
+        .iter()
+        .map(|e| if e.head == "*" && e.tail != "*" { Err(malformed(e.at)) } else { Ok(media_of(e)) })
+        .collect()
 }
 
 pub fn parse_accept_encoding(field: &str) -> Result<Vec<CodingRange>, NegotiationError> {
     let elements = scan_list(field, false)?;
-    let mut out: Vec<CodingRange> = Vec::new();
-    for e in &elements {
-        if !e.params.is_empty() {
-            return Err(NegotiationError::Malformed { offset: e.at });
-        }
-        out.push(CodingRange {
-            coding: e.head.clone(),
-            q: e.q,
-        });
-    }
-    Ok(out)
-}
-
-fn is_alpha(b: u8) -> bool {
-    matches!(b, b'a'..=b'z' | b'A'..=b'Z')
-}
-
-fn is_alnum(b: u8) -> bool {
-    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9')
+    elements
+        .iter()
+        .map(|e| {
+            if e.params.is_empty() {
+                Ok(CodingRange { coding: e.head.clone(), q: e.q })
+            } else {
+                Err(malformed(e.at))
+            }
+        })
+        .collect()
 }
 
 // language-range = (1*8ALPHA *("-" 1*8alphanum)) / "*"   (RFC 4647 §2.1)
@@ -384,58 +288,41 @@ fn is_language_range(s: &str, wildcard: bool) -> bool {
     if s == "*" {
         return wildcard;
     }
-    let b = s.as_bytes();
-    let mut i: usize = 0;
-    let mut first = true;
-    while i <= b.len() {
-        let start = i;
-        while i < b.len() && b[i] != b'-' {
-            let ok = if first { is_alpha(b[i]) } else { is_alnum(b[i]) };
-            if !ok {
-                return false;
-            }
-            i += 1;
-        }
-        let width = i - start;
-        if width == 0 || width > 8 {
-            return false;
-        }
-        first = false;
-        i += 1;
-    }
-    true
+    let primary = s.split_once('-').map(|(p, _)| p).unwrap_or(s);
+    primary.chars().all(|c| c.is_ascii_alphabetic())
+        && s.split('-').all(|t| !t.is_empty() && t.len() <= 8 && t.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
 pub fn parse_accept_language(field: &str) -> Result<Vec<LanguageRange>, NegotiationError> {
     let elements = scan_list(field, false)?;
-    let mut out: Vec<LanguageRange> = Vec::new();
-    for e in &elements {
-        if !e.params.is_empty() || !is_language_range(&e.head, true) {
-            return Err(NegotiationError::Malformed { offset: e.at });
-        }
-        out.push(LanguageRange {
-            range: e.head.clone(),
-            q: e.q,
-        });
-    }
-    Ok(out)
+    elements
+        .iter()
+        .map(|e| {
+            if e.params.is_empty() && is_language_range(&e.head, true) {
+                Ok(LanguageRange { range: e.head.clone(), q: e.q })
+            } else {
+                Err(malformed(e.at))
+            }
+        })
+        .collect()
 }
 
-// ---- stable sort ----
+// ---- ranking ----
 
-// Inserts `r` after every entry whose (q, specificity) is not lower, so
-// entries that tie keep the order they were inserted in (server order).
-fn insert_ranked(list: Vec<Ranked>, r: Ranked) -> Vec<Ranked> {
-    let mut v = list;
-    let mut i: usize = 0;
-    while i < v.len() {
-        let x = &v[i];
-        if x.q < r.q || (x.q == r.q && x.specificity < r.specificity) {
-            break;
-        }
-        i += 1;
+// Of one representation's matches (in field order), the first of the most
+// specific, when its q is not 0.
+fn best_match(matches: &[Ranked]) -> Option<Ranked> {
+    match matches.iter().min_by(|a, b| b.specificity.cmp(&a.specificity)) {
+        Some(m) if m.q > 0 => Some(m.clone()),
+        _ => None,
     }
-    v.insert(i, r);
+}
+
+// Sorts by q, then specificity, both descending. The sort is stable, so
+// entries that tie keep server order.
+fn by_rank(list: Vec<Ranked>) -> Vec<Ranked> {
+    let mut v = list;
+    v.sort_by(|a, b| b.q.cmp(&a.q).then(b.specificity.cmp(&a.specificity)));
     v
 }
 
@@ -448,121 +335,58 @@ fn head_of(list: Vec<Ranked>) -> Result<Ranked, NegotiationError> {
 
 // ---- media types ----
 
-fn same_value(name: &str, a: &str, b: &str) -> bool {
-    if name == "charset" {
-        a.eq_ignore_ascii_case(b)
-    } else {
-        a == b
-    }
-}
-
 fn has_parameter(params: &[MediaParameter], p: &MediaParameter) -> bool {
-    params
-        .iter()
-        .any(|x| x.name == p.name && same_value(&p.name, &x.value, &p.value))
+    params.iter().any(|x| {
+        x.name == p.name && (x.value == p.value || (p.name == "charset" && x.value.eq_ignore_ascii_case(&p.value)))
+    })
 }
 
 // Specificity of `range` on `rep`, or `None` when it does not match.
 // 2000 for type/subtype, 1000 for type/*, 0 for */*, plus one per parameter.
 fn media_specificity(range: &MediaRange, rep: &MediaRange) -> Option<u32> {
-    let mut level: u32 = 0;
-    if range.ty != "*" {
-        if range.ty != rep.ty {
-            return None;
-        }
-        level = 1000;
-        if range.subtype != "*" {
-            if range.subtype != rep.subtype {
-                return None;
-            }
-            level = 2000;
-        }
+    let level: u32 = if range.ty == "*" {
+        0
+    } else if range.subtype == "*" {
+        1000
+    } else {
+        2000
+    };
+    let types = (range.ty == "*" || range.ty == rep.ty) && (range.subtype == "*" || range.subtype == rep.subtype);
+    if !types || !range.params.iter().all(|p| has_parameter(&rep.params, p)) {
+        return None;
     }
-    let mut count: u32 = 0;
-    for p in &range.params {
-        if !has_parameter(&rep.params, p) {
-            return None;
-        }
-        count += 1;
-    }
-    Some(level + count)
+    Some(level + range.params.len() as u32)
 }
 
 fn parse_available_media(available: &[String]) -> Result<Vec<MediaRange>, NegotiationError> {
     let mut out: Vec<MediaRange> = Vec::new();
     for (index, a) in available.iter().enumerate() {
-        let elements = match scan_list(a, true) {
-            Ok(es) => es,
-            Err(_) => return Err(NegotiationError::InvalidAvailable { index }),
-        };
-        if elements.len() != 1 {
+        let elements = scan_list(a, true).map_err(|_| NegotiationError::InvalidAvailable { index })?;
+        if elements.len() != 1 || elements[0].weighted || elements[0].head == "*" || elements[0].tail == "*" {
             return Err(NegotiationError::InvalidAvailable { index });
         }
-        let e = &elements[0];
-        if e.weighted || e.head == "*" || e.tail == "*" {
-            return Err(NegotiationError::InvalidAvailable { index });
-        }
-        out.push(MediaRange {
-            ty: e.head.clone(),
-            subtype: e.tail.clone(),
-            params: e.params.clone(),
-            q: FULL,
-        });
+        out.push(media_of(&elements[0]));
     }
     Ok(out)
 }
 
-pub fn rank_media(
-    accept: Option<&str>,
-    available: &[String],
-) -> Result<Vec<Ranked>, NegotiationError> {
+// An absent header is `*/*`: every representation at q = 1, specificity 0.
+pub fn rank_media(accept: Option<&str>, available: &[String]) -> Result<Vec<Ranked>, NegotiationError> {
     let reps = parse_available_media(available)?;
+    let ranges = parse_accept(accept.unwrap_or("*/*"))?;
     let mut out: Vec<Ranked> = Vec::new();
-    match accept {
-        None => {
-            for (index, _) in reps.iter().enumerate() {
-                out = insert_ranked(
-                    out,
-                    Ranked {
-                        index,
-                        q: FULL,
-                        specificity: 0,
-                    },
-                );
+    for (index, rep) in reps.iter().enumerate() {
+        let mut matches: Vec<Ranked> = Vec::new();
+        for range in &ranges {
+            if let Some(specificity) = media_specificity(range, rep) {
+                matches.push(Ranked { index, q: range.q, specificity });
             }
         }
-        Some(field) => {
-            let ranges = parse_accept(field)?;
-            for (index, rep) in reps.iter().enumerate() {
-                let mut found = false;
-                let mut best_q: u32 = 0;
-                let mut best_s: u32 = 0;
-                for range in &ranges {
-                    match media_specificity(range, rep) {
-                        Some(s) => {
-                            if !found || s > best_s {
-                                found = true;
-                                best_q = range.q;
-                                best_s = s;
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                if found && best_q > 0 {
-                    out = insert_ranked(
-                        out,
-                        Ranked {
-                            index,
-                            q: best_q,
-                            specificity: best_s,
-                        },
-                    );
-                }
-            }
+        if let Some(m) = best_match(&matches) {
+            out.push(m);
         }
     }
-    Ok(out)
+    Ok(by_rank(out))
 }
 
 pub fn choose_media(accept: Option<&str>, available: &[String]) -> Result<Ranked, NegotiationError> {
@@ -575,176 +399,78 @@ pub fn choose_media(accept: Option<&str>, available: &[String]) -> Result<Ranked
 // The q of `coding` under `ranges` and its specificity (1 when listed,
 // 0 through `*` or the identity default); `None` when it is not covered.
 fn coding_quality(ranges: &[CodingRange], coding: &str) -> Option<(u32, u32)> {
-    let mut star: Option<u32> = None;
-    for r in ranges {
-        if r.coding.eq_ignore_ascii_case(coding) {
-            return Some((r.q, 1));
-        }
-        if r.coding == "*" && star.is_none() {
-            star = Some(r.q);
-        }
+    if let Some(r) = ranges.iter().find(|r| r.coding.eq_ignore_ascii_case(coding)) {
+        return Some((r.q, 1));
     }
-    match star {
-        Some(q) => Some((q, 0)),
-        None => {
-            if coding.eq_ignore_ascii_case("identity") {
-                Some((1, 0))
-            } else {
-                None
-            }
-        }
+    if let Some(r) = ranges.iter().find(|r| r.coding == "*") {
+        return Some((r.q, 0));
+    }
+    if coding.eq_ignore_ascii_case("identity") {
+        Some((1, 0))
+    } else {
+        None
     }
 }
 
-pub fn rank_encodings(
-    accept_encoding: Option<&str>,
-    available: &[String],
-) -> Result<Vec<Ranked>, NegotiationError> {
-    for (index, a) in available.iter().enumerate() {
-        let end = token_end(a.as_bytes(), 0);
-        if end == 0 || end != a.len() || a == "*" {
-            return Err(NegotiationError::InvalidAvailable { index });
-        }
+// An absent header is `*`: every coding at q = 1, specificity 0.
+pub fn rank_encodings(accept_encoding: Option<&str>, available: &[String]) -> Result<Vec<Ranked>, NegotiationError> {
+    if let Some(index) = available.iter().position(|a| a.is_empty() || a == "*" || !a.chars().all(is_tchar)) {
+        return Err(NegotiationError::InvalidAvailable { index });
     }
+    let ranges = parse_accept_encoding(accept_encoding.unwrap_or("*"))?;
     let mut out: Vec<Ranked> = Vec::new();
-    match accept_encoding {
-        None => {
-            for (index, _) in available.iter().enumerate() {
-                out = insert_ranked(
-                    out,
-                    Ranked {
-                        index,
-                        q: FULL,
-                        specificity: 0,
-                    },
-                );
-            }
-        }
-        Some(field) => {
-            let ranges = parse_accept_encoding(field)?;
-            for (index, a) in available.iter().enumerate() {
-                match coding_quality(&ranges, a) {
-                    Some((q, specificity)) => {
-                        if q > 0 {
-                            out = insert_ranked(
-                                out,
-                                Ranked {
-                                    index,
-                                    q,
-                                    specificity,
-                                },
-                            );
-                        }
-                    }
-                    None => {}
-                }
+    for (index, a) in available.iter().enumerate() {
+        if let Some((q, specificity)) = coding_quality(&ranges, a) {
+            if q > 0 {
+                out.push(Ranked { index, q, specificity });
             }
         }
     }
-    Ok(out)
+    Ok(by_rank(out))
 }
 
-pub fn choose_encoding(
-    accept_encoding: Option<&str>,
-    available: &[String],
-) -> Result<Ranked, NegotiationError> {
+pub fn choose_encoding(accept_encoding: Option<&str>, available: &[String]) -> Result<Ranked, NegotiationError> {
     let ranked = rank_encodings(accept_encoding, available)?;
     head_of(ranked)
 }
 
 // ---- languages ----
 
-fn subtag_count(s: &str) -> u32 {
-    let mut n: u32 = 1;
-    for b in s.bytes() {
-        if b == b'-' {
-            n += 1;
-        }
-    }
-    n
-}
-
-// Basic filtering (RFC 4647 §3.3.1): the specificity of `range` on `tag`,
-// or `None` when it does not match.
+// Basic filtering (RFC 4647 §3.3.1): the specificity of `range` on `tag`
+// (its number of subtags), or `None` when it does not match.
 fn language_specificity(range: &str, tag: &str) -> Option<u32> {
     if range == "*" {
         return Some(0);
     }
-    let rl = range.len();
-    let tl = tag.len();
-    if tl < rl {
+    let n = range.len();
+    if tag.len() < n || !tag[..n].eq_ignore_ascii_case(range) || (tag.len() > n && tag.as_bytes()[n] != b'-') {
         return None;
     }
-    if !tag[..rl].eq_ignore_ascii_case(range) {
-        return None;
-    }
-    if tl > rl && tag.as_bytes()[rl] != b'-' {
-        return None;
-    }
-    Some(subtag_count(range))
+    Some(range.split('-').count() as u32)
 }
 
-pub fn rank_languages(
-    accept_language: Option<&str>,
-    available: &[String],
-) -> Result<Vec<Ranked>, NegotiationError> {
-    for (index, a) in available.iter().enumerate() {
-        if !is_language_range(a, false) {
-            return Err(NegotiationError::InvalidAvailable { index });
-        }
+// An absent header is `*`: every tag at q = 1, specificity 0.
+pub fn rank_languages(accept_language: Option<&str>, available: &[String]) -> Result<Vec<Ranked>, NegotiationError> {
+    if let Some(index) = available.iter().position(|a| !is_language_range(a, false)) {
+        return Err(NegotiationError::InvalidAvailable { index });
     }
+    let ranges = parse_accept_language(accept_language.unwrap_or("*"))?;
     let mut out: Vec<Ranked> = Vec::new();
-    match accept_language {
-        None => {
-            for (index, _) in available.iter().enumerate() {
-                out = insert_ranked(
-                    out,
-                    Ranked {
-                        index,
-                        q: FULL,
-                        specificity: 0,
-                    },
-                );
+    for (index, tag) in available.iter().enumerate() {
+        let mut matches: Vec<Ranked> = Vec::new();
+        for r in &ranges {
+            if let Some(specificity) = language_specificity(&r.range, tag) {
+                matches.push(Ranked { index, q: r.q, specificity });
             }
         }
-        Some(field) => {
-            let ranges = parse_accept_language(field)?;
-            for (index, tag) in available.iter().enumerate() {
-                let mut found = false;
-                let mut best_q: u32 = 0;
-                let mut best_s: u32 = 0;
-                for r in &ranges {
-                    match language_specificity(&r.range, tag) {
-                        Some(s) => {
-                            if !found || s > best_s {
-                                found = true;
-                                best_q = r.q;
-                                best_s = s;
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                if found && best_q > 0 {
-                    out = insert_ranked(
-                        out,
-                        Ranked {
-                            index,
-                            q: best_q,
-                            specificity: best_s,
-                        },
-                    );
-                }
-            }
+        if let Some(m) = best_match(&matches) {
+            out.push(m);
         }
     }
-    Ok(out)
+    Ok(by_rank(out))
 }
 
-pub fn choose_language(
-    accept_language: Option<&str>,
-    available: &[String],
-) -> Result<Ranked, NegotiationError> {
+pub fn choose_language(accept_language: Option<&str>, available: &[String]) -> Result<Ranked, NegotiationError> {
     let ranked = rank_languages(accept_language, available)?;
     head_of(ranked)
 }

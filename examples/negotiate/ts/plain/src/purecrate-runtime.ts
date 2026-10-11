@@ -93,6 +93,15 @@ const small = <T extends number>(min: number, max: number) => {
   } as const;
 };
 
+/** `x as T` to a type of 32 bits or fewer: the low `bits` bits, read signed or not, as Rust's `as` wraps. */
+const cast32 =
+  <T extends number>(bits: number, signed: boolean) =>
+  (x: number | bigint): T => {
+    if (typeof x === "bigint") return Number(signed ? BigInt.asIntN(bits, x) : BigInt.asUintN(bits, x)) as T;
+    const s = 32 - bits;
+    return (signed ? (x << s) >> s : (x << s) >>> s) as T;
+  };
+
 /**
  * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
@@ -168,6 +177,11 @@ export const Str = {
     };
     visit(x);
   },
+  /** `str::split_once` with a `char` or a `&str`: the text around the first match. */
+  splitOnce: (s: string, p: string): readonly [string, string] | null => {
+    const i = s.indexOf(p);
+    return i < 0 ? null : [s.slice(0, i), s.slice(i + p.length)];
+  },
   /**
    * `str::eq_ignore_ascii_case`: equal once ASCII `A`..=`Z` are folded to
    * lower case; every other unit compares as it is (no Unicode folding).
@@ -180,6 +194,41 @@ export const Str = {
     }
     return true;
   },
+  /** `str::to_ascii_lowercase`: ASCII `A`..=`Z` only (`toLowerCase` folds all of Unicode). */
+  toAsciiLowercase: (s: string): string => s.replace(/[A-Z]+/g, (m) => m.toLowerCase()),
+  /** `str::trim_start_matches` with a `char`, a `&str`, or a closure on a `char`. */
+  trimStartMatches: (s: string, p: string | ((c: Char) => boolean)): string => trimStart(s, p),
+} as const;
+
+/** `s` without every leading match of `p`: a string as a whole, or a `char` the closure takes. */
+const trimStart = (s: string, p: string | ((c: Char) => boolean)): string => {
+  if (typeof p === "string") {
+    if (p === "") return s;
+    while (s.startsWith(p)) s = s.slice(p.length);
+    return s;
+  }
+  let i = 0;
+  for (const c of s) {
+    if (!p(c as Char)) break;
+    i += c.length;
+  }
+  return s.slice(i);
+};
+
+/** std's `Ordering`, as the crate's `Ordering` declares it. */
+type Ordering = Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
+
+/** An `Ordering` as a comparator's number. */
+const ORDER = { Less: -1, Equal: 0, Greater: 1 } as const;
+
+const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { kind: "Equal" }, { kind: "Greater" }];
+
+/** `cmp` and `Ordering::then`, giving std's `Ordering`. */
+export const Ord = {
+  /** `a.cmp(&b)` on an integer or `bool`: JS `<` orders them as Rust does. */
+  cmp: <T extends number | bigint | boolean>(a: T, b: T): Ordering => ORDERINGS[a < b ? 0 : a === b ? 1 : 2],
+  /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
+  then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
 } as const;
 
 /**
@@ -189,13 +238,50 @@ export const Str = {
  * addition, so it panics where a debug build does.
  */
 export const Iter = {
+  all: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (!f(x)) return false;
+    return true;
+  },
   any: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
     for (const x of xs) if (f(x)) return true;
     return false;
   },
-  /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
-  map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
-    for (const x of xs) yield f(x);
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
+  count: (xs: Iterable<unknown>): Usize => {
+    let n = 0;
+    for (const x of xs) {
+      void x;
+      n++;
+    }
+    return n as Usize;
+  },
+  /** `find(f)`: the first item `f` takes. The items are never `null` (no `Option<Option<_>>`). */
+  find: <T>(xs: Iterable<T>, f: (x: T) => boolean): T | null => {
+    for (const x of xs) if (f(x)) return x;
+    return null;
+  },
+  /** `min()` / `min_by(f)`: the first of the least. */
+  minBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => {
+    let best: T | null = null;
+    for (const x of xs) if (best === null || f(best, x).kind === "Greater") best = x;
+    return best;
+  },
+  /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
+  tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {
+    const out: T[] = [];
+    for (const x of xs) {
+      const r = f(x);
+      if (r.kind === "Err") return r;
+      out.push(r.value);
+    }
+    return Result.ok(out);
   },
 } as const;
 
@@ -208,10 +294,12 @@ export const Slice = {
     }
     return xs[i] as T;
   },
-  /** `v.insert(i, x)` on a local's own array. */
-  insert: <T>(xs: T[], i: Usize, x: T): void => {
-    if (i > xs.length) throw new Panic(`insertion index (is ${i}) should be <= len (is ${xs.length})`);
-    xs.splice(i, 0, x);
+  /**
+   * `v.sort()` / `v.sort_by(f)` on a local's own array: stable, as JS `sort`
+   * is since ES2019, so equal elements keep their order as in Rust.
+   */
+  sortBy: <T>(xs: T[], f: (a: T, b: T) => Ordering): void => {
+    xs.sort((a, b) => ORDER[f(a, b).kind]);
   },
 } as const;
 
@@ -297,11 +385,9 @@ export const Char = {
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {
-  u8: {
-    ...small<U8>(0, 255),
-  },
   u32: {
     ...small<U32>(0, 4294967295),
+    cast: cast32<U32>(32, false),
   },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.

@@ -16,24 +16,6 @@ import type { GeoError } from "./geo-error.ts";
 import { LatLng } from "./lat-lng.ts";
 import type { Precision } from "./precision.ts";
 
-const intToF64 = (v: I64): F64 => {
-  const negative = v < 0n;
-  let m: I64 = negative ? Int.i64.neg(v) : v;
-  let p = 1.0 as F64;
-  let out = 0.0 as F64;
-
-  while (m > 0n) {
-    if (Int.i64.rem(m, 2n as I64) === 1n) {
-      out = (out + p) as F64;
-    }
-
-    m = Int.i64.div(m, 2n as I64);
-    p = (p * (2.0 as F64)) as F64;
-  }
-
-  return negative ? ((out * -1) as F64) : out;
-};
-
 const unzigzag = (u: I64): I64 =>
   Int.i64.and(u, 1n as I64) !== 0n ? Int.i64.not(Int.i64.shr(u, 1)) : Int.i64.shr(u, 1);
 
@@ -42,13 +24,14 @@ export const decodePolyline = (
   precision: Precision,
 ): Result<ReadonlyArray<LatLng>, GeoError> => {
   Str.wellFormed(text);
-  const bytes = Str.bytes(text);
   const values: Array<I64> = [];
   let acc = 0n as I64;
   let shift = 0 as U32;
-  let i = 0 as Usize;
-  while (i < bytes.length) {
-    const b: U8 = Slice.at(bytes, i);
+  let i2 = 0 as Usize;
+
+  for (const b of Str.bytes(text)) {
+    const i = i2;
+    i2 = Int.usize.add(i2, 1 as Usize);
     if (b < 63 || b > 126) return Result.err({ kind: "InvalidChar", value: i });
     if (shift > 30) return Result.err({ kind: "Overflow", value: i });
     const chunk = globalThis.BigInt(Int.u8.sub(b, 63 as U8)) as I64;
@@ -62,8 +45,6 @@ export const decodePolyline = (
       acc = 0n as I64;
       shift = 0 as U32;
     }
-
-    i = Int.usize.add(i, 1 as Usize);
   }
 
   if (shift !== 0) return Result.err({ kind: "Truncated" });
@@ -77,7 +58,10 @@ export const decodePolyline = (
   while (k < values.length) {
     lat = Int.i64.add(lat, Slice.at(values, k));
     lng = Int.i64.add(lng, Slice.at(values, Int.usize.add(k, 1 as Usize)));
-    const newResult = LatLng.new((intToF64(lat) / f) as F64, (intToF64(lng) / f) as F64);
+    const newResult = LatLng.new(
+      ((globalThis.Number(lat) as F64) / f) as F64,
+      ((globalThis.Number(lng) as F64) / f) as F64,
+    );
     if (newResult.kind === "Err") return newResult;
     points.push(newResult.value);
     k = Int.usize.add(k, 2 as Usize);

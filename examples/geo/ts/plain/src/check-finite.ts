@@ -4,7 +4,7 @@ import { Result, type F64 } from "./purecrate-runtime.ts";
 import type { GeoError } from "./geo-error.ts";
 
 export const checkFinite = (x: F64): Result<undefined, GeoError> => {
-  if (x !== x) return Result.err({ kind: "NotANumber" });
-  if (((x - x) as F64) !== (0.0 as F64)) return Result.err({ kind: "Infinite" });
+  if (globalThis.Number.isNaN(x)) return Result.err({ kind: "NotANumber" });
+  if (globalThis.Math.abs(x) === globalThis.Infinity) return Result.err({ kind: "Infinite" });
   return Result.ok(undefined);
 };

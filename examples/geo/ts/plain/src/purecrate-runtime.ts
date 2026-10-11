@@ -96,7 +96,6 @@ const small = <T extends number>(min: number, max: number) => {
       b === 0
         ? panic("calculate the remainder with a divisor of zero")
         : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
-    neg: (a: T): T => fit(-a, "negate"),
   } as const;
 };
 
@@ -115,9 +114,30 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
       n(b) === 0n
         ? panic("calculate the remainder with a divisor of zero")
         : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
-    neg: (a: T): T => fit(-n(a), "negate"),
   } as const;
 };
+
+/** `x as T` to a type of 32 bits or fewer: the low `bits` bits, read signed or not, as Rust's `as` wraps. */
+const cast32 =
+  <T extends number>(bits: number, signed: boolean) =>
+  (x: number | bigint): T => {
+    if (typeof x === "bigint") return Number(signed ? BigInt.asIntN(bits, x) : BigInt.asUintN(bits, x)) as T;
+    const s = 32 - bits;
+    return (signed ? (x << s) >> s : (x << s) >>> s) as T;
+  };
+
+/** Rust's `round`: half away from zero (`Math.round` takes half up), `-0.0` kept. */
+const roundHalfAway = (x: number): number => (x < 0 ? Math.round(x * -1) * -1 : Math.round(x));
+
+/**
+ * `x as T` from a float to an integer, as Rust's `as` does: toward zero,
+ * saturating at `lo` and `hi`, NaN to 0. `to` makes the runtime value (for
+ * `usize`, throwing above 2^53−1).
+ */
+const castFloat =
+  <T>(lo: bigint, hi: bigint, to: (n: bigint) => T) =>
+  (x: number): T =>
+    to(Number.isNaN(x) ? 0n : x <= Number(lo) ? lo : x >= Number(hi) ? hi : BigInt(Math.trunc(x)));
 
 /**
  * The amount of a shift, of any integer type. A debug build panics unless it
@@ -203,6 +223,23 @@ export const Str = {
   },
 } as const;
 
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
   /** `xs[i]`. */
@@ -272,10 +309,12 @@ export const Char = {
 export const Int = {
   u8: {
     ...small<U8>(0, 255),
+    cast: cast32<U8>(8, false),
   },
   u32: {
     ...small<U32>(0, 4294967295),
     ...bits32<U32>(32, false),
+    cast: cast32<U32>(32, false),
   },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
@@ -285,9 +324,11 @@ export const Int = {
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
     ...bitsBig<I64>(64, true),
+    castFloat: castFloat(-9223372036854775808n, 9223372036854775807n, (n) => n as I64),
   },
   f64: {
     of: (value: number): F64 => value as F64,
+    round: (x: number): F64 => roundHalfAway(x) as F64,
   },
 } as const;
 

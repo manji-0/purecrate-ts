@@ -4,5 +4,4 @@ import { Ord } from "./purecrate-runtime.ts";
 import type { Ordering } from "./ordering.ts";
 import type { Ulid } from "./ulid.ts";
 
-export const compare = (a: Ulid, b: Ulid): Ordering =>
-  Ord.then(Ord.cmp(a.hi, b.hi), Ord.cmp(a.lo, b.lo));
+export const compare = (a: Ulid, b: Ulid): Ordering => Ord.cmp(a, b);

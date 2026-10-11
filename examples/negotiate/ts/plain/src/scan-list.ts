@@ -3,7 +3,6 @@
 import {
   Char,
   Int,
-  Iter,
   Result,
   Slice,
   Str,
@@ -13,183 +12,140 @@ import {
 } from "./purecrate-runtime.ts";
 import { FULL } from "./consts.ts";
 import { unsafeMakeElement, type Element } from "./element.ts";
+import { isTchar } from "./is-tchar.ts";
+import { malformed } from "./malformed.ts";
 import type { MediaParameter } from "./media-parameter.ts";
 import type { NegotiationError } from "./negotiation-error.ts";
-import { tokenEnd } from "./token-end.ts";
 
-const skipOws = (b: ReadonlyArray<U8>, start: Usize): Usize => {
-  let i: Usize = start;
-  while (i < b.length && (Slice.at(b, i) === /* ' ' */ 32 || Slice.at(b, i) === /* '\t' */ 9)) {
-    i = Int.usize.add(i, 1 as Usize);
-  }
+const isCtl = (b: U8): boolean => (b < 0x20 && b !== /* '\t' */ 9) || b === 0x7f;
 
-  return i;
+const skipOws = (s: string, start: Usize): Usize =>
+  Int.usize.sub(
+    Str.len(s),
+    Str.len(
+      Str.trimStartMatches(Str.slice(s, start), (c: Char): boolean => c === " " || c === "\t"),
+    ),
+  );
+
+const tokenEnd = (s: string, start: Usize): Result<Usize, NegotiationError> => {
+  const end = Int.usize.sub(
+    Str.len(s),
+    Str.len(Str.trimStartMatches(Str.slice(s, start), isTchar)),
+  );
+  if (end === start) return Result.err(malformed(start));
+  return Result.ok(end);
 };
 
-const lower = (s: string): string =>
-  Array.from(Iter.map(s as Iterable<Char>, (c: Char): Char => Char.toAsciiLowercase(c))).join("");
+const readValue = (s: string, start: Usize): Result<readonly [string, Usize], NegotiationError> => {
+  if (!Str.slice(s, start).startsWith('"')) {
+    const endResult = tokenEnd(s, start);
+    if (endResult.kind === "Err") return endResult;
+    const end = endResult.value;
+    return Result.ok([Str.slice(s, start, end), end]);
+  }
 
-const readQuoted = (
-  s: string,
-  start: Usize,
-): Result<readonly [string, Usize], NegotiationError> => {
   const b = Str.bytes(s);
   let out: string = "";
-  let i: Usize = Int.usize.add(start, 1 as Usize);
-  let chunk: Usize = i;
-
-  while (i < b.length) {
-    const c: U8 = Slice.at(b, i);
-    if (c === /* '\"' */ 34) {
-      out += Str.slice(s, chunk, i);
-      return Result.ok([out, Int.usize.add(i, 1 as Usize)]);
-    }
-
-    if (c === /* '\\' */ 92) {
-      if (Int.usize.add(i, 1 as Usize) >= b.length)
-        return Result.err({ kind: "Malformed", offset: i });
-      const e: U8 = Slice.at(b, Int.usize.add(i, 1 as Usize));
-      if (!(e === /* '\t' */ 9 || e >= 0x20) || e === 0x7f)
-        return Result.err({ kind: "Malformed", offset: Int.usize.add(i, 1 as Usize) });
+  let chunk: Usize = Int.usize.add(start, 1 as Usize);
+  let i: Usize = chunk;
+  while (i < b.length && Slice.at(b, i) !== /* '\"' */ 34) {
+    if (Slice.at(b, i) === /* '\\' */ 92) {
+      if (Int.usize.add(i, 1 as Usize) === b.length) return Result.err(malformed(i));
       out += Str.slice(s, chunk, i);
       chunk = Int.usize.add(i, 1 as Usize);
-      i = Int.usize.add(i, 2 as Usize);
-      continue;
+      i = Int.usize.add(i, 1 as Usize);
     }
 
-    if (!(c === /* '\t' */ 9 || c >= 0x20) || c === 0x7f)
-      return Result.err({ kind: "Malformed", offset: i });
+    if (isCtl(Slice.at(b, i))) return Result.err(malformed(i));
     i = Int.usize.add(i, 1 as Usize);
   }
 
-  return Result.err({ kind: "Malformed", offset: i });
+  if (i === b.length) return Result.err(malformed(i));
+  out += Str.slice(s, chunk, i);
+  return Result.ok([out, Int.usize.add(i, 1 as Usize)]);
 };
 
 const readQvalue = (v: string): U32 | null => {
-  const b = Str.bytes(v);
-  if (b.length === 0 || b.length > 5) return null;
-
-  let whole: U32;
-  const value = Slice.at(b, 0);
-  if (value === /* '0' */ 48) {
-    whole = 0 as U32;
-  } else if (value === /* '1' */ 49) {
-    whole = 1 as U32;
-  } else {
-    return null;
-  }
-
-  if (b.length === 1) return Int.u32.mul(whole, FULL);
-  if (Slice.at(b, 1) !== /* '.' */ 46) return null;
-  let frac = 0 as U32;
+  const opt = Str.splitOnce(v, ".");
+  const tuple: readonly [string, string] = opt ?? [v, ""];
+  const whole = tuple[0];
+  const frac = tuple[1];
+  if (Str.len(frac) > 3) return null;
+  let q = 0 as U32;
   let scale = 100 as U32;
-  let i = 2 as Usize;
-  while (i < b.length) {
-    const d: U8 = Slice.at(b, i);
-    if (!(d >= /* '0' */ 48 && d <= /* '9' */ 57)) return null;
-    frac = Int.u32.add(
-      frac,
-      Int.u32.mul(Int.u8.sub(d, /* '0' */ 48 as U8) as number as U32, scale),
-    );
+
+  for (const c of frac as Iterable<Char>) {
+    const opt2 = Char.toDigit(c, 10 as U32);
+    if (opt2 === null) return null;
+    q = Int.u32.add(q, Int.u32.mul(opt2, scale));
     scale = Int.u32.div(scale, 10 as U32);
-    i = Int.usize.add(i, 1 as Usize);
   }
 
-  if (whole === 1 && frac !== 0) return null;
-  return Int.u32.add(Int.u32.mul(whole, FULL), frac);
+  if (whole === "0") return q;
+  return whole === "1" && q === 0 ? FULL : null;
 };
 
 export const scanList = (
   s: string,
   slashed: boolean,
 ): Result<ReadonlyArray<Element>, NegotiationError> => {
-  const b = Str.bytes(s);
-  const n = b.length as Usize;
   const out: Array<Element> = [];
-  let i = 0 as Usize;
-  while (i < n) {
-    i = skipOws(b, i);
-    if (i >= n) break;
-
-    if (Slice.at(b, i) === /* ',' */ 44) {
-      i = Int.usize.add(i, 1 as Usize);
+  let i: Usize = skipOws(s, 0 as Usize);
+  while (i < Str.len(s)) {
+    if (Str.slice(s, i).startsWith(",")) {
+      i = skipOws(s, Int.usize.add(i, 1 as Usize));
       continue;
     }
 
     const at = i;
-    const headEnd = tokenEnd(b, i);
-    if (headEnd === i) return Result.err({ kind: "Malformed", offset: i });
-    const head = lower(Str.slice(s, i, headEnd));
-    i = headEnd;
+    const tokenEndResult = tokenEnd(s, at);
+    if (tokenEndResult.kind === "Err") return tokenEndResult;
+    i = tokenEndResult.value;
+    const head = Str.toAsciiLowercase(Str.slice(s, at, i));
     let tail: string = "";
 
     if (slashed) {
-      if (i >= n || Slice.at(b, i) !== /* '/' */ 47)
-        return Result.err({ kind: "Malformed", offset: i });
-      const tailEnd = tokenEnd(b, Int.usize.add(i, 1 as Usize));
-      if (tailEnd === Int.usize.add(i, 1 as Usize))
-        return Result.err({ kind: "Malformed", offset: Int.usize.add(i, 1 as Usize) });
-      tail = lower(Str.slice(s, Int.usize.add(i, 1 as Usize), tailEnd));
-      i = tailEnd;
+      if (!Str.slice(s, i).startsWith("/")) return Result.err(malformed(i));
+      const start = Int.usize.add(i, 1 as Usize);
+      const tokenEndResult2 = tokenEnd(s, start);
+      if (tokenEndResult2.kind === "Err") return tokenEndResult2;
+      i = tokenEndResult2.value;
+      tail = Str.toAsciiLowercase(Str.slice(s, start, i));
     }
 
     const params: Array<MediaParameter> = [];
-    let q: U32 = FULL;
-    let weighted = false;
-    let more = true;
-    while (more) {
-      const j = skipOws(b, i);
-      if (j < n && Slice.at(b, j) === /* ';' */ 59) {
-        i = skipOws(b, Int.usize.add(j, 1 as Usize));
-        if (i >= n || Slice.at(b, i) === /* ';' */ 59 || Slice.at(b, i) === /* ',' */ 44) continue;
-        const nameEnd = tokenEnd(b, i);
-        if (nameEnd === i) return Result.err({ kind: "Malformed", offset: i });
-        const name = lower(Str.slice(s, i, nameEnd));
-        if (nameEnd >= n || Slice.at(b, nameEnd) !== /* '=' */ 61)
-          return Result.err({ kind: "Malformed", offset: nameEnd });
-        const vstart = Int.usize.add(nameEnd, 1 as Usize);
-        let quoted = false;
-        let value: string = "";
+    let q: U32 | null = null;
 
-        if (vstart < n && Slice.at(b, vstart) === /* '\"' */ 34) {
-          const rResult = readQuoted(s, vstart);
-          if (rResult.kind === "Err") return rResult;
-          const r = rResult.value;
-          const v = r[0];
-          const after = r[1];
-          value = v;
-          i = after;
-          quoted = true;
-        } else {
-          const vend = tokenEnd(b, vstart);
-          if (vend === vstart) return Result.err({ kind: "Malformed", offset: vstart });
-          value += Str.slice(s, vstart, vend);
-          i = vend;
-        }
+    while (Str.slice(s, skipOws(s, i)).startsWith(";")) {
+      i = skipOws(s, Int.usize.add(skipOws(s, i), 1 as Usize));
+      if (i === Str.len(s) || Str.slice(s, i).startsWith(";") || Str.slice(s, i).startsWith(","))
+        continue;
+      const nameEndResult = tokenEnd(s, i);
+      if (nameEndResult.kind === "Err") return nameEndResult;
+      const nameEnd = nameEndResult.value;
+      const name = Str.toAsciiLowercase(Str.slice(s, i, nameEnd));
+      if (!Str.slice(s, nameEnd).startsWith("=")) return Result.err(malformed(nameEnd));
+      const start = Int.usize.add(nameEnd, 1 as Usize);
+      const result = readValue(s, start);
+      if (result.kind === "Err") return result;
+      const [value, after] = result.value;
+      i = after;
 
-        if (name === "q") {
-          if (weighted || quoted) return Result.err({ kind: "Malformed", offset: vstart });
-          const option = readQvalue(value);
-          if (option !== null) {
-            const w = option;
-            q = w;
-          } else {
-            return Result.err({ kind: "Malformed", offset: vstart });
-          }
-
-          weighted = true;
-        } else {
-          params.push({ name, value });
-        }
-      } else {
-        more = false;
+      if (name !== "q") {
+        params.push({ name, value });
+        continue;
       }
+
+      if (q !== null || Str.slice(s, start).startsWith('"')) return Result.err(malformed(start));
+      const opt = readQvalue(value);
+      const optOr = malformed(start);
+      if (opt === null) return Result.err(optOr);
+      q = opt;
     }
 
-    i = skipOws(b, i);
-    if (i < n && Slice.at(b, i) !== /* ',' */ 44)
-      return Result.err({ kind: "Malformed", offset: i });
-    out.push(unsafeMakeElement({ head, tail, params, q, weighted, at }));
+    i = skipOws(s, i);
+    if (i < Str.len(s) && !Str.slice(s, i).startsWith(",")) return Result.err(malformed(i));
+    out.push(unsafeMakeElement({ head, tail, params, q: q ?? FULL, weighted: q !== null, at }));
   }
 
   return Result.ok(out);

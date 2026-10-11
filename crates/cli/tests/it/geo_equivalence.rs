@@ -1,5 +1,6 @@
 //! `examples/geo`, Google's Encoded Polyline Algorithm Format at precision 5
-//! and 6, and Geohash, on `f64` with no float methods:
+//! and 6, and Geohash, on `f64` (written from the skill alone with no float
+//! methods, then rewritten with them in 0.13.1):
 //!
 //! - Google's worked examples come out as published (the three points and
 //!   -179.9832104 alone), and its text decodes back to the same doubles;
@@ -19,10 +20,9 @@
 //!   over an alphabet reaching past 63..=126; every geohash length 1..=12
 //!   over a grid of points on cell boundaries and one ulp off them, and
 //!   every hash so made decoded back. No last-bit difference is expected:
-//!   `split_magnitude` subtracts a power of two `p` from a value in
-//!   `[p, 2p)`, which is exact, so the fraction it compares with 0.5 is the
-//!   exact one `f64::round` sees; `int_to_f64` adds powers of two below
-//!   2^53, exact as `as f64`; geohash midpoints are dyadic;
+//!   both sides call `round` and `as f64` now (the first version rounded by
+//!   subtracting powers of two, exact, and passed the same cases); geohash
+//!   midpoints are dyadic;
 //! - the generated package agrees with Rust on a sample of each, `-0.0`,
 //!   half units and errors over-represented.
 

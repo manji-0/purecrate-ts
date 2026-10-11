@@ -257,6 +257,61 @@ export const Str = {
     };
     visit(x);
   },
+  /** `str::strip_prefix` with a `&str`. */
+  stripPrefix: (s: string, p: string): string | null => (s.startsWith(p) ? s.slice(p.length) : null),
+} as const;
+
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  all: <T>(xs: Iterable<T>, f: (x: T) => boolean): boolean => {
+    for (const x of xs) if (!f(x)) return false;
+    return true;
+  },
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
+  /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
+  tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {
+    const out: T[] = [];
+    for (const x of xs) {
+      const r = f(x);
+      if (r.kind === "Err") return r;
+      out.push(r.value);
+    }
+    return Result.ok(out);
+  },
+} as const;
+
+/** Rust's `==` where `derive(PartialEq)` (or std) compares part by part. */
+export const Eq = {
+  /**
+   * The values compare equal as the derived `eq` does: a number, `bigint`,
+   * string, `boolean`, or `undefined` by `===` (so NaN is unequal to itself,
+   * and `-0.0` equal to `0.0`, as in Rust), `null` (`None`) only to itself,
+   * an array element by element, and an object (a struct, or a variant with
+   * its `kind`) key by key.
+   */
+  deep: (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (Array.isArray(a)) {
+      return Array.isArray(b) && a.length === b.length && a.every((x, i) => Eq.deep(x, b[i]));
+    }
+    const x = a as Record<string, unknown>;
+    const y = b as Record<string, unknown>;
+    const keys = Object.keys(x);
+    return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
@@ -268,10 +323,30 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /**
+   * `&xs[a..b]`, with `null` for an open end (`&xs[a..]`, `&xs[..b]`).
+   * Checks the start, then the end, then their order, as Rust reports them.
+   */
+  range: <T>(xs: ReadonlyArray<T>, a: number | null, b: number | null): ReadonlyArray<T> => {
+    if (a !== null && a > xs.length) throw new Panic(`range start index ${a} out of range for slice of length ${xs.length}`);
+    if (b !== null && b > xs.length) throw new Panic(`range end index ${b} out of range for slice of length ${xs.length}`);
+    if (a !== null && b !== null && a > b) throw new Panic(`slice index starts at ${a} but ends at ${b}`);
+    return xs.slice(a ?? 0, b ?? xs.length);
+  },
   /** `v.insert(i, x)` on a local's own array. */
   insert: <T>(xs: T[], i: Usize, x: T): void => {
     if (i > xs.length) throw new Panic(`insertion index (is ${i}) should be <= len (is ${xs.length})`);
     xs.splice(i, 0, x);
+  },
+  /** `v.remove(i)` on a local's own array. */
+  remove: <T>(xs: T[], i: Usize): T => {
+    if (i >= xs.length) throw new Panic(`removal index (is ${i}) should be < len (is ${xs.length})`);
+    return xs.splice(i, 1)[0] as T;
+  },
+  /** `v[i] = x` on a local's own array, which JS would grow past its end. */
+  set: <T>(xs: T[], i: Usize, x: T): void => {
+    if (i >= xs.length) throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
+    xs[i] = x;
   },
 } as const;
 
@@ -366,6 +441,7 @@ export const Int = {
   usize: {
     ...small<Usize>(0, 9007199254740991),
     parse: parser(0n, 18446744073709551615n, false, small64),
+    cast: (x: number | bigint): Usize => (typeof x === "number" && x >= 0 ? (x as Usize) : small64(BigInt.asUintN(64, BigInt(x)))),
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),

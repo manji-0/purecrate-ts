@@ -3,31 +3,28 @@
 import {
   Char,
   Int,
+  Iter,
   Result,
   Slice,
   Str,
+  type U128,
+  type U32,
   type U64,
   type U8,
   type Usize,
 } from "./purecrate-runtime.ts";
 import {
-  ALL_ONES,
+  ALPHABET,
   BINARY_LEN,
   ENCODED_LEN,
-  LOW_16,
   MAX_TIMESTAMP,
+  RANDOMNESS,
   RANDOMNESS_LEN,
 } from "./consts.ts";
 import type { UlidError } from "./ulid-error.ts";
 
-declare class Ulid$brand {
-  private brand: unknown;
-}
-export type Ulid = Readonly<{
-  hi: U64;
-  lo: U64;
-}> &
-  Ulid$brand;
+declare const Ulid$brand: unique symbol;
+export type Ulid = U128 & { readonly [Ulid$brand]: true };
 
 /**
  * Makes `Ulid` values without a check.
@@ -37,72 +34,68 @@ export type Ulid = Readonly<{
  * `index.ts` does not export it.
  * @internal
  */
-export const unsafeMakeUlid = (fields: Readonly<{ hi: U64; lo: U64 }>): Ulid => fields as Ulid;
+export const unsafeMakeUlid = (value: U128): Ulid => value as Ulid;
 
 export const Ulid = {
   new: (timestampMs: U64, randomness: ReadonlyArray<U8>): Result<Ulid, UlidError> => {
     if (timestampMs > MAX_TIMESTAMP) return Result.err({ kind: "TimestampTooLarge" });
     if (randomness.length !== RANDOMNESS_LEN) return Result.err({ kind: "WrongRandomnessLength" });
-    const hi = Int.u64.or(
-      Int.u64.or(
-        Int.u64.shl(timestampMs, 16),
-        Int.u64.shl(globalThis.BigInt(Slice.at(randomness, 0)) as U64, 8),
-      ),
-      globalThis.BigInt(Slice.at(randomness, 1)) as U64,
-    );
-    let lo = 0n as U64;
+    let value = timestampMs as bigint as U128;
 
-    for (let i = 2 as Usize, end = RANDOMNESS_LEN; i < end; i = (i + 1) as Usize) {
-      lo = Int.u64.or(Int.u64.shl(lo, 8), globalThis.BigInt(Slice.at(randomness, i)) as U64);
+    for (const b of randomness) {
+      value = Int.u128.or(Int.u128.shl(value, 8), globalThis.BigInt(b) as U128);
     }
 
-    return Result.ok(unsafeMakeUlid({ hi, lo }));
+    return Result.ok(unsafeMakeUlid(value));
   },
   parse: (text: string): Result<Ulid, UlidError> => {
     Str.wellFormed(text);
     if (Str.len(text) !== ENCODED_LEN) return Result.err({ kind: "WrongLength" });
-    let hi = 0n as U64;
-    let lo = 0n as U64;
-    let first = 0n as U64;
+    let value = 0n as U128;
+    let first = 0 as Usize;
     let position = 0 as Usize;
 
     for (const c of text as Iterable<Char>) {
-      const v = symbolValue(c);
+      const upper = Char.toAsciiUppercase(c);
+      const v = Iter.position(ALPHABET, (a: U8): boolean => Char.fromU8(a) === upper);
       if (v === null) return Result.err({ kind: "InvalidCharacter", position });
 
       if (position === 0) {
         first = v;
       }
 
-      hi = Int.u64.or(Int.u64.shl(hi, 5), Int.u64.shr(lo, 59));
-      lo = Int.u64.or(Int.u64.shl(lo, 5), v);
+      value = Int.u128.or(Int.u128.shl(value, 5), Int.u128.cast(v));
       position = Int.usize.add(position, 1 as Usize);
     }
 
-    if (first > 7n) return Result.err({ kind: "Overflow" });
-    return Result.ok(unsafeMakeUlid({ hi, lo }));
+    if (first > 7) return Result.err({ kind: "Overflow" });
+    return Result.ok(unsafeMakeUlid(value));
   },
   fromBytes: (bytes: ReadonlyArray<U8>): Result<Ulid, UlidError> => {
     if (bytes.length !== BINARY_LEN) return Result.err({ kind: "WrongByteLength" });
-    let hi = 0n as U64;
-    let lo = 0n as U64;
+    let value = 0n as U128;
 
-    for (let i = 0 as Usize; i < 8; i = (i + 1) as Usize) {
-      hi = Int.u64.or(Int.u64.shl(hi, 8), globalThis.BigInt(Slice.at(bytes, i)) as U64);
-      lo = Int.u64.or(
-        Int.u64.shl(lo, 8),
-        globalThis.BigInt(Slice.at(bytes, Int.usize.add(i, 8 as Usize))) as U64,
-      );
+    for (const b of bytes) {
+      value = Int.u128.or(Int.u128.shl(value, 8), globalThis.BigInt(b) as U128);
     }
 
-    return Result.ok(unsafeMakeUlid({ hi, lo }));
+    return Result.ok(unsafeMakeUlid(value));
   },
   encode: (self: Ulid): string => {
     let out: string = "";
 
-    for (let i = 0n as U64; i < 26n; i = (i + 1n) as U64) {
-      const shift = Int.u64.sub(125n as U64, Int.u64.mul(5n as U64, i));
-      out += valueSymbol(group(self.hi, self.lo, shift));
+    for (let i = 0 as U32; i < 26; i = (i + 1) as U32) {
+      out += Char.fromU8(
+        Slice.at(
+          ALPHABET,
+          Int.usize.cast(
+            Int.u128.and(
+              Int.u128.shr(self, Int.u32.sub(125 as U32, Int.u32.mul(5 as U32, i))),
+              31n as U128,
+            ),
+          ),
+        ),
+      );
     }
 
     return out;
@@ -110,23 +103,18 @@ export const Ulid = {
   toBytes: (self: Ulid): ReadonlyArray<U8> => {
     const out: Array<U8> = [];
 
-    for (let i = 0n as U64; i < 8n; i = (i + 1n) as U64) {
-      out.push(lowByte(Int.u64.shr(self.hi, Int.u64.sub(56n as U64, Int.u64.mul(8n as U64, i)))));
-    }
-
-    for (let i = 0n as U64; i < 8n; i = (i + 1n) as U64) {
-      out.push(lowByte(Int.u64.shr(self.lo, Int.u64.sub(56n as U64, Int.u64.mul(8n as U64, i)))));
+    for (let i = 0 as U32; i < 16; i = (i + 1) as U32) {
+      out.push(Int.u8.cast(Int.u128.shr(self, Int.u32.sub(120 as U32, Int.u32.mul(8 as U32, i)))));
     }
 
     return out;
   },
-  timestampMs: (self: Ulid): U64 => Int.u64.shr(self.hi, 16),
+  timestampMs: (self: Ulid): U64 => Int.u64.cast(Int.u128.shr(self, 80)),
   randomness: (self: Ulid): ReadonlyArray<U8> => {
-    const bytes = Ulid.toBytes(self);
     const out: Array<U8> = [];
 
-    for (let i = 6 as Usize, end = BINARY_LEN; i < end; i = (i + 1) as Usize) {
-      out.push(Slice.at(bytes, i));
+    for (let i = 0 as U32; i < 10; i = (i + 1) as U32) {
+      out.push(Int.u8.cast(Int.u128.shr(self, Int.u32.sub(72 as U32, Int.u32.mul(8 as U32, i)))));
     }
 
     return out;
@@ -135,105 +123,7 @@ export const Ulid = {
 
 /** @internal */
 export const ulidIncrement = (self: Ulid): Result<Ulid, UlidError> => {
-  if (self.lo !== ALL_ONES)
-    return Result.ok(unsafeMakeUlid({ hi: self.hi, lo: Int.u64.add(self.lo, 1n as U64) }));
-  if (Int.u64.and(self.hi, LOW_16) === LOW_16) return Result.err({ kind: "RandomnessExhausted" });
-  return Result.ok(unsafeMakeUlid({ hi: Int.u64.add(self.hi, 1n as U64), lo: 0n as U64 }));
-};
-
-const group = (hi: U64, lo: U64, shift: U64): U64 =>
-  shift >= 64n
-    ? Int.u64.and(Int.u64.shr(hi, Int.u64.sub(shift, 64n as U64)), 31n as U64)
-    : Int.u64.add(shift, 5n as U64) <= 64n
-      ? Int.u64.and(Int.u64.shr(lo, shift), 31n as U64)
-      : Int.u64.and(
-          Int.u64.or(Int.u64.shr(lo, shift), Int.u64.shl(hi, Int.u64.sub(64n as U64, shift))),
-          31n as U64,
-        );
-
-const lowByte = (v: U64): U8 => {
-  let b = 0 as U8;
-
-  for (let k = 0n as U64; k < 8n; k = (k + 1n) as U64) {
-    if (Int.u64.and(Int.u64.shr(v, Int.u64.sub(7n as U64, k)), 1n as U64) === 1n) {
-      b = Int.u8.add(Int.u8.mul(b, 2 as U8), 1 as U8);
-    } else {
-      b = Int.u8.mul(b, 2 as U8);
-    }
-  }
-
-  return b;
-};
-
-const valueSymbol = (v: U64): Char => {
-  if (v === 0n) return "0" as Char;
-  if (v === 1n) return "1" as Char;
-  if (v === 2n) return "2" as Char;
-  if (v === 3n) return "3" as Char;
-  if (v === 4n) return "4" as Char;
-  if (v === 5n) return "5" as Char;
-  if (v === 6n) return "6" as Char;
-  if (v === 7n) return "7" as Char;
-  if (v === 8n) return "8" as Char;
-  if (v === 9n) return "9" as Char;
-  if (v === 10n) return "A" as Char;
-  if (v === 11n) return "B" as Char;
-  if (v === 12n) return "C" as Char;
-  if (v === 13n) return "D" as Char;
-  if (v === 14n) return "E" as Char;
-  if (v === 15n) return "F" as Char;
-  if (v === 16n) return "G" as Char;
-  if (v === 17n) return "H" as Char;
-  if (v === 18n) return "J" as Char;
-  if (v === 19n) return "K" as Char;
-  if (v === 20n) return "M" as Char;
-  if (v === 21n) return "N" as Char;
-  if (v === 22n) return "P" as Char;
-  if (v === 23n) return "Q" as Char;
-  if (v === 24n) return "R" as Char;
-  if (v === 25n) return "S" as Char;
-  if (v === 26n) return "T" as Char;
-  if (v === 27n) return "V" as Char;
-  if (v === 28n) return "W" as Char;
-  if (v === 29n) return "X" as Char;
-  if (v === 30n) return "Y" as Char;
-  if (v === 31n) return "Z" as Char;
-  return "?" as Char;
-};
-
-const symbolValue = (c: Char): U64 | null => {
-  const value = Char.toAsciiUppercase(c);
-  if (value === "0") return 0n as U64;
-  if (value === "1") return 1n as U64;
-  if (value === "2") return 2n as U64;
-  if (value === "3") return 3n as U64;
-  if (value === "4") return 4n as U64;
-  if (value === "5") return 5n as U64;
-  if (value === "6") return 6n as U64;
-  if (value === "7") return 7n as U64;
-  if (value === "8") return 8n as U64;
-  if (value === "9") return 9n as U64;
-  if (value === "A") return 10n as U64;
-  if (value === "B") return 11n as U64;
-  if (value === "C") return 12n as U64;
-  if (value === "D") return 13n as U64;
-  if (value === "E") return 14n as U64;
-  if (value === "F") return 15n as U64;
-  if (value === "G") return 16n as U64;
-  if (value === "H") return 17n as U64;
-  if (value === "J") return 18n as U64;
-  if (value === "K") return 19n as U64;
-  if (value === "M") return 20n as U64;
-  if (value === "N") return 21n as U64;
-  if (value === "P") return 22n as U64;
-  if (value === "Q") return 23n as U64;
-  if (value === "R") return 24n as U64;
-  if (value === "S") return 25n as U64;
-  if (value === "T") return 26n as U64;
-  if (value === "V") return 27n as U64;
-  if (value === "W") return 28n as U64;
-  if (value === "X") return 29n as U64;
-  if (value === "Y") return 30n as U64;
-  if (value === "Z") return 31n as U64;
-  return null;
+  if (Int.u128.and(self, RANDOMNESS) === RANDOMNESS)
+    return Result.err({ kind: "RandomnessExhausted" });
+  return Result.ok(unsafeMakeUlid(Int.u128.add(self, 1n as U128)));
 };

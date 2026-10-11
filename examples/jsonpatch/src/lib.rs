@@ -129,18 +129,11 @@ pub struct Pointer {
 impl Pointer {
     /// Reads a pointer in its plain form (`""`, `"/a~1b/0"`).
     pub fn parse(text: &str) -> Result<Pointer, PointerError> {
-        let mut tokens: Vec<String> = Vec::new();
         if text.is_empty() {
-            return Ok(Pointer { tokens });
+            return Ok(Pointer { tokens: Vec::new() });
         }
-        if !text.starts_with("/") {
-            return Err(PointerError::MissingSlash);
-        }
-        let rest = &text[1..text.len()];
-        for piece in rest.split('/') {
-            let token = unescape_token(piece)?;
-            tokens.push(token);
-        }
+        let rest = text.strip_prefix("/").ok_or(PointerError::MissingSlash)?;
+        let tokens = rest.split('/').map(unescape_token).collect::<Result<Vec<String>, PointerError>>()?;
         Ok(Pointer { tokens })
     }
 
@@ -198,22 +191,14 @@ pub fn read_json(text: &str) -> Result<Json, JsonError> {
 
 fn skip_ws(b: &[u8], start: usize) -> usize {
     let mut i = start;
-    while i < b.len() && (b[i] == b' ' || b[i] == b'\t' || b[i] == b'\n' || b[i] == b'\r') {
+    while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\n' | b'\r') {
         i += 1;
     }
     i
 }
 
 fn word_at(b: &[u8], i: usize, word: &[u8]) -> bool {
-    if i + word.len() > b.len() {
-        return false;
-    }
-    for k in 0..word.len() {
-        if b[i + k] != word[k] {
-            return false;
-        }
-    }
-    true
+    i + word.len() <= b.len() && b[i..i + word.len()] == *word
 }
 
 fn parse_value(s: &str, start: usize) -> Result<(Json, usize), JsonError> {
@@ -236,13 +221,13 @@ fn parse_value(s: &str, start: usize) -> Result<(Json, usize), JsonError> {
     if c == b'-' || matches!(c, b'0'..=b'9') {
         return parse_number(s, i);
     }
-    if word_at(b, i, "true".as_bytes()) {
+    if word_at(b, i, b"true") {
         return Ok((Json::Bool(true), i + 4));
     }
-    if word_at(b, i, "false".as_bytes()) {
+    if word_at(b, i, b"false") {
         return Ok((Json::Bool(false), i + 5));
     }
-    if word_at(b, i, "null".as_bytes()) {
+    if word_at(b, i, b"null") {
         return Ok((Json::Null, i + 4));
     }
     Err(JsonError::UnexpectedByte(i))
@@ -422,7 +407,7 @@ fn parse_object(s: &str, start: usize) -> Result<(Json, usize), JsonError> {
             return Err(JsonError::UnexpectedByte(key_at));
         }
         let (key, after_key) = parse_string(s, key_at + 1)?;
-        if let Some(_) = find_key(&members, &key) {
+        if find_key(&members, &key).is_some() {
             return Err(JsonError::DuplicateKey(key_at));
         }
         let colon = skip_ws(b, after_key);
@@ -490,62 +475,24 @@ fn write_object(members: &Vec<Member>) -> String {
     out
 }
 
-fn digit_char(d: i64) -> char {
-    match d {
-        0 => '0',
-        1 => '1',
-        2 => '2',
-        3 => '3',
-        4 => '4',
-        5 => '5',
-        6 => '6',
-        7 => '7',
-        8 => '8',
-        _ => '9',
-    }
-}
+const HEX_DIGITS: &[u8] = b"0123456789abcdef";
 
-fn hex_char(d: u32) -> char {
-    match d {
-        0 => '0',
-        1 => '1',
-        2 => '2',
-        3 => '3',
-        4 => '4',
-        5 => '5',
-        6 => '6',
-        7 => '7',
-        8 => '8',
-        9 => '9',
-        10 => 'a',
-        11 => 'b',
-        12 => 'c',
-        13 => 'd',
-        14 => 'e',
-        _ => 'f',
-    }
+/// The digit of `d`'s last decimal place (`d` may be negative).
+fn last_digit(d: i64) -> char {
+    char::from(HEX_DIGITS[(d % 10).abs() as usize])
 }
 
 fn int_text(n: i64) -> String {
-    let mut digits: Vec<char> = Vec::new();
-    let mut rest = n;
-    if rest == 0 {
-        digits.push('0');
-    }
+    let mut digits: Vec<char> = vec![last_digit(n)];
+    let mut rest = n / 10;
     while rest != 0 {
-        digits.push(digit_char((rest % 10).abs()));
-        rest = rest / 10;
+        digits.insert(0, last_digit(rest));
+        rest /= 10;
     }
-    let mut out = String::new();
     if n < 0 {
-        out.push('-');
+        digits.insert(0, '-');
     }
-    let mut k = digits.len();
-    while k > 0 {
-        k -= 1;
-        out.push(digits[k]);
-    }
-    out
+    digits.iter().collect::<String>()
 }
 
 fn quote(s: &str) -> String {
@@ -569,8 +516,8 @@ fn quote(s: &str) -> String {
             out.push_str("\\t");
         } else if n < 0x20 {
             out.push_str("\\u00");
-            out.push(hex_char(n >> 4));
-            out.push(hex_char(n & 15));
+            out.push(char::from(HEX_DIGITS[(n >> 4) as usize]));
+            out.push(char::from(HEX_DIGITS[(n & 15) as usize]));
         } else {
             out.push(c);
         }
@@ -580,16 +527,13 @@ fn quote(s: &str) -> String {
 }
 
 /// JSON equality (RFC 6902 §4.6): objects ignore member order, arrays are
-/// ordered, numbers compare by value.
+/// ordered, numbers compare by value. `null`, booleans, numbers and strings
+/// compare as the derived `==`; arrays and objects recurse through `json_eq`.
 pub fn json_eq(a: &Json, b: &Json) -> bool {
     match (a, b) {
-        (Json::Null, Json::Null) => true,
-        (Json::Bool(x), Json::Bool(y)) => x == y,
-        (Json::Num(x), Json::Num(y)) => x == y,
-        (Json::Text(x), Json::Text(y)) => x == y,
         (Json::Array(xs), Json::Array(ys)) => arrays_eq(xs, ys),
         (Json::Object(xs), Json::Object(ys)) => objects_eq(xs, ys),
-        _ => false,
+        _ => a == b,
     }
 }
 
@@ -606,22 +550,11 @@ fn arrays_eq(xs: &Vec<Json>, ys: &Vec<Json>) -> bool {
 }
 
 fn objects_eq(xs: &Vec<Member>, ys: &Vec<Member>) -> bool {
-    if xs.len() != ys.len() {
-        return false;
-    }
-    for m in xs.iter() {
-        match find_key(ys, &m.key) {
-            Some(j) => {
-                if !json_eq(&m.value, &ys[j].value) {
-                    return false;
-                }
-            }
-            None => {
-                return false;
-            }
-        }
-    }
-    true
+    xs.len() == ys.len()
+        && xs.iter().all(|m| match find_key(ys, &m.key) {
+            Some(j) => json_eq(&m.value, &ys[j].value),
+            None => false,
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -653,12 +586,7 @@ fn unescape_token(piece: &str) -> Result<String, PointerError> {
 }
 
 fn find_key(members: &Vec<Member>, key: &str) -> Option<usize> {
-    for (i, m) in members.iter().enumerate() {
-        if m.key == key {
-            return Some(i);
-        }
-    }
-    None
+    members.iter().position(|m| m.key == key)
 }
 
 /// An array index token: `0`, or digits without a leading zero. `-` is
@@ -697,26 +625,28 @@ fn member_at(members: &Vec<Member>, token: &str) -> Result<Json, OpFailure> {
     }
 }
 
-fn item_at(items: &Vec<Json>, token: &str) -> Result<Json, OpFailure> {
+/// The index `token` names in a list of `len` items, which must hold it.
+fn existing_index(len: usize, token: &str) -> Result<usize, OpFailure> {
     let i = index_of(token)?;
-    if i >= items.len() {
+    if i >= len {
         return Err(OpFailure::IndexOutOfRange);
     }
-    Ok(items[i].clone())
+    Ok(i)
 }
 
-fn lookup(doc: &Json, tokens: &Vec<String>, k: usize) -> Result<Json, OpFailure> {
-    if k == tokens.len() {
-        return Ok(doc.clone());
-    }
-    let child = child_of(doc, &tokens[k])?;
-    lookup(&child, tokens, k + 1)
+fn item_at(items: &Vec<Json>, token: &str) -> Result<Json, OpFailure> {
+    let i = existing_index(items.len(), token)?;
+    Ok(items[i].clone())
 }
 
 /// Evaluates a pointer against a document (RFC 6901 §4) and returns a copy
 /// of the value it names.
 pub fn get_value(doc: &Json, pointer: &Pointer) -> Result<Json, OpFailure> {
-    lookup(doc, &pointer.tokens, 0)
+    let mut current = doc.clone();
+    for token in &pointer.tokens {
+        current = child_of(&current, token)?;
+    }
+    Ok(current)
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +658,8 @@ enum Edit {
     Replace(Json),
 }
 
+/// No `&mut`: an edit rebuilds each container on the path, from the last
+/// token back up to the root.
 fn edit_at(doc: &Json, tokens: &Vec<String>, k: usize, edit: &Edit) -> Result<Json, OpFailure> {
     if k + 1 == tokens.len() {
         return edit_last(doc, &tokens[k], edit);
@@ -745,94 +677,50 @@ fn edit_last(doc: &Json, token: &str, edit: &Edit) -> Result<Json, OpFailure> {
     }
 }
 
+/// `add` of an existing key replaces its value in place; of a new key,
+/// appends it.
 fn edit_member(members: &Vec<Member>, token: &str, edit: &Edit) -> Result<Json, OpFailure> {
-    let found = find_key(members, token);
-    match edit {
-        Edit::Add(v) => Ok(Json::Object(set_member(members, token, v, found))),
-        Edit::Replace(v) => match found {
-            Some(_) => Ok(Json::Object(set_member(members, token, v, found))),
-            None => Err(OpFailure::NotFound),
-        },
-        Edit::Remove => match found {
-            Some(at) => Ok(Json::Object(drop_member(members, at))),
-            None => Err(OpFailure::NotFound),
-        },
-    }
-}
-
-/// Replaces the member at `found` in place, or appends a new one.
-fn set_member(members: &Vec<Member>, key: &str, value: &Json, found: Option<usize>) -> Vec<Member> {
-    let at = found.unwrap_or(members.len());
-    let mut out: Vec<Member> = Vec::new();
-    for (i, m) in members.iter().enumerate() {
-        if i == at {
-            out.push(Member { key: m.key.clone(), value: value.clone() });
-        } else {
-            out.push(m.clone());
+    let mut out = members.clone();
+    match (edit, find_key(members, token)) {
+        (Edit::Add(v), Some(at)) => {
+            out[at] = Member { key: String::from(token), value: v.clone() };
+        }
+        (Edit::Replace(v), Some(at)) => {
+            out[at] = Member { key: String::from(token), value: v.clone() };
+        }
+        (Edit::Remove, Some(at)) => {
+            out.remove(at);
+        }
+        (Edit::Add(v), None) => {
+            out.push(Member { key: String::from(token), value: v.clone() });
+        }
+        (_, None) => {
+            return Err(OpFailure::NotFound);
         }
     }
-    if at == members.len() {
-        out.push(Member { key: String::from(key), value: value.clone() });
-    }
-    out
-}
-
-fn drop_member(members: &Vec<Member>, at: usize) -> Vec<Member> {
-    let mut out: Vec<Member> = Vec::new();
-    for (i, m) in members.iter().enumerate() {
-        if i != at {
-            out.push(m.clone());
-        }
-    }
-    out
+    Ok(Json::Object(out))
 }
 
 fn edit_item(items: &Vec<Json>, token: &str, edit: &Edit) -> Result<Json, OpFailure> {
-    match edit {
-        Edit::Add(v) => insert_item(items, token, v),
-        Edit::Replace(v) => replace_item(items, token, v),
-        Edit::Remove => remove_item(items, token),
-    }
-}
-
-fn insert_item(items: &Vec<Json>, token: &str, value: &Json) -> Result<Json, OpFailure> {
-    let mut at = items.len();
-    if token != "-" {
-        at = index_of(token)?;
-        if at > items.len() {
-            return Err(OpFailure::IndexOutOfRange);
-        }
-    }
     let mut out = items.clone();
-    out.insert(at, value.clone());
-    Ok(Json::Array(out))
-}
-
-fn replace_item(items: &Vec<Json>, token: &str, value: &Json) -> Result<Json, OpFailure> {
-    let at = index_of(token)?;
-    if at >= items.len() {
-        return Err(OpFailure::IndexOutOfRange);
-    }
-    let mut out: Vec<Json> = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        if i == at {
-            out.push(value.clone());
-        } else {
-            out.push(item.clone());
+    match edit {
+        Edit::Add(v) => {
+            let mut at = items.len();
+            if token != "-" {
+                at = index_of(token)?;
+                if at > items.len() {
+                    return Err(OpFailure::IndexOutOfRange);
+                }
+            }
+            out.insert(at, v.clone());
         }
-    }
-    Ok(Json::Array(out))
-}
-
-fn remove_item(items: &Vec<Json>, token: &str) -> Result<Json, OpFailure> {
-    let at = index_of(token)?;
-    if at >= items.len() {
-        return Err(OpFailure::IndexOutOfRange);
-    }
-    let mut out: Vec<Json> = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        if i != at {
-            out.push(item.clone());
+        Edit::Replace(v) => {
+            let at = existing_index(items.len(), token)?;
+            out[at] = v.clone();
+        }
+        Edit::Remove => {
+            let at = existing_index(items.len(), token)?;
+            out.remove(at);
         }
     }
     Ok(Json::Array(out))
@@ -862,29 +750,9 @@ fn replace_value(doc: &Json, path: &Pointer, value: &Json) -> Result<Json, OpFai
     edit_at(doc, &path.tokens, 0, &Edit::Replace(value.clone()))
 }
 
-fn same_tokens(a: &Vec<String>, b: &Vec<String>) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    for i in 0..a.len() {
-        if a[i] != b[i] {
-            return false;
-        }
-    }
-    true
-}
-
 /// `a` is a proper prefix of `b`: shorter, and equal on every token it has.
 fn proper_prefix(a: &Vec<String>, b: &Vec<String>) -> bool {
-    if a.len() >= b.len() {
-        return false;
-    }
-    for i in 0..a.len() {
-        if a[i] != b[i] {
-            return false;
-        }
-    }
-    true
+    a.len() < b.len() && a[..] == b[..a.len()]
 }
 
 fn move_value(doc: &Json, from: &Pointer, path: &Pointer) -> Result<Json, OpFailure> {
@@ -892,7 +760,7 @@ fn move_value(doc: &Json, from: &Pointer, path: &Pointer) -> Result<Json, OpFail
         return Err(OpFailure::MoveIntoOwnChild);
     }
     let value = get_value(doc, from)?;
-    if same_tokens(&from.tokens, &path.tokens) {
+    if from.tokens == path.tokens {
         return Ok(doc.clone());
     }
     let removed = remove_value(doc, from)?;

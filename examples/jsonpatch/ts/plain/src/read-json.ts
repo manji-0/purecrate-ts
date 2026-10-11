@@ -2,6 +2,7 @@
 
 import {
   Char,
+  Eq,
   Int,
   Result,
   Slice,
@@ -30,10 +31,7 @@ const skipWs = (b: ReadonlyArray<U8>, start: Usize): Usize => {
   let i: Usize = start;
   while (
     i < b.length &&
-    (Slice.at(b, i) === /* ' ' */ 32 ||
-      Slice.at(b, i) === /* '\t' */ 9 ||
-      Slice.at(b, i) === /* '\n' */ 10 ||
-      Slice.at(b, i) === /* '\r' */ 13)
+    [/* ' ' */ 32, /* '\t' */ 9, /* '\n' */ 10, /* '\r' */ 13].includes(Slice.at(b, i))
   ) {
     i = Int.usize.add(i, 1 as Usize);
   }
@@ -41,15 +39,9 @@ const skipWs = (b: ReadonlyArray<U8>, start: Usize): Usize => {
   return i;
 };
 
-const wordAt = (b: ReadonlyArray<U8>, i: Usize, word: ReadonlyArray<U8>): boolean => {
-  if (Int.usize.add(i, word.length as Usize) > b.length) return false;
-
-  for (let k = 0 as Usize, end = word.length as Usize; k < end; k = (k + 1) as Usize) {
-    if (Slice.at(b, Int.usize.add(i, k)) !== Slice.at(word, k)) return false;
-  }
-
-  return true;
-};
+const wordAt = (b: ReadonlyArray<U8>, i: Usize, word: ReadonlyArray<U8>): boolean =>
+  Int.usize.add(i, word.length as Usize) <= b.length &&
+  Eq.deep(Slice.range(b, i, Int.usize.add(i, word.length as Usize)), word);
 
 const parseValue = (s: string, start: Usize): Result<readonly [Json, Usize], JsonError> => {
   const b = Str.bytes(s);
@@ -288,11 +280,7 @@ const parseObject = (s: string, start: Usize): Result<readonly [Json, Usize], Js
     const result = parseString(s, Int.usize.add(keyAt, 1 as Usize));
     if (result.kind === "Err") return result;
     const [key, afterKey] = result.value;
-    const option = findKey(members, key);
-    if (option !== null) {
-      return Result.err({ kind: "DuplicateKey", value: keyAt });
-    }
-
+    if (findKey(members, key) !== null) return Result.err({ kind: "DuplicateKey", value: keyAt });
     const colon = skipWs(b, afterKey);
     if (colon >= b.length) return Result.err({ kind: "UnexpectedEnd" });
     if (Slice.at(b, colon) !== /* ':' */ 58)

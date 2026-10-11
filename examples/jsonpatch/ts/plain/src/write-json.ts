@@ -10,6 +10,7 @@ import {
   type U32,
   type Usize,
 } from "./purecrate-runtime.ts";
+import { HEX_DIGITS } from "./consts.ts";
 import type { Json } from "./json.ts";
 import type { Member } from "./member.ts";
 
@@ -88,63 +89,23 @@ const writeObject = (members: ReadonlyArray<Member>): string => {
   return out;
 };
 
-const digitChar = (d: I64): Char => {
-  if (d === 0n) return "0" as Char;
-  if (d === 1n) return "1" as Char;
-  if (d === 2n) return "2" as Char;
-  if (d === 3n) return "3" as Char;
-  if (d === 4n) return "4" as Char;
-  if (d === 5n) return "5" as Char;
-  if (d === 6n) return "6" as Char;
-  if (d === 7n) return "7" as Char;
-  if (d === 8n) return "8" as Char;
-  return "9" as Char;
-};
-
-const hexChar = (d: U32): Char => {
-  if (d === 0) return "0" as Char;
-  if (d === 1) return "1" as Char;
-  if (d === 2) return "2" as Char;
-  if (d === 3) return "3" as Char;
-  if (d === 4) return "4" as Char;
-  if (d === 5) return "5" as Char;
-  if (d === 6) return "6" as Char;
-  if (d === 7) return "7" as Char;
-  if (d === 8) return "8" as Char;
-  if (d === 9) return "9" as Char;
-  if (d === 10) return "a" as Char;
-  if (d === 11) return "b" as Char;
-  if (d === 12) return "c" as Char;
-  if (d === 13) return "d" as Char;
-  if (d === 14) return "e" as Char;
-  return "f" as Char;
-};
+/** The digit of `d`'s last decimal place (`d` may be negative). */
+const lastDigit = (d: I64): Char =>
+  Char.fromU8(Slice.at(HEX_DIGITS, Int.usize.cast(Int.i64.abs(Int.i64.rem(d, 10n as I64)))));
 
 const intText = (n: I64): string => {
-  const digits: Array<Char> = [];
-  let rest: I64 = n;
-  if (rest === 0n) {
-    digits.push("0" as Char);
-  }
-
+  const digits: Array<Char> = [lastDigit(n)];
+  let rest: I64 = Int.i64.div(n, 10n as I64);
   while (rest !== 0n) {
-    digits.push(digitChar(Int.i64.abs(Int.i64.rem(rest, 10n as I64))));
+    Slice.insert(digits, 0 as Usize, lastDigit(rest));
     rest = Int.i64.div(rest, 10n as I64);
   }
 
-  let out: string = "";
-
   if (n < 0n) {
-    out += "-";
+    Slice.insert(digits, 0 as Usize, "-" as Char);
   }
 
-  let k = digits.length as Usize;
-  while (k > 0) {
-    k = Int.usize.sub(k, 1 as Usize);
-    out += Slice.at(digits, k);
-  }
-
-  return out;
+  return [...digits].join("");
 };
 
 const quote = (s: string): string => {
@@ -170,8 +131,8 @@ const quote = (s: string): string => {
       out += "\\t";
     } else if (n < 0x20) {
       out += "\\u00";
-      out += hexChar(Int.u32.shr(n, 4));
-      out += hexChar(Int.u32.and(n, 15 as U32));
+      out += Char.fromU8(Slice.at(HEX_DIGITS, Int.u32.shr(n, 4)));
+      out += Char.fromU8(Slice.at(HEX_DIGITS, Int.u32.and(n, 15 as U32)));
     } else {
       out += c;
     }

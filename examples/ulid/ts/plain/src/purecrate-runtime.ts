@@ -69,6 +69,7 @@ export const assertNever = (_x: never): never => {
 export type U8 = number & { readonly "purecrate.U8": true };
 export type U32 = number & { readonly "purecrate.U32": true };
 export type U64 = bigint & { readonly "purecrate.U64": true };
+export type U128 = bigint & { readonly "purecrate.U128": true };
 export type Usize = number & { readonly "purecrate.Usize": true };
 /** A Rust `char`: a string of exactly one Unicode scalar value (no lone surrogate). */
 export type Char = string & { readonly "purecrate.Char": true };
@@ -104,6 +105,26 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
+const small64 = (n: bigint): Usize =>
+  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+
+/** `x as T` to a type of 32 bits or fewer: the low `bits` bits, read signed or not, as Rust's `as` wraps. */
+const cast32 =
+  <T extends number>(bits: number, signed: boolean) =>
+  (x: number | bigint): T => {
+    if (typeof x === "bigint") return Number(signed ? BigInt.asIntN(bits, x) : BigInt.asUintN(bits, x)) as T;
+    const s = 32 - bits;
+    return (signed ? (x << s) >> s : (x << s) >>> s) as T;
+  };
+
+/** `x as T` to a 64- or 128-bit type: the low `bits` bits, read signed or not. */
+const castBig =
+  <T extends bigint>(bits: number, signed: boolean) =>
+  (x: number | bigint): T => {
+    const n = typeof x === "bigint" ? x : BigInt(x);
+    return (signed ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n)) as T;
+  };
+
 /**
  * The amount of a shift, of any integer type. A debug build panics unless it
  * is in `0..bits`, comparing the whole value (so `-1` and `2^32 + 1` panic);
@@ -135,6 +156,18 @@ const bitsBig = <T extends bigint>(bits: number, signed: boolean) => {
 /** The objects and arrays `Str.wellFormed` has found free of lone surrogates. */
 const wellFormedSeen = new WeakSet<object>();
 export const Str = {
+  /** `str::as_bytes`: the UTF-8 bytes. */
+  bytes: (s: string): ReadonlyArray<U8> => {
+    const out: number[] = [];
+    for (const c of s) {
+      const p = c.codePointAt(0) as number;
+      if (p < 0x80) out.push(p);
+      else if (p < 0x800) out.push(0xc0 | (p >> 6), 0x80 | (p & 0x3f));
+      else if (p < 0x10000) out.push(0xe0 | (p >> 12), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
+      else out.push(0xf0 | (p >> 18), 0x80 | ((p >> 12) & 0x3f), 0x80 | ((p >> 6) & 0x3f), 0x80 | (p & 0x3f));
+    }
+    return out as unknown as ReadonlyArray<U8>;
+  },
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),
   /**
@@ -167,8 +200,23 @@ const ORDERINGS: readonly [Ordering, Ordering, Ordering] = [{ kind: "Less" }, { 
 export const Ord = {
   /** `a.cmp(&b)` on an integer or `bool`: JS `<` orders them as Rust does. */
   cmp: <T extends number | bigint | boolean>(a: T, b: T): Ordering => ORDERINGS[a < b ? 0 : a === b ? 1 : 2],
-  /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
-  then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
+} as const;
+
+/**
+ * The consuming iterator methods, as std's default methods run them: in
+ * order, `all` stopping at the first `false`, `any` and `position` at the
+ * first `true`. `sum` adds from `zero` with `add`, the type's checked
+ * addition, so it panics where a debug build does.
+ */
+export const Iter = {
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
@@ -251,15 +299,25 @@ export const Char = {
 export const Int = {
   u8: {
     ...small<U8>(0, 255),
+    cast: cast32<U8>(8, false),
+  },
+  u32: {
+    ...small<U32>(0, 4294967295),
   },
   // No bitwise operators: Rust's `usize` has 64 bits, this one 53. Its
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
+    cast: (x: number | bigint): Usize => (typeof x === "number" && x >= 0 ? (x as Usize) : small64(BigInt.asUintN(64, BigInt(x)))),
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),
-    ...bitsBig<U64>(64, false),
+    cast: castBig<U64>(64, false),
+  },
+  u128: {
+    ...big<U128>(0n, 340282366920938463463374607431768211455n),
+    ...bitsBig<U128>(128, false),
+    cast: castBig<U128>(128, false),
   },
 } as const;
 
