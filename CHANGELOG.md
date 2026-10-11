@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 — 2026-10-12
 
-oxlint over the generators' output, which the sweep does not lint, found what follows; each is fixed with a fixture (`lint_holes`).
+The output is laid out by oxfmt, which `build` and `check --out` now run and need. Then oxlint over the generators' output, which the sweep does not lint, found what follows; each is fixed with a fixture (`lint_holes`).
 
 ### Changed
 

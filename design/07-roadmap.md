@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-11, after 0.13.2)
+Status: current (2026-10-12, 0.14.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -602,7 +602,7 @@ Why: the five examples written from the authoring skill alone on 2026-10-11 met 
 - **Stated gaps**, in [01 §3](./01-equivalence.md#3-known-non-equivalences): a `u128` literal or const at 2^127 or more is refused (literals are `i128`s); a comparator that is not a total order may panic in Rust's sort and never in JS's.
 - **Open:** the seeded generators draw the integer casts only; the rest is covered by the hand-written tests above.
 
-### 8.19 Unreleased: the layout is oxfmt's
+### 8.19 0.14.0: the layout is oxfmt's (2026-10-12)
 
 <!-- supersedes #811-082-the-rest-of-the-audit-and-layout-2026-10-04 -->
 
