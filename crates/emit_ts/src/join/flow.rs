@@ -500,7 +500,20 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                     }
                 }
             }
-            flow(then, s, cx)
+            // ..and `p?` last in a run of statements whose value is dropped
+            // (what an unread `x = a.unwrap_or(p?)` leaves).
+            let tail = match &**then {
+                Expr::Try { expr: place, on: Some(on) } if is_place(place) => Some(((**place).clone(), *on)),
+                _ => None,
+            };
+            let after = flow(then, s, cx);
+            match (after, tail) {
+                (Some(mut a), Some((place, on))) => {
+                    a.set_place(&place, vec![tried_case(on)]);
+                    Some(a)
+                }
+                (after, _) => after,
+            }
         }
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !cx.touches(then, root(value)) => {
             let name = name.clone();

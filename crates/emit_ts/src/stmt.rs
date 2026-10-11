@@ -31,8 +31,6 @@ impl Sink<'_> {
     pub(crate) fn finish(self, value: &str, pad: &str, out: &mut String) {
         match self {
             Sink::Return => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(value))),
-            // `x = if c { y } else { x }` leaves `x` as it is on one side.
-            Sink::Assign(target) if crate::tidy::strip_outer(value) == target => {}
             Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {};\n", crate::tidy::strip_outer(value))),
             // A variable or `()` has no effect; anything else may panic.
             Sink::Effect if value == "undefined" || is_ident(value) => {}

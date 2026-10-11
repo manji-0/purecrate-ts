@@ -222,9 +222,23 @@ fn cheap(e: &Expr) -> bool {
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
+    // As `fn_arrow` does: a parameter read only where the flow decided
+    // the code away is unread in the printed body, which TS refuses.
+    let joined = crate::join::joined(body);
+    let printed = |n: &Name| {
+        if n.as_str().starts_with('_') || crate::join::mentions(&joined, n) {
+            return n.as_str().to_string();
+        }
+        (0..)
+            .map(|k| if k == 0 { format!("_{}", n.as_str()) } else { format!("_{}{k}", n.as_str()) })
+            .find(|c| {
+                !params.iter().any(|p| p.name.as_str() == c) && !crate::join::mentions(&joined, &Name::new(c.as_str()))
+            })
+            .expect("a free name")
+    };
     let typed = |name: &Name, ty: Option<&Ty>| match ty {
-        Some(t) => format!("{}: {}", name.as_str(), emit_ty(t)),
-        None => name.as_str().to_string(),
+        Some(t) => format!("{}: {}", printed(name), emit_ty(t)),
+        None => printed(name),
     };
     let params = params.iter().map(|p| typed(&p.name, p.ty.as_ref())).collect::<Vec<_>>().join(", ");
     match ret {

@@ -3,8 +3,9 @@
 // name read only to write itself, an `if` run for what its sides do, a
 // closure whose parameter is read only by a binding nothing reads, a
 // negated test turned round, an arm that returns once the flow decides its
-// test, an `else` that is one guard, a name assigned to itself, and a
-// `p?` left alone by an unread assignment, which TS narrows `p` by.
+// test, an `else` that is one guard, an arm that keeps an assigned name, a
+// `p?` left alone by an unread assignment, which TS narrows `p` by, and a
+// closure parameter read only where the flow decided the code away.
 
 #[allow(unused_variables, unused_assignments)]
 pub fn unread_tests(a: i32, b: i32, c: bool) -> i32 {
@@ -99,4 +100,22 @@ pub fn unread_try(a: i32, b: i32, r: Result<i32, i32>) -> Result<i32, i32> {
     let x: i32 = b * r.map_err(|e| e)?;
     v &= a;
     Ok(a)
+}
+
+#[allow(unused_variables)]
+pub fn unread_try_last(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    let b: i32 = r.ok().unwrap_or(r?);
+    let x: i32 = a * r.map_err(|e| e + 1)?;
+    Ok(a)
+}
+
+#[allow(unused_variables)]
+pub fn closure_param_decided(a: i32, b: i32, c: bool) -> i32 {
+    let f = |a: i32| {
+        if c {
+            let d: i32 = a & (if c { b } else { a + a });
+        }
+        0i32
+    };
+    if c { f(a) } else { b }
 }

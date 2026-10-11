@@ -14,6 +14,7 @@ fn lint_holes_match_rust() {
                 cases.push(case!(lint_holes::sides_run(a, b, c)));
                 cases.push(case!(lint_holes::turned_round(a, c)));
                 cases.push(case!(lint_holes::else_guard(a, c)));
+                cases.push(case!(lint_holes::closure_param_decided(a, b, c)));
                 for o in [None, Some(4)] {
                     for r in [Ok(2), Err(3)] {
                         cases.push(case!(lint_holes::keeps_itself(a, o, r, c)));
@@ -25,6 +26,7 @@ fn lint_holes_match_rust() {
             for r in [Ok(2), Err(3)] {
                 cases.push(case!(lint_holes::decided_return(r, a)));
                 cases.push(case!(lint_holes::unread_try(a, b, r)));
+                cases.push(case!(lint_holes::unread_try_last(a, r)));
             }
         }
     });
