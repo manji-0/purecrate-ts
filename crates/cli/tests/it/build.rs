@@ -234,6 +234,27 @@ fn build_without_oxfmt_writes_nothing() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// The layout is the CLI's: an `.oxfmtrc.json` or `.editorconfig` of the
+/// project the output goes into changes nothing.
+#[test]
+fn the_projects_format_settings_do_not_reach_the_output() {
+    let dir = scratch("project-format");
+    fs::write(dir.join(".oxfmtrc.json"), "{\"printWidth\": 40, \"useTabs\": true, \"semi\": false}\n").expect("write");
+    fs::write(dir.join(".editorconfig"), "root = true\n[*]\nindent_style = tab\nmax_line_length = 40\n")
+        .expect("write");
+    let out = dir.join("gen/counter");
+    let built = build_with(&[], &out);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let committed = support::repo().join("examples/counter/ts/plain/src");
+    for entry in fs::read_dir(&committed).expect("read committed") {
+        let path = entry.expect("entry").path();
+        let name = path.file_name().expect("name");
+        let made = fs::read_to_string(out.join("src").join(name)).expect("read built");
+        assert_eq!(made, fs::read_to_string(&path).expect("read committed"), "{}", name.to_string_lossy());
+    }
+    fs::remove_dir_all(&dir).ok();
+}
+
 /// A rebuild keeps `node_modules/` (an `npm install` in the package) and
 /// drops `dist/` (stale `npm run build` output). `check --out` already
 /// skips both.

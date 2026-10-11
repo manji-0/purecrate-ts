@@ -180,7 +180,10 @@ fn laid_out(mut pkg: Package, src: &Path, out: &Path) -> Result<Package, String>
             oxfmt::VERSION
         ),
     }
-    oxfmt::format(&mut pkg, &found, &sibling(out, "fmt"))?;
+    // In the temporary directory, not beside `out`: oxfmt would read an
+    // `.editorconfig` of the project.
+    let scratch = env::temp_dir().join(format!("purecrate-fmt-{}", std::process::id()));
+    oxfmt::format(&mut pkg, &found, &scratch)?;
     Ok(pkg)
 }
 

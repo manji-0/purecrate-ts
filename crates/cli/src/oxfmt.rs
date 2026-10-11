@@ -78,7 +78,11 @@ fn format_in(pkg: &mut Package, oxfmt: &Path, dir: &Path) -> Result<(), String> 
     if paths.is_empty() {
         return Ok(());
     }
-    let config = format!("{{\n  \"printWidth\": {}\n}}\n", purecrate_emit_ts::WIDTH);
+    // What an `.editorconfig` above the directory could otherwise set.
+    let config = format!(
+        "{{\n  \"printWidth\": {},\n  \"useTabs\": false,\n  \"tabWidth\": 2,\n  \"endOfLine\": \"lf\"\n}}\n",
+        purecrate_emit_ts::WIDTH
+    );
     fs::write(dir.join("oxfmt.json"), config).map_err(|e| format!("write {}: {e}", dir.display()))?;
     let out = Command::new(oxfmt)
         .args(["-c", "oxfmt.json", "--write"])
