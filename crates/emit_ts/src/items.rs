@@ -159,7 +159,13 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
         return doc + &emit_closed_struct(krate, st, &fields);
     }
     let mut out = doc;
-    out.push_str(&format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n"));
+    // A struct with no fields is an object with none: `{}` as a type would
+    // take any value but `null` (and lint refuses it).
+    if fields.trim().is_empty() {
+        out.push_str(&format!("export type {name} = Readonly<Record<string, never>>;\n\n"));
+    } else {
+        out.push_str(&format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n"));
+    }
     let params = st
         .fields
         .iter()
@@ -168,7 +174,8 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
         .join(", ");
     let assigns = st.fields.iter().map(|f| ctor_assign(f.name.as_str())).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("export const {name} = {{\n"));
-    out.push_str(&format!("  of: ({params}): {name} => ({{ {assigns} }}),\n"));
+    let object = if assigns.trim().is_empty() { "{}".to_string() } else { format!("{{ {assigns} }}") };
+    out.push_str(&format!("  of: ({params}): {name} => ({object}),\n"));
     out.push_str(&companion_methods(krate, name));
     out
 }
