@@ -8,7 +8,7 @@
 #   -s  seeds, inclusive (default 1-120)
 #   -j  parallel runs (default: half the CPUs; each run uses rustc, tsc, node)
 #   -g  generators (default all): expressions, statements, patterns,
-#       widths, text
+#       widths, text, floats, collections, strings
 #   -o  where the logs go (default: a temporary directory, printed)
 #   -k  keep going on a refusal: exit 0 when every value agrees, even where
 #       tsc refuses (by default, a refusal fails the sweep as a mismatch does)
@@ -27,7 +27,7 @@ root=$PWD
 seeds=1-120
 cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 jobs=$(( cpus > 1 ? cpus / 2 : 1 ))
-gens=expressions,statements,patterns,widths,text
+gens=expressions,statements,patterns,widths,text,floats,collections,strings
 out=
 keep=
 while getopts "s:j:g:o:k" opt; do
@@ -52,6 +52,9 @@ test_of() {
     patterns) echo generated_patterns_equivalence::generated_patterns_match_rust ;;
     widths) echo generated_widths_equivalence::generated_widths_match_rust ;;
     text) echo generated_text_equivalence::generated_text_matches_rust ;;
+    floats) echo generated_floats_equivalence::generated_floats_match_rust ;;
+    collections) echo generated_collections_equivalence::generated_collections_match_rust ;;
+    strings) echo generated_strings_equivalence::generated_strings_match_rust ;;
     *) echo "gen-sweep: no generator '$1'" >&2; exit 2 ;;
   esac
 }
