@@ -144,6 +144,14 @@ impl Cx {
                     })
                     .collect(),
             },
+            // A loop whose body has nothing left to do (its appends to an
+            // unread `String` gone) is its source's evaluation: oxfmt writes
+            // an empty body on two lines, which oxlint refuses.
+            Expr::ForEach { source, body, .. } if empty(&body) => return self.expr(effects(*source)),
+            Expr::For { start, end, body, .. } if empty(&body) => {
+                let (start, end) = (effects(*start), effects(*end));
+                return self.expr(Expr::Seq { first: Box::new(start), then: Box::new(end) });
+            }
             Expr::ForEach { var, over, source, body } => {
                 let used = used_in(&body, var.as_str());
                 // `_` itself: TS exempts it, and oxlint's `no-underscore-dangle`
@@ -315,7 +323,12 @@ fn is_pure(expr: &Expr) -> bool {
             | Callee::Float { .. }
             | Callee::AsFloat(_)
             | Callee::Fround
-            | Callee::StringNew => true,
+            | Callee::StringNew
+            // No `str` method on the allow-list panics; slicing does, and is
+            // `Callee::Slice`, not here.
+            | Callee::Str(_)
+            | Callee::StrSplit
+            | Callee::StringFrom => true,
             Callee::IntCast { to, .. } | Callee::FloatToInt { to, .. } => *to != purecrate_ir::IntTy::Usize,
             Callee::IntFrom { to, .. } => *to != purecrate_ir::IntTy::Usize,
             // A copy of an array (`v.clone()`, a `Vec` bound to a grown local).
@@ -333,5 +346,14 @@ fn appended<'e>(value: &'e Expr, name: &Name) -> Option<&'e Expr> {
             Some(&args[1])
         }
         _ => None,
+    }
+}
+
+/// A loop body that does nothing: `()`, a comment, or a run of them.
+fn empty(body: &Expr) -> bool {
+    match body {
+        Expr::Lit(purecrate_ir::Lit::Unit) | Expr::Comment(_) => true,
+        Expr::Seq { first, then } => empty(first) && empty(then),
+        _ => false,
     }
 }
