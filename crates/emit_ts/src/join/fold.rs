@@ -472,7 +472,18 @@ pub(super) fn literal_compare(expr: &mut Expr) {
         };
         if let Some(same) = same {
             *expr = Expr::Lit(Lit::Bool(same == (*op == BinOp::Eq)));
+            return;
         }
+    }
+    // `t != false` is `t`, `t == false` is `!t`: oxlint refuses the
+    // comparison (`no-unnecessary-boolean-literal-compare`).
+    if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
+        let (t, b) = match (&**left, &**right) {
+            (t, Expr::Lit(Lit::Bool(b))) | (Expr::Lit(Lit::Bool(b)), t) => (t.clone(), *b),
+            _ => return,
+        };
+        *expr =
+            if b == (*op == BinOp::Eq) { t } else { Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(t) } };
     }
 }
 
