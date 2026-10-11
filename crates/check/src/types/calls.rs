@@ -407,10 +407,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                         format!("`split` takes a `String` or `&str`, found `{}`", show(t)),
                     );
                 }
-                // A closure on a `char` says where to split.
-                if matches!(args[1].unpositioned(), Expr::Closure { .. }) {
+                // A closure on a `char` (or a function's name) says where to split.
+                let named = self.named_fn(&args[1], Ty::Prim(Prim::Char));
+                let sep_arg = named.as_ref().unwrap_or(&args[1]);
+                if matches!(sep_arg.unpositioned(), Expr::Closure { .. }) {
                     let f = Ty::Fn { params: vec![Ty::Prim(Prim::Char)], ret: Box::new(Ty::bool()) };
-                    let (sep, _) = self.expr(&args[1], Some(&f));
+                    let (sep, _) = self.expr(sep_arg, Some(&f));
                     return (
                         Expr::Call { callee: callee.clone(), args: vec![s, sep] },
                         self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str))))),

@@ -33,6 +33,7 @@ fn wide_ints_match_rust() {
                 cases.push(case!(wide_int::signed_shift(a, n)));
             }
             cases.push(case!(wide_int::signed_methods(a)));
+            cases.push(case!(wide_int::signed_ops(a)));
         }
         for (hi, lo) in [(0u64, 0u64), (1, u64::MAX), (u64::MAX, 1), (u64::MAX, u64::MAX)] {
             cases.push(case!(wide_int::joined(hi, lo)));
@@ -58,5 +59,6 @@ fn wide_ints_match_rust() {
             cases.push(case!(wide_int::raw(i)));
         }
         cases.push(case!(wide_int::bytes_len()));
+        cases.push(case!(wide_int::signed_consts()));
     });
 }

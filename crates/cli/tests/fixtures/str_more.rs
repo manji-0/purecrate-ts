@@ -39,3 +39,22 @@ pub fn pieces(s: &str) -> Vec<String> {
 pub fn collected(s: &str) -> Vec<&str> {
     s.split(|c: char| c.is_ascii_digit()).collect()
 }
+
+fn is_separator(c: char) -> bool {
+    c == ',' || c == ';'
+}
+
+/// A `String` only pushed to and then dropped into `_`: nothing reads it.
+pub fn dropped(s: &str, n: usize) -> usize {
+    let mut m: String = s.to_ascii_lowercase();
+    m.push('x');
+    let _v: String = m;
+    n
+}
+
+/// A pattern given as a local closure or a function's name.
+pub fn by_name(s: &str) -> (Option<usize>, String, usize) {
+    let space = |c: char| c == ' ';
+    let pieces = s.split(is_separator).count();
+    (s.find(is_separator), String::from(s.trim_matches(space)), pieces)
+}

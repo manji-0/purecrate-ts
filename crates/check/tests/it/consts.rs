@@ -121,3 +121,12 @@ fn wide_consts_fold_or_say_why_not() {
         assert_rejects(&format!("{src}\npub fn f() -> u128 {{ R }}"), "a `u128` const of 2^127 or more is not in v0");
     }
 }
+
+/// A negative literal at a signed minimum folds, as rustc takes it; `MIN /
+/// -1` is an overflow, not a crash.
+#[test]
+fn signed_minimums_fold() {
+    assert_clean("const A: i8 = -128;\nconst B: i128 = -170141183460469231731687303715884105727 - 1;\npub fn f() -> (i8, i128) { (A, B) }");
+    assert_rejects("const Q: i128 = (1 << 127) / (0 - 1);\npub fn f() -> i128 { Q }", "overflow");
+    assert_rejects("const Q: usize = 1 << 60;\npub fn f() -> usize { Q }", "where a `usize` const stops in v0");
+}

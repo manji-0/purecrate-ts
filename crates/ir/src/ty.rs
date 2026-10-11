@@ -121,7 +121,7 @@ impl IntTy {
     }
 
     pub fn is_signed(self) -> bool {
-        matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64)
+        matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64 | IntTy::I128)
     }
 
     /// Width in Rust; `usize` is 64 bits, though `bounds` stops at 2^53−1.

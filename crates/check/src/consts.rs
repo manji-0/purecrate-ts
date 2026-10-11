@@ -136,6 +136,10 @@ impl Folder<'_, '_> {
                 Ok(v)
             } else if it == IntTy::U128 && v > hi {
                 Err(TOO_WIDE.into())
+            } else if it == IntTy::Usize && (0..=i128::from(u64::MAX)).contains(&v) {
+                Err(format!(
+                    "{v} is above 2^53 − 1, where a `usize` const stops in v0 (a TS `number`); rustc accepts it"
+                ))
             } else {
                 Err(format!("{v} does not fit `{}`; rustc rejects the overflow", it.as_str()))
             }
@@ -170,7 +174,14 @@ impl Folder<'_, '_> {
                 if !it.is_signed() {
                     return Err(format!("cannot negate a `{}`", it.as_str()));
                 }
-                fits(-self.int(it, expr)?)
+                // `-128` is the literal negated, which rustc takes for an
+                // `i8` though `128` alone does not fit.
+                if let Expr::Lit(Lit::Int { value, ty, .. }) = expr.unpositioned() {
+                    if ty.is_none_or(|t| t == it) {
+                        return fits(-*value);
+                    }
+                }
+                fits(self.int(it, expr)?.checked_neg().ok_or("overflow")?)
             }
             // `!x` on a `u128` below 2^127 is 2^127 or more.
             Expr::Unary { op: UnOp::Not, .. } if it == IntTy::U128 => Err(TOO_WIDE.into()),
@@ -212,8 +223,9 @@ impl Folder<'_, '_> {
                         }
                     }
                     BinOp::Div | BinOp::Rem if r == 0 => Err("division by zero; rustc rejects it".into()),
-                    BinOp::Div => fits(l / r),
-                    BinOp::Rem => fits(l % r),
+                    // `MIN / -1` overflows; rustc rejects it.
+                    BinOp::Div => fits(l.checked_div(r).ok_or("overflow; rustc rejects it")?),
+                    BinOp::Rem => fits(l.checked_rem(r).ok_or("overflow; rustc rejects it")?),
                     BinOp::BitAnd => fits(l & r),
                     BinOp::BitOr => fits(l | r),
                     BinOp::BitXor => fits(l ^ r),

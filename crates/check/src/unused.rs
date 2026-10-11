@@ -188,6 +188,11 @@ fn used_in(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::Var(n) => n.as_str() == name,
         Expr::Call { callee: Callee::Local(n), args } => n.as_str() == name || args.iter().any(|a| used_in(a, name)),
+        // `s = s + piece` (`s.push(..)`) writes `s`; only the piece reads.
+        Expr::Assign { name: n, value } if n.as_str() == name => match appended(value, n) {
+            Some(piece) => used_in(piece, name),
+            None => used_in(value, name),
+        },
         Expr::Assign { value, .. } => used_in(value, name),
         Expr::Let { name: n, value, then, .. } => used_in(value, name) || (n.as_str() != name && used_in(then, name)),
         Expr::Match { scrutinee, arms } => used_in(scrutinee, name) || arms.iter().any(|a| arm_uses(a, name)),
@@ -214,6 +219,10 @@ fn arm_uses(a: &Arm, name: &str) -> bool {
 fn strip_assigns(expr: Expr, name: &Name) -> Expr {
     match expr {
         Expr::Assign { name: n, value } if n == *name => {
+            let value = match appended(&value, &n) {
+                Some(piece) => Box::new(effects(piece.clone())),
+                None => value,
+            };
             if is_pure(&value) {
                 Expr::Lit(purecrate_ir::Lit::Unit)
             } else {
@@ -299,5 +308,15 @@ fn is_pure(expr: &Expr) -> bool {
         Expr::Var(_) | Expr::Lit(_) | Expr::Closure { .. } => true,
         Expr::Field { base, .. } => is_pure(base),
         _ => false,
+    }
+}
+
+/// The piece `s = s + piece` appends, as `check` writes `s.push(..)`.
+fn appended<'e>(value: &'e Expr, name: &Name) -> Option<&'e Expr> {
+    match value {
+        Expr::Call { callee: Callee::StrConcat, args } if matches!(&args[0], Expr::Var(n) if n == name) => {
+            Some(&args[1])
+        }
+        _ => None,
     }
 }

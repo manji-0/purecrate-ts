@@ -122,12 +122,22 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut typed = vec![recv];
         for a in args {
-            // A closure pattern takes a `char` and says whether it matches.
+            // A closure pattern takes a `char` and says whether it matches; a
+            // function's name is that closure.
+            let a = &self.named_fn(a, Ty::Prim(Prim::Char)).unwrap_or_else(|| a.clone());
+            let f = Ty::Fn { params: vec![Ty::Prim(Prim::Char)], ret: Box::new(Ty::bool()) };
             if m.takes_pattern() && matches!(a.unpositioned(), Expr::Closure { .. }) {
-                let f = Ty::Fn { params: vec![Ty::Prim(Prim::Char)], ret: Box::new(Ty::bool()) };
                 let (e, _) = self.expr(a, Some(&f));
                 typed.push(e);
                 continue;
+            }
+            if m.takes_pattern() {
+                let (e, t) = self.expr(a, None);
+                if t.as_ref().is_some_and(|t| matches!(self.norm(t), Ty::Fn { .. })) {
+                    let (e, _) = self.expr(&e, Some(&f));
+                    typed.push(e);
+                    continue;
+                }
             }
             let (e, t) = self.expr(a, None);
             match t.map(|t| self.norm(&t)) {
@@ -161,6 +171,21 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: Callee::Str(m), args: typed };
         (e, self.expect(want, Some(ret)))
+    }
+
+    /// A crate function's name where a function of one `param` goes, as the
+    /// closure `|$x| f($x)`; `None` for anything else.
+    pub(super) fn named_fn(&mut self, e: &Expr, param: Ty) -> Option<Expr> {
+        let Expr::Var(f) = e.unpositioned() else { return None };
+        if !self.defs.free_fns.contains_key(f.as_str()) {
+            return None;
+        }
+        let x = self.fresh_name("x");
+        Some(Expr::Closure {
+            params: vec![ClosureParam { name: x.clone(), ty: Some(param) }],
+            ret: None,
+            body: Box::new(Expr::Call { callee: Callee::Fn(f.clone()), args: vec![Expr::Var(x)] }),
+        })
     }
 
     /// `f64::from(x)` / `f32::from(x)`: what std's `From` takes, each exact.

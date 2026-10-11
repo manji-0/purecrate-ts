@@ -247,8 +247,24 @@ impl<'a> Cx<'_, 'a> {
                     // `opt.map(f)`, `r.map_err(f)`, `it.all(f)`, and `ord.then_with(f)` name a
                     // function; `types` checks the receiver.
                     let calls_with = if name.as_str() == "then_with" { 0 } else { 1 };
-                    let takes_fn =
-                        matches!(name.as_str(), "map" | "map_err" | "all" | "any" | "position" | "then_with");
+                    let takes_fn = matches!(
+                        name.as_str(),
+                        "map"
+                            | "map_err"
+                            | "all"
+                            | "any"
+                            | "position"
+                            | "then_with"
+                            | "filter"
+                            | "find"
+                            | "max_by_key"
+                            | "min_by_key"
+                            | "sort_by_key"
+                            | "split"
+                            | "trim_matches"
+                            | "trim_start_matches"
+                            | "trim_end_matches"
+                    );
                     let fn_name = match a.unpositioned() {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
                             self.defs.free_fns.get(n.as_str()).map(|f| f.params.len())

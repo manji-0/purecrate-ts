@@ -76,3 +76,17 @@ pub fn raw(i: usize) -> u8 {
 pub fn bytes_len() -> usize {
     b"h\xc3\xa9llo".len()
 }
+
+const NOT_ZERO: i128 = !0;
+const NOT_FIVE: i128 = !5;
+const MIN_I128: i128 = -170141183460469231731687303715884105727 - 1;
+const MIN_I8: i8 = -128;
+
+/// `i128` is signed: `-`, `abs`, and `!` in a const as in a function.
+pub fn signed_ops(x: i128) -> (i128, i128, i128) {
+    (-x, x.abs(), !x)
+}
+
+pub fn signed_consts() -> (i128, i128, i128, i8) {
+    (NOT_ZERO, NOT_FIVE, MIN_I128, MIN_I8)
+}

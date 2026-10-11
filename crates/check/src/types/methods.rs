@@ -94,6 +94,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     self.error(Reason::MethodCall, format!("`{method}` sorts a local `let mut v: Vec<T>` in v0, not a field or an element: build the new `Vec` and put it in a new value (design/02 §3.1)"));
                     return failed;
                 }
+                let named = args.first().and_then(|a| self.named_fn(a, (*item).clone()));
+                let args: &[Expr] = match &named {
+                    Some(f) => std::slice::from_ref(f),
+                    None => args,
+                };
                 if args.first().is_some_and(|a| !matches!(a.unpositioned(), Expr::Closure { .. }) || a.exits()) {
                     self.error(Reason::Closure, format!("`{method}` takes a closure without `?` or `return` in v0"));
                     return failed;
