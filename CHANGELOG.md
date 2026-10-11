@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Every capability the five new examples asked for, taken by decision in one patch series (design/07 §8.18): they stood at 2.2× to 3.5× their idiomatic references, and in each case the excess was something the subset lacked rather than the domain.
+
+### Added
+
+- **`v.remove(i)`, `v[i] = x`, and `v[i] op= x`** on a local `let mut v: Vec<T>`, as `push` and `insert` are: `Slice.remove` / `Slice.set`, with Rust's panic at or past the end (JS would grow the array). Rust evaluates the value before the place; where both may panic, the value is bound first. A field's or an element's array stays refused.
+- **`x as T` between integer types** that std's `From` does not join, wrapping as Rust's `as` does (`Int.<t>.cast`); into `usize`, a result above 2^53−1 panics, as every `usize` that large does. A widening `From` takes stays refused as `as`, and the message names `T::from(x)`.
+- **`u128` and `i128`**, as `bigint`s with 128-bit checks: operators, bitwise operators and shifts, the integer methods, `from`, `as`, `parse`, and the wire schemas. A literal at 2^127 or above is refused (literals are held as `i128`).
+- **Byte strings** `b".."`: `Str.bytes("..")` where the bytes are UTF-8, else an array of byte literals; as a `&[u8]` const or in an expression.
+- **Floats**: `round` (half away from zero, `-0.0` kept), `floor`, `ceil`, `trunc`, `abs`, `is_nan`, `is_finite`, `is_infinite`, and `f64::NAN` / `INFINITY` / `NEG_INFINITY`; `x as i64` and the other float-to-integer casts (toward zero, saturating, NaN to 0); integer-to-float `as`, rounded once to the nearest, ties to even (`Int.f32.ofBig` above 2^53, so as not to round twice); `x as f32` from `f64`; `f64::from` / `f32::from` where std has the `From`.
+- **`==` and `!=` on a derived `PartialEq`**: the crate's structs and enums, `Option`, `Result`, `Vec`, and tuples, compared part by part (`Eq.deep`), NaN unequal to itself and `-0.0` equal to `0.0` as in Rust. A value holding `ParseIntError` or `uuid::Error` stays refused.
+- **Strings**: `to_ascii_lowercase` / `to_ascii_uppercase`, `trim` / `trim_start` / `trim_end` by Rust's whitespace (not JS `trim`'s), `trim_matches` and its one-sided forms with a `char`, a closure, or (one-sided) a `&str`, `find` as a UTF-8 byte offset, and `split` with a closure.
+- **Sorting** a local `let mut` `Vec`: `sort()`, `sort_by(|a, b| ..)`, `sort_by_key(|x| ..)`, stable as JS `sort` is. `sort_unstable` stays refused.
+- **Consumers**: `find`, `max` / `min`, `max_by_key` / `min_by_key`, `max_by` / `min_by` (the last of the greatest, the first of the least, as std); `cloned()` / `copied()` on an `Option` are the value.
+
 ### Fixed
 
 - A `let` of an enum-typed place was cast back to its type even where nothing had narrowed it (a parameter, a `?`'s value), which oxlint refuses as unnecessary; only a place a `match` tests, a name its arm binds, or a copy of one is cast now.
@@ -12,6 +26,12 @@
 - An opened `if (` / `while (` test broke only where it did not fit; oxfmt breaks it at every top-level `||` (else `&&`), and a comparison that still does not fit after its operator. A range `for` whose declarators do not fit puts the second under the first.
 - `xs[i as usize]` with `i: u32` printed a cast `Slice.at` does not need, which oxlint refuses.
 - `[expr/cast]` says what `as` allows (a discriminant, `u8`/`u16`/`u32` to `usize`) and that no float converts to or from an integer, instead of advising `T::from(x)`; `f64::NAN` and other std paths are no longer called undefined functions.
+
+- A `u128` const that folds past an `i128` (`(1 << 80) - 1` kept its low bits with `1i128 << 128`) crashed `check`; it folds, and one at 2^127 or more is refused with a message.
+- `u128::from(u64)` printed `x as number as U128`; it is `x as bigint as U128`.
+- `Slice.range` bounds, `Int.<t>.cast`'s argument, and a float passed to `Math` or `Int.f64.round` carried casts oxlint refuses as unnecessary; a literal or a length is read bare, and a float's `as F64` dropped.
+- A one-sided `trim_start_matches` kept the other side's helper in the runtime, which tsc refuses as unread.
+- Layouts oxfmt prints otherwise: a logical chain whose last operand opens a closure's block (as a `return`, a `let`, or an arrow's whole body), an arrow body under `=>` that breaks at `&&`, a last-argument closure whose body is a `?:`, `if (..) continue;`, and float casts as array elements.
 
 ### Documentation
 
@@ -25,6 +45,7 @@
 - **ulid**: the ULID specification (base32, the 16-byte form, monotonic generation), written from the authoring skill alone; no hole, at 3.4× its idiomatic reference for want of narrowing and `u128`.
 - **negotiate**: RFC 9110 §12 proactive negotiation, written from the authoring skill alone; its test cites RFC 9110 Erratum 7138.
 - **raft**: the Raft paper's Figure 2 as a pure `step`, written from the authoring skill alone, with a simulation checking the four safety properties.
+- **jsonpatch, geo, ulid, negotiate** rewritten with this release's additions against their unchanged tests: geo 2.2× → 1.6×, ulid 3.4× → 1.6×, negotiate 2.6× → 1.6×, jsonpatch 4.9× → 4.1× (design/07 §2.2).
 
 ## 0.13.0 — 2026-10-06
 

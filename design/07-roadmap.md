@@ -56,10 +56,10 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 48 | 76 | 1.6× | 2.2× first draft; 1.4× restructured |
 | punycode | 154 | 285 | 1.9× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building |
 | calendar | 428 | 722 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
-| jsonpatch | 159 | 781 | 4.9× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 374 (3.5×), below. 789 as written (2026-10-11), 781 with `Vec::insert` |
-| geo | 135 | 297 | 2.2× | as written (2026-10-11); below |
-| ulid | 59 | 201 | 3.4× | as written (2026-10-11); below |
-| negotiate | 188 | 494 | 2.6× | as written (2026-10-11); below |
+| jsonpatch | 159 | 648 | 4.1× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 304 (2.8×), below. 789 as written (2026-10-11), 781 with `Vec::insert`, 648 with 0.13.1 (§8.18) |
+| geo | 135 | 222 | 1.6× | 297 (2.2×) as written (2026-10-11); 222 with 0.13.1's float methods and casts (§8.18) |
+| ulid | 59 | 95 | 1.6× | 201 (3.4×) as written (2026-10-11); 95 with `u128`, narrowing `as`, and a byte-string alphabet (§8.18) |
+| negotiate | 188 | 295 | 1.6× | 494 (2.6×) as written (2026-10-11); 295 with 0.13.1's string methods, sorts, and consumers (§8.18) |
 | oidc | 369 | 429 | 1.2× | 1.65× as written from the skill alone |
 | payment | 61 | 103 | 1.7× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
 | semver | 75 | 123 | 1.6× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
@@ -82,6 +82,7 @@ signup is counted by hand, as its test has no idiomatic module; ssh is not measu
 
 **What moved the numbers.** Each capability, the example it was measured on, and what it replaced:
 
+- **0.13.1's additions** (jsonpatch, geo, ulid, negotiate; §8.18): each example rewritten against its unchanged test. geo 297 → 222: `round`, `is_nan`, `as i64` / `as f64`, `as u8`, a byte-string alphabet replaced four hand-written exact substitutes. ulid 201 → 95: one `u128` and a table indexed by `as usize` replaced the two `u64` halves and the two 32-arm `match`es. negotiate 494 → 295: `scan_list` 93 → 53, the qvalue grammar 33 → 17, each ranking about 35 → 17 (`sort_by` with `then`, `min_by`). jsonpatch 781 → 648, the patch layer 374 → 304: `remove` and `v[i] = x` on a copy replaced the four copy loops, `==` the token comparisons; its `edit_at` still rebuilds the path from the root (no `&mut`), and `json_eq` stays, as RFC 6902 compares object members without their order.
 - **Range `for`** (signup, iban): recursion. Afterwards most of signup's gap was character classes spelled as numeric comparisons.
 - **Byte literals, integer literal and range patterns, `matches!`** (`int_patterns_equivalence.rs`): the local part of the e-mail address went from 14 lines of comparisons to one `matches!`. IBAN barely moved; its gap is the loops. A `match … { … => true, _ => false }` was longer than the comparisons it replaced (IBAN 50 lines), which is why `matches!` came with it.
 - **`_` and `A | B` arms** (payment): 160 → 135 lines of transitions. The rest was one function per state instead of a tuple `match`, and `match` on `Option` where idiomatic code calls `ok_or`, `unwrap_or`, `map`, and `min`.
@@ -180,20 +181,21 @@ Besides the capabilities in §2.1:
 
 <!-- derived-from #2-evidence-from-examples -->
 
-What the evidence currently points at, strongest first. None is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([§8.8](#88-070-lists-from-text-2026-10-02)), with patterns nested in a case.
+What the evidence currently points at, strongest first. The five examples of 2026-10-11 met §1 for every row struck through, taken together in 0.13.1 by decision. None of the rest is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([§8.8](#88-070-lists-from-text-2026-10-02)), with patterns nested in a case.
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
-| `v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are | jsonpatch: four copy loops in the patch layer (3.5×) | the same local-only rule as `insert`; `Slice` would panic past the end as Rust does |
-| Float methods (`round`, `floor`, `trunc`, `abs`, `is_nan`, `is_finite`) and conversions (`x as i64`, `n as f64`, `f64::from`) | geo: four hand-written replacements (2.2×) | Rust's `as` from a float saturates and sends NaN to 0, which TS can do exactly (`Math.trunc`, a clamp); `round` is half away from zero where `Math.round` is half up |
-| `u128` and byte-string literals (`b".."` as a `&[u8]` const) | ulid: 128 bits as two `u64`s; an alphabet as `match` arms | `u128` is a `bigint` as `u64` is; a byte string is a frozen array of numbers |
-| `==` on the crate's enums and structs that derive `PartialEq` | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | structural, by `kind` and fields; `f64` fields compare as Rust's `==` (NaN unequal), which JS `===` matches |
+| ~~`v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are~~ | jsonpatch: four copy loops in the patch layer (3.5×) | done in 0.13.1 (§8.18) |
+| ~~Float methods and conversions~~ | geo: four hand-written replacements (2.2×) | done in 0.13.1 (§8.18) |
+| ~~`u128` and byte-string literals~~ | ulid: 128 bits as two `u64`s; an alphabet as `match` arms | done in 0.13.1 (§8.18), with `i128` |
+| ~~`==` on the crate's enums and structs that derive `PartialEq`~~ | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | done in 0.13.1 (§8.18) |
+| ~~String trimming and search, sorting, and picking an item~~ | negotiate: a byte-by-byte list scanner, insertion sorts (2.6×) | done in 0.13.1 (§8.18); tuple sort keys and `Reverse` stay out |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
-| Narrowing `as` between integers | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | wraps in Rust and can wrap the same in TS; would give up the single spelling `T::from(x)` for widening |
+| ~~Narrowing `as` between integers~~ | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | done in 0.13.1 (§8.18); a widening `From` takes keeps `T::from(x)` as its one spelling |
 | Generics and string-keyed maps | — | §5 |
 | Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion | specified with local `const` in 0.4.0 | waits for a use |
 | crates.io and Windows binaries | — | when a user asks; since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement |
@@ -578,6 +580,27 @@ Seeds 1 to 120 of all five generators type-check and agree with Rust on every va
 
 - **Open:** nothing tsc refuses in the sweeps. The fold mirrors how the printer prints a test; a printer change to tests needs the sweeps rerun (`scripts/gen-sweep.sh`, run locally; reduce a failing seed with `scripts/gen-reduce.py`; README, Generated sweeps).
 - **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
+
+### 8.18 0.13.1: what the five examples asked for (2026-10-11)
+
+<!-- derived-from #22-line-counts-against-idiomatic-rust -->
+
+Why: the five examples written from the authoring skill alone on 2026-10-11 met no rejection, but four stayed over 2× (§2.2), each for something the subset lacked rather than the domain. Every candidate they raised was taken at once, in a patch series, by decision, overriding the `remove` / index assignment and `split` lines of §6 as 0.9.0 overrode growing a `Vec`.
+
+| Item | Verified by |
+| --- | --- |
+| `v.remove(i)`, `v[i] = x`, `v[i] op= x` on a local `let mut` `Vec`; Rust's order of evaluation where both sides may panic | `vec_edit_equivalence.rs` |
+| `x as T` between integer types `From` does not join, wrapping | `int_cast_equivalence.rs` (all 54 pairs), the widths generator |
+| `u128` / `i128`; byte strings, as a `&[u8]` const or an expression | `wide_int_equivalence.rs`, `wire.rs`, `wire_write.rs` |
+| Float methods, constants, and conversions, rounded once | `float_conv_equivalence.rs` (bit for bit) |
+| `==` / `!=` on a derived `PartialEq`, part by part | `deep_eq_equivalence.rs` |
+| `to_ascii_*case`, `trim*` by Rust's whitespace, `trim*_matches`, `find`, `split` with a closure | `str_more_equivalence.rs` |
+| Stable `sort`, `sort_by`, `sort_by_key` on a local; `find`, `max` / `min` and their `_by_key` / `_by` forms | `sort_pick_equivalence.rs` |
+
+- **Measurement.** Rewritten with them against unchanged tests: geo 2.2× → 1.6×, ulid 3.4× → 1.6×, negotiate 2.6× → 1.6×, jsonpatch 4.9× → 4.1× (the patch layer 3.5× → 2.8×, over the threshold for want of `&mut`, which stays out: §3). §2.2 has the detail.
+- **Holes met on the way**, each fixed with a fixture: a `u128` const crashed `check`'s folding; `u128::from(u64)` printed `as number`; casts on slice bounds, on `Int.<t>.cast`'s argument, and on a float passed to `Math` were unnecessary assertions to oxlint; a one-sided trim kept an unread helper; and seven layouts oxfmt prints otherwise (`fixtures/layout.rs`).
+- **Stated gaps**, in [01 §3](./01-equivalence.md#3-known-non-equivalences): a `u128` literal or const at 2^127 or more is refused (literals are `i128`s); a comparator that is not a total order may panic in Rust's sort and never in JS's.
+- **Open:** the seeded generators draw the integer casts only; the rest is covered by the hand-written tests above.
 
 ## 9. Generated API stability
 
