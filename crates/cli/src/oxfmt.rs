@@ -1,8 +1,8 @@
 //! The generated files' layout is oxfmt's: `build` and `check --out` run it
 //! over them as a program (oxc's formatter is not published as a crate).
-//! The layout is the CLI's, not the project's: oxfmt reads `CONFIG`, not
-//! a `.oxfmtrc.json` beside the output. The copied runtime and adapters are
-//! hand-written and left as they are.
+//! The layout is the CLI's, not the project's: oxfmt is given a width of
+//! `purecrate_emit_ts::WIDTH`, not a `.oxfmtrc.json` beside the output. The
+//! copied runtime and adapters are hand-written and left as they are.
 
 use std::env;
 use std::fs;
@@ -16,8 +16,6 @@ use purecrate_pack::{disk_path, generated};
 /// (`examples/package.json`); another may lay a line out otherwise.
 pub const VERSION: &str = "0.71.0";
 
-const CONFIG: &str = "{\n  \"printWidth\": 100\n}\n";
-
 /// `PURECRATE_OXFMT`, else `node_modules/.bin/oxfmt` in each of `near` or a
 /// directory above it, else `oxfmt` on `PATH`.
 pub fn locate(near: &[&Path]) -> Result<PathBuf, String> {
@@ -28,6 +26,7 @@ pub fn locate(near: &[&Path]) -> Result<PathBuf, String> {
         };
     }
     for dir in near {
+        // An absolute path, so a relative one is searched above too.
         let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         if let Some(found) = dir.ancestors().map(|d| d.join("node_modules/.bin/oxfmt")).find(|p| p.is_file()) {
             return Ok(found);
@@ -79,7 +78,8 @@ fn format_in(pkg: &mut Package, oxfmt: &Path, dir: &Path) -> Result<(), String> 
     if paths.is_empty() {
         return Ok(());
     }
-    fs::write(dir.join("oxfmt.json"), CONFIG).map_err(|e| format!("write {}: {e}", dir.display()))?;
+    let config = format!("{{\n  \"printWidth\": {}\n}}\n", purecrate_emit_ts::WIDTH);
+    fs::write(dir.join("oxfmt.json"), config).map_err(|e| format!("write {}: {e}", dir.display()))?;
     let out = Command::new(oxfmt)
         .args(["-c", "oxfmt.json", "--write"])
         .args(&paths)

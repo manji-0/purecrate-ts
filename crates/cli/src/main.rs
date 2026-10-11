@@ -43,7 +43,7 @@ fn execute(command: Command) -> Result<(), String> {
         Command::Build { input, out, schema, publishable } => {
             let schema = parse_schema(schema)?;
             load(&input, "nothing written", schema, access(publishable))
-                .and_then(|pkg| laid_out(pkg, &out))
+                .and_then(|pkg| laid_out(pkg, &input.src, &out))
                 .and_then(|pkg| write_replacing(&out, &pkg.files))
         }
         Command::Check { input, out: None, schema, publishable } => {
@@ -53,7 +53,7 @@ fn execute(command: Command) -> Result<(), String> {
         Command::Check { input, out: Some(out), schema, publishable } => {
             let schema = parse_schema(schema)?;
             load(&input, "", schema, access(publishable))
-                .and_then(|pkg| laid_out(pkg, &out))
+                .and_then(|pkg| laid_out(pkg, &input.src, &out))
                 .and_then(|pkg| check_drift(&input, &out, &pkg))
         }
         Command::Survey { inputs, json, all_causes } => run_survey(&inputs, json, all_causes),
@@ -165,11 +165,12 @@ fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Ac
     Err(report.join("\n"))
 }
 
-/// `pkg` laid out by the oxfmt found from `out` or the working directory.
-fn laid_out(mut pkg: Package, out: &Path) -> Result<Package, String> {
+/// `pkg` laid out by the oxfmt found from `out`, the input, or the working
+/// directory.
+fn laid_out(mut pkg: Package, src: &Path, out: &Path) -> Result<Package, String> {
     let above = out.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let found = oxfmt::locate(&[above, &cwd])?;
+    let found = oxfmt::locate(&[above, src, &cwd])?;
     match oxfmt::version(&found) {
         Some(v) if v == oxfmt::VERSION => {}
         v => eprintln!(

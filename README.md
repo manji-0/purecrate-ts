@@ -16,12 +16,13 @@ Download the binary for your platform from the [latest release](https://github.c
 cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.13.2 purecrate-ts
 ```
 
-The binary carries the runtime and the schema adapters; it needs only `rustc` on the `PATH` (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+The binary carries the runtime and the schema adapters; it needs `rustc`, and oxfmt to write the output (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
 - Rust (edition 2021) to build from source. Dependencies are vendored; build with `cargo --offline`. `check` and `build` also run the input through `rustc`, so `rustc` is needed at run time too (override with `RUSTC`); the input may use `serde`, for which `check` gives rustc a stand-in. The input's edition comes from `Cargo.toml` (`[package]` or inherited `[workspace.package]`; 2015 if unset). A standalone file uses 2021 unless you pass `--edition`.
 - Node and `npx` to type-check the output and to run differential tests. Type checking runs on TypeScript 6 and 7.
+- oxfmt 0.71.0 for `build` and `check --out`, which lay the output out with it: `npm install -D oxfmt@0.71.0` in or above the output directory or the crate, or put `oxfmt` on the `PATH`, or name it with `PURECRATE_OXFMT`. Without it they stop and write nothing; another version is used with a warning. `check` alone does not need it.
 
 ## Usage
 

@@ -267,7 +267,7 @@ pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> Stri
             .filter(|_| out.trim_end().lines().count() == 1)
         {
             // An object would read as a block; a `?:` is parenthesized on the
-            // arrow's line, as oxfmt prints it (`tidy::wrap_arrow` drops it).
+            // arrow's line, as oxfmt prints it.
             let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond()) || crate::tidy::is_ternary(value);
             let value = if value.starts_with('{') || choice { format!("({value})") } else { value.to_string() };
             return format!("({params}): {ret} => {value}");
@@ -291,8 +291,7 @@ pub(crate) fn arrow_expr(expr: &Expr, indent: usize) -> String {
         if bare.starts_with('{') {
             s
         } else if t.is_cond() {
-            // Parenthesized on the arrow's line, as oxfmt prints it;
-            // `tidy::wrap_arrow` drops the pair when the body moves down.
+            // Parenthesized on the arrow's line, as oxfmt prints it.
             format!("({bare})")
         } else if let Some(rest) = bare.strip_prefix("({") {
             // An object heading a longer body (`({ .. } satisfies T)[k]`)
@@ -921,14 +920,25 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
         if let Some((_, name, _)) = t.iter().find(|(k, ..)| *k == key) {
             return name.clone();
         }
-        let base = format!("{}Discriminants{}", purecrate_ir::lower_first(of.as_str()), if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" });
+        let base = format!(
+            "{}Discriminants{}",
+            purecrate_ir::lower_first(of.as_str()),
+            if big && t.iter().any(|(k, ..)| k.0 == key.0) { "Big" } else { "" }
+        );
         let name = temp(&base);
         let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
-        let entries = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect::<Vec<_>>().join(", ");
-        let decl = format!(
-            "/** Each `{of}` variant's discriminant. */\nconst {name} = {{ {entries} }} satisfies Record<{of}[\"kind\"], {num}>;\n",
-            of = of.as_str()
-        );
+        let entries: Vec<String> = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect();
+        let check = format!("satisfies Record<{}[\"kind\"], {num}>;", of.as_str());
+        // One line where it fits, else one variant a line: oxfmt keeps an
+        // object opened so, where it would break the `Record<..>` instead.
+        let line = format!("const {name} = {{ {} }} {check}", entries.join(", "));
+        let table = if crate::tidy::cols(&line) <= crate::WIDTH {
+            line
+        } else {
+            let fields: String = entries.iter().map(|e| format!("\n  {e},")).collect();
+            format!("const {name} = {{{fields}\n}} {check}")
+        };
+        let decl = format!("/** Each `{of}` variant's discriminant. */\n{table}\n", of = of.as_str());
         t.push((key, name.clone(), decl));
         name
     });

@@ -602,6 +602,21 @@ Why: the five examples written from the authoring skill alone on 2026-10-11 met 
 - **Stated gaps**, in [01 §3](./01-equivalence.md#3-known-non-equivalences): a `u128` literal or const at 2^127 or more is refused (literals are `i128`s); a comparator that is not a total order may panic in Rust's sort and never in JS's.
 - **Open:** the seeded generators draw the integer casts only; the rest is covered by the hand-written tests above.
 
+### 8.19 Unreleased: the layout is oxfmt's
+
+<!-- supersedes #811-082-the-rest-of-the-audit-and-layout-2026-10-04 -->
+
+Why: oxlint over the generators' output, then oxfmt over it, found 1,082 of about 5,300 files laid out otherwise than oxfmt; fixing the shapes one by one brought it to 850. `tidy::wrap` imitated oxfmt rule by rule from the examples, and each new shape was a new rule. oxc's formatter is still not published as a crate (crates.io holds a `0.0.0` placeholder), so `build` and `check --out` run oxfmt as a program.
+
+| Item | Verified by |
+| --- | --- |
+| `build` and `check --out` lay the generated files out with oxfmt 0.71.0 at width 100, and stop without one | `build.rs` (`build_without_oxfmt_writes_nothing`); `verify.sh` checks the version against `examples/package.json` |
+| `tidy`'s line breaking removed (about 1,800 lines); a long discriminant table printed one variant a line, which oxfmt keeps open | every example's and fixture's output (1,430 files) byte for byte unchanged with and without the old rules |
+| The differential tests and the generators run the laid-out package | `support::write_package` |
+
+- **Cost.** `build` needs Node and oxfmt beside the binary, and its output follows oxfmt's version: a new oxfmt is a new layout, taken by moving the pin and regenerating the examples.
+- **Left to the printer**, since oxfmt keeps it as it finds it: an object, array, or argument list written open; blank lines; parentheses; a comment's place.
+
 ## 9. Generated API stability
 
 Users commit the generated output and check it with `check --out` in CI, so a change to the bytes is a repo-wide diff plus caller updates. Within a **minor** series (`0.N.x` today; `N.x` after 1.0) the following are stable, and a change to them is a **minor** bump (a **major** after 1.0):

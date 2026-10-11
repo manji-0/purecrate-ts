@@ -154,25 +154,12 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out.push_str(&body);
     // A companion with nothing in it is `{}`, as oxfmt prints it.
     let out = out.replace(" = {\n} as const;", " = {} as const;");
-    tidy::wrap(
-        &paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out)))),
-        WIDTH,
-    )
+    paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out))))
 }
 
-/// The width past which `tidy::wrap` breaks a line.
+/// The width oxfmt lays the generated files out to (`purecrate-ts`'s
+/// `oxfmt.rs`).
 pub const WIDTH: usize = 100;
-
-/// The columns a line takes, as oxfmt counts them against [`WIDTH`]: a wide
-/// East Asian character takes two.
-pub fn columns(line: &str) -> usize {
-    tidy::cols(line)
-}
-
-/// Break generated source so no code line exceeds [`WIDTH`].
-pub fn wrap_source(src: &str) -> String {
-    tidy::wrap(src, WIDTH)
-}
 
 #[cfg(test)]
 mod tests;

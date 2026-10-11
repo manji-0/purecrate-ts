@@ -1,4 +1,4 @@
-use purecrate_emit_ts::{emit, emit_wire, wrap_source, File as TsFile, Package, WireSchema, HEADER};
+use purecrate_emit_ts::{emit, emit_wire, File as TsFile, Package, WireSchema, HEADER};
 use purecrate_ir::Crate;
 
 mod trim;
@@ -108,12 +108,6 @@ pub fn assemble_with_license(
     for file in &mut pkg.files {
         for (package, stem) in &local {
             file.source = file.source.replace(&format!("from \"{package}\";"), &format!("from \"./{stem}.ts\";"));
-        }
-        // Rewriting `from "purecrate"` to `from "./purecrate-runtime.ts"` can
-        // push an import over the width; wrap again after the paths are final.
-        // Copied runtime and adapters are hand-written and must not be rewrapped.
-        if generated(&file.stem) {
-            file.source = wrap_source(&file.source);
         }
     }
     let manifests = [

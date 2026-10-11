@@ -143,7 +143,7 @@ fn emit_wire_in(krate: &Crate, schema: WireSchema) -> String {
             }
         }
     }
-    crate::tidy::wrap(&super::imports::prune_unused(&render(&chunks)), crate::WIDTH)
+    super::imports::prune_unused(&render(&chunks))
 }
 
 /// The type's `///` comment as JSDoc for its schema, so a hover on the

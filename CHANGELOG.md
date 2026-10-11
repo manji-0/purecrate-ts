@@ -6,7 +6,8 @@ oxlint over the generators' output, which the sweep does not lint, found what fo
 
 ### Changed
 
-- **`build` and `check --out` lay the generated files out with oxfmt** (0.71.0, width 100), run as a program: `PURECRATE_OXFMT`, else `node_modules/.bin/oxfmt` beside the output or above it or the working directory, else `oxfmt` on `PATH`; without one they stop and write nothing (`check` alone does not need it). Another oxfmt version is used with a warning, since it may lay a line out otherwise. The copied runtime and adapters are left as written. The differential tests lay out what they run the same way.
+- **`build` and `check --out` lay the generated files out with oxfmt** (0.71.0, width 100), run as a program: `PURECRATE_OXFMT`, else `node_modules/.bin/oxfmt` in or above the output's directory, the input crate, or the working directory, else `oxfmt` on `PATH`; without one they stop and write nothing (`check` alone does not need it). Another oxfmt version is used with a warning, since it may lay a line out otherwise. The copied runtime and adapters are left as written. The differential tests lay out what they run the same way.
+- **The printer no longer breaks lines itself**: `tidy`'s line rules, which imitated oxfmt shape by shape, are gone; oxfmt breaks them. Every example's and fixture's output is byte for byte what it was. A discriminant table too long for its line is printed one variant a line, which oxfmt keeps open.
 
 ### Fixed
 

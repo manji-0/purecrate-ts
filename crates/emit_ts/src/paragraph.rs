@@ -6,7 +6,7 @@
 //! reads (`const m = next(cmd);` then `switch (m.kind) {`, what a `match`
 //! on a call became); a `//` comment heads a paragraph, with a blank
 //! line before it. Never at a block's start or end, nor among `switch`
-//! cases. Runs before `tidy::wrap`, so a line it breaks counts as one.
+//! cases. oxfmt keeps these blank lines.
 
 /// `src` with a blank line between the statements of each code block where
 /// the rule above asks for one.
