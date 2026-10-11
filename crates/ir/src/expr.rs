@@ -1444,9 +1444,10 @@ impl Expr {
         })
     }
 
-    /// Whether this expression or one inside it reads `name`.
+    /// Whether this expression or one inside it reads `name`, calling a
+    /// local closure included.
     pub fn reads(&self, name: &Name) -> bool {
-        self.any(|e| matches!(e, Expr::Var(n) if n == name))
+        self.any(|e| matches!(e, Expr::Var(n) | Expr::Call { callee: Callee::Local(n), .. } if n == name))
     }
 
     /// Whether this expression or one inside it assigns `name`.

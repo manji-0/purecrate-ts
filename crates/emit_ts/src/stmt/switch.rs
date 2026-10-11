@@ -185,6 +185,13 @@ pub(crate) fn emit_switch_in(
                     return;
                 }
             }
+            // `Ok(v) => {}` (what an unread `let` leaves) is the side left
+            // out, not an empty `{ }` before an `else`.
+            let (a, b, test) = if matches!(sink, Sink::Effect) && a.body == Expr::Lit(Lit::Unit) {
+                (b, a, two_way_tx(&b.pattern, &subject).expect("two-way"))
+            } else {
+                (a, b, test)
+            };
             let (a_prelude, a_body) = read_in_place(&a.pattern, scrutinee, &a.body, &subject, &pad2);
             let (b_prelude, b_body) = read_in_place(&b.pattern, scrutinee, &b.body, &subject, &pad2);
             let mut branches = vec![Branch { test: Some(test), prelude: a_prelude, body: &a_body }];

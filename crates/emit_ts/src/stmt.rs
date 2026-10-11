@@ -330,7 +330,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 };
                 out.push_str(&format!("{pad}{} = {}{widened};\n", name.as_str(), crate::tidy::strip_outer(&item)));
             }
-            sink.finish("undefined", &pad, out);
+            if !ends_in_jump(expr) {
+                sink.finish("undefined", &pad, out);
+            }
         }
         // `if (o === null) return ..;` then `let x = o` (what `ok_or(e)?`
         // lowers to): `o` is narrowed, so the rest reads it as is.

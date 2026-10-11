@@ -68,6 +68,7 @@ mod raft_equivalence;
 mod readability_equivalence;
 mod rest_equivalence;
 mod review_holes2_equivalence;
+mod review_holes3_equivalence;
 mod review_holes_equivalence;
 mod scoped_names;
 mod semver_equivalence;

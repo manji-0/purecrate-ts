@@ -187,6 +187,12 @@ struct Renamer {
     /// alone; the printer may flatten a `?` into its statement's block, so
     /// two in different scopes here can share one there.
     made: HashSet<String>,
+    /// Every printed name reserved so far, in order, with the depth of JS
+    /// blocks of its own (a loop's, a branch's, a closure's) it is in: what
+    /// a Rust block declared into the enclosing JS block is read off its
+    /// tail (`keep_taken`).
+    reserved: Vec<(usize, String)>,
+    depth: usize,
 }
 
 impl Renamer {
@@ -228,7 +234,24 @@ impl Renamer {
     fn reserve(&mut self, name: &Name, cx: &mut Cx) -> Name {
         let printed = self.pick(name, &cx.taken);
         cx.taken.insert(printed.as_str().to_string());
+        self.reserved.push((self.depth, printed.as_str().to_string()));
         printed
+    }
+
+    /// Marks taken in `cx` the names reserved since `mark`. A Rust block
+    /// ends its bindings' scope, but the printer may flatten it, and a
+    /// value's statements, into the enclosing JS block: what follows reads
+    /// the outer binding again, yet must not declare a name the block did.
+    fn keep_taken(&self, mark: usize, cx: &mut Cx) {
+        cx.taken.extend(self.reserved[mark..].iter().filter(|(d, _)| *d == self.depth).map(|(_, n)| n.clone()));
+    }
+
+    /// `f` in a JS block of its own, which no name of it leaves.
+    fn own_block<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.depth += 1;
+        let out = f(self);
+        self.depth -= 1;
+        out
     }
 
     /// A local's TS spelling drops a leading `_` (`_high` is `high`): Rust
@@ -280,22 +303,25 @@ impl Renamer {
     /// A statement in a sequence shares the JS block with what follows, so
     /// a `let` here is live for the rest of the sequence. One inside the
     /// sequence's first statement (a Rust block `{ let m = ..; }`) is not:
-    /// what follows reads the outer binding of its name again. Its name is
-    /// still one of its own in the printed block, as every name made here
-    /// is unique in the function.
+    /// what follows reads the outer binding of its name again (`keep_taken`).
     fn stmt_binds(&mut self, e: Expr, cx: &mut Cx) -> Expr {
         match e {
             Expr::Let { name, mutable, ty, value, then } => {
+                let mark = self.reserved.len();
                 let (name, value) = self.bind_let(name, value, cx);
+                self.keep_taken(mark, cx);
                 Expr::Let { name, mutable, ty, value, then: Box::new(self.stmt_binds(*then, cx)) }
             }
-            Expr::Seq { first, then } => {
-                let mut block = cx.clone();
-                let first = self.stmt_binds(*first, &mut block);
-                Expr::Seq { first: Box::new(first), then: Box::new(self.stmt_binds(*then, cx)) }
-            }
+            Expr::Seq { first, then } => self.seq(*first, *then, cx),
             other => self.expr(other, cx),
         }
+    }
+
+    fn seq(&mut self, first: Expr, then: Expr, cx: &mut Cx) -> Expr {
+        let mark = self.reserved.len();
+        let first = self.stmt_binds(first, &mut cx.clone());
+        self.keep_taken(mark, cx);
+        Expr::Seq { first: Box::new(first), then: Box::new(self.stmt_binds(then, cx)) }
     }
 
     fn expr(&mut self, e: Expr, cx: &Cx) -> Expr {
@@ -315,29 +341,35 @@ impl Renamer {
             Expr::For { var, ty, start, end, body } => {
                 let start = self.boxed(start, cx);
                 let end = self.boxed(end, cx);
-                let mut inner = cx.clone();
-                let var = self.bind(&var, &mut inner);
-                Expr::For { var, ty, start, end, body: self.boxed(body, &inner) }
+                self.own_block(|r| {
+                    let mut inner = cx.clone();
+                    let var = r.bind(&var, &mut inner);
+                    Expr::For { var, ty, start, end, body: r.boxed(body, &inner) }
+                })
             }
             Expr::ForEach { var, over, source: string, body } => {
                 let string = self.boxed(string, cx);
-                let mut inner = cx.clone();
-                let var = self.bind(&var, &mut inner);
-                Expr::ForEach { var, over, source: string, body: self.boxed(body, &inner) }
+                self.own_block(|r| {
+                    let mut inner = cx.clone();
+                    let var = r.bind(&var, &mut inner);
+                    Expr::ForEach { var, over, source: string, body: r.boxed(body, &inner) }
+                })
             }
             Expr::If { cond, then, else_ } => {
-                Expr::If { cond: self.boxed(cond, cx), then: self.boxed(then, cx), else_: self.boxed(else_, cx) }
+                let cond = self.boxed(cond, cx);
+                self.own_block(|r| Expr::If { cond, then: r.boxed(then, cx), else_: r.boxed(else_, cx) })
             }
             Expr::Match { scrutinee, arms } => Expr::Match {
                 scrutinee: self.boxed(scrutinee, cx),
-                arms: arms
-                    .into_iter()
-                    .map(|a| {
-                        let mut inner = cx.clone();
-                        let pattern = self.pattern(a.pattern, &mut inner);
-                        Arm { guard: None, pattern, body: self.stmt_binds(a.body, &mut inner) }
-                    })
-                    .collect(),
+                arms: self.own_block(|r| {
+                    arms.into_iter()
+                        .map(|a| {
+                            let mut inner = cx.clone();
+                            let pattern = r.pattern(a.pattern, &mut inner);
+                            Arm { guard: None, pattern, body: r.stmt_binds(a.body, &mut inner) }
+                        })
+                        .collect()
+                }),
             },
             Expr::Call { callee: Callee::Local(n), args } => Expr::Call {
                 callee: Callee::Local(cx.env.get(n.as_str()).cloned().unwrap_or_else(|| camel(&n))),
@@ -351,14 +383,14 @@ impl Renamer {
                 },
                 args: self.all(args, cx),
             },
-            Expr::Closure { params, ret, body } => {
+            Expr::Closure { params, ret, body } => self.own_block(|r| {
                 let mut inner = cx.clone();
                 let params = params
                     .into_iter()
-                    .map(|p| ClosureParam { name: self.bind_param(&p.name, &mut inner), ty: p.ty })
+                    .map(|p| ClosureParam { name: r.bind_param(&p.name, &mut inner), ty: p.ty })
                     .collect();
-                Expr::Closure { params, ret, body: self.boxed(body, &inner) }
-            }
+                Expr::Closure { params, ret, body: r.boxed(body, &inner) }
+            }),
             Expr::MethodCall { receiver, name, args } => {
                 Expr::MethodCall { receiver: self.boxed(receiver, cx), name, args: self.all(args, cx) }
             }
@@ -377,7 +409,10 @@ impl Renamer {
             Expr::Tuple(xs) => Expr::Tuple(self.all(xs, cx)),
             Expr::Array(xs) => Expr::Array(self.all(xs, cx)),
             Expr::Cast { expr, to } => Expr::Cast { expr: self.boxed(expr, cx), to },
-            Expr::While { cond, body } => Expr::While { cond: self.boxed(cond, cx), body: self.boxed(body, cx) },
+            Expr::While { cond, body } => {
+                let cond = self.boxed(cond, cx);
+                self.own_block(|r| Expr::While { cond, body: r.boxed(body, cx) })
+            }
             Expr::Break => Expr::Break,
             Expr::Continue => Expr::Continue,
             Expr::Binary { op, left, right } => {
@@ -388,11 +423,7 @@ impl Renamer {
             Expr::Assign { name, value } => {
                 Expr::Assign { name: cx.env.get(name.as_str()).cloned().unwrap_or(name), value: self.boxed(value, cx) }
             }
-            Expr::Seq { first, then } => {
-                let mut inner = cx.clone();
-                let first = self.stmt_binds(*first, &mut inner);
-                Expr::Seq { first: Box::new(first), then: Box::new(self.stmt_binds(*then, &mut inner)) }
-            }
+            Expr::Seq { first, then } => self.seq(*first, *then, &mut cx.clone()),
             Expr::Try { expr, on } => Expr::Try { expr: self.boxed(expr, cx), on },
             Expr::Ignored { wrapper, expr } => Expr::Ignored { wrapper, expr: self.boxed(expr, cx) },
             other @ (Expr::Lit(_) | Expr::Unreachable | Expr::Comment(_)) => other,

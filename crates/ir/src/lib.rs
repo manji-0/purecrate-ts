@@ -25,8 +25,9 @@ pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 
 /// Globals the emitted code reads without importing them: a crate name that
 /// equals one would shadow it. Runtime globals (`Math`, `Number`, `Error`,
-/// `BigInt`) are read through `globalThis`, so a crate may define `Error`.
-pub const TS_GLOBALS: &[&str] = &["globalThis", "Readonly", "ReadonlyArray"];
+/// `BigInt`) are read through `globalThis`, so a crate may define `Error`;
+/// `Array` is not (`Array.from`, `Array<T>`).
+pub const TS_GLOBALS: &[&str] = &["globalThis", "Array", "Readonly", "ReadonlyArray"];
 
 /// A property key an object literal treats as the prototype, not a field.
 pub const PROTO_KEY: &str = "__proto__";

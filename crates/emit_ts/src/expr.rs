@@ -994,7 +994,11 @@ pub(crate) fn as_expr(expr: &Expr, indent: usize) -> Option<String> {
 
 pub(crate) fn as_tx(expr: &Expr, indent: usize) -> Option<Tx> {
     match expr {
-        Expr::Let { name, mutable: false, value, then, .. } if value.is_inlinable() => {
+        // A closure called by its name (`g(1)`) is not a read `subst` rewrites.
+        Expr::Let { name, mutable: false, value, then, .. }
+            if value.is_inlinable()
+                && !then.any(|e| matches!(e, Expr::Call { callee: Callee::Local(n), .. } if n == name)) =>
+        {
             as_tx(&subst(then, name, value), indent)
         }
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_tx(scrutinee, arms, indent),

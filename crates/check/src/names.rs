@@ -60,6 +60,10 @@ const TS_RESERVED: &[&str] = &[
     "yield",
 ];
 
+/// Globals oxlint's `no-shadow-restricted-names` keeps a binding from
+/// shadowing (with `undefined`, `eval`, and `arguments`, reserved above).
+const TS_RESTRICTED: &[&str] = &["Infinity", "NaN"];
+
 /// Cannot name a TS type alias.
 const TS_TYPE_KEYWORDS: &[&str] =
     &["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"];
@@ -238,6 +242,8 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
             bad(what, name, "is a raw identifier; rename it in the crate");
         } else if TS_RESERVED.contains(&s) {
             bad(what, name, "is a reserved word in TypeScript");
+        } else if TS_RESTRICTED.contains(&s) {
+            bad(what, name, "is a global no binding may shadow in TypeScript");
         } else if is_generated(s) {
             bad(what, name, "shadows a name the generated code uses");
         }

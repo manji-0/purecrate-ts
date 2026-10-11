@@ -75,6 +75,8 @@ pub(crate) fn ends_in_jump(expr: &Expr) -> bool {
     match expr {
         Expr::Return(_) | Expr::Break | Expr::Continue => true,
         Expr::Seq { then, .. } | Expr::Let { then, .. } => ends_in_jump(then),
+        // `v = w?` where `w` is known to fail: the value's statements leave.
+        Expr::Assign { value, .. } => value.needs_statements() && ends_in_jump(value),
         Expr::If { then, else_, .. } => expr.needs_statements() && ends_in_jump(then) && ends_in_jump(else_),
         // Printed as a `switch` whose `default` returns, or an `if` chain
         // ending in `else`: it jumps when every arm does.

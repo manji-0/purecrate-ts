@@ -92,6 +92,18 @@ struct Cx {
     written: HashSet<String>,
 }
 
+impl Cx {
+    /// `stmt::touches`, less a closure that only reads `name` where nothing
+    /// writes it: TS keeps a narrowing in such a closure (as `flow` does).
+    fn touches(&self, expr: &Expr, name: &Name) -> bool {
+        expr.any(|e| match e {
+            Expr::Assign { name: n, .. } => n == name,
+            Expr::Closure { body, .. } => self.written.contains(name.as_str()) && body.reads(name),
+            e => e.own_bindings().contains(&name),
+        })
+    }
+}
+
 /// How many times a loop's body runs to find the state at its head; the
 /// lattice is finite, and this bounds the work of nested loops.
 const ROUNDS: usize = 6;
@@ -465,7 +477,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
             flow(then, s, cx)
         }
-        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !touches(then, root(value)) => {
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !cx.touches(then, root(value)) => {
             let name = name.clone();
             let mut s = st;
             let known = s.get(value);
@@ -555,6 +567,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
             let carried = carried(value, &s);
             s.forget(&name);
+
             if let Some(case) = built_case(value) {
                 s.set(Expr::Var(name.clone()), vec![case]);
             } else if let Some(cases) = carried {
@@ -581,7 +594,9 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             // where nothing writes `v` or what the test reads.
             let alias = !mutable || !then.assigns(&name);
             let tested = |e: &Expr| reads_of(e).iter().all(|n| !cx.written.contains(n.as_str()));
-            let cond = (alias && !tests(value, true).is_empty() && tested(value)).then(|| (**value).clone());
+            // Either side may decide (`!c || r.is_ok()` decides `r` failing).
+            let decides = !tests(value, true).is_empty() || !tests(value, false).is_empty();
+            let cond = (alias && decides && tested(value)).then(|| (**value).clone());
             if let Some(c) = &cond {
                 CONDS.with(|t| t.borrow_mut().push((name.clone(), c.clone())));
             }
@@ -842,6 +857,14 @@ fn rewritten(expr: &mut Expr, st: &State) -> bool {
             }
         }
     }
+    // ..anywhere else (an arm's value, `match c { A => r?, .. }`), known
+    // `Ok`, the payload.
+    if let Expr::Try { expr: place, on: Some(on) } = expr {
+        if let Some(payload) = known_payload(place, *on, st) {
+            *expr = payload;
+            return true;
+        }
+    }
     // `r?` where `r` is known `Ok` never leaves; known `Err`, always does.
     if let Expr::Seq { first, then } = expr {
         if let Expr::Try { expr: place, on: Some(on) } = &**first {
@@ -989,7 +1012,11 @@ fn tested_once(expr: &Expr, name: &Name) -> bool {
 /// How many times `expr` reads `name`.
 fn uses(expr: &Expr, name: &Name) -> usize {
     let mut count = 0;
-    expr.walk(|e| count += usize::from(matches!(e, Expr::Var(n) if n == name)));
+    expr.walk(|e| {
+        count += usize::from(
+            matches!(e, Expr::Var(n) | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name),
+        )
+    });
     count
 }
 
@@ -1153,7 +1180,7 @@ fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 None => continue,
             }
         }
-        let writes = touches(&arm.body, root(scrutinee));
+        let writes = cx.touches(&arm.body, root(scrutinee));
         let mut base = st.clone();
         for n in arm.pattern.bindings() {
             base.forget(n);
