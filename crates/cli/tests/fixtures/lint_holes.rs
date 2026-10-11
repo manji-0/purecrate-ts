@@ -235,3 +235,27 @@ pub fn choice_of_numbers(a: f32, z: f32) -> f64 {
     let r: f64 = f64::from(if a == 2.0 * z { -(a % z) } else { 2.5 - a / z });
     r
 }
+
+// Layouts oxfmt gives a function called at once inside a value: in a
+// variant's field returned from inside branches, and as a call's argument.
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shape {
+    Idle,
+    Rec { n: i32, open: bool },
+}
+
+#[allow(clippy::redundant_closure_call)]
+pub fn iife_in_field(a: i32, o: Option<i32>, c: bool) -> Result<Shape, i32> {
+    if c {
+        if a > 10 {
+            return Ok(Shape::Rec { n: a, open: matches!(o.map(|v| v + a), Some(x) if o.is_none() || x > 0) });
+        }
+    }
+    Ok(Shape::Idle)
+}
+
+pub fn iife_in_argument(a: i32, o: Option<i32>, c: bool) -> bool {
+    let step = |x: i32, y: i32| x.wrapping_mul(3) > y;
+    c && step(match o.map(|v| v.wrapping_add(a)) { Some(x) if x > 0 => x, _ => a }, a)
+}

@@ -356,3 +356,77 @@ fn number_item(item: &str) -> bool {
         && rest.starts_with(|c: char| c.is_ascii_digit())
         && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
 }
+
+/// A call with a function called at once among its arguments (`f((() => {`
+/// .. `})(), x)`), which oxfmt does not hug: its arguments open, one a line
+/// one indent in from the call's line, each with a trailing comma, the
+/// function's lines moved in with it. Applied outermost first until none is
+/// left, so a call inside an opened one opens in turn.
+pub(super) fn open_iife_calls(src: &str) -> String {
+    let mut text = src.to_string();
+    while let Some(next) = open_one_iife_call(&text) {
+        text = next;
+    }
+    text
+}
+
+fn open_one_iife_call(s: &str) -> Option<String> {
+    let d = depths(s);
+    let bytes = s.as_bytes();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$');
+    for p in 1..bytes.len() {
+        if bytes[p] != b'(' || d[p].is_none() || !ident(bytes[p - 1]) || bytes.get(p + 1) == Some(&b'\n') {
+            continue;
+        }
+        let word_start = (0..p).rev().find(|&i| !ident(bytes[i])).map_or(0, |i| i + 1);
+        if ["if", "for", "while", "switch", "catch", "function"].contains(&&s[word_start..p]) {
+            continue;
+        }
+        // The matching `)` and the top-level commas between.
+        let mut nest = 0usize;
+        let mut close = None;
+        let mut commas = Vec::new();
+        for i in p + 1..bytes.len() {
+            if d[i].is_none() {
+                continue;
+            }
+            match bytes[i] {
+                b'(' | b'[' | b'{' => nest += 1,
+                b')' | b']' | b'}' if nest == 0 => {
+                    close = Some(i);
+                    break;
+                }
+                b')' | b']' | b'}' => nest -= 1,
+                b',' if nest == 0 => commas.push(i),
+                _ => {}
+            }
+        }
+        let close = close?;
+        if !s[p + 1..close].contains('\n') {
+            continue;
+        }
+        let mut args = Vec::new();
+        let mut from = p + 1;
+        for &c in commas.iter().chain(std::iter::once(&close)) {
+            let arg = s[from..c].trim();
+            if !arg.is_empty() {
+                args.push(arg);
+            }
+            from = c + 1;
+        }
+        if !args.iter().any(|a| a.starts_with("(() => {")) {
+            continue;
+        }
+        let line_start = s[..p].rfind('\n').map_or(0, |i| i + 1);
+        let pad: String = s[line_start..].chars().take_while(|c| *c == ' ').collect();
+        let mut out = String::with_capacity(s.len() + 64);
+        out.push_str(&s[..=p]);
+        for arg in &args {
+            out.push_str(&format!("\n{pad}  {},", indent_more(arg)));
+        }
+        out.push_str(&format!("\n{pad}"));
+        out.push_str(&s[close..]);
+        return Some(out);
+    }
+    None
+}

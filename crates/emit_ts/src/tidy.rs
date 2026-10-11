@@ -23,7 +23,7 @@ pub(crate) use scan::*;
 /// long `&&` / `||` / `?:`, or an arrow body. Comment lines stay as they are.
 pub(crate) fn wrap(src: &str, width: usize) -> String {
     let mut out = String::with_capacity(src.len());
-    let src = open_logical_blocks(src);
+    let src = open_logical_blocks(&open_iife_calls(src));
     for line in src.lines() {
         wrap_line(&comments_before_groups(line), width, &mut out);
     }
@@ -138,6 +138,24 @@ mod tests {
         assert_eq!(
             wrap(g, 100),
             "  (a === (globalThis.Math.fround((2.0 as F32) * z) as F32)\n    ? (globalThis.Math.fround(a % z) as F32) * -1\n    : globalThis.Math.fround((2.5 as F32) - z)) as F64;\n"
+        );
+    }
+
+    #[test]
+    fn a_call_given_a_function_called_at_once_opens_its_arguments() {
+        let src = "  const o = Str.find((() => {\n    const x = f();\n\n    return x;\n  })(), \"a\");\n";
+        assert_eq!(
+            wrap(src, 100),
+            "  const o = Str.find(\n    (() => {\n      const x = f();\n\n      return x;\n    })(),\n    \"a\",\n  );\n"
+        );
+    }
+
+    #[test]
+    fn a_labelled_loop_head_opens_as_an_unlabelled_one() {
+        let line = "  loop: for (let b3 = Int.i32.rem(Int.i32.saturatingSub(a, o), 4 as I32), end = Int.i32.rem(7 as I32, 6 as I32); b3 < end; b3 = (b3 + 1) as I32) {";
+        assert_eq!(
+            wrap(line, 100),
+            "  loop: for (\n    let b3 = Int.i32.rem(Int.i32.saturatingSub(a, o), 4 as I32),\n      end = Int.i32.rem(7 as I32, 6 as I32);\n    b3 < end;\n    b3 = (b3 + 1) as I32\n  ) {\n"
         );
     }
 

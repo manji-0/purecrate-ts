@@ -298,3 +298,13 @@ pub(super) fn wide(c: char) -> bool {
         | 0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60
         | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
 }
+
+/// `s` with each line after the first one indent further in; a blank line
+/// stays blank.
+pub(crate) fn indent_more(s: &str) -> String {
+    s.split('\n')
+        .enumerate()
+        .map(|(i, l)| if i == 0 || l.is_empty() { l.to_string() } else { format!("  {l}") })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

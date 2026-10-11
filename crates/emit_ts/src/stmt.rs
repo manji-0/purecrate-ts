@@ -256,7 +256,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         Expr::If { cond, then, else_ }
             if matches!(sink, Sink::Effect)
                 && **else_ == Expr::Lit(Lit::Unit)
-                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements())
+                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements() && !emit_expr(v, indent).contains('\n'))
                     | matches!(lone_jump(then), Expr::Break | Expr::Continue)
                 && !emit_expr(cond, indent).contains('\n') =>
         {

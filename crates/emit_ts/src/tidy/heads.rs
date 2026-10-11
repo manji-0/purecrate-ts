@@ -113,6 +113,19 @@ fn parse_if_return(line: &str) -> Option<(&str, &str, &str)> {
 
 /// `line` as `<pad><keyword> (<inside>)<after>`, the parenthesis closed at
 /// its own depth.
+/// A loop's `label: ` (`loop: for (..) {`) apart from the line without it.
+fn unlabeled(line: &str) -> (&str, std::borrow::Cow<'_, str>) {
+    let pad_len = line.len() - line.trim_start().len();
+    let rest = &line[pad_len..];
+    let word = rest.bytes().take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$')).count();
+    match rest[word..].strip_prefix(": ") {
+        Some(after) if word > 0 && (after.starts_with("for (") || after.starts_with("while (")) => {
+            (&rest[..word + 2], std::borrow::Cow::Owned(format!("{}{after}", &line[..pad_len])))
+        }
+        _ => ("", std::borrow::Cow::Borrowed(line)),
+    }
+}
+
 fn paren_head<'a>(line: &'a str, keyword: &str) -> Option<(&'a str, &'a str, &'a str)> {
     let pad_len = line.len() - line.trim_start().len();
     let rest = line[pad_len..].strip_prefix(keyword)?.strip_prefix(' ')?;
@@ -128,6 +141,7 @@ fn paren_head<'a>(line: &'a str, keyword: &str) -> Option<(&'a str, &'a str, &'a
 /// condition does not fit on the line: the condition on lines of its own,
 /// as oxfmt lays it out.
 pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
+    let (label, line) = unlabeled(line);
     let trimmed = line.trim_start();
     let pad = &line[..line.len() - trimmed.len()];
     let (keyword, head, rest) = match trimmed.strip_prefix("} else ") {
@@ -138,7 +152,7 @@ pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
     let Some((_, cond, " {")) = paren_head(&rest, keyword) else {
         return false;
     };
-    wrap_line(&format!("{pad}{head}"), width, out);
+    wrap_line(&format!("{pad}{label}{head}"), width, out);
     opened_test(pad, cond, width, out);
     wrap_line(&format!("{pad}) {{"), width, out);
     true
@@ -146,7 +160,8 @@ pub(super) fn wrap_if_open(line: &str, width: usize, out: &mut String) -> bool {
 
 /// `for (init; test; step) {` with the three clauses on their own lines.
 pub(super) fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
-    let Some((pad, header, " {")) = paren_head(line, "for") else {
+    let (label, line) = unlabeled(line);
+    let Some((pad, header, " {")) = paren_head(&line, "for") else {
         return false;
     };
     let hd = depths(header);
@@ -165,7 +180,7 @@ pub(super) fn wrap_for(line: &str, width: usize, out: &mut String) -> bool {
     if parts.len() != 3 {
         return false;
     }
-    wrap_line(&format!("{pad}for ("), width, out);
+    wrap_line(&format!("{pad}{label}for ("), width, out);
     // Declarators that do not fit on a line break after each comma, the
     // later ones one indent further (`let i = ..,` then `end = ..;`).
     let init = format!("{pad}  {};", parts[0]);

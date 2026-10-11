@@ -511,15 +511,15 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             unreachable!("`.{}()` reaches emit unresolved; emit takes `check::accept` output", name.as_str())
         }
         Expr::Construct { ty, variant, fields, base } => match (variant, base) {
-            (Some(v), None) => emit_variant_value(ty.as_str(), v.as_str(), fields),
+            (Some(v), None) => emit_variant_value(ty.as_str(), v.as_str(), fields, indent),
             (None, None) if is_closed(ty.as_str()) => {
-                format!("{}({})", closed_ctor(ty.as_str()), emit_struct_value(fields))
+                format!("{}({})", closed_ctor(ty.as_str()), emit_struct_value(fields, indent))
             }
-            (None, None) => emit_struct_value(fields),
+            (None, None) => emit_struct_value(fields, indent),
             (None, Some(base)) if is_closed(ty.as_str()) => {
-                format!("{}{}", closed_ctor(ty.as_str()), emit_closed_update(ty.as_str(), fields, base))
+                format!("{}{}", closed_ctor(ty.as_str()), emit_closed_update(ty.as_str(), fields, base, indent))
             }
-            (None, Some(base)) => emit_struct_update(fields, base),
+            (None, Some(base)) => emit_struct_update(fields, base, indent),
             (Some(_), Some(_)) => unreachable!("enum variants have no struct update"),
         },
         Expr::Match { .. } | Expr::Let { .. } | Expr::If { .. } => unreachable!("`emit_tx` prints choices"),
@@ -938,15 +938,15 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
 /// `{ ...base, a: e1 }`. `?` in the fields and the base is hoisted before this
 /// expression, fields first, so the spread running first in JS does not move
 /// a failing `?` ahead of an earlier one.
-pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
+pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr, indent: usize) -> String {
     let Fields::Named(pairs) = fields else {
         unreachable!("struct update has named fields");
     };
-    let mut parts = vec![format!("...{}", emit_expr(base, 0))];
+    let mut parts = vec![format!("...{}", emit_expr(base, indent))];
     for (name, expr) in pairs {
-        parts.push(field_pair(name.as_str(), emit_item(expr, 0)));
+        parts.push(field_pair(name.as_str(), emit_item(expr, indent)));
     }
-    format!("({{ {} }})", parts.join(", "))
+    format!("({})", object_lit(&parts, indent))
 }
 
 /// A closed struct's update names every field, `{ sku: l.sku, qty }`, where
@@ -954,20 +954,20 @@ pub(crate) fn emit_struct_update(fields: &Fields, base: &Expr) -> String {
 /// oxlint refuses a spread of what reads as a class instance (it would lose
 /// the prototype, which this one does not have). A base that is no place is
 /// read once, by the spread.
-fn emit_closed_update(ty: &str, fields: &Fields, base: &Expr) -> String {
+fn emit_closed_update(ty: &str, fields: &Fields, base: &Expr, indent: usize) -> String {
     let names = crate::CLOSED_FIELDS.with(|c| c.borrow().get(ty).cloned());
     let (Fields::Named(pairs), Some(names), true) = (fields, names, is_place(base)) else {
-        return emit_struct_update(fields, base);
+        return emit_struct_update(fields, base, indent);
     };
-    let base = emit_expr(base, 0);
+    let base = emit_expr(base, indent);
     let parts: Vec<String> = names
         .iter()
         .map(|n| match pairs.iter().find(|(f, _)| f.as_str() == n) {
-            Some((_, e)) => field_pair(n, emit_item(e, 0)),
+            Some((_, e)) => field_pair(n, emit_item(e, indent)),
             None => field_pair(n, format!("{}.{n}", receiver(Tx::atom(base.clone())))),
         })
         .collect();
-    format!("({{ {} }})", parts.join(", "))
+    format!("({})", object_lit(&parts, indent))
 }
 
 /// `name: value`, or `name` alone when the value is a variable of that name.
@@ -979,42 +979,49 @@ fn field_pair(name: &str, value: String) -> String {
     }
 }
 
-pub(crate) fn emit_struct_value(fields: &Fields) -> String {
+pub(crate) fn emit_struct_value(fields: &Fields, indent: usize) -> String {
     match fields {
         Fields::Unit => "{}".into(),
         Fields::Positional(elems) => {
-            let inner = elems.iter().map(|e| emit_item(e, 0)).collect::<Vec<_>>().join(", ");
-            format!("[{inner}]")
+            let items: Vec<String> = elems.iter().map(|e| emit_item(e, indent)).collect();
+            bracket_list(&items, indent)
         }
         Fields::Named(pairs) => {
-            let inner =
-                pairs.iter().map(|(n, e)| field_pair(n.as_str(), emit_item(e, 0))).collect::<Vec<_>>().join(", ");
-            format!("{{ {inner} }}")
+            let parts: Vec<String> = pairs.iter().map(|(n, e)| field_pair(n.as_str(), emit_item(e, indent))).collect();
+            object_lit(&parts, indent)
         }
     }
 }
 
-pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields) -> String {
-    match fields {
-        Fields::Unit => format!("{{ kind: \"{variant}\" }}"),
+/// `{ a: x, b: y }`, or, where a value spans lines (a function called at
+/// once), one field a line, each one indent in, as oxfmt opens it. Each
+/// part is printed as at `indent`.
+fn object_lit(parts: &[String], indent: usize) -> String {
+    if !parts.iter().any(|p| p.contains('\n')) {
+        return format!("{{ {} }}", parts.join(", "));
+    }
+    let pad = "  ".repeat(indent);
+    let body: String = parts.iter().map(|p| format!("\n{pad}  {},", crate::tidy::indent_more(p))).collect();
+    format!("{{{body}\n{pad}}}")
+}
+
+pub(crate) fn emit_variant_value(_ty: &str, variant: &str, fields: &Fields, indent: usize) -> String {
+    let kind = format!("kind: \"{variant}\"");
+    let parts = match fields {
+        Fields::Unit => vec![kind],
         Fields::Positional(elems) if elems.len() == 1 => {
-            let value = emit_item(&elems[0], 0);
-            if value == "value" {
-                format!("{{ kind: \"{variant}\", value }}")
-            } else {
-                format!("{{ kind: \"{variant}\", value: {value} }}")
-            }
+            let value = emit_item(&elems[0], indent);
+            vec![kind, if value == "value" { value } else { format!("value: {value}") }]
         }
         Fields::Positional(elems) => {
-            let inner = elems.iter().map(|e| emit_item(e, 0)).collect::<Vec<_>>().join(", ");
-            format!("{{ kind: \"{variant}\", content: [{inner}] }}")
+            let items: Vec<String> = elems.iter().map(|e| emit_item(e, indent)).collect();
+            vec![kind, format!("content: {}", bracket_list(&items, indent))]
         }
-        Fields::Named(pairs) => {
-            let inner =
-                pairs.iter().map(|(n, e)| field_pair(n.as_str(), emit_item(e, 0))).collect::<Vec<_>>().join(", ");
-            format!("{{ kind: \"{variant}\", {inner} }}")
-        }
-    }
+        Fields::Named(pairs) => std::iter::once(kind)
+            .chain(pairs.iter().map(|(n, e)| field_pair(n.as_str(), emit_item(e, indent))))
+            .collect(),
+    };
+    object_lit(&parts, indent)
 }
 
 /// `expr` as one TS expression, without an inline function, when it can be:
@@ -1526,7 +1533,7 @@ fn bracket_list(items: &[String], indent: usize) -> String {
         return format!("[{}]", items.join(", "));
     }
     let pad = "  ".repeat(indent);
-    let body: String = items.iter().map(|i| format!("\n{pad}  {},", i.replace('\n', "\n  "))).collect();
+    let body: String = items.iter().map(|i| format!("\n{pad}  {},", crate::tidy::indent_more(i))).collect();
     format!("[{body}\n{pad}]")
 }
 

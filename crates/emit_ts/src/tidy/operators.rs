@@ -596,7 +596,9 @@ enum Head {
 fn find_logical_block(lines: &[String]) -> Option<(usize, usize, Head)> {
     for (i, line) in lines.iter().enumerate() {
         let rest = line.trim_start();
-        if !rest.ends_with(" => {") || is_comment(line) {
+        // A block under an arrow, or a call whose arguments opened.
+        let call = rest.ends_with('(') && !rest.ends_with(" (");
+        if !(rest.ends_with(" => {") || call) || is_comment(line) {
             continue;
         }
         // A body alone under `=>` (`(a) =>` then `x && f(xs, (m) => {`).
@@ -633,7 +635,8 @@ fn find_logical_block(lines: &[String]) -> Option<(usize, usize, Head)> {
             .position(|l| !l.trim().is_empty() && if under { indent(l) < pad } else { indent(l) <= pad })?;
         let j = i + 1 + closer;
         let at = if under { pad.checked_sub(2) } else { Some(pad) };
-        if Some(indent(&lines[j])) == at && lines[j].trim_start().starts_with('}') && lines[j].ends_with(';') {
+        let shut = if call { ')' } else { '}' };
+        if Some(indent(&lines[j])) == at && lines[j].trim_start().starts_with(shut) && lines[j].ends_with(';') {
             return Some((i, j, head));
         }
     }
