@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.1 — 2026-10-11
 
 Every capability the five new examples asked for, taken by decision in one patch series (design/07 §8.18): they stood at 2.2× to 3.5× their idiomatic references, and in each case the excess was something the subset lacked rather than the domain.
 

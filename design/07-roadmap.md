@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-05, after 0.13.0)
+Status: current (2026-10-11, after 0.13.1)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
