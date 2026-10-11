@@ -183,6 +183,54 @@ pub(super) fn wrap_assign_logical(line: &str, width: usize, out: &mut String) ->
     true
 }
 
+/// `const a = (c ? x : y) as T;`, or an arrow's body `(c ? x : y) as T;`,
+/// that does not fit: the group stays open on its test, the branches one
+/// indent in, the `)` and the assertion after the last, as oxfmt hugs a
+/// choice under an assertion. (`return` opens the group instead.)
+pub(super) fn wrap_cast_choice(line: &str, width: usize, out: &mut String) -> bool {
+    let pad = &line[..line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    let head = if rest.starts_with("const ") || rest.starts_with("let ") {
+        match top_assign(rest) {
+            Some(eq) => eq + 3,
+            None => return false,
+        }
+    } else if rest.starts_with('(') {
+        0
+    } else {
+        return false;
+    };
+    let value = &rest[head..];
+    if !value.starts_with('(') {
+        return false;
+    }
+    let d = depths(value);
+    let Some(close) = (1..value.len()).find(|&i| d[i] == Some(0) && value.as_bytes()[i] == b')') else { return false };
+    let (inner, after) = (&value[1..close], &value[close + 1..]);
+    let mut types = after.trim_end_matches(';').split(" as ");
+    if types.next() != Some("") || !types.all(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric())) {
+        return false;
+    }
+    let Some((test, then, else_)) = find_ternary(inner) else { return false };
+    wrap_line(&format!("{pad}{}({test}", &rest[..head]), width, out);
+    hugged_branch(pad, "? ", then, width, out);
+    hugged_branch(pad, ": ", &format!("{else_}){after}"), width, out);
+    true
+}
+
+/// A branch of a hugged choice: what it opens goes in from where its value
+/// starts, past the `? ` / `: `, as oxfmt indents it.
+fn hugged_branch(pad: &str, mark: &str, value: &str, width: usize, out: &mut String) {
+    if find_ternary(value).is_some() {
+        return branch(&format!("{pad}  {mark}{value}"), width, out);
+    }
+    let at = format!("{pad}    ");
+    let mut lines = String::new();
+    wrap_line(&format!("{at}{value}"), width, &mut lines);
+    let first = lines.strip_prefix(at.as_str()).unwrap_or(&lines);
+    out.push_str(&format!("{pad}  {mark}{first}"));
+}
+
 /// `const a = (x + y) as T;` or `return (x + y) as T;` that does not fit:
 /// the group stays open after its first operand, each operand after it on
 /// a line of its own one indent in, the `)` and the assertion after the

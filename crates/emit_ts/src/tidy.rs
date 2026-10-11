@@ -96,6 +96,7 @@ fn wrap_line(line: &str, width: usize, out: &mut String) {
 /// where it does not apply.
 const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
     wrap_cast_sum,
+    wrap_cast_choice,
     wrap_if_return,
     wrap_if_open,
     wrap_for,
@@ -125,6 +126,20 @@ const WRAPS: &[fn(&str, usize, &mut String) -> bool] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_choice_under_an_assertion_is_hugged_but_returned_opens() {
+        let f = "  const r = (a === (globalThis.Math.fround((2.0 as F32) * z) as F32) ? (globalThis.Math.fround(a % z) as F32) * -1 : globalThis.Math.fround((2.5 as F32) - (globalThis.Math.fround(a / z) as F32))) as number as F64;";
+        assert_eq!(
+            wrap(f, 100),
+            "  const r = (a === (globalThis.Math.fround((2.0 as F32) * z) as F32)\n    ? (globalThis.Math.fround(a % z) as F32) * -1\n    : globalThis.Math.fround(\n        (2.5 as F32) - (globalThis.Math.fround(a / z) as F32),\n      )) as number as F64;\n"
+        );
+        let g = "  (a === (globalThis.Math.fround((2.0 as F32) * z) as F32) ? (globalThis.Math.fround(a % z) as F32) * -1 : globalThis.Math.fround((2.5 as F32) - z)) as F64;";
+        assert_eq!(
+            wrap(g, 100),
+            "  (a === (globalThis.Math.fround((2.0 as F32) * z) as F32)\n    ? (globalThis.Math.fround(a % z) as F32) * -1\n    : globalThis.Math.fround((2.5 as F32) - z)) as F64;\n"
+        );
+    }
 
     #[test]
     fn a_long_sum_under_an_assertion_stays_open_after_its_first_operand() {
