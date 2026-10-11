@@ -3,7 +3,8 @@
 // name read only to write itself, an `if` run for what its sides do, a
 // closure whose parameter is read only by a binding nothing reads, a
 // negated test turned round, an arm that returns once the flow decides its
-// test, an `else` that is one guard, and a name assigned to itself.
+// test, an `else` that is one guard, a name assigned to itself, and a
+// `p?` left alone by an unread assignment, which TS narrows `p` by.
 
 #[allow(unused_variables, unused_assignments)]
 pub fn unread_tests(a: i32, b: i32, c: bool) -> i32 {
@@ -89,4 +90,13 @@ pub fn keeps_itself(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Opt
         Err(_) => None,
     };
     v
+}
+
+#[allow(unused_assignments, unused_variables)]
+pub fn unread_try(a: i32, b: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    let mut v: i32 = a << 0;
+    v = r?;
+    let x: i32 = b * r.map_err(|e| e)?;
+    v &= a;
+    Ok(a)
 }

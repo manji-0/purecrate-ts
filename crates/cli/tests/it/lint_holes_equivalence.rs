@@ -24,6 +24,7 @@ fn lint_holes_match_rust() {
             cases.push(case!(lint_holes::param_unread(a, b)));
             for r in [Ok(2), Err(3)] {
                 cases.push(case!(lint_holes::decided_return(r, a)));
+                cases.push(case!(lint_holes::unread_try(a, b, r)));
             }
         }
     });

@@ -7,6 +7,7 @@ oxlint over the statements generator's output, which the sweep does not lint, fo
 ### Fixed
 
 - **Refused by oxlint:** what an unread value leaves for its effects kept a comparison, a `!`, an `is_some()` / `is_none()`, a `Some` / `Ok` / `Err`, or an integer method that cannot panic (`checked_*`, `saturating_*`, `min`, ..) standing as a statement (`Int.i32.checkedSub(a, b) !== null;`), and an `if` whose two sides both run printed as a `?:` statement; `a || f()` left alone is now `if (!a) { f(); }`. A name read only to write itself (`f = c && f`) stayed declared and unread. A `for` whose body an unread `let` emptied, or whose `?` the flow decides, printed an empty body. `if !c {} else { .. }` printed `if (!(!c))`. An unread closure parameter renamed for shadowing lost its `_` (`_a$1` printed `a2`). An `else` after a branch that returns once the flow decides its test, an `else` that is one guard (`if (c) return v;`) or one `if` whose test spans lines, an `x = x` left by `x = if c { y } else { x }`, an arm left empty by it, a decided `if` that declares nothing printed as a lone block, and a closure or a test left as a statement by an unread `let` the flow dropped.
+- **Refused by tsc:** `p?` left as a statement (what an unread `x = p?` leaves) narrows `p` in TS, which the flow did not follow, so a later `p?` tested a case TS had ruled out.
 
 ## 0.13.2 — 2026-10-11
 

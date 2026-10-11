@@ -491,6 +491,15 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                     s.set_place(place, vec![tried_case(*on)]);
                 }
             }
+            // ..as does `let $t = p; $t?` (what an unread `x = p?` leaves),
+            // printed as `p` tested.
+            if let Expr::Let { name, value: place, then: tried, .. } = &**first {
+                if let Expr::Try { expr: t, on: Some(on) } = &**tried {
+                    if is_place(place) && **t == Expr::Var(name.clone()) {
+                        s.set_place(place, vec![tried_case(*on)]);
+                    }
+                }
+            }
             flow(then, s, cx)
         }
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) && !cx.touches(then, root(value)) => {
