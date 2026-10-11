@@ -112,6 +112,8 @@ impl Tx {
         match self {
             Tx::Bin(Op::Eq, l, r) => Tx::Bin(Op::Ne, l, r),
             Tx::Bin(Op::Ne, l, r) => Tx::Bin(Op::Eq, l, r),
+            // `!` is only ever on a `bool`.
+            Tx::Not(x) => *x,
             other => Tx::Not(Box::new(other)),
         }
     }

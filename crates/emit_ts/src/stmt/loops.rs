@@ -40,6 +40,13 @@ fn jumps_from_match(expr: &Expr, in_match: bool) -> bool {
 /// `switch` a `match` prints as would leave the `switch`, not the loop.
 /// Elsewhere it is bare.
 pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String) {
+    emit_loop_or(head, body, indent, None, out);
+}
+
+/// `emit_loop`, or `instead` where the body prints as nothing (a `?` the
+/// flow decides never returns): oxfmt writes an empty body on two lines,
+/// which lint refuses.
+fn emit_loop_or(head: &str, body: &Expr, indent: usize, instead: Option<String>, out: &mut String) {
     let pad = "  ".repeat(indent);
     let label = jumps_out(body).then(|| if jumps_from_match(body, false) { temp("loop") } else { String::new() });
     let prefix = label.as_ref().filter(|l| !l.is_empty()).map(|l| format!("{l}: ")).unwrap_or_default();
@@ -49,6 +56,10 @@ pub(crate) fn emit_loop(head: &str, body: &Expr, indent: usize, out: &mut String
     let mut inner = String::new();
     emit_stmts(body, indent + 1, Sink::Effect, &mut inner);
     LOOPS.with(|l| l.borrow_mut().pop());
+    if let (true, Some(instead)) = (inner.is_empty(), instead) {
+        out.push_str(&instead);
+        return;
+    }
     // A `for..of` variable the printed body no longer reads (what read it
     // was dropped as an unused value's effect-free part) is `_`, which TS
     // and oxlint exempt.
@@ -141,7 +152,16 @@ pub(crate) fn emit_for(var: &str, ty: IntTy, start: &Expr, end: &Expr, body: &Ex
             ty.ts_name()
         )
     };
-    emit_loop(&head, body, indent, out);
+    // A bound already named (bound before, for what precedes it) is read
+    // only by the loop, which stays.
+    let named = |e: &Expr| matches!(peel(e), Expr::Var(_));
+    let bounds = (!named(start) && !named(end)).then(|| {
+        let mut bounds = String::new();
+        Sink::Effect.finish_expr(start, indent, &mut bounds);
+        Sink::Effect.finish_expr(end, indent, &mut bounds);
+        bounds
+    });
+    emit_loop_or(&head, body, indent, bounds, out);
 }
 
 /// What `for` and the consuming methods walk, from the source's text.

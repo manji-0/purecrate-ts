@@ -177,6 +177,9 @@ fn made(word: &str) -> Option<(String, usize)> {
     }
     let base = camel(base);
     let base = if base.is_empty() { "value".to_string() } else { base };
+    // An unread source name (`_a$1`, from `unused`) keeps the `_` that TS
+    // and oxlint exempt.
+    let base = if !leading && head.starts_with('_') { format!("_{base}") } else { base };
     // `rename` numbers a made name it already holds (`$verified$1`) even
     // when the first never prints; only a source name's shadow counts on.
     let from = match shadow {

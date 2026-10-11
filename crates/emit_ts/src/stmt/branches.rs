@@ -24,10 +24,14 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     // is `else if (!a) { x }`, where nothing is handed on: where the value
     // is returned, the empty arm still returns, and a `case` would
     // otherwise run into the next one.
-    if let ([.., empty, last], Sink::Effect) = (branches, sink) {
-        if let (Some(test), None, Expr::Lit(Lit::Unit), true) =
-            (&empty.test, &last.test, empty.body, empty.prelude.is_empty() && last.prelude.is_empty())
-        {
+    // So is an arm that leaves an assigned name as it is (`Ok(_) => x`).
+    if let ([.., empty, last], Sink::Effect | Sink::Assign(_)) = (branches, sink) {
+        if let (Some(test), None, true, true) = (
+            &empty.test,
+            &last.test,
+            empty.prelude.is_empty() && last.prelude.is_empty(),
+            prints_nothing(empty.body, indent, sink),
+        ) {
             let mut merged: Vec<Branch> = branches[..branches.len() - 2]
                 .iter()
                 .map(|b| Branch { test: b.test.clone(), prelude: b.prelude.clone(), body: b.body })
@@ -36,20 +40,41 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
             return emit_branches(&merged, indent, sink, tail, out);
         }
     }
+    // `if (a) {}` where the flow left the body nothing: nothing, when the
+    // test reads only (no call in it that could panic).
+    if let ([only], Sink::Effect | Sink::Assign(_)) = (branches, sink) {
+        if let Some(test) = &only.test {
+            if only.prelude.is_empty() && !test.print().contains('(') && prints_nothing(only.body, indent, sink) {
+                return;
+            }
+        }
+    }
     let pad = "  ".repeat(indent);
     let last = match branches.split_last() {
         Some((last, _)) if last.test.is_some() => None,
         Some((last, _)) if matches!(sink, Sink::Return) => Some(last),
-        Some((last, rest)) if last.prelude.is_empty() && rest.iter().all(|b| ends_in_jump(b.body)) => Some(last),
+        Some((last, rest))
+            if last.prelude.is_empty()
+                && rest.iter().all(|b| ends_in_jump(b.body) || jumps_as_printed(b.body, indent, sink)) =>
+        {
+            Some(last)
+        }
         _ => None,
     };
-    let flat_last = last.and_then(|last| {
+    let flat_last = last.map(|last| {
         let mut body = String::new();
         emit_tail(last.body, indent, sink, &mut body, tail);
         let declares = declares(&body, &pad);
         let prelude: String =
             last.prelude.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
-        (matches!(sink, Sink::Return) || tail || !declares).then(|| format!("{prelude}{body}"))
+        if matches!(sink, Sink::Return) || tail || !declares {
+            return format!("{prelude}{body}");
+        }
+        // What it declares stays in a block of its own, which lint takes
+        // where an `else` after a jump it refuses.
+        let mut inner = String::new();
+        emit_tail(last.body, indent + 1, sink, &mut inner, tail);
+        format!("{pad}{{\n{}{inner}{pad}}}\n", last.prelude)
     });
     let Some(flat_last) = flat_last else {
         for (i, b) in branches.iter().enumerate() {
@@ -58,6 +83,10 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
             if let (true, None, true) = (i > 0, &b.test, b.prelude.is_empty()) {
                 let mut inner = String::new();
                 emit_tail(b.body, indent + 1, sink, &mut inner, true);
+                // An `else` with nothing left to do (`x = x`) is none.
+                if inner.is_empty() {
+                    continue;
+                }
                 if let Some(chain) = lone_if(&inner, &pad) {
                     out.push_str(&format!("{pad}}} else {chain}"));
                     return;
@@ -86,20 +115,56 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
     out.push_str(&flat_last);
 }
 
+/// Whether `body`, printed as a branch, is no statement at all.
+fn prints_nothing(body: &Expr, indent: usize, sink: Sink) -> bool {
+    if matches!(body, Expr::Lit(Lit::Unit)) {
+        return true;
+    }
+    let mut text = String::new();
+    emit_tail(body, indent + 1, sink, &mut text, true);
+    text.trim().is_empty()
+}
+
+/// Whether `body`, printed as a branch, ends in a jump though it does not
+/// in the IR: a test the flow decided leaves only its `return` (lint's
+/// `no-else-return` sees the printed code).
+fn jumps_as_printed(body: &Expr, indent: usize, sink: Sink) -> bool {
+    let mut text = String::new();
+    emit_tail(body, indent + 1, sink, &mut text, true);
+    let inner = "  ".repeat(indent + 1);
+    // The last statement's first line: closing lines start with a bracket.
+    text.lines()
+        .rev()
+        .filter_map(|l| l.strip_prefix(&inner))
+        .find(|r| !r.is_empty() && !r.starts_with([' ', ')', ']', '}']))
+        .is_some_and(|r| ["return", "break", "continue", "throw "].iter().any(|k| r.starts_with(k)))
+}
+
 /// `text`, one level in from `pad`, as the `if` chain it is alone, one
 /// level out and without its indent on the first line: `if (a) {` .. `}`.
-/// `None` when it holds anything else, a blank line included.
+/// `None` when it holds anything else.
 fn lone_if(text: &str, pad: &str) -> Option<String> {
     let inner = format!("{pad}  ");
     let lines: Vec<&str> = text.lines().collect();
     let (first, last) = (lines.first()?, lines.last()?);
-    if !first.starts_with(&format!("{inner}if ")) || *last != format!("{inner}}}") || !first.ends_with('{') {
+    // A guard on one line: `} else if (c) return v;`.
+    if let [only] = lines.as_slice() {
+        return (only.starts_with(&format!("{inner}if ")) && !only.ends_with('{'))
+            .then(|| format!("{}\n", only.trim_start()));
+    }
+    if !first.starts_with(&format!("{inner}if ")) || *last != format!("{inner}}}") || !first.ends_with(['{', '(']) {
         return None;
     }
     for line in &lines {
+        // A blank line inside a block of the chain (any other statement of
+        // the `else` has a line of its own at its level, refused below).
+        if line.is_empty() {
+            continue;
+        }
         let rest = line.strip_prefix(&inner)?;
         // A line of the chain itself, not of a block inside it.
-        if !rest.starts_with(' ') && !(rest.starts_with("if ") || rest.starts_with("} else") || rest == "}") {
+        // (`) {` closes a test on lines of its own.)
+        if !rest.starts_with([' ', ')']) && !(rest.starts_with("if ") || rest.starts_with("} else") || rest == "}") {
             return None;
         }
     }
@@ -108,7 +173,7 @@ fn lone_if(text: &str, pad: &str) -> Option<String> {
     }
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
-        let line = &line[2..];
+        let line = line.get(2..).unwrap_or("");
         out.push_str(if i == 0 { line.trim_start() } else { line });
         out.push('\n');
     }

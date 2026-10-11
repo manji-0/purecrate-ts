@@ -31,6 +31,8 @@ impl Sink<'_> {
     pub(crate) fn finish(self, value: &str, pad: &str, out: &mut String) {
         match self {
             Sink::Return => out.push_str(&format!("{pad}return {};\n", crate::tidy::strip_outer(value))),
+            // `x = if c { y } else { x }` leaves `x` as it is on one side.
+            Sink::Assign(target) if crate::tidy::strip_outer(value) == target => {}
             Sink::Assign(target) => out.push_str(&format!("{pad}{target} = {};\n", crate::tidy::strip_outer(value))),
             // A variable or `()` has no effect; anything else may panic.
             Sink::Effect if value == "undefined" || is_ident(value) => {}
@@ -40,6 +42,33 @@ impl Sink<'_> {
 
     pub(crate) fn finish_expr(self, expr: &Expr, indent: usize, out: &mut String) {
         let pad = "  ".repeat(indent);
+        // Making a closure does nothing (one bound to a name the flow left
+        // unread).
+        if let (Sink::Effect, Expr::Closure { .. }) = (self, expr) {
+            return;
+        }
+        // A test is its operands' effects: lint refuses a comparison
+        // standing alone (what an unread `let` the flow left keeps).
+        if let Sink::Effect = self {
+            use purecrate_ir::{BinOp, UnOp};
+            match expr {
+                Expr::Binary {
+                    op: BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge,
+                    left,
+                    right,
+                } => {
+                    self.finish_expr(left, indent, out);
+                    self.finish_expr(right, indent, out);
+                    return;
+                }
+                Expr::Unary { op: UnOp::Not, expr } => return self.finish_expr(expr, indent, out),
+                Expr::Call { callee: Callee::OptionIsSome | Callee::OptionIsNone, args } => {
+                    args.iter().for_each(|a| self.finish_expr(a, indent, out));
+                    return;
+                }
+                _ => {}
+            }
+        }
         // An `if` run for what one side does (what an unread `a && f()` or
         // a decided loop test leaves) is a statement: as `c ? undefined :
         // f()`, lint refuses an expression nothing reads.
@@ -54,6 +83,12 @@ impl Sink<'_> {
                 out.push_str(&format!("{pad}if ({}) {{\n", crate::tidy::strip_outer(&test)));
                 Sink::Effect.finish_expr(side, indent + 1, out);
                 out.push_str(&format!("{pad}}}\n"));
+                return;
+            }
+            // Both sides run for their effects: `if (c) { f(); } else {
+            // g(); }`, not a `?:` standing alone.
+            if **then != unit {
+                emit_stmts(expr, indent, Sink::Effect, out);
                 return;
             }
         }
@@ -210,9 +245,13 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                 && **cond == Expr::Lit(Lit::Bool(true))
                 && **else_ == Expr::Lit(Lit::Unit) =>
         {
-            out.push_str(&format!("{pad}{{\n"));
-            emit_stmts(then, indent + 1, sink, out);
-            out.push_str(&format!("{pad}}}\n"));
+            let mut inner = String::new();
+            emit_stmts(then, indent + 1, sink, &mut inner);
+            if switch::declares(&inner, &format!("{pad}  ")) {
+                out.push_str(&format!("{pad}{{\n{inner}{pad}}}\n"));
+            } else {
+                emit_stmts(then, indent, sink, out);
+            }
         }
         // A guard: `if (c) return v;` on one line, when both fit on one, and
         // `if (c) break;` / `continue;`.
@@ -270,6 +309,7 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::If { cond, then, else_ }
             if expr.needs_statements()
+                || matches!(sink, Sink::Effect)
                 || matches!(sink, Sink::Return)
                     && (chooses(then) || chooses(else_))
                     && !fits_returned(expr, indent) =>

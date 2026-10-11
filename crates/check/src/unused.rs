@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use purecrate_ir::{Arm, Callee, ClosureParam, Crate, Expr, Fn, Item, Name, Param, Pattern};
+use purecrate_ir::{Arm, BinOp, Callee, ClosureParam, Crate, Expr, Fn, IntOp, Item, Name, Param, Pattern, UnOp};
 
 pub fn drop_unused(krate: Crate) -> Crate {
     let items: HashSet<String> = krate.items.iter().map(|item| item.name().as_str().to_string()).collect();
@@ -176,7 +176,21 @@ impl Cx {
             let owned = std::mem::replace(child, Expr::Unreachable);
             *child = self.expr(owned);
         }
-        expr
+        // Again once the body is walked: what emptied it (an unread `let`)
+        // is only dropped there.
+        match expr {
+            // A statement runs for its effects alone (an `if` whose sides
+            // are now empty is its test).
+            Expr::Seq { first, then } => match effects(*first) {
+                first if is_unit(&first) => *then,
+                first => Expr::Seq { first: Box::new(first), then },
+            },
+            Expr::ForEach { source, body, .. } if empty(&body) => effects(*source),
+            Expr::For { start, end, body, .. } if empty(&body) => {
+                Expr::Seq { first: Box::new(effects(*start)), then: Box::new(effects(*end)) }
+            }
+            expr => expr,
+        }
     }
 }
 
@@ -197,9 +211,11 @@ fn used_in(expr: &Expr, name: &str) -> bool {
         Expr::Var(n) => n.as_str() == name,
         Expr::Call { callee: Callee::Local(n), args } => n.as_str() == name || args.iter().any(|a| used_in(a, name)),
         // `s = s + piece` (`s.push(..)`) writes `s`; only the piece reads.
+        // Otherwise what a write of `name` reads of `name` is read only
+        // where the write is kept for its effects (`b = c && b` is not).
         Expr::Assign { name: n, value } if n.as_str() == name => match appended(value, n) {
             Some(piece) => used_in(piece, name),
-            None => used_in(value, name),
+            None => used_in(&effects((**value).clone()), name),
         },
         Expr::Assign { value, .. } => used_in(value, name),
         Expr::Let { name: n, value, then, .. } => used_in(value, name) || (n.as_str() != name && used_in(then, name)),
@@ -226,17 +242,7 @@ fn arm_uses(a: &Arm, name: &str) -> bool {
 /// value as a statement, drop the rest.
 fn strip_assigns(expr: Expr, name: &Name) -> Expr {
     match expr {
-        Expr::Assign { name: n, value } if n == *name => {
-            let value = match appended(&value, &n) {
-                Some(piece) => Box::new(effects(piece.clone())),
-                None => value,
-            };
-            if is_pure(&value) {
-                Expr::Lit(purecrate_ir::Lit::Unit)
-            } else {
-                *value
-            }
-        }
+        Expr::Assign { name: n, value } if n == *name => effects(appended(&value, &n).cloned().unwrap_or(*value)),
         other => {
             let mut other = other;
             for child in other.children_mut() {
@@ -275,7 +281,12 @@ fn effects(expr: Expr) -> Expr {
             }
         }
         Expr::Let { name, mutable, ty, value, then } => {
-            Expr::Let { name, mutable, ty, value, then: Box::new(effects(*then)) }
+            let then = effects(*then);
+            if used_in(&then, name.as_str()) {
+                Expr::Let { name, mutable, ty, value, then: Box::new(then) }
+            } else {
+                seq(effects(*value), strip_assigns(then, &name))
+            }
         }
         Expr::Seq { first, then } => {
             let then = effects(*then);
@@ -285,6 +296,29 @@ fn effects(expr: Expr) -> Expr {
                 Expr::Seq { first, then: Box::new(then) }
             }
         }
+        // A test or a sum that cannot panic leaves its operands' effects,
+        // in order: `x.checked_sub(y).is_some()` as a statement is nothing,
+        // and TS refuses a comparison standing as one.
+        Expr::Binary { op: BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, left, right } => {
+            seq(effects(*left), effects(*right))
+        }
+        // The right side runs only sometimes: with nothing to run, the left
+        // side is all; otherwise an `if`, which TS takes as a statement.
+        Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
+            let right = effects(*right);
+            if is_unit(&right) {
+                effects(*left)
+            } else {
+                let cond = match (op, *left) {
+                    (BinOp::And, left) => left,
+                    (_, Expr::Unary { op: UnOp::Not, expr }) => *expr,
+                    (_, left) => Expr::Unary { op: UnOp::Not, expr: Box::new(left) },
+                };
+                Expr::If { cond: Box::new(cond), then: Box::new(right), else_: Box::new(unit()) }
+            }
+        }
+        Expr::Unary { op: UnOp::Not, expr } => effects(*expr),
+        Expr::Call { callee, args } if cannot_panic(&callee) => args.into_iter().map(effects).fold(unit(), seq),
         Expr::At { at, expr } => {
             let inner = effects(*expr);
             if is_unit(&inner) {
@@ -294,6 +328,50 @@ fn effects(expr: Expr) -> Expr {
             }
         }
         other => other,
+    }
+}
+
+/// `first; then`, leaving out either side that is `()`.
+fn seq(first: Expr, then: Expr) -> Expr {
+    match (is_unit(&first), is_unit(&then)) {
+        (true, _) => then,
+        (_, true) => first,
+        _ => Expr::Seq { first: Box::new(first), then: Box::new(then) },
+    }
+}
+
+/// A call that panics on no arguments: `Some`, `Ok`, `Err`, the tests on
+/// `Option`, and the integer methods that report or wrap their overflow.
+fn cannot_panic(callee: &Callee) -> bool {
+    use purecrate_ir::IntMethod as M;
+    match callee {
+        Callee::OptionSome | Callee::ResultOk | Callee::ResultErr | Callee::OptionIsSome | Callee::OptionIsNone => true,
+        Callee::Int { op, .. } => match op {
+            IntOp::And | IntOp::Or | IntOp::Xor | IntOp::Not => true,
+            IntOp::Method(m) => matches!(
+                m,
+                M::Min
+                    | M::Max
+                    | M::CheckedAdd
+                    | M::CheckedSub
+                    | M::CheckedMul
+                    | M::CheckedDiv
+                    | M::CheckedRem
+                    | M::CheckedNeg
+                    | M::CheckedPow
+                    | M::SaturatingAdd
+                    | M::SaturatingSub
+                    | M::SaturatingMul
+                    | M::SaturatingPow
+                    | M::WrappingAdd
+                    | M::WrappingSub
+                    | M::WrappingMul
+                    | M::WrappingNeg
+                    | M::WrappingPow
+            ),
+            _ => false,
+        },
+        _ => false,
     }
 }
 

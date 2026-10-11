@@ -47,6 +47,7 @@ mod int_patterns_equivalence;
 mod invoice_equivalence;
 mod jsonpatch_equivalence;
 mod line_width;
+mod lint_holes_equivalence;
 mod local_consts_equivalence;
 mod lone_surrogate;
 mod loops_equivalence;
