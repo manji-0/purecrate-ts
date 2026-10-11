@@ -22,7 +22,7 @@ export const judgeHostKey = (
       k.revoked && k.key_type === key.key_type && k.fingerprint === key.fingerprint,
   );
   if (revoked) return { kind: "Revoked" };
-  let trust: Trust = { kind: "Unknown" };
+  let trust = { kind: "Unknown" } as Trust;
   let unreadable = false;
 
   for (const k of known) {
@@ -31,7 +31,7 @@ export const judgeHostKey = (
       switch (lineMatch.kind) {
         case "Names":
           if (k.fingerprint === key.fingerprint) return { kind: "Known" };
-          trust = { kind: "Changed" };
+          trust = { kind: "Changed" } as Trust;
           break;
         case "Unreadable":
           unreadable = true;

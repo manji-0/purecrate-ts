@@ -177,7 +177,8 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// closure `|$x| f($x)`; `None` for anything else.
     pub(super) fn named_fn(&mut self, e: &Expr, param: Ty) -> Option<Expr> {
         let Expr::Var(f) = e.unpositioned() else { return None };
-        if !self.defs.free_fns.contains_key(f.as_str()) {
+        // A parameter or local of that name shadows the function.
+        if !self.defs.free_fns.contains_key(f.as_str()) || self.scopes.iter().any(|(n, _)| n == f.as_str()) {
             return None;
         }
         let x = self.fresh_name("x");

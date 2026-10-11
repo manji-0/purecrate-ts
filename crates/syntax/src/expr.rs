@@ -61,7 +61,9 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let at = lower_expr(cx, at)?;
             let read = Expr::Index { base: Box::new(Expr::Var(v.clone())), index: Box::new(at.clone()) };
             let value = Expr::Binary { op, left: Box::new(read), right: Box::new(lower_expr(cx, &b.right)?) };
-            Ok(Expr::Call { callee: Callee::VecSet, args: vec![Expr::Var(v), at, value] })
+            // A fourth argument marks `op=`, where the right side comes
+            // first; `v[i] = v[i] op x` written out reads `v[i]` first.
+            Ok(Expr::Call { callee: Callee::VecSet, args: vec![Expr::Var(v), at, value, Expr::Lit(Lit::Unit)] })
         }
         SynExpr::Assign(a) => {
             Ok(Expr::Assign { name: assign_target(&a.left)?, value: Box::new(lower_expr(cx, &a.right)?) })

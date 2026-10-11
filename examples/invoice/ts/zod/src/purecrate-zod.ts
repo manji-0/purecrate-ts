@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import { z } from "zod";
-import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type F32, type F64, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type F32, type F64, type I128, type UuidError } from "./purecrate-runtime.ts";
 
 type Out<T, In> = z.ZodType<T, In>;
 
@@ -53,7 +53,11 @@ const big = <T>(min: bigint, max: bigint, of: (n: bigint) => T): Out<T, bigint |
 
 export const i64 = big(-9223372036854775808n, 9223372036854775807n, Int.i64.of);
 export const u64 = big(0n, 18446744073709551615n, Int.u64.of);
-export const i128 = big(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n, Int.i128.of);
+/** serde_json reads `-0` into an `i128` (only) as 0. */
+export const i128 = z.preprocess(
+  (v) => (v instanceof JsonFloat && v.minusZero ? 0 : v),
+  big(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n, Int.i128.of),
+) as unknown as Out<I128, bigint | number>;
 export const u128 = big(0n, 340282366920938463463374607431768211455n, Int.u128.of);
 
 /** A JSON number, or one `parseJson` read as a `JsonFloat` (`2.0`). */

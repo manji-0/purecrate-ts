@@ -29,7 +29,15 @@ const big = <T>(min: bigint, max: bigint, of: (n: bigint) => T) =>
 
 export const i64 = big(-9223372036854775808n, 9223372036854775807n, Int.i64.of);
 export const u64 = big(0n, 18446744073709551615n, Int.u64.of);
-export const i128 = big(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n, Int.i128.of);
+/** serde_json reads `-0` into an `i128` (only) as 0. */
+export const i128 = v.union([
+  v.pipe(
+    v.instance(JsonFloat),
+    v.check((x) => x.minusZero),
+    v.transform(() => Int.i128.of(0n)),
+  ),
+  big(-170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n, Int.i128.of),
+]);
 export const u128 = big(0n, 340282366920938463463374607431768211455n, Int.u128.of);
 
 /** A JSON number, or one `parseJson` read as a `JsonFloat` (`2.0`). */

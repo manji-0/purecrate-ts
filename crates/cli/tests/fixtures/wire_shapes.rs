@@ -21,6 +21,15 @@ pub struct Ints {
     pub i: usize,
 }
 
+/// `toJson` writes these without reading the item or the value.
+#[derive(Serialize, Deserialize)]
+pub struct Units {
+    pub r: Vec<()>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Nothing {}
+
 #[derive(Serialize, Deserialize)]
 pub struct Wide {
     pub a: i128,

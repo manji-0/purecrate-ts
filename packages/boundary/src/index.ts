@@ -334,8 +334,11 @@ const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
  */
 export class JsonFloat {
   readonly value: number;
-  constructor(value: number) {
+  /** Written `-0` exactly, which serde_json reads into an `i128` as 0 (and no other integer). */
+  readonly minusZero: boolean;
+  constructor(value: number, minusZero = false) {
     this.value = value;
+    this.minusZero = minusZero;
   }
 }
 
@@ -423,7 +426,7 @@ export const parseJson = (text: string): unknown => {
     if (typeof v !== "number" || context?.source === undefined) return v;
     const integer = INTEGER_LITERAL.test(context.source) && context.source !== "-0";
     if (integer) return Number.isSafeInteger(v) ? v : BigInt(context.source);
-    return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v) : v;
+    return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v, context.source === "-0") : v;
   });
   const note = (v: unknown, shape: Shape | undefined): void => {
     if (typeof v !== "object" || v === null || v instanceof JsonFloat || shape === undefined) return;
@@ -643,27 +646,32 @@ export const Str = {
   },
   // #endregion
   // #region str.splitBy
-  /** `s.split(f)` with a closure on a `char`: the pieces between matches, empty ones kept. */
-  splitBy: (s: string, f: (c: Char) => boolean): string[] => {
-    const out: string[] = [];
+  /**
+   * `s.split(f)` with a closure on a `char`: the pieces between matches,
+   * empty ones kept. Lazy, as Rust's `split` is: `f` runs on a `char` only
+   * when the consumer asks for the piece it ends.
+   */
+  splitBy: function* (s: string, f: (c: Char) => boolean): Generator<string, void, undefined> {
     let piece = "";
     for (const c of s) {
       if (f(c as Char)) {
-        out.push(piece);
+        yield piece;
         piece = "";
       } else {
         piece += c;
       }
     }
-    out.push(piece);
-    return out;
+    yield piece;
   },
   // #endregion
 } as const;
 
-// #region str.trim str.trimStart str.trimEnd
-/** `char::is_whitespace`: Unicode White_Space. */
+// #region str.trim str.trimStart
+/** `char::is_whitespace`: Unicode White_Space, leading. */
 const WHITESPACE_START = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u;
+// #endregion
+// #region str.trim str.trimEnd
+/** The same, trailing. */
 const WHITESPACE_END = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/u;
 // #endregion
 

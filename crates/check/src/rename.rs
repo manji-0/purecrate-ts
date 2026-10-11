@@ -278,7 +278,11 @@ impl Renamer {
     }
 
     /// A statement in a sequence shares the JS block with what follows, so
-    /// a `let` here is live for the rest of the sequence.
+    /// a `let` here is live for the rest of the sequence. One inside the
+    /// sequence's first statement (a Rust block `{ let m = ..; }`) is not:
+    /// what follows reads the outer binding of its name again. Its name is
+    /// still one of its own in the printed block, as every name made here
+    /// is unique in the function.
     fn stmt_binds(&mut self, e: Expr, cx: &mut Cx) -> Expr {
         match e {
             Expr::Let { name, mutable, ty, value, then } => {
@@ -286,7 +290,9 @@ impl Renamer {
                 Expr::Let { name, mutable, ty, value, then: Box::new(self.stmt_binds(*then, cx)) }
             }
             Expr::Seq { first, then } => {
-                Expr::Seq { first: Box::new(self.stmt_binds(*first, cx)), then: Box::new(self.stmt_binds(*then, cx)) }
+                let mut block = cx.clone();
+                let first = self.stmt_binds(*first, &mut block);
+                Expr::Seq { first: Box::new(first), then: Box::new(self.stmt_binds(*then, cx)) }
             }
             other => self.expr(other, cx),
         }

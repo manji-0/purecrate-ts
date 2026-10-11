@@ -287,7 +287,7 @@ impl Folder<'_, '_> {
                     v.name.as_str()
                 ));
             }
-            next = (value < hi).then_some(value + 1);
+            next = (value < hi).then(|| value + 1);
             out.push((v.name.clone(), value));
         }
         Ok(out)

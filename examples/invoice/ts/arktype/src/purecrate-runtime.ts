@@ -153,8 +153,11 @@ const INTEGER_LITERAL = /^-?(?:0|[1-9]\d*)$/;
  */
 export class JsonFloat {
   readonly value: number;
-  constructor(value: number) {
+  /** Written `-0` exactly, which serde_json reads into an `i128` as 0 (and no other integer). */
+  readonly minusZero: boolean;
+  constructor(value: number, minusZero = false) {
     this.value = value;
+    this.minusZero = minusZero;
   }
 }
 
@@ -242,7 +245,7 @@ export const parseJson = (text: string): unknown => {
     if (typeof v !== "number" || context?.source === undefined) return v;
     const integer = INTEGER_LITERAL.test(context.source) && context.source !== "-0";
     if (integer) return Number.isSafeInteger(v) ? v : BigInt(context.source);
-    return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v) : v;
+    return Number.isInteger(v) || Object.is(v, -0) ? new JsonFloat(v, context.source === "-0") : v;
   });
   const note = (v: unknown, shape: Shape | undefined): void => {
     if (typeof v !== "object" || v === null || v instanceof JsonFloat || shape === undefined) return;

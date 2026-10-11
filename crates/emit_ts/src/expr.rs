@@ -48,6 +48,16 @@ fn tested(body: &Expr) -> Vec<Expr> {
                 out.extend(arm.pattern.bindings().into_iter().map(|n| Expr::Var(n.clone())));
             }
         }
+        // `o == Ordering::Less` reads `o.kind === "Less"`, which narrows `o`.
+        if let Expr::Binary { op: BinOp::Eq | BinOp::Ne, left, right } = e {
+            for side in [left, right] {
+                if let Expr::Field { base, name } = peel_identity(side) {
+                    if name.as_str() == "kind" && is_place(base) {
+                        out.push((**base).clone());
+                    }
+                }
+            }
+        }
     });
     loop {
         let mut grew = false;
@@ -1026,15 +1036,17 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
     use purecrate_ir::Callee;
     let stage = |e: &Expr| matches!(e, Expr::Call { callee: Callee::IterMap { .. } | Callee::IterFilter { .. }, .. });
     let split = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, .. });
+    // `split` with a closure is `Str.splitBy`, a generator: not an array.
+    let lazy = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, args } if matches!(peel_identity(&args[1]), Expr::Closure { .. }));
     let source = &args[0];
-    let array = over == purecrate_ir::Over::Items && !stage(source);
+    let array = over == purecrate_ir::Over::Items && !stage(source) && !lazy(source);
     let f = args.get(1).map(|f| emit_item(f, indent));
     if result {
         let f = f.expect("a `Result` is collected through `map(f)`");
         return format!("Iter.tryCollect({}, {f})", iterable(over, emit_tx(source, indent)));
     }
     match (f, source) {
-        (None, s) if split(s) => emit_expr(s, indent),
+        (None, s) if split(s) && !lazy(s) => emit_expr(s, indent),
         // A choice or an operator under `...` is parenthesized, as oxfmt prints it.
         (None, s) if array => {
             let s = emit_tx(s, indent);

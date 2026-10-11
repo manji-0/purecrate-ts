@@ -328,7 +328,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             // Written by `syntax` for `v[i] = x`: only a local's own array.
             Callee::VecSet => {
-                let [v, at, value] = args else { unreachable!("`syntax` writes three arguments") };
+                let (v, at, value, compound) = match args {
+                    [v, at, value] => (v, at, value, false),
+                    [v, at, value, _] => (v, at, value, true),
+                    _ => unreachable!("`syntax` writes three arguments, or four for `op=`"),
+                };
                 let (v, vt) = self.expr(v, None);
                 let item = match vt.as_ref().map(|t| self.norm(t)) {
                     Some(Ty::Vec(item)) => Some(*item),
@@ -344,18 +348,20 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (at, _) = self.expr(at, Some(&Ty::Prim(Prim::Usize)));
                 let (value, _) = self.expr(value, item.as_ref());
                 // Rust evaluates the value before the place, and in `v[i] op=
-                // x` on a primitive the `x` before `v[i]`: that part is bound
-                // first, so every later pass (a lifted block included) keeps
-                // the order. `emit` puts a name or literal back in place.
+                // x` on a primitive the `x` before `v[i]` (`v[i] = v[i] op x`
+                // written out reads `v[i]` first, as part of the value): that
+                // part is bound first, so every later pass (a lifted block
+                // included) keeps the order. `emit` puts a name or literal
+                // back in place.
                 let reads_place = |e: &Expr| matches!(e.unpositioned(), Expr::Index { base, .. } if base.unpositioned() == v.unpositioned());
                 let name = self.fresh_name("value");
                 let placeholder = Box::new(Expr::Var(name.clone()));
                 let (bound, set_value, ty) = match value {
-                    Expr::Binary { op, left, right } if reads_place(&left) => {
+                    Expr::Binary { op, left, right } if compound && reads_place(&left) => {
                         (*right, Expr::Binary { op, left, right: placeholder }, None)
                     }
                     Expr::Call { callee: callee @ Callee::Int { .. }, args }
-                        if args.len() == 2 && reads_place(&args[0]) =>
+                        if compound && args.len() == 2 && reads_place(&args[0]) =>
                     {
                         let [read, right]: [Expr; 2] = args.try_into().expect("two arguments");
                         (right, Expr::Call { callee, args: vec![read, *placeholder] }, None)

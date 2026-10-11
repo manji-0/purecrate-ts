@@ -456,7 +456,7 @@ impl<'a> Cx<'_, 'a> {
                 let n = if matches!(s, purecrate_ir::Sort::Natural { .. }) { 1 } else { 2 };
                 self.arity("`sort`", n, argc)
             }
-            Callee::VecSet => self.arity("`v[i] = x`", 3, argc),
+            Callee::VecSet => self.arity("`v[i] = x`", if argc == 4 { 4 } else { 3 }, argc),
             Callee::VecIsEmpty => self.arity("`Vec::is_empty`", 1, argc),
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),

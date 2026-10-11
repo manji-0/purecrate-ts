@@ -96,6 +96,8 @@ const accepts = [
     { a: -170141183460469231731687303715884105728n, b: 340282366920938463463374607431768211455n },
   ],
   ["Wide", { a: -1, b: 0 }, { a: -1n, b: 0n }],
+  // serde_json reads `-0` into an `i128` as 0, and into no other integer.
+  ["Wide", parseJson('{"a":-0,"b":0}'), { a: 0n, b: 0n }],
   ["Shape", parseJson('{"Tagged":9007199254740993}'), { kind: "Tagged", value: 9007199254740993n }],
   ["Shape", JSON.parse('{"Tagged":7}'), { kind: "Tagged", value: 7n }],
   ["Shape", { Rect: [-1, 0] }, { kind: "Rect", content: [-1, 0] }],
@@ -163,6 +165,8 @@ const rejects = [
   ["Wide", parseJson('{"a":170141183460469231731687303715884105728,"b":0}')],
   ["Wide", parseJson('{"a":0,"b":340282366920938463463374607431768211456}')],
   ["Wide", { a: 0, b: -1 }],
+  ["Wide", parseJson('{"a":0,"b":-0}')],
+  ["Wide", parseJson('{"a":-0.0,"b":0}')],
   ["Ints", { ...ints, h: "18446744073709551616" }],
   ["Ints", parseJson('{"a":1,"b":1,"c":1,"d":9223372036854775808,"e":1,"f":1,"g":1,"h":1,"i":1}')],
   ["Shape", { Unknown: 1 }],

@@ -902,7 +902,9 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
             }
             Item::Alias(_) | Item::Fn(_) | Item::Const(_) => continue,
         };
-        entries.push((name.to_string(), arrow(&format!("(x: {name}$)"), Some("string"), body)));
+        // An empty struct writes `{}` without reading its value.
+        let x = if reads(&arrow("()", None, body.clone()), "x") { "x" } else { "_x" };
+        entries.push((name.to_string(), arrow(&format!("({x}: {name}$)"), Some("string"), body)));
     }
     chunks.push(Chunk::decl(true, "toJson", None, Js::As(Box::new(Js::Object(entries)), "const".into())));
 }
@@ -947,7 +949,10 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         }
         Ty::Vec(inner) => {
             let v = format!("v{depth}");
-            let each = arrow(&format!("({v})"), None, expr_body(write_json(inner, &v, depth + 1)));
+            let item = write_json(inner, &v, depth + 1);
+            // `Vec<()>` writes `null` for each item without reading it.
+            let param = if reads(&arrow("()", None, expr_body(item.clone())), &v) { v } else { format!("_{v}") };
+            let each = arrow(&format!("({param})"), None, expr_body(item));
             call_path("Json.array", vec![raw(value), each])
         }
         Ty::Tuple(elems) => {
@@ -973,4 +978,13 @@ fn splice(expr: &Js) -> String {
         Js::Raw(r) if r.len() > 1 && r.starts_with('`') && r.ends_with('`') => r[1..r.len() - 1].into(),
         other => format!("${{{}}}", doc::print(&other.doc(), usize::MAX / 2, 0)),
     }
+}
+
+/// Whether the printed `js` names `name` as an identifier.
+fn reads(js: &Js, name: &str) -> bool {
+    let text = doc::print(&js.doc(), usize::MAX / 2, 0);
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    text.match_indices(name).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(ident) && !text[at + name.len()..].chars().next().is_some_and(ident)
+    })
 }

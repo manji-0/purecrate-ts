@@ -438,13 +438,11 @@ impl Refs {
                     Callee::ResultOk | Callee::ResultErr => self.result_value = true,
                     Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => self.ord = true,
                     Callee::Collect { over, .. } | Callee::IterMap { over } | Callee::IterFilter { over } => {
-                        // `Iter.map`, `Iter.filter`, and `Iter.tryCollect`; a
-                        // `collect` of a `Vec` or the pieces of a split is the
-                        // array's own method.
-                        let array_method = matches!(callee, Callee::Collect { result: false, .. });
-                        if !array_method || *over != purecrate_ir::Over::Items {
-                            self.iter = true;
-                        }
+                        // `Iter.map`, `Iter.filter`, and `Iter.tryCollect`, or
+                        // the array's own method.
+                        // A `collect` over a closure's `split` maps a generator
+                        // with `Iter.map`; an unread import is pruned.
+                        self.iter = true;
                         match over {
                             purecrate_ir::Over::Chars => self.char_type = true,
                             purecrate_ir::Over::Bytes => self.str = true,

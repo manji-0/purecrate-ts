@@ -116,7 +116,8 @@ fn an_option_unwrapped_into_its_own_name_is_read_narrowed() {
 }
 
 /// A `const` of a call, a test, or a place that is no union states no type;
-/// a literal, a variant, and a `let mut` keep theirs.
+/// a literal and a `let mut` keep theirs, and a variant a `match` tests is
+/// cast to its enum.
 #[test]
 fn a_const_states_no_type_its_value_already_has() {
     let source = "pub enum Light { Red, Green }\n\
@@ -137,5 +138,7 @@ fn a_const_states_no_type_its_value_already_has() {
     {
         assert!(run.contains(line), "{line}:\n{run}");
     }
-    assert!(run.contains("const g: Light = { kind: \"Green\" };"), "{run}");
+    // `g` is tested by a `match`: annotated, TS would narrow it to the
+    // variant it was given, so the cast keeps the union.
+    assert!(run.contains("const g = { kind: \"Green\" } as Light;"), "{run}");
 }
