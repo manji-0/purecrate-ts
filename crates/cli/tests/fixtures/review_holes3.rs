@@ -7,7 +7,8 @@
 // to fail, a test of a `bool` that decides only when it fails, an arm
 // left empty, an arm narrowing printed flat beside a later binding of its
 // name, two temporaries one made by `check` and one by the printer, an
-// `if` with a `true` side as a test, and `?` in a test or a scrutinee.
+// `if` with a `true` side as a test, `?` in a test or a scrutinee, a test
+// compared to `false`, and a block whose tail is a narrowed place.
 
 #[allow(unused_variables)]
 pub fn block_in_branch(a: i32, c: bool) -> i32 {
@@ -204,4 +205,32 @@ pub fn try_in_test(o: Option<i32>, b: i32) -> Option<i32> {
         return Some(x + y);
     }
     Some(x - y)
+}
+
+pub fn compared_to_false(r: Result<i32, i32>, a: i32) -> i32 {
+    if r.ok().is_some() != false {
+        return a;
+    }
+    let f = |x: i32| match r {
+        Ok(v) => v * x,
+        Err(e) => e + x,
+    };
+    f(2)
+}
+
+pub fn block_tail_carries(r: Result<i32, i32>, b: i32) -> Result<i32, i32> {
+    match r {
+        Ok(v) => {
+            let res: Result<i32, i32> = {
+                let w: i32 = v.wrapping_mul(b);
+                if w > 0 {
+                    return Ok(w);
+                }
+                r
+            };
+            let n: i32 = res?;
+            Ok(n + 1)
+        }
+        Err(e) => Err(e),
+    }
 }

@@ -182,6 +182,16 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
             out
         }
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => tests(expr, !holds),
+        // `t != false`, `t == true`: TS narrows by `t`, as by `!t` for the others.
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if matches!(**right, Expr::Lit(Lit::Bool(_))) || matches!(**left, Expr::Lit(Lit::Bool(_))) =>
+        {
+            let (t, b) = match (&**left, &**right) {
+                (t, Expr::Lit(Lit::Bool(b))) | (Expr::Lit(Lit::Bool(b)), t) => (t, *b),
+                _ => unreachable!("matched above"),
+            };
+            tests(t, holds == (b == (*op == BinOp::Eq)))
+        }
         // `if c { true } else { b }` as a test prints as `c || b`
         // (`expr::fold`), which TS narrows by. Not where `c` is a `!`, which
         // the printer may turn round into a `?:`.
@@ -283,8 +293,14 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
 
 /// What TS narrows a binding to from a place it is set to: the cases known
 /// of a `bool`, an `Option`, or a `Result` place. (An enum place is printed
-/// with `as T`, which TS does not narrow through.)
+/// with `as T`, which TS does not narrow through.) A block's value is its
+/// tail's, which the printer assigns last (`res = r;`); a place bound in
+/// the block is forgotten past it, so it carries nothing.
 fn carried(value: &Expr, s: &State) -> Option<Vec<Name>> {
+    let mut value = value;
+    while let Expr::Seq { then, .. } | Expr::Let { then, .. } = value {
+        value = then;
+    }
     if !is_place(value) {
         return None;
     }

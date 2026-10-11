@@ -30,9 +30,11 @@ fn review_holes3_match_rust() {
                 cases.push(case!(review_holes3::decided_try(c, r)));
                 cases.push(case!(review_holes3::decides_failing(r, c)));
             }
-            for b in [3, i32::MAX] {
+            for b in [3, i32::MAX, -1] {
                 cases.push(case!(review_holes3::twice_tried(r, b)));
+                cases.push(case!(review_holes3::block_tail_carries(r, b)));
             }
+            cases.push(case!(review_holes3::compared_to_false(r, 9)));
         }
         for a in [3, i32::MAX] {
             cases.push(case!(review_holes3::failing_try(a)));
