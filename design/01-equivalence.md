@@ -60,7 +60,7 @@ Which function is the "checked constructor" is not inferred. Whatever public fun
 ### 4.1 Internal names
 
 - **`unsafeMakeEmail`.** The generator builds values of a closed type through an internal `unsafeMakeEmail`, marked `@internal` (and left out of the `.d.ts` by `stripInternal`). It is exported from the type's file but not from `index.ts`; `exports` exposes only the index, so an installed package cannot deep-import it. When the sources are vendored, `import { unsafeMakeEmail } from "./gen/src/email.ts"` reaches it and builds a value without a cast. Closedness is that convention plus the consumer's `as` lint ([03 §5.5](./03-output.md#55-closed-types)), not a type-level seal. The name is checked against the crate's top-level names and numbered where one has it (`unsafeMakeEmail2` beside a `fn unsafe_make_email`). Until 0.8.0 it was `Email$of`.
-- **Non-`pub` methods** are not on the companion either. They are emitted as `emailUnchecked`, `@internal`, exported from the file but not from `index.ts`, like `unsafeMakeEmail` and named the same way (until 0.8.0, `Email$unchecked`). Otherwise a private `fn unchecked(raw) -> Email` would let TS callers build what Rust callers cannot (a hole found by real use, [07 §8.1](./07-roadmap.md#81-010-2026-09-30)).
+- **Non-`pub` methods** are not on the companion either. They are emitted as `emailUnchecked`, `@internal`, exported from the file but not from `index.ts`, like `unsafeMakeEmail` and named the same way (until 0.8.0, `Email$unchecked`). Otherwise a private `fn unchecked(raw) -> Email` would let TS callers build what Rust callers cannot (a hole found by real use, [CHANGELOG 0.1.0](../CHANGELOG.md#rationale-the-first-release)).
 
 ### 4.2 The domain of a closed type
 
@@ -247,7 +247,7 @@ A `match` with a guard goes through the decision tree of a tuple `match` (a sing
 - Where two literal arms may overlap (a range and a literal inside it), the later one is tested again after the earlier guard fails.
 - A `?` or `return` in a guard is refused.
 
-Tested with a guard that overflows only where its pattern matched, `_` after a guarded arm, overlapping literal arms, `bool` elements, and a name read only by the guard. Two earlier printings were replaced by this one ([07 §8.3](./07-roadmap.md#83-030-guards-and-option-2026-09-30)).
+Tested with a guard that overflows only where its pattern matched, `_` after a guarded arm, overlapping literal arms, `bool` elements, and a name read only by the guard. Two earlier printings were replaced by this one ([CHANGELOG 0.3.0](../CHANGELOG.md#rationale-guards-and-option)).
 
 ### 7.3 Scalar consumers
 
@@ -310,7 +310,7 @@ Tested with an overflowing `then` argument after a non-`Equal` receiver, an over
 
 ### 7.12 A list collected from text
 
-<!-- derived-from ./07-roadmap.md#88-070-lists-from-text-2026-10-02 -->
+<!-- derived-from ../CHANGELOG.md#rationale-lists-from-text -->
 
 `s.split(c).collect()` and `s.split(c).map(f).collect()` build a `Vec` whose length is the input's. `c` is a `char`, so the pieces are the ones `for t in s.split(c)` already walks, empty ones included. `f` is a closure of one `&str` parameter, or a function name, with no `?` or `return`. The target is named by `collect::<Vec<T>>()`, `collect::<Result<Vec<T>, E>>()`, a typed `let`, or the function's return type.
 

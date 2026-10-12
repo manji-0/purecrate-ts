@@ -24,6 +24,21 @@ The output is laid out by oxfmt, which `build` and `check --out` now run and nee
 - **Laid out other than oxfmt, around a function called at once:** a struct's or a variant's fields printed the function's lines from the left margin; a call given one as an argument did not open its arguments; `if (c) return v;` kept `v` on its line though it spans lines; `return a && f(..)` with the call opened did not open the `return`. A labelled `for` or `while` head too long for its line broke inside a call instead of opening.
 - **Refused by tsc:** `p?` left as a statement (what an unread `x = p?` leaves) narrows `p` in TS, which the flow did not follow, so a later `p?` tested a case TS had ruled out; a closure parameter read only in code the flow decided away was left unread (a function's parameter already took a `_`).
 
+### Rationale: the layout is oxfmt's
+
+<!-- supersedes #rationale-the-rest-of-the-audit-and-layout -->
+
+Why: oxlint over the generators' output, then oxfmt over it, found 1,082 of about 5,300 files laid out otherwise than oxfmt; fixing the shapes one by one brought it to 850. `tidy::wrap` imitated oxfmt rule by rule from the examples, and each new shape was a new rule. oxc's formatter is still not published as a crate (crates.io holds a `0.0.0` placeholder), so `build` and `check --out` run oxfmt as a program.
+
+| Item | Verified by |
+| --- | --- |
+| `build` and `check --out` lay the generated files out with oxfmt 0.71.0 at width 100, and stop without one | `build.rs` (`build_without_oxfmt_writes_nothing`); `verify.sh` checks the version against `examples/package.json` |
+| `tidy`'s line breaking removed (about 1,800 lines); a long discriminant table printed one variant a line, which oxfmt keeps open | every example's and fixture's output (1,430 files) byte for byte unchanged with and without the old rules |
+| The differential tests and the generators run the laid-out package | `support::write_package` |
+
+- **Cost.** `build` needs Node and oxfmt beside the binary, and its output follows oxfmt's version: a new oxfmt is a new layout, taken by moving the pin and regenerating the examples.
+- **Left to the printer**, since oxfmt keeps it as it finds it: an object, array, or argument list written open; blank lines; parentheses; a comment's place.
+
 ## 0.13.2 — 2026-10-11
 
 Four seeded generators over 0.13.1's additions (floats, collections, strings, and every integer width with folded consts), each run over seeds 1 to 120, an independent review of 0.13.1's diff, and the statements generator widened to blocks, shadowing, and the names the translator makes up found what follows; each is fixed with a fixture or a test.
@@ -40,7 +55,7 @@ Four seeded generators over 0.13.1's additions (floats, collections, strings, an
 
 ## 0.13.1 — 2026-10-11
 
-Every capability the five new examples asked for, taken by decision in one patch series (design/07 §8.18): they stood at 2.2× to 3.5× their idiomatic references, and in each case the excess was something the subset lacked rather than the domain.
+Every capability the five new examples asked for, taken by decision in one patch series ([below](#rationale-what-the-five-examples-asked-for)): they stood at 2.2× to 3.5× their idiomatic references, and in each case the excess was something the subset lacked rather than the domain.
 
 ### Added
 
@@ -84,6 +99,27 @@ Every capability the five new examples asked for, taken by decision in one patch
 - **negotiate**: RFC 9110 §12 proactive negotiation, written from the authoring skill alone; its test cites RFC 9110 Erratum 7138.
 - **raft**: the Raft paper's Figure 2 as a pure `step`, written from the authoring skill alone, with a simulation checking the four safety properties.
 - **jsonpatch, geo, ulid, negotiate** rewritten with this release's additions against their unchanged tests: geo 2.2× → 1.6×, ulid 3.4× → 1.6×, negotiate 2.6× → 1.6×, jsonpatch 4.9× → 4.1× (design/07 §2.2).
+
+### Rationale: what the five examples asked for
+
+<!-- derived-from ./design/07-roadmap.md#22-line-counts-against-idiomatic-rust -->
+
+Why: the five examples written from the authoring skill alone on 2026-10-11 met no rejection, but four stayed over 2× ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)), each for something the subset lacked rather than the domain. Every candidate they raised was taken at once, in a patch series, by decision, overriding the `remove` / index assignment and `split` lines of [design/07 §6](design/07-roadmap.md#6-not-doing) as 0.9.0 overrode growing a `Vec`.
+
+| Item | Verified by |
+| --- | --- |
+| `v.remove(i)`, `v[i] = x`, `v[i] op= x` on a local `let mut` `Vec`; Rust's order of evaluation where both sides may panic | `vec_edit_equivalence.rs` |
+| `x as T` between integer types `From` does not join, wrapping | `int_cast_equivalence.rs` (all 54 pairs), the widths generator |
+| `u128` / `i128`; byte strings, as a `&[u8]` const or an expression | `wide_int_equivalence.rs`, `wire.rs`, `wire_write.rs` |
+| Float methods, constants, and conversions, rounded once | `float_conv_equivalence.rs` (bit for bit) |
+| `==` / `!=` on a derived `PartialEq`, part by part | `deep_eq_equivalence.rs` |
+| `to_ascii_*case`, `trim*` by Rust's whitespace, `trim*_matches`, `find`, `split` with a closure | `str_more_equivalence.rs` |
+| Stable `sort`, `sort_by`, `sort_by_key` on a local; `find`, `max` / `min` and their `_by_key` / `_by` forms | `sort_pick_equivalence.rs` |
+
+- **Measurement.** Rewritten with them against unchanged tests: geo 2.2× → 1.6×, ulid 3.4× → 1.6×, negotiate 2.6× → 1.6×, jsonpatch 4.9× → 4.1× (the patch layer 3.5× → 2.8×, over the threshold for want of `&mut`, which stays out: [design/07 §3](design/07-roadmap.md#3-candidates)). [design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust) has the detail.
+- **Holes met on the way**, each fixed with a fixture: a `u128` const crashed `check`'s folding; `u128::from(u64)` printed `as number`; casts on slice bounds, on `Int.<t>.cast`'s argument, and on a float passed to `Math` were unnecessary assertions to oxlint; a one-sided trim kept an unread helper; and seven layouts oxfmt prints otherwise (`fixtures/layout.rs`).
+- **Stated gaps**, in [01 §3](design/01-equivalence.md#3-known-non-equivalences): a `u128` literal or const at 2^127 or more is refused (literals are `i128`s); a comparator that is not a total order may panic in Rust's sort and never in JS's.
+- **Open:** the seeded generators draw the integer casts only; the rest is covered by the hand-written tests above.
 
 ## 0.13.0 — 2026-10-06
 
@@ -197,7 +233,7 @@ A refactor, and the generated sweeps run locally. Nothing on the stable surface 
 
 ## 0.10.3 — 2026-10-04
 
-The rest of what tsc refused in generated code ([roadmap §8.17](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.
+The rest of what tsc refused in generated code ([rationale below](#rationale-the-rest-of-what-tsc-refused)): every generated function of seeds 1 to 120, in all five generators, now type-checks. Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 
@@ -207,9 +243,29 @@ The rest of what tsc refused in generated code ([roadmap §8.17](https://github.
 - Narrowing follows what those print: `const v = r.kind === "Ok"` narrows `r` through `if (v)`, as TS does; a `match` used as a test narrows on both sides; code the fold thinks unreachable is still folded, as TS still checks it.
 - A file whose folds print a `switch` imports `assertNever`.
 
+### Rationale: the rest of what tsc refused
+
+<!-- derived-from #rationale-narrowing-as-ts-does-it -->
+
+Why: 0.10.2 left 17 of seeds 1 to 120 of generated bodies refused by tsc, none for narrowing ([0.10.2](#rationale-narrowing-as-ts-does-it)): `??` on a value TS knows is `null`, unreachable code, a temporary TS types from itself in a loop.
+
+| Item | Verified by |
+| --- | --- |
+| `match { let t = None; t } { .. }` takes its arm, as does a `match` on `Ok(r.value)` (a payload that only reads) | `none_scrutinee`, `built_from_field` |
+| A test that is a `match` every arm of which that may run gives one value runs its scrutinee and is decided; `v = x?` that always leaves ends its block | `decided_guard_runs`, `assigned_try_leaves` |
+| `o.map(f).is_some()` is that `match` of `true` / `false` (through the `let`s binding its receiver, and a made binding read once as what such a test takes): no temporary for TS to type from itself | `mapped_test_in_loop` |
+| What those print, TS narrows by, and so does the fold: a `match` used as a test on the side that fails, `const v = r.kind === "Ok"` read as the test it holds ("aliased conditions"), `if c { true } else { b }` as `c \|\| b` (not other `?:`) | `aliased_condition`, `if_test_as_or` |
+| A side or what follows a statement the state says is never reached is still printed and checked: it runs from the state before | `never_taken_side`, `past_leaving_if` |
+| `assertNever` is offered to every file's imports and pruned where unread (a fold may print a `switch` the IR did not hold) | the generated sweeps |
+
+Seeds 1 to 120 of all five generators type-check and agree with Rust on every value (26,400 functions, 316,800 calls).
+
+- **Open:** nothing tsc refuses in the sweeps. The fold mirrors how the printer prints a test; a printer change to tests needs the sweeps rerun (`scripts/gen-sweep.sh`, run locally; reduce a failing seed with `scripts/gen-reduce.py`; README, Generated sweeps).
+- **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
+
 ## 0.10.2 — 2026-10-04
 
-Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#816-0102-narrowing-as-ts-does-it-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+Narrowing as TS's control flow does it ([rationale below](#rationale-narrowing-as-ts-does-it)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 
@@ -217,9 +273,28 @@ Narrowing as TS's control flow does it ([roadmap §8.16](https://github.com/manj
 - A test decided though part of it must run (`100 / a > 0 && c`, `c` known `false`) runs that part, then the side taken.
 - An `if` run for one side's effect prints as a statement, not `c ? undefined : f()`.
 
+### Rationale: narrowing as TS does it
+
+<!-- derived-from #rationale-the-generator-across-the-subset -->
+
+Why: 0.10.1 left 60 of seeds 1 to 120 of generated bodies refused by tsc, 47 of them only where TS narrows and the printer did not fold ([0.10.1](#rationale-the-generator-across-the-subset)). The fold kept a stack of what enclosing arms, `?`s, and jumps had decided, with no state where control flow joins or at a loop's head, and dropped a fact for the rest of a block wherever anything later wrote the place.
+
+| Item | Verified by |
+| --- | --- |
+| `join/flow.rs`: each place's possible cases flow forward, refined on each side of a test and per `match` arm (less what earlier unguarded arms took), joined where control flow meets, found at a loop's head by running the body until the state settles, forgotten at a write, kept in a closure for names nothing writes. A side a known case contradicts is never taken | `narrowing_equivalence.rs`: past jumping arms and leaving `if`s, through loops, `joined_sides` |
+| Facts from `?` statements (not `let x = p?`, which tests a copy), `is_some`, `matches!` (a `match` whose other arms give `false`), shared sides of `\|\|`, `bool` places, `let v = true`, and a place compared with a literal (`t == ","`) | `decided_matches`, `decided_or`, `decided_literal_binding`, `decided_string` |
+| Folds: `p?` and `let x = p?` of a known case or a built `Ok(e)`; a decided test whose part must still run (`100 / a > 0 && c`) runs it, then the side taken; `&&` / `\|\|` with a decided left side; `known_bool` of `&&`, `\|\|`, `if`, and a `match` of `bool`s where nothing in them can panic | `decided_try`, `decided_and_runs_left` (panicking for `a == 0` as Rust does), `decided_left` |
+| A loop's head that does not settle within six rounds is what enters, less every place under a name the loop writes; states compare in one order, so settling is seen | `late_write` |
+| Narrowing reruns after the cleanup until it settles; a loop's body runs for its effects; a `while true` nothing breaks out of ends its block; an `if` run for one side's effect prints as a statement | the generated sweeps; `scripts/verify.sh` lints the fixtures' output |
+
+Seeds 1 to 120, values agreeing in all five generators: bodies type-check on 103 (60 before), transitions and text on all (118 and 119 before); none is refused for narrowing alone.
+
+- **Open:** 17 seeds of bodies, refused for `??` on a value TS knows is `null` (TS2871, TS2869; 9), unreachable code (TS7027; 6), a temporary TS types from itself in a loop (TS7022; 3). None is narrowing as TS does it; each wants a fold or an annotation of its own. A side or arm the state says is never taken is printed as it stands, while TS checks it with the place as `never`; much of the `??` class is likely there (an `unwrap_or` on a known `None` or `Some` is one fold away).
+- **The examples' output is unchanged** (`check --out` in `scripts/verify.sh`).
+
 ## 0.10.1 — 2026-10-04
 
-Tests generated across the subset, and what they found ([roadmap §8.15](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
+Tests generated across the subset, and what they found ([rationale below](#rationale-the-generator-across-the-subset)). Nothing on the stable surface changes; the examples' output is byte for byte the same.
 
 ### Fixed
 
@@ -236,9 +311,40 @@ Tests generated across the subset, and what they found ([roadmap §8.15](https:/
 
 - Four generated tests beside the expressions of 0.10.0: function bodies (`generated_statements_equivalence.rs`), transitions over a crate's types with nested patterns and guards (`generated_patterns_equivalence.rs`), integer widths (`generated_widths_equivalence.rs`), and strings and `Vec` (`generated_text_equivalence.rs`). Seeds 1 to 120 of each agree on every value; how many type-check is in the roadmap.
 
+### Rationale: the generator across the subset
+
+<!-- derived-from #rationale-tests-generated-from-seeds-and-what-they-asked-for -->
+
+Why: the generator of 0.10.0 drew expressions only, over `i32`, `bool`, `Option<i32>`, and `Result<i32, i32>`. Two of the four disagreements the audits found were in statements and crate types, outside it. Four generators now cover the rest of the subset; each runs eight seeds on every `cargo test`, and seeds 1 to 120 were swept.
+
+| Generator | What it draws | Seeds 1 to 120 |
+| --- | --- | --- |
+| `generated_equivalence.rs` (0.10.0) | expressions over four types | values agree; 120 type-check (7,200 functions) |
+| `generated_statements_equivalence.rs` | bodies: `let` / `let mut`, assignment and `op=`, `if` / `match` statements, range `for`, `while`, `break`, `continue`, early `return`, `?` in a range's ends and a loop's test | values agree; 60 type-check (4,800 functions) |
+| `generated_patterns_equivalence.rs` | transitions over a crate's `State` / `Event` / `Acc`: `match` on a pair or one value, `if let` on an `Option`, `matches!`; variants, tuple and struct fields, nested `Option`s, literals, ranges, `\|`, names that hide parameters, guards | values agree; 118 type-check |
+| `generated_widths_equivalence.rs` | `u8`, `i16`, `u32`, `i64`, `u64`: operators, shifts past the width, checked / wrapping / saturating forms, `pow`, `abs`, `T::from`, comparisons | values agree; 120 type-check |
+| `generated_text_equivalence.rs` | `&str`, `String`, `Vec<i32>`: the allowed methods, slices off char boundaries, `split`, `parse`, adaptors into consumers and `collect`, `push` | values agree; 119 type-check |
+
+What they found, each with a fixture that fails before its fix:
+
+| Found | Kind | Fixture |
+| --- | --- | --- |
+| `match o.ok_or(x.ok_or(e)?)` returned from an inline function only and took the `Err` arm (Rust `Err(e)`, TS `Ok(..)`) | wrong value, in 0.10.0 | `order_of_eval.rs` |
+| `if let Some(0) = o { .. } else { .. }` threw "unexpected variant" for `Some(5)`, where Rust takes the `else` | wrong result, in 0.10.0 | `control.rs` |
+| `Set(Some(_)) if g => .., Set(v) => ..` overflowed the printer's stack (`let v = v` followed as an alias forever), in `check` and `build` | crash, in 0.10.0 | `guards.rs` |
+| A group broken inside (`=> (c ? .. : ..)`) ended with `,` (`(x,)`) | syntax error | `tidy.rs` unit test |
+| Two temporaries named after one local (`xResult` twice in a block) | syntax error | `order_of_eval.rs` |
+| A payload's `match` (`matches!(o.unwrap_or(3), 0..=9)` under `Some(_)`) decided by the option being `Some` | wrong value, a regression of this work before release | `narrowing.rs` |
+| What folding leaves: unread values (`const optOr`, empty `if {} else {}`), unreachable code, `r?` on a known `Err`, places past jumping arms and leaving `if`s, decided `bool`s, `c ? r : r`, a parameter read only by an unread `as_str` | refused by tsc | `narrowing.rs` |
+| The same folds' leftovers lint refuses: an unread comparison as a statement, `if (true)`, a block declaring nothing, `Result` imported as a value it is not used as | refused by oxlint (`scripts/verify.sh`) | `narrowing.rs`, `order_of_eval.rs`, an `imports.rs` unit test |
+
+- A sweep compares values where tsc refuses the package (`PURECRATE_GEN_TYPES=report`, only with `PURECRATE_GEN_SEED`); every run's seeds still type-check (`support::assert_values_equivalent`).
+- **Open:** the seeds tsc refuses. Bodies: 47 of 60 only for narrowing TS does where control flow joins or loops ([design/07 §3](design/07-roadmap.md#3-candidates), narrowing as TS does it); 13 also or only for `??` on a value TS knows is `null` (TS2871, TS2869), unreachable code (TS7027), a temporary whose type TS infers in a loop from itself (TS7022), or an unread one (TS6133). Patterns 2 and text 1, narrowing too (TS2322, TS2339, TS2367). `?` in `matches!`'s first argument inside a test is refused (`[check/position]`) although that operand always runs; safe, and written around with a `let`. `if let` takes `Option` and `Result` only (`[pattern/if-let-variant]`).
+- **The examples' output is unchanged.** Fixtures' output changed only where a decided `bool` or test folded (`guards.rs`, `bool_patterns.rs`).
+
 ## 0.10.0 — 2026-10-04
 
-Tests generated from seeds, and what they found; parentheses decided on a tree of the printed operators; rustfmt and clippy in CI. A minor release: the runtime's `Result.ok` and `Result.err` signatures change, which the stable surface lists ([roadmap §8.14](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#814-0100-tests-generated-from-seeds-and-what-they-asked-for-2026-10-04)). Regenerate committed output: each copied runtime changes by two lines.
+Tests generated from seeds, and what they found; parentheses decided on a tree of the printed operators; rustfmt and clippy in CI. A minor release: the runtime's `Result.ok` and `Result.err` signatures change, which the stable surface lists ([rationale below](#rationale-tests-generated-from-seeds-and-what-they-asked-for)). Regenerate committed output: each copied runtime changes by two lines.
 
 ### Changed
 
@@ -261,9 +367,27 @@ Found by a new test that generates functions from seeds (`generated_equivalence.
 - `[check/position]` names a `{ .. }` block too, which it refuses beside `&&`, `||`, `if`, and `match`.
 - **A `let` Rust leaves unused keeps only what may panic.** `let a = r.ok().unwrap_or(0);` unread printed `const opt = ..` and `if (..) {} else {}`; reads and values built of reads are left out.
 
+### Rationale: tests generated from seeds, and what they asked for
+
+<!-- derived-from #rationale-fixes-from-an-audit-of-090 -->
+
+Why: an evaluation of 0.9.1 found that every audit since 0.8.1 turned up output that disagreed with Rust, each only in a shape no fixture spelled, and that the printer decided parentheses by reading its own text back. Hand-written cases could not keep up; generated ones can. A minor, because the runtime's signatures change ([design/07 §9](design/07-roadmap.md#9-generated-api-stability)).
+
+| Item | Verified by |
+| --- | --- |
+| Functions generated from seeds, run through rustc and the generated TS, compared call by call | `generated_equivalence.rs`: seeds 1 to 120 agree (7,200 functions, 86,400 calls); 1 to 8 on every run |
+| A `?` (or `map_err(f)?`) in what `ok_or` takes leaves the function; `unwrap_or` and `ok_or(..)?` keep their options apart; `match o.ok_or(e)` and an annotated block as a scrutinee are typed; a parameter read only in a folded branch is `_` | `order_of_eval_equivalence.rs`, each failing before the fix |
+| `Result.ok` / `Result.err` default the type they cannot infer to `never` | the generated seeds, which stopped at `tsc` on `Result<T, unknown>` before |
+| What TS has narrowed is folded, only where nothing writes the place | `narrowing_equivalence.rs`; `reassigned_scrutinee` caught a fold that missed a `let mut` written in an arm |
+| Parentheses and negation on a tree of the printed operators (`emit_ts::tx`) | `tx.rs` tests; the examples' and fixtures' output byte for byte unchanged, 40 seeds' output only losing parentheses around inline functions |
+| rustfmt (120 columns) and clippy in CI | `verify.yml` lint job; `scripts/verify.sh` |
+
+- **06 §4.3 reads the generator, not only the examples.** The row on silent wrong values now names the audits' findings and the generated test's count.
+- **Open:** line breaking (`tidy::wrap`) still reads printed lines, as a layout pass; oxc's formatter is not published as a crate.
+
 ## 0.9.1 — 2026-10-04
 
-Fixes from an audit of 0.9.0: four outputs that disagreed with Rust, two shapes oxlint refused, and documents that lagged the subset. No change to what is accepted, but `ok()` of a `Result` holding an `Option`, which is now refused ([roadmap §8.13](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#813-091-fixes-from-an-audit-of-090-2026-10-04)).
+Fixes from an audit of 0.9.0: four outputs that disagreed with Rust, two shapes oxlint refused, and documents that lagged the subset. No change to what is accepted, but `ok()` of a `Result` holding an `Option`, which is now refused ([rationale below](#rationale-fixes-from-an-audit-of-090)).
 
 ### Fixed
 
@@ -274,9 +398,26 @@ Fixes from an audit of 0.9.0: four outputs that disagreed with Rust, two shapes 
 - **`else if` for an `else` that is one `if`** (oxlint's `no-lonely-if`), **and no `c ? true : false`** (`no-unneeded-ternary`). An equality inside an equality is parenthesized, as oxfmt prints it.
 - **Documents:** the skill and 02's tables no longer call `cmp` on `Vec`s, `map` / `filter`, or chained `chars()` unavailable; 01, the overview, and 03's counter sample match the output; a refused method's message lists the 0.9.0 methods.
 
+### Rationale: fixes from an audit of 0.9.0
+
+<!-- derived-from #rationale-lists-built-in-a-function-and-the-examples-against-their-specifications -->
+
+Why: four audits after 0.9.0 (its new features, the older generator, the output's readability, the documents) found output that disagreed with Rust; each case reached only through shapes the fixtures lacked.
+
+| Item | Verified by |
+| --- | --- |
+| A choice under `!== null`, `=== null`, or a member parenthesized | `precedence_equivalence.rs`, failing before the fix |
+| `ok()` of `Result<Option<T>, E>` refused | `check/tests/it/option_result.rs` |
+| A struct pattern's guard and shadowing | `struct_patterns_equivalence.rs`, failing before the fix |
+| Line terminators in carried comments | `comments.rs` |
+| `else if`, no `c ? true : false`, nested equality | `readability_equivalence.rs`, and oxlint / oxfmt over the fixtures |
+
+- **Where precedence was decided.** The printer grouped an operand by its IR node, and a call (`is_some`) or a `match` printed as an operator slipped past; `grouped` now takes the looser of the node's and the printed text's precedence, and the object of a member is parenthesized unless atomic.
+- **Open:** the readability findings (needless copies after `?` and `ok_or`, numbered shadows, scattered destructuring, hex literals, comments outside bodies) and some over-rejections (`i32::MIN` in an expression, a hosted helper named like a type) wait for the next minor.
+
 ## 0.9.0 — 2026-10-04
 
-Lists built in a function, iterator stages, struct patterns, and `clone`; the examples checked against their specifications, with the generator bugs that rewriting them found. The accepted subset grows ([roadmap §8.12](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#812-090-lists-built-in-a-function-and-the-examples-against-their-specifications-2026-10-04)).
+Lists built in a function, iterator stages, struct patterns, and `clone`; the examples checked against their specifications, with the generator bugs that rewriting them found. The accepted subset grows ([rationale below](#rationale-lists-built-in-a-function-and-the-examples-against-their-specifications)).
 
 ### Changed
 
@@ -299,9 +440,31 @@ Lists built in a function, iterator stages, struct patterns, and `clone`; the ex
 - **Two `ok_or(e)?` or `map_err(f)?` in one body keep their values apart.** Each declared `const opt` (or `result`) in the same block.
 - **A last-argument arrow whose body is not a call, `?:`, or `as` opens every argument**, as oxfmt prints it, instead of keeping its head on the call's line.
 
+### Rationale: lists built in a function, and the examples against their specifications
+
+<!-- derived-from #rationale-the-rest-of-the-audit-and-layout -->
+
+Why: a review of the examples against their specifications (RFC 4226/6238, ISO 13616, SemVer 2.0.0, Stripe's PaymentIntent) found defects, and rewriting them found generator bugs; the authoring gaps it listed (a `Vec` grown in a function, adaptors, struct patterns, `clone`) were taken without [design/07 §1](design/07-roadmap.md#1-how-additions-are-chosen)'s threshold being met ([design/07 §3](design/07-roadmap.md#3-candidates)).
+
+| Item | Verified by |
+| --- | --- |
+| A helper with one caller's file printed in it; locals renamed apart from the whole file's imports | `readability_equivalence.rs`, `build.rs`; the emitter's homes asserted equal to rename's |
+| `?` inside what `ok_or(e)?` takes; two `ok_or(e)?` or `map_err(f)?` in a body | `order_of_eval_equivalence.rs` |
+| Temporaries named after their local; literal `matches!` as `includes`; no block around a `?` in `unwrap_or`'s value | `readability_equivalence.rs` |
+| `_` in `collect`'s target | `collect_equivalence.rs` |
+| Struct patterns | `struct_patterns_equivalence.rs` |
+| `cmp` on `Vec`s | `ordering_equivalence.rs` |
+| `map` / `filter` over sequences, lazy | `adapters_equivalence.rs`, with an eager `Iter.map` failing it |
+| `push` on a local, `clone`, `as_ref`, `as_deref` | `grow_equivalence.rs`: the caller's arrays come back unchanged |
+| More `//` comments | `comments.rs` |
+| iban's check digits, oidc's lockout and consent, order's overflow and prices, semver's unbounded pre-release numbers | each example's equivalence test and its idiomatic reference |
+
+- **The output writes one kind of array.** A local `let mut v: Vec<T>` is `Array<T>` and is pushed to; it is bound to an array of its own, copied unless new. Every other array stays `ReadonlyArray`, so the earlier argument that sharing is unobservable still holds (01 §7.14).
+- **Exhaustiveness and struct patterns.** A struct pattern is lowered to a guard, so a `match` whose struct patterns cover a field still needs `_`; that refuses code rustc takes, never the reverse.
+
 ## 0.8.2 — 2026-10-04
 
-The rest of the audit's fixes, output that reads more as written by hand, and a layout that matches oxfmt for long names outside the examples. No change to what is accepted ([roadmap §8.11](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#811-082-the-rest-of-the-audit-and-layout-2026-10-04)).
+The rest of the audit's fixes, output that reads more as written by hand, and a layout that matches oxfmt for long names outside the examples. No change to what is accepted ([rationale below](#rationale-the-rest-of-the-audit-and-layout)).
 
 ### Changed
 
@@ -319,9 +482,25 @@ The rest of the audit's fixes, output that reads more as written by hand, and a 
 - **Two arms that bind one name to different fields keep both.** `P(x, _) if c => x, P(_, x) => x` declared `const x` twice; a row's name is bound in the pattern only where nothing else in the arm binds it. Such an arm reads the field under a made name (`field`, `field2`) and binds each row's own name from it.
 - **A payload is read before its arm assigns the place.** `let v = match o { Some(v) => { o = None; v } .. }` read `o` after the assignment.
 
+### Rationale: the rest of the audit, and layout
+
+<!-- derived-from #rationale-fixes-from-an-audit -->
+
+Why: the four defects 0.8.1 left open ([0.8.1](#rationale-fixes-from-an-audit)), readability items found reading the output beside its Rust, and the audit's finding that the layout rules were fitted to the examples' lines. No change to what is accepted.
+
+| Item | Verified by |
+| --- | --- |
+| A `for` range's bounds in order; an operand `?` that typing made a `match` leaves the function; a reassigned scrutinee read before the assignment | `order_of_eval_equivalence.rs` |
+| Two arms binding one name to different fields | `guards_equivalence.rs` |
+| Destructured fields, a flipped negated test, the matched place returned, a variant rebuilt from its fields as the place | `readability_equivalence.rs` |
+| Layout: width in columns, a lone import, a break after `=`, an arrow's one-field object, a `?:` chain's test, a hugged last arrow, the wire module's generic type | `fixtures/layout.rs` through `oxfmt --check` in `scripts/verify.sh`; `line_width.rs` |
+
+- **The layout check has an oracle outside the examples now.** `fixtures/layout.rs` gives every construct a name long enough to break it; the shapes it found differing from oxfmt were the ones fixed here. `tidy::wrap` is still a chain of line rules, not oxfmt's printer (oxc's formatter is not published as a crate), so a shape the fixture lacks may still differ; the fixture is where to add it.
+- **A block in an argument is lifted** before its statement (`let value;` then `if`), which also removes an inline function from the output; the lifted `let` has no annotation, which TS infers from its assignments.
+
 ## 0.8.1 — 2026-10-03
 
-An audit of the generator for rules fitted to the examples' shapes found output that Rust does not mean; this release fixes those that 0.8.0 printed for inputs outside the examples. No change to what is accepted ([roadmap §8.10](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#810-081-fixes-from-an-audit-2026-10-03)).
+An audit of the generator for rules fitted to the examples' shapes found output that Rust does not mean; this release fixes those that 0.8.0 printed for inputs outside the examples. No change to what is accepted ([rationale below](#rationale-fixes-from-an-audit)).
 
 ### Fixed
 
@@ -331,9 +510,23 @@ An audit of the generator for rules fitted to the examples' shapes found output 
 - **No `return` after a statement that never falls through.** A `match` whose arms all return, then `;`, and a `while true` no `break` leaves, were followed by `return undefined;`, which the generated tsconfig rejects as unreachable.
 - **A tuple read in part is not taken for the whole.** 0.8.0's `Some((a, b)) => (a, Some(b))` → `x ?? d` matched the printed text, so `Some((a, b, _)) => (a, b)` became `x ?? [0, 0]`, the three-element tuple. The rewrite is withdrawn; semver's `parse` binds `option` again.
 
+### Rationale: fixes from an audit
+
+<!-- derived-from #rationale-generated-typescript-that-reads-like-the-source -->
+
+Why: reading the generator for rules written to the examples' shapes, with each suspected input built and run. No change to what is accepted.
+
+| Item | Verified by |
+| --- | --- |
+| `??` beside `?:`, `\|\|`, `&&` parenthesized; a commented operand keeps its grouping; a tuple read in part not taken for the whole | `precedence_equivalence.rs` |
+| An empty arm under a returned value returns; no `return` after what never falls through | `empty_arm_equivalence.rs` |
+
+- **Open at release**, each reproduced and fixed after it ([CHANGELOG](CHANGELOG.md), Unreleased): a `?` in a `for` range's end ran before a start that can panic; a `?` inside `map_err(..)?` or an `unwrap_or` argument in an operand position stayed inside an inline function; two arms binding one name to different fields declared it twice; a `match` arm that reassigns its scrutinee read the new value. tsc rejected all but the first.
+- **Layout.** `tidy::wrap` is a chain of line rules fitted to the examples; outside them its breaks often differ from oxfmt's, and it measures width in bytes.
+
 ## 0.8.0 — 2026-10-03
 
-Generated TypeScript that reads closer to the Rust it came from: no `$` in any name, flat guards instead of `else` chains, the source's `//` comments kept, bodies in paragraphs, byte literals that name their character, and fewer temporaries; a runtime copy that keeps only what the package uses; and the last four patterns 0.7.0 refused (`A | B(1)`, `Some((1, b))`, `.map(PreId::Numeric)`, `str::parse` into an integer). Packages generated with 0.7.0 must be regenerated, and callers that read a one-field tuple variant updated (Breaking, below) ([roadmap §8.9](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#89-080-generated-typescript-that-reads-like-the-source-2026-10-03)).
+Generated TypeScript that reads closer to the Rust it came from: no `$` in any name, flat guards instead of `else` chains, the source's `//` comments kept, bodies in paragraphs, byte literals that name their character, and fewer temporaries; a runtime copy that keeps only what the package uses; and the last four patterns 0.7.0 refused (`A | B(1)`, `Some((1, b))`, `.map(PreId::Numeric)`, `str::parse` into an integer). Packages generated with 0.7.0 must be regenerated, and callers that read a one-field tuple variant updated (Breaking, below) ([rationale below](#rationale-generated-typescript-that-reads-like-the-source)).
 
 ### Breaking
 
@@ -391,9 +584,31 @@ Generated TypeScript that reads closer to the Rust it came from: no `$` in any n
 - `s.parse::<T>()` into every integer type, as `Int.<t>.parse(s)`: Rust's `from_str_radix(s, 10)` (a `+`, a `-` when signed, ASCII digits, in range). The error is `ParseIntError`, which carries nothing. semver drops its digit loop for it.
 - `Result::ok`, `map`, and `map_err`, as the `match` std writes; `r.map_err(f)?` returns `Err(f(e))` without building the mapped `Result`.
 
+### Rationale: generated TypeScript that reads like the source
+
+<!-- derived-from #rationale-lists-from-text -->
+
+Why: the four patterns 0.7.0 still refused, and an exception to taking language capabilities first, as in 0.6.0 ([0.6.0](#rationale-generated-typescript)): reading the generated packages beside their Rust, what a reviewer tripped on was the machine in the output (`$`-names, `else` chains, temporaries a combinator left), what the source said and the output dropped (`//` comments, `b'@'` printed as `64`), and a runtime copy of 36 KB whatever the package used. The naming changes reach the stable surface ([design/07 §9](design/07-roadmap.md#9-generated-api-stability)), so this is a minor.
+
+| Item | Verified by |
+| --- | --- |
+| `A \| B(1)`, `Some((1, b))`, a tuple nested in a case or a tuple | `tuple_match_equivalence.rs`, `nested_patterns_equivalence.rs` |
+| `.map(PreId::Numeric)`; `s.parse::<T>()` into an integer; `Result::ok`, `map`, `map_err` | `semver_equivalence.rs`, `parse_equivalence.rs`, `option_methods_equivalence.rs` |
+| A one-field tuple variant as `{ kind, value }`, with serde's JSON unchanged | `wire.rs`, `wire_write.rs`, the differential tests |
+| No `$` in local or internal names | `scoped_names.rs` |
+| Guards instead of `else`; fewer temporaries (`map(f).unwrap_or(d)`, a copied `Some` as `??`) | the differential tests, unchanged; `option_methods_equivalence.rs` |
+| `//` comments kept; bodies in paragraphs; byte literals named | `comments.rs`; `paragraph.rs` and `expr.rs` in `emit_ts` |
+| A runtime copy of what the package uses | `trim.rs` in `pack` |
+| Every generated file laid out and linted as oxfmt and oxlint want, fixtures included | `scripts/verify.sh` |
+
+- **Comments are a barrier.** A `// ..` above a statement is a node between it and the one before, so a rewrite that joins two statements stops at it (`const c = ..;` `// ..` `return c;`). Comments above a `match` arm, after code on a line, or before a block's `}` are still dropped.
+- **Paragraphs are counted on the printed TS**, not the Rust statements, so a paragraph can split what one Rust statement became where the TS takes several lines. Blank lines in the source are not carried over: they would be a barrier like comments, at every one of them.
+- **Measurement.** All eight examples' generated domain code 3372 → 3225 lines, the comments and 92 blank lines it gains included; semver 414 → 343, oidc 1441 → 1368. Runtime copies 1882 → 1161 lines: counter 175 → 84, payment 261 → 119, semver 351 → 239.
+- **Breaking** for callers: `.content[0]` on a one-field variant is `.value`, and the index exports `Int` only when the public surface holds a number ([CHANGELOG](CHANGELOG.md)).
+
 ## 0.7.0 — 2026-10-02
 
-`split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering; patterns nested in a case; and two rounds of review fixes (panics as `Panic`, `Mutex` refused, generated-code layout, CI and release hardening). Packages generated with 0.6.0 must be regenerated (Breaking, below) ([roadmap §8.8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#88-070-lists-from-text-2026-10-02)).
+`split_once`, and a `Vec` collected once from `s.split(c)`, which is what kept semver over twice the idiomatic Rust after ordering; patterns nested in a case; and two rounds of review fixes (panics as `Panic`, `Mutex` refused, generated-code layout, CI and release hardening). Packages generated with 0.6.0 must be regenerated (Breaking, below) ([rationale below](#rationale-lists-from-text)).
 
 ### Breaking
 
@@ -457,9 +672,28 @@ Generated TypeScript that reads closer to the Rust it came from: no `$` in any n
 - semver (SemVer 2.0.0 parsing and precedence) builds its identifier lists with `collect` and splits on `+` and `-` with `split_once` as `Some((x, y))`: 166 lines of logic with ordering, 138 with these (1.8× the idiomatic Rust). Pre-release and build metadata are `Vec`s.
 - oidc's lockout arm matches `PasswordChecked { verified: false, .. }`, as its idiomatic code does.
 
+### Rationale: lists from text
+
+<!-- derived-from ./design/07-roadmap.md#22-line-counts-against-idiomatic-rust -->
+
+Why: after `Ordering`, semver was still the example over 2×, and what remained was parsing ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)): `split_once`, and lists built with `collect`. A `Vec` whose length is the input's, read once from text, is not a sequence that grows with the state, which is why `collect` stays out everywhere else ([design/07 §6](design/07-roadmap.md#6-not-doing)).
+
+| Item | Verified by |
+| --- | --- |
+| `s.split(c).collect()` and `s.split(c).map(f).collect()` into `Vec<T>` or `Result<Vec<T>, E>`, the target named by a turbofish, a `let` type, or the return type | `collect_equivalence.rs` |
+| A `Result` stops at the first `Err`, so a later piece that would panic does not run | `collect_equivalence.rs` |
+| `str::split_once` with a `char` or a `&str`, including an empty needle | `collect_equivalence.rs` |
+| `Some((a, b))`, and the same tuple of names in `Ok` / `Err` or a variant's fields, including under a guard | `tuple_match.rs`, `collect_equivalence.rs` |
+| A pattern nested in a case: a literal, a range, a variant, or `Some` / `Ok` / `Err` in a variant's field or a payload, to any depth (`PasswordChecked { verified: false, .. }`, `Some(Event::Pay { amount })`) | `nested_patterns_equivalence.rs`, `tuple_match.rs` |
+
+- **What is refused.** Collecting a `Vec`, `chars()`, or anything but `split(c)` with a `char`; `collect` with no target type; `split` on a `&str` (an empty separator differs in JS); a variant constructor passed as `.map(PreId::Numeric)` (built with no fields, or, for a unit variant, not a closure or a function name). A tuple holding anything but names and `_` is still `[pattern/nested]`, as is a tuple nested in a tuple pattern and a side of `|` that tests inside its variant (`A | B(1)`).
+- **Nested patterns** go through the decision tree that tuple `match`es and guards already use ([03 §3.3.1](design/03-output.md#331-tuple-match)): where a case is chosen, a field some arm tests becomes one more element, matched further in. rustc checks exhaustiveness, so `check` no longer counts cases for such a `match`; every `switch` the tree prints still names every case. oidc's lockout arm reads `PasswordChecked { verified: false, .. }` as its idiomatic code does, which changes no line count: a guard `if !verified` was one line too, and moving `second_factor: SecondFactor::Totp(..)` into the tuple arm would repeat the arm's head. The evidence for them was readability, not the threshold. A `bool` arm now prints as `x` / `!x`, not `x === true`.
+- **`str::parse` stays out.** Rust's `u64` parse accepts a leading `+`. Matching that, and the cases it rejects, is not what brings semver under the threshold.
+- **Measurement.** semver rewritten with them: 166 → 138 lines, 2.2× → 1.8× ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). Pre-release and build identifiers are `Vec`s. The generated `parse` prints `split` as the array, `Iter.tryCollect` for a `Result`, and `Str.splitOnce`; the turbofish is not a second binding. `Some((x, y))` reads the two strings as `[0]` and `[1]`.
+
 ## 0.6.0 — 2026-10-01
 
-Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below). Measured by reading the examples' output ([roadmap §8.7](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#87-060-generated-typescript-2026-10-01)).
+Generated TypeScript that reads as written by hand: camelCase names, JSDoc from `///`, runtime helpers in place of inline functions, and lines broken at 100 characters. The wire module gives a form only to what serde does, reads text with `fromJson`, and reports a refused value in serde's words. Packages generated with 0.5.0 must be regenerated, and their callers updated (Breaking, below). Measured by reading the examples' output ([rationale below](#rationale-generated-typescript)).
 
 ### Breaking
 
@@ -509,6 +743,22 @@ Wire module:
 
 - Each example keeps its generated package beside its source: `examples/<name>/ts/plain`, and for invoice and payment, which derive serde, `examples/<name>/ts/<lib>` per schema library. `scripts/examples.sh` regenerates them; `scripts/verify.sh` checks them for drift and runs `tsc` over them.
 
+### Rationale: generated TypeScript
+
+Why: an exception to taking language capabilities first. Reading the examples' generated packages, now committed beside each example, turned up one hole and much that a reviewer of the TS would trip on: a schema that built a closed type with no serde derive from JSON by shape, inline functions wherever a `match`, `?`, index, or consumer met an expression (28 of them), `$q1`-style temporaries, snake_case names, every doc comment dropped, and lines past 160 characters.
+
+| Item | Verified by |
+| --- | --- |
+| A wire form only from serde's derives; `item/serde-derive` for what a derive holds | `wire.rs`, `ordering.rs` in `check` |
+| `impl Display` with a fixed text as `toString`; `try_from` refusals in its words | `display_equivalence.rs`, `wire_write.rs` |
+| `fromJson.T(text)` | `wire_write.rs` |
+| Runtime `Slice`, `Ord`, `Iter`; guards for `ok_or(..)?`; `match` as expressions | the differential tests, unchanged; shape tests beside them |
+| camelCase, JSDoc, string-keyed brands, fewer files and exports | the differential tests, `names.rs` in `check` |
+| Every `as` of a sound kind | `casts.rs` |
+
+- **Measurement.** Inline functions 28 → 2 (the two left evaluate a call inside `&&` once); semver's generated code 25.2 → 19.3 KB and payment's 23.5 → 20.3 KB, doc comments now included; counter's runtime copy 11.9 → 6.5 KB and its files 8 → 5; lines of code past 100 characters 129 → 36.
+- **Breaking** for callers: the names, the index's exports, and `--schema` on a crate with no serde derive ([CHANGELOG](CHANGELOG.md)).
+
 ## 0.5.0 — 2026-10-01
 
 Ordering: what kept semver, the first example written from the authoring skill alone since line counts are normalized, over twice the idiomatic Rust ([roadmap §2.2](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#22-line-counts-against-idiomatic-rust)).
@@ -529,6 +779,21 @@ Ordering: what kept semver, the first example written from the authoring skill a
 
 - semver (SemVer 2.0.0 parsing and precedence), written from the authoring skill alone and checked against an idiomatic-Rust reference on every pair's precedence: 209 lines of logic as first written, 166 with ordering.
 
+### Rationale: ordering
+
+Why: semver, written from the authoring skill alone, was the first example over 2× after rustfmt normalization, and its ordering was most of the gap ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)): 57 lines against 25, with `std::cmp::Ordering`, `cmp`, and `String` order all refused.
+
+| Item | Verified by |
+| --- | --- |
+| `std::cmp::Ordering` as a fieldless enum, named through `use std::cmp::Ordering;` or the full path | `ordering_equivalence.rs`, `ordering.rs` in `check` |
+| `cmp` on integers, `char`, `bool`, `String` / `&str`, `Uuid` | `ordering_equivalence.rs` |
+| `<` `<=` `>` `>=` on strings, by code point | `ordering_equivalence.rs` |
+| `is_eq` … `is_ge`, `reverse`, `then`, `then_with`; `==` on `Ordering` | `ordering_equivalence.rs` |
+
+- **Representation and rewrites** are in [01 §6.6](design/01-equivalence.md#66-stdcmpordering) and [§7.10](design/01-equivalence.md#710-cmp-and-orderings-methods). The one new runtime part is `Str.cmp`, which a package carries only when it compares strings.
+- **Refused:** `impl Ord` / `PartialOrd`, `cmp` on floats, tuples, `Vec`, `Option`, and the crate's types, and `Ordering` as a field (serde has no form for it).
+- **Measurement.** semver rewritten with it: 195 → 166 lines, 2.6× → 2.2× by the script, 1.6× adjusted ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). The skill-only draft's 2.8× was the first draft over the threshold since normalization; like the first drafts before it, it came under once its gap's capability was in, on the adjusted count. By the script it stayed over (2.2×) until parsing ([0.7.0](#rationale-lists-from-text)).
+
 ## 0.4.1 — 2026-10-01
 
 Smaller output, found by evaluating 0.4.0: guarded matches no longer repeat themselves, and each package carries only the runtime it uses. The language accepted is unchanged; output generated with 0.4.0 must be regenerated.
@@ -548,6 +813,14 @@ Smaller output, found by evaluating 0.4.0: guarded matches no longer repeat them
 ### Tests
 
 - Randomized differential cases (fixed seed) for the integer methods, slicing, and guarded matches, next to the hand-chosen edges. `scripts/line-counts.py` counts each example against its idiomatic reference with both sides rustfmt-ed.
+
+### Rationale: smaller output
+
+From evaluating 0.4.0 ([bench/payment](bench/payment/README.md)). No change to what is accepted.
+
+- Guards compile into the tuple decision tree: payment's generated code 47.9 → 23.5 KB, oidc's 64.4 → 48.8 KB, back to their sizes before the 0.4.0 rewrites.
+- Each package's runtime keeps only what its code uses: payment's bundle 3.1 → 2.3 KB gzipped; first call 1.18 → 0.52 ms with the regular expression built lazily.
+- Fixed-seed random cases join the differential tests ([01 §8](design/01-equivalence.md#8-verification)).
 
 ## 0.4.0 — 2026-10-01
 
@@ -571,9 +844,31 @@ Iteration, part two: what idiomatic code reaches for once loops exist, measured 
 
 - oidc 777 → 629 lines (lexical helpers 68 → 47 against the idiomatic 31, request validation 153 → 108), payment's transitions one tuple `match` instead of five per-state functions (logic 163 → 111), invoice logic 74 → 66.
 
+### Rationale: iteration, part two
+
+<!-- derived-from ./design/90-acceptance-survey.md#7-re-measured-with-030-2026-09-30 -->
+
+Why: oidc's lexical helpers were still 2.2× idiomatic Rust ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)), and in the corpus re-measured with 0.3.0 ([90 §7](design/90-acceptance-survey.md#7-re-measured-with-030-2026-09-30)) the leading causes were `chars()` used as a value and slicing ranges. The corpus shows where idiomatic code goes, not what to accept ([design/07 §6](design/07-roadmap.md#6-not-doing)); each item was to be kept only if rewriting oidc, payment, or invoice used it.
+
+| Item | Verified by |
+| --- | --- |
+| Iterator consumers that yield a scalar: `all`, `any`, `count`, `position`, `sum`; `for (i, x) in xs.iter().enumerate()` | `consumers_equivalence.rs` |
+| Byte slicing `&s[a..b]`, `&s[a..]`, `&s[..b]` and on slices; `strip_prefix` / `strip_suffix` | `slicing_equivalence.rs` |
+| Tuple destructuring in `let`, closure parameters, `for` | `destructure_equivalence.rs` |
+| `const` inside functions | `local_consts_equivalence.rs` |
+| Integer helpers `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` | `int_methods_equivalence.rs` |
+| A consumer after `s.split(c)`; `bool` literal patterns | `consumers_equivalence.rs`, `bool_patterns_equivalence.rs` |
+
+- **Consumers** on `s.chars()`, `s.bytes()`, and `xs.iter()`, with a function name as the predicate as well. None builds an array, so the reason iterator `map`/`filter`/`collect` stay out ([design/07 §6](design/07-roadmap.md#6-not-doing)) does not apply.
+- **Slicing** is specified in [01 §6.1](design/01-equivalence.md#61-strings): positions are UTF-8 bytes, and a position off a char boundary or past the end throws with Rust's message, the character escaped as `Debug` escapes it.
+- **`const` in a block** is a typed `let` at the top of the block instead of folded ([01 §7](design/01-equivalence.md#7-rewritten-constructs); the value is the same, since rustc rejects one that overflows). Associated consts wait for a use ([design/07 §3](design/07-roadmap.md#3-candidates)).
+- **Integer helpers** against Rust's debug-build result, on every integer type, `usize` in Rust's 64 bits (payment's idiomatic code calls `min`).
+- **A consumer after `split`, `bool` patterns.** Both were refused in the rewrites: oidc's `has_token` is now `list.split(' ').any(|t| t == word)`, and its `step` matches `(true, None, _)`.
+- **Measurement.** oidc, payment, and invoice rewritten and measured again ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). Guards, tuple `match`, the `Option` methods, `all` / `any`, `min`, and `pow` carried the reduction; the other items went unused by these three. Kept anyway: each is implemented and tested, preserves meaning exactly, and answers a leading cause in the corpus (slicing ranges and `chars()` as a value); [design/07 §1](design/07-roadmap.md#1-how-additions-are-chosen) still decides what comes next.
+
 ## 0.3.0 — 2026-09-30
 
-Match guards and `Option` combinators, the gaps invoice and payment measured against idiomatic Rust ([roadmap §8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#8-releases)), and more readable wire schemas.
+Match guards and `Option` combinators, the gaps invoice and payment measured against idiomatic Rust ([design/07 §8](design/07-roadmap.md#8-releases)), and more readable wire schemas.
 
 ### Added
 
@@ -587,9 +882,27 @@ Match guards and `Option` combinators, the gaps invoice and payment measured aga
 - zod and valibot schemas are printed dependencies first, with `lazy` only for types in a cycle, and long unions and objects one arm or field per line. A refused `try_from` names the error's variant in all three libraries. arktype reports a bad nested field at its path instead of one error at the type. What each schema reads or refuses is unchanged. Output committed with 0.2.0 and checked with `check --out` must be regenerated.
 - Dependencies are crates.io requirements, vendored by source replacement (`scripts/vendor.sh`); syn and proc-macro2 move to their latest 2.x and 1.x.
 
+### Rationale: guards and `Option`
+
+| Item | Why | Verified by |
+| --- | --- | --- |
+| Match guards | invoice reached for them three times, the idiomatic payment uses two ([design/07 §2.4](design/07-roadmap.md#24-what-the-measurements-changed)) | `guards_equivalence.rs` |
+| `Option::unwrap_or`, `ok_or`, `map` | most of payment's remaining gap ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)) | `option_methods_equivalence.rs` |
+| `survey --all-causes` | every cause per function, to estimate a rewrite ([91 §4](design/91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)) | `survey.rs` |
+| Wire schemas in dependency order | on request, not from an example's gap | `wire.rs`, `wire_write.rs` |
+| zod 4.6 | the adapter's peer | `wire.rs` |
+| arktype errors keep their location | — | `errors_keep_their_location` in `wire_write.rs` |
+
+- **Match guards.** A guarded arm is tried in order and does not count toward exhaustiveness, in the TS check as in rustc's. Also on binding arms and in `matches!`. The printing changed twice: arms after a guard first sat inside the `_` of a `switch` on the same value, which TS narrowed so that the later `switch` could not name the other variants; then each arm became a standalone `match` in an `if` chain, which after the 0.4.0 rewrites made payment's `step.ts` 31.6 KB. Since 0.4.1 guards sit at the leaves of the tuple decision tree ([01 §7.2](design/01-equivalence.md#72-match-guards)).
+- **`Option` methods.** `unwrap_or(e)` evaluates `e` first, as Rust does. `map` also takes a function name.
+- **`survey --all-causes`.** An expression or statement the parser cannot take is recorded and stood in for, so the rest of the item is still lowered and type-checked. The default output is unchanged.
+- **Wire schemas.** zod and valibot print dependencies first with `lazy` only for recursive types, one arm or field per line when long, through the adapters' `unitVariant` and `optionalField`. A refused `try_from` names the error's variant in all three libraries. `toJson` writes a fieldless enum in one line. Behavior unchanged; mutually recursive and later-declared types added to the tests.
+- **zod 4.6.** Peer `^4.6.0`; `z.ZodType<T, In>` without `ZodTypeDef`, issues with `code: "custom"`. A breaking change for users on zod 3, who stay on purecrate-ts 0.2.
+- **arktype errors.** Nested errors stay at their path instead of being replaced by one at the type.
+
 ## 0.2.0 — 2026-09-30
 
-Iteration, the largest gap the examples measured against idiomatic Rust ([roadmap §8](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md#8-releases)).
+Iteration, the largest gap the examples measured against idiomatic Rust ([design/07 §8](design/07-roadmap.md#8-releases)).
 
 ### Added
 
@@ -606,6 +919,21 @@ Iteration, the largest gap the examples measured against idiomatic Rust ([roadma
 ### Examples
 
 - oidc reads bytes, lists, and candidates with the new loops: its lexical helpers went from 99 to 68 lines (from 3.2× to 2.2× the idiomatic code), the file from 810 to 777.
+
+### Rationale: iteration
+
+Why: the largest gap measured so far. oidc's lexical helpers were at 3.2× idiomatic Rust ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)), and Windmill's scope and pipeline parsers ([91 §2](design/91-real-use-candidates.md#2-fit-measured)) were all index bookkeeping over bytes and tokens that idiomatic code writes as iteration.
+
+| Item | Verified by |
+| --- | --- |
+| `for` over a `Vec`, slice, or bytes | `for_each_equivalence.rs` |
+| `while`, `break`, `continue` | `while_break_equivalence.rs` |
+| `for t in s.split(c)` with a `char` separator | `for_each_equivalence.rs` |
+
+- **`for` over a `Vec`, slice, or bytes.** `for x in &xs` and `for x in xs.iter()` over a `Vec` or slice, `for b in s.bytes()`; also `for x in xs` on an owned `Vec` and `s.as_bytes()`. Printed as `for..of`, one binding, the body rules of range `for`. The named adaptors are refused with a message.
+- **`while`, `break`, `continue`.** No labels, no `loop` with a value. Every loop a jump leaves gets a label, since a bare JS `break` in the `switch` a `match` prints as leaves the `switch` (a run without labels fails the test). A `?` in the condition turns the loop into `while (true)` that computes the condition first. The generated tsconfig also sets `allowUnreachableCode: false`, and no `break;` follows a jump in a `case`.
+- **`for t in s.split(c)`.** Added on oidc's evidence ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)). Any code point splits alike in UTF-8 and UTF-16. A `&str` separator is refused, since an empty one does not.
+- **oidc's scanners rewritten with them**: the lexical helpers went from 99 to 68 lines ([design/07 §2.2](design/07-roadmap.md#22-line-counts-against-idiomatic-rust)).
 
 ## 0.1.0 — 2026-09-30
 
@@ -639,3 +967,51 @@ First release. purecrate-ts translates pure domain functions written in a subset
 - Release binaries are built for Linux (x86_64, aarch64) and macOS (x86_64, arm64). Windows is not built or tested.
 - `usize` is a `number` checked to 2^53−1; past that the TS throws where Rust would not.
 - No `while`/`loop`, iterator adaptors, growable `Vec`, `HashMap`, generics, or traits (other than `TryFrom` for serde and the skipped `Display`/`Error`). See [design/07-roadmap](https://github.com/manji-0/purecrate-ts/blob/main/design/07-roadmap.md) for what is added next and why.
+
+### Rationale: the first release
+
+<!-- derived-from ./design/91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts -->
+
+The subset of [02](design/02-authoring.md) as the examples of [design/07 §2.1](design/07-roadmap.md#21-what-each-example-hit) shaped it, plus what the examples and the first real use asked for before release.
+
+**From the examples:**
+
+| Capability | Asked for by | Verified by |
+| --- | --- | --- |
+| std methods one at a time: `Vec::is_empty`, `Option::is_some` / `is_none` | three of four real sites, and oidc | `std_methods_equivalence.rs` |
+| Tuple scrutinees, `match (state, event)` | one function per state kept payment over the threshold after `_` | `tuple_match_equivalence.rs` |
+| Bitwise operators and shifts on the fixed-width integers (not `usize` or `bool`) | oidc and Stoat's permission flags (both worked around); any spec written in them | `bits_equivalence.rs` |
+| `vec![a, b]` of a fixed length | oidc's `amr`, a list claim that TS callers expect as an array | `vec_build_equivalence.rs` |
+| Crate-level `const` and enum discriminants | oidc (`const`) and Stoat (18 permission bits as functions, `as` on the enum) | `flags_equivalence.rs` (a permission set in Stoat's shape) |
+
+- **Tuple scrutinees.** Tuple arms of `_`, bindings, and arm patterns; `|` of whole tuples binding nothing; not nested tuples. Printed as nested `switch`es, one per element, so TS checks exhaustiveness too rather than trusting rustc's. The cost is copies of arms that several cases reach.
+- **`vec![a, b]`** and `vec![]` print as array literals; `vec![x; n]` stays rejected ([design/07 §6](design/07-roadmap.md#6-not-doing)).
+- **`const` and discriminants.** Crate-level `const` of integers, floats, `bool`, `char`, `&str`, folded at check time into `consts.ts`. Discriminants on fieldless enums with `#[repr(<int>)]`, and `e as T` when `T` holds every discriminant. Found on the way: with consts accepted, `Some(MAX) =>` would bind `MAX` rather than compare with it, so a const used as a pattern is refused; and one file per const collided with the usual `MAX_LEN` / `fn max_len` pair, so all consts share `consts.ts`.
+
+**From measuring real dual implementations** ([91 §4](design/91-real-use-candidates.md#4-what-the-measurement-asked-of-purecrate-ts)). The first real use (Oxide `Name`) passes without these, but its rewrite was longer and less idiomatic for their absence.
+
+| Capability | Verified by |
+| --- | --- |
+| `Result<Self, Self::Error>` in `impl TryFrom<T>` | — |
+| `for c in s.chars()` (not iterator `for` in general), code points as `char`; replaces hand-decoded UTF-8 | `for_chars_equivalence.rs` |
+| `uuid::Uuid` | `uuid_equivalence.rs` |
+
+- **`TryFrom`.** `check` and `build` already accepted it. `survey` skipped trait impls, so a `#[serde(try_from)]` type looked as if its `impl TryFrom` were missing (`item/serde-attr`); it now reads the impl as `X::try_from`.
+- **`uuid::Uuid`.** Added on one example's evidence and on how common UUID identifiers are in Rust domain code. Oxide `Name` hand-wrote `Uuid::parse_str` for the two forms its earlier checks let through, a copy that would drift if the check order or the crate changed. A deliberate exception to waiting for a second example ([01 §6](design/01-equivalence.md#6-strings-char-usize-std-methods)).
+
+**Defects found by real use.** From the same measurement:
+
+| Defect | Fix |
+| --- | --- |
+| a non-`pub` method reachable on the exported companion, a hole in closed types ([01 §4](design/01-equivalence.md#4-closed-types)) | emitted as `T$name`, off the companion |
+| `mod r#impl;` looked up as `r#impl.rs` (skipped by `survey`, an error in `check`) | fixed |
+| `build --out` emptying a directory it had not written | now refused |
+
+From the Oxide `Name` vendoring ([91 §5](design/91-real-use-candidates.md#5-oxide-name-done-locally)):
+
+| Problem | Change | Verified by |
+| --- | --- | --- |
+| the runtime | copied into packages: first as `--bundle-runtime`, then for every package, with string-keyed brands so packages still exchange values | — |
+| `assertNever`'s unused parameter | fixed | — |
+| bindings the Rust leaves unused | the generated `tsconfig.json` sets `noUnusedLocals` and `noUnusedParameters`, so every differential test type-checks under them; fixed what that turned up: unused `let`s, arm and `if let` bindings, write-only `let mut`s, parameters, `for` variables, the `?` temporary of `x?;`, and imports gathered from the IR but not printed | `unused_equivalence.rs` |
+| a consumer's CI had no published `purecrate-ts` to run `check --out` with | each release tag carries Linux and macOS binaries, and `cargo install --git … --tag` builds the same version | — |

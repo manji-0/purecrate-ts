@@ -123,7 +123,7 @@ A seed that fails is reduced to a small crate by
 ./scripts/gen-reduce.py patterns 60 --fn p60_f30   # a value mismatch: the function the log names
 ```
 
-which prints the crate (and leaves it in `--keep DIR`). That crate becomes a fixture under `crates/cli/tests/fixtures/` with its cases in the matching `*_equivalence.rs`, shown to fail before the fix and pass after it, as every fix here is; then the sweep runs again. The fold in `emit_ts::join` mirrors how the printer prints a test, so a change to either is the case the sweep exists for ([design/07 §8.17](design/07-roadmap.md#817-0103-the-rest-of-what-tsc-refused-2026-10-04)).
+which prints the crate (and leaves it in `--keep DIR`). That crate becomes a fixture under `crates/cli/tests/fixtures/` with its cases in the matching `*_equivalence.rs`, shown to fail before the fix and pass after it, as every fix here is; then the sweep runs again. The fold in `emit_ts::join` mirrors how the printer prints a test, so a change to either is the case the sweep exists for ([CHANGELOG 0.10.3](CHANGELOG.md#rationale-the-rest-of-what-tsc-refused)).
 
 ### Release
 
