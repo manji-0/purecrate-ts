@@ -4,6 +4,7 @@
 mod expr;
 mod item;
 mod modules;
+mod serde_attrs;
 mod std_ordering;
 mod survey;
 mod ty;
@@ -206,22 +207,61 @@ mod tests {
     #[test]
     fn attributes_that_change_the_build_are_rejected_in_place() {
         let (line, col, msg) = error_at(
-            "#[derive(Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct S { pub total_count: i64 }",
+            "#[derive(Serialize)]\n#[serde(rename_all = \"camelCase\", deny_unknown_fields)]\npub struct S { pub total_count: i64 }",
         );
-        assert_eq!((line, col), (2, 1), "{msg}");
-        assert!(msg.contains("`#[serde(...)]` changes the JSON shape"), "{msg}");
+        assert_eq!((line, col), (2, 35), "{msg}");
+        assert!(msg.contains("`#[serde(deny_unknown_fields)]` changes the JSON"), "{msg}");
 
-        let (line, col, msg) = error_at("pub struct S {\n    #[serde(rename = \"n\")]\n    pub count: i64,\n}");
-        assert_eq!((line, col), (2, 5), "{msg}");
+        let (line, col, msg) = error_at("pub struct S {\n    #[serde(skip)]\n    pub count: i64,\n}");
+        assert_eq!((line, col), (2, 13), "{msg}");
 
-        let (line, _, msg) = error_at("pub enum E {\n    #[serde(rename = \"a\")]\n    A,\n}");
+        let (line, _, msg) = error_at("pub enum E {\n    #[serde(untagged)]\n    A,\n}");
         assert_eq!(line, 2, "{msg}");
+
+        let (_, _, msg) = error_at("#[serde(tag = \"t\")]\npub struct S { pub n: i32 }");
+        assert!(msg.contains("`#[serde(tag)]` on a struct is not modeled"), "{msg}");
+
+        let (_, _, msg) = error_at("#[serde(content = \"c\")]\npub enum E { A }");
+        assert!(msg.contains("needs `tag`"), "{msg}");
+
+        let (_, _, msg) = error_at("pub struct S {\n    #[serde(rename(serialize = \"a\"))]\n    pub n: i32,\n}");
+        assert!(msg.contains("one string"), "{msg}");
+
+        let (_, _, msg) = error_at("#[serde(rename_all = \"Title Case\")]\npub struct S { pub n: i32 }");
+        assert!(msg.contains("unknown rule"), "{msg}");
+
+        let (_, _, msg) = error_at("#[serde(rename = \"x\")]\npub fn f() -> i32 { 0 }");
+        assert!(msg.contains("not here"), "{msg}");
 
         let (_, _, msg) = error_at("#[cfg(feature = \"x\")]\npub fn f() -> i32 { 0 }");
         assert!(msg.contains("conditional compilation"), "{msg}");
 
         let (_, _, msg) = error_at("#[cfg_attr(feature = \"x\", serde(tag = \"t\"))]\npub struct S { pub n: i32 }");
         assert!(msg.contains("conditional compilation"), "{msg}");
+    }
+
+    /// `rename`, `rename_all` (a variant's own naming its fields), `tag`,
+    /// and `content` give the JSON names; the Rust names stay.
+    #[test]
+    fn serde_names_and_tagging_are_read() {
+        use purecrate_ir::{Item, Tagging, VariantFields};
+        let krate = parse_source(
+            "k",
+            "#[serde(rename_all = \"camelCase\")]\npub struct S { pub total_count: i64, #[serde(rename = \"Z\")] pub last: i64, pub r#type: i32 }\n\
+             #[serde(tag = \"t\", content = \"c\", rename_all = \"snake_case\")]\n\
+             pub enum E { BigOne, #[serde(rename = \"x\")] Other(i32), #[serde(rename_all = \"UPPERCASE\")] Named { some_field: i32 } }\n",
+        )
+        .unwrap();
+        let Item::Struct(s) = &krate.items[0] else { panic!() };
+        let wire: Vec<&str> = s.fields.iter().map(|f| f.wire_name()).collect();
+        assert_eq!(wire, ["totalCount", "Z", "type"]);
+        assert_eq!(s.fields[0].name.as_str(), "total_count");
+        let Item::Enum(e) = &krate.items[1] else { panic!() };
+        assert_eq!(e.tagging, Tagging::Adjacent { tag: "t".into(), content: "c".into() });
+        let wire: Vec<&str> = e.variants.iter().map(|v| v.wire_name()).collect();
+        assert_eq!(wire, ["big_one", "x", "named"]);
+        let VariantFields::Struct(fields) = &e.variants[2].fields else { panic!() };
+        assert_eq!(fields[0].wire_name(), "SOME_FIELD");
     }
 
     #[test]

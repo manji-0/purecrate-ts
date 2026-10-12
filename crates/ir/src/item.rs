@@ -16,6 +16,16 @@ pub struct Field {
     pub ty: Ty,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
+    /// The JSON key, where `#[serde(rename)]` or a `rename_all` makes it
+    /// other than the name (design/04 §3.6).
+    pub wire: Option<String>,
+}
+
+impl Field {
+    /// The key serde reads and writes the field under.
+    pub fn wire_name(&self) -> &str {
+        self.wire.as_deref().unwrap_or(self.name.as_str())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +44,32 @@ pub struct Variant {
     pub discriminant: Option<Expr>,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
+    /// The name serde reads and writes the variant under, where
+    /// `#[serde(rename)]` or the enum's `rename_all` makes it other than the
+    /// Rust name (design/04 §3.6). The TS `kind` stays the Rust name.
+    pub wire: Option<String>,
+}
+
+impl Variant {
+    pub fn wire_name(&self) -> &str {
+        self.wire.as_deref().unwrap_or(self.name.as_str())
+    }
+}
+
+/// How serde writes an enum (design/04 §3.6): `{"V": ..}` by default,
+/// `#[serde(tag = "t")]` puts the variant name in the object beside the
+/// fields, and `#[serde(tag = "t", content = "c")]` beside the content.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Tagging {
+    #[default]
+    External,
+    Internal {
+        tag: String,
+    },
+    Adjacent {
+        tag: String,
+        content: String,
+    },
 }
 
 /// Field name of a newtype's single element (`struct Id(u32)` → `id.0`).
@@ -104,6 +140,7 @@ pub struct Enum {
     /// `Serialize` nor `Deserialize` for it) and rustc sees std's type.
     pub std: bool,
     pub serde: Serde,
+    pub tagging: Tagging,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
 }
@@ -120,6 +157,7 @@ impl Enum {
             fields: VariantFields::Unit,
             discriminant: Some(Expr::Lit(crate::expr::Lit::Int { value: d, ty: None, byte: false, hex: false })),
             doc: None,
+            wire: None,
         };
         Enum {
             vis,
@@ -128,6 +166,7 @@ impl Enum {
             repr: Some(crate::ty::IntTy::I8),
             std: true,
             serde: Serde::default(),
+            tagging: Tagging::External,
             doc: None,
         }
     }

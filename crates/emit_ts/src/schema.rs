@@ -321,6 +321,66 @@ fn method(recv: Js, name: &str, args: Vec<Js>) -> Js {
     call(member(recv, name), args)
 }
 
+/// A JSON name as an object literal's key: as it is where it is an
+/// identifier, else quoted (`rename` may give any string).
+fn prop(wire: &str) -> String {
+    if is_ident(wire) {
+        wire.to_string()
+    } else {
+        js_string(wire)
+    }
+}
+
+/// `from.wire`, or `from["wire"]` where the name is no identifier.
+fn access(from: &str, wire: &str) -> String {
+    if is_ident(wire) {
+        format!("{from}.{wire}")
+    } else {
+        format!("{from}[{}]", js_string(wire))
+    }
+}
+
+fn is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// A TS string literal of `s`: JSON's escapes are TS's.
+fn js_string(s: &str) -> String {
+    format!("\"{}\"", json_escape(s))
+}
+
+/// `s` inside a JSON string as serde_json writes it: `"` and `\` escaped,
+/// the short escapes for `\b \f \n \r \t`, any other control character as
+/// `\u00XX`; everything else as it is.
+fn json_escape(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// An arktype object key: a trailing `?` marks the key optional there, so
+/// one that is part of the name is escaped.
+fn ark_prop(wire: &str) -> String {
+    match wire.strip_suffix('?') {
+        Some(stem) => js_string(&format!("{stem}\\?")),
+        None => prop(wire),
+    }
+}
+
 /// What names a refused `#[serde(try_from)]` read: the error's text when
 /// its type has `toString` (from `impl Display`, the text serde reports),
 /// else its variant when it is an enum of the crate, else the type alone.
@@ -459,7 +519,8 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
     let fields = Js::Object(object_fields(schema, &s.fields));
     // The object's own output is the domain value, but for a closed struct
     // (built through its constructor), a `()` field (which inference makes
-    // optional), or with valibot an `Option` field (missing reads as
+    // optional), a field whose JSON name is not its own, or with valibot an
+    // `Option` field (missing reads as
     // `undefined`, which `?? null` turns into `None`). Both libraries drop
     // unknown keys, as serde does.
     let unit = |t: &Ty| {
@@ -467,7 +528,7 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
             || matches!(t, Ty::Option(i) | Ty::Ignored { inner: i, .. } if matches!(**i, Ty::Prim(purecrate_ir::Prim::Unit)))
     };
     let built = s.closed
-        || s.fields.iter().any(|f| unit(&f.ty))
+        || s.fields.iter().any(|f| unit(&f.ty) || f.wire.is_some())
         || (schema == WireSchema::Valibot && s.fields.iter().any(|f| matches!(f.ty, Ty::Option(_))));
     // valibot's `v.object` takes an array too (each field missing); `record`
     // refuses one, as zod's object does.
@@ -483,9 +544,11 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
     }
 }
 
-/// `name: schema` for each field of a struct or struct variant.
+/// `name: schema` for each field of a struct or struct variant, keyed by
+/// its JSON name.
 fn object_fields(schema: WireSchema, fields: &[purecrate_ir::Field]) -> Vec<(String, Js)> {
-    fields.iter().map(|f| (f.name.as_str().to_string(), schema_ty_in(schema, &f.ty, true))).collect()
+    let key = |w: &str| if schema == WireSchema::Arktype { ark_prop(w) } else { prop(w) };
+    fields.iter().map(|f| (key(f.wire_name()), schema_ty_in(schema, &f.ty, true))).collect()
 }
 
 /// The message of the issue a failed `try_from` raises: the type, and the
@@ -566,16 +629,18 @@ fn record_build(s: &Struct, fields: Vec<(String, Js)>) -> Js {
 }
 
 /// `a: v.a, b: v.b ?? null`: the fields of a parsed JSON object copied into
-/// the domain value. Valibot leaves a missing optional field `undefined`.
+/// the domain value, each read under its JSON name. Valibot leaves a
+/// missing optional field `undefined`.
 fn fill(schema: WireSchema, fields: &[purecrate_ir::Field], from: &str) -> Vec<(String, Js)> {
     fields
         .iter()
         .map(|f| {
             let n = f.name.as_str();
+            let at = access(from, f.wire_name());
             let read = if schema == WireSchema::Valibot && matches!(f.ty, Ty::Option(_)) {
-                raw(format!("{from}.{n} ?? null"))
+                raw(format!("{at} ?? null"))
             } else {
-                raw(format!("{from}.{n}"))
+                raw(at)
             };
             (n.to_string(), read)
         })
@@ -583,16 +648,20 @@ fn fill(schema: WireSchema, fields: &[purecrate_ir::Field], from: &str) -> Vec<(
 }
 
 /// The names of a fieldless enum's variants, or `None` when one has
-/// fields: the adapters' `unitEnum` reads it whole.
+/// fields or a JSON name of its own: the adapters' `unitEnum` reads it
+/// whole, each name both the JSON and the `kind`.
 fn unit_names(variants: &[purecrate_ir::Variant]) -> Option<Vec<Js>> {
-    variants.iter().map(|v| matches!(v.fields, VariantFields::Unit).then(|| str_lit(v.name.as_str()))).collect()
+    variants
+        .iter()
+        .map(|v| (matches!(v.fields, VariantFields::Unit) && v.wire.is_none()).then(|| str_lit(v.name.as_str())))
+        .collect()
 }
 
 fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant]) -> Js {
     if let Some(names) = unit_names(variants) {
         return call_path("unitEnum", vec![Js::Array(names)]);
     }
-    let arms = variants.iter().map(|v| variant_arm(schema, name, v.name.as_str(), &v.fields)).collect();
+    let arms = variants.iter().map(|v| variant_arm(schema, name, v)).collect();
     match schema {
         WireSchema::Zod => call_path("z.union", vec![Js::Array(arms)]),
         WireSchema::Valibot => call_path("v.union", vec![Js::Array(arms)]),
@@ -604,27 +673,28 @@ fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant
 /// the wrapper rejects any other key. A unit variant is `"Variant"`, and
 /// serde_json also reads `{"Variant": null}`. The fields inside a struct variant are a
 /// struct's, and unknown ones are ignored as serde does by default.
-fn variant_arm(schema: WireSchema, enum_name: &str, variant: &str, fields: &VariantFields) -> Js {
+fn variant_arm(schema: WireSchema, enum_name: &str, v: &purecrate_ir::Variant) -> Js {
     let ret = format!("{enum_name}$");
-    let (wrapper, rest) = match fields {
+    let (variant, wire) = (v.name.as_str(), v.wire_name());
+    let (wrapper, rest) = match &v.fields {
         VariantFields::Unit => {
             let value = arrow("()", Some(&ret), expr_body(variant_value(variant, Vec::new())));
-            let tag = call_path("unitVariant", vec![str_lit(variant)]);
+            let tag = call_path("unitVariant", vec![str_lit(wire)]);
             return match schema {
                 WireSchema::Zod => method(tag, "transform", vec![value]),
                 WireSchema::Valibot => call_path("v.pipe", vec![tag, call_path("v.transform", vec![value])]),
                 WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
             };
         }
-        VariantFields::Tuple(tys) => tuple_json(schema, variant, tys, "x"),
+        VariantFields::Tuple(tys) => tuple_json(schema, &access("x", wire), tys),
         VariantFields::Struct(fs) => {
             let fields = Js::Object(object_fields(schema, fs));
             let inner = call_path("record", vec![fields]);
-            (inner, fill(schema, fs, &format!("x.{variant}")))
+            (inner, fill(schema, fs, &access("x", wire)))
         }
     };
     let value = arrow("(x)", Some(&ret), expr_body(variant_value(variant, rest)));
-    let keyed = Js::Object(vec![(variant.to_string(), wrapper)]);
+    let keyed = Js::Object(vec![(prop(wire), wrapper)]);
     match schema {
         WireSchema::Zod => method(call_path("variant", vec![keyed]), "transform", vec![value]),
         WireSchema::Valibot => {
@@ -654,9 +724,13 @@ fn ark_parsed(wire: &str) -> Vec<Stmt> {
 /// A struct's arktype shape: the sequence form read in field order and a
 /// field twice refused (`sequence`), then the object, not an array
 /// (`record`; an arktype object shape takes an array too).
-fn ark_record(fields: Vec<(String, Js)>) -> Js {
-    let names = Js::Array(fields.iter().map(|(n, _)| str_lit(n)).collect());
-    let object = method(call_path("type", vec![Js::Object(fields)]), "narrow", vec![raw("record")]);
+fn ark_record(fields: &[purecrate_ir::Field]) -> Js {
+    let names = Js::Array(fields.iter().map(|f| str_lit(f.wire_name())).collect());
+    let object = method(
+        call_path("type", vec![Js::Object(object_fields(WireSchema::Arktype, fields))]),
+        "narrow",
+        vec![raw("record")],
+    );
     method(call_path("type", vec![str_lit("unknown")]), "pipe", vec![call_path("sequence", vec![names]), object])
 }
 
@@ -688,13 +762,8 @@ fn ark_struct(s: &Struct, refused: &Refusal, doc: &str, chunks: &mut Vec<Chunk>)
         }
         (None, Some(inner)) => (schema_ty(WireSchema::Arktype, inner), vec![Stmt::Return(newtype_build(s, "parsed"))]),
         (None, None) => {
-            let fields = s
-                .fields
-                .iter()
-                .map(|f| (f.name.as_str().to_string(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
-                .collect();
             let build = record_build(s, fill(WireSchema::Arktype, &s.fields, "parsed"));
-            let shape = ark_record(fields);
+            let shape = ark_record(&s.fields);
             (shape, vec![Stmt::Return(build)])
         }
     };
@@ -718,7 +787,7 @@ fn ark_enum(en: &purecrate_ir::Enum, doc: &str, chunks: &mut Vec<Chunk>) {
     let mut body = Vec::new();
     for variant in &en.variants {
         let (arm, shape, tests) = ark_variant(name, variant);
-        let keyed = Js::Object(vec![("\"+\"".into(), str_lit("reject")), (variant.name.as_str().to_string(), shape)]);
+        let keyed = Js::Object(vec![("\"+\"".into(), str_lit("reject")), (ark_prop(variant.wire_name()), shape)]);
         // A key twice in the wrapper is refused before the shape reads it.
         let wrapper = method(
             call_path("type", vec![str_lit("unknown")]),
@@ -738,11 +807,11 @@ fn ark_enum(en: &purecrate_ir::Enum, doc: &str, chunks: &mut Vec<Chunk>) {
 /// One variant's memoized shape: its name, the JSON under the variant's key,
 /// and the statements that try it.
 fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, Js, Vec<Stmt>) {
-    let name = variant.name.as_str();
+    let (name, wire) = (variant.name.as_str(), variant.wire_name());
     let arm = format!("{en}$arm${name}");
     let parsed = Stmt::Const("parsed".into(), call(call(raw(arm.clone()), Vec::new()), vec![raw("v")]));
     let keyed = Stmt::If(
-        call_path("keyed", vec![raw("v"), str_lit(name)]),
+        call_path("keyed", vec![raw("v"), str_lit(wire)]),
         Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")]))),
     );
     let accepted = |value: Js| Stmt::If(raw("!(parsed instanceof type.errors)"), Box::new(Stmt::Return(value)));
@@ -750,19 +819,14 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, Js, Vec<St
         VariantFields::Unit => {
             let value = variant_value(name, Vec::new());
             let tests = vec![
-                Stmt::If(raw(format!("v === \"{name}\"")), Box::new(Stmt::Return(value.clone()))),
+                Stmt::If(raw(format!("v === {}", js_string(wire))), Box::new(Stmt::Return(value.clone()))),
                 Stmt::Block(vec![parsed, accepted(value), keyed]),
             ];
             return (arm, str_lit("null"), tests);
         }
-        VariantFields::Tuple(tys) => tuple_json(WireSchema::Arktype, name, tys, "parsed"),
+        VariantFields::Tuple(tys) => tuple_json(WireSchema::Arktype, &access("parsed", wire), tys),
         VariantFields::Struct(fields) => {
-            let inner = fields
-                .iter()
-                .map(|f| (f.name.as_str().to_string(), schema_ty_in(WireSchema::Arktype, &f.ty, true)))
-                .collect();
-            let shape = ark_record(inner);
-            (shape, fill(WireSchema::Arktype, fields, &format!("parsed.{name}")))
+            (ark_record(fields), fill(WireSchema::Arktype, fields, &access("parsed", wire)))
         }
     };
     (arm, shape, vec![Stmt::Block(vec![parsed, accepted(variant_value(name, rest)), keyed])])
@@ -771,10 +835,10 @@ fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, Js, Vec<St
 /// A one-element tuple variant is serde's newtype variant: `{"Add": 4}`, not
 /// `{"Add": [4]}`. The domain value is still a one-element tuple.
 /// The schema of a tuple variant's JSON, and the fields of its TS value
-/// read from `from`: `value: x.V` for one field, `content: x.V` for several.
-fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty], from: &str) -> (Js, Vec<(String, Js)>) {
+/// read from `at`: `value: x.V` for one field, `content: x.V` for several.
+fn tuple_json(schema: WireSchema, at: &str, tys: &[Ty]) -> (Js, Vec<(String, Js)>) {
     if tys.len() == 1 {
-        return (schema_ty(schema, &tys[0]), vec![("value".into(), raw(format!("{from}.{variant}")))]);
+        return (schema_ty(schema, &tys[0]), vec![("value".into(), raw(at))]);
     }
     let inner = Js::Array(tys.iter().map(|ty| schema_ty(schema, ty)).collect());
     let json = match schema {
@@ -782,7 +846,7 @@ fn tuple_json(schema: WireSchema, variant: &str, tys: &[Ty], from: &str) -> (Js,
         WireSchema::Valibot => call_path("v.tuple", vec![inner]),
         WireSchema::Arktype => inner,
     };
-    (json, vec![("content".into(), raw(format!("{from}.{variant}")))])
+    (json, vec![("content".into(), raw(at))])
 }
 
 fn schema_ty(schema: WireSchema, ty: &Ty) -> Js {
@@ -861,10 +925,10 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
         let body = match item {
             Item::Struct(s) => expr_body(match s.newtype_inner() {
                 Some(inner) => write_json(inner, "x", 0),
-                None => object_json(s.fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x."),
+                None => object_json(&s.fields, "x."),
             }),
             // A variant name is a Rust identifier: nothing in it needs escaping.
-            Item::Enum(e) if e.variants.iter().all(|v| matches!(v.fields, VariantFields::Unit)) => {
+            Item::Enum(e) if e.variants.iter().all(|v| matches!(v.fields, VariantFields::Unit) && v.wire.is_none()) => {
                 expr_body(raw("`\"${x.kind}\"`"))
             }
             Item::Enum(e) => {
@@ -872,12 +936,12 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                     .variants
                     .iter()
                     .map(|v| {
-                        let var = v.name.as_str();
+                        let (var, wire) = (v.name.as_str(), json_escape(v.wire_name()));
                         let tagged = |inner: Js| {
-                            call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(var), inner])])])
+                            call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(&wire), inner])])])
                         };
                         let value = match &v.fields {
-                            VariantFields::Unit => str_lit(format!("\"{var}\"")),
+                            VariantFields::Unit => str_lit(format!("\"{wire}\"")),
                             VariantFields::Tuple(tys) if tys.len() == 1 => tagged(write_json(&tys[0], "x.value", 0)),
                             VariantFields::Tuple(tys) => {
                                 let elems = tys
@@ -887,9 +951,7 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                                     .collect();
                                 tagged(call_path("Json.tuple", vec![Js::Array(elems)]))
                             }
-                            VariantFields::Struct(fields) => {
-                                tagged(object_json(fields.iter().map(|f| (f.name.as_str(), &f.ty)), "x."))
-                            }
+                            VariantFields::Struct(fields) => tagged(object_json(fields, "x.")),
                         };
                         (str_lit(var), vec![Stmt::Return(value)])
                     })
@@ -909,11 +971,17 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
     chunks.push(Chunk::decl(true, "toJson", None, Js::As(Box::new(Js::Object(entries)), "const".into())));
 }
 
-/// `{"a":…,"b":…}` for fields read from `<prefix><name>`, through
-/// `Json.object`, whose pairs break one per line where there are two or more.
-fn object_json<'a>(fields: impl Iterator<Item = (&'a str, &'a Ty)>, prefix: &str) -> Js {
+/// `{"a":…,"b":…}` for fields read from `<prefix><name>`, each under its
+/// JSON name, escaped as serde_json escapes it (`Json.object` writes the
+/// key as given), through `Json.object`, whose pairs break one per line
+/// where there are two or more.
+fn object_json(fields: &[purecrate_ir::Field], prefix: &str) -> Js {
     let pairs: Vec<Js> = fields
-        .map(|(name, ty)| Js::Array(vec![str_lit(name), write_json(ty, &format!("{prefix}{name}"), 0)]))
+        .iter()
+        .map(|f| {
+            let value = write_json(&f.ty, &format!("{prefix}{}", f.name.as_str()), 0);
+            Js::Array(vec![str_lit(json_escape(f.wire_name())), value])
+        })
         .collect();
     if pairs.is_empty() {
         return str_lit("{}");

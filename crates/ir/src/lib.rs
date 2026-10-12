@@ -15,8 +15,8 @@ pub use expr::{
     Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TryOn, UnOp, VariantBind,
 };
 pub use item::{
-    tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Variant, VariantFields, Vis, CONSTS_STEM,
-    NEWTYPE_FIELD, ORDERING,
+    tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Tagging, Variant, VariantFields, Vis,
+    CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
 };
 pub use krate::Crate;
 pub use name::{lower_first, to_camel, to_kebab, upper_first, Name};
@@ -40,20 +40,27 @@ pub fn counter_example() -> Crate {
         vis: Vis::Pub,
         name: Name::new("Event"),
         variants: vec![
-            Variant { name: Name::new("Inc"), fields: VariantFields::Unit, discriminant: None, doc: None },
-            Variant { name: Name::new("Dec"), fields: VariantFields::Unit, discriminant: None, doc: None },
-            Variant { name: Name::new("Reset"), fields: VariantFields::Unit, discriminant: None, doc: None },
+            Variant { name: Name::new("Inc"), fields: VariantFields::Unit, discriminant: None, doc: None, wire: None },
+            Variant { name: Name::new("Dec"), fields: VariantFields::Unit, discriminant: None, doc: None, wire: None },
+            Variant {
+                name: Name::new("Reset"),
+                fields: VariantFields::Unit,
+                discriminant: None,
+                doc: None,
+                wire: None,
+            },
         ],
         repr: None,
         std: false,
         serde: item::Serde::default(),
+        tagging: Tagging::External,
         doc: None,
     });
 
     let state = Item::Struct(StructItem {
         vis: Vis::Pub,
         name: Name::new("State"),
-        fields: vec![FieldItem { name: Name::new("n"), ty: Ty::i32(), doc: None }],
+        fields: vec![FieldItem { name: Name::new("n"), ty: Ty::i32(), doc: None, wire: None }],
         closed: false,
         wire_from: None,
         serde: item::Serde::default(),

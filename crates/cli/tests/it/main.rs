@@ -101,4 +101,5 @@ mod while_break_equivalence;
 mod wide_int_equivalence;
 mod widen_equivalence;
 mod wire;
+mod wire_attrs;
 mod wire_write;

@@ -104,6 +104,7 @@ fn cmd_crate(body: Expr) -> Crate {
                 fields: VariantFields::Tuple(vec![Ty::i32(), Ty::i32()]),
                 discriminant: None,
                 doc: None,
+                wire: None,
             },
             Variant {
                 name: Name::new("Paint"),
@@ -111,14 +112,17 @@ fn cmd_crate(body: Expr) -> Crate {
                     name: Name::new("color"),
                     ty: Ty::i32(),
                     doc: None,
+                    wire: None,
                 }]),
                 discriminant: None,
                 doc: None,
+                wire: None,
             },
         ],
         repr: None,
         std: false,
         serde: purecrate_ir::Serde::default(),
+        tagging: purecrate_ir::Tagging::External,
         doc: None,
     });
     let run = Item::Fn(Fn {
@@ -260,6 +264,7 @@ fn imports_follow_body_and_nested_types() {
             name: Name::new("last"),
             ty: Ty::option(Ty::Vec(Box::new(Ty::named("Cmd")))),
             doc: None,
+            wire: None,
         }],
         closed: false,
         wire_from: None,

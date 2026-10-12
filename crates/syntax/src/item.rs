@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Variant, VariantFields, Vis,
-    NEWTYPE_FIELD,
+    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Tagging, Variant, VariantFields,
+    Vis, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{Fields as SynFields, Item as SynItem, Visibility};
 
 use crate::expr::{lower_block, lower_expr};
+use crate::serde_attrs::{serde_attrs, wire_name, Place, RenameRule};
 use crate::ty::lower_type;
 
 /// 1-based line and column in the source text.
@@ -253,8 +254,7 @@ fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
         let (reason, message) = if path.is_ident("serde") {
             (
                 Reason::SerdeAttr,
-                "`#[serde(...)]` changes the JSON shape, which v0 does not model; \
-                 the one exception is `#[serde(try_from = \"T\")]` on a struct",
+                "`#[serde(...)]` is read on a struct, an enum, a variant, or a field (design/04 §3.6), not here",
             )
         } else if path.is_ident("cfg") || path.is_ident("cfg_attr") {
             (Reason::Cfg, "conditional compilation is not in v0: the generated TS cannot follow `#[cfg]`")
@@ -266,8 +266,31 @@ fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
     Ok(())
 }
 
-fn reject_field_attrs(fields: &SynFields) -> Result<(), ParseError> {
-    fields.iter().try_for_each(|f| reject_attrs(&f.attrs))
+/// `reject_attrs` but for `#[serde(...)]`, which the caller reads where it
+/// is written (`serde_attrs`).
+fn reject_other_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
+    let others: Vec<syn::Attribute> = attrs.iter().filter(|a| !a.path().is_ident("serde")).cloned().collect();
+    reject_attrs(&others)
+}
+
+/// The fields of a struct or a struct variant, each with its JSON name:
+/// its own `rename`, else `rule` applied.
+fn named_fields(named: &syn::FieldsNamed, rule: Option<RenameRule>) -> Result<Vec<Field>, ParseError> {
+    named
+        .named
+        .iter()
+        .map(|f| {
+            reject_other_attrs(&f.attrs)?;
+            let own = serde_attrs(&f.attrs, Place::Field)?.rename;
+            let ident = f.ident.as_ref().unwrap();
+            Ok(Field {
+                name: Name::new(ident.to_string()),
+                ty: lower_type(&f.ty)?,
+                doc: doc(&f.attrs),
+                wire: wire_name(ident, own, rule, false),
+            })
+        })
+        .collect()
 }
 
 fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
@@ -333,32 +356,6 @@ fn serde_derives(attrs: &[syn::Attribute]) -> Serde {
     out
 }
 
-/// `#[serde(try_from = "T")]`, the one serde attribute v0 models.
-fn is_try_from_attr(attr: &syn::Attribute) -> bool {
-    attr.path().is_ident("serde") && wire_from_attr(attr).is_ok()
-}
-
-/// The type named by `#[serde(try_from = "T")]`, with nothing else in it.
-fn wire_from_attr(attr: &syn::Attribute) -> Result<syn::Type, ParseError> {
-    let not_try_from = || {
-        ParseError::new(
-            Reason::SerdeAttr,
-            "the only `#[serde(...)]` in v0 is `#[serde(try_from = \"T\")]` on a struct; other attributes change the JSON shape",
-        )
-        .or_at(attr.span())
-    };
-    let nv: syn::MetaNameValue = attr.parse_args().map_err(|_| not_try_from())?;
-    if !nv.path.is_ident("try_from") {
-        return Err(not_try_from());
-    }
-    match &nv.value {
-        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => {
-            s.parse::<syn::Type>().map_err(|_| not_try_from())
-        }
-        _ => Err(not_try_from()),
-    }
-}
-
 /// `#[cfg(test)]` items are absent from the build the TS mirrors.
 pub fn is_test_only(item: &SynItem) -> bool {
     item_attrs(item)
@@ -388,7 +385,8 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
     };
     let attrs: Vec<syn::Attribute> = item_attrs(&item)
         .iter()
-        .filter(|a| !(matches!(item, SynItem::Struct(_)) && is_try_from_attr(a)))
+        // A struct's and an enum's are read where they are lowered.
+        .filter(|a| !(matches!(item, SynItem::Struct(_) | SynItem::Enum(_)) && a.path().is_ident("serde")))
         .cloned()
         .collect();
     reject_attrs(&attrs)?;
@@ -476,10 +474,11 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         .detail("empty-enum"));
     }
     let fieldless = e.variants.iter().all(|v| matches!(v.fields, SynFields::Unit));
+    let container = serde_attrs(&e.attrs, Place::Enum)?;
     let mut variants = Vec::new();
     for v in &e.variants {
-        reject_attrs(&v.attrs)?;
-        reject_field_attrs(&v.fields)?;
+        reject_other_attrs(&v.attrs)?;
+        let own = serde_attrs(&v.attrs, Place::Variant)?;
         let discriminant = match &v.discriminant {
             Some((_, expr)) if fieldless => Some(lower_expr(cx, expr)?),
             Some((_, expr)) => {
@@ -494,9 +493,10 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         };
         variants.push(Variant {
             name: Name::new(v.ident.to_string()),
-            fields: lower_fields(&v.fields)?,
+            fields: lower_fields(&v.fields, own.rename_all)?,
             discriminant,
             doc: doc(&v.attrs),
+            wire: wire_name(&v.ident, own.rename, container.rename_all, true),
         });
     }
     Ok(Enum {
@@ -506,6 +506,11 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         repr: enum_repr(&e.attrs)?,
         std: false,
         serde: serde_derives(&e.attrs),
+        tagging: match (container.tag, container.content) {
+            (None, _) => Tagging::External,
+            (Some(tag), None) => Tagging::Internal { tag },
+            (Some(tag), Some(content)) => Tagging::Adjacent { tag, content },
+        },
         doc: doc(&e.attrs),
     })
 }
@@ -514,20 +519,10 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
     if has_type_generics(&s.generics) {
         return Err(ParseError::new(Reason::Generics, "generic structs are not in v0"));
     }
-    reject_field_attrs(&s.fields)?;
+    let container = serde_attrs(&s.attrs, Place::Struct)?;
     let closed = s.fields.iter().any(|f| lower_vis(&f.vis) != Vis::Pub);
     let fields = match &s.fields {
-        SynFields::Named(n) => n
-            .named
-            .iter()
-            .map(|f| {
-                Ok(Field {
-                    name: Name::new(f.ident.as_ref().unwrap().to_string()),
-                    ty: lower_type(&f.ty)?,
-                    doc: doc(&f.attrs),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
+        SynFields::Named(n) => named_fields(n, container.rename_all)?,
         // serde writes `struct S;` as `null` and `struct S {}` as `{}`; the IR
         // keeps only the fields, so one spelling is taken (design/04 §3).
         SynFields::Unit => {
@@ -536,8 +531,12 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
                 "unit structs are not in v0; write `struct S {}` or an enum",
             ))
         }
+        // serde writes a newtype as its content: a `rename` on the one field
+        // names nothing.
         SynFields::Unnamed(u) if u.unnamed.len() == 1 => {
-            vec![Field { name: Name::new(NEWTYPE_FIELD), ty: lower_type(&u.unnamed[0].ty)?, doc: None }]
+            reject_other_attrs(&u.unnamed[0].attrs)?;
+            serde_attrs(&u.unnamed[0].attrs, Place::Field)?;
+            vec![Field { name: Name::new(NEWTYPE_FIELD), ty: lower_type(&u.unnamed[0].ty)?, doc: None, wire: None }]
         }
         SynFields::Unnamed(_) => {
             return Err(ParseError::new(
@@ -546,13 +545,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
             ))
         }
     };
-    let mut wire_from = None;
-    for attr in s.attrs.iter().filter(|a| a.path().is_ident("serde")) {
-        if wire_from.is_some() {
-            return Err(ParseError::new(Reason::SerdeAttr, "`#[serde(try_from)]` is given twice").or_at(attr.span()));
-        }
-        wire_from = Some(lower_type(&wire_from_attr(attr)?)?);
-    }
+    let wire_from = container.try_from.as_ref().map(lower_type).transpose()?;
     Ok(Struct {
         vis: lower_vis(&s.vis),
         name: Name::new(s.ident.to_string()),
@@ -564,27 +557,24 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
     })
 }
 
-fn lower_fields(fields: &SynFields) -> Result<VariantFields, ParseError> {
+/// A variant's fields; `rule` is the variant's own `rename_all`, which
+/// names a struct variant's fields.
+fn lower_fields(fields: &SynFields, rule: Option<RenameRule>) -> Result<VariantFields, ParseError> {
     match fields {
         SynFields::Unit => Ok(VariantFields::Unit),
         SynFields::Unnamed(u) => {
-            let tys = u.unnamed.iter().map(|f| lower_type(&f.ty)).collect::<Result<Vec<_>, _>>()?;
-            Ok(VariantFields::Tuple(tys))
-        }
-        SynFields::Named(n) => {
-            let fs = n
-                .named
+            let tys = u
+                .unnamed
                 .iter()
                 .map(|f| {
-                    Ok(Field {
-                        name: Name::new(f.ident.as_ref().unwrap().to_string()),
-                        ty: lower_type(&f.ty)?,
-                        doc: doc(&f.attrs),
-                    })
+                    reject_other_attrs(&f.attrs)?;
+                    serde_attrs(&f.attrs, Place::Field)?;
+                    lower_type(&f.ty)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(VariantFields::Struct(fs))
+            Ok(VariantFields::Tuple(tys))
         }
+        SynFields::Named(n) => Ok(VariantFields::Struct(named_fields(n, rule)?)),
     }
 }
 
