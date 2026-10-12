@@ -16,5 +16,7 @@ purecrate-emit-ts = { path = "../emit_ts" }
 purecrate-canon = { path = "../canon" }
 # Test-only oracle for the wire format: what a Rust server writes (design/04).
 serde_core = { version = "=1.0.228", features = ["rc"] }
+# The real derive, for the serde attributes the wire module models (design/04 §3.6).
+serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.145" }
 uuid = { version = "=1.26.1", default-features = false, features = ["std", "serde"] }

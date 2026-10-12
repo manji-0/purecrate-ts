@@ -38,8 +38,9 @@
 //! Every struct and enum also gets `serde_core::Serialize`, making the same
 //! data-model calls `#[derive(Serialize)]` makes with no attributes, so
 //! `serde_json::to_string` gives the JSON a Rust server would send
-//! (design/04). The derive itself is not used: its vendored `syn` is older
-//! than `serde_derive` accepts.
+//! (design/04). The derive itself is not used here: the fixture's types
+//! also get `Show` and `Js` from the same IR, and the attributes the wire
+//! module models are tested against the real derive (design/04 §3.6).
 
 use proc_macro::TokenStream;
 use purecrate_ir::{Item, Struct, VariantFields, NEWTYPE_FIELD};
