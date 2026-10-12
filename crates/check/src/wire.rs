@@ -200,13 +200,13 @@ fn enum_problem(krate: &Crate, e: &Enum) -> Option<String> {
 }
 
 /// The fields a newtype variant of an internally tagged enum writes beside
-/// the tag: a crate struct's with named fields (through aliases), or none
-/// for `()`; `Err` for anything serde writes as no object.
+/// the tag: a crate struct's with named fields (through aliases); `Err` for
+/// anything serde writes as no object, and for `()`, which serde writes as
+/// the tag alone but reads only from an object holding nothing else.
 fn tagged_newtype<'a>(krate: &'a Crate, ty: &'a Ty) -> Result<Option<&'a [Field]>, ()> {
     let mut ty = ty;
     for _ in 0..32 {
         match ty {
-            Ty::Prim(purecrate_ir::Prim::Unit) => return Ok(None),
             Ty::Named(n) => match krate.items.iter().find(|i| i.name() == n) {
                 Some(Item::Alias(a)) => ty = &a.ty,
                 Some(Item::Struct(s)) if s.newtype_inner().is_none() && s.wire_from.is_none() => {

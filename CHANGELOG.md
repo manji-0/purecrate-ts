@@ -6,8 +6,11 @@
 
 - **`purecrate-ts test <crate>`** runs the differential comparison on your own crate: every public function and method is called in Rust (compiled with overflow checks and debug assertions) and in the generated TypeScript (under node) on the same arguments, drawn from each parameter's type with a seed (`--seed`, `--cases`), and it fails naming each call whose result or panic differs. Integers are drawn at the edges of their width, strings from the crate's own literals and a fixed alphabet, open structs and enums field by field, and closed types through their public constructors. `--keep <dir>` leaves the harness and the driver. A crate that uses `uuid` is refused. On every example it finds no difference; on `usize` past 2^53 − 1 it reports the stated non-equivalence (design/01 §8.4).
 
+- **`#[serde(rename)]`, `#[serde(rename_all)]`, `#[serde(tag)]`, and `#[serde(tag, content)]`** are read and written as serde_derive does, with every schema library and `toJson` (design/04 §3.6): `rename` on a field or a variant, `rename_all` (all eight of serde's rules) on a struct, an enum, or a struct variant, internally and adjacently tagged enums with their sequence forms. The TS domain types keep the Rust names. `check` refuses what serde cannot read back (two fields or variants under one JSON name, a field under the tag's name, an internally tagged tuple variant or newtype of anything but a struct with named fields). Tested against the real derive on 2,953 JSON texts per library, 343 of which serde reads. The adapters gain `internallyTagged` and `adjacentlyTagged`, the runtime `internalTag`, `adjacentTag`, and `Json.withTag`.
+
 ### Changed
 
+- **Other `#[serde(...)]` attributes are refused with the list of those modeled**, where the message used to name `try_from` alone; `untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, and `transparent` stay out (design/04 §4).
 - **`check` and `build` refuse a crate whose `[profile.release]` does not set `overflow-checks = true`** (theirs or their workspace's), where they used to warn: a `--release` server built from it wraps on overflow, where the generated TypeScript panics as a debug build does. `--allow-overflow-wrap` makes it the warning it was. A single `.rs` file with no manifest has no profile and is not refused.
 
 ## 0.14.0 — 2026-10-12

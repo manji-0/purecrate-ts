@@ -255,6 +255,55 @@ export const fromSequence = (x: unknown, fields: readonly string[]): unknown =>
   Array.isArray(x) && x.length === fields.length ? Object.fromEntries(fields.map((f, i) => [f, x[i]])) : x;
 
 /**
+ * An internally tagged enum's JSON (`#[serde(tag = "t")]`): the variant's
+ * name, and what the variant reads, the object itself (serde passes the
+ * other keys on; a struct ignores the tag as an unknown key) or, in the
+ * sequence form `["V", a, b]`, the rest of the array. Else the issue serde
+ * reports: the tag twice or missing, a tag that is not a string, a value
+ * that is neither an object nor an array.
+ */
+export const internalTag = (x: unknown, tag: string): { readonly name: string; readonly rest: unknown } | string => {
+  if (Array.isArray(x)) {
+    if (x.length === 0) return `missing field \`${tag}\``;
+    return typeof x[0] === "string" ? { name: x[0], rest: x.slice(1) } : "a variant name";
+  }
+  if (typeof x !== "object" || x === null) return "an internally tagged enum";
+  const issue = structIssue(x, [tag]);
+  if (issue !== undefined) return issue;
+  if (!Object.hasOwn(x, tag)) return `missing field \`${tag}\``;
+  const name: unknown = (x as Readonly<Record<string, unknown>>)[tag];
+  return typeof name === "string" ? { name, rest: x } : "a variant name";
+};
+
+/**
+ * An adjacently tagged enum's JSON (`#[serde(tag = "t", content = "c")]`):
+ * the variant's name, and its content with whether the key was there. The
+ * sequence form is exactly `["V", content]`. Else the issue serde reports:
+ * either key twice, the tag missing or not a string, a value that is
+ * neither an object nor an array of two. Other keys are ignored, as serde
+ * ignores them.
+ */
+export const adjacentTag = (
+  x: unknown,
+  tag: string,
+  content: string,
+): { readonly name: string; readonly content: unknown; readonly present: boolean } | string => {
+  if (Array.isArray(x)) {
+    if (x.length !== 2) return "an adjacently tagged enum of two elements";
+    return typeof x[0] === "string" ? { name: x[0], content: x[1], present: true } : "a variant name";
+  }
+  if (typeof x !== "object" || x === null) return "an adjacently tagged enum";
+  const issue = structIssue(x, [tag, content]);
+  if (issue !== undefined) return issue;
+  if (!Object.hasOwn(x, tag)) return `missing field \`${tag}\``;
+  const fields = x as Readonly<Record<string, unknown>>;
+  const name = fields[tag];
+  if (typeof name !== "string") return "a variant name";
+  const present = Object.hasOwn(x, content);
+  return { name, content: present ? fields[content] : undefined, present };
+};
+
+/**
  * `str` operations whose result depends on the encoding (design/01 §6).
  * Rust counts and indexes a string in UTF-8 bytes; JS in UTF-16 units. The
  * string must be well-formed: a lone surrogate is not a Rust `String`, and
@@ -484,11 +533,19 @@ const ryu = (x: number, digits: string, point: number, high: number, low: number
 export const Json = {
   /**
    * `{"k":v,..}` from each key and its value's JSON text, in order: a
-   * struct's fields as serde writes them, or a variant's wrapper. The keys
-   * are Rust identifiers, which need no escaping.
+   * struct's fields as serde writes them, or a variant's wrapper. Each key
+   * comes escaped as serde_json escapes it (a Rust identifier needs none;
+   * a `#[serde(rename)]` may).
    */
   object: (pairs: ReadonlyArray<readonly [string, string]>): string =>
     `{${pairs.map(([k, v]) => `"${k}":${v}`).join(",")}}`,
+  /**
+   * `object`'s text with `"tag":name` put first: an internally tagged
+   * newtype variant, written as the struct it holds with the tag beside its
+   * fields, as serde writes it.
+   */
+  withTag: (tag: string, name: string, object: string): string =>
+    object === "{}" ? `{"${tag}":${name}}` : `{"${tag}":${name},${object.slice(1)}`,
   /** `[a,b,..]` from each element's JSON text: a tuple or a tuple variant. */
   tuple: (items: ReadonlyArray<string>): string => `[${items.join(",")}]`,
   int: (n: number | bigint): string => String(n),

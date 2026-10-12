@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type UuidError } from "purecrate";
+import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, structIssue, type UuidError } from "purecrate";
 
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   v.pipe(v.number(), v.integer(), v.minValue(min), v.maxValue(max), v.transform(of));
@@ -106,3 +106,68 @@ export const unitVariant = (name: string) => v.union([v.literal(name), variant({
  */
 export const unitEnum = <K extends string>(names: readonly [K, ...K[]]): v.GenericSchema<unknown, Readonly<{ kind: K }>> =>
   v.union(names.map((name) => v.pipe(unitVariant(name), v.transform((): Readonly<{ kind: K }> => ({ kind: name })))));
+
+const own = <T>(table: Readonly<Record<string, T>>, name: string): T | undefined => (Object.hasOwn(table, name) ? table[name] : undefined);
+
+/**
+ * An internally tagged enum (`#[serde(tag)]`): `units` maps the JSON name of
+ * each unit variant to its `kind`, `arms` each other variant's to the schema
+ * that reads it from the object (or the rest of the sequence form).
+ */
+export const internallyTagged = <U extends string, A extends Readonly<Record<string, v.GenericSchema>>>(
+  tag: string,
+  units: Readonly<Record<string, U>>,
+  arms: A,
+) =>
+  v.pipe(
+    v.unknown(),
+    v.rawTransform(({ dataset, addIssue, NEVER }): Readonly<{ kind: U }> | v.InferOutput<A[keyof A]> => {
+      const fail = (message: string): never => {
+        addIssue({ message });
+        return NEVER;
+      };
+      const found = internalTag(dataset.value, tag);
+      if (typeof found === "string") return fail(found);
+      const unit = own(units, found.name);
+      if (unit !== undefined) return Array.isArray(found.rest) && found.rest.length > 0 ? fail("a unit variant") : { kind: unit };
+      const arm = own(arms, found.name);
+      if (arm === undefined) return fail(`unknown variant \`${found.name}\``);
+      const r = v.safeParse(arm, found.rest);
+      return r.success ? (r.output as v.InferOutput<A[keyof A]>) : fail(r.issues[0].message);
+    }),
+  );
+
+/**
+ * An adjacently tagged enum (`#[serde(tag, content)]`): `units` as for
+ * `internallyTagged`, `arms` each other variant's schema of its content.
+ * The content of a struct variant (`maps`) is an object, never the sequence
+ * form; one left out reads as `null` for a variant in `optional` (it holds
+ * an `Option`), and is refused for the others.
+ */
+export const adjacentlyTagged = <U extends string, A extends Readonly<Record<string, v.GenericSchema>>>(
+  tag: string,
+  content: string,
+  units: Readonly<Record<string, U>>,
+  arms: A,
+  maps: readonly string[] = [],
+  optional: readonly string[] = [],
+) =>
+  v.pipe(
+    v.unknown(),
+    v.rawTransform(({ dataset, addIssue, NEVER }): Readonly<{ kind: U }> | v.InferOutput<A[keyof A]> => {
+      const fail = (message: string): never => {
+        addIssue({ message });
+        return NEVER;
+      };
+      const found = adjacentTag(dataset.value, tag, content);
+      if (typeof found === "string") return fail(found);
+      const unit = own(units, found.name);
+      if (unit !== undefined) return found.content === undefined || found.content === null ? { kind: unit } : fail("a unit variant");
+      const arm = own(arms, found.name);
+      if (arm === undefined) return fail(`unknown variant \`${found.name}\``);
+      if (!found.present && !optional.includes(found.name)) return fail(`missing field \`${content}\``);
+      if (maps.includes(found.name) && Array.isArray(found.content)) return fail("an object");
+      const r = v.safeParse(arm, found.present ? found.content : null);
+      return r.success ? (r.output as v.InferOutput<A[keyof A]>) : fail(r.issues[0].message);
+    }),
+  );

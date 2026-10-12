@@ -99,7 +99,7 @@ A one-field tuple variant is `{ kind: "Add"; value: I32 }`, read as `event.value
 
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
 
-Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); the object keys they write stay the Rust field names (`last_error`), which are the JSON keys. Honouring `#[serde(rename_all = "camelCase")]` so the field and the key both become camelCase is a candidate, still refused ([07 §9](./07-roadmap.md#9-generated-api-stability)).
+Constructor parameters of struct variants and of `S.of` are camelCase (`lastError`); the object keys they write stay the Rust field names (`last_error`), which are the JSON keys. `#[serde(rename)]` and `#[serde(rename_all)]` change only the JSON keys the wire module reads and writes; the TS fields keep the Rust names ([04 §3.6](./04-wire.md#36-names-and-tags)), as making both camelCase would change the generated API ([07 §9](./07-roadmap.md#9-generated-api-stability)).
 
 ### 3.2 Structs, methods, newtypes
 

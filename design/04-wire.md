@@ -10,7 +10,7 @@ Shared behavior is useless if the values it consumes still arrive through hand-w
 
 - **Shape.** Generated enums use an internal `kind` tag; serde's default is external tagging.
 - **Numbers.** JSON numbers are unbranded; fields are `I32`, `F64`, `I64` (`bigint`). `JSON.parse` rounds integers above 2^53.
-- **Attributes.** `#[serde(rename_all = "camelCase")]` would silently change field names.
+- **Attributes.** `#[serde(rename_all = "camelCase")]` would silently change field names, unless the reader follows it (§3.6).
 
 | Rust | Generated value | serde_json default |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ Each adapter's library is a peer dependency of the generated package:
 - **Only the derives make a wire form.** A schema reads a type that derives `Deserialize`, and `toJson` writes one that derives `Serialize`; a type with neither has no wire form, as in Rust. Without this, a closed type with no derive (signup's `Email`) got a schema that built it by shape, a value Rust has no way to read from JSON. `--schema` on a crate where no public type derives either is refused.
 - **What the derive needs.** A type that derives one holds only types that derive it too, and no std `Ordering`, which serde gives no form; `check` refuses the rest (`item/serde-derive`), as the real derive does. With `#[serde(try_from = "T")]`, `Deserialize` needs it of `T` instead of the fields.
 - **How `check` handles them.** `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`). The translated code is unaffected, and the real derive is checked by the server's build.
-- **Attributes are rejected.** `#[serde(...)]` is rejected everywhere with its location, so a renamed wire format is never silently accepted. The one exception is `#[serde(try_from = "T")]` (§5).
+- **Attributes: a fixed set, the rest refused.** `rename`, `rename_all`, `tag`, and `content` are modeled where serde reads them (§3.6), and `try_from` on a struct (§5). Any other `#[serde(...)]` (`untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, `transparent`, a `rename` split by direction, ..) is refused with its location and the list of what is modeled, so a wire format the schemas would not follow is never silently accepted.
 - **Why a stand-in.** Without it, a crate that derives serde fails `check` with `cannot find crate serde`.
 
 ### 3.3 Reading rules
@@ -73,7 +73,7 @@ These follow serde's default behavior. Other sections refer to them by number.
    - A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"e\u0301"`, and a lone surrogate are rejected, as serde_json rejects them.
    - A `Uuid` is read from any string `Uuid::parse_str` accepts and becomes the canonical form; anything else, and a JSON array of bytes (which serde_json never passes to `Uuid`), is rejected. `toJson` writes the canonical form, as serde does.
    - `uuid::Error` has no JSON form in Rust; its schema rejects every value.
-4. **Enum objects and struct fields.** The object wrapping a variant has exactly one key; extra keys are rejected. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`. A struct (and a struct variant's fields) is a JSON object, or its sequence form: an array of exactly its fields, in order, which serde reads too though serde_json never writes one (`[3,null]` is a `Chain { value: 3, next: None }`; `[3]` and `[3,null,1]` are refused, as serde refuses them, and so is an `Option` field left out of the array). The adapters' `record` (arktype's `sequence`) reads an array of that length as the object; one of another length is refused, where valibot's and arktype's object shapes would read every field as missing. Tested against serde_json on each of these texts.
+4. **Enum objects and struct fields.** With the default (external) tagging, the object wrapping a variant has exactly one key; extra keys are rejected. Tagged enums read as §3.6 says. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`. A struct (and a struct variant's fields) is a JSON object, or its sequence form: an array of exactly its fields, in order, which serde reads too though serde_json never writes one (`[3,null]` is a `Chain { value: 3, next: None }`; `[3]` and `[3,null,1]` are refused, as serde refuses them, and so is an `Option` field left out of the array). The adapters' `record` (arktype's `sequence`) reads an array of that length as the object; one of another length is refused, where valibot's and arktype's object shapes would read every field as missing. Tested against serde_json on each of these texts.
 
 ### 3.4 Per-library notes
 
@@ -88,9 +88,33 @@ These follow serde's default behavior. Other sections refer to them by number.
 
 `fixtures/wire_shapes.rs` covers every type form. For all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node against serde-default JSON and malformed inputs (`crates/cli/tests/it/wire.rs`).
 
+### 3.6 Names and tags
+
+<!-- constrained-by #32-serde-in-the-input -->
+
+The attributes a server most often puts on its wire types, modeled as serde_derive 1.0.228 reads and writes them. The TS domain types keep the Rust names; only the JSON changes.
+
+| Attribute | On | JSON |
+| --- | --- | --- |
+| `rename = "x"` | a field, a variant | the field's key, or the variant's name, is `x` (any string; it is escaped as serde_json escapes it) |
+| `rename_all = "camelCase"` (and serde's seven other rules) | a struct: its fields; an enum: its variants; a struct variant: its fields | each name converted as serde_derive converts it (`internals/case.rs`, ported with its tests); a field's own `rename` wins |
+| `rename` | a struct or an enum | nothing on the wire: it renames the type only in serde's messages |
+| `tag = "t"` | an enum | internally tagged: `{"t":"V", ..fields}` |
+| `tag = "t", content = "c"` | an enum | adjacently tagged: `{"t":"V","c":content}` |
+
+**Internally tagged** (`tag`). A unit variant is `{"t":"V"}`, a struct variant its fields beside the tag, a newtype variant the fields of the struct it holds beside the tag. Read as serde reads it: the tag anywhere in the object, other keys ignored, the tag twice refused, a tag that is not a string refused; the sequence form `["V", a, b]` too, where the rest of the array is the variant's fields in order (none for a unit variant). `check` refuses what serde cannot write: a tuple variant, a newtype of anything but a struct with named fields (serde's derive refuses the first; serialization fails at run time on the second), a newtype of `()` (serde writes the tag alone, and reads it back only from an object holding nothing else), and a field under the tag's name.
+
+**Adjacently tagged** (`tag` and `content`). A unit variant is `{"t":"V"}` and reads with the content left out or `null`; any other variant needs its content, except a newtype of an `Option`, whose content left out is `None`. The content of a struct variant is an object, never the sequence form; a tuple variant's is an array. Other keys are ignored, either key twice is refused, and the sequence form is exactly `["V", content]`.
+
+**`check` refuses** two fields of a struct (or of a struct variant) under one JSON name, two variants under one name, and a tag and a content with one name: serde's derive compiles each, and then reads only one of the two.
+
+**How it is read and written.** The adapters' `internallyTagged` and `adjacentlyTagged` find the variant from the runtime's `internalTag` / `adjacentTag` and hand the rest to the variant's arm; the struct and variant schemas key their objects by the JSON names; `toJson` writes them, the tag first, and `Json.withTag` puts the tag into the object a newtype variant's struct writes.
+
+**Verification.** `crates/cli/tests/it/wire_attrs.rs` compiles `fixtures/wire_attrs.rs` with the real derive (`serde` is a dev-dependency for this alone) and generates it with each library. On 2,953 JSON texts, 343 of which serde reads (edges written by hand: Rust names where the JSON names differ, keys twice, both sequence forms, tags that are not strings, content left out; and every key of each left out, renamed to every name the fixture uses, or doubled, objects as arrays), `fromJson.T` then `toJson.T` gives what `serde_json::from_str` then `to_string` gives, or both refuse. The case rules are tested against serde_derive's own table (`crates/syntax/src/serde_attrs.rs`).
+
 ## 4. Out of scope
 
-Parsing JSON inside transitions; type declarations alone as a ts-rs replacement; existing APIs using `rename_all`; semantic checks transcribed into `.refine` (meaning comes only from Rust functions, §5).
+Parsing JSON inside transitions; type declarations alone as a ts-rs replacement; semantic checks transcribed into `.refine` (meaning comes only from Rust functions, §5). Of serde's attributes, everything §3.6 and §5 do not list: `untagged` (serde tries each variant in turn and keeps the first that reads, an order the schemas would have to copy exactly), `flatten` (the fields of one struct read from another's object, which serde buffers and the fixed object schemas cannot), `default` and `skip*` (a value made by a Rust function the generated code may not have), `alias`, `deny_unknown_fields`, and `transparent`. Each is refused with its location; a server that needs one keeps a separate wire type and converts in Rust.
 
 ## 5. Closed types on the wire
 

@@ -3,7 +3,7 @@
 //! domain brand (`I32`, not a bare `number`). `toJson` writes the same shape
 //! back, as serde_json writes the Rust value, with no schema library.
 
-use purecrate_ir::{Crate, Item, Serde, Struct, Ty, VariantFields};
+use purecrate_ir::{Crate, Enum, Item, Serde, Struct, Tagging, Ty, Variant, VariantFields};
 
 use crate::closed_ctor;
 use crate::doc;
@@ -109,6 +109,7 @@ fn emit_wire_in(krate: &Crate, schema: WireSchema) -> String {
         for item in &wired {
             match item {
                 Item::Struct(s) => ark_struct(s, &refusal(krate, s), &doc_of(item), &mut chunks),
+                Item::Enum(e) if e.tagging != Tagging::External => ark_tagged(e, &doc_of(item), &mut chunks),
                 Item::Enum(e) => ark_enum(e, &doc_of(item), &mut chunks),
                 _ => {}
             }
@@ -117,6 +118,7 @@ fn emit_wire_in(krate: &Crate, schema: WireSchema) -> String {
         for (item, recursive) in wire_order(&wired) {
             let value = match item {
                 Item::Struct(s) => struct_schema(schema, s, &refusal(krate, s)),
+                Item::Enum(e) if e.tagging != Tagging::External => tagged_schema(schema, e),
                 Item::Enum(e) => enum_schema(schema, e.name.as_str(), &e.variants),
                 _ => continue,
             };
@@ -483,15 +485,15 @@ fn header(schema: WireSchema) -> String {
     let own: &str = match schema {
         WireSchema::Zod => "\
 import { z } from \"zod\";
-import { bool, char, f32, f64, i128, i16, i32, i64, i8, nullable, optionalField, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-zod\";
+import { adjacentlyTagged, bool, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, optionalField, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-zod\";
 ",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
-import { bool, char, f32, f64, i128, i16, i32, i64, i8, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-valibot\";
+import { adjacentlyTagged, bool, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-valibot\";
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { bool, char, f32, f64, fail, i128, i16, i32, i64, i8, keyed, memo, nullable, record, sequence, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
+import { adjacentlyTagged, bool, char, f32, f64, fail, i128, i16, i32, i64, i8, internallyTagged, keyed, memo, nullable, record, sequence, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{own}")
@@ -702,6 +704,119 @@ fn variant_arm(schema: WireSchema, enum_name: &str, v: &purecrate_ir::Variant) -
         }
         WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
     }
+}
+
+/// An internally or adjacently tagged enum (design/04 §3.6): the adapter's
+/// `internallyTagged` / `adjacentlyTagged` finds the variant by its JSON
+/// name; `units` maps each unit variant's to its `kind`, and each other
+/// variant has an arm reading what serde passes it: the object (or the rest
+/// of the sequence form) when the tag is internal, the content when it is
+/// adjacent.
+fn tagged_schema(schema: WireSchema, en: &Enum) -> Js {
+    let ret = format!("{}$", en.name.as_str());
+    let arms = en
+        .variants
+        .iter()
+        .filter_map(|v| {
+            let (shape, value) = tagged_arm(schema, v)?;
+            let build = arrow("(x)", Some(&ret), expr_body(value));
+            let arm = match schema {
+                WireSchema::Zod => method(shape, "transform", vec![build]),
+                WireSchema::Valibot => call_path("v.pipe", vec![shape, call_path("v.transform", vec![build])]),
+                WireSchema::Arktype => unreachable!("arktype tagged enums are printed by `ark_tagged`"),
+            };
+            Some((prop(v.wire_name()), arm))
+        })
+        .collect();
+    let mut args = vec![Js::Object(arms)];
+    args.splice(0..0, tagged_head(en));
+    args.extend(tagged_tail(en));
+    let helper = if matches!(en.tagging, Tagging::Internal { .. }) { "internallyTagged" } else { "adjacentlyTagged" };
+    call_path(helper, args)
+}
+
+/// The tag (and content) keys, then `units`.
+fn tagged_head(en: &Enum) -> Vec<Js> {
+    let units = Js::Object(
+        en.variants
+            .iter()
+            .filter(|v| matches!(v.fields, VariantFields::Unit))
+            .map(|v| (prop(v.wire_name()), str_lit(v.name.as_str())))
+            .collect(),
+    );
+    match &en.tagging {
+        Tagging::Internal { tag } => vec![str_lit(tag), units],
+        Tagging::Adjacent { tag, content } => vec![str_lit(tag), str_lit(content), units],
+        Tagging::External => unreachable!("an external tag has no head"),
+    }
+}
+
+/// An adjacently tagged enum's struct variants, whose content is an
+/// object only, and its newtype variants of an `Option`, whose content may
+/// be left out; nothing when both are empty, as the adapter defaults them.
+fn tagged_tail(en: &Enum) -> Vec<Js> {
+    if !matches!(en.tagging, Tagging::Adjacent { .. }) {
+        return Vec::new();
+    }
+    let names = |keep: &dyn Fn(&Variant) -> bool| {
+        Js::Array(en.variants.iter().filter(|v| keep(v)).map(|v| str_lit(v.wire_name())).collect())
+    };
+    let maps = names(&|v| matches!(v.fields, VariantFields::Struct(_)));
+    let optional =
+        names(&|v| matches!(&v.fields, VariantFields::Tuple(tys) if matches!(tys.as_slice(), [Ty::Option(_)])));
+    match (&maps, &optional) {
+        (Js::Array(m), Js::Array(o)) if m.is_empty() && o.is_empty() => Vec::new(),
+        (_, Js::Array(o)) if o.is_empty() => vec![maps],
+        _ => vec![maps, optional],
+    }
+}
+
+/// A non-unit variant's shape and the domain value built from what it read
+/// (`x`); `None` for a unit variant.
+fn tagged_arm(schema: WireSchema, v: &Variant) -> Option<(Js, Js)> {
+    let kind = v.name.as_str();
+    match &v.fields {
+        VariantFields::Unit => None,
+        VariantFields::Struct(fs) => {
+            let shape = match schema {
+                WireSchema::Arktype => ark_record(fs),
+                _ => call_path("record", vec![Js::Object(object_fields(schema, fs))]),
+            };
+            Some((shape, variant_value(kind, fill(schema, fs, "x"))))
+        }
+        VariantFields::Tuple(tys) => {
+            let (shape, rest) = tuple_json(schema, "x", tys);
+            let shape = match (schema, tys.len()) {
+                (WireSchema::Arktype, n) if n > 1 => call_path("type", vec![shape]),
+                _ => shape,
+            };
+            Some((shape, variant_value(kind, rest)))
+        }
+    }
+}
+
+/// Arktype: each non-unit variant's arm a memoized shape piped into the
+/// domain value, then the adapter's helper over them (`tagged_schema`).
+fn ark_tagged(en: &Enum, doc: &str, chunks: &mut Vec<Chunk>) {
+    let name = en.name.as_str();
+    let ret = format!("{name}$");
+    chunks.push(Chunk::Text("\n".into()));
+    let mut arms = Vec::new();
+    for v in &en.variants {
+        let Some((shape, value)) = tagged_arm(WireSchema::Arktype, v) else { continue };
+        let arm = format!("{name}$arm${}", v.name.as_str());
+        let piped = method(shape, "pipe", vec![arrow("(x)", Some(&ret), expr_body(value))]);
+        chunks.push(Chunk::decl(false, arm.clone(), None, memo(piped)));
+        arms.push((prop(v.wire_name()), raw(arm)));
+    }
+    let mut args = vec![str_lit(name)];
+    args.extend(tagged_head(en));
+    args.push(Js::Object(arms));
+    args.extend(tagged_tail(en));
+    let helper = if matches!(en.tagging, Tagging::Internal { .. }) { "internallyTagged" } else { "adjacentlyTagged" };
+    chunks.push(Chunk::Text(doc.to_string()));
+    // The declared `Wire<E$>` gives the helper's type parameter.
+    chunks.push(Chunk::decl(true, name, Some(format!("Wire<{ret}>")), call_path(helper, args)));
 }
 
 /// `type("unknown").pipe((v, ctx): T$ => { .. })`, an arktype morph whose
@@ -928,9 +1043,13 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                 None => object_json(&s.fields, "x."),
             }),
             // A variant name is a Rust identifier: nothing in it needs escaping.
-            Item::Enum(e) if e.variants.iter().all(|v| matches!(v.fields, VariantFields::Unit) && v.wire.is_none()) => {
+            Item::Enum(e)
+                if e.tagging == Tagging::External
+                    && e.variants.iter().all(|v| matches!(v.fields, VariantFields::Unit) && v.wire.is_none()) =>
+            {
                 expr_body(raw("`\"${x.kind}\"`"))
             }
+            Item::Enum(e) if e.tagging != Tagging::External => tagged_json(e),
             Item::Enum(e) => {
                 let cases = e
                     .variants
@@ -969,6 +1088,60 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
         entries.push((name.to_string(), arrow(&format!("({x}: {name}$)"), Some("string"), body)));
     }
     chunks.push(Chunk::decl(true, "toJson", None, Js::As(Box::new(Js::Object(entries)), "const".into())));
+}
+
+/// `toJson` of a tagged enum, as serde writes one: the tag first, then,
+/// when it is internal, the fields of a struct variant or of the struct a
+/// newtype variant holds; when it is adjacent, the content under its key
+/// (none for a unit variant).
+fn tagged_json(en: &Enum) -> Body {
+    let mut cases = Vec::new();
+    for v in &en.variants {
+        let tag_value = format!("\"{}\"", json_escape(v.wire_name()));
+        let value = match &en.tagging {
+            Tagging::Internal { tag } => {
+                let tag = json_escape(tag);
+                let head = Js::Array(vec![str_lit(&tag), str_lit(&tag_value)]);
+                match &v.fields {
+                    VariantFields::Unit => str_lit(format!("{{\"{tag}\":{tag_value}}}")),
+                    VariantFields::Struct(fs) => {
+                        let mut pairs = vec![head];
+                        if let Js::Call(_, args) = object_json(fs, "x.") {
+                            if let Some(Js::Array(fields)) = args.into_iter().next() {
+                                pairs.extend(fields);
+                            }
+                        }
+                        call_path("Json.object", vec![Js::Array(pairs)])
+                    }
+                    VariantFields::Tuple(tys) => call_path(
+                        "Json.withTag",
+                        vec![str_lit(&tag), str_lit(&tag_value), write_json(&tys[0], "x.value", 0)],
+                    ),
+                }
+            }
+            Tagging::Adjacent { tag, content } => {
+                let head = Js::Array(vec![str_lit(json_escape(tag)), str_lit(&tag_value)]);
+                let inner = match &v.fields {
+                    VariantFields::Unit => None,
+                    VariantFields::Struct(fs) => Some(object_json(fs, "x.")),
+                    VariantFields::Tuple(tys) if tys.len() == 1 => Some(write_json(&tys[0], "x.value", 0)),
+                    VariantFields::Tuple(tys) => Some(call_path(
+                        "Json.tuple",
+                        vec![Js::Array(
+                            tys.iter().enumerate().map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0)).collect(),
+                        )],
+                    )),
+                };
+                let mut pairs = vec![head];
+                pairs.extend(inner.map(|c| Js::Array(vec![str_lit(json_escape(content)), c])));
+                call_path("Json.object", vec![Js::Array(pairs)])
+            }
+            Tagging::External => unreachable!("an external tag is written by `to_json`"),
+        };
+        cases.push((str_lit(v.name.as_str()), vec![Stmt::Return(value)]));
+    }
+    cases.push((raw("default"), vec![Stmt::Return(call_path("assertNever", vec![raw("x")]))]));
+    Body::Block(vec![Stmt::Switch(raw("x.kind"), cases)])
 }
 
 /// `{"a":…,"b":…}` for fields read from `<prefix><name>`, each under its

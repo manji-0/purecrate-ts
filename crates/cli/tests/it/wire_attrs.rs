@@ -4,11 +4,12 @@
 //! text of a corpus, `fromJson.T` then `toJson.T` must give what
 //! `serde_json::from_str::<T>` then `to_string` gives, or both refuse.
 //!
-//! The corpus is serde_json's own text for sample values, texts written
-//! for the edges (Rust names where the JSON names differ, keys twice, the
-//! sequence form), and mechanical mutations of each: every key left out,
-//! the first key twice, an object as the array of its values, and every
-//! JSON name of the type swapped in for a string.
+//! The corpus is texts written for the edges (Rust names where the JSON
+//! names differ, keys twice, the sequence forms, tags that are not strings,
+//! content left out), and mechanical mutations of each: every key left out
+//! or renamed to every name the fixture uses, the first key twice, an
+//! object as the array of its values, and every name swapped in for a
+//! string.
 
 use std::fs;
 use std::process::Command;
@@ -43,6 +44,10 @@ fn oracle(ty: &str) -> fn(&str) -> String {
         "Status" => rust::<attrs::Status>,
         "Event" => rust::<attrs::Event>,
         "Envelope" => rust::<attrs::Envelope>,
+        "Shape" => rust::<attrs::Shape>,
+        "Message" => rust::<attrs::Message>,
+        "Flag" => rust::<attrs::Flag>,
+        "Scene" => rust::<attrs::Scene>,
         other => panic!("no oracle for {other}"),
     }
 }
@@ -110,6 +115,64 @@ fn seeds() -> Vec<(&'static str, String)> {
         ("Event", r#"{"pinged":null}"#.into()),
         ("Event", r#"{"Opened":{"at_ms":5}}"#.into()),
     ];
+    let tagged: &[(&str, &str)] = &[
+        ("Shape", r#"{"type":"dot"}"#),
+        ("Shape", r#"{"type":"bigCircle","radius":3,"label":"a"}"#),
+        ("Shape", r#"{"radius":3,"type":"bigCircle"}"#),
+        ("Shape", r#"{"type":"at","x":1,"y":2}"#),
+        ("Shape", r#"{"type":"at","x":1}"#),
+        ("Shape", r#"{"type":"nothing","q":[1,{"a":1,"a":2}]}"#),
+        ("Shape", r#"{"type":"sq"uare","side":-5}"#),
+        ("Shape", r#"["bigCircle",3,null]"#),
+        ("Shape", r#"["bigCircle",3]"#),
+        ("Shape", r#"["dot"]"#),
+        ("Shape", r#"["dot",1]"#),
+        ("Shape", r#"["at",1,2]"#),
+        ("Shape", r#"["nothing"]"#),
+        ("Shape", r#"[]"#),
+        ("Shape", r#"[1]"#),
+        ("Shape", r#"{"type":"dot","type":"dot"}"#),
+        ("Shape", r#"{"type":"dot","z":1,"z":2}"#),
+        ("Shape", r#"{"type":1}"#),
+        ("Shape", r#"{"type":null}"#),
+        ("Shape", r#""dot""#),
+        ("Shape", r#"{"dot":null}"#),
+        ("Message", r#"{"t":"Ping"}"#),
+        ("Message", r#"{"t":"Ping","c":null}"#),
+        ("Message", r#"{"t":"Ping","c":{}}"#),
+        ("Message", r#"{"c":"hi","t":"Text"}"#),
+        ("Message", r#"{"t":"Text"}"#),
+        ("Message", r#"{"t":"Maybe"}"#),
+        ("Message", r#"{"t":"Maybe","c":null}"#),
+        ("Message", r#"{"t":"Maybe","c":4}"#),
+        ("Message", r#"{"t":"Pair","c":[1,true]}"#),
+        ("Message", r#"{"t":"Pair","c":[1]}"#),
+        ("Message", r#"{"t":"Pair","c":{"0":1,"1":true}}"#),
+        ("Message", r#"{"t":"Moved","c":{"from":{"x":1},"to":[2,3]}}"#),
+        ("Message", r#"{"t":"Moved","c":[{"x":1},{"x":2}]}"#),
+        ("Message", r#"{"t":"Box","c":[1,null]}"#),
+        ("Message", r#"{"t":"Box","c":{"x":1,"x":2}}"#),
+        ("Message", r#"{"t":"e\mpty","c":{}}"#),
+        ("Message", r#"{"t":"e\mpty","c":[]}"#),
+        ("Message", r#"{"t":"e\mpty"}"#),
+        ("Message", r#"["Text","hi"]"#),
+        ("Message", r#"["Ping"]"#),
+        ("Message", r#"["Ping",null]"#),
+        ("Message", r#"["Ping",null,1]"#),
+        ("Message", r#"{"t":"Text","c":"a","c":"b"}"#),
+        ("Message", r#"{"t":"Text","t":"Text","c":"a"}"#),
+        ("Message", r#"{"t":"Text","c":"a","z":{"q":1,"q":2}}"#),
+        ("Message", r#"{"t":true,"c":1}"#),
+        ("Message", r#"{"c":1}"#),
+        ("Flag", r#"{"kind":"On"}"#),
+        ("Flag", r#"["Off"]"#),
+        ("Flag", r#""On""#),
+        (
+            "Scene",
+            r#"{"shapes":[{"type":"dot"},["at",1,2]],"inbox":[{"t":"Ping"},["Maybe",null]],"flag":{"kind":"Off"}}"#,
+        ),
+    ];
+    out.extend(tagged.iter().map(|(ty, text)| (*ty, text.to_string())));
     out.push((
         "Envelope",
         format!(r#"{{"account":{account},"limits":{limits},"events":[{{"opened":{{"at-ms":1}}}},"pinged",{{"closed":"active"}}]}}"#),
@@ -198,7 +261,7 @@ fn run(schema: WireSchema, cases: &[(&str, String)]) -> Option<Vec<String>> {
 }
 
 #[test]
-fn renamed_fields_and_variants_read_and_write_as_serde_does() {
+fn renamed_and_tagged_types_read_and_write_as_serde_does() {
     let cases = corpus();
     let expected: Vec<String> = cases.iter().map(|(ty, text)| oracle(ty)(text)).collect();
     assert!(expected.iter().filter(|e| e.starts_with("ok")).count() > 20, "the corpus reads too little");

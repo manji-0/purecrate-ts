@@ -321,6 +321,7 @@ Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` are type constructo
 | --- | --- |
 | `#[derive(Serialize, Deserialize)]`, `use serde::…` | pass: the types are the server's wire format too ([04 §3.2](./04-wire.md#32-serde-in-the-input)) |
 | `#[serde(try_from = "T")]` on a struct | accepted ([04 §5](./04-wire.md#5-closed-types-on-the-wire)) |
+| `#[serde(rename)]`, `#[serde(rename_all)]`, `#[serde(tag)]`, `#[serde(tag, content)]` | accepted where serde reads them ([04 §3.6](./04-wire.md#36-names-and-tags)) |
 | any other `#[serde(...)]` | rejected |
 | `#[cfg]`, `#[cfg_attr]` | rejected |
 | `#[cfg(test)]` items | skipped |

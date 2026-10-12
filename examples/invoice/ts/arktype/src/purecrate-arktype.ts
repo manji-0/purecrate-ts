@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import { type, type ArkErrors, type Out, type Traversal, type Type } from "arktype";
-import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, structIssue, type UuidError } from "./purecrate-runtime.ts";
 
 /**
  * A schema that reads unknown JSON into the domain value `T`. Generated
@@ -160,3 +160,60 @@ export const nullable = <T extends Type<any>>(inner: T): Wire<T["infer"] | null>
     const parsed = inner(v);
     return parsed instanceof type.errors ? fail(ctx, parsed) : parsed;
   }) as unknown as Wire<T["infer"] | null>;
+
+const own = <T>(table: Readonly<Record<string, T>>, name: string): T | undefined => (Object.hasOwn(table, name) ? table[name] : undefined);
+
+/** A variant's schema, built on first use like every generated one (`memo`). */
+type Arm = () => (v: unknown) => unknown;
+
+/**
+ * An internally tagged enum (`#[serde(tag)]`) named `enumName`: `units`
+ * maps the JSON name of each unit variant to its `kind`, `arms` each other
+ * variant's to the schema that reads it from the object (or the rest of the
+ * sequence form).
+ */
+export const internallyTagged = <T>(enumName: string, tag: string, units: Readonly<Record<string, string>>, arms: Readonly<Record<string, Arm>>): Wire<T> =>
+  // arktype cannot follow a type parameter through its morph's output.
+  type("unknown").pipe((v, ctx): unknown => {
+    const found = internalTag(v, tag);
+    if (typeof found === "string") return ctx.error(`${enumName}: ${found}`) as never;
+    const unit = own(units, found.name);
+    if (unit !== undefined) {
+      return Array.isArray(found.rest) && found.rest.length > 0 ? (ctx.error("a unit variant") as never) : { kind: unit };
+    }
+    const arm = own(arms, found.name);
+    if (arm === undefined) return ctx.error(`unknown variant \`${found.name}\``) as never;
+    const parsed = arm()(found.rest);
+    return parsed instanceof type.errors ? fail(ctx, parsed) : parsed;
+  }) as unknown as Wire<T>;
+
+/**
+ * An adjacently tagged enum (`#[serde(tag, content)]`) named `enumName`:
+ * `units` as for `internallyTagged`, `arms` each other variant's schema of
+ * its content. The content of a struct variant (`maps`) is an object, never
+ * the sequence form; one left out reads as `null` for a variant in
+ * `optional` (it holds an `Option`), and is refused for the others.
+ */
+export const adjacentlyTagged = <T>(
+  enumName: string,
+  tag: string,
+  content: string,
+  units: Readonly<Record<string, string>>,
+  arms: Readonly<Record<string, Arm>>,
+  maps: readonly string[] = [],
+  optional: readonly string[] = [],
+): Wire<T> =>
+  type("unknown").pipe((v, ctx): unknown => {
+    const found = adjacentTag(v, tag, content);
+    if (typeof found === "string") return ctx.error(`${enumName}: ${found}`) as never;
+    const unit = own(units, found.name);
+    if (unit !== undefined) {
+      return found.content === undefined || found.content === null ? { kind: unit } : (ctx.error("a unit variant") as never);
+    }
+    const arm = own(arms, found.name);
+    if (arm === undefined) return ctx.error(`unknown variant \`${found.name}\``) as never;
+    if (!found.present && !optional.includes(found.name)) return ctx.error(`missing field \`${content}\``) as never;
+    if (maps.includes(found.name) && Array.isArray(found.content)) return ctx.error("an object") as never;
+    const parsed = arm()(found.present ? found.content : null);
+    return parsed instanceof type.errors ? fail(ctx, parsed) : parsed;
+  }) as unknown as Wire<T>;

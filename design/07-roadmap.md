@@ -219,6 +219,7 @@ Waits for an example that cannot be written without it.
 - Mutating a `Vec` other than a local's `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`: through a field, an element's array, a parameter, or `pop` / `truncate` / `extend` / `sort_unstable`. `split` on a `&str` (a closure on a `char` is taken).
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
+- serde's `untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, and `transparent`: refused with their location; the reasons are in [04 §4](./04-wire.md#4-out-of-scope).
 - WASM. The IR does not preclude a second backend, but the path is TS source.
 - `Rc` / `Cell` / `RefCell` / `Mutex`.
 - `async`, randomness, and other effects (idsmith's `&mut` RNG parameters, 305 of the corpus's functions).

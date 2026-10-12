@@ -71,8 +71,9 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 | Strings | `String::from("…")`, string `==`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` / `split_once`, slices at byte positions, string contents via `s.as_bytes()` |
 | `char` | a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods |
 | `uuid::Uuid` | a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form |
-| serde | serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |
-| Wire schemas | `--schema zod\|valibot\|arktype` reads serde's default JSON into domain values, and `toJson` writes them back byte for byte as serde_json does |
+| serde | serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `rename`, `rename_all`, and internal or adjacent `tag` shape the JSON as serde does; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |
+| Wire schemas | `--schema zod\|valibot\|arktype` reads serde's JSON into domain values, and `toJson` writes them back byte for byte as serde_json does |
+| Checking a crate | `purecrate-ts test` calls every public function in Rust and in the generated TS on the same drawn arguments and names each call that differs ([01 §8.4](./01-equivalence.md#84-a-users-crate-purecrate-ts-test)) |
 
 ### 4.1 Examples
 

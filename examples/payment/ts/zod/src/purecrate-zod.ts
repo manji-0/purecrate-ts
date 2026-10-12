@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import { z } from "zod";
-import { Char, Int, JsonFloat, Uuid, fromSequence, structIssue, type F32, type F64, type I128, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, structIssue, type F32, type F64, type I128, type UuidError } from "./purecrate-runtime.ts";
 
 type Out<T, In> = z.ZodType<T, In>;
 
@@ -128,3 +128,62 @@ export const optionalField = <T extends z.ZodType>(inner: T) =>
   nullable(inner)
     .optional()
     .transform((v) => v ?? null);
+
+const own = <T>(table: Readonly<Record<string, T>>, name: string): T | undefined => (Object.hasOwn(table, name) ? table[name] : undefined);
+
+/**
+ * An internally tagged enum (`#[serde(tag)]`): `units` maps the JSON name of
+ * each unit variant to its `kind`, `arms` each other variant's to the schema
+ * that reads it from the object (or the rest of the sequence form).
+ */
+export const internallyTagged = <U extends string, A extends Readonly<Record<string, z.ZodType>>>(
+  tag: string,
+  units: Readonly<Record<string, U>>,
+  arms: A,
+) =>
+  z.unknown().transform((x, ctx): Readonly<{ kind: U }> | z.output<A[keyof A]> => {
+    const fail = (message: string): never => {
+      ctx.addIssue({ code: "custom", message, input: x });
+      return z.NEVER;
+    };
+    const found = internalTag(x, tag);
+    if (typeof found === "string") return fail(found);
+    const unit = own(units, found.name);
+    if (unit !== undefined) return Array.isArray(found.rest) && found.rest.length > 0 ? fail("a unit variant") : { kind: unit };
+    const arm = own(arms, found.name);
+    if (arm === undefined) return fail(`unknown variant \`${found.name}\``);
+    const r = arm.safeParse(found.rest);
+    return r.success ? (r.data as z.output<A[keyof A]>) : fail(r.error.issues[0]?.message ?? found.name);
+  });
+
+/**
+ * An adjacently tagged enum (`#[serde(tag, content)]`): `units` as for
+ * `internallyTagged`, `arms` each other variant's schema of its content.
+ * The content of a struct variant (`maps`) is an object, never the sequence
+ * form; one left out reads as `null` for a variant in `optional` (it holds
+ * an `Option`), and is refused for the others.
+ */
+export const adjacentlyTagged = <U extends string, A extends Readonly<Record<string, z.ZodType>>>(
+  tag: string,
+  content: string,
+  units: Readonly<Record<string, U>>,
+  arms: A,
+  maps: readonly string[] = [],
+  optional: readonly string[] = [],
+) =>
+  z.unknown().transform((x, ctx): Readonly<{ kind: U }> | z.output<A[keyof A]> => {
+    const fail = (message: string): never => {
+      ctx.addIssue({ code: "custom", message, input: x });
+      return z.NEVER;
+    };
+    const found = adjacentTag(x, tag, content);
+    if (typeof found === "string") return fail(found);
+    const unit = own(units, found.name);
+    if (unit !== undefined) return found.content === undefined || found.content === null ? { kind: unit } : fail("a unit variant");
+    const arm = own(arms, found.name);
+    if (arm === undefined) return fail(`unknown variant \`${found.name}\``);
+    if (!found.present && !optional.includes(found.name)) return fail(`missing field \`${content}\``);
+    if (maps.includes(found.name) && Array.isArray(found.content)) return fail("an object");
+    const r = arm.safeParse(found.present ? found.content : null);
+    return r.success ? (r.data as z.output<A[keyof A]>) : fail(r.error.issues[0]?.message ?? found.name);
+  });
