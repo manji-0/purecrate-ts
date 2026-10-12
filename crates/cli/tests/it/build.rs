@@ -362,7 +362,9 @@ fn rustc_uses_the_manifest_edition() {
     let manifest = |edition: &str| {
         fs::write(
             dir.join("Cargo.toml"),
-            format!("[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"),
+            format!(
+                "[package]\nname = \"ed\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n{RELEASE_OVERFLOW_CHECKS}"
+            ),
         )
         .expect("write manifest")
     };
@@ -416,8 +418,11 @@ fn module_trees_are_flattened() {
     let _ = fs::remove_dir_all(&dir);
     let src = dir.join("src");
     fs::create_dir_all(src.join("money")).expect("mkdir");
-    fs::write(dir.join("Cargo.toml"), "[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
-        .expect("write");
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!("[package]\nname = \"mods\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{RELEASE_OVERFLOW_CHECKS}"),
+    )
+    .expect("write");
     fs::write(
         src.join("lib.rs"),
         "pub mod money;\nmod rules;\n\npub use rules::apply;\n\npub fn total(a: money::Yen, b: crate::money::Yen) -> money::Yen {\n    money::Yen::add(a, b)\n}\n\n\
@@ -491,23 +496,30 @@ fn build_example(example: &str, flags: &[&str], out: &Path) -> Output {
         .expect("run purecrate-ts")
 }
 
+/// What a crate's manifest needs for `check` and `build` to accept it.
+const RELEASE_OVERFLOW_CHECKS: &str = "[profile.release]\noverflow-checks = true\n";
+
 #[test]
-fn check_warns_when_release_overflow_checks_are_off() {
+fn check_refuses_a_release_profile_that_wraps_unless_allowed() {
     let dir = scratch("overflow-profile");
     let krate = dir.join("k");
     fs::create_dir_all(krate.join("src")).expect("mkdir");
     fs::write(krate.join("src/lib.rs"), "pub fn f() -> i32 { 0 }\n").expect("write");
-    fs::write(krate.join("Cargo.toml"), "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
-        .expect("write");
+    let package = "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+    fs::write(krate.join("Cargo.toml"), package).expect("write");
     let off = check(&[krate.as_os_str()]);
     let stderr = String::from_utf8_lossy(&off.stderr);
-    assert!(off.status.success(), "{stderr}");
-    assert!(stderr.contains("overflow-checks = true"), "{stderr}");
-    fs::write(
-        krate.join("Cargo.toml"),
-        "[package]\nname = \"k\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[profile.release]\noverflow-checks = true\n",
-    )
-    .expect("write");
+    assert!(!off.status.success(), "{stderr}");
+    assert!(stderr.contains("overflow-checks = true") && stderr.contains("--allow-overflow-wrap"), "{stderr}");
+    let out = dir.join("out");
+    let built = cli().arg("build").arg(&krate).arg("--out").arg(&out).output().expect("run purecrate-ts");
+    assert!(!built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(!out.exists(), "a refused build writes nothing");
+    let allowed = check(&[krate.as_os_str(), "--allow-overflow-wrap".as_ref()]);
+    let stderr = String::from_utf8_lossy(&allowed.stderr);
+    assert!(allowed.status.success(), "{stderr}");
+    assert!(stderr.contains("warning:") && stderr.contains("overflow-checks = true"), "{stderr}");
+    fs::write(krate.join("Cargo.toml"), format!("{package}{RELEASE_OVERFLOW_CHECKS}")).expect("write");
     let on = check(&[krate.as_os_str()]);
     let stderr = String::from_utf8_lossy(&on.stderr);
     assert!(on.status.success(), "{stderr}");

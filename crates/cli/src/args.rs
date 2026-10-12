@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 pub const USAGE: &str = "\
 usage:
   purecrate-ts --version | --help
-  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
-  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable]
+  purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
+  purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
   purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts: a
@@ -27,10 +27,10 @@ check and build run the subset checks, then compile the crate with rustc
 the edition from Cargo.toml ([package] edition, or [workspace.package] when
 inherited; 2015 when a manifest names none, as cargo does), 2021 for a file
 with no manifest, or --edition. check
-and build warn when the crate's (or workspace's) [profile.release] does not
-set overflow-checks = true: generated TypeScript panics on overflow as a
-debug build does, so a --release server that wraps will disagree. check
-with --out also fails when <dir> differs from what build would write.
+and build refuse a crate whose (or whose workspace's) [profile.release]
+does not set overflow-checks = true: generated TypeScript panics on
+overflow as a debug build does, so a --release server that wraps will
+disagree. --allow-overflow-wrap makes that a warning. check with --out also fails when <dir> differs from what build would write.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
 one JSON object per crate. --all-causes lowers each item past what it
@@ -56,11 +56,20 @@ const EDITIONS: &[&str] = &["2015", "2018", "2021", "2024"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Build { input: Input, out: PathBuf, schema: Option<String>, publishable: bool },
-    Check { input: Input, out: Option<PathBuf>, schema: Option<String>, publishable: bool },
+    Build { input: Input, out: PathBuf, options: Options },
+    Check { input: Input, out: Option<PathBuf>, options: Options },
     Survey { inputs: Vec<Input>, json: bool, all_causes: bool },
     Version,
     Help,
+}
+
+/// The flags `build` and `check` share past the input.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    pub schema: Option<String>,
+    pub publishable: bool,
+    /// A release profile that wraps on overflow is a warning, not an error.
+    pub allow_overflow_wrap: bool,
 }
 
 pub fn parse(args: &[String]) -> Result<Command, String> {
@@ -77,8 +86,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut name: Option<String> = None;
     let mut edition: Option<String> = None;
     let mut out: Option<PathBuf> = None;
-    let mut schema: Option<String> = None;
-    let mut publishable = false;
+    let mut options = Options::default();
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -91,13 +99,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 edition = Some(value.clone());
             }
             "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
-            "--publishable" => publishable = true,
+            "--publishable" => options.publishable = true,
+            "--allow-overflow-wrap" => options.allow_overflow_wrap = true,
             "--schema" => {
                 let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
                 if !matches!(value.as_str(), "zod" | "valibot" | "arktype") {
                     return Err(format!("--schema {value} is not zod, valibot, or arktype"));
                 }
-                schema = Some(value.clone());
+                options.schema = Some(value.clone());
             }
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}")),
             other if path.is_some() => return Err(format!("unexpected argument {other}")),
@@ -110,8 +119,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         input.edition = e;
     }
     match verb.as_str() {
-        "build" => Ok(Command::Build { input, out: out.ok_or("build needs --out <dir>")?, schema, publishable }),
-        "check" => Ok(Command::Check { input, out, schema, publishable }),
+        "build" => Ok(Command::Build { input, out: out.ok_or("build needs --out <dir>")?, options }),
+        "check" => Ok(Command::Check { input, out, options }),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -174,9 +183,11 @@ fn resolve_input(path: &Path, name: Option<String>) -> Result<Input, String> {
     Ok(Input { src, name, edition, version, license })
 }
 
-/// Warns when a crate's release profile will wrap on overflow while the
-/// generated TypeScript panics, as a debug build does.
-pub fn overflow_warning(src: &Path) -> Option<String> {
+/// Why a crate's release profile disagrees with the generated TypeScript:
+/// it wraps on overflow, where the TypeScript panics as a debug build does.
+/// `build` and `check` refuse such a crate unless `--allow-overflow-wrap`
+/// makes this a warning.
+pub fn overflow_wrap(src: &Path) -> Option<String> {
     let crate_dir = src.parent().filter(|p| p.file_name().is_some_and(|n| n == "src")).and_then(Path::parent)?;
     let manifest = crate_dir.join("Cargo.toml");
     if !manifest.is_file() {
@@ -186,9 +197,10 @@ pub fn overflow_warning(src: &Path) -> Option<String> {
         return None;
     }
     Some(format!(
-        "warning: {}: [profile.release] does not set overflow-checks = true\n  \
+        "{}: [profile.release] does not set overflow-checks = true\n  \
          generated TypeScript panics on overflow as a Rust debug build does; a --release server that wraps will disagree. \
-         Set overflow-checks = true (and debug-assertions if anything depends on them) so the two sides match.",
+         Set overflow-checks = true (and debug-assertions if anything depends on them) so the two sides match, \
+         or pass --allow-overflow-wrap to accept the difference.",
         manifest.display()
     ))
 }
@@ -322,40 +334,40 @@ mod tests {
                     license: "MIT".into(),
                 },
                 out: None,
-                schema: None,
-                publishable: false,
+                options: Options::default(),
             }
         );
     }
 
     #[test]
-    fn publishable_is_a_flag_of_build_and_check() {
+    fn publishable_and_allow_overflow_wrap_are_flags_of_build_and_check() {
         let src = examples().join("counter/src/lib.rs");
         let src = src.to_str().unwrap();
-        let Command::Build { publishable, .. } = parse(&args(&["build", src, "--out", "o"])).unwrap() else {
+        let Command::Build { options, .. } = parse(&args(&["build", src, "--out", "o"])).unwrap() else {
             panic!("expected build");
         };
-        assert!(!publishable);
-        let Command::Build { publishable, .. } = parse(&args(&["build", src, "--out", "o", "--publishable"])).unwrap()
+        assert_eq!(options, Options::default());
+        let Command::Build { options, .. } = parse(&args(&["build", src, "--out", "o", "--publishable"])).unwrap()
         else {
             panic!("expected build");
         };
-        assert!(publishable);
-        let Command::Check { publishable, .. } = parse(&args(&["check", src, "--publishable"])).unwrap() else {
+        assert!(options.publishable && !options.allow_overflow_wrap);
+        let Command::Check { options, .. } = parse(&args(&["check", src, "--publishable", "--allow-overflow-wrap"])).unwrap()
+        else {
             panic!("expected check");
         };
-        assert!(publishable);
+        assert!(options.publishable && options.allow_overflow_wrap);
     }
 
     #[test]
     fn lib_rs_path_uses_the_crate_directory_name() {
         let src = examples().join("counter/src/lib.rs");
-        let Command::Build { input, out, schema, .. } =
+        let Command::Build { input, out, options } =
             parse(&args(&["build", src.to_str().unwrap(), "--out", "o"])).unwrap()
         else {
             panic!("expected build");
         };
-        assert_eq!(schema, None);
+        assert_eq!(options.schema, None);
         assert_eq!(input.name, "counter");
         assert_eq!(out, PathBuf::from("o"));
     }
@@ -416,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn overflow_warning_follows_the_release_profile() {
+    fn overflow_wrap_follows_the_release_profile() {
         let dir = std::env::temp_dir().join(format!("purecrate-args-overflow-{}", std::process::id()));
         let krate = dir.join("members/k");
         fs::create_dir_all(krate.join("src")).unwrap();
@@ -430,7 +442,7 @@ mod tests {
                     let _ = fs::remove_file(dir.join("Cargo.toml"));
                 }
             }
-            overflow_warning(&src)
+            overflow_wrap(&src)
         };
         assert!(warn("[package]\nname = \"k\"\n", None).unwrap().contains("overflow-checks = true"));
         assert!(warn("[package]\nname = \"k\"\n[profile.release]\nlto = true\n", None).is_some());
@@ -446,7 +458,7 @@ mod tests {
             Some("[workspace]\n[profile.release]\noverflow-checks = true\n"),
         )
         .is_some());
-        assert!(overflow_warning(Path::new("/tmp/loose.rs")).is_none());
+        assert!(overflow_wrap(Path::new("/tmp/loose.rs")).is_none());
         fs::remove_dir_all(&dir).ok();
     }
 

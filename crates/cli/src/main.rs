@@ -17,7 +17,7 @@ use purecrate_emit_ts::{has_wire, WireSchema};
 use purecrate_pack::{assemble_with_license, disk_path, Access};
 use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
-use args::{Command, Input};
+use args::{Command, Input, Options};
 
 fn main() -> ExitCode {
     let argv: Vec<String> = env::args().skip(1).collect();
@@ -40,19 +40,14 @@ fn main() -> ExitCode {
 
 fn execute(command: Command) -> Result<(), String> {
     match command {
-        Command::Build { input, out, schema, publishable } => {
-            let schema = parse_schema(schema)?;
-            load(&input, "nothing written", schema, access(publishable))
+        Command::Build { input, out, options } => {
+            load(&input, "nothing written", &options)
                 .and_then(|pkg| laid_out(pkg, &input.src, &out))
                 .and_then(|pkg| write_replacing(&out, &pkg.files))
         }
-        Command::Check { input, out: None, schema, publishable } => {
-            let schema = parse_schema(schema)?;
-            load(&input, "", schema, access(publishable)).map(|_| ())
-        }
-        Command::Check { input, out: Some(out), schema, publishable } => {
-            let schema = parse_schema(schema)?;
-            load(&input, "", schema, access(publishable))
+        Command::Check { input, out: None, options } => load(&input, "", &options).map(|_| ()),
+        Command::Check { input, out: Some(out), options } => {
+            load(&input, "", &options)
                 .and_then(|pkg| laid_out(pkg, &input.src, &out))
                 .and_then(|pkg| check_drift(&input, &out, &pkg))
         }
@@ -109,9 +104,14 @@ fn access(publishable: bool) -> Access {
 
 /// Parse, check, compile with rustc, prune, emit. `consequence` ends the
 /// error summary line.
-fn load(input: &Input, consequence: &str, schema: Option<WireSchema>, access: Access) -> Result<Package, String> {
-    if let Some(warning) = args::overflow_warning(&input.src) {
-        eprintln!("{warning}");
+fn load(input: &Input, consequence: &str, options: &Options) -> Result<Package, String> {
+    let schema = parse_schema(options.schema.clone())?;
+    let access = access(options.publishable);
+    if let Some(wrap) = args::overflow_wrap(&input.src) {
+        if !options.allow_overflow_wrap {
+            return Err(format!("{wrap}\n{}", summary(1, consequence)));
+        }
+        eprintln!("warning: {wrap}");
     }
     let src = &input.src;
     let files = files::crate_files(src)?;

@@ -110,7 +110,7 @@ for f in crates/cli/tests/fixtures/*.rs; do
   n=$(basename "$f" .rs)
   mkdir -p "$fx/src/$n/src"
   cp "$f" "$fx/src/$n/src/lib.rs"
-  printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n' "${n//_/-}" > "$fx/src/$n/Cargo.toml"
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n[profile.release]\noverflow-checks = true\n' "${n//_/-}" > "$fx/src/$n/Cargo.toml"
   target/debug/purecrate-ts build "$fx/src/$n" --out "$fx/out/$n" >/dev/null 2>&1 || continue
   for lib in zod valibot arktype; do
     target/debug/purecrate-ts build "$fx/src/$n" --out "$fx/out/$n-$lib" --schema "$lib" >/dev/null 2>&1 || true

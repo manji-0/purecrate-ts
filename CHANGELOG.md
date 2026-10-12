@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`check` and `build` refuse a crate whose `[profile.release]` does not set `overflow-checks = true`** (theirs or their workspace's), where they used to warn: a `--release` server built from it wraps on overflow, where the generated TypeScript panics as a debug build does. `--allow-overflow-wrap` makes it the warning it was. A single `.rs` file with no manifest has no profile and is not refused.
+
 ## 0.14.0 — 2026-10-12
 
 The output is laid out by oxfmt, which `build` and `check --out` now run and need. Then oxlint over the generators' output, which the sweep does not lint, found what follows; each is fixed with a fixture (`lint_holes`).
