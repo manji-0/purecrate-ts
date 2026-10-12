@@ -69,7 +69,7 @@ Defects found on the way:
 
 <!-- derived-from #3-decision -->
 
-2026-09-30, on local branches of omicron (`c925805`) and console (`14ec752`); nothing is proposed upstream yet.
+2026-09-30, on local branches of omicron (`c925805`) and console (`14ec752`); nothing is proposed upstream yet. Proposing it is the one exception to the no-outreach decision (2026-10-13, [06 §5.2](./06-strategy.md#52-one-real-use)).
 
 **omicron.** A new crate, `name-rules`, holds `check_name(&str) -> Result<(), NameError>` (89 lines at first, written to the subset with `for c in s.chars()`, the UUID forms checked by hand; 66 once `uuid::Uuid` was supported and the check became `matches!(Uuid::parse_str(value), Ok(_))`); `Name::try_from` calls it and turns the error into the same message with `Display` (38 lines became 2). The crate's `ts/` is `build --bundle-runtime` output. Its test runs the previous implementation, with the real `uuid::Uuid::parse_str`, against `check_name` on about 120,000 inputs: same result and message on all. `omicron-common` still compiles.
 

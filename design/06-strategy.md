@@ -114,21 +114,27 @@ The author's own examples cannot validate the constraints: the author writes aro
 
 | Withdrawal condition | Status |
 | --- | --- |
-| More than half of third-party specs cannot be written | Not met. signup, iban, payment, invoice, oidc, and semver are from third-party specs; all six could be written |
-| Constrained Rust exceeds 2× | Not met. semver, the last example over 2×, is 1.8× by the script after `split_once`, `collect`, and `Some((a, b))` (0.7.0), 1.3× leaving out the closed type's accessors and counting `impl Ord` as logic. Its first draft was 2.8× ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)) |
-| Silent wrong values keep appearing | Not met in the examples: none appeared in any of them. The generator is not as clean as that row once read: audits found output that disagreed with Rust on accepted input in 0.8.1 (a `?` in a `for` range's end ran before its start), 0.9.0 (a `?` inside `ok_or(..)?` left only an inline function), and 0.9.1 (`r.ok().is_some()` gave 0 for `Ok(0)`; a struct pattern's guard read a name its closure hid), each in a shape no fixture spelled. Since then `generated_equivalence.rs` builds such shapes from seeds: no value disagreed on any seed whose output reached node, and a `?` in `ok_or`'s argument, printed in an inline function, was found and fixed before it could (tsc refused its type). With the runtime's `Result` defaults and the narrowing folds of 0.10.0, seeds 1 to 120 reach node and agree (7,200 functions, 86,400 calls); one fold, wrong where an arm reassigned the place, was caught by an existing fixture before release. Generators over the rest of the subset (bodies with loops and jumps, transitions over a crate's types with nested patterns and guards, integer widths, strings and `Vec`; [07 §8.15](./07-roadmap.md#815-0101-the-generator-across-the-subset-2026-10-04)) then found two more: `match o.ok_or(x.ok_or(e)?)` returned from an inline function only and took the `Err` arm, and `if let Some(0) = o` threw for `Some(5)`. Both fixed; seeds 1 to 120 of all five generators agree on every value (26,400 functions, 316,800 calls) |
-| No real use | Open. No real-world replacement yet (§5.2) |
+| More than half of third-party specs cannot be written | Not met. 14 of the 16 examples are from third-party specs (all but counter and order, [00 §4.1](./00-overview.md#41-examples)); all 14 could be written |
+| Constrained Rust exceeds 2× | Met by three of the eleven examples the script measures (2026-10-13, table below): jsonpatch 4.1×, payment 2.4×, semver 2.3×; iban is at 2.0×. jsonpatch is not like for like (its reference parses with serde_json; the patch layer alone is 2.8×, [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)). payment and semver crossed it with the fixes the independent reviews asked for (2026-10-05): the checked constructor payment's intents go through, and semver's equality and formatting with a `u64`'s digits built by hand; semver is 1.6× leaving out the closed type's accessors and counting `impl Ord` as logic, as 07 §2.2 adjusts it. Not yet weighed as a decision to withdraw: the excess in each is named in 07 §2.2, and whether the threshold counts these is open ([07 §7](./07-roadmap.md#7-open-questions)) |
+| Silent wrong values keep appearing | Not met in the examples: none appeared in any of them. The generator is not as clean as that row once read: audits found output that disagreed with Rust on accepted input in 0.8.1 (a `?` in a `for` range's end ran before its start), 0.9.0 (a `?` inside `ok_or(..)?` left only an inline function), and 0.9.1 (`r.ok().is_some()` gave 0 for `Ok(0)`; a struct pattern's guard read a name its closure hid), each in a shape no fixture spelled. Since then the generators build such shapes from seeds ([CHANGELOG 0.10.0 to 0.10.3](../CHANGELOG.md#0103--2026-10-04)), and seeds 1 to 120 of all five agree on every value (26,400 functions, 316,800 calls). The hole hunt after 0.13.1 (four generators over its additions and a review of its diff) found wrong values with no error again, in shapes no example writes (`const M: i128 = !0;` folded as unsigned, `!x.is_infinite()` always `false`, a struct holding NaN equal to its `clone()`), among about 40 holes fixed in 0.13.2 ([CHANGELOG](../CHANGELOG.md#0132--2026-10-11)) |
+| No real use | Open. No real-world replacement yet; the Oxide `Name` proposal is the one exception to the no-outreach decision, with a deadline (§5.2) |
 
-Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120 (`scripts/line-counts.py`); the history column was taken as written. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
+Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120, as `scripts/line-counts.py` printed them on 2026-10-13. signup is counted by hand (its test has no idiomatic module); counter and order are the author's own, and ssh and raft are checked rule by rule instead of against a second implementation, so none of the four is measured. The history column was taken as written, before rustfmt normalization. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
 
-| Example | Ratio | History |
-| --- | --- | --- |
-| signup | 1.5× (email), 1.4× (password) | 2.8× at first; under 2× after range `for`; measured by hand, no idiomatic module in its test |
-| iban | 1.8× | 2.4× at first; 1.9× after range `for` |
-| payment | 1.6× | 2.1× at first, 1.8× after `_` and `A \| B` arms; one tuple `match` in 0.4.0 |
-| invoice | 1.6× | 2.2× for the first draft, 1.4× restructured (as written) |
-| oidc | 1.3× | 1.65× written from the authoring skill alone; 0.4.0 rewrite |
-| semver | 1.8× (1.3× counting `impl Ord` as logic and leaving out the closed type's accessors) | 2.8× written from the authoring skill alone, 2.6× restructured; 2.2× with ordering (0.5.0); 1.8× with `split_once`, `collect`, and `Some((a, b))` (0.7.0) |
+| Example | Idiomatic | Constrained | Ratio | History |
+| --- | --- | --- | --- | --- |
+| signup | 28, 17 | 42, 24 | 1.5× (email), 1.4× (password) | 2.8× at first; under 2× after range `for` |
+| iban | 24 | 48 | 2.0× | 2.4× at first; 1.9× after range `for`; 1.8× until the reviews' fixes |
+| payment | 52 | 125 | 2.4× | 2.1× at first, 1.8× after `_` and `A \| B` arms, 1.7× after 0.4.0; 2.4× with the checked constructor the reviews asked for |
+| invoice | 54 | 96 | 1.8× | 2.2× for the first draft, 1.4× restructured; 1.8× with the reviews' rounding and checked arithmetic |
+| oidc | 390 | 576 | 1.5× | 1.65× written from the authoring skill alone; 1.2× after 0.4.0; 1.4× with SHA-256 and base64url written in the subset |
+| semver | 72 | 165 | 2.3× (1.6× adjusted) | 2.8× from the skill alone; 1.8× with `split_once` and `collect` (0.7.0); 2.3× with equality and formatting |
+| punycode | 152 | 267 | 1.8× | 2.0× from the skill alone; 1.7× with `Vec::insert` |
+| calendar | 439 | 738 | 1.7× | 1.8× from the skill alone; 1.7× with `eq_ignore_ascii_case` and name tables |
+| jsonpatch | 159 | 648 | 4.1× (patch layer 2.8×) | 789 lines as written; 648 with 0.13.1 |
+| geo | 135 | 222 | 1.6× | 2.2× as written; 1.6× with 0.13.1's float methods and casts |
+| ulid | 59 | 95 | 1.6× | 3.4× as written; 1.6× with `u128`, narrowing `as`, and a byte-string alphabet |
+| negotiate | 188 | 295 | 1.6× | 2.6× as written; 1.6× with 0.13.1's string methods, sorts, and consumers |
 
 ## 5. Validating demand next
 
@@ -142,7 +148,9 @@ Done: Stripe's PaymentIntent lifecycle (payment), then invoice (NTA) and oidc (O
 - **Status.** Still open, and the only withdrawal criterion not yet answered.
 - **Target** ([91](./91-real-use-candidates.md)): Oxide's resource `Name` rule (omicron's Rust, console's hand-written TS, which already disagree), then Stoat's permission calculator.
 - **Done locally**, on local branches ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)): the console runs omicron's rule, generated, and agrees with it on 106,000 names where the hand-written copy disagreed on 39,852. Not yet proposed upstream, so the criterion stays open until it is used there.
-- **No outreach.** Decided with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)). The local branches stay as evidence, and the criterion is answered only by an adoption that happens without being asked for.
+- **No outreach, with one exception.** Decided with the 0.1.0 release: no outreach and no requests to adopt ([07 §8](./07-roadmap.md#8-releases)). Waiting for an adoption nobody asked for gave the criterion no way to close, so two things were added on 2026-10-13:
+  - **Exception.** Proposing the Oxide `Name` change to omicron and console, from the local branches, is allowed: one proposal per repository, made by the author. It answers the criterion if either repository merges it. Nothing else changes: no other project is approached, and Stoat stays a candidate only.
+  - **Deadline.** If by 2027-04-13 there is still no real use (the Oxide proposal merged, or an adoption that happens without being asked for), the condition counts as holding, and §4.2's withdraw-or-switch decision is taken then.
 - **Packaging.** Generated packages carry their runtime, so nothing but the schema library is installed beside them ([03](./03-output.md)).
 - **Finding.** Dual implementations with drift turned out common in public Rust + TS projects, and mostly validation rules.
 

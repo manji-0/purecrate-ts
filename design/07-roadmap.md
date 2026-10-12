@@ -46,23 +46,23 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (invoice, oidc, payment, and semver remeasured on 2026-10-04, after `clone`, `map` / `sum` over a `Vec`, struct patterns, and `_` in `collect`; oidc's idiomatic side grew with its lockout and consent fixes; payment's struct pattern is longer as rustfmt lays it out; iban is unchanged since 0.4.1):
+**Now** (`scripts/line-counts.py`, 2026-10-13; signup by hand). The independent reviews' fixes (2026-10-05, below) are in these figures:
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
 | signup: email (WHATWG) | 28 | 42 | 1.5× | 2.8× with recursion only; 1.9× with range `for` |
 | signup: password (NIST) | 17 | 24 | 1.4× | 1.6×; 1.4× |
-| iban | 24 | 44 | 1.8× | 2.4× with recursion only; 1.9× with range `for` |
-| invoice | 48 | 76 | 1.6× | 2.2× first draft; 1.4× restructured |
-| punycode | 154 | 285 | 1.9× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building |
-| calendar | 428 | 722 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
+| iban | 24 | 48 | 2.0× | 2.4× with recursion only; 1.9× with range `for` |
+| invoice | 54 | 96 | 1.8× | 2.2× first draft; 1.4× restructured |
+| punycode | 152 | 267 | 1.8× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building |
+| calendar | 439 | 738 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
 | jsonpatch | 159 | 648 | 4.1× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 304 (2.8×), below. 789 as written (2026-10-11), 781 with `Vec::insert`, 648 with 0.13.1 (§8.18) |
 | geo | 135 | 222 | 1.6× | 297 (2.2×) as written (2026-10-11); 222 with 0.13.1's float methods and casts (§8.18) |
 | ulid | 59 | 95 | 1.6× | 201 (3.4×) as written (2026-10-11); 95 with `u128`, narrowing `as`, and a byte-string alphabet (§8.18) |
 | negotiate | 188 | 295 | 1.6× | 494 (2.6×) as written (2026-10-11); 295 with 0.13.1's string methods, sorts, and consumers (§8.18) |
-| oidc | 369 | 429 | 1.2× | 1.65× as written from the skill alone |
-| payment | 61 | 103 | 1.7× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 75 | 123 | 1.6× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
+| oidc | 390 | 576 | 1.5× | 1.65× as written from the skill alone |
+| payment | 52 | 125 | 2.4× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
+| semver | 72 | 165 | 2.3× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
 **After the independent reviews** (2026-10-05, `scripts/line-counts.py`, logic only): the fixes the reviews asked for moved four examples. invoice 53 / 93 (1.8×): one rounding per rate on converted totals, three methods, and checked arithmetic. oidc 369 / 514 (1.4×): SHA-256 and base64url are written in the subset, so the PKCE challenge is computed from the verifier rather than passed in. payment 46 / 109 (2.4×): the checked constructor an intent read from JSON goes through. semver 72 / 165 (2.3×): equality and formatting, with the decimal digits of a `u64` built by hand, as no number turns into text in the subset. punycode went down, 155 / 271 (1.7×), with `Vec::insert`.
 
@@ -229,6 +229,7 @@ Waits for an example that cannot be written without it.
 - Hermes support for `JSON.parse` source text ([04 §7](./04-wire.md#7-open-questions)).
 - A shared error type with field paths for validation ([01 §4](./01-equivalence.md#4-closed-types)).
 - Demand: see [06 §5](./06-strategy.md#5-validating-demand-next).
+- The 2× line threshold ([06 §4.3](./06-strategy.md#43-status)): jsonpatch, payment, and semver are over it by the script since the independent reviews' fixes (2026-10-05). Whether the threshold counts a reference that does less work (jsonpatch's serde_json, semver's accessors) is undecided, and so is what crossing it asks for.
 
 ## 8. Releases
 
@@ -238,7 +239,7 @@ Waits for an example that cannot be written without it.
 Per release: why, what, and the test that verifies each item. [CHANGELOG.md](../CHANGELOG.md) has the user-facing list. Decided with 0.1.0 ([06 §5.2](./06-strategy.md#52-one-real-use)):
 
 - Later releases take language capabilities first, in the order the examples' measured gaps give.
-- Adoption is left to happen on its own, with no outreach and no requests to adopt.
+- Adoption is left to happen on its own, with no outreach and no requests to adopt. One exception was added on 2026-10-13: proposing the Oxide `Name` change upstream, with a deadline of 2027-04-13 for the real-use criterion ([06 §5.2](./06-strategy.md#52-one-real-use)).
 - Distribution work waits for someone to need it.
 
 ### 8.1 0.1.0 (2026-09-30)

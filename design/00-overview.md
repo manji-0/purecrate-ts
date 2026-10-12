@@ -76,7 +76,7 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ### 4.1 Examples
 
-Eight examples are written within the constraints and differentially tested:
+Sixteen examples are written within the constraints and differentially tested: two are the author's own, fourteen follow a third-party specification.
 
 | Example | Source |
 | --- | --- |
