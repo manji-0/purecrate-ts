@@ -336,7 +336,7 @@ Tested with empty pieces, a non-ASCII separator, a function name and a closure, 
 
 | Check | Mechanism |
 | --- | --- |
-| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings. Inputs are chosen by hand at the edges; where the logic has many paths (integer methods, slicing, guards), a fixed-seed generator adds random ones, half at the edges of each width (`support::Rng`) |
+| Values | Differential tests: same inputs through Rust and the generated TS on Node, results compared as canonical strings. Inputs are chosen by hand at the edges; where the logic has many paths (integer methods, slicing, guards), a fixed-seed generator adds random ones, half at the edges of each width (`support::Rng`). `purecrate-ts test` draws them for a user's crate (§8.4) |
 | Types | `tsc --strict` on TypeScript 6 and 7 for every fixture, the runtime packages, and the wire schemas |
 | Wire | Readers against serde's default JSON; `toJson` against the vendored serde_json byte for byte (`wire_write.rs`) |
 | Determinism | `check --out` compares bytes with the existing output |
@@ -367,3 +367,15 @@ All of this is measured on examples, so equivalence is as strong as the examples
 
 - all 1296 sequences for control and vending;
 - all 4-step sequences for order and, under each capture and confirmation method, for payment.
+### 8.4 A user's crate: `purecrate-ts test`
+
+The differential tests above run on the examples and fixtures. `purecrate-ts test <crate>` runs the same comparison on a user's crate, with no test written by hand:
+
+- **Rust side.** The crate's files are copied with a harness appended to each and compiled by rustc as one binary, with overflow checks and debug assertions on. A file gets `Show` (the canonical form of §8.1) and `Arb` (a value drawn with its TS spelling) for each type it declares, and a case for each function under test it declares, so private fields and the file's own names are all the harness needs.
+- **Arguments.** Drawn from each parameter's type with a seed (`--seed`, default 1), `--cases` per function (default 100): integers half the time at the edges of their width, `usize` below 2^53, floats from a list of edges (signed zeros, NaN, infinities, `MAX`) and at random, strings from the crate's own literals, a fixed alphabet (ASCII punctuation, controls, two- to four-byte code points), and runs of two to four characters, lengths often the crate's own small integer literals. Open structs and enums are drawn field by field and variant by variant; a closed type through its public constructors (an associated function, or a free function of its file, returning it, `Result` or `Option` of it), never field by field, and its TS spelling is the constructor call that made it.
+- **TS side.** The package `build` would write, run by node with a driver that makes each call and prints the result with the printers the differential tests use (`crates/cli/src/difftest/printers.rs`).
+- **Result.** Each function is `ok`, `DIFFERS` (the first distinct calls, each with both results; the exit status is 1), or `no cases` when none of a closed parameter's constructors succeeded on drawn input. A function is skipped with the reason when a parameter's type cannot be drawn (a closure, `uuid::Uuid`, a closed type with no constructor).
+- **Limits.** A crate that names `uuid::` is refused: rustc gets a stand-in for `uuid`, which parses nothing. Types and modules declared inside an inline `mod x { .. }` are not reached by what is appended at the end of the file. Coverage is what the draws reach: a constructor that needs a checksum (IBAN) or structured text (an RRULE) is seldom satisfied by drawn input, and the functions behind it get no cases.
+
+Run on every example (2026-10-13): no difference. On a crate with `fn double(n: usize) -> usize { n * 2 }` it reports the stated non-equivalence of §3 (Rust goes past 2^53 − 1, the TS `number` throws); `crates/cli/tests/it/test_command.rs` checks both.
+

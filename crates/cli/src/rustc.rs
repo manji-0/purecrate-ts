@@ -76,6 +76,36 @@ pub fn compile(src: &Path, edition: &str) -> Result<(), Failure> {
     Err(Failure::Rejected(errors))
 }
 
+/// Compiles the `test` harness rooted at `main` into the binary `out`, as
+/// a debug build checks: overflow checks and debug assertions on.
+pub fn compile_harness(main: &Path, edition: &str, crate_name: &str, out: &Path) -> Result<(), String> {
+    let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let failure = |f: Failure| match f {
+        Failure::Other(e) => e,
+        Failure::Rejected(errors) => errors.iter().map(RustcError::line).collect::<Vec<_>>().join("\n"),
+    };
+    let stubs = stubs(&rustc).map_err(failure)?;
+    let output = Command::new(&rustc)
+        .args(["--edition", edition, "--crate-type", "bin", "--crate-name", crate_name])
+        .args(["-C", "overflow-checks=on", "-C", "debug-assertions=on"])
+        .arg("--extern")
+        .arg(format!("serde={}", stubs.serde.display()))
+        .arg("--extern")
+        .arg(format!("uuid={}", stubs.uuid.display()))
+        .arg("-L")
+        .arg(&stubs.dir)
+        .args(["--cap-lints", "allow", "--error-format=short", "--color=never", "-o"])
+        .arg(out)
+        .arg(main)
+        .output()
+        .map_err(|e| format!("run {}: {e}", Path::new(&rustc).display()))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("rustc rejects the test harness:\n{}", String::from_utf8_lossy(&output.stderr).trim_end()))
+    }
+}
+
 const SERDE_DERIVE_STUB: &str = "extern crate proc_macro;
 use proc_macro::TokenStream;
 #[proc_macro_derive(Serialize, attributes(serde))]

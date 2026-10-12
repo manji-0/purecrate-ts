@@ -11,19 +11,22 @@ pub struct CrateFile {
     pub text: String,
     /// Every `mod` from the root to this file is `pub`.
     pub public: bool,
+    /// The module path from the crate root: empty for the root,
+    /// `["a", "b"]` for `a/b.rs`.
+    pub module: Vec<String>,
 }
 
 /// The root first, then module files in declaration order, depth first.
 pub fn crate_files(root: &Path) -> Result<Vec<CrateFile>, String> {
     let mut out = Vec::new();
-    visit(root, module_dir(root, true), true, &mut out)?;
+    visit(root, module_dir(root, true), true, Vec::new(), &mut out)?;
     Ok(out)
 }
 
-fn visit(path: &Path, dir: PathBuf, public: bool, out: &mut Vec<CrateFile>) -> Result<(), String> {
+fn visit(path: &Path, dir: PathBuf, public: bool, module: Vec<String>, out: &mut Vec<CrateFile>) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let decls = module_decls_vis(&text).map_err(|e| format!("{}:{e}", path.display()))?;
-    out.push(CrateFile { path: path.to_path_buf(), text, public });
+    out.push(CrateFile { path: path.to_path_buf(), text, public, module: module.clone() });
     for (decl, decl_public) in decls {
         let base = decl.iter().fold(dir.clone(), |d, seg| d.join(seg));
         let flat = base.with_extension("rs");
@@ -41,7 +44,8 @@ fn visit(path: &Path, dir: PathBuf, public: bool, out: &mut Vec<CrateFile>) -> R
                 nested.display()
             ));
         };
-        visit(&file, base, public && decl_public, out)?;
+        let child = module.iter().chain(&decl).cloned().collect();
+        visit(&file, base, public && decl_public, child, out)?;
     }
     Ok(())
 }

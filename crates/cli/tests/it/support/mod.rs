@@ -20,6 +20,8 @@ mod driver;
 pub mod generated;
 #[path = "../../../src/oxfmt.rs"]
 mod oxfmt;
+#[path = "../../../src/difftest/printers.rs"]
+mod printers;
 mod values;
 
 use driver::driver;

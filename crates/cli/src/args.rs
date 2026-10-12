@@ -9,6 +9,7 @@ usage:
   purecrate-ts --version | --help
   purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
+  purecrate-ts test <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--keep <dir>] [--allow-overflow-wrap]
   purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts: a
@@ -31,6 +32,15 @@ and build refuse a crate whose (or whose workspace's) [profile.release]
 does not set overflow-checks = true: generated TypeScript panics on
 overflow as a debug build does, so a --release server that wraps will
 disagree. --allow-overflow-wrap makes that a warning. check with --out also fails when <dir> differs from what build would write.
+test runs what check runs, then calls each public function and method of
+the crate in Rust (compiled with overflow checks, as a debug build) and in
+the generated TypeScript (under node) on the same arguments, and fails
+when a result or a panic differs. Arguments are drawn from each
+parameter's type, seeded (--seed, default 1), --cases per function
+(default 100): integers near their edges, strings from the crate's own
+literals and a fixed alphabet, open structs and enums field by field,
+and closed types through their public constructors. --keep leaves the
+Rust harness and the TypeScript driver in <dir>.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
 one JSON object per crate. --all-causes lowers each item past what it
@@ -58,6 +68,7 @@ const EDITIONS: &[&str] = &["2015", "2018", "2021", "2024"];
 pub enum Command {
     Build { input: Input, out: PathBuf, options: Options },
     Check { input: Input, out: Option<PathBuf>, options: Options },
+    Test { input: Input, options: Options, test: TestOptions },
     Survey { inputs: Vec<Input>, json: bool, all_causes: bool },
     Version,
     Help,
@@ -70,6 +81,22 @@ pub struct Options {
     pub publishable: bool,
     /// A release profile that wraps on overflow is a warning, not an error.
     pub allow_overflow_wrap: bool,
+}
+
+/// The flags of `test` alone.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TestOptions {
+    /// Calls per function.
+    pub cases: usize,
+    pub seed: u64,
+    /// Where to leave the harness and the driver.
+    pub keep: Option<PathBuf>,
+}
+
+impl Default for TestOptions {
+    fn default() -> Self {
+        TestOptions { cases: 100, seed: 1, keep: None }
+    }
 }
 
 pub fn parse(args: &[String]) -> Result<Command, String> {
@@ -87,6 +114,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut edition: Option<String> = None;
     let mut out: Option<PathBuf> = None;
     let mut options = Options::default();
+    let mut test = TestOptions::default();
+    // Flags only `build` and `check` take, named in the error `test` gives.
+    let mut package_flag: Option<&str> = None;
+    let mut test_flag: Option<&str> = None;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -98,10 +129,32 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 }
                 edition = Some(value.clone());
             }
-            "--out" => out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
-            "--publishable" => options.publishable = true,
+            "--out" => {
+                package_flag = Some("--out");
+                out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?));
+            }
+            "--publishable" => {
+                package_flag = Some("--publishable");
+                options.publishable = true;
+            }
+            "--cases" => {
+                test_flag = Some("--cases");
+                let value = it.next().ok_or("--cases needs a number")?;
+                test.cases =
+                    value.parse().ok().filter(|n| *n > 0).ok_or(format!("--cases {value} is not a positive number"))?;
+            }
+            "--seed" => {
+                test_flag = Some("--seed");
+                let value = it.next().ok_or("--seed needs a number")?;
+                test.seed = value.parse().map_err(|_| format!("--seed {value} is not a number"))?;
+            }
+            "--keep" => {
+                test_flag = Some("--keep");
+                test.keep = Some(PathBuf::from(it.next().ok_or("--keep needs a directory")?));
+            }
             "--allow-overflow-wrap" => options.allow_overflow_wrap = true,
             "--schema" => {
+                package_flag = Some("--schema");
                 let value = it.next().ok_or("--schema needs zod, valibot, or arktype")?;
                 if !matches!(value.as_str(), "zod" | "valibot" | "arktype") {
                     return Err(format!("--schema {value} is not zod, valibot, or arktype"));
@@ -118,10 +171,13 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     if let Some(e) = edition {
         input.edition = e;
     }
-    match verb.as_str() {
-        "build" => Ok(Command::Build { input, out: out.ok_or("build needs --out <dir>")?, options }),
-        "check" => Ok(Command::Check { input, out, options }),
-        other => Err(format!("unknown command {other}")),
+    match (verb.as_str(), package_flag, test_flag) {
+        ("build" | "check", _, Some(flag)) => Err(format!("{flag} is a flag of test, not {verb}")),
+        ("test", Some(flag), _) => Err(format!("{flag} is a flag of build and check, not test")),
+        ("build", ..) => Ok(Command::Build { input, out: out.ok_or("build needs --out <dir>")?, options }),
+        ("check", ..) => Ok(Command::Check { input, out, options }),
+        ("test", ..) => Ok(Command::Test { input, options, test }),
+        (other, ..) => Err(format!("unknown command {other}")),
     }
 }
 
@@ -352,11 +408,33 @@ mod tests {
             panic!("expected build");
         };
         assert!(options.publishable && !options.allow_overflow_wrap);
-        let Command::Check { options, .. } = parse(&args(&["check", src, "--publishable", "--allow-overflow-wrap"])).unwrap()
+        let Command::Check { options, .. } =
+            parse(&args(&["check", src, "--publishable", "--allow-overflow-wrap"])).unwrap()
         else {
             panic!("expected check");
         };
         assert!(options.publishable && options.allow_overflow_wrap);
+    }
+
+    #[test]
+    fn test_takes_its_own_flags_and_not_the_package_ones() {
+        let src = examples().join("counter/src/lib.rs");
+        let src = src.to_str().unwrap();
+        let Command::Test { test, .. } = parse(&args(&["test", src])).unwrap() else {
+            panic!("expected test");
+        };
+        assert_eq!(test, TestOptions::default());
+        let Command::Test { test, options, .. } =
+            parse(&args(&["test", src, "--cases", "7", "--seed", "42", "--keep", "k", "--allow-overflow-wrap"]))
+                .unwrap()
+        else {
+            panic!("expected test");
+        };
+        assert_eq!((test.cases, test.seed, test.keep), (7, 42, Some(PathBuf::from("k"))));
+        assert!(options.allow_overflow_wrap);
+        assert!(parse(&args(&["test", src, "--cases", "0"])).unwrap_err().contains("--cases 0"));
+        assert!(parse(&args(&["test", src, "--out", "o"])).unwrap_err().contains("not test"));
+        assert!(parse(&args(&["check", src, "--seed", "1"])).unwrap_err().contains("not check"));
     }
 
     #[test]

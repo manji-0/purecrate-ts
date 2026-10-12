@@ -35,12 +35,14 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 ```text
 purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable] [--allow-overflow-wrap]
 purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable] [--allow-overflow-wrap]
+purecrate-ts test   <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--keep <dir>] [--allow-overflow-wrap]
 purecrate-ts survey <crate-path>... [--json] [--all-causes]
 ```
 
 - `<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs` file; module files it declares (`mod x;`) are read too. `--name` defaults to the `Cargo.toml` package name.
 - `build` replaces `--out` whole, removing files an earlier build left, but keeps `node_modules/` so an `npm install` in the package survives a rebuild (`dist/` is dropped: it is stale). It refuses a directory that is not empty and was not written by `build`.
 - `check` writes nothing. It rejects out-of-subset input as `path:line:col` plus a reason code, then rustc errors as e.g. `[rustc/E0382]`. With `--out`, it also compares the result byte for byte with an existing output. `check` and `build` refuse a crate whose `[profile.release]` does not set `overflow-checks = true`; `--allow-overflow-wrap` makes that a warning.
+- `test` checks the generated package against your crate: it calls every public function and method in Rust (a debug build) and in the generated TypeScript (under node) on the same arguments, drawn from each parameter's type with a seed, and fails naming each call whose result or panic differs. Closed types are built through their public constructors. See [design/01 §8.4](design/01-equivalence.md#84-a-users-crate-purecrate-ts-test).
 - The output is an npm package. `npm run build` emits `dist` (it also runs before `npm pack` and `npm publish`). The runtime and, with `--schema`, the adapter are copied into `src/`; the schema library is the only peer dependency. `version` and `license` come from `Cargo.toml`. The generated `package.json` says `"private": true`, so `npm publish` refuses it; `--publishable` leaves that out. See [Distribution](#distribution).
 - `--schema` emits `src/purecrate-wire.ts`, which reads serde's default JSON into the domain's branded types and writes it back with `toJson.T(x)`, the same bytes serde_json writes. Read JSON text with `fromJson.T(text)`, the inverse of `toJson.T`, which goes through `parseJson` so that `i64`/`u64` above 2^53 stay exact, and throws on malformed text or a refused value; never `JSON.parse` then the schema.
 - `survey` reports, for each public function and type, whether it is accepted with everything it refers to, and the first cause when it is not. `--all-causes` lowers each item past what it cannot take and lists every cause, the type check's included, to estimate a rewrite.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`purecrate-ts test <crate>`** runs the differential comparison on your own crate: every public function and method is called in Rust (compiled with overflow checks and debug assertions) and in the generated TypeScript (under node) on the same arguments, drawn from each parameter's type with a seed (`--seed`, `--cases`), and it fails naming each call whose result or panic differs. Integers are drawn at the edges of their width, strings from the crate's own literals and a fixed alphabet, open structs and enums field by field, and closed types through their public constructors. `--keep <dir>` leaves the harness and the driver. A crate that uses `uuid` is refused. On every example it finds no difference; on `usize` past 2^53 − 1 it reports the stated non-equivalence (design/01 §8.4).
+
 ### Changed
 
 - **`check` and `build` refuse a crate whose `[profile.release]` does not set `overflow-checks = true`** (theirs or their workspace's), where they used to warn: a `--release` server built from it wraps on overflow, where the generated TypeScript panics as a debug build does. `--allow-overflow-wrap` makes it the warning it was. A single `.rs` file with no manifest has no profile and is not refused.

@@ -28,11 +28,11 @@ crate source (root and module files)
 | `check` | names, resolution, reachability, typing, exhaustiveness, `_` expansion, renaming (`check::accept`) |
 | `emit_ts` | IR → TS strings, operators as a tree that sets their parentheses (`tx.rs`); wire schemas and `toJson` (`schema.rs`) |
 | `pack` | package assembly |
-| `cli` | `build`, `check`, `survey`. Tests: goldens, differential tests, package and wire tests |
+| `cli` | `build`, `check`, `test` (`difftest/`: the Rust harness and the node driver), `survey`. Tests: goldens, differential tests, package and wire tests |
 | `canon` | test-only proc-macro: canonical value printing ([01 §8](./01-equivalence.md#8-verification)) and derive-equivalent `Serialize` impls ([04 §6](./04-wire.md#6-reading-and-writing-text)) |
 
 - **Runtime packages.** The TS runtime and the three schema adapters are written by hand in `packages/`; `pack` embeds their sources and copies them into every generated package, the runtime cut to what the package uses ([03](./03-output.md)).
-- **Purity.** File I/O is confined to `cli` and `pack`; everything else is pure. `cli` also runs two programs: `rustc` on the input, and oxfmt over the output (`build` and `check --out`; `oxfmt.rs`), since oxc's formatter is not published as a crate.
+- **Purity.** File I/O is confined to `cli` and `pack`; everything else is pure. `cli` also runs programs: `rustc` on the input, oxfmt over the output (`build` and `check --out`; `oxfmt.rs`), since oxc's formatter is not published as a crate, and for `test` the compiled harness and node.
 - **Dependencies.** Dependencies are ordinary crates.io requirements, read from `vendor/` through source replacement (`.cargo/config.toml`) and built with `--offline`.
 
   | Used by | Crates |
@@ -96,11 +96,12 @@ See `crates/ir/src` for the exact definitions; the sketch above is not maintaine
 ## 5. CLI
 
 ```text
-purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable]
-purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema …] [--publishable]
-purecrate-ts survey <crate-path>... [--json]
+purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable] [--allow-overflow-wrap]
+purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema …] [--publishable] [--allow-overflow-wrap]
+purecrate-ts test   <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--keep <dir>] [--allow-overflow-wrap]
+purecrate-ts survey <crate-path>... [--json] [--all-causes]
 ```
 
-`<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs`. `--name` defaults to the `Cargo.toml` package name, then the directory name. `check --out` also compares bytes with an existing output, listing differing, missing, and extra files. `survey` reports, per public function and type, whether it is accepted together with everything it references ([90](./90-acceptance-survey.md)).
+`<crate-path>` is a crate directory (`src/lib.rs`) or a single `.rs`. `--name` defaults to the `Cargo.toml` package name, then the directory name. `check --out` also compares bytes with an existing output, listing differing, missing, and extra files. `test` calls the crate's public functions in Rust and in the generated TS on drawn arguments and compares the results ([01 §8.4](./01-equivalence.md#84-a-users-crate-purecrate-ts-test)). `survey` reports, per public function and type, whether it is accepted together with everything it references ([90](./90-acceptance-survey.md)).
 
 `scripts/verify.sh` runs `cargo test --offline`, drift detection on every example's committed output (`examples/<name>/ts/plain`, and `ts/<lib>` with each schema library where the example derives serde), and `tsc` on TypeScript 6 and 7 for the runtime packages and those outputs.

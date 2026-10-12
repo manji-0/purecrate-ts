@@ -1,4 +1,5 @@
 mod args;
+mod difftest;
 mod drift;
 mod files;
 mod oxfmt;
@@ -40,16 +41,16 @@ fn main() -> ExitCode {
 
 fn execute(command: Command) -> Result<(), String> {
     match command {
-        Command::Build { input, out, options } => {
-            load(&input, "nothing written", &options)
-                .and_then(|pkg| laid_out(pkg, &input.src, &out))
-                .and_then(|pkg| write_replacing(&out, &pkg.files))
-        }
+        Command::Build { input, out, options } => load(&input, "nothing written", &options)
+            .and_then(|pkg| laid_out(pkg, &input.src, &out))
+            .and_then(|pkg| write_replacing(&out, &pkg.files)),
         Command::Check { input, out: None, options } => load(&input, "", &options).map(|_| ()),
-        Command::Check { input, out: Some(out), options } => {
-            load(&input, "", &options)
-                .and_then(|pkg| laid_out(pkg, &input.src, &out))
-                .and_then(|pkg| check_drift(&input, &out, &pkg))
+        Command::Check { input, out: Some(out), options } => load(&input, "", &options)
+            .and_then(|pkg| laid_out(pkg, &input.src, &out))
+            .and_then(|pkg| check_drift(&input, &out, &pkg)),
+        Command::Test { input, options, test } => {
+            let loaded = analyze(&input, "nothing run", &options)?;
+            difftest::run(&input, &loaded, &test)
         }
         Command::Survey { inputs, json, all_causes } => run_survey(&inputs, json, all_causes),
         Command::Version => {
@@ -105,6 +106,19 @@ fn access(publishable: bool) -> Access {
 /// Parse, check, compile with rustc, prune, emit. `consequence` ends the
 /// error summary line.
 fn load(input: &Input, consequence: &str, options: &Options) -> Result<Package, String> {
+    analyze(input, consequence, options).map(|loaded| loaded.package)
+}
+
+/// What `load` reads and makes: the files, the crate as parsed (item by
+/// item, with the file each came from), and the package.
+pub struct Loaded {
+    pub files: Vec<files::CrateFile>,
+    pub krate: purecrate_ir::Crate,
+    pub spans: Vec<(usize, LineCol)>,
+    pub package: Package,
+}
+
+fn analyze(input: &Input, consequence: &str, options: &Options) -> Result<Loaded, String> {
     let schema = parse_schema(options.schema.clone())?;
     let access = access(options.publishable);
     if let Some(wrap) = args::overflow_wrap(&input.src) {
@@ -132,7 +146,10 @@ fn load(input: &Input, consequence: &str, options: &Options) -> Result<Package, 
                             lib.runtime_dep(),
                             summary(1, consequence)
                         )),
-                        _ => Ok(assemble_with_license(&pruned, schema, &input.version, &input.license, access)),
+                        _ => {
+                            let package = assemble_with_license(&pruned, schema, &input.version, &input.license, access);
+                            Ok(Loaded { files, krate, spans, package })
+                        }
                     }
                 }
                 Err(rustc::Failure::Other(e)) => Err(e),
