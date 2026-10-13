@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-10-13
+
+`check` and `build` now refuse a release profile that wraps on overflow (`--allow-overflow-wrap` keeps the warning), `purecrate-ts test` runs the differential comparison on your own crate, and the wire reads and writes `#[serde(rename)]`, `rename_all`, and internally and adjacently tagged enums as serde does. The release history that was design/07 §8 now lives here, under each version's Rationale heading.
 
 ### Added
 
