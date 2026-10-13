@@ -64,3 +64,7 @@ pub fn built(xs: Vec<u32>) -> String {
 pub fn only_text() -> String {
     format!("plain {{text}}")
 }
+
+pub fn sizes(n: usize, ok: bool) -> String {
+    format!("[{n:5}|{n:05}|{n:<3}|{ok:6}|{ok:>6}|{ok:^7}]")
+}

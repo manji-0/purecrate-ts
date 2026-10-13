@@ -57,5 +57,8 @@ fn format_matches_rust() {
         cases.push(case!(format::built(Vec::<u32>::new())));
         cases.push(case!(format::built(vec![1, 22, 333, 4444])));
         cases.push(case!(format::only_text()));
+        for (n, ok) in [(0, true), (7, false), (123456, true), ((1usize << 53) - 1, false)] {
+            cases.push(case!(format::sizes(n, ok)));
+        }
     });
 }

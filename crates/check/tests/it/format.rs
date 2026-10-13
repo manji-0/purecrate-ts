@@ -49,5 +49,10 @@ fn arguments_out_of_order_are_refused() {
     let needle = "uses its arguments out of order or more than once";
     assert_parse_rejects("pub fn f(a: u8, b: u8) -> String { format!(\"{1}{0}\", a + 1, b + 1) }", needle);
     assert_parse_rejects("pub fn f(a: u8) -> String { format!(\"{0}{0}\", a + 1) }", needle);
-    assert_parse_rejects("pub fn f(a: u8) -> String { let mut n = a; format!(\"{n}{}\", { n += 1; n }) }", "assigns");
+    let needle = "with a statement or an assignment";
+    assert_parse_rejects("pub fn f(a: u8) -> String { let mut n = a; format!(\"{n}{}\", { n += 1; n }) }", needle);
+    assert_parse_rejects(
+        "pub fn f(s: String) -> String { let mut t = s; format!(\"{t}{}\", { t.push('x'); 1u8 }) }",
+        needle,
+    );
 }

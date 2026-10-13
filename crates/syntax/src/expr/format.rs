@@ -111,7 +111,9 @@ pub(super) fn lower_format(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError
         ));
     }
     if args.iter().zip(&atoms).any(|(a, atom)| !atom && writes(a)) {
-        return Err(refuse("a `format!` argument that assigns is not in v0: assign before the `format!`"));
+        return Err(refuse(
+            "a `format!` argument with a statement or an assignment is not in v0: run it before the `format!`",
+        ));
     }
 
     if args.is_empty() {
@@ -140,11 +142,16 @@ fn is_atom(e: &SynExpr) -> bool {
     }
 }
 
+/// Whether an argument may write a local: an assignment, or a statement
+/// in a block, where `push` and the other writes stand before `check`
+/// rewrites them. A captured name placed before it would read the local
+/// before the write in TS, after it in Rust.
 fn writes(e: &Expr) -> bool {
     e.any(|e| {
         matches!(
             e,
             Expr::Assign { .. }
+                | Expr::Seq { .. }
                 | Expr::Call {
                     callee: Callee::VecPush
                         | Callee::VecInsert
