@@ -1,6 +1,6 @@
 # Acceptance survey of existing crates (archive)
 
-Status: archive (measured 2026-09-27, progress to 2026-09-28; re-measured 2026-09-30 with 0.3.0, §7). Not a metric: the target is new code written within the constraints ([00 §2](./00-overview.md#2-focus)).
+Status: archive (measured 2026-09-27, progress to 2026-09-28; re-measured 2026-09-30 with 0.3.0, §7, and 2026-10-13 with 0.15.0, §8). Not a metric: the target is new code written within the constraints ([00 §2](./00-overview.md#2-focus)).
 
 <!-- derived-from ./05-architecture.md#5-cli -->
 
@@ -277,3 +277,27 @@ Outside idsmith (126 functions), the causes are spread thin: generics (30), `con
 ### 7.4 Reading
 
 The conclusions of §0 hold. Types moved as the subset tightened for the wire, not because existing code fits better. Functions moved only where a body used exactly what was added (bit operations). What existing code needs next is still what §4 named: iterators over strings as values, string methods, `format!`, and `&mut`. Allow-lists aimed at passing existing crates are not planned ([07 §6](./07-roadmap.md#6-not-doing)); each of these is added only when an example written within the constraints needs it.
+
+## 8. Re-measured with 0.15.0 (2026-10-13)
+
+<!-- derived-from #1-method -->
+
+For reference only, as §7. Same corpus and commits, `purecrate-ts` 0.15.0; `corpus/results.jsonl` is not rewritten.
+
+| Entry | Functions, 0.3.0 → 0.15.0 | Types, 0.3.0 → 0.15.0 |
+| --- | --- | --- |
+| rust-ddd-example | 0 → 1 / 19 | 5 → 5 / 11 |
+| rust-ddd-example.domain | 0 → 0 / 2 | 1 → 1 / 1 |
+| zero-to-production | 1 → 1 / 51 | 11 → 11 / 28 |
+| zero-to-production.domain | 0 → 0 / 2 | 3 → 3 / 3 |
+| idsmith | 0 → 183 / 830 | 15 → 15 / 36 |
+| eventually.bank-accounting.domain | 0 → 0 / 7 | 4 → 4 / 9 |
+| eventually.light-switch.domain | 0 → 0 / 4 | 8 → 8 / 9 |
+| little-raft | 0 → 0 / 5 | 3 → 3 / 8 |
+| poker | 2 → 2 / 72 | 8 → 8 / 16 |
+| cozy-chess.types | 3 → 3 / 34 | 3 → 3 / 5 |
+| **Domain scope** | **5 → 188 / 956** | **45 → 45 / 87** |
+
+Nearly all of the gain is idsmith's 182 `validate` functions: a length test and a character check such as `raw.chars().all(|c| c.is_ascii_digit())`, which consumers over `chars()` (taken since 0.3.0) accept. Its formatters next to them still stop at `format!`. Outside idsmith, 5 of 126 functions are accepted, as before. idsmith's first reasons are now `&mut` (305, its RNG), `format!` (75), other std methods (95: `iter` adaptors, `to_string`, `to_uppercase`), and paths into other modules (51 + 31). Elsewhere: `async` (29), paths into other modules and associated consts (24), generics (16), patterns (15, slice and others), and `&mut self` (12).
+
+The conclusions of §0 hold outside idsmith: existing code is still not the target.

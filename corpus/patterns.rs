@@ -1,0 +1,92 @@
+//! Common shapes of domain code, one public function each, for
+//! `purecrate-ts survey corpus/patterns.rs` (design/07 §2.5). Not a
+//! metric to chase: each shape is judged by what it costs to write.
+use std::collections::HashMap;
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Shape { Circle { r: i32 }, Square(i32), Empty }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Item { pub sku: String, pub qty: u32, pub price: i64 }
+
+pub struct Page<T> { pub items: Vec<T> }
+
+pub trait Priced { fn price(&self) -> i64; }
+
+pub fn p01_if_let_variant(s: Shape) -> i32 { if let Shape::Square(n) = s { n } else { 0 } }
+pub fn p02_let_else(o: Option<i32>) -> i32 { let Some(x) = o else { return 0 }; x }
+pub fn p03_format_int(n: u32) -> String { format!("INV-{}", n) }
+pub fn p04_to_string(n: u32) -> String { n.to_string() }
+pub fn p05_hashmap(xs: Vec<Item>) -> HashMap<String, u32> { let mut m = HashMap::new(); for x in xs { m.insert(x.sku, x.qty); } m }
+pub fn p06_btreeset(xs: Vec<u32>) -> BTreeSet<u32> { xs.into_iter().collect() }
+pub fn p07_generic<T: Clone>(x: T) -> T { x }
+pub fn p08_array(b: [u8; 4]) -> u8 { b[0] }
+pub fn p11_rev(xs: Vec<u32>) -> Vec<u32> { xs.into_iter().rev().collect() }
+pub fn p12_zip(a: Vec<u32>, b: Vec<u32>) -> u32 { a.iter().zip(b.iter()).map(|(x, y)| x * y).sum() }
+pub fn p15_find(xs: &[Item], sku: &str) -> Option<Item> { xs.iter().find(|i| i.sku == sku).cloned() }
+pub fn p16_to_lowercase(s: &str) -> String { s.to_lowercase() }
+pub fn p17_trim(s: &str) -> &str { s.trim() }
+pub fn p18_and_then(o: Option<i32>) -> Option<i32> { o.and_then(|x| if x > 0 { Some(x) } else { None }) }
+pub fn p19_unwrap_or_else(o: Option<i32>) -> i32 { o.unwrap_or_else(|| 3) }
+pub fn p20_iter_max(xs: &[u32]) -> Option<u32> { xs.iter().copied().max() }
+pub fn p21_fold(xs: &[i64]) -> i64 { xs.iter().fold(0, |a, x| a + x) }
+pub fn p22_windows(xs: &[u32]) -> bool { xs.windows(2).all(|w| w[0] <= w[1]) }
+pub fn p23_slice_pattern(xs: &[u32]) -> u32 { match xs { [] => 0, [x, ..] => *x } }
+pub fn p24_trait_impl_call(i: &Item) -> i64 { i.price() }
+impl Priced for Item { fn price(&self) -> i64 { self.price } }
+pub fn p25_mut_self(it: &mut Item) { it.qty += 1; }
+pub fn p26_usize_bits(n: usize) -> usize { n & 1 }
+pub fn p27_tuple_field(t: (u32, u32)) -> u32 { t.0 }
+pub fn p28_struct_update(i: Item) -> Item { Item { qty: 0, ..i } }
+pub fn p29_chars_rev(s: &str) -> String { s.chars().rev().collect() }
+pub fn p31_contains_vec(xs: &[u32], x: u32) -> bool { xs.contains(&x) }
+pub fn p32_len_vec(xs: &[u32]) -> usize { xs.len() }
+pub fn p33_last(xs: &[u32]) -> Option<u32> { xs.last().copied() }
+pub fn p34_get(xs: &[u32], i: usize) -> Option<u32> { xs.get(i).copied() }
+pub fn p35_flat_map(xs: Vec<Vec<u32>>) -> Vec<u32> { xs.into_iter().flatten().collect() }
+pub fn p36_filter_map(xs: &[i32]) -> Vec<i32> { xs.iter().filter_map(|x| if *x > 0 { Some(*x) } else { None }).collect() }
+pub fn p37_option_tuple(a: Option<i32>, b: Option<i32>) -> i32 { match (a, b) { (Some(x), Some(y)) => x + y, _ => 0 } }
+pub fn p38_f64_fmt(x: f64) -> String { format!("{:.2}", x) }
+pub fn p39_matches(s: &Shape) -> bool { matches!(s, Shape::Circle { .. }) }
+pub fn p42_is_sorted_iter_sum(xs: &[Item]) -> i64 { xs.iter().map(|i| i.price * i64::from(i.qty)).sum() }
+pub fn p43_assoc_const() -> u32 { Item2::MAX }
+pub struct Item2 {}
+impl Item2 { pub const MAX: u32 = 3; }
+pub fn p44_chars_count(s: &str) -> usize { s.chars().count() }
+pub fn p45_char_upper(c: char) -> char { c.to_ascii_uppercase() }
+pub fn p46_split_whitespace(s: &str) -> usize { s.split_whitespace().count() }
+pub fn p47_lines(s: &str) -> usize { s.lines().count() }
+pub fn p48_join(xs: Vec<String>) -> String { xs.join(",") }
+pub fn p49_repeat(s: &str) -> String { s.repeat(3) }
+pub fn p50_inclusive_range(n: u32) -> u32 { let mut s = 0; for i in 0..=n { s += i; } s }
+pub fn p51_step_by(n: u32) -> u32 { let mut s = 0; for i in (0..n).step_by(2) { s += i; } s }
+pub fn p52_iter_any_vec(xs: &[Item]) -> bool { xs.iter().any(|i| i.qty == 0) }
+pub fn p53_unwrap(o: Option<i32>) -> i32 { o.unwrap() }
+pub fn p54_expect(o: Option<i32>) -> i32 { o.expect("x") }
+pub fn p55_panic() -> i32 { panic!("no") }
+pub fn p56_assert(x: i32) -> i32 { assert!(x > 0); x }
+pub fn p57_tuple_return(x: i32) -> (i32, i32) { (x, x) }
+pub fn p58_nested_closure(xs: &[i32], k: i32) -> Vec<i32> { let f = |x: i32| x * k; xs.iter().map(|x| f(*x)).collect() }
+pub fn p59_partition(xs: Vec<i32>) -> (Vec<i32>, Vec<i32>) { xs.into_iter().partition(|x| *x > 0) }
+pub fn p60_min_by_key(xs: &[Item]) -> Option<Item> { xs.iter().min_by_key(|i| i.price).cloned() }
+
+pub fn q09_loop(n: u32) -> u32 { let mut n = n; loop { if n > 10 { return n; } n += 1; } }
+pub fn q10_while_let(s: &str) -> u32 { let mut rest = s; let mut n = 0u32; while let Some((_head, tail)) = rest.split_once(',') { n += 1; rest = tail; } n }
+pub fn q13_sort_by_key(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by_key(|i| i.price); xs }
+pub fn q14_sort_by(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by(|a, b| a.price.cmp(&b.price)); xs }
+pub fn q30_split_str(s: &str) -> Vec<String> { s.split(", ").map(|t| String::from(t)).collect() }
+pub fn q40_extend(a: Vec<u32>, b: Vec<u32>) -> Vec<u32> { let mut a = a; for x in b { a.push(x); } a }
+pub fn q41_dedup(a: Vec<u32>) -> Vec<u32> { let mut a = a; a.dedup(); a }
+pub fn q61_struct_method(i: Item) -> Item { i.with_qty(3) }
+impl Item { pub fn with_qty(self, q: u32) -> Item { Item { qty: q, ..self } } }
+pub fn q62_mod_path() -> u32 { inner::f() }
+mod inner { pub fn f() -> u32 { 1 } }
+pub fn q63_display_err(e: Item) -> String { e.sku.clone() }
+pub fn q64_nested_enum(o: Option<Result<u32, String>>) -> u32 { match o { Some(Ok(n)) => n, _ => 0 } }
+pub fn q65_vec_of_vec(xs: Vec<Vec<u32>>) -> u32 { let mut s = 0; for r in &xs { for x in r { s += x; } } s }
+pub fn q66_opt_filter(o: Option<u32>) -> Option<u32> { o.filter(|x| *x > 3) }
+pub fn q67_iter_sum_u64(xs: &[u64]) -> u64 { xs.iter().sum() }
+pub fn q68_div_round(a: i64, b: i64) -> i64 { (a + b / 2) / b }
+pub fn q69_i128(a: i128) -> i128 { a * 2 }
+pub fn q70_str_cmp(a: &str, b: &str) -> bool { a < b }

@@ -179,6 +179,44 @@ Besides the capabilities in §2.1:
 
 - **The type/function file-name collision** (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
+### 2.5 Distance to the ideal (2026-10-13)
+
+<!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
+
+An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes domain code commonly takes in the use cases in focus, beyond those the sixteen examples happened to need, each written as idiomatic Rust writes it. `corpus/patterns.rs` holds one public function per shape, and `purecrate-ts survey corpus/patterns.rs` judges it; the shapes are grouped below, weighted by how often domain code takes them (3, 2, 1: judgment, backed by [90 §8](./90-acceptance-survey.md#8-re-measured-with-0150-2026-10-13)'s counts where it has them), and scored 1 (written as idiomatic Rust writes it), 0.5 (another spelling, about as short), 0.2 (written by hand, much longer), or 0 (cannot be written). Nothing scored 0.
+
+| Shapes | Weight | Score | Evidence |
+| --- | --- | --- | --- |
+| ADTs, closed types, newtypes | 3 | 1 | accepted |
+| `match`, guards, tuple `match`, nested patterns | 3 | 1 | accepted |
+| `?`, early `return`, `Result` / `Option` | 3 | 1 | accepted |
+| Integers with debug semantics, `checked_*`, `i64` to `u128` | 3 | 1 | accepted |
+| `Uuid` | 1 | 1 | accepted |
+| Floats | 1 | 0.8 | accepted (0.13.1); no `Display` |
+| `map` / `filter` / `collect` / `sum`, `sort_by`, `find`, `min_by_key` | 3 | 0.9 | accepted |
+| String comparison, search, slicing, `split(char)`, `trim`, `parse` | 3 | 0.85 | accepted |
+| `if let` on an enum's variant, `let`-`else` | 3 | 0.6 | `[pattern/if-let-variant]`, `[expr/let-pattern]`: a `match` with `_` |
+| `Option` / `Result` `and_then`, `unwrap_or_else`, `filter` | 3 | 0.5 | `[expr/method-call]`: a `match` |
+| `fold`, `zip`, `flat_map`, `filter_map`, `windows`, `dedup`, `get`, `last`, `contains` on a `Vec` | 3 | 0.4 | `[expr/method-call]`: a `for` |
+| A tuple's `.0` | 2 | 0.7 | `[expr/tuple-field]`: a tuple `let` |
+| `loop`, `while let` | 2 | 0.5 | `[expr/loop]` |
+| `a..=b`, `step_by`, `rev` | 2 | 0.5 | `[expr/loop]`, `[expr/method-call]` |
+| Slice patterns (`[x, ..]`) | 1 | 0.5 | `[pattern/other]` |
+| `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 0.4 | `[expr/method-call]` |
+| Numbers to text (`format!`, `to_string`) | 3 | 0.2 | `[expr/macro]`: digits built by hand; idsmith 82 `format!`, 37 `to_string` |
+| Keyed collections (`HashMap`, `BTreeMap`, sets) | 3 | 0.2 | `[type/disallowed]`: a `Vec` of pairs searched in order |
+| Generic types and functions (`Page<T>`) | 2 | 0.2 | `[item/generics]`: one copy per type; 16 functions and 21 types in the corpus outside idsmith |
+| Fixed-size arrays and tables | 2 | 0.5 | `[type/array]`: a `Vec` or a `match` |
+| Associated consts, calls through module paths | 2 | 0.5 | `[check/undefined-fn]`, `[expr/external-path]`: a crate-level `const`; 24 in the corpus outside idsmith |
+| Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
+| Recursion depth (game rules) | 1 | 0.6 | JS's stack |
+
+**About 60%.** Weighted, these rows give 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document has decided on (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, and traits with `Display`, each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+
+**What moves it.** `format!` on integers (§3), `String`-keyed maps and unbounded type parameters (§5) together take it to about 75%. What is left is notation, not capability: shapes another spelling writes at some cost in length, each taken when an example needs it (§1).
+
+**Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
+
 ## 3. Candidates
 
 <!-- derived-from #2-evidence-from-examples -->

@@ -38,15 +38,17 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest | one `const` per element; a `mut` element a `let` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Integer methods | `min`, `max`, `abs` (signed), `pow(e: u32)`, and `checked_*`, `saturating_*`, `wrapping_*` of `add`, `sub`, `mul`, `pow`, and (`checked_`, `wrapping_`) `div`, `rem`, `neg`, on every integer type | `Int.<ty>.checkedAdd(a, b)` etc., from the exact result |
-| Wide integers | `i64` / `u64` | `bigint` |
+| Wide integers | `i64` / `u64`, and `i128` / `u128` (a literal below 2^127) | `bigint` |
 | Widening | `i64::from(x)`, only where std has `From` | unchanged or `BigInt(x)` |
-| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; `split_once` with a `char` or a `&str`; `eq_ignore_ascii_case` with a `&str`; slicing `&s[a..b]`; built by `String::new()` and `push(c)` / `push_str(t)` on a local `let mut`, or by `collect::<String>()` over `char`s, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.splitOnce(s, p)`; `Str.eqIgnoreAsciiCase(s, t)`; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
+| Narrowing | `x as T` between integer types std's `From` does not join, wrapping as Rust's `as` does; into `usize`, a result past 2^53 − 1 panics ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `Int.<t>.cast(x)` |
+| Floats | `f32` / `f64`, their operators, `round` (half away from zero), `floor`, `ceil`, `trunc`, `abs`, `is_nan`, `is_finite`, `is_infinite`, `f64::NAN` / `INFINITY` / `NEG_INFINITY`; `as` to and from integers ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `number`; `Math`'s methods where IEEE fixes them as Rust's, `Int.f64.round` ([01 §5.4](./01-equivalence.md#54-floats)) |
+| Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; `split_once` with a `char` or a `&str`; `eq_ignore_ascii_case` with a `&str`; `to_ascii_lowercase` / `to_ascii_uppercase`; `trim` / `trim_start` / `trim_end` (Rust's whitespace) and `trim_matches` with its one-sided forms (a `char`, a closure `|c: char| ..`, or one-sided a `&str`); `find` (a UTF-8 byte offset); `split` with a closure; slicing `&s[a..b]`; built by `String::new()` and `push(c)` / `push_str(t)` on a local `let mut`, or by `collect::<String>()` over `char`s, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.splitOnce(s, p)`; `Str.eqIgnoreAsciiCase(s, t)`; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b`, not `a..=b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, end = b; i < end; …)`; a literal end is read in place (`i < 4`) |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
 | Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
-| Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, and `sum` (integers only) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`, through any `map(f)`, `filter(p)`, `copied()`, `cloned()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow. A stage is `Iter.map` / `Iter.filter`, lazy, so each item runs every stage before the next, as in Rust ([01 §7.13](./01-equivalence.md#713-map-and-filter-over-a-sequence)) |
+| Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, `sum` (integers only), `find(|x| ..)`, `max()` / `min()`, `max_by_key` / `min_by_key`, and `max_by` / `min_by` (the last of the greatest, the first of the least, as std) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`, through any `map(f)`, `filter(p)`, `copied()`, `cloned()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow. A stage is `Iter.map` / `Iter.filter`, lazy, so each item runs every stage before the next, as in Rust ([01 §7.13](./01-equivalence.md#713-map-and-filter-over-a-sequence)) |
 | Lists | `collect()` of any sequence a consumer takes (above), into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()` (where `_` stands for what `f` returns: `collect::<Result<Vec<_>, _>>()`), a typed `let`, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str` | a new array: the pieces of `s.split(c)`, `[...xs]`, the array's own `.map(f)` / `.filter(p)` for one stage, else `Array.from` of the lazy stages, or `Iter.tryCollect`; `Str.splitOnce` |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
@@ -287,8 +289,8 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 #### Methods
 
-- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
-- The needle is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. `split_once` also takes a `char`, and its pair is `Some((a, b))`.
+- Allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `to_ascii_lowercase`, `to_ascii_uppercase`, `trim`, `trim_start`, `trim_end`, `trim_matches`, `trim_start_matches`, `trim_end_matches`, `find`, and `String::as_str`; slicing `&s[a..b]` at UTF-8 byte positions, which panics off a char boundary as Rust does.
+- The needle of `starts_with`, `ends_with`, `contains`, and `strip_*` is a `&str` (`s.starts_with("pm_")`, `s.contains(&t)`), not a `char` or closure. `split_once` also takes a `char`, and its pair is `Some((a, b))`.
 - `s.chars()`, `s.bytes()`, and `s.split(c)` as a `for` iterable, or through `map` / `filter` into a consumer or `collect` ([§2](#2-what-can-be-written)).
 - Other methods are rejected until an example needs them ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)).
 
@@ -296,7 +298,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 Read contents through `as_bytes()`: index, `len`, `is_empty`, `u8` comparisons with byte literals (`b[i] == b'@'`), `matches!` on byte ranges, recursion or range `for`.
 
-Byte string literals (`b"pm_"`) are not available. Use `starts_with`.
+Byte string literals (`b"pm_"`) are a `&[u8]`, in an expression or as a crate-level `const`.
 
 ### 3.7 Types
 
@@ -342,12 +344,12 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
 | `static N: u32 = 3;`, `impl T { const N: u32 = 3; }` | a crate-level `const N: u32 = 3;` |
-| `x as u32` on an integer | `u32::from(x)` where std widens; `as` reads only a fieldless enum's discriminant, or makes a `usize` of a `u8`, `u16`, or `u32` |
+| `x as u64` where std widens | `u64::from(x)`: a widening `From` takes has that one spelling |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `a.cmp(&b)` on floats, tuples, a `Vec` of the crate's types, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |
 | `loop`, `while let`, labelled `break`, `break` with a value | `while cond` with `break`, or a `for` with early `return` |
 | `.rev()`, `.zip(..)`, `.skip(n)` | a range `for` over indices, or `.enumerate()` and a test on the index |
-| `.nth(n)`, `.last()`, `.find(p)` | `for c in s.chars()` with a `let mut` counter and early `return`; `.position(p)` for the first match |
+| `.nth(n)`, `.last()` | `for c in s.chars()` with a `let mut` counter and early `return`; `.position(p)` for the first match |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 
 Closures cannot capture `let mut` (a JS closure would see later reassignments; rebind with `let` first), and cannot be parameters, return values, or fields.

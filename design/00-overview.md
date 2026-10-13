@@ -14,7 +14,7 @@ Three commitments follow from it and shape every other decision.
 
 ## 2. Focus
 
-**Target: new domain code written within the PureCrate constraints.** It is not a compiler for existing Rust. Measurements showed existing crates are almost never accepted as-is (1 of 956 public functions; [90-acceptance-survey](./90-acceptance-survey.md)), and chasing that number would mean maintaining the semantics of most of `std`. Instead, the author pays a bounded cost in notation, and in return gets verified behavior sharing.
+**Target: new domain code written within the PureCrate constraints.** It is not a compiler for existing Rust. Measurements showed existing crates are almost never accepted as-is (1 of 956 public functions when first measured; 188 with 0.15.0, 183 of them one crate's short validators, and 5 of 126 outside it; [90-acceptance-survey](./90-acceptance-survey.md#8-re-measured-with-0150-2026-10-13)), and chasing that number would mean maintaining the semantics of most of `std`. Instead, the author pays a bounded cost in notation, and in return gets verified behavior sharing.
 
 The canonical shape is a transition:
 
