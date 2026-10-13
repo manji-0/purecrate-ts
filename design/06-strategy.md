@@ -100,24 +100,29 @@ Types holds for every example and fixture. Every generated function of seeds 1 t
 
 ### 4.2 External criteria
 
-The author's own examples cannot validate the constraints: the author writes around them. External criteria were set 2026-09-28; the numbers are to be revisited.
+The author's own examples cannot validate the constraints: the author writes around them. External criteria were set 2026-09-28; the numbers are to be revisited. On 2026-10-13 the 2× line count moved from the withdrawal conditions to an indicator of what to improve first (item 4).
 
 1. **Write from third-party specifications**, reading only [02](./02-authoring.md) and [07](./07-roadmap.md). Record rewrites forced by rejection, and rejections the documents could not explain.
 2. **Compare with idiomatic code**: the same spec in unconstrained Rust and in kamae-style TS. Compare line counts, forced style changes, and readability.
 3. **Withdraw or switch (to B or C) if any holds:**
    - more than half of third-party specs cannot be written;
-   - constrained Rust exceeds **2×** the lines of idiomatic Rust;
    - silent wrong values on accepted input keep appearing (guide: one or more per new example);
    - no real use replacing a dual implementation is ever obtained.
+4. **Improve first where constrained Rust exceeds 2×** the lines of idiomatic Rust. This is not a withdrawal condition: a capability an example's excess names goes first among the candidates if it helps code in general, not one domain ([07 §1](./07-roadmap.md#1-how-additions-are-chosen), [07 §3](./07-roadmap.md#3-candidates)). An excess that is no missing capability, such as a reference that does less work, or that only a narrow addition would remove, is named and raises nothing.
 
 ### 4.3 Status
 
 | Withdrawal condition | Status |
 | --- | --- |
 | More than half of third-party specs cannot be written | Not met. 14 of the 16 examples are from third-party specs (all but counter and order, [00 §4.1](./00-overview.md#41-examples)); all 14 could be written |
-| Constrained Rust exceeds 2× | Met by three of the eleven examples the script measures (2026-10-13, table below): jsonpatch 4.1×, payment 2.4×, semver 2.3×; iban is at 2.0×. jsonpatch is not like for like (its reference parses with serde_json; the patch layer alone is 2.8×, [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)). payment and semver crossed it with the fixes the independent reviews asked for (2026-10-05): the checked constructor payment's intents go through, and semver's equality and formatting with a `u64`'s digits built by hand; semver is 1.6× leaving out the closed type's accessors and counting `impl Ord` as logic, as 07 §2.2 adjusts it. Not yet weighed as a decision to withdraw: the excess in each is named in 07 §2.2, and whether the threshold counts these is open ([07 §7](./07-roadmap.md#7-open-questions)) |
 | Silent wrong values keep appearing | Not met in the examples: none appeared in any of them. The generator is not as clean as that row once read: audits found output that disagreed with Rust on accepted input in 0.8.1 (a `?` in a `for` range's end ran before its start), 0.9.0 (a `?` inside `ok_or(..)?` left only an inline function), and 0.9.1 (`r.ok().is_some()` gave 0 for `Ok(0)`; a struct pattern's guard read a name its closure hid), each in a shape no fixture spelled. Since then the generators build such shapes from seeds ([CHANGELOG 0.10.0 to 0.10.3](../CHANGELOG.md#0103--2026-10-04)), and seeds 1 to 120 of all five agree on every value (26,400 functions, 316,800 calls). The hole hunt after 0.13.1 (four generators over its additions and a review of its diff) found wrong values with no error again, in shapes no example writes (`const M: i128 = !0;` folded as unsigned, `!x.is_infinite()` always `false`, a struct holding NaN equal to its `clone()`), among about 40 holes fixed in 0.13.2 ([CHANGELOG](../CHANGELOG.md#0132--2026-10-11)) |
 | No real use | Open. No real-world replacement yet; the Oxide `Name` proposal is the one exception to the no-outreach decision, with a deadline (§5.2) |
+
+**Over 2× (item 4).** Three of the eleven examples the script measures are over it (2026-10-13, table below): jsonpatch 4.1×, payment 2.4×, semver 2.3×; iban is at 2.0×. What each excess names ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)):
+
+- **jsonpatch.** Most of it is the parser and serializer, which the reference leaves to serde_json; the patch layer alone is 2.8×, and its excess is `edit_at` rebuilding the path from the root for want of `&mut` into a nested value. It raises nothing: `&mut` stays out ([07 §6](./07-roadmap.md#6-not-doing)), and an addition for JSON alone would help one domain.
+- **semver.** The decimal digits of a `u64` built by hand, as no number turns into text in the subset, and the closed type's accessors (1.6× without them, counting `impl Ord` as logic). The first raises `format!` on integers in 07 §3.
+- **payment.** No missing capability: the checked constructor an intent read from JSON goes through (`consistent`, the constructors, the accessors), which the reference, a `step` over plain values, does not do. It raises nothing.
 
 Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120, as `scripts/line-counts.py` printed them on 2026-10-13. signup is counted by hand (its test has no idiomatic module); counter and order are the author's own, and ssh and raft are checked rule by rule instead of against a second implementation, so none of the four is measured. The history column was taken as written, before rustfmt normalization. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
 

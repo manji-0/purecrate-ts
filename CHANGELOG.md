@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- **Over 2× the lines of idiomatic Rust is an indicator of what to improve first, no longer a condition to withdraw** (design/06 §4.2, design/07 §1). A capability an example's excess names goes first among the candidates only if it helps code in general, not one domain: `format!` on integers (semver) now heads design/07 §3. jsonpatch's excess (`&mut` into a nested value) and payment's (its checked constructor, which the reference does not do) raise nothing. `&mut`, in either form, moves from the candidates to design/07 §6: it would be a new place for wrong values. The open question in design/07 §7 is closed.
+
 ## 0.15.0 — 2026-10-13
 
 `check` and `build` now refuse a release profile that wraps on overflow (`--allow-overflow-wrap` keeps the warning), `purecrate-ts test` runs the differential comparison on your own crate, and the wire reads and writes `#[serde(rename)]`, `rename_all`, and internally and adjacently tagged enums as serde does. The release history that was design/07 §8 now lives here, under each version's Rationale heading.

@@ -14,6 +14,8 @@ What comes next and why. §1 is the rule, §2 the evidence it runs on, §3 the c
 - **Holes** — anything that makes accepted input compute a wrong value, or lets `check` accept what rustc rejects, is fixed immediately.
 - **Domain fixes** — changes that tighten the domain of equivalence (closed types) rather than add capability.
 
+An example whose constrained Rust is over 2× its idiomatic reference ([06 §4.2](./06-strategy.md#42-external-criteria)) meets this rule for the capabilities its excess names, and they go first in §3, if they help code in general rather than one domain. Over 2× is a priority, not a condition to withdraw. Excess that is no missing capability (a reference that does less work, a closed type's checks), or that only a narrow addition would remove (one for JSON alone, say), is named in §2.2 and raises nothing.
+
 Every addition comes with a differential test.
 
 ## 2. Evidence from examples
@@ -44,7 +46,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 ### 2.2 Line counts against idiomatic Rust
 
-Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Threshold 2× ([06 §4.2](./06-strategy.md#42-external-criteria)).
+Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Over 2× puts what the excess names first in §3 ([§1](#1-how-additions-are-chosen), [06 §4.2](./06-strategy.md#42-external-criteria)).
 
 **Now** (`scripts/line-counts.py`, 2026-10-13; signup by hand). The independent reviews' fixes (2026-10-05, below) are in these figures:
 
@@ -181,10 +183,11 @@ Besides the capabilities in §2.1:
 
 <!-- derived-from #2-evidence-from-examples -->
 
-What the evidence currently points at, strongest first. The five examples of 2026-10-11 met §1 for every row struck through, taken together in 0.13.1 by decision. None of the rest is scheduled until §1 is met: an example that cannot be written, or stays over the threshold, without it. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([CHANGELOG 0.7.0](../CHANGELOG.md#rationale-lists-from-text)), with patterns nested in a case.
+What the evidence currently points at, strongest first. The five examples of 2026-10-11 met §1 for every row struck through, taken together in 0.13.1 by decision. None of the rest is scheduled until §1 is met: an example that cannot be written, or stays over 2×, without it; the rows such an example raises come first. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([CHANGELOG 0.7.0](../CHANGELOG.md#rationale-lists-from-text)), with patterns nested in a case.
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
+| `format!` on integers, and `to_string` | semver (2.3×): the decimal digits of a `u64` built by hand; Windmill | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~`v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are~~ | jsonpatch: four copy loops in the patch layer (3.5×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ~~Float methods and conversions~~ | geo: four hand-written replacements (2.2×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
@@ -192,8 +195,6 @@ What the evidence currently points at, strongest first. The five examples of 202
 | ~~`==` on the crate's enums and structs that derive `PartialEq`~~ | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ~~String trimming and search, sorting, and picking an item~~ | negotiate: a byte-by-byte list scanner, insertion sorts (2.6×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); tuple sort keys and `Reverse` stay out |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
-| `format!` | Windmill only | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
-| `&mut self` as a function returning the new value (`fn apply(&mut self, e)`) | the aggregate shape in 5 corpus entries | sound because `&mut` excludes aliases, but the TS signature then differs from the Rust one, so the caller contract ([03 §5](./03-output.md#5-caller-contract)) has to say so first |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
 | ~~Narrowing `as` between integers~~ | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); a widening `From` takes keeps `T::from(x)` as its one spelling |
 | Generics and string-keyed maps | — | §5 |
@@ -222,6 +223,7 @@ Waits for an example that cannot be written without it.
 - serde's `untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, and `transparent`: refused with their location; the reasons are in [04 §4](./04-wire.md#4-out-of-scope).
 - WASM. The IR does not preclude a second backend, but the path is TS source.
 - `Rc` / `Cell` / `RefCell` / `Mutex`.
+- `&mut`, as `&mut self` returning the new value or into a nested value (jsonpatch's `edit_at`; the aggregate shape in 5 corpus entries): each form makes the TS signature or the write path differ from the Rust one, a new place for wrong values; a local `Vec`'s edits above are as far as it goes (decided 2026-10-13).
 - `async`, randomness, and other effects (idsmith's `&mut` RNG parameters, 305 of the corpus's functions).
 
 ## 7. Open questions
@@ -230,7 +232,6 @@ Waits for an example that cannot be written without it.
 - Hermes support for `JSON.parse` source text ([04 §7](./04-wire.md#7-open-questions)).
 - A shared error type with field paths for validation ([01 §4](./01-equivalence.md#4-closed-types)).
 - Demand: see [06 §5](./06-strategy.md#5-validating-demand-next).
-- The 2× line threshold ([06 §4.3](./06-strategy.md#43-status)): jsonpatch, payment, and semver are over it by the script since the independent reviews' fixes (2026-10-05). Whether the threshold counts a reference that does less work (jsonpatch's serde_json, semver's accessors) is undecided, and so is what crossing it asks for.
 
 ## 8. Releases
 
