@@ -508,6 +508,11 @@ impl Refs {
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet => self.slice = true,
+                    Callee::Format(pieces) => {
+                        self.str |= pieces
+                            .iter()
+                            .any(|p| matches!(p, purecrate_ir::FmtPiece::Arg { spec, .. } if spec.width.is_some()));
+                    }
                     Callee::VecSort(sort) => {
                         self.slice = true;
                         if !matches!(sort, purecrate_ir::Sort::By) {

@@ -43,6 +43,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Narrowing | `x as T` between integer types std's `From` does not join, wrapping as Rust's `as` does; into `usize`, a result past 2^53 − 1 panics ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `Int.<t>.cast(x)` |
 | Floats | `f32` / `f64`, their operators, `round` (half away from zero), `floor`, `ceil`, `trunc`, `abs`, `is_nan`, `is_finite`, `is_infinite`, `f64::NAN` / `INFINITY` / `NEG_INFINITY`; `as` to and from integers ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `number`; `Math`'s methods where IEEE fixes them as Rust's, `Int.f64.round` ([01 §5.4](./01-equivalence.md#54-floats)) |
 | Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; `split_once` with a `char` or a `&str`; `eq_ignore_ascii_case` with a `&str`; `to_ascii_lowercase` / `to_ascii_uppercase`; `trim` / `trim_start` / `trim_end` (Rust's whitespace) and `trim_matches` with its one-sided forms (a `char`, a closure `|c: char| ..`, or one-sided a `&str`); `find` (a UTF-8 byte offset); `split` with a closure; slicing `&s[a..b]`; built by `String::new()` and `push(c)` / `push_str(t)` on a local `let mut`, or by `collect::<String>()` over `char`s, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.splitOnce(s, p)`; `Str.eqIgnoreAsciiCase(s, t)`; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)` |
+| Formatting | `format!` with `{}`, `{x}` (a local captured), `{0}`, `{name}`, a width (`{:5}`), an alignment and fill (`{:<5}`, `{:*^5}`), and zero padding on an integer (`{:05}`), over integers, `bool`, `char`, `String`, `&str`, and `Uuid` (no width on a `Uuid`) | a template literal, `Str.pad` / `Str.padZero` where padded ([01 §6.8](./01-equivalence.md#68-format)) |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b`, not `a..=b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, end = b; i < end; …)`; a literal end is read in place (`i < 4`) |
@@ -285,6 +286,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 
 - A string literal is `&str` and cannot stand where `String` is expected. Write `String::from("a")`.
 - `.to_string()`, `.to_owned()`, and `.into()` are rejected, to keep one spelling.
+- `format!("INV-{n:05}")` builds one from numbers, text, `char`s, `bool`s, and `Uuid`s ([§2](#2-what-can-be-written)). An argument other than a local, a literal, or a field of one is placed once, in the order written; bind it with `let` otherwise. Floats, `{:?}`, `{:x}`, a precision, and the crate's own types are refused.
 - `s.clone()` or `String::from(&s)` copies a `String`, `o.clone()` an `Option<String>`; `o.as_ref()` and `o.as_deref()` read an `Option` in place. In TS each is the value itself: nothing writes a string.
 
 #### Methods
@@ -339,7 +341,7 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | --- | --- |
 | `opt.and_then(..)`, `unwrap_or_else`, `filter`, other `Option`/`Result` combinators | `match` or `?` |
 | `?` inside a guard, in `matches!`'s first argument inside a test (`if matches!(x?, p)`), or on the right of `&&` / `\|\|`; `?` or `return` in an arm of a `match` bound by a tuple `let` (`let (a, b) = match ..`); `\|` arms that bind names | bind the `?` result with `let` first (the tuple too, then take it apart); split the match |
-| `format!("{}", n)` | return numbers and ADTs; the caller formats |
+| `n.to_string()`, `format!("{:?}", x)`, `format!("{:x}", n)`, `format!("{}", f)` on a float | `format!("{}", n)` for an integer; return a float or an ADT and let the caller format it |
 | `a == b` on a value holding `ParseIntError` or `uuid::Error` | compare with a `match`; `==` on the crate's types, `Option`, `Result`, `Vec`, and tuples is the derived one (from 0.13.1) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |

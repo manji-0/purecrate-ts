@@ -8,6 +8,7 @@ use syn::{BinOp as SynBinOp, Expr as SynExpr, Item as SynItem, Member, Pat, UnOp
 use crate::item::{snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
 
+mod format;
 mod pattern;
 
 use pattern::*;
@@ -154,6 +155,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
         SynExpr::Macro(m) if m.mac.path.is_ident("matches") => lower_matches(cx, &m.mac),
         SynExpr::Macro(m) if m.mac.path.is_ident("vec") => lower_vec(cx, &m.mac),
+        SynExpr::Macro(m) if m.mac.path.is_ident("format") => format::lower_format(cx, &m.mac),
         SynExpr::Macro(m) => {
             Err(ParseError::new(Reason::Macro, format!("macro `{}!` is not in v0", path_text(&m.mac.path)))
                 .detail(path_text(&m.mac.path)))

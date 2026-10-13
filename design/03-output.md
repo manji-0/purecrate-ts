@@ -146,6 +146,7 @@ export const Meters = {
 | `&xs[a..b]` on a `Vec` or slice | `Slice.range(xs, a, b)` (`null` for an open end), with Rust's range checks |
 | `s.strip_prefix(p)` / `strip_suffix` | `Str.stripPrefix(s, p)` / `Str.stripSuffix` |
 | `s.split_once(p)` | `Str.splitOnce(s, p)` (`p` a `char` or `&str`; `None` is `null`) |
+| `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
 

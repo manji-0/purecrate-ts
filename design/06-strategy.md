@@ -118,13 +118,13 @@ The author's own examples cannot validate the constraints: the author writes aro
 | Silent wrong values keep appearing | Not met in the examples: none appeared in any of them. The generator is not as clean as that row once read: audits found output that disagreed with Rust on accepted input in 0.8.1 (a `?` in a `for` range's end ran before its start), 0.9.0 (a `?` inside `ok_or(..)?` left only an inline function), and 0.9.1 (`r.ok().is_some()` gave 0 for `Ok(0)`; a struct pattern's guard read a name its closure hid), each in a shape no fixture spelled. Since then the generators build such shapes from seeds ([CHANGELOG 0.10.0 to 0.10.3](../CHANGELOG.md#0103--2026-10-04)), and seeds 1 to 120 of all five agree on every value (26,400 functions, 316,800 calls). The hole hunt after 0.13.1 (four generators over its additions and a review of its diff) found wrong values with no error again, in shapes no example writes (`const M: i128 = !0;` folded as unsigned, `!x.is_infinite()` always `false`, a struct holding NaN equal to its `clone()`), among about 40 holes fixed in 0.13.2 ([CHANGELOG](../CHANGELOG.md#0132--2026-10-11)) |
 | No real use | Open. No real-world replacement yet; the Oxide `Name` proposal is the one exception to the no-outreach decision, with a deadline (§5.2) |
 
-**Over 2× (item 4).** Three of the eleven examples the script measures are over it (2026-10-13, table below): jsonpatch 4.1×, payment 2.4×, semver 2.3×; iban is at 2.0×. What each excess names ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)):
+**Over 2× (item 4).** Two of the eleven examples the script measures are over it (2026-10-14, table below): jsonpatch 4.0× and payment 2.4×; iban and semver are at 2.0×. What each excess names ([07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust)):
 
 - **jsonpatch.** Most of it is the parser and serializer, which the reference leaves to serde_json; the patch layer alone is 2.8×, and its excess is `edit_at` rebuilding the path from the root for want of `&mut` into a nested value. It raises nothing: `&mut` stays out ([07 §6](./07-roadmap.md#6-not-doing)), and an addition for JSON alone would help one domain.
-- **semver.** The decimal digits of a `u64` built by hand, as no number turns into text in the subset, and the closed type's accessors (1.6× without them, counting `impl Ord` as logic). The first raises `format!` on integers in 07 §3.
+- **semver** (2.3× until 0.16.0). The decimal digits of a `u64` built by hand, as no number turned into text in the subset, and the closed type's accessors (1.6× without them, counting `impl Ord` as logic). The first raised `format!` on integers in 07 §3, taken in 0.16.0: 2.0×.
 - **payment.** No missing capability: the checked constructor an intent read from JSON goes through (`consistent`, the constructors, the accessors), which the reference, a `step` over plain values, does not do. It raises nothing.
 
-Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120, as `scripts/line-counts.py` printed them on 2026-10-13. signup is counted by hand (its test has no idiomatic module); counter and order are the author's own, and ssh and raft are checked rule by rule instead of against a second implementation, so none of the four is measured. The history column was taken as written, before rustfmt normalization. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
+Line counts against idiomatic Rust, logic only, both sides formatted with rustfmt at width 120, as `scripts/line-counts.py` printed them on 2026-10-14. signup is counted by hand (its test has no idiomatic module); counter and order are the author's own, and ssh and raft are checked rule by rule instead of against a second implementation, so none of the four is measured. The history column was taken as written, before rustfmt normalization. Per-capability detail is in [07 §2.2](./07-roadmap.md#22-line-counts-against-idiomatic-rust).
 
 | Example | Idiomatic | Constrained | Ratio | History |
 | --- | --- | --- | --- | --- |
@@ -133,10 +133,10 @@ Line counts against idiomatic Rust, logic only, both sides formatted with rustfm
 | payment | 52 | 125 | 2.4× | 2.1× at first, 1.8× after `_` and `A \| B` arms, 1.7× after 0.4.0; 2.4× with the checked constructor the reviews asked for |
 | invoice | 54 | 96 | 1.8× | 2.2× for the first draft, 1.4× restructured; 1.8× with the reviews' rounding and checked arithmetic |
 | oidc | 390 | 576 | 1.5× | 1.65× written from the authoring skill alone; 1.2× after 0.4.0; 1.4× with SHA-256 and base64url written in the subset |
-| semver | 72 | 165 | 2.3× (1.6× adjusted) | 2.8× from the skill alone; 1.8× with `split_once` and `collect` (0.7.0); 2.3× with equality and formatting |
+| semver | 72 | 142 | 2.0× | 2.8× from the skill alone; 1.8× with `split_once` and `collect` (0.7.0); 2.3× with equality and formatting by hand; 2.0× with `format!` (0.16.0) |
 | punycode | 152 | 267 | 1.8× | 2.0× from the skill alone; 1.7× with `Vec::insert` |
 | calendar | 439 | 738 | 1.7× | 1.8× from the skill alone; 1.7× with `eq_ignore_ascii_case` and name tables |
-| jsonpatch | 159 | 648 | 4.1× (patch layer 2.8×) | 789 lines as written; 648 with 0.13.1 |
+| jsonpatch | 159 | 633 | 4.0× (patch layer 2.8×) | 789 lines as written; 648 with 0.13.1; 633 with `format!` (0.16.0) |
 | geo | 135 | 222 | 1.6× | 2.2× as written; 1.6× with 0.13.1's float methods and casts |
 | ulid | 59 | 95 | 1.6× | 3.4× as written; 1.6× with `u128`, narrowing `as`, and a byte-string alphabet |
 | negotiate | 188 | 295 | 1.6× | 2.6× as written; 1.6× with 0.13.1's string methods, sorts, and consumers |

@@ -134,7 +134,8 @@ mod tests {
         };
         let body = |b: &str| format!("pub fn f(x: i32) -> i32 {{ {b} }}");
         assert_eq!(reason(&body("x.into::<i32>()")), (Reason::MethodCall, Some("into".into())));
-        assert_eq!(reason(&body("format!(\"{x}\"); x")), (Reason::Macro, Some("format".into())));
+        assert_eq!(reason(&body("format!(\"{x:?}\"); x")), (Reason::Macro, Some("format".into())));
+        assert_eq!(reason(&body("println!(\"{x}\"); x")), (Reason::Macro, Some("println".into())));
         assert_eq!(reason(&body("let v = vec![x; 2]; x")), (Reason::Macro, Some("vec".into())));
         assert_eq!(reason(&body("std::cmp::max(x, 1)")), (Reason::ExternalPath, Some("std::cmp::max".into())));
         assert_eq!(reason(&body("x as *const i32")).0, Reason::Cast);

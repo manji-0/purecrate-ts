@@ -455,6 +455,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (vec![s, sep], Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str)))))
             }
             Callee::StringFrom => (typed_args(self, vec![Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::String))),
+            Callee::Format(pieces) => return self.format(pieces, args, want),
             Callee::StringNew => (Vec::new(), Some(Ty::Prim(Prim::String))),
             Callee::StrWellFormed => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
             // Written only by `method_call` and `collect`, typed.

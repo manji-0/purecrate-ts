@@ -11,8 +11,8 @@ mod reason;
 mod ty;
 
 pub use expr::{
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, FloatConst, FloatMethod, IntMethod, IntOp,
-    Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TryOn, UnOp, VariantBind,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, FloatConst, FloatMethod, FmtAlign, FmtPiece,
+    FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TryOn, UnOp, VariantBind,
 };
 pub use item::{
     tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Tagging, Variant, VariantFields, Vis,

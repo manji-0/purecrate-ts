@@ -141,6 +141,7 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `Result` | `ok`, `map`, `map_err` (§7.1) | the `match` std writes | `parse_equivalence.rs` |
 | `String`, `&str` into an integer | `s.parse::<T>()` for every integer `T`, into `Result<T, ParseIntError>` (§6.7) | `Int.<t>.parse(s)` | `parse_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
+| integers, `bool`, `char`, `String`, `&str`, `Uuid` | `format!` with `{}`, a width, an alignment and fill, and zero padding on integers (§6.8) | a template literal; `Str.pad`, `Str.padZero` | `format_equivalence.rs`, `generated_strings_equivalence.rs` |
 
 `wire.rs` and `wire_write.rs` cover the JSON forms of `char` and `Uuid` against serde_json through each schema library.
 
@@ -181,7 +182,7 @@ Added for the Oxide `Name` rule, which had to spell `Uuid::parse_str` by hand ([
 
 - **Representation.** A branded `string` that only ever holds the lowercase hyphenated form (8-4-4-4-12), the one serde writes. In that form `===` is Rust's `==`, and JS string order is the order of the 16 bytes, since the hyphens sit at the same places in every value, so `==` and `<` print as themselves.
 - **Parsing.** `parse_str` and `try_parse` accept what the crate's parser does, chosen by UTF-8 length as it chooses: 32 hex digits, hyphenated (36), braced (38), and `urn:uuid:` (45, the prefix in lowercase only), hex in either case; the result is the canonical form. The TS parser measures UTF-16 units, but a non-ASCII character fails the hex check at either length, so the accepted sets are equal. `uuid::Error` is opaque: nothing translated can read or compare it.
-- **Rejected.** Generating (`new_v4`), `to_string`, and byte access. `nil()` is the only constructor besides parsing.
+- **Rejected.** Generating (`new_v4`), `to_string` (`format!("{u}")` prints it, §6.8), and byte access. `nil()` is the only constructor besides parsing.
 - **JSON** is serde's: read from any string `parse_str` accepts, written canonical.
 
 Tested on about 3,400 strings (every form the crate prints in three cases, each with one-character edits, cuts, extensions, and wrappings, and non-ASCII characters at the length boundaries) and all pairs of 45 UUIDs for ordering.
@@ -210,6 +211,16 @@ A `number` checked to 0..2^53−1; the gap above that is in §3.
 `ParseIntError` carries nothing: nothing translated reads its `kind()`, and the two sides agree on whether the result is `Ok` and on its value, not on which kind an `Err` is. A `usize` above 2^53−1 parses in Rust and panics in TS, as any `usize` that large does (§3). Floats, `bool`, `char`, and a crate's own `FromStr` are refused.
 
 Tested with every integer type at its bounds and one past them, signs alone and doubled, leading zeros, whitespace, `_`, hex and exponent forms, and Arabic-Indic digits, through `ok()`, `match`, `map_err`, and `map_err(..)?`.
+
+### 6.8 `format!`
+
+`format!` prints integers of every width, `bool`, `char`, `String`, `&str`, and `Uuid`, whose `Display` is the same text on both sides: an integer's decimal digits with a `-` (a `bigint` prints without its `n`), `true` / `false`, the characters themselves, and a `Uuid`'s canonical form, which is the only form its TS brand holds (§6.3). It prints as a template literal (`` `INV-${n}` ``); the text between arguments is escaped as a string literal is, and `` ` `` and `${` as a template reads them.
+
+- **Specs.** `{}`; a width (`{:5}`), with an alignment (`<`, `^`, `>`) and a fill (`{:*^5}`); and zero padding on an integer (`{:05}`). The width counts `char`s, as Rust's padding does, where JS `padStart` counts UTF-16 units, so a padded value goes through `Str.pad`, which counts code points; centered, the odd unit of fill goes right, as in Rust. Without an alignment an integer is right-aligned and the rest left. Zero padding goes after the sign (`-0042`) and overrides the alignment and the fill, as Rust's does (`Str.padZero`). Rust pads a `char`, a string, or a `bool` under `{:05}` with spaces and ignores a width on a `Uuid` (its `Display` writes the text directly), so both are refused rather than matched.
+- **Refused.** Floats (`Display` of a float differs from JS past 1e21 and below 1e-7), `{:?}`, every radix and exponent (`{:x}` of a negative signed value prints its two's complement in Rust), `+`, `#`, a precision, a width from an argument (`{:1$}`), and the crate's own types (no `Display` is translated). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
+- **Order of evaluation.** Rust evaluates the arguments as written, then the names captured inline (`{x}`); a template literal runs its `${..}` in the order it places them. A local, a literal, a field of one, or a reference to one reads the same whenever it runs, and nothing in an argument can change it except an assignment, which is refused; every other argument must be placed once and in the order written, or `format!` is refused with a message to bind it with `let` first. `?` in an argument is lifted before the template, as everywhere.
+
+Tested on every integer type at its bounds, each alignment with a fill of every UTF-8 width, zero padding of negative values, `char`s and strings outside the BMP and with combining marks, escapes, named, positional, and captured arguments, and the order of arguments that panic (`format_equivalence.rs`); and as a shape of the strings generator, with arguments that panic, widths, fills, and captures (`generated_strings_equivalence.rs`).
 
 ## 7. Rewritten constructs
 

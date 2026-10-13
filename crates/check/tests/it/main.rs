@@ -12,6 +12,7 @@ mod complete;
 mod consts;
 mod early_exit;
 mod exhaustive;
+mod format;
 mod loops;
 mod method_call;
 mod names;

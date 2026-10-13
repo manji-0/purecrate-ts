@@ -369,7 +369,8 @@ impl G {
         if let Some(v) = self.local(T::String) {
             return format!("{v}.clone()");
         }
-        match self.rng.below(8) {
+        match self.rng.below(if d > 0 { 10 } else { 8 }) {
+            8 | 9 => self.formatted(d - 1),
             0 | 1 => format!("{}.to_ascii_lowercase()", self.text(d)),
             2 | 3 => format!("{}.to_ascii_uppercase()", self.text(d)),
             4 => format!("String::from({})", self.text(d)),
@@ -384,6 +385,60 @@ impl G {
                 format!("{x}.trim().to_ascii_uppercase()")
             }
         }
+    }
+
+    /// `format!` over one to three arguments of each type it prints, which
+    /// may panic (a slice off a char boundary, `usize` past 2^53), placed
+    /// once each in the order written; locals captured inline (`{x}`), any
+    /// number of times; widths, alignments, fills, and zero padding; and
+    /// text a template literal reads as its own (`` ` ``, `${`, `\\`).
+    fn formatted(&mut self, d: u32) -> String {
+        const TEXT: &[&str] = &["", "", "-", " ", "é", "😀", "{{", "}}", "`", "${{x}}", "\\\\", "\u{85}"];
+        let mut template = String::new();
+        let mut args: Vec<String> = Vec::new();
+        for _ in 0..1 + self.rng.below(3) {
+            template.push_str(self.rng.pick(TEXT));
+            let (value, int) = match self.rng.below(5) {
+                0 => (self.text(d), false),
+                1 => (self.ch(), false),
+                2 => (self.size(d), true),
+                3 => (self.boolean(d), false),
+                _ => (self.owned(d), false),
+            };
+            let spec = match self.rng.below(9) {
+                0 if int => ":05".to_string(),
+                1 if int => ":01".to_string(),
+                2 => ":5".into(),
+                3 => ":<4".into(),
+                4 => ":^5".into(),
+                5 => ":>3".into(),
+                6 => ":*^6".into(),
+                7 => ":😀>4".into(),
+                _ => String::new(),
+            };
+            // A local is captured by name; it reads the same wherever the
+            // template places it.
+            let named: Vec<String> = self
+                .scope
+                .iter()
+                .filter(|(n, t)| {
+                    n.chars().all(|c| c.is_alphanumeric()) && matches!(t, T::Str | T::String | T::Char | T::Usize)
+                })
+                .map(|(n, _)| n.clone())
+                .collect();
+            if !named.is_empty() && self.rng.below(3) == 0 {
+                let n = self.rng.pick(&named);
+                let int = self.scope.iter().any(|(m, t)| *m == n && *t == T::Usize);
+                let spec = if spec == ":05" && !int { String::new() } else { spec };
+                write!(template, "{{{n}{spec}}}").expect("write");
+            } else {
+                write!(template, "{{{spec}}}").expect("write");
+                args.push(value);
+            }
+        }
+        template.push_str(self.rng.pick(TEXT));
+        let args: String = args.iter().map(|a| format!(", {a}")).collect();
+        format!("format!(\"{template}\"{args})")
     }
 
     /// A `String`, possibly a block that builds one; only where a block

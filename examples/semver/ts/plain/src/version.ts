@@ -97,11 +97,7 @@ export const Version = {
   isPreRelease: (self: Version): boolean => self.pre.length !== 0,
   /** The version as SemVer writes it (§2, §9, §10): `1.2.3-alpha.1+build.5`. */
   format: (self: Version): string => {
-    let s: string = decimal(self.major);
-    s += ".";
-    s += decimal(self.minor);
-    s += ".";
-    s += decimal(self.patch);
+    let s: string = `${self.major}.${self.minor}.${self.patch}`;
 
     for (let i = 0 as Usize, end = self.pre.length as Usize; i < end; i = (i + 1) as Usize) {
       s += i === 0 ? ("-" as Char) : ("." as Char);
@@ -134,27 +130,6 @@ const preIdText = (p: PreId): string => {
     default:
       return assertNever(p);
   }
-};
-
-/** `n` in decimal, without a leading zero. */
-const decimal = (n: U64): string => {
-  let s: string = n >= 10n ? decimal(Int.u64.div(n, 10n as U64)) : "";
-  s += digit(Int.u64.rem(n, 10n as U64));
-  return s;
-};
-
-/** The character of a digit below 10. */
-const digit = (d: U64): Char => {
-  if (d === 0n) return "0" as Char;
-  if (d === 1n) return "1" as Char;
-  if (d === 2n) return "2" as Char;
-  if (d === 3n) return "3" as Char;
-  if (d === 4n) return "4" as Char;
-  if (d === 5n) return "5" as Char;
-  if (d === 6n) return "6" as Char;
-  if (d === 7n) return "7" as Char;
-  if (d === 8n) return "8" as Char;
-  return "9" as Char;
 };
 
 const isIdentChar = (c: U8): boolean =>

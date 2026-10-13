@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`format!`** builds a `String` from integers of every width, `bool`, `char`, `String`, `&str`, and `Uuid` (design/01 §6.8): `{}`, `{0}`, `{name}` with `name = ..`, names captured inline (`{x}`), `{{` / `}}`, a width counted in `char`s, `<` / `^` / `>` with a fill, and zero padding on an integer after its sign. It prints as a template literal, padded through `Str.pad` / `Str.padZero`. Refused, with what v0 takes: floats, `{:?}`, radixes and exponents, `+`, `#`, a precision, a width from an argument, the crate's own types, zero padding on anything but an integer (Rust pads it with spaces), a width on a `Uuid` (Rust ignores it), and an argument other than a local, a literal, or a field placed out of order or twice, since a template literal runs its `${..}` in the order it places them. `.to_string()` stays refused. Tested against Rust on every integer at its bounds, fills and text outside the BMP, escapes, and arguments that panic (`format_equivalence.rs`), and as a shape of the strings generator.
+
+### Examples
+
+- **semver** writes its version with `format!` where it built a `u64`'s digits by hand: 165 → 142 lines, 2.3× → 2.0× its idiomatic reference. **jsonpatch** writes its numbers with `format!`: 648 → 633, 4.1× → 4.0× (design/07 §2.2).
+
 ### Documentation
 
 - **Over 2× the lines of idiomatic Rust is an indicator of what to improve first, no longer a condition to withdraw** (design/06 §4.2, design/07 §1). A capability an example's excess names goes first among the candidates only if it helps code in general, not one domain: `format!` on integers (semver) now heads design/07 §3. jsonpatch's excess (`&mut` into a nested value) and payment's (its checked constructor, which the reference does not do) raise nothing. `&mut`, in either form, moves from the candidates to design/07 §6: it would be a new place for wrong values. The open question in design/07 §7 is closed.

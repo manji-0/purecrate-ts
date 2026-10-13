@@ -424,6 +424,8 @@ fn is_pure(expr: &Expr) -> bool {
             // `Callee::Slice`, not here.
             | Callee::Str(_)
             | Callee::StrSplit
+            // Padding never panics.
+            | Callee::Format(_)
             | Callee::StringFrom => true,
             Callee::IntCast { to, .. } | Callee::FloatToInt { to, .. } => *to != purecrate_ir::IntTy::Usize,
             Callee::IntFrom { to, .. } => *to != purecrate_ir::IntTy::Usize,

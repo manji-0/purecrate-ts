@@ -601,6 +601,48 @@ impl CharMethod {
     }
 }
 
+/// A piece of a `format!` string: text, or the argument `index` of
+/// `Callee::Format`'s arguments laid out by `spec`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FmtPiece {
+    Text(String),
+    Arg { index: usize, spec: FmtSpec },
+}
+
+/// `{:fill align 0 width}`. `width` counts `char`s, as Rust's padding does;
+/// `zero` pads an integer with `0`s after its sign and overrides `fill` and
+/// `align`. Without `align`, an integer is right-aligned and the rest left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FmtSpec {
+    pub fill: Option<char>,
+    pub align: Option<FmtAlign>,
+    pub zero: bool,
+    pub width: Option<u32>,
+}
+
+impl FmtSpec {
+    pub fn is_plain(&self) -> bool {
+        self.width.is_none()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FmtAlign {
+    Left,
+    Center,
+    Right,
+}
+
+impl FmtAlign {
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            FmtAlign::Left => "<",
+            FmtAlign::Center => "^",
+            FmtAlign::Right => ">",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Callee {
     Fn(Name),
@@ -783,6 +825,14 @@ pub enum Callee {
     },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
+    /// `format!(..)`: `pieces` in order, each a run of text or an argument
+    /// with its spec. `args` are the explicit arguments in the order written,
+    /// then each name captured inline (`{x}`) in the order it first appears:
+    /// Rust's evaluation order. Each argument is an integer, `bool`, `char`,
+    /// `&str`, `String`, or `Uuid` (design/01 §6.8). Prints as a template
+    /// literal, which evaluates its `${..}` in the order the pieces place
+    /// them; `syntax` refuses an order that would change what runs first.
+    Format(Vec<FmtPiece>),
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
     /// positions) or a `Vec` or slice. The arguments are `x`, then `a` if
     /// `start`, then `b` if `end`. Out-of-range positions, a reversed range,

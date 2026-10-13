@@ -477,6 +477,7 @@ impl<'a> Cx<'_, 'a> {
                 }
             }
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
+            Callee::Format(_) => {}
             Callee::StringNew => self.arity("`String::new`", 0, argc),
             Callee::StrWellFormed => self.arity("a string check", 1, argc),
             Callee::StrConcat => self.arity("`String::push`", 2, argc),

@@ -89,12 +89,6 @@ const small = <T extends number>(min: number, max: number) => {
     add: (a: T, b: T): T => fit(a + b, "add"),
     sub: (a: T, b: T): T => fit(a - b, "subtract"),
     mul: (a: T, b: T): T => fit(a * b, "multiply"),
-    div: (a: T, b: T): T =>
-      b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
-    rem: (a: T, b: T): T =>
-      b === 0
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
   } as const;
 };
 
@@ -107,28 +101,6 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
     add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
     sub: (a: T, b: T): T => fit(n(a) - n(b), "subtract"),
     mul: (a: T, b: T): T => fit(n(a) * n(b), "multiply"),
-    div: (a: T, b: T): T =>
-      n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
-    rem: (a: T, b: T): T =>
-      n(b) === 0n
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
-  } as const;
-};
-
-/**
- * The integer methods, from the exact result: `x.checked_add(y)` is it or
- * `null` outside the range, `saturating_*` clamps it, `wrapping_*` keeps its
- * low `bits`, and the others panic outside the range as a debug build does.
- * `lo..=hi` is Rust's range; `to` makes the runtime value, and for `usize`
- * throws above 2^53−1, which a `number` cannot hold (design/01 §3).
- */
-const methods = <T extends number | bigint>(r: { lo: bigint; hi: bigint; bits: number; signed: boolean; to: (n: bigint) => T }) => {
-  const v = (x: T): bigint => BigInt(x);
-  const inRange = (n: bigint): boolean => n >= r.lo && n <= r.hi;
-  const fit = (n: bigint | null, what: string): T => (n !== null && inRange(n) ? r.to(n) : panic(`${what} with overflow`));
-  return {
-    abs: (a: T): T => fit(v(a) < 0n ? -v(a) : v(a), "negate"),
   } as const;
 };
 
@@ -442,11 +414,9 @@ export const Int = {
   usize: {
     ...small<Usize>(0, 9007199254740991),
     parse: parser(0n, 18446744073709551615n, false, small64),
-    cast: (x: number | bigint): Usize => (typeof x === "number" && x >= 0 ? (x as Usize) : small64(BigInt.asUintN(64, BigInt(x)))),
   },
   i64: {
     ...big<I64>(-9223372036854775808n, 9223372036854775807n),
-    ...methods({ lo: -9223372036854775808n, hi: 9223372036854775807n, bits: 64, signed: true, to: (n) => n as I64 }),
     parse: parser(-9223372036854775808n, 9223372036854775807n, true, (n) => n as I64),
   },
 } as const;

@@ -440,7 +440,7 @@ pub fn write_json(value: &Json) -> String {
         Json::Null => String::from("null"),
         Json::Bool(true) => String::from("true"),
         Json::Bool(false) => String::from("false"),
-        Json::Num(n) => int_text(*n),
+        Json::Num(n) => format!("{n}"),
         Json::Text(s) => quote(s),
         Json::Array(items) => write_array(items),
         Json::Object(members) => write_object(members),
@@ -476,24 +476,6 @@ fn write_object(members: &Vec<Member>) -> String {
 }
 
 const HEX_DIGITS: &[u8] = b"0123456789abcdef";
-
-/// The digit of `d`'s last decimal place (`d` may be negative).
-fn last_digit(d: i64) -> char {
-    char::from(HEX_DIGITS[(d % 10).abs() as usize])
-}
-
-fn int_text(n: i64) -> String {
-    let mut digits: Vec<char> = vec![last_digit(n)];
-    let mut rest = n / 10;
-    while rest != 0 {
-        digits.insert(0, last_digit(rest));
-        rest /= 10;
-    }
-    if n < 0 {
-        digits.insert(0, '-');
-    }
-    digits.iter().collect::<String>()
-}
 
 fn quote(s: &str) -> String {
     let mut out = String::new();

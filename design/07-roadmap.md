@@ -48,7 +48,7 @@ Per example: where `check` stopped it (§2.1), its length against idiomatic Rust
 
 Non-blank, non-comment lines of logic (functions and inherent impls), both sides formatted by rustfmt at width 120 (`scripts/line-counts.py`), so layout does not decide the ratio. Over 2× puts what the excess names first in §3 ([§1](#1-how-additions-are-chosen), [06 §4.2](./06-strategy.md#42-external-criteria)).
 
-**Now** (`scripts/line-counts.py`, 2026-10-13; signup by hand). The independent reviews' fixes (2026-10-05, below) are in these figures:
+**Now** (`scripts/line-counts.py`, 2026-10-14; signup by hand). The independent reviews' fixes (2026-10-05, below) are in these figures:
 
 | Example | Idiomatic | Constrained | Ratio | Earlier (as written) |
 | --- | --- | --- | --- | --- |
@@ -58,13 +58,13 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | invoice | 54 | 96 | 1.8× | 2.2× first draft; 1.4× restructured |
 | punycode | 152 | 267 | 1.8× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building |
 | calendar | 439 | 738 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
-| jsonpatch | 159 | 648 | 4.1× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 304 (2.8×), below. 789 as written (2026-10-11), 781 with `Vec::insert`, 648 with 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
+| jsonpatch | 159 | 633 | 4.0× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 304 (2.8×), below. 789 as written (2026-10-11), 781 with `Vec::insert`, 648 with 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)), 633 with `format!` for its numbers (0.16.0) |
 | geo | 135 | 222 | 1.6× | 297 (2.2×) as written (2026-10-11); 222 with 0.13.1's float methods and casts ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ulid | 59 | 95 | 1.6× | 201 (3.4×) as written (2026-10-11); 95 with `u128`, narrowing `as`, and a byte-string alphabet ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | negotiate | 188 | 295 | 1.6× | 494 (2.6×) as written (2026-10-11); 295 with 0.13.1's string methods, sorts, and consumers ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | oidc | 390 | 576 | 1.5× | 1.65× as written from the skill alone |
 | payment | 52 | 125 | 2.4× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
-| semver | 72 | 165 | 2.3× | 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
+| semver | 72 | 142 | 2.0× | 165 (2.3×) before 0.16.0, whose `format!` replaced the digits built by hand; 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
 **After the independent reviews** (2026-10-05, `scripts/line-counts.py`, logic only): the fixes the reviews asked for moved four examples. invoice 53 / 93 (1.8×): one rounding per rate on converted totals, three methods, and checked arithmetic. oidc 369 / 514 (1.4×): SHA-256 and base64url are written in the subset, so the PKCE challenge is computed from the verifier rather than passed in. payment 46 / 109 (2.4×): the checked constructor an intent read from JSON goes through. semver 72 / 165 (2.3×): equality and formatting, with the decimal digits of a `u64` built by hand, as no number turns into text in the subset. punycode went down, 155 / 271 (1.7×), with `Vec::insert`.
 
@@ -203,7 +203,7 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | `a..=b`, `step_by`, `rev` | 2 | 0.5 | `[expr/loop]`, `[expr/method-call]` |
 | Slice patterns (`[x, ..]`) | 1 | 0.5 | `[pattern/other]` |
 | `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 0.4 | `[expr/method-call]` |
-| Numbers to text (`format!`, `to_string`) | 3 | 0.2 | `[expr/macro]`: digits built by hand; idsmith 82 `format!`, 37 `to_string` |
+| Numbers to text (`format!`, `to_string`) | 3 | 0.9 | accepted from 0.16.0 (0.2 before: digits built by hand; idsmith 82 `format!`, 37 `to_string`); `to_string` is `format!("{n}")`, floats stay out |
 | Keyed collections (`HashMap`, `BTreeMap`, sets) | 3 | 0.2 | `[type/disallowed]`: a `Vec` of pairs searched in order |
 | Generic types and functions (`Page<T>`) | 2 | 0.2 | `[item/generics]`: one copy per type; 16 functions and 21 types in the corpus outside idsmith |
 | Fixed-size arrays and tables | 2 | 0.5 | `[type/array]`: a `Vec` or a `match` |
@@ -211,9 +211,9 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60%.** Weighted, these rows give 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, now planned for 0.18.0; traits with `Display`, after type parameters; each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`.** Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, now planned for 0.18.0; traits with `Display`, after type parameters; each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** `format!` on integers (§3), `String`-keyed maps and unbounded type parameters (§5) together take it to about 75%. What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
+**What moves it.** `format!` on integers (§3, done), `String`-keyed maps and type parameters (§5) together take it to about 75%; the whole plan in §3, to about 86%. What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
@@ -225,7 +225,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 
 **Plan (2026-10-14, by decision).** §2.5 found the distance to the ideal in shapes common to domain code rather than in any one example, so the following are taken without waiting for §1, as 0.9.0 and 0.13.1 were, in this order. Each comes with a fixture, a shape in the statements generator, and `purecrate-ts test` over every example.
 
-1. **0.16.0, `format!`.** `{}` on integers, `&str`, `String`, `char`, and `Uuid`, with a width (`{:5}`, `{:<5}`, `{:>5}`) and zero padding on integers (`{:05}`), whose text Rust and TS agree on; named and positional arguments, `{{` / `}}`. Out: floats (`Display` of a float is a large surface), `{:x}` and the other radixes (a negative signed value prints its two's complement in Rust), `{:?}`, and the crate's own types (no `Display`). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
+1. ~~**0.16.0, `format!`.**~~ Done ([01 §6.8](./01-equivalence.md#68-format)). `{}` on integers, `&str`, `String`, `char`, and `Uuid`, with a width (`{:5}`, `{:<5}`, `{:>5}`) and zero padding on integers (`{:05}`), whose text Rust and TS agree on; named and positional arguments, `{{` / `}}`. Out: floats (`Display` of a float is a large surface), `{:x}` and the other radixes (a negative signed value prints its two's complement in Rust), `{:?}`, and the crate's own types (no `Display`). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
 2. **0.17.0, control flow.** `if let` and `let`-`else` on an enum's variant (through the narrowing of `join/flow.rs`), `loop` with `break` and a value, `while let`, `for` over `a..=b` (an end at the type's maximum must not step past it) and over `(a..b).rev()` (an unsigned start of 0), and a tuple's `.0`.
 3. **0.18.0, std on `Option`, `Result`, and `Vec`.** `and_then`, `unwrap_or_else` and `ok_or_else` (lazy, where `unwrap_or` is not), `filter`, `map_or`, `is_some_and`; `get`, `first`, `last`, `contains` (`Eq.deep`); `fold`, `zip`, `rev` on a sequence. With them `unwrap`, `expect`, `panic!`, `assert!`, `assert_eq!`, and `unreachable!` with a literal message: each panics in Rust, so it throws in TS (01 §1, unexpected failure), as overflow does.
 4. **0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`** (§5).
@@ -233,7 +233,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| `format!` on integers, strings, `char`, and `Uuid` | semver (2.3×): the decimal digits of a `u64` built by hand; idsmith (82 `format!`); Windmill | 0.16.0 in the plan above |
+| ~~`format!` on integers, strings, `char`, and `Uuid`~~ | semver (2.3×): the decimal digits of a `u64` built by hand; idsmith (82 `format!`); Windmill | done in 0.16.0: semver 2.3× → 2.0×, jsonpatch 4.1× → 4.0× |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~`v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are~~ | jsonpatch: four copy loops in the patch layer (3.5×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ~~Float methods and conversions~~ | geo: four hand-written replacements (2.2×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |

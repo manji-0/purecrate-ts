@@ -396,6 +396,8 @@ mod tests {
             "methods.u128",
             "str.bytes",
             "str.len",
+            "str.pad",
+            "str.padZero",
             "str.slice",
             "str.stripPrefix",
             "str.stripSuffix",

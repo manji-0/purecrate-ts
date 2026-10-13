@@ -86,12 +86,6 @@ const small = <T extends number>(min: number, max: number) => {
   return {
     of,
     add: (a: T, b: T): T => fit(a + b, "add"),
-    div: (a: T, b: T): T =>
-      b === 0 ? panic("divide by zero") : fit(Math.trunc(a / b), "divide"),
-    rem: (a: T, b: T): T =>
-      b === 0
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(Math.trunc(a / b), "calculate the remainder"), (a % b) + 0) as T),
   } as const;
 };
 
@@ -102,12 +96,6 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   return {
     of: (value: bigint): T => fit(value, "convert"),
     add: (a: T, b: T): T => fit(n(a) + n(b), "add"),
-    div: (a: T, b: T): T =>
-      n(b) === 0n ? panic("divide by zero") : fit(n(a) / n(b), "divide"),
-    rem: (a: T, b: T): T =>
-      n(b) === 0n
-        ? panic("calculate the remainder with a divisor of zero")
-        : ((fit(n(a) / n(b), "calculate the remainder"), n(a) % n(b)) as unknown as T),
   } as const;
 };
 

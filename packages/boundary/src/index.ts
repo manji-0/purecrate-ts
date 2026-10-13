@@ -540,6 +540,29 @@ export const Str = {
     return out as unknown as ReadonlyArray<U8>;
   },
   // #endregion
+  // #region str.pad
+  /**
+   * `format!`'s `{:5}`, `{:<5}`, `{:^5}`, `{:*>5}`: `x` as `{}` prints it,
+   * padded with `fill` to `width` `char`s (code points, as Rust counts
+   * them, not UTF-16 units). Centered, the odd one goes right, as in Rust.
+   */
+  pad: (x: string | number | bigint | boolean, width: number, align: "<" | "^" | ">", fill = " "): string => {
+    const s = String(x);
+    let n = width;
+    for (const _ of s) n--;
+    if (n <= 0) return s;
+    const left = align === "<" ? 0 : align === ">" ? n : Math.floor(n / 2);
+    return fill.repeat(left) + s + fill.repeat(n - left);
+  },
+  // #endregion
+  // #region str.padZero
+  /** `format!`'s `{:05}` on an integer: `0`s after the sign, to `width` in all. */
+  padZero: (x: number | bigint, width: number): string => {
+    const s = String(x);
+    const sign = s.startsWith("-") ? "-" : "";
+    return sign + s.slice(sign.length).padStart(width - sign.length, "0");
+  },
+  // #endregion
   // #region str.len
   /** `str::len`: the number of UTF-8 bytes. */
   len: (s: string): Usize => utf8Len(s),

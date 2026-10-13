@@ -588,6 +588,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     m => format!("Iter.{}({source}, {})", m.ts_name(), emit_item(&args[1], indent)),
                 };
             }
+            if let purecrate_ir::Callee::Format(pieces) = callee {
+                return emit_format(pieces, args, indent);
+            }
             let c = match callee {
                 purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
                 purecrate_ir::Callee::Method { ty, name } if is_private_method(ty.as_str(), name.as_str()) => {
@@ -609,6 +612,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
                 purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
+                purecrate_ir::Callee::Format(_) => unreachable!("printed above"),
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::StringNew => return "\"\"".into(),
@@ -1435,6 +1439,61 @@ pub(crate) fn f32_literal(digits: &str) -> String {
         // rustc rejects an out-of-range literal, so the input never gets here.
         _ => format!("(globalThis.Math.fround({digits}) as F32)"),
     }
+}
+
+/// `format!` as a template literal: each argument in its `${..}`, padded
+/// by `Str.pad` / `Str.padZero` where it has a width. `check::accept` has
+/// set every padded piece's alignment.
+fn emit_format(pieces: &[purecrate_ir::FmtPiece], args: &[Expr], indent: usize) -> String {
+    let mut out = String::from("`");
+    for piece in pieces {
+        match piece {
+            purecrate_ir::FmtPiece::Text(t) => out.push_str(&template_text(t)),
+            purecrate_ir::FmtPiece::Arg { index, spec } => {
+                let arg = &args[*index];
+                let value =
+                    bare(arg, indent).unwrap_or_else(|| crate::tidy::uncast(&emit_item(arg, indent)).to_string());
+                let value = match spec.width {
+                    None => value,
+                    Some(w) if spec.zero => format!("Str.padZero({value}, {w})"),
+                    Some(w) => {
+                        let align = spec.align.expect("check::accept sets the alignment").ts_name();
+                        match spec.fill {
+                            None | Some(' ') => format!("Str.pad({value}, {w}, \"{align}\")"),
+                            Some(c) => format!("Str.pad({value}, {w}, \"{align}\", {})", js_string(&c.to_string())),
+                        }
+                    }
+                };
+                out.push_str("${");
+                out.push_str(&value);
+                out.push('}');
+            }
+        }
+    }
+    out.push('`');
+    out
+}
+
+/// Text inside a template literal: escaped as `js_string` escapes, and
+/// the backtick and `${`, which a template reads as its own.
+fn template_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '`' => out.push_str("\\`"),
+            '$' if chars.peek() == Some(&'{') => out.push_str("\\$"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if c < ' ' || c == '\u{2028}' || c == '\u{2029}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// A double-quoted literal escaped as JSON escapes it, plus U+2028 and

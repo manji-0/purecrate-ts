@@ -144,11 +144,7 @@ impl Version {
 
     /// The version as SemVer writes it (§2, §9, §10): `1.2.3-alpha.1+build.5`.
     pub fn format(&self) -> String {
-        let mut s = decimal(self.major);
-        s.push('.');
-        s.push_str(&decimal(self.minor));
-        s.push('.');
-        s.push_str(&decimal(self.patch));
+        let mut s = format!("{}.{}.{}", self.major, self.minor, self.patch);
         for i in 0..self.pre.len() {
             s.push(if i == 0 { '-' } else { '.' });
             s.push_str(pre_id_text(&self.pre[i]));
@@ -171,29 +167,6 @@ fn pre_id_text(p: &PreId) -> &str {
     match p {
         PreId::Numeric(x) => x,
         PreId::Alpha(x) => x,
-    }
-}
-
-/// `n` in decimal, without a leading zero.
-fn decimal(n: u64) -> String {
-    let mut s = if n >= 10 { decimal(n / 10) } else { String::new() };
-    s.push(digit(n % 10));
-    s
-}
-
-/// The character of a digit below 10.
-fn digit(d: u64) -> char {
-    match d {
-        0 => '0',
-        1 => '1',
-        2 => '2',
-        3 => '3',
-        4 => '4',
-        5 => '5',
-        6 => '6',
-        7 => '7',
-        8 => '8',
-        _ => '9',
     }
 }
 

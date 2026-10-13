@@ -29,6 +29,7 @@ mod flags_equivalence;
 mod float_conv_equivalence;
 mod for_chars_equivalence;
 mod for_each_equivalence;
+mod format_equivalence;
 mod generated_collections_equivalence;
 mod generated_equivalence;
 mod generated_floats_equivalence;

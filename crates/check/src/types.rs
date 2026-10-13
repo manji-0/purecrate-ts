@@ -11,14 +11,15 @@
 //! suffix or an annotation instead of guessing.
 
 use purecrate_ir::{
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy, Fn,
-    IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, Sort, StrMethod, TryOn, Ty, UnOp,
-    VariantBind, VariantFields, NEWTYPE_FIELD,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy, FmtAlign,
+    FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, Sort,
+    StrMethod, TryOn, Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
 use crate::defs::Defs;
 
 mod calls;
+mod format;
 mod iter;
 mod methods;
 mod ops;
