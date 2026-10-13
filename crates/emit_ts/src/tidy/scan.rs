@@ -3,6 +3,49 @@
 
 /// The byte ranges of `s` outside string and template literals, with the
 /// parenthesis depth at each byte (`None` inside a literal).
+/// The index past the template literal whose `` ` `` is at `start`, or the
+/// end of `bytes` if it does not close.
+fn template_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'`' => return i + 1,
+            b'$' if bytes.get(i + 1) == Some(&b'{') => i = substitution_end(bytes, i + 2),
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// The index past the `}` that closes a `${` whose body starts at `i`.
+fn substitution_end(bytes: &[u8], mut i: usize) -> usize {
+    let mut depth = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            q @ (b'"' | b'\'') => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != q {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                i += 1;
+            }
+            b'`' => i = template_end(bytes, i),
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' if depth == 0 => return i + 1,
+            b'}' => {
+                depth -= 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
 pub(super) fn depths(s: &str) -> Vec<Option<usize>> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -24,7 +67,16 @@ pub(super) fn depths(s: &str) -> Vec<Option<usize>> {
                 }
             }
             None => match b {
-                b'"' | b'\'' | b'`' => {
+                // A template literal reads as a literal, its `${..}`
+                // included: what they hold may have quotes and backticks
+                // of its own.
+                b'`' => {
+                    let end = template_end(bytes, i);
+                    out.extend(std::iter::repeat_n(None, end - i));
+                    i = end;
+                    continue;
+                }
+                b'"' | b'\'' => {
                     quote = Some(b);
                     out.push(None);
                 }
@@ -307,4 +359,21 @@ pub(crate) fn indent_more(s: &str) -> String {
         .map(|(i, l)| if i == 0 || l.is_empty() { l.to_string() } else { format!("  {l}") })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod template_tests {
+    use super::*;
+
+    #[test]
+    fn a_template_reads_as_one_literal_with_its_substitutions() {
+        let s = "`a${Str.pad(c, 5, \"^\", \"`\")}😀${`in${x}`} + b` + y";
+        let d = depths(s);
+        assert_eq!(d.len(), s.len());
+        let end = s.find(" + y").expect("tail");
+        assert!(d[..end].iter().all(Option::is_none), "{d:?}");
+        assert_eq!(top_prec(s), PREC_ADD);
+        let t = "`a${Str.pad(c, 5, \"^\", \"`\")}😀`";
+        assert_eq!(uncast(&format!("({t} as string)")), t);
+    }
 }

@@ -428,8 +428,9 @@ impl G {
                 .collect();
             if !named.is_empty() && self.rng.below(3) == 0 {
                 let n = self.rng.pick(&named);
-                let int = self.scope.iter().any(|(m, t)| *m == n && *t == T::Usize);
-                let spec = if spec == ":05" && !int { String::new() } else { spec };
+                // A name may be bound again with another type: the last binding counts.
+                let int = self.scope.iter().rev().find(|(m, _)| *m == n).is_some_and(|(_, t)| *t == T::Usize);
+                let spec = if spec.starts_with(":0") && !int { String::new() } else { spec };
                 write!(template, "{{{n}{spec}}}").expect("write");
             } else {
                 write!(template, "{{{spec}}}").expect("write");
