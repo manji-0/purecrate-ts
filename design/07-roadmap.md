@@ -211,9 +211,9 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60%.** Weighted, these rows give 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document has decided on (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, and traits with `Display`, each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**About 60%.** Weighted, these rows give 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, now planned for 0.18.0; traits with `Display`, after type parameters; each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** `format!` on integers (§3), `String`-keyed maps and unbounded type parameters (§5) together take it to about 75%. What is left is notation, not capability: shapes another spelling writes at some cost in length, each taken when an example needs it (§1).
+**What moves it.** `format!` on integers (§3), `String`-keyed maps and unbounded type parameters (§5) together take it to about 75%. What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
@@ -223,9 +223,17 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 
 What the evidence currently points at, strongest first. The five examples of 2026-10-11 met §1 for every row struck through, taken together in 0.13.1 by decision. None of the rest is scheduled until §1 is met: an example that cannot be written, or stays over 2×, without it; the rows such an example raises come first. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([CHANGELOG 0.7.0](../CHANGELOG.md#rationale-lists-from-text)), with patterns nested in a case.
 
+**Plan (2026-10-14, by decision).** §2.5 found the distance to the ideal in shapes common to domain code rather than in any one example, so the following are taken without waiting for §1, as 0.9.0 and 0.13.1 were, in this order. Each comes with a fixture, a shape in the statements generator, and `purecrate-ts test` over every example.
+
+1. **0.16.0, `format!`.** `{}` on integers, `&str`, `String`, `char`, and `Uuid`, with a width (`{:5}`, `{:<5}`, `{:>5}`) and zero padding on integers (`{:05}`), whose text Rust and TS agree on; named and positional arguments, `{{` / `}}`. Out: floats (`Display` of a float is a large surface), `{:x}` and the other radixes (a negative signed value prints its two's complement in Rust), `{:?}`, and the crate's own types (no `Display`). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
+2. **0.17.0, control flow.** `if let` and `let`-`else` on an enum's variant (through the narrowing of `join/flow.rs`), `loop` with `break` and a value, `while let`, `for` over `a..=b` (an end at the type's maximum must not step past it) and over `(a..b).rev()` (an unsigned start of 0), and a tuple's `.0`.
+3. **0.18.0, std on `Option`, `Result`, and `Vec`.** `and_then`, `unwrap_or_else` and `ok_or_else` (lazy, where `unwrap_or` is not), `filter`, `map_or`, `is_some_and`; `get`, `first`, `last`, `contains` (`Eq.deep`); `fold`, `zip`, `rev` on a sequence. With them `unwrap`, `expect`, `panic!`, `assert!`, `assert_eq!`, and `unreachable!` with a literal message: each panics in Rust, so it throws in TS (01 §1, unexpected failure), as overflow does.
+4. **0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`** (§5).
+5. **0.20.0, type parameters** (§5).
+
 | Candidate | Evidence | Note |
 | --- | --- | --- |
-| `format!` on integers, and `to_string` | semver (2.3×): the decimal digits of a `u64` built by hand; Windmill | `Display` of floats is a large surface; a first step would take only `{}` on integers, `&str`, and `char`, whose text Rust and TS agree on |
+| `format!` on integers, strings, `char`, and `Uuid` | semver (2.3×): the decimal digits of a `u64` built by hand; idsmith (82 `format!`); Windmill | 0.16.0 in the plan above |
 | A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
 | ~~`v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are~~ | jsonpatch: four copy loops in the patch layer (3.5×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ~~Float methods and conversions~~ | geo: four hand-written replacements (2.2×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
@@ -235,7 +243,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
 | Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
 | ~~Narrowing `as` between integers~~ | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); a widening `From` takes keeps `T::from(x)` as its one spelling |
-| Generics and string-keyed maps | — | §5 |
+| Type parameters and string-keyed maps | §2.5 | 0.19.0 and 0.20.0 in the plan above; §5 |
 | Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion | specified with local `const` in 0.4.0 | waits for a use |
 | crates.io and Windows binaries | — | when a user asks; since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement |
 
@@ -247,10 +255,11 @@ What the evidence currently points at, strongest first. The five examples of 202
 
 ## 5. v1: when type expressiveness runs out
 
-Waits for an example that cannot be written without it.
+Planned by decision (2026-10-14, §3), no longer waiting for an example.
 
-- Unbounded type parameters, emitted as TS generics (no monomorphization). No bounds, `where`, or associated types.
-- `HashMap`/`BTreeMap` with `String` keys only, as `ReadonlyMap<string, V>`. Insertion order is not matched; functions depending on it are rejection candidates.
+- **`BTreeMap<String, V>` and `BTreeSet<String>`** as `ReadonlyMap<string, V>` / `ReadonlySet<string>`, iterated in Rust's key order (bytes of UTF-8, which is code-point order: `Ord.cmpStr`, not JS's UTF-16 sort). `new`, `get`, `contains_key`, `len`, `is_empty`, iteration, and `insert` / `remove` on a local `let mut`, as a `Vec`'s; on the wire a JSON object. `HashMap` and `HashSet` stay refused: their iteration order is unspecified in Rust itself, so an order-dependent function has no one result to match. Keys of other types wait for a use.
+- **Type parameters** on structs, enums, and functions, emitted as TS generics (no monomorphization), with the bounds `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`, which the structural output already honors. No other bounds, `where` beyond these, or associated types. Wire schemas for a generic type are functions of the parameter's schema.
+- **Traits** wait until type parameters are in: a user trait is decided then, with dispatch through those parameters.
 
 ## 6. Not doing
 
