@@ -120,3 +120,13 @@ fn names_are_checked_as_ts_spells_them() {
         "would both be `S.getN` in TS",
     );
 }
+
+/// A helper's home is found by the file stem of its caller's name, before
+/// renaming (`q62_mod_path`) and after (`q62ModPath`): the two are one
+/// file, a digit before the raised letter included.
+#[test]
+fn helper_home_of_a_name_with_digits_survives_renaming() {
+    assert_clean("pub fn q62_mod_path() -> u32 { f() }\nfn f() -> u32 { 1 }");
+    assert_clean("pub fn sha256_sum(n: u32) -> u32 { g(n) }\nfn g(n: u32) -> u32 { n }");
+    assert_clean("#[allow(non_snake_case)]\npub fn mk_A_b() -> u32 { f() }\nfn f() -> u32 { 1 }");
+}

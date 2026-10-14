@@ -13,8 +13,10 @@ impl Name {
 
     /// File stem for kamae-ts one-concept-per-file emit.
     /// `TaxiRequest` → `taxi-request`, `step` → `step`.
+    /// Read through the TS spelling, so a function's name gives one stem
+    /// before renaming and after (`mk_A_b` and `mk_AB`).
     pub fn file_stem(&self) -> String {
-        to_kebab(&self.0)
+        to_kebab(&to_camel(&self.0))
     }
 }
 
@@ -71,7 +73,10 @@ pub fn to_kebab(s: &str) -> String {
             if i > 0 {
                 let prev = chars[i - 1];
                 let next_lower = chars.get(i + 1).copied().map(|x| x.is_lowercase()).unwrap_or(false);
-                if (prev.is_lowercase() || prev == '_' || (prev.is_uppercase() && next_lower)) && !out.ends_with('-') {
+                // After a digit too: `to_camel` raises the letter after
+                // `q62_`, and `q62ModPath` must be `q62_mod_path`'s file.
+                let after_word = prev.is_lowercase() || prev.is_ascii_digit() || prev == '_';
+                if (after_word || (prev.is_uppercase() && next_lower)) && !out.ends_with('-') {
                     out.push('-');
                 }
             }
@@ -111,5 +116,31 @@ mod tests {
         assert_eq!(to_kebab("HTTPError"), "http-error");
         assert_eq!(to_kebab("step"), "step");
         assert_eq!(to_kebab("assign_driver"), "assign-driver");
+        assert_eq!(to_kebab("Base64Error"), "base64-error");
+        assert_eq!(to_kebab("HTTP2Error"), "http2-error");
+        assert_eq!(to_kebab("V2"), "v2");
+    }
+
+    /// A function's file is named after its Rust name before renaming and
+    /// its camelCase name after (`Crate::homes` is found both ways): the
+    /// two must give one stem, digits next to letters included.
+    #[test]
+    fn kebab_of_camel_is_kebab() {
+        for name in [
+            "q62_mod_path",
+            "base64_decode",
+            "utf8_len",
+            "sha256_sum",
+            "a1_b2_c",
+            "a_1_b",
+            "a_1b",
+            "x2y_z",
+            "parse_v2",
+            "v2_parse",
+            "compare_pre_ids",
+            "get_HTTP_code",
+        ] {
+            assert_eq!(to_kebab(&to_camel(name)), to_kebab(name), "{name}");
+        }
     }
 }

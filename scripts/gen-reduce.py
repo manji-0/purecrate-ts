@@ -169,7 +169,7 @@ def main():
         want = ("crash",)
     elif whole[0] == "tsc":
         stem = whole[2]
-        target = re.sub(r"^([a-z])(\d+)f(\d+)$", r"\1\2_f\3", stem)
+        target = re.sub(r"^([a-z])(\d+)-?f(\d+)$", r"\1\2_f\3", stem)
         want = ("tsc", whole[1])
     else:
         sys.exit(f"gen-reduce: seed {args.seed} builds and type-checks ({whole[0]}); "
