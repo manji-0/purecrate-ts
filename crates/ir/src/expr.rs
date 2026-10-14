@@ -592,10 +592,12 @@ pub enum Callee {
     /// `str::as_bytes`, on a `String` or `&str`: the UTF-8 bytes as a
     /// `&[u8]`. Prints as `Str.bytes(s)` (design/01 §6).
     StrBytes,
-    /// `s.split(c)` with a `char` separator, only as the source of a `for`:
-    /// the pieces as `&str`, empty ones included. One code point cuts a
-    /// well-formed string at the same places in UTF-8 and UTF-16, and JS
-    /// `split` keeps the empty pieces Rust keeps. Prints as `s.split(c)`.
+    /// `s.split(c)` with a `char` separator or a non-empty `&str` literal, as
+    /// a sequence's source: the pieces as `&str`, empty ones included. One
+    /// code point, or a non-empty well-formed text, cuts a well-formed string
+    /// at the same places in UTF-8 and UTF-16, and JS `split` keeps the empty
+    /// pieces Rust keeps. Prints as `s.split(c)`; with a closure,
+    /// `Str.splitBy`.
     StrSplit,
     /// `s.split(p)` with a `&str` or `String` separator that is not a
     /// non-empty literal: the pieces as `&str`, a new array, as Rust splits,

@@ -18,6 +18,11 @@ fn text_methods_stand_where_split_does() {
              }}"
         ));
     }
+    for source in ["s.split(p)", "s.split(\"ab\")", "s.split_whitespace()", "s.lines()"] {
+        assert_clean(&format!(
+            "pub fn f(s: &str, p: &str) -> Result<Vec<usize>, u8> {{ {source}.map(|t| if t.is_empty() {{ Err(0u8) }} else {{ Ok(t.len()) }}).collect::<Result<Vec<usize>, u8>>() }}"
+        ));
+    }
     assert_clean("pub fn f(s: &str, p: String) -> usize { s.split(&p).count() }");
 }
 
