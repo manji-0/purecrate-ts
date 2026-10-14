@@ -114,8 +114,8 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 <!-- constrained-by ./07-roadmap.md#6-not-doing -->
 
 - The crate builds a `Vec` as a list of its elements: `vec![a, b]`, or `vec![]` where the type is known. Its length is fixed in the source. Use it for a list the caller expects as an array, such as a JSON claim.
-- It also builds one from text, once: `s.split(c).collect()` or `s.split(c).map(f).collect()`, into the `Vec<T>` or `Result<Vec<T>, E>` the context names. `c` is a `char`. The length is the input's, so this is not a sequence that grows with the state. A `Result` stops at the first `Err`.
-- From a `Vec`, a string's `chars()` / `bytes()`, or `s.split(c)`, through any `map(f)` and `filter(p)`, with `collect()`; and `v.clone()`.
+- It also builds one from text, once: `s.split(c).collect()` or `s.split(c).map(f).collect()`, into the `Vec<T>` or `Result<Vec<T>, E>` the context names. `c` is a `char` or a `&str` (not the literal `""`); `s.split_whitespace()` and `s.lines()` collect the same way ([01 §7.21](./01-equivalence.md#721-cutting-and-building-text)). The length is the input's, so this is not a sequence that grows with the state. A `Result` stops at the first `Err`.
+- From a `Vec`, a string's `chars()` / `bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, through any `map(f)` and `filter(p)`, with `collect()`; and `v.clone()`.
 - A local grows: `let mut v: Vec<T> = Vec::new();` (or `vec![..]`, or any `Vec`), then `v.push(x)` or `v.insert(i, x)`, and is edited in place by `v.remove(i)`, `v[i] = x`, and `v[i] op= x`. Only a local declared `let mut` is written; a field (`s.items.push(x)`), an element's array (`v[i][j] = x`), and a parameter are not, and no closure captures such a local.
 - It is sorted in place by `v.sort()`, `v.sort_by(|a, b| ..)`, and `v.sort_by_key(|x| ..)`, stably.
 - Rejected: `vec![x; n]`, `Vec::from`, `to_vec`, `extend`, `pop`, `truncate`, `sort_unstable`, and the other mutating methods.

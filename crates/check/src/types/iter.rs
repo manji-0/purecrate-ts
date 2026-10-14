@@ -298,7 +298,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             other => (other, None),
         };
         if !is_sequence(pieces) {
-            self.error(Reason::MethodCall, "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, or `s.split(c)`, through any `map(f)` and `filter(p)`, in v0".to_string());
+            self.error(Reason::MethodCall, "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, through any `map(f)` and `filter(p)`, in v0".to_string());
             return Some(failed);
         }
         let target = want.map(|t| self.norm(t));
