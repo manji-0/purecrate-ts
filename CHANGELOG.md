@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 — 2026-10-14
+
+`format!` builds a `String` from integers, `bool`, `char`, strings, and `Uuid`, printed as a template literal; semver and jsonpatch use it where they built digits by hand. The plan to 0.20.0 is set by decision, and over 2× the idiomatic lines is now a priority indicator rather than a withdrawal condition.
 
 ### Added
 
