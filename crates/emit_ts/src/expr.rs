@@ -1226,6 +1226,56 @@ pub(crate) fn bind_in(p: &Pattern, read: Expr, body: &mut Expr) -> Option<()> {
     }
 }
 
+/// The pattern inside `Some(..)`, `Ok(..)`, or `Err(..)`.
+pub(crate) fn payload(pattern: &Pattern) -> Option<&Pattern> {
+    match pattern {
+        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => Some(p),
+        _ => None,
+    }
+}
+
+/// Where the payload of `Some(..)`, `Ok(..)`, or `Err(..)` is read once
+/// `scrutinee` has matched it: `scrutinee` itself (an `Option` prints as
+/// its payload or `null`), its `value`, or its `error`.
+pub(crate) fn payload_place(pattern: &Pattern, scrutinee: &Expr) -> Option<Expr> {
+    let field = |name: &str| Expr::Field { base: Box::new(scrutinee.clone()), name: Name::new(name) };
+    match pattern {
+        Pattern::OptionSome(_) => Some(scrutinee.clone()),
+        Pattern::ResultOk(_) => Some(field("value")),
+        Pattern::ResultErr(_) => Some(field("error")),
+        _ => None,
+    }
+}
+
+/// `bind_in` of the names `pattern` binds, each read from `scrutinee`
+/// where it has matched: the payload of `Some`, `Ok`, or `Err`
+/// (`payload_place`), or a variant's fields (`value`, `content[k]`, or by
+/// name). `None` for any other pattern, or one `bind_in` cannot bind.
+pub(crate) fn bind_pattern(pattern: &Pattern, scrutinee: &Expr, body: &mut Expr) -> Option<()> {
+    let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
+    match pattern {
+        Pattern::Variant { bind: VariantBind::Unit, .. } => Some(()),
+        Pattern::Variant { bind: VariantBind::Tuple(ps), .. } => {
+            for (k, p) in ps.iter().enumerate() {
+                let place = if ps.len() == 1 {
+                    field(scrutinee, "value")
+                } else {
+                    field(&field(scrutinee, "content"), &format!("[{k}]"))
+                };
+                bind_in(p, place, body)?;
+            }
+            Some(())
+        }
+        Pattern::Variant { bind: VariantBind::Struct(ps), .. } => {
+            for (f, p) in ps {
+                bind_in(p, field(scrutinee, f.as_str()), body)?;
+            }
+            Some(())
+        }
+        p => bind_in(payload(p)?, payload_place(p, scrutinee)?, body),
+    }
+}
+
 /// The arms in order, each a test on `scrutinee` and its body with the
 /// pattern's bindings read from `scrutinee`; the last is the `else`, as
 /// `check::accept` has made the `match` exhaustive.
@@ -1248,50 +1298,23 @@ fn match_tx(scrutinee: &Expr, arms: &[purecrate_ir::Arm], indent: usize) -> Opti
         _ => arms,
     };
     let subject = emit_expr(scrutinee, indent);
-    let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
     let mut parts: Vec<(Option<Tx>, Tx, Option<bool>)> = Vec::new();
     for (i, arm) in arms.iter().enumerate() {
         let last = i + 1 == arms.len();
         let mut body = arm.body.clone();
-        let bind = bind_in;
         let test = match &arm.pattern {
             Pattern::Wildcard => None,
             Pattern::Var(n) => {
                 body = subst(&body, n, scrutinee);
                 None
             }
-            Pattern::OptionSome(p) => {
-                bind(p, scrutinee.clone(), &mut body)?;
-                two_way_tx(&arm.pattern, &subject)
-            }
-            Pattern::ResultOk(p) => {
-                bind(p, field(scrutinee, "value"), &mut body)?;
-                two_way_tx(&arm.pattern, &subject)
-            }
-            Pattern::ResultErr(p) => {
-                bind(p, field(scrutinee, "error"), &mut body)?;
-                two_way_tx(&arm.pattern, &subject)
+            p @ (Pattern::OptionSome(_) | Pattern::ResultOk(_) | Pattern::ResultErr(_)) => {
+                bind_pattern(p, scrutinee, &mut body)?;
+                two_way_tx(p, &subject)
             }
             Pattern::OptionNone => two_way_tx(&arm.pattern, &subject),
-            Pattern::Variant { variant, bind: vb, .. } => {
-                match vb {
-                    VariantBind::Unit => {}
-                    VariantBind::Tuple(ps) => {
-                        for (k, p) in ps.iter().enumerate() {
-                            let place = if ps.len() == 1 {
-                                field(scrutinee, "value")
-                            } else {
-                                field(&field(scrutinee, "content"), &format!("[{k}]"))
-                            };
-                            bind(p, place, &mut body)?;
-                        }
-                    }
-                    VariantBind::Struct(ps) => {
-                        for (f, p) in ps {
-                            bind(p, field(scrutinee, f.as_str()), &mut body)?;
-                        }
-                    }
-                }
+            p @ Pattern::Variant { variant, .. } => {
+                bind_pattern(p, scrutinee, &mut body)?;
                 Some(kind_test(&subject, variant.as_str()))
             }
             // Variants that bind nothing (`Cons(_, _)` counts).

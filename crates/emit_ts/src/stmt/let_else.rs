@@ -15,7 +15,6 @@ pub(super) fn let_else(
     indent: usize,
     out: &mut String,
 ) -> bool {
-    let pad = "  ".repeat(indent);
     let (test, prelude, exit, keep) = match peel_identity(value) {
         Expr::If { cond, then, else_ } => {
             let c = emit_tx(cond, indent);
@@ -52,24 +51,16 @@ pub(super) fn let_else(
             }
             let subject = emit_expr(scrutinee, indent);
             let test = two_way_test(&exit.pattern, &subject).expect("exit_arms checked");
-            let read = match &keep.pattern {
-                Pattern::ResultOk(_) => field_of(scrutinee, "value"),
-                Pattern::ResultErr(_) => field_of(scrutinee, "error"),
-                _ => (**scrutinee).clone(),
-            };
-            let kept = match payload(&keep.pattern) {
-                Some(Pattern::Var(n)) => subst(&keep.body, n, &read),
+            let kept = match (payload(&keep.pattern), payload_place(&keep.pattern, scrutinee)) {
+                (Some(Pattern::Var(n)), Some(read)) => subst(&keep.body, n, &read),
                 _ => keep.body.clone(),
             };
             // The exit reads its payload in place too (`return Result.err(
             // { kind: "Email", value: result.error })`), unless it takes the
-            // payload apart.
-            match (payload(&exit.pattern), &exit.pattern) {
-                (Some(Pattern::Var(n)), Pattern::ResultErr(_)) => {
-                    (test, String::new(), subst(&exit.body, n, &field_of(scrutinee, "error")), kept)
-                }
-                (Some(Pattern::Var(n)), Pattern::ResultOk(_)) => {
-                    (test, String::new(), subst(&exit.body, n, &field_of(scrutinee, "value")), kept)
+            // payload apart or is an `Option`'s.
+            match (payload(&exit.pattern), payload_place(&exit.pattern, scrutinee)) {
+                (Some(Pattern::Var(n)), Some(read)) if !matches!(exit.pattern, Pattern::OptionSome(_)) => {
+                    (test, String::new(), subst(&exit.body, n, &read), kept)
                 }
                 _ => {
                     let prelude = two_way_prelude(&exit.pattern, &subject, &"  ".repeat(indent + 1));
@@ -83,7 +74,6 @@ pub(super) fn let_else(
     if !let_else(name, mutable, ty, &keep, indent, out) {
         emit_let(name, mutable, ty, &keep, indent, out);
     }
-    let _ = pad;
     true
 }
 
@@ -138,16 +128,4 @@ pub(super) fn unwrapped_var(value: &Expr) -> Option<(&Name, String, &Expr)> {
         }
         _ => None,
     }
-}
-
-/// The pattern inside `Some(..)`, `Ok(..)`, or `Err(..)`.
-pub(super) fn payload(pattern: &Pattern) -> Option<&Pattern> {
-    match pattern {
-        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => Some(p),
-        _ => None,
-    }
-}
-
-fn field_of(base: &Expr, name: &str) -> Expr {
-    Expr::Field { base: Box::new(base.clone()), name: Name::new(name) }
 }

@@ -13,6 +13,7 @@
 
 use purecrate_ir::{Arm, BinOp, Expr, Lit, Name, Pattern, TryOn, VariantBind};
 
+use crate::expr::{bind_pattern, payload, payload_place};
 use crate::stmt::{breaks, is_place, touches};
 
 mod flow;
@@ -179,7 +180,6 @@ fn read_in(arm: &Arm, scrutinee: &Expr) -> Option<Expr> {
         root = base;
     }
     let Expr::Var(var) = root else { return None };
-    let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
     if touches(&arm.body, var) {
         // Read only by a closure (nothing writes or binds the place again):
         // the payload is bound once, where the case is known, as a `const`.
@@ -187,51 +187,25 @@ fn read_in(arm: &Arm, scrutinee: &Expr) -> Option<Expr> {
             Expr::Assign { name, .. } => name == var,
             e => e.own_bindings().contains(&var),
         });
-        let read = match &arm.pattern {
-            Pattern::OptionSome(_) => scrutinee.clone(),
-            Pattern::ResultOk(_) => field(scrutinee, "value"),
-            Pattern::ResultErr(_) => field(scrutinee, "error"),
-            _ => return None,
+        let (Some(p), Some(read), false) = (payload(&arm.pattern), payload_place(&arm.pattern, scrutinee), written)
+        else {
+            return None;
         };
-        return match (&arm.pattern, written) {
-            (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), false) => match &**p {
-                Pattern::Var(n) => Some(Expr::Let {
-                    name: n.clone(),
-                    mutable: false,
-                    ty: None,
-                    value: Box::new(read),
-                    then: Box::new(arm.body.clone()),
-                }),
-                Pattern::Wildcard => Some(arm.body.clone()),
-                _ => None,
-            },
+        return match p {
+            Pattern::Var(n) => Some(Expr::Let {
+                name: n.clone(),
+                mutable: false,
+                ty: None,
+                value: Box::new(read),
+                then: Box::new(arm.body.clone()),
+            }),
+            Pattern::Wildcard => Some(arm.body.clone()),
             _ => None,
         };
     }
-    let bind = crate::expr::bind_in;
     let mut body = arm.body.clone();
-    match &arm.pattern {
-        Pattern::OptionSome(p) => bind(p, scrutinee.clone(), &mut body)?,
-        Pattern::ResultOk(p) => bind(p, field(scrutinee, "value"), &mut body)?,
-        Pattern::ResultErr(p) => bind(p, field(scrutinee, "error"), &mut body)?,
-        Pattern::Variant { bind: VariantBind::Unit, .. } | Pattern::OptionNone => {}
-        Pattern::Variant { bind: VariantBind::Tuple(ps), .. } => {
-            for (k, p) in ps.iter().enumerate() {
-                let place = if ps.len() == 1 {
-                    field(scrutinee, "value")
-                } else {
-                    field(&field(scrutinee, "content"), &format!("[{k}]"))
-                };
-                bind(p, place, &mut body)?;
-            }
-        }
-        Pattern::Variant { bind: VariantBind::Struct(ps), .. } => {
-            for (f, p) in ps {
-                bind(p, field(scrutinee, f.as_str()), &mut body)?;
-            }
-        }
-        p if p.is_lit_case() => {}
-        _ => return None,
+    if !(arm.pattern == Pattern::OptionNone || arm.pattern.is_lit_case()) {
+        bind_pattern(&arm.pattern, scrutinee, &mut body)?;
     }
     Some(body)
 }

@@ -365,15 +365,7 @@ fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr, ta
         return None;
     }
     let mut body = a.body.clone();
-    match &a.pattern {
-        Pattern::OptionSome(p) => crate::expr::bind_in(p, scrutinee.clone(), &mut body)?,
-        Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
-            let field = if matches!(a.pattern, Pattern::ResultOk(_)) { "value" } else { "error" };
-            let read = Expr::Field { base: Box::new(scrutinee.clone()), name: purecrate_ir::Name::new(field) };
-            crate::expr::bind_in(p, read, &mut body)?
-        }
-        _ => return None,
-    }
+    crate::expr::bind_in(payload(&a.pattern)?, payload_place(&a.pattern, scrutinee)?, &mut body)?;
     Some(body)
 }
 
