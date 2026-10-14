@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 — 2026-10-14
+
+`loop` with a value, `while let`, `if let` and `let`-`else` on any pattern that can fail, `a..=b`, a reversed range, and a tuple's `.0`; seven examples use them. The statements generator's new forms found three miscompiles released through 0.16.0, fixed here, and every generator agrees with Rust and type-checks on seeds 1 to 120. The distance to the ideal is 73%.
 
 ### Added
 
