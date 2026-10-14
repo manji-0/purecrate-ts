@@ -38,6 +38,7 @@ Tested against Rust with empty inputs, sizes and steps of 0 (literal and not), s
 
 - **`survey` judged a function that reads a crate const as rejected** (`check/undefined-name`), as a const was never lowered with it, nor a function passed by name to `is_some_and` or `map_or`: 44 functions of eight examples (calendar's range checks, all of negotiate and punycode) were reported rejected or blocked that `build` accepts. A const is lowered now and goes with the functions that read it, as a type does (still counted under "not judged"), and so does a function any name reads; every example's functions are accepted.
 - **`test` could not draw a struct of no fields declared with braces.** `pub struct S {}` was built as `S`, which names only `struct S;`; it is `S {}` now, which builds either.
+- **A `while` whose test narrowing decided `false` on both sides of an `if` printed a body tsc refused as unreachable.** `while k < n && (if c == c { matches!(o, Some(_) if c) } else { o.is_some() })` with `o` known `None` printed `while (k < n && c !== c && false)`, which TS types `false`: the body was unreachable code (TS7027), and a `r.value` in it was not narrowed. An `if` whose two sides are the same `bool` and whose test does nothing is that `bool` now, so the loop goes and only `k < n`'s effects run, as in Rust (`narrowing.rs`: `decided_while_side`).
 
 ## 0.20.1 — 2026-10-15
 

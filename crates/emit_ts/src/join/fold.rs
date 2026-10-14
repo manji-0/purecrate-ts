@@ -55,6 +55,14 @@ pub(super) fn unread(expr: &mut Expr) {
                 *expr = arms[0].body.clone();
             }
         }
+        // `if c { false } else { false }` (both sides decided alike) where
+        // `c` does nothing: the value. Printed `!c && false`, which TS types
+        // `false`, it would leave a `while` body TS takes as unreachable.
+        Expr::If { cond, then, else_ }
+            if then == else_ && matches!(**then, Expr::Lit(Lit::Bool(_))) && effectless(cond) =>
+        {
+            *expr = (**then).clone();
+        }
         // `x && false` where `x` does nothing is `false` (TS: unreachable
         // code); `true && x` is `x`, and the same for `||`.
         Expr::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {

@@ -922,3 +922,18 @@ pub fn complex_guard(r: Result<i32, i32>, n: i32) -> i32 {
     }
     0
 }
+
+/// Both sides of the `if` decided `false` (`o` is `None`): the test is
+/// `false`, which TS reads of `c != c && false` too, so the body goes and
+/// only what the test runs first is left.
+pub fn decided_while_side(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Result<i32, i32> {
+    let mut h: i32 = 0;
+    if o.is_none() {
+        let mut k: i32 = 0;
+        while k < 100 / a && (if c == c { matches!(o, Some(_v) if c) } else { o.is_some() }) {
+            k += 1;
+            h += r?;
+        }
+    }
+    Ok(h)
+}
