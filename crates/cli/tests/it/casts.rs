@@ -134,6 +134,22 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     None
 }
 
+/// Whether `at` in `line` is inside a `".."` or `` `..` `` string.
+fn in_string(line: &str, at: usize) -> bool {
+    let mut open: Option<char> = None;
+    let mut escaped = false;
+    for c in line[..at].chars() {
+        match (open, c) {
+            (Some(_), _) if escaped => escaped = false,
+            (Some(_), '\\') => escaped = true,
+            (Some(q), c) if c == q => open = None,
+            (None, '"' | '`') => open = Some(c),
+            _ => {}
+        }
+    }
+    open.is_some()
+}
+
 fn is_place_text(value: &str) -> bool {
     !value.is_empty() && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '.'))
 }
@@ -167,6 +183,11 @@ fn every_cast_is_of_a_sound_kind() {
                 }
                 let mut from = 0;
                 while let Some(at) = line[from..].find(" as ").map(|i| from + i) {
+                    // Text, as in a panic's message (`"assertion failed: x as u8 > 1"`).
+                    if in_string(line, at) {
+                        from = at + 4;
+                        continue;
+                    }
                     let value = operand(line, at);
                     let target = &line[at + 4..];
                     if kind(line, value, target, &brands).is_none()

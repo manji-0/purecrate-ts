@@ -221,6 +221,9 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 let Expr::Match { scrutinee, arms } = flow::unbound(p) else { return None };
                 let is_some = *callee == purecrate_ir::Callee::OptionIsSome;
                 let mut arms = arms;
+                if !arms.iter().all(|a| flow::folded_arm(&a.body)) {
+                    return None;
+                }
                 for a in &mut arms {
                     a.body = match a.body {
                         Expr::Call { callee: purecrate_ir::Callee::OptionSome, .. } => Expr::Lit(Lit::Bool(is_some)),
@@ -251,7 +254,12 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                     continue;
                 }
                 let cases = variants_of(&arm.pattern);
-                if held.as_ref().is_some_and(|h| !cases.is_empty() && cases.iter().all(|c| !h.contains(c))) {
+                // Cases of another kind (an `Option`'s and its payload's
+                // variant) do not rule each other out.
+                if held
+                    .as_ref()
+                    .is_some_and(|h| !cases.is_empty() && same_kind(h, &cases) && cases.iter().all(|c| !h.contains(c)))
+                {
                     continue;
                 }
                 let v = known_bool(&arm.body, known)?;

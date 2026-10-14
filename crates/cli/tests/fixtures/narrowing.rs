@@ -903,3 +903,13 @@ pub fn true_else_side(o: Option<i32>, c: bool) -> i32 {
     }
     o.unwrap_or(-7)
 }
+
+/// `o.map(f).is_none()` prints as `(o !== null ? f(o) : null) === null`,
+/// which TS does not narrow `o` by: past the `return`, it is still an
+/// `Option` to it.
+pub fn mapped_is_none(o: Option<i32>, a: i32) -> i32 {
+    if o.map(|v| a.checked_sub(v).unwrap_or(1)).is_none() {
+        return 0;
+    }
+    o.unwrap_or(-1)
+}

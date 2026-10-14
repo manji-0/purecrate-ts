@@ -183,6 +183,7 @@ fn generated_narrowing_matches_rust() {
         for o in [None, Some(3i32)] {
             cases.push(case!(narrowing::true_else_side(o, true)));
             cases.push(case!(narrowing::true_else_side(o, false)));
+            cases.push(case!(narrowing::mapped_is_none(o, i32::MIN)));
         }
         for o in [None, Some(3i32)] {
             cases.push(case!(narrowing::decided_then_side(100i32, o, true)));

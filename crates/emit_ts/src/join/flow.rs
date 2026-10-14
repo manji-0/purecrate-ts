@@ -301,11 +301,7 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
             // as the test of which arm gives `Some` (TS has `r.kind ===
             // "Ok"`).
             [built] => match unbound(built) {
-                Expr::Match { scrutinee, arms }
-                    if arms.iter().all(|a| {
-                        matches!(a.body, Expr::Call { callee: Callee::OptionSome | Callee::OptionNone, .. })
-                    }) =>
-                {
+                Expr::Match { scrutinee, arms } if arms.iter().all(|a| folded_arm(&a.body)) => {
                     let is_some = *callee == Callee::OptionIsSome;
                     let arms = arms
                         .iter()
@@ -326,6 +322,20 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         // receiver: the test on `r`, as the TS reads it.
         Expr::Let { mutable: false, value, .. } if is_place(value) => tests(&unbound(cond), holds),
         _ => Vec::new(),
+    }
+}
+
+/// An arm of the `match` `ok()` / `err()` write: `None`, or `Some` of a
+/// name or a literal. The printer folds `is_some()` of such a `match` into
+/// a test of its scrutinee, which TS narrows by; a `Some` of anything else
+/// it prints as a `?:`, which TS does not.
+pub(super) fn folded_arm(body: &Expr) -> bool {
+    match body {
+        Expr::Call { callee: purecrate_ir::Callee::OptionNone, .. } => true,
+        Expr::Call { callee: purecrate_ir::Callee::OptionSome, args } => {
+            matches!(args.as_slice(), [Expr::Var(_) | Expr::Lit(_)])
+        }
+        _ => false,
     }
 }
 
