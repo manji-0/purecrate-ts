@@ -366,7 +366,7 @@ impl Body {
             (0, Some(v)) => format!("assert!({v} != {});", self.g.lit()),
             (1, _) => {
                 let test = self.g.boolean(e);
-                let shown = self.g.var(Ty::Int).map_or_else(|| "h0".to_string(), |v| v);
+                let shown = self.g.var(Ty::Int).unwrap_or_else(|| "h0".to_string());
                 format!("assert!({test}, \"failed with {{}}\", {shown});")
             }
             _ => {
