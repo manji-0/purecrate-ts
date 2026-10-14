@@ -983,9 +983,13 @@ impl G {
                 self.line("}");
             }
             _ => {
-                self.line(&format!("let {m}: BTreeMap<String, usize> = {ys}.iter().map(|y| (y.clone(), y.len())).collect();"));
+                self.line(&format!(
+                    "let {m}: BTreeMap<String, usize> = {ys}.iter().map(|y| (y.clone(), y.len())).collect();"
+                ));
                 self.line(&format!("acc += {m}.get(&{a}).copied().unwrap_or(0) as i32;"));
-                self.line(&format!("acc = {m}.keys().fold(acc, |t, key| t.wrapping_mul(3).wrapping_add(key.len() as i32));"));
+                self.line(&format!(
+                    "acc = {m}.keys().fold(acc, |t, key| t.wrapping_mul(3).wrapping_add(key.len() as i32));"
+                ));
                 self.line(&format!("acc += {m}.values().map(|n| *n as i32).sum::<i32>();"));
             }
         }

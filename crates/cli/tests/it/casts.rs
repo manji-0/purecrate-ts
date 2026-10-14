@@ -71,9 +71,7 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("Iterable<Char>") {
         return Some("a string's code points are chars");
     }
-    if target_name == "Usize"
-        && [".length", ".size"].iter().any(|l| value.trim_end_matches(')').ends_with(l))
-    {
+    if target_name == "Usize" && [".length", ".size"].iter().any(|l| value.trim_end_matches(')').ends_with(l)) {
         return Some("length");
     }
     // `x as number as U32` / `x as bigint as U128`: both halves.
