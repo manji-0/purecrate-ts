@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A `#[serde(..)]` refusal was lost to a later key.** Each key reset what the one before it had refused, so `#[serde(deny_unknown_fields, rename_all = "camelCase")]` was accepted though the same keys the other way round were refused, and `rename = "a", rename = "b", tag = "t"` lost its "given twice". The first refusal now stands.
+
 ## 0.20.0 — 2026-10-14
 
 Type parameters on structs, enums, `impl` blocks, and functions, emitted as TS generics with their type arguments inferred. On the wire, a generic type's schema takes its parameters'. The plan of 0.16.0 to 0.20.0 is done; the distance to the ideal is 83%.

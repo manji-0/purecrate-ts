@@ -210,6 +210,15 @@ mod tests {
         assert_eq!((line, col), (2, 35), "{msg}");
         assert!(msg.contains("`#[serde(deny_unknown_fields)]` changes the JSON"), "{msg}");
 
+        // A refusal stays refused whatever key comes after it.
+        let (line, col, msg) = error_at(
+            "#[derive(Serialize)]\n#[serde(deny_unknown_fields, rename_all = \"camelCase\")]\npub struct S { pub total_count: i64 }",
+        );
+        assert_eq!((line, col), (2, 9), "{msg}");
+        assert!(msg.contains("`#[serde(deny_unknown_fields)]` changes the JSON"), "{msg}");
+        let (_, _, msg) = error_at("#[serde(rename = \"a\", rename = \"b\", tag = \"t\")]\npub enum E { A }");
+        assert!(msg.contains("`#[serde(rename)]` is given twice"), "{msg}");
+
         let (line, col, msg) = error_at("pub struct S {\n    #[serde(skip)]\n    pub count: i64,\n}");
         assert_eq!((line, col), (2, 13), "{msg}");
 

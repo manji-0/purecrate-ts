@@ -55,6 +55,11 @@ pub(crate) fn serde_attrs(attrs: &[syn::Attribute], place: Place) -> Result<Serd
     for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
         let mut failure: Option<ParseError> = None;
         let parsed = attr.parse_nested_meta(|meta| {
+            // The first refusal stands: a later key, even one accepted, must
+            // not replace it. The keys after it are left unread.
+            if failure.is_some() {
+                return Ok(());
+            }
             let key = meta.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
             let refuse = |message: String| ParseError::new(Reason::SerdeAttr, message).or_at(meta.path.span());
             if !place.keys().contains(&key.as_str()) {
