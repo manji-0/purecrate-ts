@@ -116,7 +116,7 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
 };
 
 const small64 = (n: bigint): Usize =>
-  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+  n > 9007199254740991n ? Panic.raise(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
 
 /** `x as T` to a type of 32 bits or fewer: the low `bits` bits, read signed or not, as Rust's `as` wraps. */
 const cast32 =
@@ -191,7 +191,7 @@ export const Str = {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
-        if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+        if (lone.test(v)) Panic.raise("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
         // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
         const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
@@ -265,10 +265,7 @@ const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
 const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
 const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
-  r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
-const panicWith = (message: string): never => {
-  throw new Panic(message);
-};
+  r < 2 || r > 36 ? Panic.raise("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 const digitValue = (c: Char, r: U32): number | null => {
   const base = radix(r);
   const p = code(c);

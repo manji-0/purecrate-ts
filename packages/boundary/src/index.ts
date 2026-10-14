@@ -220,7 +220,7 @@ const minMax = <T extends number | bigint>() =>
 
 // #region methods.usize parse.usize cast.usize castFloat.usize
 const small64 = (n: bigint): Usize =>
-  n > 9007199254740991n ? panicWith(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
+  n > 9007199254740991n ? Panic.raise(`usize value ${n} does not fit in 53 bits`) : (Number(n) as Usize);
 // #endregion
 
 // #region cast.i8 cast.i16 cast.i32 cast.u8 cast.u16 cast.u32
@@ -586,9 +586,9 @@ export const Str = {
   slice: (s: string, start: Usize, end?: Usize): string => {
     const len = utf8Len(s);
     const stop = end ?? len;
-    if (start > len) panicWith(`start byte index ${start} is out of bounds for string of length ${len}`);
-    if (stop > len) panicWith(`end byte index ${stop} is out of bounds for string of length ${len}`);
-    if (start > stop) panicWith(`byte range starts at ${start} but ends at ${stop}`);
+    if (start > len) Panic.raise(`start byte index ${start} is out of bounds for string of length ${len}`);
+    if (stop > len) Panic.raise(`end byte index ${stop} is out of bounds for string of length ${len}`);
+    if (start > stop) Panic.raise(`byte range starts at ${start} but ends at ${stop}`);
     let byte = 0;
     let unit = 0;
     let from = -1;
@@ -608,7 +608,7 @@ export const Str = {
     }
     if (byte === start) from = unit;
     if (byte === stop) to = unit;
-    if (from < 0 || to < 0) panicWith(inside as string);
+    if (from < 0 || to < 0) Panic.raise(inside as string);
     return s.slice(from, to);
   },
   // #endregion
@@ -624,7 +624,7 @@ export const Str = {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
-        if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+        if (lone.test(v)) Panic.raise("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
         // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
         const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
@@ -835,6 +835,22 @@ export const Ord = {
   // #endregion
 } as const;
 
+// #region iter.maxBy iter.minBy iter.maxByKey iter.minByKey
+/**
+ * `max_by` and the like: the greatest item by `key` and `cmp` when `max`
+ * (the last of equals, as std keeps the later one), else the least (the
+ * first of equals); each key computed once, in order.
+ */
+const best = <T, K>(xs: Iterable<T>, key: (x: T) => K, cmp: (a: K, b: K) => Ordering, max: boolean): T | null => {
+  let found: { x: T; k: K } | null = null;
+  for (const x of xs) {
+    const k = key(x);
+    if (found === null || (cmp(found.k, k).kind === "Greater") !== max) found = { x, k };
+  }
+  return found === null ? null : found.x;
+};
+// #endregion
+
 /**
  * The consuming iterator methods, as std's default methods run them: in
  * order, `all` stopping at the first `false`, `any` and `position` at the
@@ -898,41 +914,21 @@ export const Iter = {
   // #endregion
   // #region iter.maxBy
   /** `max()` / `max_by(f)`: the last of the greatest, as std keeps the later of equals. */
-  maxBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => {
-    let best: T | null = null;
-    for (const x of xs) if (best === null || f(best, x).kind !== "Greater") best = x;
-    return best;
-  },
+  maxBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => best(xs, (x) => x, f, true),
   // #endregion
   // #region iter.minBy
   /** `min()` / `min_by(f)`: the first of the least. */
-  minBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => {
-    let best: T | null = null;
-    for (const x of xs) if (best === null || f(best, x).kind === "Greater") best = x;
-    return best;
-  },
+  minBy: <T>(xs: Iterable<T>, f: (a: T, b: T) => Ordering): T | null => best(xs, (x) => x, f, false),
   // #endregion
   // #region iter.maxByKey
   /** `max_by_key(f)`: each key computed once, in order; the last of the greatest. */
-  maxByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null => {
-    let best: { x: T; k: K } | null = null;
-    for (const x of xs) {
-      const k = f(x);
-      if (best === null || cmp(best.k, k).kind !== "Greater") best = { x, k };
-    }
-    return best === null ? null : best.x;
-  },
+  maxByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null =>
+    best(xs, f, cmp, true),
   // #endregion
   // #region iter.minByKey
   /** `min_by_key(f)`: the first of the least. */
-  minByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null => {
-    let best: { x: T; k: K } | null = null;
-    for (const x of xs) {
-      const k = f(x);
-      if (best === null || cmp(best.k, k).kind === "Greater") best = { x, k };
-    }
-    return best === null ? null : best.x;
-  },
+  minByKey: <T, K>(xs: Iterable<T>, f: (x: T) => K, cmp: (a: K, b: K) => Ordering): T | null =>
+    best(xs, f, cmp, false),
   // #endregion
   // #region iter.map
   /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
@@ -1167,12 +1163,7 @@ const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
 const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
 const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
-  r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
-// #endregion
-// #region panicWith
-const panicWith = (message: string): never => {
-  throw new Panic(message);
-};
+  r < 2 || r > 36 ? Panic.raise("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 // #endregion
 // #region char
 const digitValue = (c: Char, r: U32): number | null => {

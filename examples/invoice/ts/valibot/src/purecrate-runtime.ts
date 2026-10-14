@@ -399,10 +399,7 @@ const upper = (c: Char): boolean => within(c, 0x41, 0x5a);
 const lower = (c: Char): boolean => within(c, 0x61, 0x7a);
 const digit = (c: Char): boolean => within(c, 0x30, 0x39);
 const radix = (r: U32): number =>
-  r < 2 || r > 36 ? panicWith("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
-const panicWith = (message: string): never => {
-  throw new Panic(message);
-};
+  r < 2 || r > 36 ? Panic.raise("to_digit: invalid radix -- radix must be in the range 2 to 36 inclusive") : r;
 const digitValue = (c: Char, r: U32): number | null => {
   const base = radix(r);
   const p = code(c);

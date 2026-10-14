@@ -115,7 +115,7 @@ export const Str = {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
-        if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+        if (lone.test(v)) Panic.raise("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
         // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
         const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
@@ -174,9 +174,5 @@ const utf8Len = (s: string): Usize => {
 const utf8Width = (c: string): number => {
   const p = c.codePointAt(0) as number;
   return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4;
-};
-
-const panicWith = (message: string): never => {
-  throw new Panic(message);
 };
 

@@ -137,7 +137,7 @@ export const Str = {
     const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
     const visit = (v: unknown): void => {
       if (typeof v === "string") {
-        if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
+        if (lone.test(v)) Panic.raise("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
         // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
         const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
@@ -192,10 +192,6 @@ export const Slice = {
     return xs.slice(a ?? 0, b ?? xs.length);
   },
 } as const;
-
-const panicWith = (message: string): never => {
-  throw new Panic(message);
-};
 
 /** Integer and float widths. Domain packages and schema adapters share these brands. */
 export const Int = {

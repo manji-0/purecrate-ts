@@ -516,7 +516,7 @@ mod tests {
         for factory in ["minmax", "cast", "castFloat"] {
             all.extend(IntTy::ALL.iter().map(|t| format!("{factory}.{}", t.as_str())));
         }
-        all.extend(["float.round", "float.ofBig", "float.isInfinite", "panicWith"].iter().map(|t| t.to_string()));
+        all.extend(["float.round", "float.ofBig", "float.isInfinite"].iter().map(|t| t.to_string()));
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));
         let mut bare: String = RUNTIME
