@@ -130,6 +130,16 @@ fn parse_input(input: TokenStream) -> (String, Vec<String>) {
     }
 }
 
+/// `impl<T: Bound> Bound for Name<T>`'s head and type, or `impl Bound for Name`.
+fn head(name: &str, generics: &[purecrate_ir::Name], bound: &str) -> (String, String) {
+    if generics.is_empty() {
+        return (String::new(), name.to_string());
+    }
+    let params = generics.iter().map(|g| format!("{}: {bound}", g.as_str())).collect::<Vec<_>>().join(", ");
+    let args = generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", ");
+    (format!("<{params}>"), format!("{name}<{args}>"))
+}
+
 fn show_struct(st: &Struct) -> String {
     let name = st.name.as_str();
     let body = match st.fields.as_slice() {
@@ -142,8 +152,9 @@ fn show_struct(st: &Struct) -> String {
             format!("format!(\"{name} {{{{ {pattern} }}}}\", {args})")
         }
     };
+    let (h, ty) = head(name, &st.generics, SHOW);
     format!(
-        "    impl {SHOW} for {name} {{\n        fn show(&self) -> String {{\n            {body}\n        }}\n    }}\n"
+        "    impl{h} {SHOW} for {ty} {{\n        fn show(&self) -> String {{\n            {body}\n        }}\n    }}\n"
     )
 }
 
@@ -171,8 +182,9 @@ fn show_enum(en: &purecrate_ir::Enum) -> String {
         };
         arms.push_str(&format!("                {arm}\n"));
     }
+    let (h, ty) = head(name, &en.generics, SHOW);
     format!(
-        "    impl {SHOW} for {name} {{\n        fn show(&self) -> String {{\n            match self {{\n{arms}            }}\n        }}\n    }}\n"
+        "    impl{h} {SHOW} for {ty} {{\n        fn show(&self) -> String {{\n            match self {{\n{arms}            }}\n        }}\n    }}\n"
     )
 }
 
@@ -186,9 +198,10 @@ fn named<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, Str
 
 const SER: &str = "::serde_core::Serialize";
 
-fn serialize_impl(name: &str, body: &str) -> String {
+fn serialize_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
+    let (h, ty) = head(name, generics, SER);
     format!(
-        "    impl {SER} for {name} {{\n        fn serialize<S: ::serde_core::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {{\n            #[allow(unused_imports)]\n            use ::serde_core::ser::{{SerializeStruct, SerializeStructVariant, SerializeTupleVariant}};\n            {body}\n        }}\n    }}\n"
+        "    impl{h} {SER} for {ty} {{\n        fn serialize<S: ::serde_core::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {{\n            #[allow(unused_imports)]\n            use ::serde_core::ser::{{SerializeStruct, SerializeStructVariant, SerializeTupleVariant}};\n            {body}\n        }}\n    }}\n"
     )
 }
 
@@ -206,7 +219,7 @@ fn serialize_struct(st: &Struct) -> String {
             body
         }
     };
-    serialize_impl(name, &body)
+    serialize_impl(name, &st.generics, &body)
 }
 
 fn serialize_enum(en: &purecrate_ir::Enum) -> String {
@@ -240,7 +253,7 @@ fn serialize_enum(en: &purecrate_ir::Enum) -> String {
         };
         arms.push_str(&format!("                {arm}\n"));
     }
-    serialize_impl(name, &format!("match self {{\n{arms}            }}"))
+    serialize_impl(name, &en.generics, &format!("match self {{\n{arms}            }}"))
 }
 
 /// The file without its serde derives, `#[serde(...)]` attributes, and `use
@@ -281,8 +294,9 @@ fn without_serde(text: &str) -> String {
 
 const JS: &str = "crate::support::Js";
 
-fn js_impl(name: &str, body: &str) -> String {
-    format!("    impl {JS} for {name} {{\n        fn js(&self) -> String {{\n            {body}\n        }}\n    }}\n")
+fn js_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
+    let (h, ty) = head(name, generics, JS);
+    format!("    impl{h} {JS} for {ty} {{\n        fn js(&self) -> String {{\n            {body}\n        }}\n    }}\n")
 }
 
 /// `{ a: .., b: .. }` from the `Js` of each `<prefix><name>`.
@@ -303,7 +317,7 @@ fn js_struct(st: &Struct) -> String {
             format!("format!(\"({{{{ {pattern} }}}})\", {args})")
         }
     };
-    js_impl(name, &body)
+    js_impl(name, &st.generics, &body)
 }
 
 fn js_enum(en: &purecrate_ir::Enum) -> String {
@@ -336,5 +350,5 @@ fn js_enum(en: &purecrate_ir::Enum) -> String {
         };
         arms.push_str(&format!("                {arm}\n"));
     }
-    js_impl(name, &format!("match self {{\n{arms}            }}"))
+    js_impl(name, &en.generics, &format!("match self {{\n{arms}            }}"))
 }

@@ -609,8 +609,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let declared = self.declared_fields(ty.as_str(), variant);
         let typed_field = |me: &mut Self, decl: Option<&Ty>, x: &Expr, binds: &mut Vec<(Name, Ty)>| -> Expr {
-            let d = decl.map(|d| d.subst(binds));
-            let hint = d.filter(|d| !Self::open(d, &params));
+            let hint = decl.filter(|d| !Self::open(d, &params, binds)).map(|d| d.subst(binds));
             let (e, t) = me.expr(x, hint.as_ref());
             if let (None, Some(t), Some(d)) = (&hint, &t, decl) {
                 me.unify(d, t, &params, binds);

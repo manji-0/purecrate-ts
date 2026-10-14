@@ -33,13 +33,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                 ds.iter().zip(gs).for_each(|(d, g)| self.unify(d, g, params, binds))
             }
             (Ty::Ignored { inner, .. }, g) => self.unify(inner, g, params, binds),
+            (d, Ty::Ignored { inner, .. }) => self.unify(d, inner, params, binds),
             _ => {}
         }
     }
 
-    /// Whether `ty` still names one of `params`.
-    pub(super) fn open(ty: &Ty, params: &[Name]) -> bool {
-        ty.any(&|t| matches!(t, Ty::Param(p) if params.contains(p)))
+    /// Whether `ty` still names one of `params` that `binds` leaves unbound
+    /// (one bound to itself, the caller's own `T` in a recursive call, is
+    /// bound).
+    pub(super) fn open(ty: &Ty, params: &[Name], binds: &[(Name, Ty)]) -> bool {
+        ty.any(&|t| matches!(t, Ty::Param(p) if params.contains(p) && !binds.iter().any(|(b, _)| b == p)))
     }
 
     /// The arguments of a call to a generic function, typed against its
@@ -61,16 +64,14 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut typed = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let d = decl.get(i).map(|d| d.subst(&binds));
-            let hint = d.filter(|d| !Self::open(d, params));
+            let hint = decl.get(i).filter(|d| !Self::open(d, params, &binds)).map(|d| d.subst(&binds));
             let (e, t) = self.expr(a, hint.as_ref());
             if let (None, Some(t), Some(d)) = (&hint, &t, decl.get(i)) {
                 self.unify(d, t, params, &mut binds);
             }
             typed.push(e);
         }
-        let ret = ret.subst(&binds);
-        if let Some(p) = params.iter().find(|p| Self::open(&ret, std::slice::from_ref(p))) {
+        if let Some(p) = params.iter().find(|p| Self::open(ret, std::slice::from_ref(p), &binds)) {
             self.error(
                 Reason::NeedsAnnotation,
                 format!("the type `{}` of {what} is not known here; annotate the binding it goes to", p.as_str()),
@@ -80,7 +81,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         if !self.instance_ok(&binds, what) {
             return (typed, None);
         }
-        (typed, Some(ret))
+        (typed, Some(ret.subst(&binds)))
     }
 
     /// Whether the types bound to a generic item's parameters make no type
