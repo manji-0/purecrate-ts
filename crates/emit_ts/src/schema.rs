@@ -247,7 +247,7 @@ fn generic_ark(name: &str, generics: &[String], own: Vec<Chunk>) -> Vec<Chunk> {
     // which TS does not reduce to `T` inside the function: the morph's own
     // return type (`Page$<T>`) states it, each value it returns `as never`.
     let mut result = result.expect("the item's own declaration");
-    as_never_in(&mut result, false);
+    as_never_in(&mut result);
     body.push(Stmt::Return(result));
     let params = generics.iter().map(|g| format!("{}: W{g}", param_value("wire", g))).collect::<Vec<_>>().join(", ");
     let head = format!(
@@ -259,14 +259,13 @@ fn generic_ark(name: &str, generics: &[String], own: Vec<Chunk>) -> Vec<Chunk> {
     out
 }
 
-/// Each value a morph's arrow returns, as `never` (`generic_ark`); `inside`
-/// once within one.
-fn as_never_in(js: &mut Js, inside: bool) {
+/// Each value a morph's arrow returns, as `never` (`generic_ark`).
+fn as_never_in(js: &mut Js) {
     fn stmts(ss: &mut [Stmt]) {
         for s in ss {
             match s {
                 Stmt::Return(v) => {
-                    as_never_in(v, true);
+                    as_never_in(v);
                     if !matches!(v, Js::As(_, t) if t == "never") {
                         let inner = std::mem::replace(v, raw(""));
                         *v = Js::As(Box::new(inner), "never".into());
@@ -275,7 +274,7 @@ fn as_never_in(js: &mut Js, inside: bool) {
                 Stmt::If(_, s) => stmts(std::slice::from_mut(&mut **s)),
                 Stmt::IfBlock(_, b) | Stmt::Block(b) => stmts(b),
                 Stmt::Switch(_, cases) => cases.iter_mut().for_each(|(_, b)| stmts(b)),
-                Stmt::Const(_, v) | Stmt::Expr(v) => as_never_in(v, true),
+                Stmt::Const(_, v) | Stmt::Expr(v) => as_never_in(v),
             }
         }
     }
@@ -288,16 +287,16 @@ fn as_never_in(js: &mut Js, inside: bool) {
             }
         },
         Js::Call(f, args) => {
-            as_never_in(f, inside);
-            args.iter_mut().for_each(|a| as_never_in(a, inside));
+            as_never_in(f);
+            args.iter_mut().for_each(|a| as_never_in(a));
         }
-        Js::Member(o, _) | Js::As(o, _) | Js::Paren(o) => as_never_in(o, inside),
-        Js::Array(xs) => xs.iter_mut().for_each(|x| as_never_in(x, inside)),
-        Js::Object(kv) => kv.iter_mut().for_each(|(_, v)| as_never_in(v, inside)),
+        Js::Member(o, _) | Js::As(o, _) | Js::Paren(o) => as_never_in(o),
+        Js::Array(xs) => xs.iter_mut().for_each(|x| as_never_in(x)),
+        Js::Object(kv) => kv.iter_mut().for_each(|(_, v)| as_never_in(v)),
         Js::Ternary(a, b, c) => {
-            as_never_in(a, inside);
-            as_never_in(b, inside);
-            as_never_in(c, inside);
+            as_never_in(a);
+            as_never_in(b);
+            as_never_in(c);
         }
         Js::Arrow(_) | Js::Raw(_) | Js::Str(_) => {}
     }
