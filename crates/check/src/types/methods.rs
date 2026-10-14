@@ -551,14 +551,10 @@ impl<'d, 'a> Typer<'d, 'a> {
 fn std_methods(ty: &Ty) -> Option<String> {
     let names: Vec<&str> = match ty {
         Ty::Named(_) => return None,
-        Ty::Prim(Prim::String) => StrMethod::ALL
+        // `str::as_str` is unstable; only `String` has one.
+        Ty::Prim(p @ (Prim::String | Prim::Str)) => StrMethod::ALL
             .iter()
-            .map(|m| m.name())
-            .chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"])
-            .collect(),
-        Ty::Prim(Prim::Str) => StrMethod::ALL
-            .iter()
-            .filter(|m| **m != StrMethod::AsStr)
+            .filter(|m| *p == Prim::String || **m != StrMethod::AsStr)
             .map(|m| m.name())
             .chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"])
             .collect(),
@@ -579,45 +575,12 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
         ],
-        Ty::Option(_) => vec![
-            "is_some",
-            "is_none",
-            "is_some_and",
-            "is_none_or",
-            "unwrap",
-            "expect",
-            "unwrap_or",
-            "unwrap_or_else",
-            "ok_or",
-            "ok_or_else",
-            "or",
-            "or_else",
-            "map",
-            "map_or",
-            "map_or_else",
-            "and_then",
-            "filter",
-            "clone",
-            "cloned",
-            "copied",
-            "as_ref",
-            "as_deref",
-        ],
-        Ty::Result { .. } => vec![
-            "ok",
-            "err",
-            "is_ok",
-            "is_err",
-            "is_ok_and",
-            "is_err_and",
-            "unwrap_or",
-            "unwrap_or_else",
-            "map",
-            "map_err",
-            "map_or",
-            "and_then",
-            "or_else",
-        ],
+        Ty::Option(_) => ["is_some", "is_none"]
+            .into_iter()
+            .chain(option_result::OPTION_METHODS.map(|(n, _)| n))
+            .chain(["clone", "cloned", "copied", "as_ref", "as_deref"])
+            .collect(),
+        Ty::Result { .. } => option_result::RESULT_METHODS.map(|(n, _)| n).to_vec(),
         Ty::Prim(p) if p.float().is_some() => FloatMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()

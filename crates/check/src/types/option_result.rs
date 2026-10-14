@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// `Option`'s combinators that `option_method` writes as a `match`, with
+/// how many arguments each takes, in the order a message lists them.
+pub(super) const OPTION_METHODS: [(&str, usize); 15] = [
+    ("is_some_and", 1),
+    ("is_none_or", 1),
+    ("unwrap", 0),
+    ("expect", 1),
+    ("unwrap_or", 1),
+    ("unwrap_or_else", 1),
+    ("ok_or", 1),
+    ("ok_or_else", 1),
+    ("or", 1),
+    ("or_else", 1),
+    ("map", 1),
+    ("map_or", 2),
+    ("map_or_else", 2),
+    ("and_then", 1),
+    ("filter", 1),
+];
+
+/// `Result`'s methods that `result_method` writes as a `match`, with how
+/// many arguments each takes, in the order a message lists them.
+pub(super) const RESULT_METHODS: [(&str, usize); 13] = [
+    ("ok", 0),
+    ("err", 0),
+    ("is_ok", 0),
+    ("is_err", 0),
+    ("is_ok_and", 1),
+    ("is_err_and", 1),
+    ("unwrap_or", 1),
+    ("unwrap_or_else", 1),
+    ("map", 1),
+    ("map_err", 1),
+    ("map_or", 2),
+    ("and_then", 1),
+    ("or_else", 1),
+];
+
 impl<'d, 'a> Typer<'d, 'a> {
     /// `Option`'s methods, each as the `match` std writes it. The typed
     /// receiver is bound to a fresh name first, so it is typed once however
@@ -19,14 +57,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         args: &[Expr],
         want: Option<&Ty>,
     ) -> Option<Typed> {
-        let arity = match name {
-            "unwrap" => 0,
-            "expect" | "unwrap_or" | "ok_or" | "or" | "map" | "and_then" | "filter" | "is_some_and" | "is_none_or"
-            | "unwrap_or_else" | "ok_or_else" | "or_else" => 1,
-            "map_or" | "map_or_else" => 2,
-            _ => return None,
-        };
-        if args.len() != arity {
+        if !OPTION_METHODS.contains(&(name, args.len())) {
             return None;
         }
         let what = format!("`Option::{name}`");
@@ -155,7 +186,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 two(pattern, body, d)
             }
-            _ => unreachable!("`arity` lists every name"),
+            _ => unreachable!("`OPTION_METHODS` lists every name"),
         };
         self.scopes.push((opt.as_str().to_string(), Some(rt.clone())));
         if let Some((eager, ty, _)) = &eager_let {
@@ -329,6 +360,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             ));
             return Some((Expr::Lit(Lit::Unit), None));
         }
+        if !RESULT_METHODS.contains(&(name, args.len())) {
+            return None;
+        }
         let what = format!("`Result::{name}`");
         let mut eager_let: Option<(Name, Option<Ty>, Expr)> = None;
         let (rest, want) = match (name, args) {
@@ -375,7 +409,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (rest, Some(Ty::bool()))
             }
             // `d` runs before the `match`, as Rust evaluates it.
-            ("unwrap_or" | "map_or", [d, ..]) if args.len() == if name == "map_or" { 2 } else { 1 } => {
+            ("unwrap_or" | "map_or", [d, ..]) => {
                 let (typed, ty) = self.expr(d, if name == "unwrap_or" { Some(ok) } else { want });
                 let d = match typed {
                     Expr::Lit(_) => typed,
@@ -465,7 +499,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (rest, want)
             }
-            _ => return None,
+            _ => unreachable!("`RESULT_METHODS` lists every name"),
         };
         let rt = Ty::result(ok.clone(), err.clone());
         self.scopes.push((r.as_str().to_string(), Some(rt.clone())));
