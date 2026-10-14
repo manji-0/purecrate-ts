@@ -173,13 +173,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `e` as an expression to read later: itself when it is a literal, or a
     /// binding and `reread` allows, else a fresh name bound to it (in the
     /// order bound).
-    fn bind_once(
-        &mut self,
-        what: &str,
-        e: Expr,
-        ty: Option<Ty>,
-        reread: bool,
-    ) -> (Option<(Name, Option<Ty>, Expr)>, Expr) {
+    fn bind_once(&mut self, what: &str, e: Expr, ty: Option<Ty>, reread: bool) -> (Option<Bound>, Expr) {
         if matches!(e, Expr::Lit(_)) || (reread && matches!(e, Expr::Var(_))) {
             return (None, e);
         }
@@ -188,19 +182,10 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// Types `body` with the typed `lets` in scope, then puts them around it.
-    fn within(&mut self, lets: Vec<Option<(Name, Option<Ty>, Expr)>>, body: &Expr, want: Option<&Ty>) -> Typed {
-        let lets: Vec<(Name, Option<Ty>, Expr)> = lets.into_iter().flatten().collect();
-        for (name, ty, _) in &lets {
-            self.scopes.push((name.as_str().to_string(), ty.clone()));
-        }
-        let (mut typed, t) = self.expr(body, want);
-        for _ in &lets {
-            self.scopes.pop();
-        }
-        for (name, ty, value) in lets.into_iter().rev() {
-            typed = Expr::Let { name, mutable: false, ty, value: Box::new(value), then: Box::new(typed) };
-        }
-        (typed, t)
+    fn within(&mut self, lets: Vec<Option<Bound>>, body: &Expr, want: Option<&Ty>) -> Typed {
+        let lets: Vec<Bound> = lets.into_iter().flatten().collect();
+        let (typed, t) = self.scoped(&lets, body, want);
+        (wrap_lets(lets, typed), t)
     }
 }
 

@@ -88,12 +88,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 },
             ],
         };
-        let rt = Ty::result(*ok.clone(), *err);
-        self.scopes.push((r.as_str().to_string(), Some(rt.clone())));
-        let (typed, t) = self.expr(&rest, want.or(Some(&*ok)));
-        self.scopes.pop();
-        let e = Expr::Let { name: r, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
-        Some((e, t))
+        let lets = vec![(r, Some(Ty::result(*ok.clone(), *err)), recv)];
+        let (typed, t) = self.scoped(&lets, &rest, want.or(Some(&*ok)));
+        Some((wrap_lets(lets, typed), t))
     }
 
     pub(super) fn is_local(&self, name: &str) -> bool {

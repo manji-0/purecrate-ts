@@ -116,6 +116,9 @@ struct Typer<'d, 'a> {
 
 type Typed = (Expr, Option<Ty>);
 
+/// A typed value bound to a name: the name, its type, and the value.
+type Bound = (Name, Option<Ty>, Expr);
+
 impl<'d, 'a> Typer<'d, 'a> {
     fn new(defs: &'d Defs<'a>, item: usize, out: &'d mut Vec<Diagnostic>) -> Self {
         Typer { defs, item, out, ret: Ty::Prim(Prim::Unit), scopes: Vec::new(), fresh: 0, loops: Vec::new() }
@@ -201,6 +204,15 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn lookup(&self, name: &str) -> Option<Ty> {
         self.scopes.iter().rev().find(|(n, _)| n == name).and_then(|(_, t)| t.clone())
+    }
+
+    /// `body` typed with the names `lets` binds in scope.
+    fn scoped(&mut self, lets: &[Bound], body: &Expr, want: Option<&Ty>) -> Typed {
+        let depth = self.scopes.len();
+        self.scopes.extend(lets.iter().map(|(name, ty, _)| (name.as_str().to_string(), ty.clone())));
+        let typed = self.expr(body, want);
+        self.scopes.truncate(depth);
+        typed
     }
 
     fn expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
@@ -503,6 +515,17 @@ fn needs_context(expr: &Expr) -> bool {
         Expr::Array(xs) => xs.iter().all(needs_context),
         _ => false,
     }
+}
+
+/// `lets` bound around `body`, the first outermost.
+fn wrap_lets(lets: Vec<Bound>, body: Expr) -> Expr {
+    lets.into_iter().rev().fold(body, |then, (name, ty, value)| Expr::Let {
+        name,
+        mutable: false,
+        ty,
+        value: Box::new(value),
+        then: Box::new(then),
+    })
 }
 
 /// The type of two branches; a diverging branch takes the other's type.

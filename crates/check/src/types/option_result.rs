@@ -82,7 +82,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let none = || Expr::Call { callee: Callee::OptionNone, args: vec![] };
         let wrap_some = |e: Expr| Expr::Call { callee: Callee::OptionSome, args: vec![e] };
         let rt = Ty::Option(Box::new(inner.clone()));
-        let mut eager_let: Option<(Name, Option<Ty>, Expr)> = None;
+        let mut eager_let: Option<Bound> = None;
         let mut want = want.cloned();
         // The value argument, typed (and run) before the `match`. Bound to
         // a name (`lift` reads `ok_or(e)?` in that shape), but for
@@ -188,15 +188,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             _ => unreachable!("`OPTION_METHODS` lists every name"),
         };
-        self.scopes.push((opt.as_str().to_string(), Some(rt.clone())));
-        if let Some((eager, ty, _)) = &eager_let {
-            self.scopes.push((eager.as_str().to_string(), ty.clone()));
-        }
-        let (typed, t) = self.expr(&rest, want.as_ref());
-        if eager_let.is_some() {
-            self.scopes.pop();
-        }
-        self.scopes.pop();
+        let lets: Vec<Bound> = std::iter::once((opt, Some(rt), recv)).chain(eager_let).collect();
+        let (typed, t) = self.scoped(&lets, &rest, want.as_ref());
         if let Some(Ty::Option(o)) = t.as_ref().map(|t| self.norm(t)) {
             if matches!(self.norm(&o), Ty::Option(_)) {
                 self.error(
@@ -211,26 +204,22 @@ impl<'d, 'a> Typer<'d, 'a> {
         // `Result.ok(v)` alone leaves TS to infer the error type, which it
         // cannot; an annotated binding names it.
         let typed = match (&t, name) {
-            (Some(ty), "ok_or" | "ok_or_else") => {
-                let res = self.fresh_name(&format!("{base}_result"));
-                Expr::Let {
-                    name: res.clone(),
-                    mutable: false,
-                    ty: Some(ty.clone()),
-                    value: Box::new(typed),
-                    then: Box::new(Expr::Var(res)),
-                }
-            }
+            (Some(ty), "ok_or" | "ok_or_else") => self.annotated(&format!("{base}_result"), ty, typed),
             _ => typed,
         };
-        let typed = match eager_let {
-            Some((name, ty, value)) => {
-                Expr::Let { name, mutable: false, ty, value: Box::new(value), then: Box::new(typed) }
-            }
-            None => typed,
-        };
-        let e = Expr::Let { name: opt, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
-        Some((e, t))
+        Some((wrap_lets(lets, typed), t))
+    }
+
+    /// `typed` bound to a fresh name annotated `ty`, then read.
+    fn annotated(&mut self, base: &str, ty: &Ty, typed: Expr) -> Expr {
+        let res = self.fresh_name(base);
+        Expr::Let {
+            name: res.clone(),
+            mutable: false,
+            ty: Some(ty.clone()),
+            value: Box::new(typed),
+            then: Box::new(Expr::Var(res)),
+        }
     }
 
     /// The type of `body` typed on its own with `binds` in scope, its
@@ -371,7 +360,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             return None;
         }
         let what = format!("`Result::{name}`");
-        let mut eager_let: Option<(Name, Option<Ty>, Expr)> = None;
+        let mut eager_let: Option<Bound> = None;
         let (rest, want) = match (name, args) {
             ("ok", []) => (
                 two(
@@ -467,38 +456,15 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => unreachable!("`RESULT_METHODS` lists every name"),
         };
         let rt = Ty::result(ok.clone(), err.clone());
-        self.scopes.push((r.as_str().to_string(), Some(rt.clone())));
-        if let Some((eager, ty, _)) = &eager_let {
-            self.scopes.push((eager.as_str().to_string(), ty.clone()));
-        }
-        let (typed, t) = self.expr(&rest, want.as_ref());
-        if eager_let.is_some() {
-            self.scopes.pop();
-        }
-        self.scopes.pop();
+        let lets: Vec<Bound> = std::iter::once((r, Some(rt), recv)).chain(eager_let).collect();
+        let (typed, t) = self.scoped(&lets, &rest, want.as_ref());
         // `Result.ok(v)` alone leaves TS to infer the error type, which it
         // cannot; an annotated binding names it.
         let typed = match (&t, name) {
-            (Some(ty), "map" | "map_err" | "and_then" | "or_else") => {
-                let res = self.fresh_name("mapped");
-                Expr::Let {
-                    name: res.clone(),
-                    mutable: false,
-                    ty: Some(ty.clone()),
-                    value: Box::new(typed),
-                    then: Box::new(Expr::Var(res)),
-                }
-            }
+            (Some(ty), "map" | "map_err" | "and_then" | "or_else") => self.annotated("mapped", ty, typed),
             _ => typed,
         };
-        let typed = match eager_let {
-            Some((name, ty, value)) => {
-                Expr::Let { name, mutable: false, ty, value: Box::new(value), then: Box::new(typed) }
-            }
-            None => typed,
-        };
-        let e = Expr::Let { name: r, mutable: false, ty: Some(rt), value: Box::new(recv), then: Box::new(typed) };
-        Some((e, t))
+        Some((wrap_lets(lets, typed), t))
     }
 }
 
