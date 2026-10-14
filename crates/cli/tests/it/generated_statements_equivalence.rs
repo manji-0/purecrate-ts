@@ -210,7 +210,7 @@ impl Body {
             18 => self.block_value(depth),
             19 => self.branch_value(depth),
             20 => self.closure_stmt(e),
-            22 | 23 | 24 => match self.g.rng.below(5) {
+            22..=24 => match self.g.rng.below(5) {
                 0 => self.loop_value(depth),
                 1 => self.while_let(depth),
                 2 => self.let_else(e),

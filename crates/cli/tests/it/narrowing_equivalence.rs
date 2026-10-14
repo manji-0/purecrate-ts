@@ -166,5 +166,18 @@ fn generated_narrowing_matches_rust() {
             grid!(cases, narrowing::payload_test; o in [None, Some(1i32), Some(50)]);
             cases.push(case!(narrowing::unread_as_str("é,a", String::from("x"), vec![1i32])));
         }
+        for r in [Ok::<i32, i32>(4), Ok(0), Err(7)] {
+            cases.push(case!(narrowing::known_failing_arm(9i32, r)));
+            cases.push(case!(narrowing::try_in_block(2i32, r)));
+            cases.push(case!(narrowing::literal_side_test(-1i32, r)));
+            cases.push(case!(narrowing::literal_side_test(1i32, r)));
+            cases.push(case!(narrowing::closure_reads_place(5i32, r)));
+        }
+        for o in [None, Some(3i32)] {
+            cases.push(case!(narrowing::decided_then_side(100i32, o, true)));
+            cases.push(case!(narrowing::decided_then_side(1i32, o, false)));
+            cases.push(case!(narrowing::uncalled_closure(1i32, 2i32, o, true)));
+            cases.push(case!(narrowing::uncalled_closure(1i32, i32::MAX, o, false)));
+        }
     });
 }

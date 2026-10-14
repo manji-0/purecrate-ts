@@ -348,13 +348,16 @@ impl Lifter {
     /// `extract` of a scrutinee, which may itself be a block that leaves the
     /// function (`match r.map_err(f)? { .. }`): bound first.
     fn extract_operand(&mut self, expr: Expr) -> (Expr, Hoisted) {
+        let block = matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. });
+        if !(block && expr.exits()) {
+            return self.extract(expr);
+        }
         let mut hoisted = Vec::new();
         let expr = self.operand(expr, &mut hoisted);
         (expr, hoisted)
     }
 
     /// Replaces each `?` in a strict position with a fresh variable.
-
     fn extract(&mut self, expr: Expr) -> (Expr, Hoisted) {
         let mut hoisted = Vec::new();
         let expr = self.extract_into(expr, &mut hoisted);

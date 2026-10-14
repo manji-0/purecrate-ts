@@ -65,7 +65,8 @@ fn join(expr: &mut Expr) {
     // only (`Box::new(P { a, b: a });`), `x = x`, and an `if` whose sides do
     // nothing (what a write never read leaves).
     match expr {
-        Expr::Seq { first, then } if pure(first) => *expr = (**then).clone(),
+        // Making a closure does nothing (one bound to a name nothing calls).
+        Expr::Seq { first, then } if pure(first) || matches!(**first, Expr::Closure { .. }) => *expr = (**then).clone(),
         Expr::Assign { name, value } if reads_only(value, name) => *expr = Expr::Lit(Lit::Unit),
         Expr::If { cond, then, else_ }
             if pure(cond) && **then == Expr::Lit(Lit::Unit) && **else_ == Expr::Lit(Lit::Unit) =>
@@ -178,10 +179,35 @@ fn read_in(arm: &Arm, scrutinee: &Expr) -> Option<Expr> {
         root = base;
     }
     let Expr::Var(var) = root else { return None };
-    if touches(&arm.body, var) {
-        return None;
-    }
     let field = |base: &Expr, name: &str| Expr::Field { base: Box::new(base.clone()), name: Name::new(name) };
+    if touches(&arm.body, var) {
+        // Read only by a closure (nothing writes or binds the place again):
+        // the payload is bound once, where the case is known, as a `const`.
+        let written = arm.body.any(|e| match e {
+            Expr::Assign { name, .. } => name == var,
+            e => e.own_bindings().contains(&var),
+        });
+        let read = match &arm.pattern {
+            Pattern::OptionSome(_) => scrutinee.clone(),
+            Pattern::ResultOk(_) => field(scrutinee, "value"),
+            Pattern::ResultErr(_) => field(scrutinee, "error"),
+            _ => return None,
+        };
+        return match (&arm.pattern, written) {
+            (Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p), false) => match &**p {
+                Pattern::Var(n) => Some(Expr::Let {
+                    name: n.clone(),
+                    mutable: false,
+                    ty: None,
+                    value: Box::new(read),
+                    then: Box::new(arm.body.clone()),
+                }),
+                Pattern::Wildcard => Some(arm.body.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+    }
     let bind = crate::expr::bind_in;
     let mut body = arm.body.clone();
     match &arm.pattern {

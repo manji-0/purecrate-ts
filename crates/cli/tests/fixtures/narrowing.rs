@@ -760,3 +760,88 @@ pub fn tested_place(n: Note) -> i32 {
         _ => 0,
     }
 }
+
+/// `r?` as an arm's whole value where `r` is known `Err`: the `return`
+/// itself, not a test TS has decided and the dead code after it.
+pub fn known_failing_arm(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    match r {
+        Ok(_) => return Ok(1),
+        Err(_) => {
+            let _v: Result<i32, i32> = match r.map(|v| a % v) {
+                Ok(_) => Err(a),
+                Err(_) => {
+                    let v: i32 = r?;
+                    Ok(v)
+                }
+            };
+        }
+    }
+    Ok(r.ok().unwrap_or(3))
+}
+
+/// A `?` inside a block: past the block the place is what `?` let through.
+pub fn try_in_block(b: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    {
+        let _a: bool = (-b) < r?;
+    }
+    Ok(r.map(|_| b)?)
+}
+
+/// A closure made and never called (what follows always leaves) kept the
+/// arm's binding it read.
+pub fn uncalled_closure(a: i32, b: i32, o: Option<i32>, c: bool) -> Option<i32> {
+    match o {
+        Some(_) => {}
+        None => match b.checked_mul(10) {
+            Some(v8) => {
+                let end = |v10: i32| v10 & (if c { v8 } else { 3 });
+                let _t: i32 = end(o?.max(a));
+            }
+            None => {}
+        },
+    }
+    Some(1)
+}
+
+/// `if c { x } else { <a comparison of literals> }` in a `while` test:
+/// printed as `c && x`, which TS narrows by.
+pub fn literal_side_test(a: i32, r: Result<i32, i32>) -> i32 {
+    let mut k: i32 = 0;
+    let mut s: i32 = 0;
+    while k < 3 && (if r.ok().is_some() { 0 > a } else { -100i32 == 100i32 }) {
+        k += 1;
+        s += r.map(|_| 3i32).ok().unwrap_or(k);
+    }
+    s
+}
+
+/// A closure reading the place an arm took apart: the payload bound as a
+/// `const` where the case is known.
+pub fn closure_reads_place(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    let _v: i32 = 1 - r?;
+    match r {
+        Ok(x) => {
+            let g = |v: i32| v + r.ok().unwrap_or(x);
+            Ok(g(a))
+        }
+        Err(_) => {
+            let mut w: i32 = a;
+            w *= r?;
+            Ok(w)
+        }
+    }
+}
+
+/// An `if` whose decided side is its `then` prints as a `?:`, which TS
+/// does not narrow by: `o` stays an `Option` inside.
+pub fn decided_then_side(a: i32, o: Option<i32>, c: bool) -> i32 {
+    let mut h0: i32 = 0;
+    let mut k: i32 = 0;
+    while k < 3 && c {
+        k += 1;
+        if if o.is_none() { o.is_some() } else { a == 100 } {
+            h0 = h0.wrapping_add(o.unwrap_or(-7));
+        }
+    }
+    h0
+}

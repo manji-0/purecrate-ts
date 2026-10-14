@@ -202,9 +202,12 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         // An `if` that needs statements prints through `expr::as_tx`, whose
         // `fold` writes one side's literal as an operator: `if c { a } else
         // { false }` is `c && a`, `if c { false } else { b }` is `!c && b`,
-        // `if c { a } else { true }` is `!c || a`. Otherwise it is a `?:`,
-        // which TS does not narrow by.
-        e @ Expr::If { cond, then, else_ } if e.needs_statements() && (bool_side(then) || bool_side(else_)) => {
+        // `if c { a } else { true }` is `!c || a`. One that does not is a
+        // `?:`, which TS does not narrow by, except where its `else` is the
+        // literal (`c && a`, `!c || a`).
+        e @ Expr::If { cond, then, else_ }
+            if (e.needs_statements() && (bool_side(then) || bool_side(else_))) || bool_side(else_) =>
+        {
             let not = |e: &Expr| Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(e.clone()) };
             let (op, left, right) = match (&**then, &**else_) {
                 (Expr::Lit(Lit::Bool(_)), Expr::Lit(Lit::Bool(_))) => return Vec::new(),
@@ -427,6 +430,15 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         return flow(expr, st, cx);
     }
     match expr {
+        // Past `p?` on a place, `p` is what `?` let through, wherever the
+        // `?` stands (`{ let t = p; t? }` last in a block, printed as `p`
+        // tested); a `let` of `p?` tests a copy instead (below).
+        Expr::Try { expr: place, on: Some(on) } if is_place(place) => {
+            let on = *on;
+            let mut s = flow(place, st, cx)?;
+            s.set_place(place, vec![tried_case(on)]);
+            Some(s)
+        }
         Expr::Match { scrutinee, .. } if is_place(scrutinee) => flow_match(expr, st, cx),
         Expr::Match { scrutinee, .. } => {
             let s = flow(scrutinee, st, cx)?;
@@ -484,19 +496,11 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                     return flow(expr, st, cx);
                 }
             }
-            if let Expr::Try { expr: place, on: Some(on) } = &**first {
-                if is_place(place) {
-                    s.set_place(place, vec![tried_case(*on)]);
-                }
-            }
             // ..as does `let $t = p; $t?` (what an unread `x = p?` leaves),
-            // printed as `p` tested.
-            if let Expr::Let { name, value: place, then: tried, .. } = &**first {
-                if let Expr::Try { expr: t, on: Some(on) } = &**tried {
-                    if is_place(place) && **t == Expr::Var(name.clone()) {
-                        s.set_place(place, vec![tried_case(*on)]);
-                    }
-                }
+            // printed as `p` tested, and either last in a block's statements
+            // (`{ let a = x < r?; }` whose `a` is unread).
+            if let Some((place, on)) = trailing_try(first) {
+                s.set_place(&place, vec![tried_case(on)]);
             }
             // ..and `p?` last in a run of statements whose value is dropped
             // (what an unread `x = a.unwrap_or(p?)` leaves).
@@ -585,6 +589,16 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         Expr::Let { mutable, value, then, .. } => {
             let mutable = *mutable;
             let mut s = flow(value, st.clone(), cx)?;
+            // `let x = p?`: TS narrows the copy the printer tests (`xOption`,
+            // `result`), not `p`.
+            if let Expr::Try { expr: place, .. } = &**value {
+                if is_place(place) {
+                    s.0.retain(|(k, _)| k != &**place);
+                    if let Some(before) = st.get(place) {
+                        s.set(place.as_ref().clone(), before);
+                    }
+                }
+            }
             // Narrowing made the value a place: a `let` of a place, as above.
             same_sides(value);
             if !mutable && is_place(value) && !touches(then, root(value)) {
@@ -898,10 +912,15 @@ fn rewritten(expr: &mut Expr, st: &State) -> bool {
         }
     }
     // ..anywhere else (an arm's value, `match c { A => r?, .. }`), known
-    // `Ok`, the payload.
+    // `Ok`, the payload; known `Err`, the exit (what is left of `lift`'s `?`
+    // stands as a statement or an arm's value, where a `return` may).
     if let Expr::Try { expr: place, on: Some(on) } = expr {
         if let Some(payload) = known_payload(place, *on, st) {
             *expr = payload;
+            return true;
+        }
+        if let Some(exit) = failed_try(place, *on, &st.0).filter(|_| is_place(place)) {
+            *expr = exit;
             return true;
         }
     }
@@ -919,6 +938,26 @@ fn rewritten(expr: &mut Expr, st: &State) -> bool {
         }
     }
     false
+}
+
+/// The place a statement tests last with `?`, as printed: `p?`, `let $t =
+/// p; $t?`, or one of these last in a run of statements, where nothing
+/// after it in the run binds the place's name again.
+fn trailing_try(stmt: &Expr) -> Option<(Expr, TryOn)> {
+    match stmt {
+        Expr::Try { expr: place, on: Some(on) } if is_place(place) => Some(((**place).clone(), *on)),
+        Expr::Let { name, value: place, then: tried, .. }
+            if is_place(place)
+                && matches!(&**tried, Expr::Try { expr: t, on: Some(_) } if **t == Expr::Var(name.clone())) =>
+        {
+            let Expr::Try { on: Some(on), .. } = &**tried else { unreachable!("matched") };
+            Some(((**place).clone(), *on))
+        }
+        Expr::Seq { then, .. } => trailing_try(then),
+        Expr::Let { name, then, .. } => trailing_try(then).filter(|(p, _)| root(p) != name),
+        Expr::At { expr, .. } => trailing_try(expr),
+        _ => None,
+    }
 }
 
 /// `is_some()` of a `match` whose arms build `Some` / `None` (`o.map(f)`)
