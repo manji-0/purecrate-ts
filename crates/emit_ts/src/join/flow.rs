@@ -758,7 +758,11 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             flow(value, st, cx);
             None
         }
-        Expr::Break => {
+        Expr::Break(value) => {
+            let st = match value {
+                Some(v) => flow(v, st, cx)?,
+                None => st,
+            };
             if let Some(j) = cx.loops.last_mut() {
                 j.breaks.push(st);
             }

@@ -46,7 +46,10 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             Member::Unnamed(i) if i.index == 0 => {
                 Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(NEWTYPE_FIELD) })
             }
-            Member::Unnamed(_) => Err(ParseError::new(Reason::TupleField, "tuple field access is not in v0")),
+            // `t.1` of a tuple; the types say whether the base is one.
+            Member::Unnamed(i) => {
+                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(i.index.to_string()) })
+            }
         },
         SynExpr::Assign(a) if element_target(&a.left).is_some() => {
             let (v, at) = element_target(&a.left).expect("checked by the guard");
@@ -208,23 +211,34 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::While(w) if w.label.is_some() => {
             Err(ParseError::new(Reason::Loop, format!("loop labels are not in v0: {}", snippet(expr))))
         }
-        SynExpr::While(w) if matches!(&*w.cond, SynExpr::Let(_)) => Err(ParseError::new(
-            Reason::Loop,
-            format!("`while let` is not in v0; use `while` with a `match` inside, or `for`: {}", snippet(expr)),
-        )),
+        // `while let P = e { body }` is `loop { match e { P => body, _ => break } }`:
+        // `e` runs before every pass.
+        SynExpr::While(w) if matches!(&*w.cond, SynExpr::Let(_)) => {
+            let SynExpr::Let(l) = &*w.cond else { unreachable!("matched above") };
+            let body = lower_block(cx, &w.body)?;
+            Ok(Expr::While {
+                cond: Box::new(Expr::Lit(Lit::Bool(true))),
+                body: Box::new(lower_if_let(cx, l, body, Expr::Break(None))?),
+            })
+        }
         SynExpr::While(w) => {
             Ok(Expr::While { cond: Box::new(lower_expr(cx, &w.cond)?), body: Box::new(lower_block(cx, &w.body)?) })
         }
-        SynExpr::Break(b) if b.label.is_none() && b.expr.is_none() => Ok(Expr::Break),
+        SynExpr::Break(b) if b.label.is_none() => {
+            Ok(Expr::Break(b.expr.as_ref().map(|v| lower_expr(cx, v).map(Box::new)).transpose()?))
+        }
         SynExpr::Continue(c) if c.label.is_none() => Ok(Expr::Continue),
-        SynExpr::Break(_) | SynExpr::Continue(_) => Err(ParseError::new(
-            Reason::Loop,
-            format!("`break` and `continue` take no label or value in v0: {}", snippet(expr)),
-        )),
-        SynExpr::Loop(_) => Err(ParseError::new(
-            Reason::Loop,
-            format!("`loop` is not in v0; write `while` with its condition: {}", snippet(expr)),
-        )),
+        SynExpr::Break(_) | SynExpr::Continue(_) => {
+            Err(ParseError::new(Reason::Loop, format!("`break` and `continue` take no label in v0: {}", snippet(expr))))
+        }
+        SynExpr::Loop(l) if l.label.is_some() => {
+            Err(ParseError::new(Reason::Loop, format!("loop labels are not in v0: {}", snippet(expr))))
+        }
+        // `loop` is `while true`: of type `!` when nothing breaks out of it,
+        // else of the type its `break`s carry.
+        SynExpr::Loop(l) => {
+            Ok(Expr::While { cond: Box::new(Expr::Lit(Lit::Bool(true))), body: Box::new(lower_block(cx, &l.body)?) })
+        }
         SynExpr::Reference(r) if r.mutability.is_some() => {
             Err(ParseError::new(Reason::Borrow, format!("`&mut` borrows are not in v0: {}", snippet(expr))))
         }
@@ -382,12 +396,29 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         let source = lower_expr(cx, source)?;
         Ok(counted(Expr::ForEach { var: var.clone(), over, source: Box::new(source), body: Box::new(body()?) }))
     };
-    let (start, end) = match iterable {
-        SynExpr::Range(r) if matches!(r.limits, syn::RangeLimits::HalfOpen(_)) => match (&r.start, &r.end) {
-            (Some(a), Some(b)) => (a, b),
-            _ => return reject("`for` takes a range with both ends, `a..b`"),
+    // `(a..b).rev()`: the range, stepped down from its end.
+    let (iterable, rev) = match iterable {
+        SynExpr::MethodCall(m) if m.method == "rev" && m.args.is_empty() && m.turbofish.is_none() => {
+            match strip_parens(&m.receiver) {
+                range @ SynExpr::Range(_) => (range, true),
+                _ => {
+                    return reject(
+                        "`for` over `.rev()` is in v0 on a range, `(a..b).rev()` or `(a..=b).rev()`; \
+                         iterate indices of a `Vec` that way",
+                    )
+                }
+            }
+        }
+        other => (other, false),
+    };
+    if counter.is_some() && matches!(strip_parens(iterable), SynExpr::Range(_)) {
+        return reject("`for` over a range's `.enumerate()` is not in v0; the range's own value is the index");
+    }
+    let (start, end, inclusive) = match iterable {
+        SynExpr::Range(r) => match (&r.start, &r.end) {
+            (Some(a), Some(b)) => (a, b, matches!(r.limits, syn::RangeLimits::Closed(_))),
+            _ => return reject("`for` takes a range with both ends, `a..b` or `a..=b`"),
         },
-        SynExpr::Range(_) => return reject("`for` takes a half-open range `a..b`, not `a..=b`"),
         SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && m.method == "chars" => {
             return each(Over::Chars, &m.receiver);
         }
@@ -422,7 +453,16 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         other => return each(Over::Items, other),
     };
     let (start, end) = (lower_expr(cx, start)?, lower_expr(cx, end)?);
-    Ok(Expr::For { var: var.clone(), ty: None, start: Box::new(start), end: Box::new(end), body: Box::new(body()?) })
+    let (start, end, body) = (Box::new(start), Box::new(end), Box::new(body()?));
+    Ok(Expr::For { var: var.clone(), ty: None, start, end, inclusive, rev, body })
+}
+
+fn strip_parens(e: &SynExpr) -> &SynExpr {
+    match e {
+        SynExpr::Paren(p) => strip_parens(&p.expr),
+        SynExpr::Group(g) => strip_parens(&g.expr),
+        other => other,
+    }
 }
 
 pub fn lower_block(cx: &Cx, block: &syn::Block) -> Result<Expr, ParseError> {
@@ -445,6 +485,8 @@ enum Stmt {
         typed: Option<(Name, Ty)>,
         value: Expr,
     },
+    /// `let P = e else { d };`, of which the rest of the block is an arm.
+    LetElse(pattern::LetElse),
     Effect(Expr),
 }
 
@@ -560,6 +602,7 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
                 }
                 None => tuple.bind(value, then),
             },
+            Stmt::LetElse(l) => l.bind(then),
             Stmt::Effect(first) => Expr::Seq { first: Box::new(first), then: Box::new(then) },
         };
         comments.above(span, at(span, node))
@@ -676,11 +719,17 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         Pat::Type(t) => (&*t.pat, Some(lower_type(&t.ty)?)),
         other => (other, None),
     };
+    if let Some((init, (_, diverge))) = local.init.as_ref().and_then(|i| Some((i, i.diverge.as_ref()?))) {
+        if ty.is_some() {
+            return Err(ParseError::new(
+                Reason::LetElse,
+                "a `let`-`else` takes no type annotation in v0; annotate the value instead",
+            ));
+        }
+        return Ok(Stmt::LetElse(pattern::lower_let_else(cx, pat, &init.expr, diverge)?));
+    }
     if let Some(tuple) = Destructure::of(cx, pat, Reason::LetPattern)? {
         let init = local.init.as_ref().ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
-        if init.diverge.is_some() {
-            return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
-        }
         return Ok(Stmt::Destructure {
             tuple,
             typed: ty.map(|ty| (cx.fresh("t"), ty)),
@@ -700,9 +749,6 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
         }
     };
     let init = local.init.as_ref().ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;
-    if init.diverge.is_some() {
-        return Err(ParseError::new(Reason::LetElse, "let-else is not in v0"));
-    }
     Ok(Stmt::Let { name, mutable, ty, value: lower_expr(cx, &init.expr)? })
 }
 

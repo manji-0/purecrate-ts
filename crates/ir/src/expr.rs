@@ -1271,12 +1271,15 @@ pub enum Expr {
     /// `for var in start..end { body }`, of type `()`. `start` and `end`
     /// are one integer type and are evaluated once, in that order, before
     /// the first iteration. `var` is not `mut`; `body` runs for its effect.
-    /// `ty` is the bounds' type, filled by `check::accept`.
+    /// `ty` is the bounds' type, filled by `check::accept`. `inclusive` is
+    /// `start..=end`; `rev` is `(start..end).rev()`, from the end down.
     For {
         var: Name,
         ty: Option<IntTy>,
         start: Box<Expr>,
         end: Box<Expr>,
+        inclusive: bool,
+        rev: bool,
         body: Box<Expr>,
     },
     /// `for var in <source> { body }` over what `over` says, of type `()`.
@@ -1292,9 +1295,10 @@ pub enum Expr {
         cond: Box<Expr>,
         body: Box<Expr>,
     },
-    /// `break` and `continue` of the innermost loop, without a label or a
-    /// value; of type `!`, and only where a statement may stand.
-    Break,
+    /// `break` and `continue` of the innermost loop, without a label; of
+    /// type `!`, and only where a statement may stand. A `break` with a
+    /// value leaves a `loop` (a `While` on `true`) with it.
+    Break(Option<Box<Expr>>),
     Continue,
     /// `first; then`: `first` runs for its effect, its value is dropped.
     Seq {
@@ -1342,6 +1346,19 @@ pub enum TryOn {
 }
 
 impl Expr {
+    /// In a `loop`'s body, each `break v` that leaves that loop (not a loop
+    /// or closure inside it) as `f(v)`.
+    pub fn map_breaks(&mut self, f: &mut dyn FnMut(Expr) -> Expr) {
+        match self {
+            Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => {}
+            Expr::Break(value @ Some(_)) => {
+                let v = *value.take().expect("matched `Some`");
+                *self = f(v);
+            }
+            other => other.children_mut().into_iter().for_each(|c| c.map_breaks(f)),
+        }
+    }
+
     /// Types written in this node itself, not in its subexpressions: a
     /// `let` annotation, a closure's parameter and return types, the target
     /// of `as`. With `children`, what a pass that collects names walks.
@@ -1370,7 +1387,7 @@ impl Expr {
             | Expr::For { .. }
             | Expr::ForEach { .. }
             | Expr::While { .. }
-            | Expr::Break
+            | Expr::Break(_)
             | Expr::Continue
             | Expr::Unreachable
             | Expr::Comment(_)
@@ -1382,7 +1399,7 @@ impl Expr {
     /// Direct subexpressions in evaluation order.
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break | Expr::Continue => {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break(None) | Expr::Continue => {
                 Vec::new()
             }
             Expr::Let { value, then, .. } => vec![value, then],
@@ -1406,6 +1423,7 @@ impl Expr {
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
+            | Expr::Break(Some(base))
             | Expr::Try { expr: base, .. } => vec![base],
             Expr::Index { base, index } => vec![base, index],
             Expr::Cast { expr, .. } => vec![expr],
@@ -1423,7 +1441,7 @@ impl Expr {
     /// `children`, mutably and in the same order.
     pub fn children_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break | Expr::Continue => {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Unreachable | Expr::Comment(_) | Expr::Break(None) | Expr::Continue => {
                 Vec::new()
             }
             Expr::Let { value, then, .. } => vec![value, then],
@@ -1447,6 +1465,7 @@ impl Expr {
             Expr::Field { base, .. }
             | Expr::Unary { expr: base, .. }
             | Expr::Return(base)
+            | Expr::Break(Some(base))
             | Expr::Try { expr: base, .. } => vec![base],
             Expr::Index { base, index } => vec![base, index],
             Expr::Cast { expr, .. } => vec![expr],
@@ -1572,7 +1591,7 @@ impl Expr {
             | Expr::For { .. }
             | Expr::ForEach { .. }
             | Expr::While { .. }
-            | Expr::Break
+            | Expr::Break(_)
             | Expr::Continue
             | Expr::Seq { .. } => true,
             // A side that leaves the function from inside a value (`map_err(f)?`

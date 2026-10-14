@@ -257,12 +257,12 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             if matches!(sink, Sink::Effect)
                 && **else_ == Expr::Lit(Lit::Unit)
                 && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements() && !emit_expr(v, indent).contains('\n'))
-                    | matches!(lone_jump(then), Expr::Break | Expr::Continue)
+                    | matches!(lone_jump(then), Expr::Break(None) | Expr::Continue)
                 && !emit_expr(cond, indent).contains('\n') =>
         {
             let jump = match lone_jump(then) {
                 Expr::Return(v) => format!("return {}", crate::tidy::strip_outer(&emit_expr(v, indent))),
-                Expr::Break => format!("break{}", jump_label()),
+                Expr::Break(_) => format!("break{}", jump_label()),
                 _ => format!("continue{}", jump_label()),
             };
             out.push_str(&format!("{pad}if ({}) {jump};\n", crate::tidy::strip_outer(&emit_expr(cond, indent))));
@@ -426,9 +426,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             sink.finish(&value, &pad, out);
         }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, tail, out),
-        Expr::For { var, ty, start, end, body } => {
+        Expr::For { var, ty, start, end, inclusive, rev, body } => {
             let ty = ty.expect("check::accept types the range");
-            emit_for(var.as_str(), ty, start, end, body, indent, out);
+            emit_for(var.as_str(), ty, (start, end), (*inclusive, *rev), body, indent, out);
             sink.finish("undefined", &pad, out);
         }
         Expr::ForEach { var, over, source: string, body } => {
@@ -474,13 +474,39 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                     }
                 }
             };
+            // A `loop` whose `break`s carry its value: each puts it where
+            // the loop's own value goes, so nothing follows the loop.
+            if breaks_with_value(body) {
+                let to = match sink {
+                    Sink::Return => None,
+                    Sink::Assign(t) => Some(t.to_string()),
+                    Sink::Effect => Some(String::new()),
+                };
+                crate::context::LOOP_SINKS.with(|l| l.borrow_mut().push(to));
+                emit_loop(&head, body, indent, out);
+                crate::context::LOOP_SINKS.with(|l| l.borrow_mut().pop());
+                return;
+            }
             emit_loop(&head, body, indent, out);
             // Nothing follows a `for (;;)` that no `break` leaves.
             if !ends_in_jump(expr) {
                 sink.finish("undefined", &pad, out);
             }
         }
-        Expr::Break => out.push_str(&format!("{pad}break{};\n", jump_label())),
+        Expr::Break(Some(value)) => {
+            let to = crate::context::LOOP_SINKS
+                .with(|l| l.borrow().last().cloned())
+                .expect("`check::accept` puts a `break` with a value only in a `loop`");
+            match to {
+                None => emit_stmts(value, indent, Sink::Return, out),
+                Some(t) => {
+                    let sink = if t.is_empty() { Sink::Effect } else { Sink::Assign(&t) };
+                    emit_stmts(value, indent, sink, out);
+                    out.push_str(&format!("{pad}break{};\n", jump_label()));
+                }
+            }
+        }
+        Expr::Break(None) => out.push_str(&format!("{pad}break{};\n", jump_label())),
         Expr::Continue => out.push_str(&format!("{pad}continue{};\n", jump_label())),
         // `return match ..`: the `match` returns from each arm.
         Expr::Return(value) if value.needs_statements() && as_expr(value, indent).is_none() => {

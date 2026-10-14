@@ -227,6 +227,11 @@ pub(super) fn effects(expr: Expr) -> Expr {
             }
         }
         Expr::Seq { first, then } => sequence(effects(*first), effects(*then)),
+        // A `loop` whose value is dropped: each `break v` is `v`'s effects.
+        Expr::While { cond, mut body } if *cond == Expr::Lit(Lit::Bool(true)) => {
+            body.map_breaks(&mut |v| sequence(effects(v), Expr::Break(None)));
+            Expr::While { cond, body }
+        }
         Expr::Let { name, mutable, ty, value, then } => {
             let then = effects(*then);
             if mentions(&then, &name) {

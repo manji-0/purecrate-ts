@@ -305,7 +305,8 @@ impl<'a> Cx<'_, 'a> {
                 self.expr(body);
                 self.scopes.pop();
             }
-            Expr::Break | Expr::Continue => {}
+            Expr::Break(None) | Expr::Continue => {}
+            Expr::Break(Some(v)) => self.expr(v),
             Expr::Construct { ty, variant, fields, base } => {
                 self.construct(ty, variant.as_ref(), fields, base.is_some());
                 match fields {

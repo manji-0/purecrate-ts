@@ -7,7 +7,7 @@ use super::*;
 /// `continue`, last or on every side.
 pub(super) fn ends(expr: &Expr) -> bool {
     match expr {
-        Expr::Return(_) | Expr::Break | Expr::Continue => true,
+        Expr::Return(_) | Expr::Break(_) | Expr::Continue => true,
         Expr::Seq { first, then } => ends(first) || ends(then),
         Expr::Let { value, then, .. } => ends(value) || ends(then),
         Expr::Assign { value, .. } => ends(value),

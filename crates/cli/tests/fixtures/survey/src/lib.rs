@@ -43,13 +43,13 @@ pub fn sign_of(n: i32) -> i32 {
     n.signum()
 }
 
-/// Four causes: two the parser meets (`format!`, `loop`) and two the type
-/// check meets (`trim_ascii`, a widening `as`).
+/// Four causes: two the parser meets (`format!`, a loop label) and two the
+/// type check meets (`trim_ascii`, a widening `as`).
 pub fn many(n: i32, s: &str) -> i64 {
     let text = format!("{n:?}");
     let k = s.trim_ascii().len();
-    loop {
-        break;
+    'outer: loop {
+        break 'outer;
     }
     n as i64
 }

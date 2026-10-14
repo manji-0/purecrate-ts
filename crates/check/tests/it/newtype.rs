@@ -21,9 +21,11 @@ fn newtypes_over_null_like_values_are_rejected() {
 fn dot_zero_needs_a_newtype() {
     assert_rejects(
         "pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { s.0 }",
-        "only in v0 on a one-field tuple struct",
+        "or `.0` on a one-field tuple struct, not on `S`",
     );
-    assert_rejects("pub fn f(x: (i32, i32)) -> i32 { x.0 }", "not on `(i32, i32)`");
+    assert_rejects("pub struct S(i32); pub fn f(s: S) -> i32 { s.1 }", "`.1` is only in v0 on a tuple");
+    assert_rejects("pub fn f(x: (i32, i32)) -> i32 { x.2 }", "a tuple of 2 elements has no `.2`");
+    assert_clean("pub fn f(x: (i32, (u8, bool))) -> bool { x.0 > 0 && x.1 .1 }");
 }
 
 #[test]

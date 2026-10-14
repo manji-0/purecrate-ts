@@ -141,8 +141,8 @@ mod tests {
         assert_eq!(reason(&body("x as *const i32")).0, Reason::Cast);
         assert_eq!(reason("#[repr(C)]\npub enum E { A }").1, Some("repr".into()));
         assert_eq!(reason("pub enum E { A(i32) = 1, B }").1, Some("discriminant".into()));
-        assert_eq!(reason(&body("loop {}")).0, Reason::Loop);
-        assert_eq!(reason(&body("while let Some(y) = None::<i32> { let _ = y; } x")).0, Reason::Loop);
+        assert_eq!(reason(&body("'a: loop {}")).0, Reason::Loop);
+        assert_eq!(reason(&body("'a: while let Some(y) = None::<i32> { let _ = y; } x")).0, Reason::Loop);
         assert_eq!(
             reason("pub enum E { A { n: i32 } } pub fn f(e: E) -> E { E::A { n: 1, ..e } }").0,
             Reason::StructUpdate
@@ -163,7 +163,6 @@ mod tests {
         assert_eq!(reason("pub fn f(x: &mut i32) -> i32 { 0 }").0, Reason::RefType);
         assert_eq!(reason("pub struct S { pub n: i32 } impl S { pub fn f(&mut self) {} }").0, Reason::RefReceiver);
         assert_eq!(reason("pub struct P(i32, i32);").0, Reason::TupleStruct);
-        assert_eq!(reason("pub fn f(x: (i32, i32)) -> i32 { x.1 }").0, Reason::TupleField);
     }
 
     #[test]
@@ -342,12 +341,16 @@ mod tests {
             ]
         );
 
-        let (_, _, msg) =
-            error_at(&with_arms("Cmd::Stop => 0, Cmd::Move(a, _) => a").replace(
-                "match cmd { Cmd::Stop => 0, Cmd::Move(a, _) => a }",
-                "if let Cmd::Stop = cmd { 0 } else { 1 }",
-            ));
-        assert!(msg.contains("`if let` on an enum variant is not in v0"), "{msg}");
+        // A variant: every other value takes the `else`.
+        let source = with_arms("Cmd::Stop => 0, Cmd::Move(a, _) => a")
+            .replace("match cmd { Cmd::Stop => 0, Cmd::Move(a, _) => a }", "if let Cmd::Stop = cmd { 0 } else { 1 }");
+        let krate = parse_source("c", &source).expect("parse");
+        let Some(Item::Fn(f)) = krate.items.iter().find(|i| matches!(i, Item::Fn(_))) else { panic!("fn") };
+        let Expr::Match { arms, .. } = &f.body else { panic!("match, got {:?}", f.body) };
+        assert!(matches!(arms[0].pattern, Pattern::Variant { .. }) && arms[1].pattern == Pattern::Wildcard);
+
+        let (_, _, msg) = error_at("pub fn f(x: i32) -> i32 { if let _ = x { 1 } else { 0 } }");
+        assert!(msg.contains("this `if let` pattern always matches"), "{msg}");
     }
 
     #[test]

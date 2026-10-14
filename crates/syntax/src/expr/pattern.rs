@@ -331,17 +331,41 @@ pub(super) fn prelude_pat(name: &str, bind: VariantBind) -> Result<Option<Patter
 }
 
 /// `if let P = e { a } else { b }` is `match e { P => a, <the other case> => b }`,
-/// or `_ => b` where `P`'s payload may fail to match.
+/// or `_ => b` where `P` is a variant, a literal, or a range, or its payload
+/// may fail to match.
 pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -> Result<Expr, ParseError> {
-    let pattern = arm_pattern(lower_pat(cx, &l.pat)?).map_err(|e| e.or_at(l.pat.span()))?;
+    let pattern = refutable_pat(cx, &l.pat, "if let")?;
+    let other = other_case(&pattern);
+    Ok(Expr::Match {
+        scrutinee: Box::new(lower_expr(cx, &l.expr)?),
+        arms: vec![Arm { guard: None, pattern, body: then }, Arm { guard: None, pattern: other, body: else_ }],
+    })
+}
+
+/// The pattern of an `if let`, a `while let`, or a `let`-`else`: one a
+/// `match` arm may have, without a struct pattern, that can fail to match.
+fn refutable_pat(cx: &Cx, pat: &Pat, what: &str) -> Result<Pattern, ParseError> {
+    let pattern = arm_pattern(lower_pat(cx, pat)?).map_err(|e| e.or_at(pat.span()))?;
     if !cx.take_struct_pats().is_empty() {
         return Err(ParseError::new(
             Reason::UnsupportedPattern,
-            "a struct pattern is in a `match` arm or `matches!` in v0, not `if let`",
+            format!("a struct pattern is in a `match` arm or `matches!` in v0, not `{what}`"),
         )
-        .or_at(l.pat.span()));
+        .or_at(pat.span()));
     }
-    let other = match &pattern {
+    if !pattern.refutable() {
+        return Err(ParseError::new(
+            Reason::IfLetVariant,
+            format!("this `{what}` pattern always matches; bind it with `let`"),
+        )
+        .or_at(pat.span()));
+    }
+    Ok(pattern)
+}
+
+/// The arm that takes every value `pattern` does not.
+fn other_case(pattern: &Pattern) -> Pattern {
+    match pattern {
         // `if let Some(0) = o`: `Some(5)` takes the `else` too, so the other
         // arm is every value (it once panicked as an unexpected variant).
         Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) if p.refutable() => Pattern::Wildcard,
@@ -349,18 +373,91 @@ pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -
         Pattern::OptionNone => Pattern::OptionSome(Box::new(Pattern::Wildcard)),
         Pattern::ResultOk(_) => Pattern::ResultErr(Box::new(Pattern::Wildcard)),
         Pattern::ResultErr(_) => Pattern::ResultOk(Box::new(Pattern::Wildcard)),
-        _ => {
-            return Err(ParseError::new(
-                Reason::IfLetVariant,
-                "`if let` on an enum variant is not in v0; use `match` with every variant",
-            )
-            .or_at(l.pat.span()))
+        // A variant, a literal, a range: every other value.
+        _ => Pattern::Wildcard,
+    }
+}
+
+/// `let P = e else { d }; rest` is `match e { P => rest, <the other case> => d }`:
+/// the statements after it are the arm that matched, so `P`'s names are
+/// bound for them and not for `d`. A `mut` name in `P` is rebound
+/// `let mut` at the arm's top.
+pub(super) fn lower_let_else(cx: &Cx, pat: &Pat, value: &SynExpr, diverge: &SynExpr) -> Result<LetElse, ParseError> {
+    // `mut` is the binding's, not the pattern's: the arm binds the plain name.
+    let mut plain = pat.clone();
+    let mut mutable = Vec::new();
+    strip_mut(&mut plain, &mut mutable);
+    let pattern = refutable_pat(cx, &plain, "let-else")?;
+    let other = other_case(&pattern);
+    let scrutinee = lower_expr(cx, value)?;
+    let else_ = lower_expr(cx, diverge)?;
+    Ok(LetElse { scrutinee, pattern, other, else_, mutable })
+}
+
+pub(super) struct LetElse {
+    scrutinee: Expr,
+    pattern: Pattern,
+    other: Pattern,
+    else_: Expr,
+    mutable: Vec<Name>,
+}
+
+impl LetElse {
+    /// The `match` with `rest` as the arm that matched.
+    pub(super) fn bind(self, rest: Expr) -> Expr {
+        // `let Some(x) = e else { .. }`: `let x = match e { Some(x) => x, None
+        // => .. }`, which prints as a guard and `x` named as written.
+        if let Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) = &self.pattern {
+            if let Pattern::Var(x) = &**p {
+                let x = x.clone();
+                let value = Expr::Match {
+                    scrutinee: Box::new(self.scrutinee),
+                    arms: vec![
+                        Arm { guard: None, pattern: self.pattern.clone(), body: Expr::Var(x.clone()) },
+                        Arm { guard: None, pattern: self.other, body: self.else_ },
+                    ],
+                };
+                let mutable = self.mutable.contains(&x);
+                return Expr::Let { name: x, mutable, ty: None, value: Box::new(value), then: Box::new(rest) };
+            }
         }
-    };
-    Ok(Expr::Match {
-        scrutinee: Box::new(lower_expr(cx, &l.expr)?),
-        arms: vec![Arm { guard: None, pattern, body: then }, Arm { guard: None, pattern: other, body: else_ }],
-    })
+        let rest = self.mutable.iter().rev().fold(rest, |then, n| Expr::Let {
+            name: n.clone(),
+            mutable: true,
+            ty: None,
+            value: Box::new(Expr::Var(n.clone())),
+            then: Box::new(then),
+        });
+        Expr::Match {
+            scrutinee: Box::new(self.scrutinee),
+            arms: vec![
+                Arm { guard: None, pattern: self.pattern, body: rest },
+                Arm { guard: None, pattern: self.other, body: self.else_ },
+            ],
+        }
+    }
+}
+
+/// Removes `mut` from each name `pat` binds, collecting those names.
+fn strip_mut(pat: &mut Pat, names: &mut Vec<Name>) {
+    match pat {
+        Pat::Ident(id) => {
+            if id.mutability.take().is_some() {
+                names.push(Name::new(id.ident.to_string()));
+            }
+            if let Some((_, sub)) = &mut id.subpat {
+                strip_mut(sub, names);
+            }
+        }
+        Pat::TupleStruct(t) => t.elems.iter_mut().for_each(|p| strip_mut(p, names)),
+        Pat::Tuple(t) => t.elems.iter_mut().for_each(|p| strip_mut(p, names)),
+        Pat::Struct(s) => s.fields.iter_mut().for_each(|f| strip_mut(&mut f.pat, names)),
+        Pat::Or(o) => o.cases.iter_mut().for_each(|p| strip_mut(p, names)),
+        Pat::Reference(r) => strip_mut(&mut r.pat, names),
+        Pat::Paren(p) => strip_mut(&mut p.pat, names),
+        Pat::Type(t) => strip_mut(&mut t.pat, names),
+        _ => {}
+    }
 }
 
 /// A tuple pattern where Rust takes an irrefutable one: a `let`, a closure

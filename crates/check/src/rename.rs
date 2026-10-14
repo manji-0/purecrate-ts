@@ -338,13 +338,13 @@ impl Renamer {
                 let (name, value) = self.bind_let(name, value, &mut inner);
                 Expr::Let { name, mutable, ty, value, then: Box::new(self.stmt_binds(*then, &mut inner)) }
             }
-            Expr::For { var, ty, start, end, body } => {
+            Expr::For { var, ty, start, end, inclusive, rev, body } => {
                 let start = self.boxed(start, cx);
                 let end = self.boxed(end, cx);
                 self.own_block(|r| {
                     let mut inner = cx.clone();
                     let var = r.bind(&var, &mut inner);
-                    Expr::For { var, ty, start, end, body: r.boxed(body, &inner) }
+                    Expr::For { var, ty, start, end, inclusive, rev, body: r.boxed(body, &inner) }
                 })
             }
             Expr::ForEach { var, over, source: string, body } => {
@@ -413,7 +413,7 @@ impl Renamer {
                 let cond = self.boxed(cond, cx);
                 self.own_block(|r| Expr::While { cond, body: r.boxed(body, cx) })
             }
-            Expr::Break => Expr::Break,
+            Expr::Break(v) => Expr::Break(v.map(|v| self.boxed(v, cx))),
             Expr::Continue => Expr::Continue,
             Expr::Binary { op, left, right } => {
                 Expr::Binary { op, left: self.boxed(left, cx), right: self.boxed(right, cx) }

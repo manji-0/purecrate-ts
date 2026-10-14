@@ -44,8 +44,10 @@ use crate::support::generated::{fn_count, seeds, SEEDS};
 
 struct Body {
     g: Gen,
-    /// Loops around the current statement, for `break` and `continue`.
-    loops: usize,
+    /// Loops around the current statement, for `break` and `continue`,
+    /// innermost last: whether each is a `loop` whose `break` carries an
+    /// `i32`.
+    loops: Vec<bool>,
     /// Lines written so far, indented.
     out: String,
     indent: usize,
@@ -114,7 +116,7 @@ impl Body {
 
     fn stmt(&mut self, depth: u32) {
         let e = 2;
-        let pick = if depth == 0 { self.g.rng.pick(&[0, 1, 2, 3, 13, 13, 14]) } else { self.g.rng.below(23) };
+        let pick = if depth == 0 { self.g.rng.pick(&[0, 1, 2, 3, 13, 13, 14]) } else { self.g.rng.below(25) };
         match pick {
             0 => {
                 let ty = self.g.rng.pick(&[Ty::Int, Ty::Int, Ty::Opt, Ty::Bool]);
@@ -141,11 +143,18 @@ impl Body {
             6 => {
                 let (lo, hi) = (self.g.int(e), self.g.int(e));
                 let i = self.name(Ty::Int);
-                self.loops += 1;
+                self.loops.push(false);
                 self.g.scope.push((i.clone(), Ty::Int, false));
-                self.block(&format!("for {i} in ({lo}) % 4..({hi}) % 6"), depth - 1, 4);
+                // `a..b`, `a..=b`, and either stepped down with `.rev()`.
+                let range = match self.g.rng.below(5) {
+                    0 => format!("({lo}) % 4..=({hi}) % 6"),
+                    1 => format!("(({lo}) % 4..({hi}) % 6).rev()"),
+                    2 => format!("(({lo}) % 4..=({hi}) % 6).rev()"),
+                    _ => format!("({lo}) % 4..({hi}) % 6"),
+                };
+                self.block(&format!("for {i} in {range}"), depth - 1, 4);
                 self.g.scope.pop();
-                self.loops -= 1;
+                self.loops.pop();
             }
             7 => {
                 // The counter is in no scope the generator draws from, so
@@ -171,13 +180,13 @@ impl Body {
                         format!("{k} < ({bound}) % 5 && !{d}")
                     }
                 };
-                self.loops += 1;
+                self.loops.push(false);
                 self.block_from(&format!("while {test}"), Some(&tail), depth - 1, 4);
-                self.loops -= 1;
+                self.loops.pop();
             }
-            8 if self.loops > 0 => {
+            8 if !self.loops.is_empty() => {
                 let test = self.g.boolean(e);
-                let jump = self.g.rng.pick(&["break", "continue"]);
+                let jump = self.jump(e);
                 self.line(&format!("if {test} {{"));
                 self.indent += 1;
                 self.line(&format!("{jump};"));
@@ -201,6 +210,13 @@ impl Body {
             18 => self.block_value(depth),
             19 => self.branch_value(depth),
             20 => self.closure_stmt(e),
+            22 | 23 | 24 => match self.g.rng.below(5) {
+                0 => self.loop_value(depth),
+                1 => self.while_let(depth),
+                2 => self.let_else(e),
+                3 => self.if_let(depth),
+                _ => self.tuple_field(e),
+            },
             21 => {
                 // A bare block, then what it may have changed, read.
                 self.block("", depth - 1, 3);
@@ -456,6 +472,132 @@ impl Body {
         }
     }
 
+    /// `break` or `continue` of the innermost loop; a `loop` with a value
+    /// breaks with an `i32`.
+    fn jump(&mut self, e: u32) -> String {
+        match (self.g.rng.below(2), self.loops.last()) {
+            (0, _) => "continue".to_string(),
+            (_, Some(true)) => format!("break {}", self.g.int(e)),
+            _ => "break".to_string(),
+        }
+    }
+
+    /// A counter nothing else writes, bumped first in a loop's body, so
+    /// `continue` cannot skip it; and the bound it stops at, under 5.
+    fn counter(&mut self, e: u32) -> (String, String) {
+        self.g.next_name += 1;
+        let k = format!("k{}", self.g.next_name);
+        self.line(&format!("let mut {k}: i32 = 0;"));
+        let bound = self.g.int(e);
+        (k, format!("({bound}) % 5"))
+    }
+
+    /// `let v: i32 = loop { k += 1; if k > n { break e; } .. };`, its other
+    /// `break`s carrying values too; or a `loop` as a statement.
+    fn loop_value(&mut self, depth: u32) {
+        let (k, bound) = self.counter(2);
+        let valued = self.g.rng.below(3) != 0;
+        let (head, out) = if valued {
+            let v = self.name(Ty::Int);
+            (format!("let {v}: i32 = loop"), Some(v))
+        } else {
+            ("loop".to_string(), None)
+        };
+        let stop = if valued { format!("break {}", self.g.int(2)) } else { "break".to_string() };
+        self.loops.push(valued);
+        self.block_from(&head, Some(&format!("{k} += 1; if {k} > {bound} {{ {stop}; }}")), depth - 1, 4);
+        self.loops.pop();
+        if let Some(v) = out {
+            // The block's `}` ends a `let`.
+            self.out.pop();
+            self.out.push_str(";\n");
+            self.g.scope.push((v, Ty::Int, false));
+        }
+    }
+
+    /// `while let Some(v) = if k < n { .. } else { None } { k += 1; .. }`:
+    /// the scrutinee runs before every pass; or on `Ok`, `Err`, a range.
+    fn while_let(&mut self, depth: u32) {
+        let (k, bound) = self.counter(2);
+        let (pat, value, ty) = match self.g.rng.below(3) {
+            0 => ("Some", self.g.without_try(|g| g.place(Ty::Opt, 2)), Ty::Opt),
+            1 => ("Ok", self.g.without_try(|g| g.place(Ty::Res, 2)), Ty::Res),
+            _ => ("", self.g.without_try(|g| g.int(2)), Ty::Int),
+        };
+        let other = match ty {
+            Ty::Opt => "None".to_string(),
+            Ty::Res => "Err(0)".to_string(),
+            _ => "-1".to_string(),
+        };
+        let v = self.name(Ty::Int);
+        let pattern = if pat.is_empty() { "0..=9".to_string() } else { format!("{pat}({v})") };
+        let head = format!("while let {pattern} = if {k} < {bound} {{ {value} }} else {{ {other} }}");
+        self.loops.push(false);
+        let scope = self.g.scope.len();
+        if !pat.is_empty() {
+            self.g.scope.push((v, Ty::Int, false));
+        }
+        self.block_from(&head, Some(&format!("{k} += 1;")), depth - 1, 3);
+        self.g.scope.truncate(scope);
+        self.loops.pop();
+    }
+
+    /// `let Some(v) = o else { <leave> };`, then `v` in scope; on `Ok`,
+    /// `Err`, or a range binding nothing too.
+    fn let_else(&mut self, e: u32) {
+        let leave = if !self.loops.is_empty() && self.g.rng.below(2) == 0 {
+            self.jump(e)
+        } else {
+            format!("return {}", self.ret_value(e))
+        };
+        let v = self.name(Ty::Int);
+        let m = if self.g.rng.below(3) == 0 { "mut " } else { "" };
+        let (pattern, value, binds) = match self.g.rng.below(4) {
+            0 => (format!("Some({m}{v})"), self.g.place(Ty::Opt, 2), true),
+            1 => (format!("Ok({m}{v})"), self.g.place(Ty::Res, 2), true),
+            2 => (format!("Err({m}{v})"), self.g.place(Ty::Res, 2), true),
+            _ => ("0..=3".to_string(), self.g.int(e), false),
+        };
+        self.line(&format!("let {pattern} = ({value}) else {{ {leave}; }};"));
+        if binds {
+            self.g.scope.push((v, Ty::Int, !m.is_empty()));
+        }
+    }
+
+    /// `if let Some(v) = o { .. } else { .. }`, on `Ok`, `Err`, a literal,
+    /// or a range.
+    fn if_let(&mut self, depth: u32) {
+        let v = self.name(Ty::Int);
+        let (pattern, value, binds) = match self.g.rng.below(5) {
+            0 => (format!("Some({v})"), self.g.place(Ty::Opt, 2), true),
+            1 => (format!("Ok({v})"), self.g.place(Ty::Res, 2), true),
+            2 => (format!("Err({v})"), self.g.place(Ty::Res, 2), true),
+            3 => ("7".to_string(), self.g.int(2), false),
+            _ => ("0..=100".to_string(), self.g.int(2), false),
+        };
+        let scope = self.g.scope.len();
+        if binds {
+            self.g.scope.push((v, Ty::Int, false));
+        }
+        self.block(&format!("if let {pattern} = {value}"), depth - 1, 3);
+        self.g.scope.truncate(scope);
+        if self.g.rng.below(2) == 0 {
+            self.block("else", depth - 1, 3);
+        }
+    }
+
+    /// A tuple bound whole, read by `.0` and `.1`.
+    fn tuple_field(&mut self, e: u32) {
+        let (x, c) = (self.g.int(e), self.g.boolean(e));
+        self.g.next_name += 1;
+        let t = format!("tp{}", self.g.next_name);
+        self.line(&format!("let {t}: (i32, bool) = ({x}, {c});"));
+        let v = self.name(Ty::Int);
+        let other = self.g.int(e);
+        self.line(&format!("let {v}: i32 = if {t}.1 {{ {t}.0 }} else {{ {other} }};"));
+        self.g.scope.push((v, Ty::Int, false));
+    }
+
     /// A `match` on an `Option` or `Result` whose arms are blocks, or, in
     /// a loop, a jump.
     fn match_stmt(&mut self, depth: u32) {
@@ -469,8 +611,8 @@ impl Body {
         self.block(&format!("{some}({v}) =>"), depth - 1, 3);
         self.g.scope.pop();
         let other = if ty == Ty::Opt { none.to_string() } else { format!("{none}(_)") };
-        if self.loops > 0 && self.g.rng.below(2) == 0 {
-            let jump = self.g.rng.pick(&["break", "continue"]);
+        if !self.loops.is_empty() && self.g.rng.below(2) == 0 {
+            let jump = self.jump(2);
             self.line(&format!("{other} => {jump},"));
         } else {
             self.block(&format!("{other} =>"), depth - 1, 3);
@@ -481,7 +623,7 @@ impl Body {
 }
 
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
-    let mut body = Body { g: Gen::new(seed ^ 0x5717), loops: 0, out: String::new(), indent: 1 };
+    let mut body = Body { g: Gen::new(seed ^ 0x5717), loops: Vec::new(), out: String::new(), indent: 1 };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
         body.g.ret = ret;

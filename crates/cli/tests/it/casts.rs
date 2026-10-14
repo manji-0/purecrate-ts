@@ -90,6 +90,14 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if NUMERIC.contains(&target_name) && (value.ends_with(" + 1)") || value.ends_with(" + 1n)")) && for_step {
         return Some("for counter below its bound");
     }
+    // `(a..b).rev()` starts at `b - 1` and steps down: a value below the
+    // start (`-1` for an unsigned 0) ends the loop and the body never sees it.
+    if NUMERIC.contains(&target_name)
+        && (value.ends_with(" - 1)") || value.ends_with(" - 1n)"))
+        && line.contains("for (let ")
+    {
+        return Some("reversed for counter above its bound");
+    }
     if target.starts_with("Record<string, ") || (NUMERIC.contains(&target_name) && value.ends_with(".kind]")) {
         return Some("folded discriminant");
     }

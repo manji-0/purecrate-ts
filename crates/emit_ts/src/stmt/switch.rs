@@ -225,7 +225,16 @@ pub(crate) fn emit_switch_in(
             let prelude = bind_prelude(bind, &subject, &pad1);
             // The rest one exit and the variant's arm statements: the exit
             // first, as a guard, then the arm where TS has narrowed it.
-            let exits = (matches!(sink, Sink::Return) || ends_in_jump(&b.body)) && !b.body.needs_statements();
+            // A rest that is one jump guards a variant's arm of several
+            // statements (`let V(x) = e else { return .. }`), where nothing
+            // follows the `match` in its block, so no `else` is needed.
+            let simple = |e: &Expr| match lone_jump(e) {
+                Expr::Return(v) | Expr::Break(Some(v)) => !v.needs_statements(),
+                Expr::Break(None) | Expr::Continue => true,
+                _ => false,
+            };
+            let lone = tail && !matches!(sink, Sink::Assign(_)) && simple(&b.body) && !simple(&a.body);
+            let exits = lone || (matches!(sink, Sink::Return) || ends_in_jump(&b.body)) && !b.body.needs_statements();
             // `true` on one side and `false` on the other is the test.
             if let (Expr::Lit(Lit::Bool(x)), Expr::Lit(Lit::Bool(y)), true, false) =
                 (&a.body, &b.body, prelude.is_empty(), matches!(sink, Sink::Effect))

@@ -288,6 +288,11 @@ fn effects(expr: Expr) -> Expr {
                 seq(effects(*value), strip_assigns(then, &name))
             }
         }
+        // A `loop` whose value is dropped: each `break v` is `v`'s effects.
+        Expr::While { cond, mut body } if *cond == Expr::Lit(purecrate_ir::Lit::Bool(true)) => {
+            body.map_breaks(&mut |v| seq(effects(v), Expr::Break(None)));
+            Expr::While { cond, body }
+        }
         Expr::Seq { first, then } => {
             let then = effects(*then);
             if is_unit(&then) {

@@ -65,6 +65,10 @@ thread_local! {
     /// The loops being printed, innermost last, each with its label when a
     /// `break` or `continue` in it leaves it.
     pub(crate) static LOOPS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
+    /// For each `loop` being printed, innermost last, where a `break` with a
+    /// value puts it: `None` to return it, else the name it is assigned to
+    /// (empty when the value is dropped).
+    pub(crate) static LOOP_SINKS: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(super) fn is_closed(name: &str) -> bool {

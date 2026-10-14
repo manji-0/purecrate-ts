@@ -528,7 +528,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         | Expr::For { .. }
         | Expr::ForEach { .. }
         | Expr::While { .. } => emit_iife(expr, indent),
-        Expr::Break | Expr::Continue => {
+        Expr::Break(_) | Expr::Continue => {
             unreachable!("`check::accept` keeps `break` and `continue` in statement position")
         }
         // Variant names are identifiers other than `__proto__` (checked), so

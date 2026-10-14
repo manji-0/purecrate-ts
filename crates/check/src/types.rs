@@ -13,7 +13,7 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy, FmtAlign,
     FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, Sort,
-    StrMethod, TryOn, Ty, UnOp, VariantBind, VariantFields, NEWTYPE_FIELD,
+    StrMethod, TryOn, Ty, UnOp, VariantBind, VariantFields,
 };
 
 use crate::defs::Defs;
@@ -106,13 +106,16 @@ struct Typer<'d, 'a> {
     scopes: Vec<(String, Option<Ty>)>,
     /// Names made up by `tuple::lower` so far in this function.
     fresh: usize,
+    /// For each `loop` around the expression, innermost last: the type its
+    /// `break`s carry, once known.
+    loops: Vec<Option<Ty>>,
 }
 
 type Typed = (Expr, Option<Ty>);
 
 impl<'d, 'a> Typer<'d, 'a> {
     fn new(defs: &'d Defs<'a>, item: usize, out: &'d mut Vec<Diagnostic>) -> Self {
-        Typer { defs, item, out, ret: Ty::Prim(Prim::Unit), scopes: Vec::new(), fresh: 0 }
+        Typer { defs, item, out, ret: Ty::Prim(Prim::Unit), scopes: Vec::new(), fresh: 0, loops: Vec::new() }
     }
 
     fn error(&mut self, reason: Reason, message: String) {
@@ -199,13 +202,35 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (expr.clone(), self.expect(want, t))
             }
             Expr::Cast { expr: inner, to } => self.cast(inner, to, want),
+            // `loop`: of the type its `break`s carry, `()` when they carry
+            // nothing, and `!` when nothing breaks out of it.
+            Expr::While { cond, body } if **cond == Expr::Lit(Lit::Bool(true)) => {
+                self.loops.push(want.filter(|w| **w != Ty::Never).cloned());
+                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+                let carried = self.loops.pop().flatten();
+                let ty = match breaks(body) {
+                    (true, _) => carried,
+                    (false, true) => Some(Ty::Prim(Prim::Unit)),
+                    (false, false) => Some(Ty::Never),
+                };
+                let e = Expr::While { cond: cond.clone(), body: Box::new(b) };
+                (e, self.expect(want, ty))
+            }
             Expr::While { cond, body } => {
                 let (c, _) = self.expr(cond, Some(&Ty::bool()));
                 let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
                 let e = Expr::While { cond: Box::new(c), body: Box::new(b) };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
-            Expr::Break | Expr::Continue => (expr.clone(), Some(Ty::Never)),
+            Expr::Break(Some(value)) => {
+                let slot = self.loops.last().cloned().flatten();
+                let (v, t) = self.expr(value, slot.as_ref());
+                if let (Some(top), None, Some(t)) = (self.loops.last_mut(), slot, t.filter(|t| *t != Ty::Never)) {
+                    *top = Some(t);
+                }
+                (Expr::Break(Some(Box::new(v))), Some(Ty::Never))
+            }
+            Expr::Break(None) | Expr::Continue => (expr.clone(), Some(Ty::Never)),
             Expr::Let { name, mutable, ty, value, then } => {
                 let before = self.out.len();
                 let (value, vt) = self.expr(value, ty.as_ref());
@@ -238,7 +263,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     tt,
                 )
             }
-            Expr::For { var, start, end, body, .. } => {
+            Expr::For { var, start, end, inclusive, rev, body, .. } => {
                 // `0..n`: an unsuffixed start takes the end's type. Only the
                 // typing order changes; the start still runs first.
                 let before = self.out.len();
@@ -265,8 +290,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.scopes.push((var.as_str().to_string(), bound));
                 let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
                 self.scopes.pop();
-                let e =
-                    Expr::For { var: var.clone(), ty: int, start: Box::new(s), end: Box::new(e), body: Box::new(b) };
+                let (start, end, body) = (Box::new(s), Box::new(e), Box::new(b));
+                let e = Expr::For { var: var.clone(), ty: int, start, end, inclusive: *inclusive, rev: *rev, body };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::ForEach { var, over, source: string, body } => {
@@ -348,6 +373,17 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Field { base, name } => {
                 let (base, bt) = self.expr(base, None);
+                // `t.0` of a tuple: its element, read as `t[0]`.
+                if let (Ok(i), Some(Ty::Tuple(ts))) =
+                    (name.as_str().parse::<usize>(), bt.as_ref().map(|t| self.norm(t)))
+                {
+                    let Some(t) = ts.get(i).cloned() else {
+                        self.error(Reason::TupleField, format!("a tuple of {} elements has no `.{i}`", ts.len()));
+                        return (expr.clone(), None);
+                    };
+                    let e = Expr::Field { base: Box::new(base), name: Name::new(format!("[{i}]")) };
+                    return (e, self.expect(want, Some(t)));
+                }
                 let t = bt.as_ref().and_then(|bt| match self.norm(bt) {
                     Ty::Named(s) => self
                         .defs
@@ -358,10 +394,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                     _ => None,
                 });
                 if let (None, Some(bt)) = (&t, &bt) {
-                    if name.as_str() == NEWTYPE_FIELD {
+                    if name.as_str().parse::<usize>().is_ok() {
                         self.error(
                             Reason::TupleField,
-                            format!("`.0` is only in v0 on a one-field tuple struct, not on `{}`", show(bt)),
+                            format!(
+                                "`.{}` is only in v0 on a tuple, or `.0` on a one-field tuple struct, not on `{}`",
+                                name.as_str(),
+                                show(bt)
+                            ),
                         );
                     }
                 }
@@ -486,4 +526,26 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Ignored { wrapper, inner } => format!("{}<{}>", wrapper.rust_name(), show(inner)),
         Ty::Never => "!".into(),
     }
+}
+
+/// Whether a `break` of this loop (not of a loop or closure inside it) in
+/// `body` carries a value, and whether one carries none.
+fn breaks(body: &Expr) -> (bool, bool) {
+    fn walk(e: &Expr, found: &mut (bool, bool)) {
+        match e {
+            Expr::For { .. } | Expr::ForEach { .. } | Expr::While { .. } | Expr::Closure { .. } => {}
+            Expr::Break(v) => {
+                if v.is_some() {
+                    found.0 = true;
+                } else {
+                    found.1 = true;
+                }
+                v.iter().for_each(|v| walk(v, found));
+            }
+            other => other.children().into_iter().for_each(|c| walk(c, found)),
+        }
+    }
+    let mut found = (false, false);
+    walk(body, &mut found);
+    found
 }

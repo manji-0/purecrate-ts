@@ -104,12 +104,13 @@ fn visit(expr: &Expr, ctx: Ctx, at: Option<Pos>, report: &mut impl FnMut(String,
             visit(cond, Ctx::Strict, at, report);
             visit(body, Ctx::Stmt, at, report);
         }
-        Expr::Break | Expr::Continue if ctx != Ctx::Stmt => report(
+        Expr::Break(_) | Expr::Continue if ctx != Ctx::Stmt => report(
             "`break` or `continue` inside a larger expression is not in v0; \
              make it a statement, an arm of a `match` or `if` there, or the tail"
                 .into(),
             at,
         ),
+        Expr::Break(Some(value)) => visit(value, Ctx::Strict, at, report),
         Expr::Seq { first, then } if ctx == Ctx::Stmt => {
             visit(first, Ctx::Stmt, at, report);
             visit(then, Ctx::Stmt, at, report);

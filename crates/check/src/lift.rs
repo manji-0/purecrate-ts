@@ -265,6 +265,10 @@ impl Lifter {
                 let (value, hoisted) = self.extract(*value);
                 wrap(hoisted, Expr::Return(Box::new(value)))
             }
+            Expr::Break(Some(value)) => {
+                let (value, hoisted) = self.extract(*value);
+                wrap(hoisted, Expr::Break(Some(Box::new(value))))
+            }
             Expr::Assign { name, value } if value.needs_statements() => {
                 Expr::Assign { name, value: Box::new(self.stmt(*value)) }
             }
@@ -286,7 +290,7 @@ impl Lifter {
                 }
                 let exit = Expr::If {
                     cond: Box::new(Expr::Unary { op: UnOp::Not, expr: Box::new(cond) }),
-                    then: Box::new(Expr::Break),
+                    then: Box::new(Expr::Break(None)),
                     else_: Box::new(Expr::Lit(Lit::Unit)),
                 };
                 Expr::While {
@@ -297,12 +301,13 @@ impl Lifter {
             // The bounds run once before the loop, in order: a start that
             // may panic is bound before a `?` in the end. A `?` in the body
             // leaves from inside it.
-            Expr::For { var, ty, start, end, body } => {
+            Expr::For { var, ty, start, end, inclusive, rev, body } => {
                 let mut hoisted = Vec::new();
                 let [start, end]: [Expr; 2] =
                     self.in_order(vec![*start, *end], &mut hoisted).try_into().expect("two bounds in, two out");
                 let body = self.stmt(*body);
-                wrap(hoisted, Expr::For { var, ty, start: Box::new(start), end: Box::new(end), body: Box::new(body) })
+                let (start, end, body) = (Box::new(start), Box::new(end), Box::new(body));
+                wrap(hoisted, Expr::For { var, ty, start, end, inclusive, rev, body })
             }
             Expr::ForEach { var, over, source: string, body } => {
                 let mut hoisted = Vec::new();
