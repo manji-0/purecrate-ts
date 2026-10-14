@@ -25,6 +25,7 @@ mod resolve;
 mod serde_attrs;
 mod statements;
 mod strings;
+mod strings_more;
 mod tuple_match;
 mod types;
 mod widen;

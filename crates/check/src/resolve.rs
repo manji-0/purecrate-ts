@@ -510,7 +510,9 @@ impl<'a> Cx<'_, 'a> {
                 };
                 self.arity(&format!("`{}`", method.ts_name()), takes, argc)
             }
-            Callee::StrSplit => self.arity("`str::split`", 2, argc),
+            Callee::StrSplit | Callee::StrSplitStr => self.arity("`str::split`", 2, argc),
+            Callee::StrRepeat => self.arity("`str::repeat`", 2, argc),
+            Callee::StrJoin => self.arity("`join`", 2, argc),
             Callee::IterMap { .. } | Callee::IterFilter { .. } => self.arity("an iterator stage", 2, argc),
             Callee::Collect { .. } => {
                 if !(1..=2).contains(&argc) {

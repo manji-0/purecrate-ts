@@ -739,6 +739,9 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             recv(&args[0], indent),
             bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
         ),
+        C::StrSplitStr => format!("Str.splitStr({}, {})", emit_expr(&args[0], indent), plain_arg(&args[1], indent)),
+        C::StrRepeat => format!("{}.repeat({})", recv(&args[0], indent), plain_arg(&args[1], indent)),
+        C::StrJoin => format!("{}.join({})", recv(&args[0], indent), plain_arg(&args[1], indent)),
         C::IterMap { over } | C::IterFilter { over } => {
             let stage = if matches!(callee, C::IterMap { .. }) { "map" } else { "filter" };
             let source = iterable(*over, emit_tx(&args[0], indent));
@@ -756,6 +759,7 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
                     format!("{s}.{}({})", m.ts_name(), plain_arg(&args[1], indent))
                 }
                 S::AsStr => s,
+                S::ToLowercase | S::ToUppercase => format!("{s}.{}()", m.ts_name()),
                 m if m.needles() == 0 => format!("Str.{}({s})", m.ts_name()),
                 m => format!("Str.{}({s}, {})", m.ts_name(), plain_arg(&args[1], indent)),
             }
@@ -1095,7 +1099,17 @@ fn receiver(x: Tx) -> String {
 fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: usize) -> String {
     use purecrate_ir::Callee;
     let stage = |e: &Expr| matches!(e, Expr::Call { callee: Callee::IterMap { .. } | Callee::IterFilter { .. }, .. });
-    let split = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, .. });
+    let split = |e: &Expr| {
+        matches!(
+            e,
+            Expr::Call {
+                callee: Callee::StrSplit
+                    | Callee::StrSplitStr
+                    | Callee::Str(purecrate_ir::StrMethod::SplitWhitespace | purecrate_ir::StrMethod::Lines),
+                ..
+            }
+        )
+    };
     // `split` with a closure is `Str.splitBy`, a generator: not an array.
     let lazy = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, args } if matches!(peel_identity(&args[1]), Expr::Closure { .. }));
     let source = &args[0];

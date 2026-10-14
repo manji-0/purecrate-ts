@@ -445,6 +445,7 @@ fn is_pure(expr: &Expr) -> bool {
             // `Callee::Slice`, not here.
             | Callee::Str(_)
             | Callee::StrSplit
+            | Callee::StrSplitStr
             // Padding never panics.
             | Callee::Format(_)
             | Callee::StringFrom => true,

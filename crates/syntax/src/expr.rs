@@ -299,16 +299,14 @@ const ITERATOR_ADAPTORS: &[&str] = &[
     "copied",
     "peekable",
     "char_indices",
-    "split_whitespace",
     "splitn",
     "rsplit",
-    "lines",
     "keys",
     "values",
 ];
 
 /// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
-/// or `split(c)` on a `char`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
+/// `split(p)`, `split_whitespace()`, or `lines()`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
 /// with a plain name for the variable. Whether `xs` is a `Vec` is checked
 /// with the types; `.rev()` and `.zip(..)` on one, and `.enumerate()`.
 /// Other iterator adaptors stay out.

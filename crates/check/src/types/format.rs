@@ -14,11 +14,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         for (i, t) in tys.iter().enumerate() {
             let Some(t) = t else { continue };
-            let shown = matches!(
-                t,
-                Ty::Prim(Prim::Bool | Prim::Char | Prim::Str | Prim::String | Prim::Uuid | Prim::Usize) | Ty::Never
-            ) || matches!(t, Ty::Prim(p) if p.int().is_some());
-            if !shown {
+            if !displayed(t) {
                 self.error(
                     Reason::TypeMismatch,
                     format!(
@@ -59,4 +55,34 @@ impl<'d, 'a> Typer<'d, 'a> {
         let e = Expr::Call { callee: Callee::Format(pieces), args: typed };
         (e, self.expect(want, Some(Ty::Prim(Prim::String))))
     }
+
+    /// `x.to_string()` on a primitive `t`: what `format!("{}", x)` prints,
+    /// refused where it is; a `String` or `&str` is the value, as `clone` is.
+    /// `None` where `t` has no `Display` (`()`), left to the usual message.
+    pub(super) fn displayed_text(&mut self, recv: Expr, t: &Ty, want: Option<&Ty>) -> Option<Typed> {
+        let string = Some(Ty::Prim(Prim::String));
+        if matches!(t, Ty::Prim(Prim::String | Prim::Str)) {
+            return Some((recv, self.expect(want, string)));
+        }
+        if matches!(t, Ty::Prim(p) if p.float().is_some()) {
+            self.error(
+                Reason::MethodCall,
+                format!("`.to_string()` on `{}` is not in v0: `Display` of a float differs from JS past 1e21 and below 1e-7, as `format!` does", show(t)),
+            );
+            return Some((Expr::Lit(Lit::Unit), None));
+        }
+        if !displayed(t) {
+            return None;
+        }
+        let pieces = vec![FmtPiece::Arg { index: 0, spec: FmtSpec::default() }];
+        let e = Expr::Call { callee: Callee::Format(pieces), args: vec![recv] };
+        Some((e, self.expect(want, string)))
+    }
+}
+
+/// What `{}` prints the same in Rust and TS: an integer, `bool`, `char`,
+/// a string, or a `Uuid`.
+fn displayed(t: &Ty) -> bool {
+    matches!(t, Ty::Prim(Prim::Bool | Prim::Char | Prim::Str | Prim::String | Prim::Uuid | Prim::Usize) | Ty::Never)
+        || matches!(t, Ty::Prim(p) if p.int().is_some())
 }

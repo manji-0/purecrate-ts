@@ -10,10 +10,15 @@
 //! `String::push` / `push_str`, slicing (which panics off a char boundary),
 //! `==`, and `<`; `find` also drives an `if let`, a `match` with literal and
 //! guarded arms, and a `while` tokenizer that slices past each match, and
-//! the trims run on a `String` local as well as on a `&str`. Inputs hold every Unicode White_Space code point, the
+//! the trims run on a `String` local as well as on a `&str`. From 0.21.0:
+//! `to_lowercase` / `to_uppercase`, `split` with a `&str` (a literal, or a
+//! parameter that may be empty), `split_whitespace`, and `lines` in a `for`,
+//! into `map` and `collect`, and into `count`; `join`, `repeat`, and
+//! `to_string`. Inputs hold every Unicode White_Space code point, the
 //! near misses U+FEFF, U+180E, and U+200B, cased letters inside and outside
-//! ASCII, characters of every UTF-8 width, the code points around the
-//! surrogate gap, and patterns that are empty, repeated, or overlapping.
+//! ASCII (final sigma, `ß`, `İ`, `ﬁ`), `\r`, `\n`, and `\r\n`, characters
+//! of every UTF-8 width, the code points around the surrogate gap, and
+//! patterns that are empty, repeated, or overlapping.
 //!
 //! `PURECRATE_GEN_SEED`, `PURECRATE_GEN_FNS`, `PURECRATE_GEN_DUMP`, and
 //! `PURECRATE_GEN_TYPES=report` work as in `generated_equivalence.rs`.
@@ -69,6 +74,9 @@ const CHARS: &[char] = &[
     'İ',
     'Σ',
     'σ',
+    'ς',
+    'ﬁ',
+    '\r',
     '日',
     '😀',
     '\u{85}',
@@ -110,6 +118,9 @@ const PIECES: &[&str] = &[
     " \t",
     "\u{3000}",
     "\u{10ffff}",
+    "\n",
+    "\r\n",
+    "ΟΣ",
 ];
 
 struct G {
@@ -185,6 +196,28 @@ impl G {
         match self.rng.below(4) {
             0 => "t".into(),
             _ => self.piece(),
+        }
+    }
+
+    /// A `&str` separator for `split`: a non-empty literal, or `t` or a
+    /// local, which may be empty (a literal `""` is refused).
+    fn sep(&mut self) -> String {
+        if let Some(v) = self.local(T::Str) {
+            return v;
+        }
+        match self.rng.below(3) {
+            0 => "t".into(),
+            _ => format!("{:?}", self.rng.pick(&PIECES[2..])),
+        }
+    }
+
+    /// `s.split(p)` with a `&str`, `s.split_whitespace()`, or `s.lines()`.
+    fn pieces(&mut self, d: u32) -> String {
+        let x = self.text(d);
+        match self.rng.below(3) {
+            0 => format!("{x}.split({})", self.sep()),
+            1 => format!("{x}.split_whitespace()"),
+            _ => format!("{x}.lines()"),
         }
     }
 
@@ -282,7 +315,10 @@ impl G {
             return self.rng.pick(&["n", "0usize", "1usize", "2usize", "3usize", "4usize"]).into();
         }
         let d = d - 1;
-        match self.rng.below(13) {
+        match self.rng.below(16) {
+            13 => format!("{}.count()", self.pieces(d)),
+            14 => format!("{}.to_string().len()", self.size(d)),
+            15 => format!("{}.map(|y| y.chars().count()).sum::<usize>()", self.pieces(d)),
             0 => format!("{}.len()", self.text(d)),
             1 => format!("{}.chars().count()", self.text(d)),
             2 => {
@@ -369,8 +405,22 @@ impl G {
         if let Some(v) = self.local(T::String) {
             return format!("{v}.clone()");
         }
-        match self.rng.below(if d > 0 { 10 } else { 8 }) {
-            8 | 9 => self.formatted(d - 1),
+        match self.rng.below(if d > 0 { 16 } else { 14 }) {
+            14 | 15 => self.formatted(d - 1),
+            8 => format!("{}.to_lowercase()", self.text(d)),
+            9 => format!("{}.to_uppercase()", self.text(d)),
+            10 => format!("{}.repeat({})", self.text(d), self.rng.pick(&["0usize", "1usize", "3usize", "n"])),
+            11 => {
+                let p = self.pieces(d);
+                format!("{p}.collect::<Vec<&str>>().join({})", self.needle())
+            }
+            12 => match self.rng.below(4) {
+                0 => format!("{}.to_string()", self.size(d)),
+                1 => format!("{}.to_string()", self.ch()),
+                2 => format!("{}.is_empty().to_string()", self.text(d)),
+                _ => format!("{}.to_string()", self.text(d)),
+            },
+            13 => format!("{}.to_lowercase().to_uppercase()", self.text(d)),
             0 | 1 => format!("{}.to_ascii_lowercase()", self.text(d)),
             2 | 3 => format!("{}.to_ascii_uppercase()", self.text(d)),
             4 => format!("String::from({})", self.text(d)),
@@ -445,7 +495,19 @@ impl G {
     /// A `String`, possibly a block that builds one; only where a block
     /// may stand (a `let` or the tail).
     fn owned_top(&mut self, d: u32) -> String {
-        match self.rng.below(7) {
+        match self.rng.below(8) {
+            7 => {
+                let x = self.pieces(d);
+                let w = self.fresh("w");
+                let p = self.fresh("p");
+                self.scope.push((p.clone(), T::Str));
+                let piece = self.owned(1);
+                self.scope.pop();
+                let sep = self.ch();
+                format!(
+                    "{{\n        let mut {w} = String::new();\n        for {p} in {x} {{\n            {w}.push_str(&{piece});\n            {w}.push({sep});\n        }}\n        {w}\n    }}"
+                )
+            }
             4 => {
                 // A tokenizer: `find` a separator, take what precedes it,
                 // and go on past it, so a wrong offset shows.
@@ -516,7 +578,20 @@ impl G {
     fn vec_string(&mut self, d: u32) -> String {
         let x = self.text(d);
         let cl = self.closure();
-        match self.rng.below(5) {
+        match self.rng.below(8) {
+            5 => {
+                let p = self.pieces(d);
+                format!("{p}.map(|y| String::from(y)).collect::<Vec<String>>()")
+            }
+            6 => {
+                let p = self.pieces(d);
+                format!("{p}.map(|y| y.to_lowercase()).collect::<Vec<String>>()")
+            }
+            7 => {
+                let p = self.pieces(d);
+                let v = self.fresh("v");
+                format!("{{\n        let {v}: Vec<&str> = {p}.collect();\n        vec![{v}.join(\"\"), {v}.join({})]\n    }}", self.needle())
+            }
             0 => format!("{x}.split({cl}).map(|y| String::from(y.trim())).collect::<Vec<String>>()"),
             1 => format!("{x}.split({cl}).map(|y| y.to_ascii_uppercase()).collect::<Vec<String>>()"),
             2 => {
@@ -545,7 +620,11 @@ impl G {
     fn vec_usize(&mut self, d: u32) -> String {
         let x = self.text(d);
         let cl = self.closure();
-        match self.rng.below(3) {
+        match self.rng.below(4) {
+            3 => {
+                let p = self.pieces(d);
+                format!("{p}.map(|y| y.len()).collect::<Vec<usize>>()")
+            }
             0 => format!("{x}.split({cl}).map(|y| y.len()).collect::<Vec<usize>>()"),
             1 => {
                 let p = self.spat();
@@ -681,6 +760,13 @@ const TEXTS: &[&str] = &[
     "x😀\u{85}é",
     "😀😀😀",
     " é ",
+    "ΟΔΟΣ ὈΔΥΣΣΕΎΣ σ.",
+    "ﬁ ŉ ǅ straße",
+    "a\r\nb\n\nc\r",
+    "\r\n\r\n",
+    "x\n",
+    "\r",
+    "\n\r a",
 ];
 
 #[test]

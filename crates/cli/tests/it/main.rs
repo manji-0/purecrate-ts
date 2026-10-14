@@ -90,6 +90,7 @@ mod str_patterns_equivalence;
 mod strict_types_equivalence;
 mod string_build_equivalence;
 mod strings_equivalence;
+mod strings_more_equivalence;
 mod struct_patterns_equivalence;
 mod survey;
 mod syntax_safety_equivalence;

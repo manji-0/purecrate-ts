@@ -515,6 +515,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                     ("chars", []) => (Over::Chars, (**receiver).clone()),
                     ("bytes", []) => (Over::Bytes, (**receiver).clone()),
                     ("iter" | "into_iter" | "keys" | "values", []) => (Over::Items, (**receiver).clone()),
+                    // `s.split_whitespace()` and `s.lines()`: the pieces, a new array.
+                    ("split_whitespace" | "lines", []) => (Over::Items, expr.clone()),
                     // `s.split(c)` as a `for` gives it: the pieces, a `char` apart.
                     ("split", [sep]) => (
                         Over::Items,
@@ -630,7 +632,8 @@ pub(super) fn is_sequence(expr: &Expr) -> bool {
     match (name.as_str(), args.len()) {
         ("copied" | "cloned", 0) | ("map" | "filter", 1) => is_sequence(receiver),
         ("rev", 0) | ("zip", 1) => is_source(receiver),
-        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values", 0) | ("split", 1) => true,
+        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values" | "split_whitespace" | "lines", 0)
+        | ("split", 1) => true,
         _ => false,
     }
 }
@@ -641,7 +644,8 @@ fn is_source(expr: &Expr) -> bool {
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
         ("copied" | "cloned" | "rev", 0) | ("zip", 1) => is_source(receiver),
-        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values", 0) | ("split", 1) => true,
+        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values" | "split_whitespace" | "lines", 0)
+        | ("split", 1) => true,
         _ => false,
     }
 }

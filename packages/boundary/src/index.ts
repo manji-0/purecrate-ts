@@ -748,7 +748,45 @@ export const Str = {
     yield piece;
   },
   // #endregion
+  // #region str.splitStr
+  /**
+   * `s.split(p)` with a `&str`: the pieces between matches, empty ones kept,
+   * as JS `split` gives them; an empty `p` splits at every char boundary
+   * with an empty piece at each end, as Rust does (JS gives neither end).
+   */
+  splitStr: (s: string, p: string): string[] => (p === "" ? ["", ...s, ""] : s.split(p)),
+  // #endregion
+  // #region str.splitWhitespace
+  /** `str::split_whitespace`: the pieces between runs of Rust's whitespace, none empty. */
+  splitWhitespace: (s: string): string[] => s.split(WHITESPACE_RUN).filter((p) => p !== ""),
+  // #endregion
+  // #region str.lines
+  /**
+   * `str::lines`: split after each `\n`, which goes with one `\r` before it;
+   * a lone `\r` stays, and a final `\n` ends the last line rather than
+   * starting an empty one.
+   */
+  lines: (s: string): string[] => {
+    const out: string[] = [];
+    let start = 0;
+    while (start < s.length) {
+      const i = s.indexOf("\n", start);
+      if (i < 0) {
+        out.push(s.slice(start));
+        break;
+      }
+      out.push(s.slice(start, i > start && s.charCodeAt(i - 1) === 13 ? i - 1 : i));
+      start = i + 1;
+    }
+    return out;
+  },
+  // #endregion
 } as const;
+
+// #region str.splitWhitespace
+/** `char::is_whitespace`, Unicode White_Space, in runs (JS `\s` adds U+FEFF and drops U+0085). */
+const WHITESPACE_RUN = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u;
+// #endregion
 
 // #region str.trim str.trimStart
 /** `char::is_whitespace`: Unicode White_Space, leading. */

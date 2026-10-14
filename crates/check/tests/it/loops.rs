@@ -51,13 +51,14 @@ fn while_break_and_continue_stand_as_statements() {
 }
 
 #[test]
-fn split_takes_a_char_and_stands_in_a_for_head() {
+fn split_takes_a_char_or_a_str_and_stands_in_a_for_head() {
     assert_clean(
         "pub fn f(s: &str) -> u32 { let mut n = 0u32; for t in s.split(',') { if !t.is_empty() { n += 1; } } n }",
     );
+    assert_clean("pub fn f(s: &str) -> u32 { let mut n = 0u32; for _t in s.split(\"ab\") { n += 1; } n }");
     assert_rejects(
-        "pub fn f(s: &str) -> u32 { let mut n = 0u32; for _t in s.split(\"ab\") { n += 1; } n }",
-        "`split` takes a `char` separator in v0",
+        "pub fn f(s: &str) -> u32 { let mut n = 0u32; for _t in s.split(1u8) { n += 1; } n }",
+        "`split` takes a `char`, a `&str`, or a closure on a `char` in v0, found `u8`",
     );
     // A consumer may follow it; any other use of the pieces may not.
     assert_clean("pub fn f(s: &str) -> bool { s.split(' ').count() > 1 }");

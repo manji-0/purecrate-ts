@@ -516,9 +516,12 @@ impl Refs {
                         | purecrate_ir::StrMethod::TrimMatches
                         | purecrate_ir::StrMethod::TrimStartMatches
                         | purecrate_ir::StrMethod::TrimEndMatches
-                        | purecrate_ir::StrMethod::Find,
+                        | purecrate_ir::StrMethod::Find
+                        | purecrate_ir::StrMethod::SplitWhitespace
+                        | purecrate_ir::StrMethod::Lines,
                     )
                     | Callee::StrWellFormed
+                    | Callee::StrSplitStr
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip | Callee::VecRev => self.slice = true,

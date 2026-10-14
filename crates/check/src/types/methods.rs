@@ -119,6 +119,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             let e = Expr::Assign { name: target.clone(), value: Box::new(value) };
             return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
         }
+        if let (Some(Ty::Vec(item)), "join") = (&nt, name.as_str()) {
+            return self.join(recv, item, args, want);
+        }
         if name.as_str() == "len" && args.is_empty() && matches!(nt, Some(Ty::Vec(_))) {
             let e = Expr::Call { callee: Callee::VecLen, args: vec![recv] };
             return (e, self.expect(want, Some(Ty::Prim(Prim::Usize))));
@@ -169,6 +172,25 @@ impl<'d, 'a> Typer<'d, 'a> {
         if name.as_str() == "as_bytes" && args.is_empty() && text {
             let e = Expr::Call { callee: Callee::StrBytes, args: vec![recv] };
             return (e, self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))));
+        }
+        if name.as_str() == "repeat" && text {
+            let [n] = args else {
+                self.error(
+                    Reason::ConstructShape,
+                    format!("`str::repeat` takes 1 argument after the receiver, got {}", args.len()),
+                );
+                return (Expr::Lit(Lit::Unit), None);
+            };
+            let (n, _) = self.expr(n, Some(&Ty::Prim(Prim::Usize)));
+            let e = Expr::Call { callee: Callee::StrRepeat, args: vec![recv, n] };
+            return (e, self.expect(want, Some(Ty::Prim(Prim::String))));
+        }
+        if name.as_str() == "to_string" && args.is_empty() {
+            if let Some(t @ Ty::Prim(_)) = &nt {
+                if let Some(typed) = self.displayed_text(recv.clone(), t, want) {
+                    return typed;
+                }
+            }
         }
         if let Some(m) = IntMethod::from_name(name.as_str()) {
             if let Some(it) = nt.as_ref().and_then(int_of) {
@@ -278,6 +300,37 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (receiver.clone(), None)
             }
         }
+    }
+
+    /// `xs.join(sep)` on a `Vec` or slice of `String`s or `&str`s, `sep` a
+    /// `&str` or `String`: the items with `sep` between them, a new `String`.
+    #[inline(never)]
+    fn join(&mut self, recv: Expr, item: &Ty, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let failed = (Expr::Lit(Lit::Unit), None);
+        let [sep] = args else {
+            self.error(Reason::ConstructShape, format!("`join` takes 1 argument, got {}", args.len()));
+            return failed;
+        };
+        let item = self.norm(item);
+        if !matches!(item, Ty::Prim(Prim::String | Prim::Str) | Ty::Never) {
+            self.error(
+                Reason::MethodCall,
+                format!(
+                    "`join` on `Vec<{}>` is not in v0: it joins `String`s or `&str`s; make the text first (`.iter().map(|x| format!(\"{{x}}\")).collect::<Vec<String>>()`)",
+                    show(&item)
+                ),
+            );
+            return failed;
+        }
+        let (sep, st) = self.expr(sep, None);
+        if let Some(t) =
+            st.map(|t| self.norm(&t)).filter(|t| !matches!(t, Ty::Prim(Prim::String | Prim::Str) | Ty::Never))
+        {
+            self.error(Reason::TypeMismatch, format!("`join` takes a `&str` separator in v0, found `{}`", show(&t)));
+            return failed;
+        }
+        let e = Expr::Call { callee: Callee::StrJoin, args: vec![recv, sep] };
+        (e, self.expect(want, Some(Ty::Prim(Prim::String))))
     }
 
     /// `push`, `insert`, `remove`, `sort`, `sort_by`, and `sort_by_key` on a
@@ -521,10 +574,21 @@ fn std_methods(ty: &Ty) -> Option<String> {
             .iter()
             .filter(|m| *p == Prim::String || **m != StrMethod::AsStr)
             .map(|m| m.name())
-            .chain(["as_bytes", "cmp", "parse", "clone", "chars", "bytes", "split", "slicing `s[a..b]`"])
+            .chain([
+                "as_bytes",
+                "cmp",
+                "parse",
+                "clone",
+                "chars",
+                "bytes",
+                "split",
+                "repeat",
+                "to_string",
+                "slicing `s[a..b]`",
+            ])
             .collect(),
-        Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp"]).collect(),
-        Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp"],
+        Ty::Prim(Prim::Char) => CharMethod::ALL.iter().map(|m| m.name()).chain(["cmp", "to_string"]).collect(),
+        Ty::Prim(Prim::Bool | Prim::Uuid) => vec!["cmp", "to_string"],
         Ty::Vec(_) => vec![
             "len",
             "is_empty",
@@ -534,6 +598,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "contains",
             "cmp",
             "clone",
+            "join (on `String`s or `&str`s)",
             "iter",
             "into_iter",
             "push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local)",
@@ -551,7 +616,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
             .iter()
             .filter(|m| **m != IntMethod::Abs || p.int().is_some_and(IntTy::is_signed))
             .map(|m| m.name())
-            .chain(["cmp"])
+            .chain(["cmp", "to_string"])
             .collect(),
         _ => vec![],
     };

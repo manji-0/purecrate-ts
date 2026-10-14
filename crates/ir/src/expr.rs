@@ -323,6 +323,19 @@ method_table! {
         /// Takes a `char`, a `&str`, or a closure on a `char`; the UTF-8 byte
         /// offset of the first match, as `Option<usize>`. Prints as `Str.find`.
         Find = "find" / "find",
+        /// A new `String` with every character's full Unicode case mapping,
+        /// final sigma included. Rust and JS `toLowerCase` / `toUpperCase`
+        /// agree on every code point where their Unicode versions do
+        /// (design/01 §7.21). Print as `s.toLowerCase()` / `s.toUpperCase()`.
+        ToLowercase = "to_lowercase" / "toLowerCase",
+        ToUppercase = "to_uppercase" / "toUpperCase",
+        /// The pieces between runs of `char::is_whitespace`, empty ones
+        /// dropped, as a new array of `&str`. Prints as `Str.splitWhitespace`.
+        SplitWhitespace = "split_whitespace" / "splitWhitespace",
+        /// The lines: split after each `\n`, which is dropped with one `\r`
+        /// before it, and no empty line after a final `\n`; a new array of
+        /// `&str`. Prints as `Str.lines`.
+        Lines = "lines" / "lines",
     }
 }
 
@@ -342,7 +355,11 @@ impl StrMethod {
             | Self::ToAsciiUppercase
             | Self::Trim
             | Self::TrimStart
-            | Self::TrimEnd => 0,
+            | Self::TrimEnd
+            | Self::ToLowercase
+            | Self::ToUppercase
+            | Self::SplitWhitespace
+            | Self::Lines => 0,
             Self::StartsWith
             | Self::EndsWith
             | Self::Contains
@@ -580,6 +597,19 @@ pub enum Callee {
     /// well-formed string at the same places in UTF-8 and UTF-16, and JS
     /// `split` keeps the empty pieces Rust keeps. Prints as `s.split(c)`.
     StrSplit,
+    /// `s.split(p)` with a `&str` or `String` separator that is not a
+    /// non-empty literal: the pieces as `&str`, a new array, as Rust splits,
+    /// an empty separator at every char boundary with an empty piece at each
+    /// end (JS `split("")` gives neither end). A non-empty literal stays
+    /// `StrSplit`, which JS `split` matches. Prints as `Str.splitStr(s, p)`.
+    StrSplitStr,
+    /// `s.repeat(n)`, `n` a `usize`: a new `String`. Prints as `s.repeat(n)`.
+    /// Not effectless: Rust panics ("capacity overflow") and JS throws a
+    /// `RangeError` on a length past what each can hold, at different `n`.
+    StrRepeat,
+    /// `xs.join(sep)` on a `Vec` or slice of `String` / `&str`: a new
+    /// `String`. Prints as `xs.join(sep)`, the separator always written.
+    StrJoin,
     /// `Ord` on two strings, by code point as Rust's UTF-8 bytes compare:
     /// -1, 0, or 1, as an `i32`. `check::accept` writes it for `<`, `<=`,
     /// `>`, `>=` on `String`/`&str`, compared with 0: JS orders strings by

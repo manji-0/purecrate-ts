@@ -76,6 +76,12 @@ pub fn q10_while_let(s: &str) -> u32 { let mut rest = s; let mut n = 0u32; while
 pub fn q13_sort_by_key(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by_key(|i| i.price); xs }
 pub fn q14_sort_by(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by(|a, b| a.price.cmp(&b.price)); xs }
 pub fn q30_split_str(s: &str) -> Vec<String> { s.split(", ").map(|t| String::from(t)).collect() }
+pub fn q31_to_uppercase(s: &str) -> String { s.to_uppercase() }
+pub fn q32_split_param(s: &str, sep: &str) -> usize { s.split(sep).count() }
+pub fn q33_lines_for(s: &str) -> usize { let mut n = 0usize; for l in s.lines() { if !l.trim().is_empty() { n += 1; } } n }
+pub fn q34_join_strs(xs: &[&str]) -> String { xs.join("-") }
+pub fn q35_bool_to_string(b: bool) -> String { b.to_string() }
+pub fn q36_words_upper(s: &str) -> Vec<String> { s.split_whitespace().map(|w| w.to_uppercase()).collect() }
 pub fn q40_extend(a: Vec<u32>, b: Vec<u32>) -> Vec<u32> { let mut a = a; for x in b { a.push(x); } a }
 pub fn q41_dedup(a: Vec<u32>) -> Vec<u32> { let mut a = a; a.dedup(); a }
 pub fn q61_struct_method(i: Item) -> Item { i.with_qty(3) }

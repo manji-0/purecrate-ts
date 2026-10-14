@@ -436,15 +436,34 @@ impl<'d, 'a> Typer<'d, 'a> {
                         self.expect(want, Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str))))),
                     );
                 }
-                let (sep, sept) = self.expr(&args[1], Some(&Ty::Prim(Prim::Char)));
-                if let Some(t) = sept.as_ref().filter(|t| !matches!(self.norm(t), Ty::Prim(Prim::Char) | Ty::Never)) {
-                    self.error(Reason::TypeMismatch, format!(
-                        "`split` takes a `char` separator in v0, found `{}` (a `&str` separator may be empty, where Rust and JS split differently)",
-                        show(t)
-                    ));
+                let (sep, sept) = self.expr(&args[1], None);
+                let pieces = Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str))));
+                match sept.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Prim(Prim::Char) | Ty::Never) | None => {}
+                    // A literal prints as JS `split`, which cuts at the same
+                    // matches; any other text through `Str.splitStr`, which
+                    // splits at char boundaries on an empty one, as Rust does.
+                    Some(Ty::Prim(Prim::String | Prim::Str)) => match sep.unpositioned() {
+                        Expr::Lit(Lit::Str(t)) if t.is_empty() => self.error(
+                            Reason::MethodCall,
+                            "`split(\"\")` is not in v0: Rust gives an empty piece at each end (`\"ab\".split(\"\")` is `[\"\", \"a\", \"b\", \"\"]`); iterate `s.chars()`".to_string(),
+                        ),
+                        Expr::Lit(Lit::Str(_)) => {}
+                        _ => {
+                            let e = Expr::Call { callee: Callee::StrSplitStr, args: vec![s, sep] };
+                            return (e, self.expect(want, pieces));
+                        }
+                    },
+                    Some(t) => self.error(
+                        Reason::TypeMismatch,
+                        format!("`split` takes a `char`, a `&str`, or a closure on a `char` in v0, found `{}`", show(&t)),
+                    ),
                 }
-                (vec![s, sep], Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str)))))
+                (vec![s, sep], pieces)
             }
+            // Written only by `split` and `str_method`, typed.
+            Callee::StrSplitStr => (typed_args(self, Vec::new()), Some(Ty::Vec(Box::new(Ty::Prim(Prim::Str))))),
+            Callee::StrRepeat | Callee::StrJoin => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::String))),
             Callee::StringFrom => (typed_args(self, vec![Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::String))),
             Callee::Format(pieces) => return self.format(pieces, args, want),
             Callee::Tree(op) => return self.tree_call(*op, args, want),

@@ -290,7 +290,10 @@ pub(super) fn str_ret(m: StrMethod) -> Ty {
         StrMethod::AsStr => Ty::Prim(Prim::Str),
         StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
         StrMethod::SplitOnce => Ty::option(Ty::Tuple(vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)])),
-        StrMethod::ToAsciiLowercase | StrMethod::ToAsciiUppercase => Ty::Prim(Prim::String),
+        StrMethod::ToAsciiLowercase | StrMethod::ToAsciiUppercase | StrMethod::ToLowercase | StrMethod::ToUppercase => {
+            Ty::Prim(Prim::String)
+        }
+        StrMethod::SplitWhitespace | StrMethod::Lines => Ty::Vec(Box::new(Ty::Prim(Prim::Str))),
         StrMethod::Trim
         | StrMethod::TrimStart
         | StrMethod::TrimEnd

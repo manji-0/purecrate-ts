@@ -110,7 +110,7 @@ fn str_methods_come_from_the_allow_list() {
     assert_rejects("pub fn f(s: &str) -> i32 { s.len() }", "expected `i32`, found `usize`");
     assert_rejects(
         "pub fn f(s: &str) -> bool { s.trim_ascii() == \"\" }",
-        "`.trim_ascii()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `to_ascii_lowercase`, `to_ascii_uppercase`, `trim`, `trim_start`, `trim_end`, `trim_matches`, `trim_start_matches`, `trim_end_matches`, `find`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, slicing `s[a..b]`",
+        "`.trim_ascii()` on `&str` is not on the std allow-list; allowed: `len`, `is_empty`, `starts_with`, `ends_with`, `contains`, `strip_prefix`, `strip_suffix`, `split_once`, `eq_ignore_ascii_case`, `to_ascii_lowercase`, `to_ascii_uppercase`, `trim`, `trim_start`, `trim_end`, `trim_matches`, `trim_start_matches`, `trim_end_matches`, `find`, `to_lowercase`, `to_uppercase`, `split_whitespace`, `lines`, `as_bytes`, `cmp`, `parse`, `clone`, `chars`, `bytes`, `split`, `repeat`, `to_string`, slicing `s[a..b]`",
     );
 }
 
@@ -122,7 +122,7 @@ fn std_rejections_list_what_the_receiver_allows() {
         "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
         "allowed: `is_some`, `is_none`, `is_some_and`, `is_none_or`, `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.ends_with(&[0u8]) }", "allowed: `len`, `is_empty`, `get`, `first`, `last`, `contains`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local), indexing `xs[i]`");
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.ends_with(&[0u8]) }", "allowed: `len`, `is_empty`, `get`, `first`, `last`, `contains`, `cmp`, `clone`, join (on `String`s or `&str`s), `iter`, `into_iter`, push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local), indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
     assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
 }
