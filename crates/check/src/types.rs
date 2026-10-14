@@ -133,7 +133,6 @@ impl<'d, 'a> Typer<'d, 'a> {
         Fn { body, ..f.clone() }
     }
 
-    /// Expands aliases. Alias cycles are cut after a fixed depth.
     /// `S { .. }` or a variant: `S { a, ..base }` of a generic `S` takes
     /// its type from the base. Apart from `expr`, whose frame a chain of
     /// calls holds at every link.
@@ -168,6 +167,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         st.fields.iter().find(|f| f.name == *name).map(|f| f.ty.subst(&binds))
     }
 
+    /// Expands aliases. Alias cycles are cut after a fixed depth.
     fn norm(&self, ty: &Ty) -> Ty {
         let mut t = ty.peel().clone();
         for _ in 0..32 {
@@ -183,10 +183,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     fn num(&self, ty: &Ty) -> Option<Num> {
-        match self.norm(ty) {
-            Ty::Prim(p) => p.int().map(Num::Int).or_else(|| p.float().map(Num::Float)),
-            _ => None,
-        }
+        num_of(&self.norm(ty))
     }
 
     fn same(&self, a: &Ty, b: &Ty) -> bool {
@@ -313,10 +310,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     ((s, st), e)
                 };
                 let bound = st.clone().or(et);
-                let int = bound.as_ref().and_then(|t| match self.norm(t) {
-                    Ty::Prim(p) => p.int(),
-                    _ => None,
-                });
+                let int = bound.as_ref().and_then(|t| int_of(&self.norm(t)));
                 if int.is_none() && self.out.len() == before {
                     let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
                     self.error(
@@ -489,12 +483,33 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 }
 
-/// Expressions whose numeric type comes only from their surroundings.
 /// Whether `ty` has a `_` for the checker to fill.
 pub(crate) fn has_hole(ty: &Ty) -> bool {
     ty.any(&|t| matches!(t, Ty::Named(n) if n.as_str() == "_"))
 }
 
+/// The integer type `ty` is, as written (no alias followed).
+pub(crate) fn int_of(ty: &Ty) -> Option<IntTy> {
+    match ty {
+        Ty::Prim(p) => p.int(),
+        _ => None,
+    }
+}
+
+/// The float type `ty` is, as written (no alias followed).
+fn float_of(ty: &Ty) -> Option<FloatTy> {
+    match ty {
+        Ty::Prim(p) => p.float(),
+        _ => None,
+    }
+}
+
+/// The numeric type `ty` is, as written (no alias followed).
+fn num_of(ty: &Ty) -> Option<Num> {
+    int_of(ty).map(Num::Int).or_else(|| float_of(ty).map(Num::Float))
+}
+
+/// Expressions whose numeric type comes only from their surroundings.
 fn needs_context(expr: &Expr) -> bool {
     match expr.unpositioned() {
         Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }) => true,

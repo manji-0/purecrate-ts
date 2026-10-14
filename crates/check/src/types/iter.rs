@@ -130,9 +130,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                             Consume::MinByKey { text }
                         }
                     }
-                    _ => match self.norm(&item) {
-                        Ty::Prim(p) if p.int().is_some() => Consume::Sum(p.int().expect("checked")),
-                        _ => {
+                    _ => match int_of(&self.norm(&item)) {
+                        Some(it) => Consume::Sum(it),
+                        None => {
                             self.error(
                                 Reason::TypeMismatch,
                                 format!(

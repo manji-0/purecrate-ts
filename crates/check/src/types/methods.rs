@@ -284,18 +284,12 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
         }
         if let Some(m) = IntMethod::from_name(name.as_str()) {
-            if let Some(it) = rt.as_ref().and_then(|t| match self.norm(t) {
-                Ty::Prim(p) => p.int(),
-                _ => None,
-            }) {
+            if let Some(it) = rt.as_ref().and_then(|t| int_of(&self.norm(t))) {
                 return self.int_method(it, m, recv, args, want);
             }
         }
         if let Some(m) = FloatMethod::ALL.into_iter().find(|m| m.name() == name.as_str()) {
-            if let Some(ft) = rt.as_ref().and_then(|t| match self.norm(t) {
-                Ty::Prim(p) => p.float(),
-                _ => None,
-            }) {
+            if let Some(ft) = rt.as_ref().and_then(|t| float_of(&self.norm(t))) {
                 if !args.is_empty() {
                     self.error(
                         Reason::ConstructShape,
@@ -442,18 +436,12 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// spelling. Everything else keeps its old rejection.
     pub(super) fn cast(&mut self, inner: &Expr, to: &Ty, want: Option<&Ty>) -> Typed {
         let (e, t) = self.expr(inner, None);
-        let target = match to {
-            Ty::Prim(p) => p.int(),
-            _ => None,
-        };
+        let target = int_of(to);
         let enum_def = t.as_ref().and_then(|t| match self.norm(t) {
             Ty::Named(n) => self.defs.enums.get(n.as_str()).copied(),
             _ => None,
         });
-        let source = t.as_ref().and_then(|t| match self.norm(t) {
-            Ty::Prim(p) => p.int(),
-            _ => None,
-        });
+        let source = t.as_ref().and_then(|t| int_of(&self.norm(t)));
         if let (Some(from @ (IntTy::U8 | IntTy::U16 | IntTy::U32)), Some(IntTy::Usize)) = (source, target) {
             let e = Expr::Call { callee: Callee::IntFrom { from: Some(from), to: IntTy::Usize }, args: vec![e] };
             return (e, self.expect(want, Some(to.clone())));
@@ -461,10 +449,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         // With a float on either side: toward zero and saturating into an
         // integer, to the nearest into a float; what std's `From` takes is
         // written `T::from(x)`, as between integers.
-        let to_num = match to {
-            Ty::Prim(p) => p.int().map(Num::Int).or(p.float().map(Num::Float)),
-            _ => None,
-        };
+        let to_num = num_of(to);
         let from_num = t.as_ref().and_then(|t| self.num(t));
         let floats = (matches!(from_num, Some(Num::Float(_))), matches!(to_num, Some(Num::Float(_))));
         if let (Some(from), Some(into), (true, _) | (_, true)) = (from_num, to_num, floats) {

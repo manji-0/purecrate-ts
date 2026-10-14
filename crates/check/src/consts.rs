@@ -246,11 +246,8 @@ impl Folder<'_, '_> {
             ),
             Expr::Var(n) => {
                 let c = self.defs.consts.get(n.as_str()).ok_or_else(|| format!("`{}` is not a const", n.as_str()))?;
-                let it = match &c.ty {
-                    Ty::Prim(p) => p.int(),
-                    _ => None,
-                }
-                .ok_or_else(|| format!("a shift amount is an integer, `{}` is not", n.as_str()))?;
+                let it = crate::types::int_of(&c.ty)
+                    .ok_or_else(|| format!("a shift amount is an integer, `{}` is not", n.as_str()))?;
                 self.deeper()?.int(it, &c.value)
             }
             other => self.int(IntTy::I32, other),
