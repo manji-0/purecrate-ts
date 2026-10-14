@@ -9,6 +9,22 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// call's first argument: typing it again would double the work at every
     /// link of a chain.
     pub(super) fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let whole = Expr::MethodCall { receiver: Box::new(receiver.clone()), name: name.clone(), args: args.to_vec() };
+        if let Some(m) = iter::stage_before_reorder(&whole) {
+            self.error(
+                Reason::MethodCall,
+                format!("`{m}` comes right after the source in v0 (`xs.iter().{m}(..).map(f)`), before any `map` or `filter`, so each runs in Rust's order"),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        }
+        // `xs.iter().rev()` and `a.iter().zip(b)` as a value (a `for`'s
+        // source): the new array.
+        if matches!(name.as_str(), "rev" | "zip") && iter::is_sequence(&whole) {
+            let Some((source, _, item)) = self.sequence(&whole, name.as_str()) else {
+                return (Expr::Lit(Lit::Unit), None);
+            };
+            return (source, self.expect(want, Some(Ty::Vec(Box::new(item)))));
+        }
         if let Some(typed) = self.consume(receiver, name.as_str(), args, want) {
             return typed;
         }
@@ -188,6 +204,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     let e = Expr::Call { callee: Callee::VecLen, args: vec![recv] };
                     return (e, self.expect(want, Some(Ty::Prim(Prim::Usize))));
                 }
+            }
+        }
+        if let Some(Ty::Vec(item)) = rt.as_ref().map(|t| self.norm(t)) {
+            if let Some(typed) = self.vec_access(recv.clone(), &item, name.as_str(), args, want) {
+                return typed;
             }
         }
         if let Some(rt) = rt.as_ref().filter(|_| args.is_empty()) {
@@ -504,6 +525,10 @@ fn std_methods(ty: &Ty) -> Option<String> {
         Ty::Vec(_) => vec![
             "len",
             "is_empty",
+            "get",
+            "first",
+            "last",
+            "contains",
             "cmp",
             "clone",
             "iter",
@@ -512,10 +537,45 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
         ],
-        Ty::Option(_) => {
-            vec!["is_some", "is_none", "unwrap_or", "ok_or", "map", "clone", "cloned", "copied", "as_ref", "as_deref"]
-        }
-        Ty::Result { .. } => vec!["ok", "map", "map_err"],
+        Ty::Option(_) => vec![
+            "is_some",
+            "is_none",
+            "is_some_and",
+            "is_none_or",
+            "unwrap",
+            "expect",
+            "unwrap_or",
+            "unwrap_or_else",
+            "ok_or",
+            "ok_or_else",
+            "or",
+            "or_else",
+            "map",
+            "map_or",
+            "map_or_else",
+            "and_then",
+            "filter",
+            "clone",
+            "cloned",
+            "copied",
+            "as_ref",
+            "as_deref",
+        ],
+        Ty::Result { .. } => vec![
+            "ok",
+            "err",
+            "is_ok",
+            "is_err",
+            "is_ok_and",
+            "is_err_and",
+            "unwrap_or",
+            "unwrap_or_else",
+            "map",
+            "map_err",
+            "map_or",
+            "and_then",
+            "or_else",
+        ],
         Ty::Prim(p) if p.float().is_some() => FloatMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()

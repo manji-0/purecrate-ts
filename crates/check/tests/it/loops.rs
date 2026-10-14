@@ -13,9 +13,13 @@ fn for_walks_vecs_slices_and_string_bytes() {
 #[test]
 fn for_refuses_adaptors_and_non_collections() {
     let parse = |src: &str| purecrate_syntax::parse_source("c", src).expect_err(src).message;
-    let m =
-        parse("pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().rev() { n += u32::from(*x); } n }");
-    assert!(m.contains("`for` over `.rev()` is in v0 on a range"), "{m}");
+    assert_clean(
+        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().rev() { n += u32::from(*x); } n }",
+    );
+    let m = parse(
+        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().skip(1) { n += u32::from(*x); } n }",
+    );
+    assert!(m.contains("`for` over `.skip()` is not in v0"), "{m}");
     let m = parse("pub fn f() -> u32 { let mut n = 0u32; for (i, _) in (0..3u32).rev().enumerate() { n += i; } n }");
     assert!(m.contains("the range's own value is the index"), "{m}");
     assert_clean(

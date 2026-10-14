@@ -31,7 +31,11 @@ fn collect_refuses_a_list_that_is_not_read_from_text() {
         "pub fn f(o: Option<u8>) -> Vec<u8> { o.map(|x| x + 1).collect() }",
         "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, or `s.split(c)`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }", "`collect` builds a `Vec` from");
+    assert_clean("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.into_iter().rev().collect() }");
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().map(|x| x + 1).rev().collect() }",
+        "`rev` comes right after the source in v0",
+    );
     assert_rejects(
         "pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }",
         "`collect` needs its target",

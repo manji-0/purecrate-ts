@@ -718,6 +718,21 @@ pub enum Callee {
     VecLen,
     /// `Vec::is_empty`. Prints as `.length === 0`.
     VecIsEmpty,
+    /// `xs.get(i)`, and `xs.first()` as `get(0)`: the element, or `None`
+    /// at or past the end. Prints as `Slice.get(xs, i)`.
+    VecGet,
+    /// `xs.last()`: the last element, or `None` when empty. Prints as
+    /// `Slice.last(xs)`.
+    VecLast,
+    /// `xs.contains(&x)`: whether an element `==` `x`, compared as the
+    /// derived `eq` does. Prints as `Slice.contains(xs, x)`.
+    VecContains,
+    /// `xs.iter().rev()` (or of `chars()`, `bytes()`, `split(c)`): a new
+    /// array of the items in reverse. Prints as `[...xs].reverse()`.
+    VecRev,
+    /// `a.iter().zip(b)`: a new array of pairs, as long as the shorter.
+    /// Prints as `Slice.zip(a, b)`.
+    VecZip,
     /// `v.push(x)` on a local `let mut v: Vec<T>`, of type `()`: the one
     /// write to an array (design/01 §7.14). Prints as `v.push(x)`.
     VecPush,
@@ -833,6 +848,11 @@ pub enum Callee {
     /// literal, which evaluates its `${..}` in the order the pieces place
     /// them; `syntax` refuses an order that would change what runs first.
     Format(Vec<FmtPiece>),
+    /// A panic whose message is the one argument, a `&str` or `String`:
+    /// `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect`,
+    /// each with Rust's text (design/01 §7.17). Of type `!`. Prints as
+    /// `Panic.raise(m)`, or `throw new Panic(m);` as a statement.
+    Panic,
     /// `&x[a..b]`, `&x[a..]`, `&x[..b]`, or `&x[..]` on a string (byte
     /// positions) or a `Vec` or slice. The arguments are `x`, then `a` if
     /// `start`, then `b` if `end`. Out-of-range positions, a reversed range,
@@ -1125,6 +1145,9 @@ pub enum Consume {
     },
     MaxBy,
     MinBy,
+    /// `fold(init, f)`: the arguments are the source, `init`, and `f`, a
+    /// closure of the accumulator and the item.
+    Fold,
 }
 
 impl Consume {
@@ -1140,6 +1163,7 @@ impl Consume {
             Consume::Min { .. } | Consume::MinBy => "minBy",
             Consume::MaxByKey { .. } => "maxByKey",
             Consume::MinByKey { .. } => "minByKey",
+            Consume::Fold => "fold",
         }
     }
 }

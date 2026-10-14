@@ -9,6 +9,7 @@ use crate::item::{snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
 
 mod format;
+mod panic;
 mod pattern;
 
 use pattern::*;
@@ -155,7 +156,17 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             };
             Ok(Expr::Return(Box::new(inner)))
         }
-        SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => Ok(Expr::Unreachable),
+        SynExpr::Macro(m) if m.mac.path.is_ident("panic") => panic::lower_panic(cx, &m.mac, "panic"),
+        SynExpr::Macro(m) if m.mac.path.is_ident("unreachable") => panic::lower_panic(cx, &m.mac, "unreachable"),
+        SynExpr::Macro(m) if m.mac.path.is_ident("assert") => panic::lower_assert(cx, &m.mac),
+        SynExpr::Macro(m) if m.mac.path.is_ident("assert_eq") || m.mac.path.is_ident("assert_ne") => {
+            let name = path_text(&m.mac.path);
+            Err(ParseError::new(
+                Reason::Macro,
+                format!("`{name}!`'s message prints both sides with `{{:?}}`, which v0 does not reproduce: write `assert!(a {} b, \"..\")`", if name == "assert_eq" { "==" } else { "!=" }),
+            )
+            .detail(name))
+        }
         SynExpr::Macro(m) if m.mac.path.is_ident("matches") => lower_matches(cx, &m.mac),
         SynExpr::Macro(m) if m.mac.path.is_ident("vec") => lower_vec(cx, &m.mac),
         SynExpr::Macro(m) if m.mac.path.is_ident("format") => format::lower_format(cx, &m.mac),
@@ -311,8 +322,8 @@ const ITERATOR_ADAPTORS: &[&str] = &[
 /// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
 /// or `split(c)` on a `char`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
 /// with a plain name for the variable. Whether `xs` is a `Vec` is checked
-/// with the types. Iterator adaptors (`enumerate`, `rev`, `zip`, ...) and
-/// `a..=b` stay out.
+/// with the types; `.rev()` and `.zip(..)` on one, and `.enumerate()`.
+/// Other iterator adaptors stay out.
 fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
     let reject =
         |what: &str| Err(ParseError::new(Reason::Loop, format!("{what}: {}", snippet(&SynExpr::ForLoop(f.clone())))));
@@ -396,18 +407,17 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         let source = lower_expr(cx, source)?;
         Ok(counted(Expr::ForEach { var: var.clone(), over, source: Box::new(source), body: Box::new(body()?) }))
     };
-    // `(a..b).rev()`: the range, stepped down from its end.
+    // `(a..b).rev()`: the range, stepped down from its end. `xs.iter().rev()`
+    // and `a.iter().zip(b)` are arrays the types make.
     let (iterable, rev) = match iterable {
         SynExpr::MethodCall(m) if m.method == "rev" && m.args.is_empty() && m.turbofish.is_none() => {
             match strip_parens(&m.receiver) {
                 range @ SynExpr::Range(_) => (range, true),
-                _ => {
-                    return reject(
-                        "`for` over `.rev()` is in v0 on a range, `(a..b).rev()` or `(a..=b).rev()`; \
-                         iterate indices of a `Vec` that way",
-                    )
-                }
+                _ => return each(Over::Items, iterable),
             }
+        }
+        SynExpr::MethodCall(m) if m.method == "zip" && m.args.len() == 1 && m.turbofish.is_none() => {
+            return each(Over::Items, iterable);
         }
         other => (other, false),
     };
@@ -444,7 +454,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(
-                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, or `s.bytes()`, with `.enumerate()` for an index",
+                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, or `s.bytes()`, with `.rev()`, `.zip(..)`, or `.enumerate()`",
                 m.method
             ))
         }
@@ -552,9 +562,15 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
                 Reason::BlockItem,
                 "items inside blocks other than `const` are not in v0; move the item to the crate level",
             )),
+            // `panic!(..);`, `assert!(..);`: as the expression; last and
+            // without `;`, the block's value.
             syn::Stmt::Macro(m) => {
-                let name = path_text(&m.mac.path);
-                Err(ParseError::new(Reason::Macro, format!("macro `{name}!` is not in v0")).detail(name))
+                let e = SynExpr::Macro(syn::ExprMacro { attrs: m.attrs.clone(), mac: m.mac.clone() });
+                if i == last && m.semi_token.is_none() {
+                    lower_expr(cx, &e).map(|e| tail = Some(comments.above(span, at(span, e))))
+                } else {
+                    lower_expr(cx, &e).map(|e| stmts.push((span, Stmt::Effect(e))))
+                }
             }
         };
         // In recovery (`survey --all-causes`) a statement that fails is

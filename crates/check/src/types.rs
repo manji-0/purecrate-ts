@@ -18,6 +18,7 @@ use purecrate_ir::{
 
 use crate::defs::Defs;
 
+mod access;
 mod calls;
 mod format;
 mod iter;

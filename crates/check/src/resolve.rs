@@ -243,27 +243,47 @@ impl<'a> Cx<'_, 'a> {
             }
             Expr::MethodCall { receiver, name, args } => {
                 self.expr(receiver);
-                for a in args {
+                for (i, a) in args.iter().enumerate() {
                     // `opt.map(f)`, `r.map_err(f)`, `it.all(f)`, and `ord.then_with(f)` name a
-                    // function; `types` checks the receiver.
-                    let calls_with = if name.as_str() == "then_with" { 0 } else { 1 };
+                    // function; `types` checks the receiver. How many
+                    // arguments it is called with, where that does not
+                    // depend on the receiver.
+                    let calls_with = match (name.as_str(), i) {
+                        ("then_with" | "ok_or_else", _) | ("map_or_else", 0) => Some(0),
+                        // `Option`'s takes none, `Result`'s the error.
+                        ("unwrap_or_else" | "or_else", _) => None,
+                        ("fold", _) => Some(2),
+                        _ => Some(1),
+                    };
                     let takes_fn = matches!(
-                        name.as_str(),
-                        "map"
-                            | "map_err"
-                            | "all"
-                            | "any"
-                            | "position"
-                            | "then_with"
-                            | "filter"
-                            | "find"
-                            | "max_by_key"
-                            | "min_by_key"
-                            | "sort_by_key"
-                            | "split"
-                            | "trim_matches"
-                            | "trim_start_matches"
-                            | "trim_end_matches"
+                        (name.as_str(), i),
+                        (
+                            "map"
+                                | "map_err"
+                                | "and_then"
+                                | "is_some_and"
+                                | "is_none_or"
+                                | "is_ok_and"
+                                | "is_err_and"
+                                | "unwrap_or_else"
+                                | "ok_or_else"
+                                | "or_else"
+                                | "map_or_else"
+                                | "all"
+                                | "any"
+                                | "position"
+                                | "then_with"
+                                | "filter"
+                                | "find"
+                                | "max_by_key"
+                                | "min_by_key"
+                                | "sort_by_key"
+                                | "split"
+                                | "trim_matches"
+                                | "trim_start_matches"
+                                | "trim_end_matches",
+                            _
+                        ) | ("map_or" | "fold", 1)
                     );
                     let fn_name = match a.unpositioned() {
                         Expr::Var(n) if takes_fn && !self.in_scope(n.as_str()) => {
@@ -277,9 +297,10 @@ impl<'a> Cx<'_, 'a> {
                         }
                         _ => None,
                     };
-                    match fn_name {
-                        Some(p) if p == calls_with => {}
-                        Some(p) => self.error(
+                    match (fn_name, calls_with) {
+                        (Some(p), Some(c)) if p == c => {}
+                        (Some(_), None) => {}
+                        (Some(p), Some(calls_with)) => self.error(
                             Reason::ConstructShape,
                             format!(
                                 "`{}` calls its function with {calls_with} argument{}, which takes {p}",
@@ -287,7 +308,7 @@ impl<'a> Cx<'_, 'a> {
                                 if calls_with == 1 { "" } else { "s" }
                             ),
                         ),
-                        None => self.expr(a),
+                        (None, _) => self.expr(a),
                     }
                 }
             }
@@ -459,6 +480,11 @@ impl<'a> Cx<'_, 'a> {
             }
             Callee::VecSet => self.arity("`v[i] = x`", if argc == 4 { 4 } else { 3 }, argc),
             Callee::VecIsEmpty => self.arity("`Vec::is_empty`", 1, argc),
+            Callee::VecGet => self.arity("`Vec::get`", 2, argc),
+            Callee::VecLast => self.arity("`Vec::last`", 1, argc),
+            Callee::VecContains => self.arity("`Vec::contains`", 2, argc),
+            Callee::VecRev => self.arity("`rev`", 1, argc),
+            Callee::VecZip => self.arity("`zip`", 2, argc),
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
@@ -466,8 +492,11 @@ impl<'a> Cx<'_, 'a> {
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
             Callee::Consume { method, .. } => {
-                let takes =
-                    if matches!(method, purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_)) { 1 } else { 2 };
+                let takes = match method {
+                    purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_) => 1,
+                    purecrate_ir::Consume::Fold => 3,
+                    _ => 2,
+                };
                 self.arity(&format!("`{}`", method.ts_name()), takes, argc)
             }
             Callee::StrSplit => self.arity("`str::split`", 2, argc),
@@ -479,6 +508,7 @@ impl<'a> Cx<'_, 'a> {
             }
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Format(_) => {}
+            Callee::Panic => self.arity("a panic", 1, argc),
             Callee::StringNew => self.arity("`String::new`", 0, argc),
             Callee::StrWellFormed => self.arity("a string check", 1, argc),
             Callee::StrConcat => self.arity("`String::push`", 2, argc),

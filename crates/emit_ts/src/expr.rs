@@ -585,11 +585,17 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                         emit_item(&args[1], indent),
                         if *text { "Ord.cmpStr" } else { "Ord.cmp" }
                     ),
+                    purecrate_ir::Consume::Fold => {
+                        format!("Iter.fold({source}, {}, {})", emit_item(&args[1], indent), emit_item(&args[2], indent))
+                    }
                     m => format!("Iter.{}({source}, {})", m.ts_name(), emit_item(&args[1], indent)),
                 };
             }
             if let purecrate_ir::Callee::Format(pieces) = callee {
                 return emit_format(pieces, args, indent);
+            }
+            if let purecrate_ir::Callee::Panic = callee {
+                return format!("Panic.raise({})", crate::tidy::strip_outer(&emit_expr(&args[0], indent)));
             }
             let c = match callee {
                 purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
@@ -612,7 +618,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
                 purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
-                purecrate_ir::Callee::Format(_) => unreachable!("printed above"),
+                purecrate_ir::Callee::Format(_) | purecrate_ir::Callee::Panic => unreachable!("printed above"),
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::StringNew => return "\"\"".into(),
@@ -629,6 +635,11 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 | purecrate_ir::Callee::VecRemove
                 | purecrate_ir::Callee::VecSet
                 | purecrate_ir::Callee::VecIsEmpty
+                | purecrate_ir::Callee::VecGet
+                | purecrate_ir::Callee::VecLast
+                | purecrate_ir::Callee::VecContains
+                | purecrate_ir::Callee::VecRev
+                | purecrate_ir::Callee::VecZip
                 | purecrate_ir::Callee::OptionIsSome
                 | purecrate_ir::Callee::OptionIsNone
                 | purecrate_ir::Callee::StrBytes
@@ -786,6 +797,32 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     emit_item(&args[1], indent),
                     emit_item(&args[2], indent)
                 );
+            }
+            if matches!(callee, purecrate_ir::Callee::VecGet) {
+                return format!("Slice.get({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecRev) {
+                // A string's chars are collected into a new array already.
+                if let Expr::Call {
+                    callee: purecrate_ir::Callee::Collect { over: purecrate_ir::Over::Chars, .. },
+                    args: chars,
+                } = &args[0]
+                {
+                    return format!(
+                        "Array.from({}).reverse()",
+                        iterable(purecrate_ir::Over::Chars, emit_tx(&chars[0], indent))
+                    );
+                }
+                return format!("[...{}].reverse()", receiver(emit_tx(&args[0], indent)));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecZip) {
+                return format!("Slice.zip({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecContains) {
+                return format!("Slice.contains({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+            }
+            if matches!(callee, purecrate_ir::Callee::VecLast) {
+                return format!("Slice.last({})", emit_expr(&args[0], indent));
             }
             if matches!(callee, purecrate_ir::Callee::VecRemove) {
                 return format!("Slice.remove({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
@@ -1106,8 +1143,10 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
         let f = f.expect("a `Result` is collected through `map(f)`");
         return format!("Iter.tryCollect({}, {f})", iterable(over, emit_tx(source, indent)));
     }
+    // `rev` and `zip` already make a new array.
+    let fresh = |e: &Expr| matches!(e, Expr::Call { callee: Callee::VecRev | Callee::VecZip, .. });
     match (f, source) {
-        (None, s) if split(s) && !lazy(s) => emit_expr(s, indent),
+        (None, s) if (split(s) && !lazy(s)) || fresh(s) => emit_expr(s, indent),
         // A choice or an operator under `...` is parenthesized, as oxfmt prints it.
         (None, s) if array => {
             let s = emit_tx(s, indent);

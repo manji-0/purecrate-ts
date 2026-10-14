@@ -33,8 +33,9 @@
  */
 
 /**
- * A domain panic: overflow, division by zero, a shift out of range, or an
- * index/slice Rust would panic on. `message` is Rust's panic text. Named
+ * A domain panic: overflow, division by zero, a shift out of range, an
+ * index/slice Rust would panic on, or one the code asks for (`panic!`,
+ * `assert!`, `unwrap`). `message` is Rust's panic text. Named
  * `Panic` so `instanceof` works across copies of this file (`Symbol.for`).
  */
 const PANIC = Symbol.for("purecrate.Panic");
@@ -47,6 +48,10 @@ export class Panic extends Error {
   }
   static [Symbol.hasInstance](value: unknown): boolean {
     return typeof value === "object" && value !== null && PANIC in (value as object);
+  }
+  /** Throws `message` as is: `panic!`, `assert!`, `Option::unwrap`. */
+  static raise(message: string): never {
+    throw new Panic(message);
   }
 }
 

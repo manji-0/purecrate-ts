@@ -70,7 +70,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             self.out.truncate(before);
             return None;
         };
-        let (pattern, body) = self.arm_fn("map_err", f)?;
+        let (pattern, body) = self.arm_fn("`Result::map_err`", f)?;
         let r = self.fresh_name("result");
         let value = self.fresh_name("value");
         let rest = Expr::Match {
@@ -318,6 +318,31 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::VecPush | Callee::VecInsert => {
                 (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))
             }
+            // Written only by `method_call`, typed.
+            Callee::VecContains => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool())),
+            Callee::VecRev | Callee::VecZip => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let mut items = typed.iter().map(|(_, t)| match t.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(item)) => Some(*item),
+                    _ => None,
+                });
+                let t = match callee {
+                    Callee::VecRev => items.next().flatten().map(|t| Ty::Vec(Box::new(t))),
+                    _ => match (items.next().flatten(), items.next().flatten()) {
+                        (Some(a), Some(b)) => Some(Ty::Vec(Box::new(Ty::Tuple(vec![a, b])))),
+                        _ => None,
+                    },
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), t)
+            }
+            Callee::VecGet | Callee::VecLast => {
+                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
+                let item = match typed[0].1.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(item)) => Some(Ty::Option(item)),
+                    _ => None,
+                };
+                (typed.into_iter().map(|(e, _)| e).collect(), item)
+            }
             Callee::VecRemove => {
                 let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
                 let item = match typed[0].1.as_ref().map(|t| self.norm(t)) {
@@ -456,6 +481,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::StringFrom => (typed_args(self, vec![Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::String))),
             Callee::Format(pieces) => return self.format(pieces, args, want),
+            // Written by `syntax` with a `&str` or `String` message.
+            Callee::Panic => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Never)),
             Callee::StringNew => (Vec::new(), Some(Ty::Prim(Prim::String))),
             Callee::StrWellFormed => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
             // Written only by `method_call` and `collect`, typed.

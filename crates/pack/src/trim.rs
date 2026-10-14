@@ -304,8 +304,11 @@ fn drop_empty_namespaces(src: &str) -> String {
     out
 }
 
+/// Whether a name starts at `at`: not inside another, and not a member
+/// (`x.Str`); a spread (`[...Str.bytes(s)]`) starts one.
 fn starts_word(source: &str, at: usize) -> bool {
-    source[..at].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$' || c == '.'))
+    source[..at].ends_with("...")
+        || source[..at].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$' || c == '.'))
 }
 
 fn ident(s: &str) -> &str {
@@ -315,6 +318,12 @@ fn ident(s: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_spread_starts_a_name() {
+        let used = super::uses(["const b = [...[...Str.bytes(s)].reverse()];"]);
+        assert!(used.contains("str.bytes"), "{used:?}");
+    }
+
     use super::*;
 
     const RUNTIME: &str = include_str!("../../../packages/boundary/src/index.ts");
@@ -419,6 +428,10 @@ mod tests {
             "slice.range",
             "slice.insert",
             "slice.remove",
+            "slice.get",
+            "slice.last",
+            "slice.contains",
+            "slice.zip",
             "slice.set",
             "slice.sortBy",
             "slice.sortByKey",
@@ -433,6 +446,7 @@ mod tests {
             "iter.count",
             "iter.sum",
             "iter.find",
+            "iter.fold",
             "iter.maxBy",
             "iter.minBy",
             "iter.maxByKey",

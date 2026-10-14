@@ -3,11 +3,12 @@
 
 use super::*;
 
-/// Whether running `expr` always leaves the block: a `return`, `break`, or
-/// `continue`, last or on every side.
+/// Whether running `expr` always leaves the block: a `return`, `break`,
+/// `continue`, or panic, last or on every side.
 pub(super) fn ends(expr: &Expr) -> bool {
     match expr {
         Expr::Return(_) | Expr::Break(_) | Expr::Continue => true,
+        Expr::Call { callee: purecrate_ir::Callee::Panic, .. } => true,
         Expr::Seq { first, then } => ends(first) || ends(then),
         Expr::Let { value, then, .. } => ends(value) || ends(then),
         Expr::Assign { value, .. } => ends(value),
@@ -65,9 +66,19 @@ pub(super) fn effectless(expr: &Expr) -> bool {
         // Reads that cannot panic: a string's `len`, `as_str`, tests, and
         // pieces; a `Vec`'s `len` and `is_empty`; `String::from`. (Not
         // `char` methods: `to_digit` panics past radix 36.)
-        Expr::Call { callee: Callee::Str(_) | Callee::VecLen | Callee::VecIsEmpty | Callee::StringFrom, args } => {
-            args.iter().all(effectless)
-        }
+        Expr::Call {
+            callee:
+                Callee::Str(_)
+                | Callee::VecLen
+                | Callee::VecIsEmpty
+                | Callee::VecGet
+                | Callee::VecLast
+                | Callee::VecContains
+                | Callee::VecRev
+                | Callee::VecZip
+                | Callee::StringFrom,
+            args,
+        } => args.iter().all(effectless),
         // A `filter` or `map` stage whose closure does nothing but read,
         // collected, and deep equality: they run nothing that may panic.
         Expr::Call { callee: Callee::IterFilter { .. } | Callee::IterMap { .. }, args } if args.len() == 2 => {

@@ -425,6 +425,11 @@ fn is_pure(expr: &Expr) -> bool {
             | Callee::AsFloat(_)
             | Callee::Fround
             | Callee::StringNew
+            | Callee::VecGet
+            | Callee::VecLast
+            | Callee::VecContains
+            | Callee::VecRev
+            | Callee::VecZip
             // No `str` method on the allow-list panics; slicing does, and is
             // `Callee::Slice`, not here.
             | Callee::Str(_)

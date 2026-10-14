@@ -507,7 +507,7 @@ impl Refs {
                     | Callee::StrWellFormed
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
-                    Callee::VecInsert | Callee::VecRemove | Callee::VecSet => self.slice = true,
+                    Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip => self.slice = true,
                     Callee::Format(pieces) => {
                         self.str |= pieces
                             .iter()
@@ -684,6 +684,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         // Folding may print a `switch` the IR did not hold; unread, it is
         // pruned (`prune_unused`).
         Some("assertNever"),
+        Some("Panic"),
         refs.int.then_some("Int"),
         refs.result_value.then_some("Result"),
         refs.char_value.then_some("Char"),

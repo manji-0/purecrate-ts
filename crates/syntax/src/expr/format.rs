@@ -19,27 +19,43 @@ fn refuse(message: impl Into<String>) -> ParseError {
     ParseError::new(Reason::Macro, message).detail("format")
 }
 
+/// A format string and its arguments, each named if written `name = e`.
+pub(super) type FormatArgs = (syn::LitStr, Vec<(Option<String>, SynExpr)>);
+
+/// `"..", a, name = b` up to the end of `input`, a trailing comma allowed.
+pub(super) fn parse_format_args(input: syn::parse::ParseStream) -> syn::Result<FormatArgs> {
+    let template: syn::LitStr = input.parse()?;
+    let mut args: Vec<(Option<String>, SynExpr)> = Vec::new();
+    while !input.is_empty() {
+        input.parse::<syn::Token![,]>()?;
+        if input.is_empty() {
+            break;
+        }
+        if input.peek(syn::Ident) && input.peek2(syn::Token![=]) && !input.peek2(syn::Token![==]) {
+            let name: syn::Ident = input.parse()?;
+            input.parse::<syn::Token![=]>()?;
+            args.push((Some(name.to_string()), input.parse()?));
+        } else {
+            args.push((None, input.parse()?));
+        }
+    }
+    Ok((template, args))
+}
+
 pub(super) fn lower_format(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError> {
     let (template, explicit) = mac
-        .parse_body_with(|input: syn::parse::ParseStream| {
-            let template: syn::LitStr = input.parse()?;
-            let mut args: Vec<(Option<String>, SynExpr)> = Vec::new();
-            while !input.is_empty() {
-                input.parse::<syn::Token![,]>()?;
-                if input.is_empty() {
-                    break;
-                }
-                if input.peek(syn::Ident) && input.peek2(syn::Token![=]) && !input.peek2(syn::Token![==]) {
-                    let name: syn::Ident = input.parse()?;
-                    input.parse::<syn::Token![=]>()?;
-                    args.push((Some(name.to_string()), input.parse()?));
-                } else {
-                    args.push((None, input.parse()?));
-                }
-            }
-            Ok((template, args))
-        })
+        .parse_body_with(parse_format_args)
         .map_err(|e| refuse(format!("`format!` expects a string literal and its arguments: {e}")))?;
+    lower_template(cx, &template, explicit, "")
+}
+
+/// The `String` a format string and its arguments make, after `prefix`.
+pub(super) fn lower_template(
+    cx: &Cx,
+    template: &syn::LitStr,
+    explicit: Vec<(Option<String>, SynExpr)>,
+    prefix: &str,
+) -> Result<Expr, ParseError> {
     let parsed = parse_template(&template.value())?;
 
     // Explicit arguments first, as written; then each name captured inline,
@@ -53,7 +69,7 @@ pub(super) fn lower_format(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError
     let named = |n: &str| explicit.iter().position(|(name, _)| name.as_deref() == Some(n));
     let mut captured: Vec<String> = Vec::new();
     let mut next = 0;
-    let mut pieces = Vec::new();
+    let mut pieces = vec![FmtPiece::Text(prefix.to_string())];
     for piece in parsed {
         match piece {
             Parsed::Text(t) => pieces.push(FmtPiece::Text(t)),

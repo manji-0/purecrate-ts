@@ -120,9 +120,9 @@ fn str_methods_come_from_the_allow_list() {
 fn std_rejections_list_what_the_receiver_allows() {
     assert_rejects(
         "pub fn f(x: Option<u32>) -> u32 { x.unwrap_or_default() }",
-        "allowed: `is_some`, `is_none`, `unwrap_or`, `ok_or`, `map`, `clone`, `cloned`, `copied`, `as_ref`, `as_deref`",
+        "allowed: `is_some`, `is_none`, `is_some_and`, `is_none_or`, `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`",
     );
-    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.contains(&0u8) }", "allowed: `len`, `is_empty`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local), indexing `xs[i]`");
+    assert_rejects("pub fn f(xs: Vec<u8>) -> bool { xs.ends_with(&[0u8]) }", "allowed: `len`, `is_empty`, `get`, `first`, `last`, `contains`, `cmp`, `clone`, `iter`, `into_iter`, push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local), indexing `xs[i]`");
     assert_rejects("pub fn f(c: char) -> bool { c.is_alphabetic() }", "allowed: `is_ascii`, `is_ascii_alphabetic`");
     assert_rejects("pub fn f(b: u8) -> bool { b.is_ascii_digit() }", "use `matches!(b, b'0'..=b'9')`");
 }

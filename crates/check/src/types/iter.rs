@@ -14,6 +14,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// on integers only, since float `Sum` starts from `-0.0`.
     pub(super) fn consume(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let takes = match name {
+            "fold" => 2,
             "all" | "any" | "position" | "find" | "max_by_key" | "min_by_key" | "max_by" | "min_by" => 1,
             "count" | "sum" | "max" | "min" => 0,
             _ => return None,
@@ -40,6 +41,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 ),
             );
             return Some(failed);
+        }
+        if name == "fold" {
+            return Some(self.fold(source, over, item, args, want));
         }
         let mut call_args = vec![source];
         let method = match name {
@@ -149,6 +153,64 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: Callee::Consume { method, over }, args: call_args };
         Some((e, self.expect(want, Some(ty))))
+    }
+
+    /// `fold(init, f)` on a typed sequence: `init` runs once the source is
+    /// made, before any item; then `f(acc, x)` for each item in order. The
+    /// accumulator's type is `init`'s, which an unsuffixed number does not
+    /// give without a type from the context: Rust infers it from `f`.
+    fn fold(&mut self, source: Expr, over: Over, item: Ty, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let failed = (Expr::Lit(Lit::Unit), None);
+        let unsuffixed = |e: &Expr| {
+            let e = match e.unpositioned() {
+                Expr::Unary { op: purecrate_ir::UnOp::Neg, expr } => expr.unpositioned(),
+                e => e,
+            };
+            matches!(e, Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }))
+        };
+        if want.is_none() && unsuffixed(&args[0]) {
+            self.error(
+                Reason::NeedsAnnotation,
+                "`fold`'s start is an unsuffixed number, whose type Rust infers from the closure: write its type (`0u64`) or type the result".to_string(),
+            );
+            return failed;
+        }
+        let (init, acc) = self.expr(&args[0], want);
+        let Some(acc) = acc else { return failed };
+        let f = match args[1].unpositioned() {
+            Expr::Closure { params, body, .. } if params.len() == 2 => {
+                if body.exits() {
+                    self.error(
+                        Reason::Closure,
+                        "a closure passed to `fold` may not use `?` or `return` in v0; write the loop".to_string(),
+                    );
+                    return failed;
+                }
+                let mut named = |p: &ClosureParam| {
+                    if p.name.as_str() == "_" {
+                        self.fresh_name("x")
+                    } else {
+                        p.name.clone()
+                    }
+                };
+                let (a, x) = (named(&params[0]), named(&params[1]));
+                Expr::Closure {
+                    params: vec![
+                        ClosureParam { name: a, ty: Some(acc.clone()) },
+                        ClosureParam { name: x, ty: Some(item.clone()) },
+                    ],
+                    ret: Some(acc.clone()),
+                    body: body.clone(),
+                }
+            }
+            _ => {
+                self.error(Reason::Closure, "`fold` takes a closure `|acc, x| ..` in v0".to_string());
+                return failed;
+            }
+        };
+        let (f, _) = self.expr(&f, None);
+        let e = Expr::Call { callee: Callee::Consume { method: Consume::Fold, over }, args: vec![source, init, f] };
+        (e, self.expect(want, Some(acc)))
     }
 
     /// Whether `t` orders by `cmp` (`Ord.cmp`, `false`) or by code point
@@ -369,6 +431,38 @@ impl<'d, 'a> Typer<'d, 'a> {
         let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { unreachable!("is_sequence") };
         match (name.as_str(), args.as_slice()) {
             ("copied" | "cloned", []) => self.sequence(receiver, consumer),
+            // On a source only, so no stage runs out of Rust's order: the
+            // items reversed, or paired up to the shorter side.
+            ("rev" | "zip", _) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let source = items(source, over);
+                if name.as_str() == "rev" {
+                    return Some((Expr::Call { callee: Callee::VecRev, args: vec![source] }, Over::Items, item));
+                }
+                let other = &args[0];
+                let (other, other_item) = if is_sequence(other) {
+                    let (o, over, t) = self.sequence(other, consumer)?;
+                    (items(o, over), t)
+                } else {
+                    let before = self.out.len();
+                    let (o, t) = self.expr(other, None);
+                    match t.map(|t| self.norm(&t)) {
+                        Some(Ty::Vec(t)) => (o, *t),
+                        found => {
+                            if self.out.len() == before {
+                                let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
+                                self.error(
+                                    Reason::TypeMismatch,
+                                    format!("`zip` takes a `Vec`, a slice, or `xs.iter()`, `s.chars()`, or `s.bytes()`, found `{found}`"),
+                                );
+                            }
+                            return None;
+                        }
+                    }
+                };
+                let pair = Ty::Tuple(vec![item, other_item]);
+                Some((Expr::Call { callee: Callee::VecZip, args: vec![source, other] }, Over::Items, pair))
+            }
             (stage @ ("map" | "filter"), [f]) => {
                 let (source, over, item) = self.sequence(receiver, consumer)?;
                 let (param, written, body) = self.one_param_fn(stage, f)?;
@@ -496,13 +590,47 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 }
 
-/// Whether `expr` is a sequence `TypeCx::sequence` types: a source, then
-/// any `map`, `filter`, `copied`, and `cloned`.
-fn is_sequence(expr: &Expr) -> bool {
+/// Whether `expr` is a sequence `TypeCx::sequence` types: a source (with
+/// `rev()` or `zip(..)` on it), then any `map`, `filter`, `copied`, and
+/// `cloned`.
+pub(super) fn is_sequence(expr: &Expr) -> bool {
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
         ("copied" | "cloned", 0) | ("map" | "filter", 1) => is_sequence(receiver),
+        ("rev", 0) | ("zip", 1) => is_source(receiver),
         ("chars" | "bytes" | "iter" | "into_iter", 0) | ("split", 1) => true,
         _ => false,
+    }
+}
+
+/// A sequence with no stage that runs code: a source, `copied`, `cloned`,
+/// `rev`, and `zip`.
+fn is_source(expr: &Expr) -> bool {
+    let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
+    match (name.as_str(), args.len()) {
+        ("copied" | "cloned" | "rev", 0) | ("zip", 1) => is_source(receiver),
+        ("chars" | "bytes" | "iter" | "into_iter", 0) | ("split", 1) => true,
+        _ => false,
+    }
+}
+
+/// Whether `expr` is `rev()` or `zip(..)` where a stage that runs code
+/// comes before it, which v0 refuses.
+pub(super) fn stage_before_reorder(expr: &Expr) -> Option<&'static str> {
+    let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return None };
+    match (name.as_str(), args.len()) {
+        ("rev", 0) if !is_source(receiver) && is_sequence(receiver) => Some("rev"),
+        ("zip", 1) if !is_source(receiver) && is_sequence(receiver) => Some("zip"),
+        _ => stage_before_reorder(receiver),
+    }
+}
+
+/// A typed source as an array: `chars()` and `bytes()` of a string
+/// collected, a `Vec` or the pieces of `split` as they are.
+fn items(source: Expr, over: Over) -> Expr {
+    match over {
+        Over::Items => source,
+        Over::Chars => Expr::Call { callee: Callee::Collect { result: false, over: Over::Chars }, args: vec![source] },
+        Over::Bytes => Expr::Call { callee: Callee::StrBytes, args: vec![source] },
     }
 }

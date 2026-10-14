@@ -23,8 +23,9 @@ export const Result = {
 // #endregion
 
 /**
- * A domain panic: overflow, division by zero, a shift out of range, or an
- * index/slice Rust would panic on. `message` is Rust's panic text. Named
+ * A domain panic: overflow, division by zero, a shift out of range, an
+ * index/slice Rust would panic on, or one the code asks for (`panic!`,
+ * `assert!`, `unwrap`). `message` is Rust's panic text. Named
  * `Panic` so `instanceof` works across copies of this file (`Symbol.for`).
  */
 const PANIC = Symbol.for("purecrate.Panic");
@@ -37,6 +38,10 @@ export class Panic extends Error {
   }
   static [Symbol.hasInstance](value: unknown): boolean {
     return typeof value === "object" && value !== null && PANIC in (value as object);
+  }
+  /** Throws `message` as is: `panic!`, `assert!`, `Option::unwrap`. */
+  static raise(message: string): never {
+    throw new Panic(message);
   }
 }
 
@@ -869,6 +874,14 @@ export const Iter = {
     return total;
   },
   // #endregion
+  // #region iter.fold
+  /** `fold(init, f)`: `f` on the accumulator and each item, in order. */
+  fold: <T, A>(xs: Iterable<T>, init: A, f: (acc: A, x: T) => A): A => {
+    let acc = init;
+    for (const x of xs) acc = f(acc, x);
+    return acc;
+  },
+  // #endregion
   // #region iter.find
   /** `find(f)`: the first item `f` takes. The items are never `null` (no `Option<Option<_>>`). */
   find: <T>(xs: Iterable<T>, f: (x: T) => boolean): T | null => {
@@ -975,6 +988,23 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  // #endregion
+  // #region slice.get
+  /** `xs.get(i)` and `xs.first()`: the element, or `null` at or past the end. */
+  get: <T>(xs: ReadonlyArray<T>, i: number): T | null => (i < xs.length ? (xs[i] as T) : null),
+  // #endregion
+  // #region slice.last
+  /** `xs.last()`: the last element, or `null` when empty. */
+  last: <T>(xs: ReadonlyArray<T>): T | null => (xs.length === 0 ? null : (xs[xs.length - 1] as T)),
+  // #endregion
+  // #region slice.contains
+  /** `xs.contains(&x)`, comparing as the derived `eq` does. */
+  contains: <T>(xs: ReadonlyArray<T>, x: T): boolean => xs.some((y) => Eq.deep(y, x)),
+  // #endregion
+  // #region slice.zip
+  /** `a.iter().zip(b)`: pairs, as many as the shorter has. */
+  zip: <A, B>(a: ReadonlyArray<A>, b: ReadonlyArray<B>): ReadonlyArray<readonly [A, B]> =>
+    Array.from({ length: Math.min(a.length, b.length) }, (_, i) => [a[i] as A, b[i] as B] as const),
   // #endregion
   // #region slice.range
   /**

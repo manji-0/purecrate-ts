@@ -80,7 +80,7 @@ fn collect_off_a_split_is_refused() {
         let err = purecrate_check::accept(&krate).expect_err("refused");
         assert!(err.iter().any(|d| d.message.contains(needle)), "{needle} not in {err:#?}");
     };
-    refuse("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.iter().rev().collect() }\n", "`collect` builds a `Vec` from");
+    refuse("pub fn f(o: Option<u8>) -> Vec<u8> { o.map(|x| x + 1).collect() }\n", "`collect` builds a `Vec` from");
     refuse("pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }\n", "needs its target");
     refuse("pub fn f(s: &str) -> Vec<u8> { s.split('.').collect() }\n", "expected `Vec<u8>`");
     refuse("pub fn f(s: &str) -> u32 { s.split('.').map(|p| p.len()).collect() }\n", "not `u32`");
