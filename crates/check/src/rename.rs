@@ -356,6 +356,17 @@ impl Renamer {
                     Expr::For { var, ty, start, end, inclusive, rev, body: r.boxed(body, &inner) }
                 })
             }
+            // A stage's closure in the source (`for w in ws.iter().map(|w| ..)`)
+            // is inside the scope of the loop's `const`, as a `let`'s value is
+            // inside its name's: the loop's name is taken first.
+            Expr::ForEach { var, over, source, body } if source.any(|e| matches!(e, Expr::Closure { .. })) => self
+                .own_block(|r| {
+                    let mut inner = cx.clone();
+                    let printed = r.reserve(&undangled(&var), &mut inner);
+                    let source = r.boxed(source, &inner);
+                    inner.env.insert(var.as_str().to_string(), printed.clone());
+                    Expr::ForEach { var: printed, over, source, body: r.boxed(body, &inner) }
+                }),
             Expr::ForEach { var, over, source: string, body } => {
                 let string = self.boxed(string, cx);
                 self.own_block(|r| {
