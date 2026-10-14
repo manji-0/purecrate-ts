@@ -132,13 +132,13 @@ Line counts against idiomatic Rust, logic only, both sides formatted with rustfm
 | iban | 24 | 48 | 2.0× | 2.4× at first; 1.9× after range `for`; 1.8× until the reviews' fixes |
 | payment | 52 | 125 | 2.4× | 2.1× at first, 1.8× after `_` and `A \| B` arms, 1.7× after 0.4.0; 2.4× with the checked constructor the reviews asked for |
 | invoice | 54 | 96 | 1.8× | 2.2× for the first draft, 1.4× restructured; 1.8× with the reviews' rounding and checked arithmetic |
-| oidc | 390 | 576 | 1.5× | 1.65× written from the authoring skill alone; 1.2× after 0.4.0; 1.4× with SHA-256 and base64url written in the subset |
+| oidc | 390 | 573 | 1.5× | 1.65× written from the authoring skill alone; 1.2× after 0.4.0; 1.4× with SHA-256 and base64url written in the subset |
 | semver | 72 | 142 | 2.0× | 2.8× from the skill alone; 1.8× with `split_once` and `collect` (0.7.0); 2.3× with equality and formatting by hand; 2.0× with `format!` (0.16.0) |
-| punycode | 152 | 267 | 1.8× | 2.0× from the skill alone; 1.7× with `Vec::insert` |
-| calendar | 439 | 738 | 1.7× | 1.8× from the skill alone; 1.7× with `eq_ignore_ascii_case` and name tables |
+| punycode | 152 | 263 | 1.7× | 2.0× from the skill alone; 1.7× with `Vec::insert` |
+| calendar | 439 | 732 | 1.7× | 1.8× from the skill alone; 1.7× with `eq_ignore_ascii_case` and name tables |
 | jsonpatch | 159 | 633 | 4.0× (patch layer 2.8×) | 789 lines as written; 648 with 0.13.1; 633 with `format!` (0.16.0) |
 | geo | 135 | 222 | 1.6× | 2.2× as written; 1.6× with 0.13.1's float methods and casts |
-| ulid | 59 | 95 | 1.6× | 3.4× as written; 1.6× with `u128`, narrowing `as`, and a byte-string alphabet |
+| ulid | 59 | 94 | 1.6× | 3.4× as written; 1.6× with `u128`, narrowing `as`, and a byte-string alphabet |
 | negotiate | 188 | 295 | 1.6× | 2.6× as written; 1.6× with 0.13.1's string methods, sorts, and consumers |
 
 ## 5. Validating demand next

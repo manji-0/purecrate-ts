@@ -56,13 +56,13 @@ Non-blank, non-comment lines of logic (functions and inherent impls), both sides
 | signup: password (NIST) | 17 | 24 | 1.4× | 1.6×; 1.4× |
 | iban | 24 | 48 | 2.0× | 2.4× with recursion only; 1.9× with range `for` |
 | invoice | 54 | 96 | 1.8× | 2.2× first draft; 1.4× restructured |
-| punycode | 152 | 267 | 1.8× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building |
-| calendar | 439 | 738 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; by section below |
+| punycode | 152 | 263 | 1.7× | 302 (2.0×) as written from the skill alone (2026-10-05), with results as `Vec<char>`; 285 with `String` building; 267 before 0.17.0's `if let`, `let`-`else`, and `loop` |
+| calendar | 439 | 732 | 1.7× | 770 (1.8×) as written from the skill alone (2026-10-05); with `str::eq_ignore_ascii_case`, 750, and 722 with name tables; 738 before 0.17.0's `let`-`else`, `if let`, and `..=`; by section below |
 | jsonpatch | 159 | 633 | 4.0× | not like for like: the reference parses with serde_json; the patch layer alone is 107 / 304 (2.8×), below. 789 as written (2026-10-11), 781 with `Vec::insert`, 648 with 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)), 633 with `format!` for its numbers (0.16.0) |
 | geo | 135 | 222 | 1.6× | 297 (2.2×) as written (2026-10-11); 222 with 0.13.1's float methods and casts ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
-| ulid | 59 | 95 | 1.6× | 201 (3.4×) as written (2026-10-11); 95 with `u128`, narrowing `as`, and a byte-string alphabet ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
+| ulid | 59 | 94 | 1.6× | 201 (3.4×) as written (2026-10-11); 95 with `u128`, narrowing `as`, and a byte-string alphabet ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); 94 with `let`-`else` (0.17.0) |
 | negotiate | 188 | 295 | 1.6× | 494 (2.6×) as written (2026-10-11); 295 with 0.13.1's string methods, sorts, and consumers ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
-| oidc | 390 | 576 | 1.5× | 1.65× as written from the skill alone |
+| oidc | 390 | 573 | 1.5× | 1.65× as written from the skill alone; 576 before 0.17.0's `let`-`else` |
 | payment | 52 | 125 | 2.4× | 2.1× one arm per variant; 1.8× with `_` and `A \| B` |
 | semver | 72 | 142 | 2.0× | 165 (2.3×) before 0.16.0, whose `format!` replaced the digits built by hand; 138 with `collect`; 166 (2.2×) with `Ordering`; 209 (2.8×) from the skill alone |
 
@@ -179,7 +179,7 @@ Besides the capabilities in §2.1:
 
 - **The type/function file-name collision** (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
-### 2.5 Distance to the ideal (2026-10-13)
+### 2.5 Distance to the ideal (2026-10-13, 0.17.0 2026-10-14)
 
 <!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
 
@@ -195,12 +195,12 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | Floats | 1 | 0.8 | accepted (0.13.1); no `Display` |
 | `map` / `filter` / `collect` / `sum`, `sort_by`, `find`, `min_by_key` | 3 | 0.9 | accepted |
 | String comparison, search, slicing, `split(char)`, `trim`, `parse` | 3 | 0.85 | accepted |
-| `if let` on an enum's variant, `let`-`else` | 3 | 0.6 | `[pattern/if-let-variant]`, `[expr/let-pattern]`: a `match` with `_` |
+| `if let` on an enum's variant, `let`-`else` | 3 | 1 | accepted from 0.17.0 (0.6 before: a `match` with `_`) |
 | `Option` / `Result` `and_then`, `unwrap_or_else`, `filter` | 3 | 0.5 | `[expr/method-call]`: a `match` |
 | `fold`, `zip`, `flat_map`, `filter_map`, `windows`, `dedup`, `get`, `last`, `contains` on a `Vec` | 3 | 0.4 | `[expr/method-call]`: a `for` |
-| A tuple's `.0` | 2 | 0.7 | `[expr/tuple-field]`: a tuple `let` |
-| `loop`, `while let` | 2 | 0.5 | `[expr/loop]` |
-| `a..=b`, `step_by`, `rev` | 2 | 0.5 | `[expr/loop]`, `[expr/method-call]` |
+| A tuple's `.0` | 2 | 1 | accepted from 0.17.0 (0.7 before: a tuple `let`) |
+| `loop`, `while let` | 2 | 1 | accepted from 0.17.0 (0.5 before) |
+| `a..=b`, `step_by`, `rev` | 2 | 0.7 | `a..=b` and `rev` on a range accepted from 0.17.0 (0.5 before); `step_by` and `rev` on an iterator `[expr/method-call]` |
 | Slice patterns (`[x, ..]`) | 1 | 0.5 | `[pattern/other]` |
 | `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 0.4 | `[expr/method-call]` |
 | Numbers to text (`format!`, `to_string`) | 3 | 0.9 | accepted from 0.16.0 (0.2 before: digits built by hand; idsmith 82 `format!`, 37 `to_string`); `to_string` is `format!("{n}")`, floats stay out |
@@ -211,9 +211,9 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`.** Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, now planned for 0.18.0; traits with `Display`, after type parameters; each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow** (the plan said 75%: `rev` and `step_by` on an iterator stay out, and `corpus/patterns.rs`'s `p50` still needs its `0` typed, a matter of inference, not of the range). Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]`, now planned for 0.18.0; traits with `Display`, after type parameters; each weight 2 at 0.3) gives 61%; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** `format!` on integers (§3, done), `String`-keyed maps and type parameters (§5) together take it to about 75%; the whole plan in §3, to about 86%. What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
+**What moves it.** `format!` on integers and the control flow (§3, done), the std on `Option` / `Result` / `Vec` next; the whole plan in §3, to about 86%. What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
@@ -226,7 +226,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 **Plan (2026-10-14, by decision).** §2.5 found the distance to the ideal in shapes common to domain code rather than in any one example, so the following are taken without waiting for §1, as 0.9.0 and 0.13.1 were, in this order. Each comes with a fixture, a shape in the statements generator, and `purecrate-ts test` over every example.
 
 1. ~~**0.16.0, `format!`.**~~ Done ([01 §6.8](./01-equivalence.md#68-format)). `{}` on integers, `&str`, `String`, `char`, and `Uuid`, with a width (`{:5}`, `{:<5}`, `{:>5}`) and zero padding on integers (`{:05}`), whose text Rust and TS agree on; named and positional arguments, `{{` / `}}`. Out: floats (`Display` of a float is a large surface), `{:x}` and the other radixes (a negative signed value prints its two's complement in Rust), `{:?}`, and the crate's own types (no `Display`). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
-2. **0.17.0, control flow.** `if let` and `let`-`else` on an enum's variant (through the narrowing of `join/flow.rs`), `loop` with `break` and a value, `while let`, `for` over `a..=b` (an end at the type's maximum must not step past it) and over `(a..b).rev()` (an unsigned start of 0), and a tuple's `.0`.
+2. ~~**0.17.0, control flow.**~~ Done ([01 §7.16](./01-equivalence.md#716-control-flow-on-patterns-and-ranges)). `if let` and `let`-`else` on any pattern that can fail (a `let`-`else` on a variant prints as a guard), `loop` with `break` and a value, `while let`, `for` over `a..=b` and over `(a..b).rev()` / `(a..=b).rev()`, and a tuple's `.N`. Out: labels, a struct pattern in `if let` or `let`-`else`, `rev` on an iterator (with `zip` in 0.18.0). The statements generator's new forms found three miscompiles released through 0.16.0, fixed with it (CHANGELOG 0.17.0).
 3. **0.18.0, std on `Option`, `Result`, and `Vec`.** `and_then`, `unwrap_or_else` and `ok_or_else` (lazy, where `unwrap_or` is not), `filter`, `map_or`, `is_some_and`; `get`, `first`, `last`, `contains` (`Eq.deep`); `fold`, `zip`, `rev` on a sequence. With them `unwrap`, `expect`, `panic!`, `assert!`, `assert_eq!`, and `unreachable!` with a literal message: each panics in Rust, so it throws in TS (01 §1, unexpected failure), as overflow does.
 4. **0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`** (§5).
 5. **0.20.0, type parameters** (§5).

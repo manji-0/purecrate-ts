@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`loop`, and `break` with a value** (design/01 §7.16). A `loop` is `for (;;)`, of type `!` when nothing breaks out of it, `()` when its `break`s carry nothing, and otherwise the type they carry: `let x = loop { .. break v; .. };` declares `x` and assigns it before each `break`, a loop that ends a function returns its value, and an unread one runs `v` for its effects.
+- **`while let P = e { .. }`**, `e` evaluated before every pass, as Rust's desugaring does.
+- **`if let` and `let`-`else` on any pattern a `match` arm may be that can fail**: a variant (`if let Shape::Circle(r) = s`, `let Role::Leader { progress } = node.role else { return .. };`), a literal, a range, or one nested in `Some`. A `let`-`else`'s names are bound for the rest of the block, a `mut` one rebound; on a variant it prints as a guard (`if (s.kind !== "Rect") return 0;`), on `Some(x)` / `Ok(x)` / `Err(x)` as before. Refused: a struct pattern, a type annotation on the `let`-`else`, and a pattern that always matches.
+- **`for i in a..=b`, `(a..b).rev()`, and `(a..=b).rev()`**, the bounds evaluated once, start first. `..=` tests `i <= end`; its last step, past `b`, is a JS number or `bigint` the body never sees, so `0..=255` on a `u8` neither wraps nor overflows. A reversed range starts at `b - 1` (or `b`) and steps down while `i >= a`. `rev` on an iterator stays refused.
+- **A tuple's `.0`, `.1`, …**, read as `t[0]`; an index past the tuple is refused.
+
+Tested against Rust at both ends of `u8`, `i8`, and `u64` (past 2^53), with empty ranges, bounds that panic in Rust's order, `break` values from a `switch`'s arms and nested loops, `while let` on a method, a `Result`, and a variant inside `Some`, and `let`-`else` with several names, `mut`, `continue`, and `break` (`loop_value_equivalence.rs`, `if_let_equivalence.rs`); and as five new statements of the statements generator, seeds 1 to 120.
+
+### Changed
+
+- **A loop's label is printed only where a jump inside a `switch` needs it** (design/03 §3.3.3): a `match` printed as an `if` chain, or a `break` with a value that returns, leaves a bare `break`.
+- **A variant's arm followed by a rest that is one jump prints as a guard** where nothing follows the `match` in its block: `if (node.role.kind !== "Leader") return finish(..);` then the arm, not the arm nested in an `if`.
+
+### Fixed
+
+Three miscompiles, released through 0.16.0, found by the statements generator's new forms; each printed code that returned a different value:
+
+- **A variant inside `Some` beside a last `_`** (`match o { Some(E::A(n)) => .., _ => .. }`) always took `_`. An `Option` prints as its payload or `null`, so one place is tested for `null` and then for the variant; narrowing took the second test's cases as a subset of the first's, found none, and folded the arm away. Cases of different kinds no longer rule each other out (`nested_patterns.rs`: `method_in_some`, `login_in_some`).
+- **An `if` side holding `map_err(f)?` inside a value** (`if c { a } else { r.map_err(f)? | 3 }`) printed as a `?:` whose side was an inline function: its `return` left only that function, and the `Err` became an operand. A side where a `return` or `?` stands anywhere outside a closure is statements (`control.rs`: `side_map_err`).
+- **`map_err(f)?` as a `match`'s scrutinee** printed as an inline function, so the `Err` was matched against the arms instead of returned. It is bound before the `match` (`control.rs`: `scrutinee_map_err`).
+
+And output tsc refused where narrowing knew less than TS, values unchanged: a `?` on a place known to fail as an arm's value or a statement printed its test, and the code after it, which TS takes as unreachable (`never`), instead of the `return`; a place was not known to have passed a `?` inside a block (`{ let a = x < r?; }`) past it; a closure made and never called kept a pattern's binding it read (TS6133); a closure reading a place left an arm TS had ruled out; and an `if` whose `else` is a literal, printed `c && a`, did not narrow by `c` (`narrowing.rs`: `known_failing_arm`, `try_in_block`, `uncalled_closure`, `closure_reads_place`, `literal_side_test`, `decided_then_side`). Every generator agrees with Rust and passes tsc on seeds 1 to 120.
+
+### Examples
+
+- **calendar, geo, oidc, punycode, raft, ssh, and ulid** use `let`-`else`, `if let`, `..=`, a reversed range, and `loop` where they worked around them: calendar 738 → 732 lines, punycode 267 → 263 (1.8× → 1.7×), oidc 576 → 573, ulid 95 → 94 (design/07 §2.2); raft's commit rule counts down with `(commit_index + 1..=len).rev()`, and punycode's `while k > 0`, which stood for the RFC's endless loop, is `loop`.
+
+### Documentation
+
+- **Distance to the ideal** (design/07 §2.5): 73% with 0.17.0, from 67%; the plan said 75%, but `rev` and `step_by` on an iterator stay out.
+
 ## 0.16.0 — 2026-10-14
 
 `format!` builds a `String` from integers, `bool`, `char`, strings, and `Uuid`, printed as a template literal; semver and jsonpatch use it where they built digits by hand. The plan to 0.20.0 is set by decision, and over 2× the idiomatic lines is now a priority indicator rather than a withdrawal condition.

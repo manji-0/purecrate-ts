@@ -28,14 +28,14 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | Ordering | `use std::cmp::Ordering;`; `a.cmp(&b)` on integers, `char`, `bool`, strings, `Uuid`, and `Vec`s of these (element by element, then the shorter first); `<` `<=` `>` `>=` on strings (code points); `Ordering::Less` in patterns, `==`, `is_lt()` and the other predicates, `reverse()`, `then(o)`, `then_with(\|\| ..)` | a fieldless enum; `cmp` as `Ord.cmp`, or `Ord.cmpStr` (by code point) on `char`, strings, and `Uuid`, and `Ord.cmpList(a, b, Ord.cmp)` on `Vec`s; `then` as `Ord.then` |
 | UUIDs | `uuid::Uuid` (or `Uuid` after `use uuid::Uuid;`); `Uuid::parse_str(s)` / `try_parse(s)` returning `Result<Uuid, uuid::Error>`; `Uuid::nil()`; `==`, `<` | `Uuid` (branded canonical `string`); `Uuid.parseStr`; `===`, `<` |
-| Expected failure | `Result` / `Option`, `?`, early `return`, `if let Some(x) = o` (an enum variant takes a `match`) | values, not throws |
+| Expected failure | `Result` / `Option`, `?`, early `return`; `if let P = e` and `let P = e else { .. };` on any pattern a `match` arm may be that can fail (`Some(x)`, `E::V { a, .. }`, `0..=9`), not a struct pattern | values, not throws; `let`-`else` as a guard (`if (s.kind !== "V") return ..;`) |
 | Optional values | `o.is_some()`, `is_none()`, `unwrap_or(d)`, `ok_or(e)` (the argument evaluated first, as in Rust), `map(\|x\| ..)`, `map(f)`, or `map(E::V)` (a closure without `?` or `return`, a function name, or a one-field tuple variant) | the `match` std writes, the receiver bound once |
 | Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?` | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result` |
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals; `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, and `v[i] = x` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-rebuilt)) |
 | Copies | `clone()` on any type, `as_ref()` on an `Option`, `as_deref()` on an `Option<String>` | `[...xs]` for a `Vec`, else the value itself |
-| Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest | one `const` per element; a `mut` element a `let` |
+| Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest. `t.0`, `t.1` read an element | one `const` per element; a `mut` element a `let`; `t[0]` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Integer methods | `min`, `max`, `abs` (signed), `pow(e: u32)`, and `checked_*`, `saturating_*`, `wrapping_*` of `add`, `sub`, `mul`, `pow`, and (`checked_`, `wrapping_`) `div`, `rem`, `neg`, on every integer type | `Int.<ty>.checkedAdd(a, b)` etc., from the exact result |
 | Wide integers | `i64` / `u64`, and `i128` / `u128` (a literal below 2^127) | `bigint` |
@@ -46,15 +46,15 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Formatting | `format!` with `{}`, `{x}` (a local captured), `{0}`, `{name}`, a width (`{:5}`), an alignment and fill (`{:<5}`, `{:*^5}`), and zero padding on an integer (`{:05}`), over integers, `bool`, `char`, `String`, `&str`, and `Uuid` (no width on a `Uuid`) | a template literal, `Str.pad` / `Str.padZero` where padded ([01 §6.8](./01-equivalence.md#68-format)) |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
-| Integer ranges | `for i in a..b`, not `a..=b` (same integer type at both ends, evaluated once, `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, end = b; i < end; …)`; a literal end is read in place (`i < 4`) |
+| Integer ranges | `for i in a..b`, `a..=b`, `(a..b).rev()`, `(a..=b).rev()` (same integer type at both ends, evaluated once, start first; `i` immutable; body may use `let mut`, `return`, `?`) | `for (let i = a, end = b; i < end; …)` (`<=` for `..=`; from `b - 1` down for `rev`); a literal end is read in place (`i < 4`) |
 | A string's chars | `for c in s.chars()` (`s` a `String` or `&str`, evaluated once; `c` a `char`; same body rules) | `for (const c of s)` |
-| Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev`, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
+| Collections and bytes | `for x in &xs`, `xs.iter()`, `xs` (a `Vec` or slice, evaluated once; `x` each element), `for b in s.bytes()` (`b` a `u8`), `for t in s.split(c)` (`c` a `char`, `t` each `&str` piece, empty ones included); same body rules. `for (i, x) in <any of these>.enumerate()` adds a `usize` index. Other adaptors (`rev` but on a range, `zip`, …) and `split` on a `&str` are refused | `for (const x of xs)`; `for (const b of Str.bytes(s))`; `for (const t of s.split(c))`; a counter beside the loop |
 | Scalar consumers | `all`, `any`, `position` (a closure `\|x\| ..` without `?` or `return`, or a function name), `count`, `sum` (integers only), `find(|x| ..)`, `max()` / `min()`, `max_by_key` / `min_by_key`, and `max_by` / `min_by` (the last of the greatest, the first of the least, as std) on `s.chars()`, `s.bytes()`, `s.split(c)`, `xs.iter()`, `xs.into_iter()`, through any `map(f)`, `filter(p)`, `copied()`, `cloned()`; `sum::<T>()` or an annotated result | `Iter.all(xs, (x) => ..)` etc., the loop std runs, stopping where std stops; `sum` adds with the type's checked `add`, panicking on overflow. A stage is `Iter.map` / `Iter.filter`, lazy, so each item runs every stage before the next, as in Rust ([01 §7.13](./01-equivalence.md#713-map-and-filter-over-a-sequence)) |
 | Lists | `collect()` of any sequence a consumer takes (above), into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()` (where `_` stands for what `f` returns: `collect::<Result<Vec<_>, _>>()`), a typed `let`, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str` | a new array: the pieces of `s.split(c)`, `[...xs]`, the array's own `.map(f)` / `.filter(p)` for one stage, else `Array.from` of the lazy stages, or `Iter.tryCollect`; `Str.splitOnce` |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
-| Loops with a condition | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `break` and `continue` without a label or value, as statements; not `loop` or `while let` | `while`, with a label on each loop a jump leaves (a bare `break` would leave the `switch` of a `match`) |
+| Loops | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `while let P = e { .. }` (`e` runs before every pass), `loop { .. }`, its value `let x = loop { .. break v; .. };`; `break` (with a value in a `loop`) and `continue` without a label, as statements | `while`, `for (;;)`; a `loop`'s value assigned before each `break`, or returned; a label on a loop only where a jump inside a `switch` leaves it |
 | Owned trees | `Box<T>` (also `Arc<T>`) erased to `T` | self-referential type alias, with a comment |
 | Invariants | non-`pub` fields + a checked public constructor | closed type, no `of` ([01 §4](./01-equivalence.md#4-closed-types)) |
 
@@ -218,7 +218,7 @@ Each arm names what it takes. The accepted patterns depend on what is matched. A
 
 #### Struct patterns
 
-A field of a variant, or an element of a tuple arm, may be a struct pattern, nested as deep as the types are: `Status::Processing { method: PaymentMethod { kind: MethodKind::BankDebit, .. } }`. Each of its fields is `_`, a name, another struct pattern, or a pattern that binds nothing (`K::B`, `0..=9`, `"x"`); `..` leaves the rest. Also in `matches!`; not in `if let`.
+A field of a variant, or an element of a tuple arm, may be a struct pattern, nested as deep as the types are: `Status::Processing { method: PaymentMethod { kind: MethodKind::BankDebit, .. } }`. Each of its fields is `_`, a name, another struct pattern, or a pattern that binds nothing (`K::B`, `0..=9`, `"x"`); `..` leaves the rest. Also in `matches!`; not in `if let` or `let`-`else`.
 
 The arm is the same arm with the struct bound to a name (printed after the struct: `paymentMethod`), a test of each refutable field before its own guard, and a `const` of each bound field at the head of its body. Why: the decision tree, exhaustiveness, and printing stay as they are. Cost: as a guarded arm, it does not count toward exhaustiveness, so a `match` that covers a field's every value by struct patterns still needs a last `_` (rustc would not). A field pattern that binds inside a refutable one (`M { kind: K::A(x) }`) is refused.
 
@@ -278,7 +278,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 - binding-only arms without a guard
 - float literal patterns
 - half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
-- `let else`
+- a type annotation on `let`-`else` (annotate the value)
 
 ### 3.6 Strings
 
@@ -306,7 +306,7 @@ Byte string literals (`b"pm_"`) are a `&[u8]`, in an expression or as a crate-le
 
 #### Type constructors
 
-Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match` or a tuple pattern, not `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
+Only `Option`, `Result`, `Vec`, and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match`, a tuple pattern, or `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
 
 #### Rejected types
 
@@ -349,8 +349,8 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `x as u64` where std widens | `u64::from(x)`: a widening `From` takes has that one spelling |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()`, `u.to_string()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's); return the `Uuid` and let the caller format it |
 | `a.cmp(&b)` on floats, tuples, a `Vec` of the crate's types, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |
-| `loop`, `while let`, labelled `break`, `break` with a value | `while cond` with `break`, or a `for` with early `return` |
-| `.rev()`, `.zip(..)`, `.skip(n)` | a range `for` over indices, or `.enumerate()` and a test on the index |
+| labelled `break` or `continue` | a flag the outer loop tests, or a function with early `return` |
+| `xs.iter().rev()`, `.zip(..)`, `.skip(n)` | a range `for` over indices (`(0..xs.len()).rev()`), or `.enumerate()` and a test on the index |
 | `.nth(n)`, `.last()` | `for c in s.chars()` with a `let mut` counter and early `return`; `.position(p)` for the first match |
 | untyped literal / closure param / `?` in closure | `1i32`, `\|v: T\|`, `\|v: T\| -> R { .. }` |
 

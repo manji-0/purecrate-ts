@@ -38,7 +38,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | `char` literal | `"." as Char` | a Rust `char` literal is one scalar value |
 | Length | `xs.length as Usize` | a JS length is an integer below 2^32 |
 | Widening | `(x as number as U32)`, `(globalThis.BigInt(x) as I64)` | `check` takes `T::from(x)` only where std has `From`, which is lossless |
-| `for` counter | `i = (i + 1) as Usize` | `i` is below the exclusive end, so `i + 1` is at most the end |
+| `for` counter | `i = (i + 1) as Usize`; `i = (i - 1) as U8` and a start of `(b - 1) as U8` stepping down | `i` is below the exclusive end, so `i + 1` is at most the end; on `a..=b` (and stepping down, past `a`) the one value outside the type ends the loop, and the body never sees it ([01 §7.16](./01-equivalence.md#716-control-flow-on-patterns-and-ranges)) |
 | Discriminant | `otpDigitsDiscriminants[d.kind] as U8`, the table a `const` of the file (`const otpDigitsDiscriminants = { Six: 6, .. } satisfies Record<OtpDigits["kind"], number>;`), widened in the same cast (`as Usize`); `({ A: 1 as U8 } as Record<string, U8>)[e.kind] as U8` where `e` is neither a place nor a call, whose `kind` may have widened | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)), and `satisfies` checks its keys are `E`'s |
 | Float | `(a * b as F64)`, `(Math.fround(x) as F32)`, `((x * -1) as F32)` | every `number` is an `f64`; `fround` gives an `f32`; `-x` prints as `x * -1` (lint refuses `-` on a brand), which flips the sign exactly, so an `f32` stays one |
 | Constructor | `unsafeMakeYen = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
@@ -156,6 +156,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | --- | --- |
 | `match` | `switch (e.kind)` with `default: return assertNever(e)` |
 | `if let` | `kind` test with narrowing |
+| `let V(x) = e else { return .. };` | the guard `if (e.kind !== "V") return ..;`, then the payload read where TS has narrowed it; on `Some`/`Ok`/`Err` as `let x = match` below |
 | `match` / `if let` on `Option` | branch on `=== null` |
 | `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
 | a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
@@ -166,7 +167,10 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)` |
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
-| a loop that a `break` or `continue` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
+| `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
+| `for i in a..=b`, `(a..b).rev()` | `i <= end`; `for (let i = (b - 1) as T; i >= a; i = (i - 1) as T)` |
+| `t.0` on a tuple | `t[0]` |
+| a loop that a `break` or `continue` inside a `switch` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
 | `?` on `Result` | `if (r.kind === "Err") return r;` |
 | `?` on `Option` | `if (r === null) return null;` |
 | `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`, or on a `Result`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`, `if (r.kind === "Err") return Result.err(f(r.error));`), a call matched this way bound first (`const result = Email.parse(raw);`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
@@ -207,7 +211,7 @@ switch (event.kind) {
 
 #### 3.3.3 Loop labels
 
-A loop that a `break` or `continue` leaves gets a label. A `match` prints as a `switch`, and a bare `break` inside that `switch` would leave the `switch`, not the loop.
+A loop that a `break` or `continue` inside a `switch` leaves gets a label: a `match` may print as a `switch`, and a bare `break` inside that `switch` would leave the `switch`, not the loop. Where the body prints no `switch` (its `match`es became `if` chains), or the jumps that would need it return instead (a `break` with a value at the end of a function), the label is left out (from 0.17.0).
 
 #### 3.3.4 Evaluation order
 

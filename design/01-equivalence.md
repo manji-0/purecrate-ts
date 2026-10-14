@@ -240,6 +240,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`cmp` and `Ordering`'s methods](#710-cmp-and-orderings-methods) | `Ord.cmp` / `Ord.cmpStr` / `Ord.then`; a `match` on the `Ordering` | `ordering_equivalence.rs` |
 | [`impl Display` with a fixed text](#711-impl-display-with-a-fixed-text) | the method `toString`, the text per value | `display_equivalence.rs` |
 | [`s.split(c).collect()`](#712-a-list-collected-from-text) and `.map(f).collect()` | the array, its `map`, or `Iter.tryCollect` | `collect_equivalence.rs` |
+| [`loop`, `while let`, `if let`, `let`-`else`, `a..=b`, `(a..b).rev()`, `t.N`](#716-control-flow-on-patterns-and-ranges) | `for (;;)` with the value assigned or returned; a `match`; a range `for` with `<=` or stepping down | `loop_value_equivalence.rs`, `if_let_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -342,6 +343,17 @@ Tested with empty pieces, a non-ASCII separator, a function name and a closure, 
 ### 7.15 Building a `String`
 
 `String::new()` is `""`. `s.push(c)` and `s.push_str(t)` on a local `let mut s: String` are written by `check` as the assignment `s = s + c`, so every later pass sees an ordinary write of `s` (narrowing forgets what it knew, a loop's head joins it); nothing pushes to a field, an element, or a parameter. JS strings are values, so `+` makes a new one and no other holder of the old string sees a change, as no other holder of a Rust `String` does. Both languages concatenate by code point: UTF-8 bytes and UTF-16 units of the parts in order are those of the whole. A push prints as `s += c` where the piece needs no statements. `collect::<String>()` over a sequence of `char`s collects them as a `Vec<char>` and joins it (`.join("")`); nothing else collects into a `String`. Tested with empty, ASCII, two- to four-byte, and surrogate-edge text, separators of every UTF-8 length, and the length of what was built (`string_build_equivalence.rs`).
+
+### 7.16 Control flow on patterns and ranges
+
+- **`loop`** is `while true`, printed `for (;;)`. Its type is `!` when no `break` leaves it, `()` when its `break`s carry nothing, and otherwise the one type every `break v` carries. `break v` puts `v` where the loop's value goes: into the variable a `let x = loop { .. }` declares without a value, as the `return` of a loop that ends the function, or run for its effects where the value is unread. No path leaves the loop except a `break`, so the variable is assigned before it is read, which TS checks.
+- **`while let P = e { body }`** is `loop { match e { P => body, _ => break } }`: `e` is evaluated before every pass, as Rust's desugaring does, and `continue` evaluates it again.
+- **`if let P = e { a } else { b }`** is `match e { P => a, <every other value> => b }`; **`let P = e else { d };`** is `match e { P => <the rest of the block>, <every other value> => d }`, so `P`'s names are bound for the rest and not in `d`, which rustc checks leaves (`return`, `break`, `continue`, a panic). Where `P` is `Some(x)`, `Ok(x)`, or `Err(x)`, it is `let x = match e { .. }`. `P` is any pattern a `match` arm may be that can fail to match; a struct pattern, a type annotation, and a pattern that always matches are refused.
+- **`for i in a..=b`** tests `i <= end`. Rust's `RangeInclusive` stops at `b` without computing `b + 1`, so `u8`'s `0..=255` does not overflow; the TS steps `i` past `b` once, as a JS number or `bigint` the body never sees, so it cannot wrap either. `a > b` runs no pass.
+- **`for i in (a..b).rev()`** starts at `b - 1` and steps down while `i >= a`; `(a..=b).rev()` starts at `b`. `a` and `b` are evaluated once, `a` first, as Rust builds the range before calling `rev`. The value below `a` that ends the loop (`-1` for an unsigned `0`) is never seen by the body. `rev` on anything but a range is refused.
+- **`t.N`** reads a tuple's element `N`, as `t[N]`; an index past the tuple is refused.
+
+Tested with `break` values from the arms of a `match` (a `switch` in TS) and from nested loops, a loop left only by `return`, `while let` on a method, a `Result`, and a variant inside `Some`, `..=` and `.rev()` at both ends of `u8`, `i8`, and `u64` (past 2^53), empty ranges, bounds that panic in Rust's order, and `let`-`else` with several names, `mut`, `continue`, and `break` (`loop_value_equivalence.rs`, `if_let_equivalence.rs`), and as statements of the statements generator.
 
 ## 8. Verification
 
