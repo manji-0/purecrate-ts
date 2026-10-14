@@ -30,6 +30,7 @@ fn generated_adaptors_match_rust() {
             [&[], &[0], &[101, 151, 200], &[200, 160], &[1, 1, 0, 0, 0, 2], &[155, 156, 155, 155], &[255, 0, 255]];
         for xs in u8s {
             cases.push(case!(adaptors::first_big(xs)));
+            cases.push(case!(adaptors::walked(xs)));
             cases.push(case!(adaptors::no_window(xs)));
             cases.push(case!(adaptors::heads_back(xs)));
             cases.push(case!(adaptors::odd_slots(xs)));

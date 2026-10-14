@@ -805,7 +805,7 @@ impl G {
     fn adapted(&mut self) -> String {
         let v = self.vec_of(T::VI);
         let n = self.rng.pick(&["i % 3", "j % 3", "1 + j % 3", "2"]);
-        let e = match self.rng.below(9) {
+        match self.rng.below(9) {
             0 => format!("{v}.iter().filter_map(|x| x.checked_mul(k)).sum::<i32>()"),
             1 => {
                 let key = self.key_int("*x");
@@ -837,8 +837,7 @@ impl G {
                 let lo = self.int(1);
                 format!("(({lo}) % 4..=3).step_by({n}).fold(k, |a, x| a.wrapping_sub(x))")
             }
-        };
-        e
+        }
     }
 
     fn drawn(&mut self, depth: u32) {

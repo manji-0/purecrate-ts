@@ -147,7 +147,7 @@ impl Cx {
             // A loop whose body has nothing left to do (its appends to an
             // unread `String` gone) is its source's evaluation: oxfmt writes
             // an empty body on two lines, which oxlint refuses.
-            Expr::ForEach { source, body, .. } if empty(&body) => return self.expr(effects(*source)),
+            Expr::ForEach { source, body, over, .. } if empty(&body) => return self.expr(drained(*source, over)),
             Expr::For { start, end, body, .. } if empty(&body) => {
                 let (start, end) = (effects(*start), effects(*end));
                 return self.expr(Expr::Seq { first: Box::new(start), then: Box::new(end) });
@@ -185,7 +185,7 @@ impl Cx {
                 first if is_unit(&first) => *then,
                 first => Expr::Seq { first: Box::new(first), then },
             },
-            Expr::ForEach { source, body, .. } if empty(&body) => effects(*source),
+            Expr::ForEach { source, body, over, .. } if empty(&body) => drained(*source, over),
             Expr::For { start, end, body, .. } if empty(&body) => {
                 Expr::Seq { first: Box::new(effects(*start)), then: Box::new(effects(*end)) }
             }
@@ -260,6 +260,23 @@ fn strip_assigns(expr: Expr, name: &Name) -> Expr {
 /// dropped, so a tail that only reads (an arm's `v`, a `match` on a place
 /// whose arms only read) goes, and the names bound for it with it. What
 /// may panic stays, in order. `()` when nothing is left.
+/// What a loop with nothing left in its body does: its source's effects,
+/// or, where a stage runs the crate's code on each item (`map`,
+/// `filter_map`, ..), every item walked, as `count()` walks them.
+fn drained(source: Expr, over: purecrate_ir::Over) -> Expr {
+    match source {
+        Expr::Call {
+            callee:
+                Callee::IterMap { .. }
+                | Callee::IterFilter { .. }
+                | Callee::IterFilterMap { .. }
+                | Callee::IterFlatten { .. },
+            ..
+        } => Expr::Call { callee: Callee::Consume { method: purecrate_ir::Consume::Count, over }, args: vec![source] },
+        source => effects(source),
+    }
+}
+
 fn effects(expr: Expr) -> Expr {
     let unit = || Expr::Lit(purecrate_ir::Lit::Unit);
     match expr {

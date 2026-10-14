@@ -30,6 +30,14 @@ pub fn some_total(xs: Vec<Option<u32>>) -> u32 {
     n
 }
 
+// A loop with nothing in its body still runs each stage on each item.
+pub fn walked(xs: &[u8]) -> u8 {
+    for _ in xs.iter().map(|x| x + 200) {}
+    for _ in xs.iter().filter_map(|x| x.checked_mul(2)).map(|y| y + 100) {}
+    for _ in (0..xs.len()).step_by(xs.len()) {}
+    0
+}
+
 // `flatten`: a list's lists, or its `Some`s.
 pub fn joined(xs: Vec<Vec<u32>>) -> Vec<u32> {
     xs.into_iter().flatten().collect()

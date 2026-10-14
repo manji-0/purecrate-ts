@@ -489,7 +489,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             ("rev" | "zip", _) => {
                 let (source, over, item) = self.sequence(receiver, consumer)?;
                 if name.as_str() == "zip" && typed_range(&source) {
-                    self.error(Reason::MethodCall, "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`".to_string());
+                    self.error(Reason::MethodCall, ZIP_RANGE.to_string());
                     return None;
                 }
                 let source = items(source, over);
@@ -500,7 +500,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (other, other_item) = if is_sequence(other) {
                     let (o, over, t) = self.sequence(other, consumer)?;
                     if typed_range(&o) {
-                        self.error(Reason::MethodCall, "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`".to_string());
+                        self.error(Reason::MethodCall, ZIP_RANGE.to_string());
                         return None;
                     }
                     (items(o, over), t)
@@ -804,6 +804,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         Some(self.expr(&fused, want))
     }
 }
+
+/// `zip` on a range, or with one: a range is computed, not an array.
+const ZIP_RANGE: &str = "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`";
 
 /// Whether `expr` is a sequence `TypeCx::sequence` types: a source (with
 /// `rev()`, `zip(..)`, or on a range `step_by(k)` on it), then any `map`,
