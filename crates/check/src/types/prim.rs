@@ -150,27 +150,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             typed.push(e);
         }
-        let ret = match m {
-            StrMethod::Len => Ty::Prim(Prim::Usize),
-            StrMethod::AsStr => Ty::Prim(Prim::Str),
-            StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
-            StrMethod::SplitOnce => split_once_ty(),
-            StrMethod::ToAsciiLowercase | StrMethod::ToAsciiUppercase => Ty::Prim(Prim::String),
-            StrMethod::Trim
-            | StrMethod::TrimStart
-            | StrMethod::TrimEnd
-            | StrMethod::TrimMatches
-            | StrMethod::TrimStartMatches
-            | StrMethod::TrimEndMatches => Ty::Prim(Prim::Str),
-            StrMethod::Find => Ty::option(Ty::Prim(Prim::Usize)),
-            StrMethod::IsEmpty
-            | StrMethod::StartsWith
-            | StrMethod::EndsWith
-            | StrMethod::Contains
-            | StrMethod::EqIgnoreAsciiCase => Ty::bool(),
-        };
         let e = Expr::Call { callee: Callee::Str(m), args: typed };
-        (e, self.expect(want, Some(ret)))
+        (e, self.expect(want, Some(str_ret(m))))
     }
 
     /// A crate function's name where a function of one `param` goes, as the
@@ -302,7 +283,25 @@ pub(super) fn char_sig(m: CharMethod) -> (Vec<Ty>, Ty) {
     }
 }
 
-/// `Option<(&str, &str)>`, what `str::split_once` returns.
-pub(super) fn split_once_ty() -> Ty {
-    Ty::option(Ty::Tuple(vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]))
+/// The result of a `str` method.
+pub(super) fn str_ret(m: StrMethod) -> Ty {
+    match m {
+        StrMethod::Len => Ty::Prim(Prim::Usize),
+        StrMethod::AsStr => Ty::Prim(Prim::Str),
+        StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
+        StrMethod::SplitOnce => Ty::option(Ty::Tuple(vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)])),
+        StrMethod::ToAsciiLowercase | StrMethod::ToAsciiUppercase => Ty::Prim(Prim::String),
+        StrMethod::Trim
+        | StrMethod::TrimStart
+        | StrMethod::TrimEnd
+        | StrMethod::TrimMatches
+        | StrMethod::TrimStartMatches
+        | StrMethod::TrimEndMatches => Ty::Prim(Prim::Str),
+        StrMethod::Find => Ty::option(Ty::Prim(Prim::Usize)),
+        StrMethod::IsEmpty
+        | StrMethod::StartsWith
+        | StrMethod::EndsWith
+        | StrMethod::Contains
+        | StrMethod::EqIgnoreAsciiCase => Ty::bool(),
+    }
 }

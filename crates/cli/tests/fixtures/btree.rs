@@ -100,3 +100,13 @@ pub fn restock(s: &Stock, item: String, n: u32) -> Stock {
 pub fn largest(m: &BTreeMap<String, u32>) -> Option<String> {
     m.iter().max_by_key(|(_, v)| **v).map(|(k, _)| k.clone())
 }
+
+/// `insert`'s arguments typed once, against the key and the value the map
+/// holds: a new map as a value, and a key from a `&str` method's result.
+pub fn grouped(words: Vec<String>) -> BTreeMap<String, BTreeMap<String, u32>> {
+    let mut m: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    for w in &words {
+        m.insert(String::from(w.trim()), BTreeMap::new());
+    }
+    m
+}

@@ -4,8 +4,9 @@
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
-    /// A `Callee::Tree` call typed again (it is built typed): its arguments,
-    /// and the type the first argument's map or set gives it.
+    /// A `Callee::Tree` call as `syntax` writes it (`BTreeMap::new()`) or
+    /// typed again: its arguments, and the type the first argument's map or
+    /// set gives it.
     pub(super) fn tree_call(&mut self, op: TreeOp, args: &[Expr], want: Option<&Ty>) -> Typed {
         let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
         let first = typed.first().and_then(|(_, t)| t.as_ref()).map(|t| self.norm(t));
@@ -111,6 +112,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             call_args.push(e);
         }
-        Some(self.tree_call(op, &call_args, want))
+        // Typed above, each against what the map or set holds: not again.
+        let t = self.tree_ty(op, Some(rt.clone()), want);
+        Some((Expr::Call { callee: Callee::Tree(op), args: call_args }, self.expect(want, t)))
     }
 }

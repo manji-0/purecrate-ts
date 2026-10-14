@@ -81,6 +81,10 @@ fn generated_btree_matches_rust() {
             [("b", 5u32), ("a", 5), ("c", 1)].iter().map(|(k, v)| (k.to_string(), *v)).collect();
         cases.push(case!(btree::largest(&counts)));
         cases.push(case!(btree::largest(&BTreeMap::<String, u32>::new())));
+        for words in [vec![], vec![" a ", "a", "\tb", "😀 "], vec!["", "  ", "__proto__ "]] {
+            let words: Vec<String> = words.into_iter().map(String::from).collect();
+            cases.push(case!(btree::grouped(words)));
+        }
     });
 }
 

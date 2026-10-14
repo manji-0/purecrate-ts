@@ -472,16 +472,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let e = Expr::Call { callee: Callee::Slice { of, start: *start, end: *end }, args: typed };
                 return (e, self.expect(want, ret));
             }
-            Callee::Str(m) => (
-                typed_args(self, Vec::new()),
-                Some(match m {
-                    StrMethod::Len => Ty::Prim(Prim::Usize),
-                    StrMethod::AsStr => Ty::Prim(Prim::Str),
-                    StrMethod::StripPrefix | StrMethod::StripSuffix => Ty::Option(Box::new(Ty::Prim(Prim::Str))),
-                    StrMethod::SplitOnce => super::prim::split_once_ty(),
-                    _ => Ty::bool(),
-                }),
-            ),
+            Callee::Str(m) => (typed_args(self, Vec::new()), Some(str_ret(*m))),
             Callee::IntFrom { to, .. } => return self.int_from(*to, args, want),
             Callee::IntCast { from, to } => {
                 (typed_args(self, vec![Ty::Prim((*from).into())]), Some(Ty::Prim((*to).into())))

@@ -105,6 +105,18 @@ fn comparisons_js_gets_wrong_are_rejected() {
 }
 
 #[test]
+fn a_map_method_types_its_arguments_once() {
+    // A new map as a value takes the map's value type; a `&str` method's
+    // result keeps its own type (`trim` is a `&str`, not a `bool`).
+    assert_clean(
+        "use std::collections::BTreeMap;\npub fn f(k: &str) -> usize { let mut m: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new(); m.insert(String::from(k), BTreeMap::new()); m.len() }",
+    );
+    assert_clean(
+        "use std::collections::BTreeMap;\npub fn g(s: &str) -> u32 { let mut m: BTreeMap<String, u32> = BTreeMap::new(); m.insert(String::from(s.trim()), 1); match m.get(s.trim()) { Some(v) => *v, None => 0 } }",
+    );
+}
+
+#[test]
 fn runtime_helper_names_are_reserved() {
     assert_rejects("pub struct Int { pub v: i32 }", "`Int` is reserved");
 }
