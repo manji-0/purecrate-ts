@@ -227,6 +227,12 @@ export const Iter = {
     }
     return null;
   },
+  /** `fold(init, f)`: `f` on the accumulator and each item, in order. */
+  fold: <T, A>(xs: Iterable<T>, init: A, f: (acc: A, x: T) => A): A => {
+    let acc = init;
+    for (const x of xs) acc = f(acc, x);
+    return acc;
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */

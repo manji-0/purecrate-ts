@@ -121,9 +121,8 @@ const matchesOne = (pattern: ReadonlyArray<U32>, p: Usize, b: U32): boolean => {
  * hostfile.c `host_hash`, salt and hash 20 bytes each).
  */
 const hashedNames = (field: string, name: ReadonlyArray<U32>): LineMatch => {
-  const option = Str.stripPrefix(field, "|1|");
-  const parts: readonly [string, string] | null =
-    option !== null ? Str.splitOnce(option, "|") : null;
+  const opt = Str.stripPrefix(field, "|1|");
+  const parts: readonly [string, string] | null = opt !== null ? Str.splitOnce(opt, "|") : null;
   if (parts === null) return { kind: "Unreadable" };
   const decoded: readonly [ReadonlyArray<U32> | null, ReadonlyArray<U32> | null] = [
     base64Decode(parts[0]),
@@ -132,12 +131,13 @@ const hashedNames = (field: string, name: ReadonlyArray<U32>): LineMatch => {
   if (decoded[0] !== null && decoded[1] !== null) {
     if (decoded[0].length !== 20 || decoded[1].length !== 20) return { kind: "Unreadable" };
     const mac = hmacSha1(decoded[0], name);
-
-    for (let i = 0 as Usize; i < 20; i = (i + 1) as Usize) {
-      if (Slice.at(mac, i) !== Slice.at(decoded[1], i)) return { kind: "Other" };
-    }
-
-    return { kind: "Names" };
+    return Iter.all(Slice.zip(mac, decoded[1]), (p: readonly [U32, U32]): boolean => {
+      const a = p[0];
+      const b = p[1];
+      return a === b;
+    })
+      ? { kind: "Names" }
+      : { kind: "Other" };
   }
 
   return { kind: "Unreadable" };
@@ -323,7 +323,8 @@ const hmacSha1 = (key: ReadonlyArray<U32>, message: ReadonlyArray<U32>): Readonl
   const outer: Array<U32> = [];
 
   for (let i = 0 as Usize; i < 64; i = (i + 1) as Usize) {
-    const k: U32 = i < key.length ? Slice.at(key, i) : (0 as U32);
+    const opt = Slice.get(key, i);
+    const k: U32 = opt ?? (0 as U32);
     inner.push(Int.u32.xor(k, 0x36 as U32));
     outer.push(Int.u32.xor(k, 0x5c as U32));
   }

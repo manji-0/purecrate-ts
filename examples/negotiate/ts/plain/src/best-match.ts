@@ -5,8 +5,8 @@ import type { Ordering } from "./ordering.ts";
 import type { Ranked } from "./ranked.ts";
 
 export const bestMatch = (matches: ReadonlyArray<Ranked>): Ranked | null => {
-  const elem = Iter.minBy(matches, (a: Ranked, b: Ranked): Ordering =>
+  const opt = Iter.minBy(matches, (a: Ranked, b: Ranked): Ordering =>
     Ord.cmp(b.specificity, a.specificity),
   );
-  return elem !== null && elem.q > 0 ? elem : null;
+  return opt !== null && opt.q > 0 ? opt : null;
 };

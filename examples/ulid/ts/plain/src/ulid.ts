@@ -40,12 +40,9 @@ export const Ulid = {
   new: (timestampMs: U64, randomness: ReadonlyArray<U8>): Result<Ulid, UlidError> => {
     if (timestampMs > MAX_TIMESTAMP) return Result.err({ kind: "TimestampTooLarge" });
     if (randomness.length !== RANDOMNESS_LEN) return Result.err({ kind: "WrongRandomnessLength" });
-    let value = timestampMs as bigint as U128;
-
-    for (const b of randomness) {
-      value = Int.u128.or(Int.u128.shl(value, 8), globalThis.BigInt(b) as U128);
-    }
-
+    const value = Iter.fold(randomness, timestampMs as bigint as U128, (v: U128, b: U8): U128 =>
+      Int.u128.or(Int.u128.shl(v, 8), globalThis.BigInt(b) as U128),
+    );
     return Result.ok(unsafeMakeUlid(value));
   },
   parse: (text: string): Result<Ulid, UlidError> => {
@@ -73,12 +70,9 @@ export const Ulid = {
   },
   fromBytes: (bytes: ReadonlyArray<U8>): Result<Ulid, UlidError> => {
     if (bytes.length !== BINARY_LEN) return Result.err({ kind: "WrongByteLength" });
-    let value = 0n as U128;
-
-    for (const b of bytes) {
-      value = Int.u128.or(Int.u128.shl(value, 8), globalThis.BigInt(b) as U128);
-    }
-
+    const value = Iter.fold(bytes, 0n as U128, (v: U128, b: U8): U128 =>
+      Int.u128.or(Int.u128.shl(v, 8), globalThis.BigInt(b) as U128),
+    );
     return Result.ok(unsafeMakeUlid(value));
   },
   encode: (self: Ulid): string => {

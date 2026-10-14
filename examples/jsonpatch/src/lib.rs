@@ -520,23 +520,11 @@ pub fn json_eq(a: &Json, b: &Json) -> bool {
 }
 
 fn arrays_eq(xs: &Vec<Json>, ys: &Vec<Json>) -> bool {
-    if xs.len() != ys.len() {
-        return false;
-    }
-    for i in 0..xs.len() {
-        if !json_eq(&xs[i], &ys[i]) {
-            return false;
-        }
-    }
-    true
+    xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x, y)| json_eq(x, y))
 }
 
 fn objects_eq(xs: &Vec<Member>, ys: &Vec<Member>) -> bool {
-    xs.len() == ys.len()
-        && xs.iter().all(|m| match find_key(ys, &m.key) {
-            Some(j) => json_eq(&m.value, &ys[j].value),
-            None => false,
-        })
+    xs.len() == ys.len() && xs.iter().all(|m| find_key(ys, &m.key).is_some_and(|j| json_eq(&m.value, &ys[j].value)))
 }
 
 // ---------------------------------------------------------------------------

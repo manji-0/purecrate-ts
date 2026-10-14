@@ -260,6 +260,11 @@ export const Iter = {
     for (const x of xs) if (f(x)) return true;
     return false;
   },
+  /** `find(f)`: the first item `f` takes. The items are never `null` (no `Option<Option<_>>`). */
+  find: <T>(xs: Iterable<T>, f: (x: T) => boolean): T | null => {
+    for (const x of xs) if (f(x)) return x;
+    return null;
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */

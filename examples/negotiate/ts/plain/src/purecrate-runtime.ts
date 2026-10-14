@@ -304,6 +304,8 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `xs.get(i)` and `xs.first()`: the element, or `null` at or past the end. */
+  get: <T>(xs: ReadonlyArray<T>, i: number): T | null => (i < xs.length ? (xs[i] as T) : null),
   /**
    * `v.sort()` / `v.sort_by(f)` on a local's own array: stable, as JS `sort`
    * is since ES2019, so equal elements keep their order as in Rust.

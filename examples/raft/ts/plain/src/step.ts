@@ -3,7 +3,6 @@
 import {
   assertNever,
   Int,
-  Iter,
   Result,
   Slice,
   type U64,
@@ -49,8 +48,7 @@ export const step = (node: Node, event: Event): Result<Outcome, StepError> => {
 };
 
 const receive = (node: Node, from: Uuid, message: Message): Result<Outcome, StepError> => {
-  if (!Iter.any(node.peers, (p: Uuid): boolean => p === from))
-    return Result.err({ kind: "UnknownPeer" });
+  if (!Slice.contains(node.peers, from)) return Result.err({ kind: "UnknownPeer" });
   const term = Message.term(message);
   const node2: Node =
     term > node.current_term
@@ -332,7 +330,7 @@ const onVoteReply = (node: Node, from: Uuid, m: RequestVoteReply): Outcome => {
     case "Candidate": {
       const votes = node.role.votes;
       if (m.term !== node.current_term || !m.vote_granted) return finish(node, [], false);
-      if (Iter.any(votes, (v: Uuid): boolean => v === from)) return finish(node, [], false);
+      if (Slice.contains(votes, from)) return finish(node, [], false);
       const more = [...votes];
       more.push(from);
 

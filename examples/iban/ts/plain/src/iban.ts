@@ -54,11 +54,8 @@ export const Iban = {
       acc = push(acc, Slice.at(b, i));
     }
 
-    for (let i = 0 as Usize; i < 4; i = (i + 1) as Usize) {
-      acc = push(acc, Slice.at(b, i));
-    }
-
-    if (acc !== 1) return Result.err({ kind: "Checksum" });
+    const acc2 = Iter.fold(Slice.range(b, null, 4), acc, push);
+    if (acc2 !== 1) return Result.err({ kind: "Checksum" });
     return Result.ok(unsafeMakeIban(raw));
   },
   asStr: (self: Iban): string => self,

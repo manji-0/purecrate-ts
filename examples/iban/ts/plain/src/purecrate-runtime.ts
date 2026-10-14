@@ -162,6 +162,12 @@ export const Iter = {
     }
     return n as Usize;
   },
+  /** `fold(init, f)`: `f` on the accumulator and each item, in order. */
+  fold: <T, A>(xs: Iterable<T>, init: A, f: (acc: A, x: T) => A): A => {
+    let acc = init;
+    for (const x of xs) acc = f(acc, x);
+    return acc;
+  },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
@@ -172,6 +178,16 @@ export const Slice = {
       throw new Panic(`index out of bounds: the len is ${xs.length} but the index is ${i}`);
     }
     return xs[i] as T;
+  },
+  /**
+   * `&xs[a..b]`, with `null` for an open end (`&xs[a..]`, `&xs[..b]`).
+   * Checks the start, then the end, then their order, as Rust reports them.
+   */
+  range: <T>(xs: ReadonlyArray<T>, a: number | null, b: number | null): ReadonlyArray<T> => {
+    if (a !== null && a > xs.length) throw new Panic(`range start index ${a} out of range for slice of length ${xs.length}`);
+    if (b !== null && b > xs.length) throw new Panic(`range end index ${b} out of range for slice of length ${xs.length}`);
+    if (a !== null && b !== null && a > b) throw new Panic(`slice index starts at ${a} but ends at ${b}`);
+    return xs.slice(a ?? 0, b ?? xs.length);
   },
 } as const;
 

@@ -662,7 +662,7 @@ pub fn negotiate(c: &Connection, initial: bool, peer: &KexInit) -> Result<Algori
 }
 
 fn first_is(list: &Vec<String>, name: &str) -> bool {
-    !list.is_empty() && list[0].as_str() == name
+    list.first().is_some_and(|first| first.as_str() == name)
 }
 
 /// RFC 4253 §7: a guessed packet is right when both sides prefer the same
@@ -836,10 +836,7 @@ fn matches_one(pattern: &Vec<u32>, p: usize, b: u32) -> bool {
 /// "|1|" base64(salt) "|" base64(HMAC-SHA1(salt, name)) (OpenSSH
 /// hostfile.c `host_hash`, salt and hash 20 bytes each).
 fn hashed_names(field: &str, name: &Vec<u32>) -> LineMatch {
-    let parts = match field.strip_prefix("|1|") {
-        Some(rest) => rest.split_once('|'),
-        None => None,
-    };
+    let parts = field.strip_prefix("|1|").and_then(|rest| rest.split_once('|'));
     let Some((s, h)) = parts else { return LineMatch::Unreadable };
     let decoded = (base64_decode(s), base64_decode(h));
     match decoded {
@@ -848,12 +845,11 @@ fn hashed_names(field: &str, name: &Vec<u32>) -> LineMatch {
                 return LineMatch::Unreadable;
             }
             let mac = hmac_sha1(&salt, name);
-            for i in 0..20usize {
-                if mac[i] != hash[i] {
-                    return LineMatch::Other;
-                }
+            if mac.iter().zip(hash.iter()).all(|(a, b)| a == b) {
+                LineMatch::Names
+            } else {
+                LineMatch::Other
             }
-            LineMatch::Names
         }
         _ => LineMatch::Unreadable,
     }
@@ -997,7 +993,7 @@ fn hmac_sha1(key: &Vec<u32>, message: &Vec<u32>) -> Vec<u32> {
     let mut inner: Vec<u32> = Vec::new();
     let mut outer: Vec<u32> = Vec::new();
     for i in 0..64usize {
-        let k = if i < key.len() { key[i] } else { 0 };
+        let k = key.get(i).copied().unwrap_or(0);
         inner.push(k ^ 0x36);
         outer.push(k ^ 0x5c);
     }
@@ -1563,17 +1559,11 @@ fn on_reply(
     if !reply.signature_valid {
         return Err(Failure::BadSignature);
     }
-    let session_id = match &c.session_id {
-        Some(id) => id.clone(),
-        None => reply.exchange_hash.clone(),
-    };
+    let session_id = c.session_id.clone().unwrap_or_else(|| reply.exchange_hash.clone());
     let c = Connection { session_id: Some(session_id), algorithms: Some(algorithms), ..c };
     let key = reply.host_key;
     if !kx.initial {
-        let same = match &c.host_key {
-            Some(k) => k.key_type == key.key_type && k.fingerprint == key.fingerprint,
-            None => false,
-        };
+        let same = c.host_key.as_ref().is_some_and(|k| k.key_type == key.key_type && k.fingerprint == key.fingerprint);
         if !same {
             return Err(Failure::HostKeyChangedOnRekey);
         }
@@ -1774,7 +1764,7 @@ pub fn check_packet(c: &Connection, d: Direction, packet_length: u32, padding_le
         None => (MIN_BLOCK, false),
         Some(t) => {
             let spec = cipher_params(t.cipher);
-            (spec.block.max(MIN_BLOCK), spec.aead || t.mac.map(mac_is_etm).unwrap_or(false))
+            (spec.block.max(MIN_BLOCK), spec.aead || t.mac.is_some_and(mac_is_etm))
         }
     };
     let padding = u32::from(padding_length);
@@ -1811,10 +1801,7 @@ fn need(letter: char, length: usize, hash: usize) -> KeyNeed {
 }
 
 fn transform_mac_len(t: &Transform) -> usize {
-    match t.mac {
-        Some(m) => mac_key_len(m),
-        None => 0,
-    }
+    t.mac.map_or(0, mac_key_len)
 }
 
 /// The six keys, A to F: IVs, encryption keys, integrity keys, client to

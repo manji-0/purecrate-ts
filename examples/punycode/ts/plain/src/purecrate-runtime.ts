@@ -214,6 +214,14 @@ export const Iter = {
     for (const x of xs) if (!f(x)) return false;
     return true;
   },
+  position: <T>(xs: Iterable<T>, f: (x: T) => boolean): Usize | null => {
+    let i = 0;
+    for (const x of xs) {
+      if (f(x)) return i as Usize;
+      i++;
+    }
+    return null;
+  },
   /** `.map(f)`: lazy, so `f` runs on an item when the consumer reaches it, as in Rust. */
   map: function* <T, U>(xs: Iterable<T>, f: (x: T) => U): Generator<U, void, undefined> {
     for (const x of xs) yield f(x);

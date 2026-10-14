@@ -260,6 +260,11 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `xs.get(i)` and `xs.first()`: the element, or `null` at or past the end. */
+  get: <T>(xs: ReadonlyArray<T>, i: number): T | null => (i < xs.length ? (xs[i] as T) : null),
+  /** `a.iter().zip(b)`: pairs, as many as the shorter has. */
+  zip: <A, B>(a: ReadonlyArray<A>, b: ReadonlyArray<B>): ReadonlyArray<readonly [A, B]> =>
+    Array.from({ length: Math.min(a.length, b.length) }, (_, i) => [a[i] as A, b[i] as B] as const),
 } as const;
 
 const utf8Len = (s: string): Usize => {

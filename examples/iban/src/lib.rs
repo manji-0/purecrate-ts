@@ -91,9 +91,7 @@ impl Iban {
             }
             acc = push(acc, b[i]);
         }
-        for i in 0..4usize {
-            acc = push(acc, b[i]);
-        }
+        let acc = b[..4].iter().fold(acc, |a, c| push(a, *c));
         if acc != 1 {
             return Err(IbanError::Checksum);
         }

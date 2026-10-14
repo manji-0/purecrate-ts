@@ -10,8 +10,10 @@ import type { DomainError } from "./domain-error.ts";
 export const splitLabels = (
   domain: string,
 ): Result<readonly [ReadonlyArray<string>, boolean], DomainError> => {
-  const option = Str.stripSuffix(domain, ".");
-  const [body, rooted] = option !== null ? [option, true] : [domain, false];
+  const opt = Str.stripSuffix(domain, ".");
+  const tuple: readonly [string, boolean] = opt !== null ? [opt, true] : [domain, false];
+  const body = tuple[0];
+  const rooted = tuple[1];
   if (body.length === 0) return Result.err({ kind: "EmptyLabel" });
   const labels: Array<string> = [];
 

@@ -252,10 +252,7 @@ fn consistent(terms: &Terms, status: &Status) -> bool {
             received,
             application_fee,
         } => {
-            let fee_ok = match application_fee {
-                Some(fee) => manual && *fee >= 0 && *fee <= *received,
-                None => true,
-            };
+            let fee_ok = application_fee.is_none_or(|fee| manual && fee >= 0 && fee <= *received);
             fee_ok && *received >= 1 && *received <= amount && (manual || *received == amount)
         }
         _ => true,
@@ -372,10 +369,10 @@ pub fn step(intent: PaymentIntent, event: Event) -> Result<PaymentIntent, Paymen
                 application_fee,
             },
         ) => {
-            if matches!(amount_to_capture, Some(amount) if amount < 1 || amount > capturable) {
+            if amount_to_capture.is_some_and(|amount| amount < 1 || amount > capturable) {
                 return Err(PaymentError::InvalidCaptureAmount { capturable });
             }
-            if matches!(application_fee, Some(fee) if fee < 0) {
+            if application_fee.is_some_and(|fee| fee < 0) {
                 return Err(PaymentError::NegativeApplicationFee);
             }
             let received = amount_to_capture.unwrap_or(capturable);

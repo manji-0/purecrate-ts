@@ -127,10 +127,7 @@ fn digit_value(c: char) -> Option<u32> {
 /// The lower-case character of a digit value in 0..36.
 fn digit_char(d: u32) -> char {
     let cp = if d < 26 { 97 + d } else { 22 + d };
-    match char::from_u32(cp) {
-        Some(c) => c,
-        None => '?',
-    }
+    char::from_u32(cp).expect("an ASCII letter or digit")
 }
 
 fn is_basic(cp: u32) -> bool {
@@ -146,9 +143,7 @@ fn encode_code_points(input: &Vec<u32>) -> Result<String, PunycodeError> {
         len += 1;
         if is_basic(*cp) {
             b += 1;
-            if let Some(c) = char::from_u32(*cp) {
-                out.push(c);
-            }
+            out.push(char::from_u32(*cp).expect("a basic code point"));
         }
     }
     if b > 0 {
@@ -197,12 +192,7 @@ fn encode_code_points(input: &Vec<u32>) -> Result<String, PunycodeError> {
 /// §6.2, on characters already known to be ASCII.
 fn decode_chars(input: &Vec<char>) -> Result<Vec<u32>, PunycodeError> {
     // The basic code points are those before the last delimiter.
-    let mut last_delim: Option<usize> = None;
-    for (j, c) in input.iter().enumerate() {
-        if *c == DELIMITER {
-            last_delim = Some(j);
-        }
-    }
+    let last_delim = input.iter().rev().position(|c| *c == DELIMITER).map(|r| input.len() - 1 - r);
     let mut out: Vec<u32> = Vec::new();
     let mut out_len: u32 = 0;
     let mut pos: usize = 0;
@@ -309,10 +299,7 @@ fn is_ascii_label(label: &str) -> bool {
 /// The labels of a name, ASCII letters lower-cased, and whether it ends in
 /// the root dot.
 fn split_labels(domain: &str) -> Result<(Vec<String>, bool), DomainError> {
-    let (body, rooted) = match domain.strip_suffix(".") {
-        Some(rest) => (rest, true),
-        None => (domain, false),
-    };
+    let (body, rooted) = domain.strip_suffix(".").map_or((domain, false), |rest| (rest, true));
     if body.is_empty() {
         return Err(DomainError::EmptyLabel);
     }

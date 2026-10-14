@@ -51,10 +51,15 @@ export const Version = {
   parse: (s: string): Result<Version, SemverError> => {
     Str.wellFormed(s);
     if (s.length === 0) return Result.err({ kind: "Empty" });
-    const option = Str.splitOnce(s, "+");
-    const [rest, build] = option !== null ? [option[0], option[1]] : [s, null];
-    const option2 = Str.splitOnce(rest, "-");
-    const [core, pre] = option2 !== null ? [option2[0], option2[1]] : [rest, null];
+    const opt = Str.splitOnce(s, "+");
+    const tuple: readonly [string, string | null] = opt !== null ? [opt[0], opt[1]] : [s, null];
+    const rest = tuple[0];
+    const build = tuple[1];
+    const opt2 = Str.splitOnce(rest, "-");
+    const tuple2: readonly [string, string | null] =
+      opt2 !== null ? [opt2[0], opt2[1]] : [rest, null];
+    const core = tuple2[0];
+    const pre = tuple2[1];
     const parts = core.split(".");
     const majorResult = parseCoreNumber(Slice.at(parts, 0), { kind: "Major" });
     if (majorResult.kind === "Err") return majorResult;
@@ -68,25 +73,13 @@ export const Version = {
     if (patchResult.kind === "Err") return patchResult;
     const patch = patchResult.value;
     if (parts.length > 3) return Result.err({ kind: "ExtraCorePart" });
-
-    let pre2: ReadonlyArray<PreId>;
-    if (pre !== null) {
-      const result = Iter.tryCollect(pre.split("."), parsePreId);
-      if (result.kind === "Err") return result;
-      pre2 = result.value;
-    } else {
-      pre2 = [];
-    }
-
-    let build2: ReadonlyArray<string>;
-    if (build !== null) {
-      const result2 = Iter.tryCollect(build.split("."), parseBuildId);
-      if (result2.kind === "Err") return result2;
-      build2 = result2.value;
-    } else {
-      build2 = [];
-    }
-
+    const pre2Result = pre !== null ? Iter.tryCollect(pre.split("."), parsePreId) : Result.ok([]);
+    if (pre2Result.kind === "Err") return pre2Result;
+    const pre2 = pre2Result.value;
+    const build2Result =
+      build !== null ? Iter.tryCollect(build.split("."), parseBuildId) : Result.ok([]);
+    if (build2Result.kind === "Err") return build2Result;
+    const build2 = build2Result.value;
     return Result.ok(unsafeMakeVersion({ major, minor, patch, pre: pre2, build: build2 }));
   },
   major: (self: Version): U64 => self.major,

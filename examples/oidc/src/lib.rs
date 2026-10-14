@@ -576,7 +576,7 @@ pub fn check_totp(code: &String, now: i64, enrollment: &TotpEnrollment, candidat
     for c in candidates {
         if c.step >= current - 1 && c.step <= current + 1 {
             if matches!(truncate_mac(&c.mac, enrollment.digits), Some(value) if value == submitted) {
-                let fresh = enrollment.last_used_step.map(|last| c.step > last).unwrap_or(true);
+                let fresh = enrollment.last_used_step.is_none_or(|last| c.step > last);
                 if fresh {
                     return OtpCheck::Accepted(c.step);
                 }
@@ -761,12 +761,7 @@ fn authenticated(request: AuthorizationRequest, needs_consent: bool, auth: Authe
 
 /// The wrong passwords counted for `subject` in this flow.
 fn failures_of(list: &Vec<PasswordFailures>, subject: &String) -> u32 {
-    for f in list {
-        if f.subject == *subject {
-            return f.failures;
-        }
-    }
-    0
+    list.iter().find(|f| f.subject == *subject).map_or(0, |f| f.failures)
 }
 
 /// `list` with `subject`'s count set to `failures`, in place or appended.
@@ -840,10 +835,7 @@ pub fn session_is_usable(request: &AuthorizationRequest, session: &Session, now:
     if request.prompt.login || request.prompt.select_account {
         return false;
     }
-    let fresh = request
-        .max_age
-        .map(|max_age| max_age > 0 && now - session.auth_time <= max_age)
-        .unwrap_or(true);
+    let fresh = request.max_age.is_none_or(|max_age| max_age > 0 && now - session.auth_time <= max_age);
     let strong_enough = !request.wants_mfa || matches!(session.strength, AuthStrength::PasswordAndTotp);
     fresh && strong_enough
 }
@@ -1147,7 +1139,7 @@ fn base64url_char(v: u32) -> char {
         62 => 45,
         _ => 95,
     };
-    char::from_u32(code).unwrap_or('_')
+    char::from_u32(code).expect("a base64url digit")
 }
 
 /// Base64url without padding (RFC 7636 Appendix A) of words read as

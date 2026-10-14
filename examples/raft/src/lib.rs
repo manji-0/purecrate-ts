@@ -222,10 +222,8 @@ impl Node {
             if *p == id {
                 return Err(ConfigError::SelfInPeers);
             }
-            for j in 0..i {
-                if peers[j] == *p {
-                    return Err(ConfigError::DuplicatePeer);
-                }
+            if peers[..i].contains(p) {
+                return Err(ConfigError::DuplicatePeer);
             }
         }
         Ok(Node {
@@ -323,7 +321,7 @@ pub fn step(node: Node, event: Event) -> Result<Outcome, StepError> {
 }
 
 fn receive(node: Node, from: Uuid, message: Message) -> Result<Outcome, StepError> {
-    if !node.peers.iter().any(|p| *p == from) {
+    if !node.peers.contains(&from) {
         return Err(StepError::UnknownPeer);
     }
     let term = message.term();
@@ -517,10 +515,7 @@ fn on_request_vote(node: Node, from: Uuid, m: RequestVote) -> Result<Outcome, St
     if m.term < node.current_term {
         return Ok(reply_vote(node, from, false));
     }
-    let free = match node.voted_for {
-        None => true,
-        Some(v) => v == from,
-    };
+    let free = node.voted_for.is_none_or(|v| v == from);
     let my_last_index = node.log.len();
     let my_last_term = term_at(&node.log, my_last_index);
     let up_to_date = m.last_log_term > my_last_term
@@ -542,7 +537,7 @@ fn on_vote_reply(node: Node, from: Uuid, m: RequestVoteReply) -> Outcome {
             if m.term != node.current_term || !m.vote_granted {
                 return finish(node, Vec::new(), false);
             }
-            if votes.iter().any(|v| *v == from) {
+            if votes.contains(&from) {
                 return finish(node, Vec::new(), false);
             }
             let mut more = votes.clone();
@@ -678,9 +673,6 @@ fn on_append_reply(node: Node, from: Uuid, m: AppendEntriesReply) -> Outcome {
         },
         &updated,
     );
-    let sent = match resend {
-        Some(next) => vec![append_to(&leader, from, next)],
-        None => Vec::new(),
-    };
+    let sent = resend.map_or(Vec::new(), |next| vec![append_to(&leader, from, next)]);
     finish(leader, sent, false)
 }

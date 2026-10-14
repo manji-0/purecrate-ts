@@ -109,12 +109,6 @@ const big = <T extends bigint>(min: bigint, max: bigint) => {
   } as const;
 };
 
-/** `min` and `max`: JS `<=` orders numbers and bigints as Rust orders integers. */
-const minMax = <T extends number | bigint>() =>
-  ({
-    min: (a: T, b: T): T => (a <= b ? a : b),
-  }) as const;
-
 /** A `std::num::ParseIntError`. Nothing translated reads its `kind()`, so it carries nothing. */
 export type ParseIntError = { readonly "purecrate.ParseIntError": true };
 
@@ -237,6 +231,12 @@ export const Iter = {
     for (const x of xs) if (!f(x)) return false;
     return true;
   },
+  /** `fold(init, f)`: `f` on the accumulator and each item, in order. */
+  fold: <T, A>(xs: Iterable<T>, init: A, f: (acc: A, x: T) => A): A => {
+    let acc = init;
+    for (const x of xs) acc = f(acc, x);
+    return acc;
+  },
   /** `collect::<Result<Vec<T>, E>>()` after `map(f)`: stops at the first `Err`. */
   tryCollect: <X, T, E>(xs: Iterable<X>, f: (x: X) => Result<T, E>): Result<ReadonlyArray<T>, E> => {
     const out: T[] = [];
@@ -258,6 +258,9 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `a.iter().zip(b)`: pairs, as many as the shorter has. */
+  zip: <A, B>(a: ReadonlyArray<A>, b: ReadonlyArray<B>): ReadonlyArray<readonly [A, B]> =>
+    Array.from({ length: Math.min(a.length, b.length) }, (_, i) => [a[i] as A, b[i] as B] as const),
 } as const;
 
 const utf8Len = (s: string): Usize => {
@@ -281,7 +284,6 @@ export const Int = {
   // methods work in Rust's 64 bits and throw on a result above 2^53−1.
   usize: {
     ...small<Usize>(0, 9007199254740991),
-    ...minMax<Usize>(),
   },
   u64: {
     ...big<U64>(0n, 18446744073709551615n),

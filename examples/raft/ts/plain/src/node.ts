@@ -49,10 +49,8 @@ export const Node = {
       const i = i2;
       i2 = Int.usize.add(i2, 1 as Usize);
       if (p === id) return Result.err({ kind: "SelfInPeers" });
-
-      for (let j = 0 as Usize, end = i; j < end; j = (j + 1) as Usize) {
-        if (Slice.at(peers, j) === p) return Result.err({ kind: "DuplicatePeer" });
-      }
+      if (Slice.contains(Slice.range(peers, null, i), p))
+        return Result.err({ kind: "DuplicatePeer" });
     }
 
     return Result.ok(

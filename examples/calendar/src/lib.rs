@@ -937,10 +937,6 @@ impl Expansion {
     }
 }
 
-fn listed(xs: &Vec<i64>, v: i64) -> bool {
-    xs.iter().any(|x| *x == v)
-}
-
 /// BYMONTHDAY: `dom` of a month of `len` days is in the list (negative
 /// entries count from the end: -1 is the last day).
 fn month_day_listed(xs: &Vec<i64>, dom: i64, len: i64) -> bool {
@@ -990,7 +986,7 @@ fn period_first_day(rule: &Rule, start: &LocalDateTime, start_day: i64, k: i64) 
 /// per month).
 fn month_days(rule: &Rule, start: &LocalDateTime, year: i64, month: i64) -> Vec<i64> {
     let mut v: Vec<i64> = Vec::new();
-    if !rule.by_month.is_empty() && !listed(&rule.by_month, month) {
+    if !rule.by_month.is_empty() && !rule.by_month.contains(&month) {
         return v;
     }
     let len = month_length(year, month);
@@ -1051,7 +1047,7 @@ fn period_days(rule: &Rule, start: &LocalDateTime, start_day: i64, first: i64) -
     match rule.freq {
         Freq::Daily => {
             let c = days_to_civil(first);
-            let selected = (rule.by_month.is_empty() || listed(&rule.by_month, c.month))
+            let selected = (rule.by_month.is_empty() || rule.by_month.contains(&c.month))
                 && (rule.by_month_day.is_empty()
                     || month_day_listed(&rule.by_month_day, c.day, month_length(c.year, c.month)))
                 && (rule.by_day.is_empty() || weekday_listed(&rule.by_day, first));
@@ -1063,7 +1059,7 @@ fn period_days(rule: &Rule, start: &LocalDateTime, start_day: i64, first: i64) -
         Freq::Weekly => {
             for day in first..first + 7 {
                 let c = days_to_civil(day);
-                let selected = (rule.by_month.is_empty() || listed(&rule.by_month, c.month))
+                let selected = (rule.by_month.is_empty() || rule.by_month.contains(&c.month))
                     && (if rule.by_day.is_empty() {
                         iso_day_number(day) == iso_day_number(start_day)
                     } else {

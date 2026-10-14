@@ -12,7 +12,7 @@ export const next = (
   const freshResult = Ulid.new(timestampMs, freshRandomness);
   if (freshResult.kind === "Err") return freshResult;
   const fresh = freshResult.value;
-  return previous !== null && timestampMs <= Ulid.timestampMs(previous)
-    ? ulidIncrement(previous)
-    : Result.ok(fresh);
+  const opt: Ulid | null =
+    previous !== null && timestampMs <= Ulid.timestampMs(previous) ? previous : null;
+  return opt !== null ? ulidIncrement(opt) : Result.ok(fresh);
 };

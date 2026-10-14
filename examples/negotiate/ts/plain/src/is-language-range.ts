@@ -4,8 +4,8 @@ import { Char, Iter, Str } from "./purecrate-runtime.ts";
 
 export const isLanguageRange = (s: string, wildcard: boolean): boolean => {
   if (s === "*") return wildcard;
-  const option = Str.splitOnce(s, "-");
-  const primary: string = option !== null ? option[0] : s;
+  const opt = Str.splitOnce(s, "-");
+  const primary: string = opt !== null ? opt[0] : s;
   return (
     Iter.all(primary as Iterable<Char>, (c: Char): boolean => Char.isAsciiAlphabetic(c)) &&
     Iter.all(

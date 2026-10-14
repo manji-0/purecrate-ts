@@ -59,8 +59,10 @@ const usesX25519 = (k: KexMethod): boolean =>
   k.kind === "Sntrup761X25519Sha512" ||
   k.kind === "Curve25519Sha256";
 
-const firstIs = (list: ReadonlyArray<string>, name: string): boolean =>
-  list.length !== 0 && Slice.at(list, 0) === name;
+const firstIs = (list: ReadonlyArray<string>, name: string): boolean => {
+  const opt = Slice.get(list, 0 as Usize);
+  return opt !== null && opt === name;
+};
 
 /**
  * RFC 4253 §7: a guessed packet is right when both sides prefer the same
@@ -545,8 +547,7 @@ const onReply = (
   if (usesX25519(algorithms.kex) && Iter.all(reply.x25519_secret, (b: U8): boolean => b === 0))
     return Result.err({ kind: "ZeroSharedSecret" });
   if (!reply.signature_valid) return Result.err({ kind: "BadSignature" });
-  const sessionId: ReadonlyArray<U8> =
-    c.session_id !== null ? [...c.session_id] : [...reply.exchange_hash];
+  const sessionId: ReadonlyArray<U8> = c.session_id ?? [...reply.exchange_hash];
   const c2: Connection = { ...c, session_id: sessionId, algorithms };
   const key = reply.host_key;
 

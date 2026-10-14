@@ -306,6 +306,9 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `a.iter().zip(b)`: pairs, as many as the shorter has. */
+  zip: <A, B>(a: ReadonlyArray<A>, b: ReadonlyArray<B>): ReadonlyArray<readonly [A, B]> =>
+    Array.from({ length: Math.min(a.length, b.length) }, (_, i) => [a[i] as A, b[i] as B] as const),
   /**
    * `&xs[a..b]`, with `null` for an open end (`&xs[a..]`, `&xs[..b]`).
    * Checks the start, then the end, then their order, as Rust reports them.

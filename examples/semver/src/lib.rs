@@ -74,14 +74,8 @@ impl Version {
         if s.is_empty() {
             return Err(SemverError::Empty);
         }
-        let (rest, build) = match s.split_once('+') {
-            Some((x, y)) => (x, Some(y)),
-            None => (s, None),
-        };
-        let (core, pre) = match rest.split_once('-') {
-            Some((x, y)) => (x, Some(y)),
-            None => (rest, None),
-        };
+        let (rest, build) = s.split_once('+').map_or((s, None), |(x, y)| (x, Some(y)));
+        let (core, pre) = rest.split_once('-').map_or((rest, None), |(x, y)| (x, Some(y)));
         let parts = core.split('.').collect::<Vec<&str>>();
         let major = parse_core_number(parts[0], CorePart::Major)?;
         if parts.len() < 2 {
@@ -95,20 +89,8 @@ impl Version {
         if parts.len() > 3 {
             return Err(SemverError::ExtraCorePart);
         }
-        let pre = match pre {
-            Some(p) => p
-                .split('.')
-                .map(parse_pre_id)
-                .collect::<Result<Vec<_>, _>>()?,
-            None => vec![],
-        };
-        let build = match build {
-            Some(b) => b
-                .split('.')
-                .map(parse_build_id)
-                .collect::<Result<Vec<_>, _>>()?,
-            None => vec![],
-        };
+        let pre = pre.map_or(Ok(vec![]), |p| p.split('.').map(parse_pre_id).collect::<Result<Vec<_>, _>>())?;
+        let build = build.map_or(Ok(vec![]), |b| b.split('.').map(parse_build_id).collect::<Result<Vec<_>, _>>())?;
         Ok(Version {
             major,
             minor,
@@ -221,13 +203,10 @@ fn compare_pre_id(a: &PreId, b: &PreId) -> Ordering {
 
 /// Identifiers left to right; a longer list with an equal prefix is greater.
 fn compare_pre_ids(a: &Vec<PreId>, b: &Vec<PreId>) -> Ordering {
-    for i in 0..a.len().min(b.len()) {
-        let o = compare_pre_id(&a[i], &b[i]);
-        if o != Ordering::Equal {
-            return o;
-        }
-    }
-    a.len().cmp(&b.len())
+    a.iter()
+        .zip(b.iter())
+        .fold(Ordering::Equal, |o, (x, y)| o.then(compare_pre_id(x, y)))
+        .then(a.len().cmp(&b.len()))
 }
 
 /// Precedence per SemVer 2.0.0 §11. Build metadata is ignored.

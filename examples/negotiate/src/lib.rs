@@ -288,7 +288,7 @@ fn is_language_range(s: &str, wildcard: bool) -> bool {
     if s == "*" {
         return wildcard;
     }
-    let primary = s.split_once('-').map(|(p, _)| p).unwrap_or(s);
+    let primary = s.split_once('-').map_or(s, |(p, _)| p);
     primary.chars().all(|c| c.is_ascii_alphabetic())
         && s.split('-').all(|t| !t.is_empty() && t.len() <= 8 && t.chars().all(|c| c.is_ascii_alphanumeric()))
 }
@@ -312,10 +312,7 @@ pub fn parse_accept_language(field: &str) -> Result<Vec<LanguageRange>, Negotiat
 // Of one representation's matches (in field order), the first of the most
 // specific, when its q is not 0.
 fn best_match(matches: &[Ranked]) -> Option<Ranked> {
-    match matches.iter().min_by(|a, b| b.specificity.cmp(&a.specificity)) {
-        Some(m) if m.q > 0 => Some(m.clone()),
-        _ => None,
-    }
+    matches.iter().min_by(|a, b| b.specificity.cmp(&a.specificity)).filter(|m| m.q > 0).cloned()
 }
 
 // Sorts by q, then specificity, both descending. The sort is stable, so
@@ -327,10 +324,7 @@ fn by_rank(list: Vec<Ranked>) -> Vec<Ranked> {
 }
 
 fn head_of(list: Vec<Ranked>) -> Result<Ranked, NegotiationError> {
-    if list.is_empty() {
-        return Err(NegotiationError::NotAcceptable);
-    }
-    Ok(list[0].clone())
+    list.first().cloned().ok_or(NegotiationError::NotAcceptable)
 }
 
 // ---- media types ----
@@ -399,17 +393,12 @@ pub fn choose_media(accept: Option<&str>, available: &[String]) -> Result<Ranked
 // The q of `coding` under `ranges` and its specificity (1 when listed,
 // 0 through `*` or the identity default); `None` when it is not covered.
 fn coding_quality(ranges: &[CodingRange], coding: &str) -> Option<(u32, u32)> {
-    if let Some(r) = ranges.iter().find(|r| r.coding.eq_ignore_ascii_case(coding)) {
-        return Some((r.q, 1));
-    }
-    if let Some(r) = ranges.iter().find(|r| r.coding == "*") {
-        return Some((r.q, 0));
-    }
-    if coding.eq_ignore_ascii_case("identity") {
-        Some((1, 0))
-    } else {
-        None
-    }
+    ranges
+        .iter()
+        .find(|r| r.coding.eq_ignore_ascii_case(coding))
+        .map(|r| (r.q, 1u32))
+        .or_else(|| ranges.iter().find(|r| r.coding == "*").map(|r| (r.q, 0)))
+        .or_else(|| if coding.eq_ignore_ascii_case("identity") { Some((1, 0)) } else { None })
 }
 
 // An absent header is `*`: every coding at q = 1, specificity 0.
@@ -420,10 +409,8 @@ pub fn rank_encodings(accept_encoding: Option<&str>, available: &[String]) -> Re
     let ranges = parse_accept_encoding(accept_encoding.unwrap_or("*"))?;
     let mut out: Vec<Ranked> = Vec::new();
     for (index, a) in available.iter().enumerate() {
-        if let Some((q, specificity)) = coding_quality(&ranges, a) {
-            if q > 0 {
-                out.push(Ranked { index, q, specificity });
-            }
+        if let Some((q, specificity)) = coding_quality(&ranges, a).filter(|(q, _)| *q > 0) {
+            out.push(Ranked { index, q, specificity });
         }
     }
     Ok(by_rank(out))

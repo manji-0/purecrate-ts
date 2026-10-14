@@ -33,18 +33,9 @@ const digitValue = (c: Char): U32 | null => {
 /** §6.2, on characters already known to be ASCII. */
 const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, PunycodeError> => {
   // The basic code points are those before the last delimiter.
-  let lastDelim: Usize | null = null;
-  let i2 = 0 as Usize;
-
-  for (const c of input) {
-    const j = i2;
-    i2 = Int.usize.add(i2, 1 as Usize);
-
-    if (c === DELIMITER) {
-      lastDelim = j;
-    }
-  }
-
+  const opt = Iter.position([...input].reverse(), (c: Char): boolean => c === DELIMITER);
+  const lastDelim: Usize | null =
+    opt !== null ? Int.usize.sub(Int.usize.sub(input.length as Usize, 1 as Usize), opt) : null;
   const out: Array<U32> = [];
   let outLen = 0 as U32;
   let pos = 0 as Usize;
@@ -81,21 +72,21 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
       pos = Int.usize.add(pos, 1 as Usize);
       const dw = Int.u32.checkedMul(digit, w);
       if (dw === null) return Result.err({ kind: "Overflow" });
-      const opt = Int.u32.checkedAdd(i, dw);
-      if (opt === null) return Result.err({ kind: "Overflow" });
-      i = opt;
+      const opt2 = Int.u32.checkedAdd(i, dw);
+      if (opt2 === null) return Result.err({ kind: "Overflow" });
+      i = opt2;
       const t = threshold(k, bias);
       if (digit < t) break;
-      const opt2 = Int.u32.checkedMul(w, Int.u32.sub(BASE, t));
-      if (opt2 === null) return Result.err({ kind: "Overflow" });
-      w = opt2;
+      const opt3 = Int.u32.checkedMul(w, Int.u32.sub(BASE, t));
+      if (opt3 === null) return Result.err({ kind: "Overflow" });
+      w = opt3;
       k = Int.u32.add(k, BASE);
     }
 
     bias = adapt(Int.u32.sub(i, oldI), Int.u32.add(outLen, 1 as U32), oldI === 0);
-    const opt3 = Int.u32.checkedAdd(n, Int.u32.div(i, Int.u32.add(outLen, 1 as U32)));
-    if (opt3 === null) return Result.err({ kind: "Overflow" });
-    n = opt3;
+    const opt4 = Int.u32.checkedAdd(n, Int.u32.div(i, Int.u32.add(outLen, 1 as U32)));
+    if (opt4 === null) return Result.err({ kind: "Overflow" });
+    n = opt4;
     i = Int.u32.rem(i, Int.u32.add(outLen, 1 as U32));
     const option = Char.fromU32(n);
     if (option === null) return Result.err({ kind: "InvalidCodePoint" });

@@ -12,21 +12,20 @@ const codingQuality = (
   ranges: ReadonlyArray<CodingRange>,
   coding: string,
 ): readonly [U32, U32] | null => {
-  const option = Iter.find(ranges, (r: CodingRange): boolean =>
+  const opt = Iter.find(ranges, (r: CodingRange): boolean =>
     Str.eqIgnoreAsciiCase(r.coding, coding),
   );
-  if (option !== null) {
-    const r = option;
-    return [r.q, 1 as U32];
+  const opt2: readonly [U32, U32] | null = opt !== null ? [opt.q, 1 as U32] : null;
+
+  let opt3: readonly [U32, U32] | null;
+  if (opt2 !== null) {
+    opt3 = opt2;
+  } else {
+    const opt4 = Iter.find(ranges, (r: CodingRange): boolean => r.coding === "*");
+    opt3 = opt4 !== null ? [opt4.q, 0 as U32] : null;
   }
 
-  const option2 = Iter.find(ranges, (r: CodingRange): boolean => r.coding === "*");
-  if (option2 !== null) {
-    const r = option2;
-    return [r.q, 0 as U32];
-  }
-
-  return Str.eqIgnoreAsciiCase(coding, "identity") ? [1 as U32, 0 as U32] : null;
+  return opt3 ?? (Str.eqIgnoreAsciiCase(coding, "identity") ? [1 as U32, 0 as U32] : null);
 };
 
 export const rankEncodings = (
@@ -53,14 +52,16 @@ export const rankEncodings = (
   for (const a of available) {
     const index = i;
     i = Int.usize.add(i, 1 as Usize);
-    const option2 = codingQuality(ranges, a);
+
+    const option2 = (() => {
+      const opt3 = codingQuality(ranges, a);
+      return opt3 !== null && opt3[0] > 0 ? opt3 : null;
+    })();
+
     if (option2 !== null) {
       const q = option2[0];
       const specificity = option2[1];
-
-      if (q > 0) {
-        out.push({ index, q, specificity });
-      }
+      out.push({ index, q, specificity });
     }
   }
 

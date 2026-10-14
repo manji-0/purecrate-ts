@@ -73,10 +73,7 @@ impl Ulid {
         if randomness.len() != RANDOMNESS_LEN {
             return Err(UlidError::WrongRandomnessLength);
         }
-        let mut value = u128::from(timestamp_ms);
-        for b in randomness {
-            value = (value << 8) | u128::from(*b);
-        }
+        let value = randomness.iter().fold(u128::from(timestamp_ms), |v, b| (v << 8) | u128::from(*b));
         Ok(Ulid(value))
     }
 
@@ -108,10 +105,7 @@ impl Ulid {
         if bytes.len() != BINARY_LEN {
             return Err(UlidError::WrongByteLength);
         }
-        let mut value: u128 = 0;
-        for b in bytes {
-            value = (value << 8) | u128::from(*b);
-        }
+        let value = bytes.iter().fold(0u128, |v, b| (v << 8) | u128::from(*b));
         Ok(Ulid(value))
     }
 
@@ -153,16 +147,7 @@ impl Ulid {
 
 pub fn next(previous: Option<Ulid>, timestamp_ms: u64, fresh_randomness: &[u8]) -> Result<Ulid, UlidError> {
     let fresh = Ulid::new(timestamp_ms, fresh_randomness)?;
-    match previous {
-        Some(p) => {
-            if timestamp_ms <= p.timestamp_ms() {
-                p.increment()
-            } else {
-                Ok(fresh)
-            }
-        }
-        None => Ok(fresh),
-    }
+    previous.filter(|p| timestamp_ms <= p.timestamp_ms()).map_or(Ok(fresh), |p| p.increment())
 }
 
 pub fn compare(a: &Ulid, b: &Ulid) -> Ordering {
