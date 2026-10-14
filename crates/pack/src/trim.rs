@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use purecrate_ir::IntMethod;
+use purecrate_ir::{FloatTy, IntMethod, IntTy};
 
 /// The parts an index exports to callers, kept whole: `Char` with all its
 /// methods, `Uuid`, `parseJson`, and `Int.<ty>` for each brand it exports.
@@ -35,8 +35,8 @@ pub fn exported(index: &str) -> BTreeSet<String> {
         out.insert("parseJson".to_string());
     }
     // A brand the index exports: callers make its values with `Int.<ty>.of`.
-    for ty in ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64"] {
-        if brand(ty).is_some_and(|b| names.contains(b)) {
+    for (ty, brand) in namespaces() {
+        if names.contains(brand) {
             out.insert(format!("int.{ty}"));
         }
     }
@@ -109,24 +109,15 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
     out
 }
 
+/// Each integer and float namespace of `Int` with its brand (`i32`, `I32`).
+fn namespaces() -> impl Iterator<Item = (&'static str, &'static str)> {
+    let ints = IntTy::ALL.into_iter().map(|t| (t.as_str(), t.ts_name()));
+    ints.chain([FloatTy::F32, FloatTy::F64].into_iter().map(|t| (t.as_str(), t.ts_name())))
+}
+
 /// The brand of an integer or float namespace of `Int` (`i32` → `I32`).
 fn brand(ty: &str) -> Option<&'static str> {
-    Some(match ty {
-        "i8" => "I8",
-        "i16" => "I16",
-        "i32" => "I32",
-        "i64" => "I64",
-        "u8" => "U8",
-        "u16" => "U16",
-        "u32" => "U32",
-        "u64" => "U64",
-        "i128" => "I128",
-        "u128" => "U128",
-        "usize" => "Usize",
-        "f32" => "F32",
-        "f64" => "F64",
-        _ => return None,
-    })
+    namespaces().find(|(n, _)| *n == ty).map(|(_, b)| b)
 }
 
 /// Identifiers in the code of a TS source: outside comments, string
@@ -522,21 +513,9 @@ mod tests {
         ]);
         let mut all = all;
         all.extend(IntMethod::ALL.iter().map(|m| format!("m.{}", m.ts_name())));
-        all.extend(
-            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
-                .iter()
-                .map(|t| format!("minmax.{t}")),
-        );
-        all.extend(
-            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
-                .iter()
-                .map(|t| format!("cast.{t}")),
-        );
-        all.extend(
-            ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "usize"]
-                .iter()
-                .map(|t| format!("castFloat.{t}")),
-        );
+        for factory in ["minmax", "cast", "castFloat"] {
+            all.extend(IntTy::ALL.iter().map(|t| format!("{factory}.{}", t.as_str())));
+        }
         all.extend(["float.round", "float.ofBig", "float.isInfinite", "panicWith"].iter().map(|t| t.to_string()));
         let full = trim(RUNTIME, &all);
         assert!(!full.contains("#region") && !full.contains("#endregion") && !full.contains("#needs"));

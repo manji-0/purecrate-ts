@@ -15,7 +15,7 @@ use std::process::ExitCode;
 use purecrate_check::{accept, prune_unreachable};
 use purecrate_emit_ts::Package;
 use purecrate_emit_ts::{has_wire, WireSchema};
-use purecrate_pack::{assemble_with_license, disk_path, Access};
+use purecrate_pack::{assemble_with, disk_path, Access, PackOptions};
 use purecrate_syntax::{parse_files_spanned, LineCol, Source};
 
 use args::{Command, Input, Options};
@@ -147,7 +147,9 @@ fn analyze(input: &Input, consequence: &str, options: &Options) -> Result<Loaded
                             summary(1, consequence)
                         )),
                         _ => {
-                            let package = assemble_with_license(&pruned, schema, &input.version, &input.license, access);
+                            let options =
+                                PackOptions { schema, version: &input.version, license: &input.license, access };
+                            let package = assemble_with(&pruned, options);
                             Ok(Loaded { files, krate, spans, package })
                         }
                     }

@@ -48,31 +48,37 @@ fn adapter_source(schema: WireSchema) -> &'static str {
     }
 }
 
-pub fn assemble(krate: &Crate) -> Package {
-    assemble_with(krate, None)
+/// What a package holds beside the crate's code: the wire module with its
+/// schema library, and the manifest's version, license, and access.
+#[derive(Clone, Copy, Debug)]
+pub struct PackOptions<'a> {
+    pub schema: Option<WireSchema>,
+    pub version: &'a str,
+    pub license: &'a str,
+    pub access: Access,
 }
 
-pub fn assemble_with(krate: &Crate, schema: Option<WireSchema>) -> Package {
-    assemble_versioned(krate, schema, DEFAULT_VERSION)
+impl Default for PackOptions<'_> {
+    fn default() -> Self {
+        PackOptions { schema: None, version: DEFAULT_VERSION, license: DEFAULT_LICENSE, access: Access::default() }
+    }
+}
+
+/// The default manifest, with the wire module of `schema` when there is one.
+impl From<Option<WireSchema>> for PackOptions<'_> {
+    fn from(schema: Option<WireSchema>) -> Self {
+        PackOptions { schema, ..PackOptions::default() }
+    }
+}
+
+pub fn assemble(krate: &Crate) -> Package {
+    assemble_with(krate, PackOptions::default())
 }
 
 /// The TS sources plus a manifest that makes them an npm package: `build`
 /// (run by `prepack`) compiles them to `dist`, which `exports` points at.
-pub fn assemble_versioned(krate: &Crate, schema: Option<WireSchema>, version: &str) -> Package {
-    assemble_with_access(krate, schema, version, Access::default())
-}
-
-pub fn assemble_with_access(krate: &Crate, schema: Option<WireSchema>, version: &str, access: Access) -> Package {
-    assemble_with_license(krate, schema, version, DEFAULT_LICENSE, access)
-}
-
-pub fn assemble_with_license(
-    krate: &Crate,
-    schema: Option<WireSchema>,
-    version: &str,
-    license: &str,
-    access: Access,
-) -> Package {
+pub fn assemble_with<'a>(krate: &Crate, options: impl Into<PackOptions<'a>>) -> Package {
+    let PackOptions { schema, version, license, access } = options.into();
     let mut pkg = emit(krate);
     if let Some(schema) = schema {
         pkg.files.push(TsFile { stem: "purecrate-wire".to_string(), source: emit_wire(krate, schema) });
@@ -225,7 +231,7 @@ mod tests {
     use purecrate_ir::counter_example;
 
     fn manifest(access: Access) -> String {
-        let pkg = assemble_with_access(&counter_example(), None, "1.2.3", access);
+        let pkg = assemble_with(&counter_example(), PackOptions { version: "1.2.3", access, ..PackOptions::default() });
         pkg.files.into_iter().find(|f| f.stem == "package.json").unwrap().source
     }
 
@@ -274,7 +280,9 @@ mod tests {
 
     #[test]
     fn the_license_is_copied_into_the_manifest() {
-        let pkg = assemble_with_license(&counter_example(), None, "1.2.3", "Apache-2.0", Access::Publishable);
+        let options =
+            PackOptions { schema: None, version: "1.2.3", license: "Apache-2.0", access: Access::Publishable };
+        let pkg = assemble_with(&counter_example(), options);
         let manifest = &pkg.files.iter().find(|f| f.stem == "package.json").unwrap().source;
         assert!(manifest.contains("\"license\": \"Apache-2.0\""), "{manifest}");
         assert!(!manifest.contains("\"private\""), "{manifest}");

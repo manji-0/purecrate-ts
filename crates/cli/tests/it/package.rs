@@ -16,7 +16,7 @@ use std::process::Command;
 
 use purecrate_check::accept;
 use purecrate_emit_ts::WireSchema;
-use purecrate_pack::assemble_versioned;
+use purecrate_pack::{assemble_with, PackOptions};
 use purecrate_syntax::parse_source;
 
 const SOURCE: &str = "
@@ -111,7 +111,8 @@ fn packed_package_installs_runs_and_type_checks() {
 
         let zod = support::repo().join("packages/boundary-zod/node_modules/zod");
         let shop = dir.join("shop");
-        support::write_package(&shop, &assemble_versioned(&typed, Some(WireSchema::Zod), "1.2.3"));
+        let options = PackOptions { schema: Some(WireSchema::Zod), version: "1.2.3", ..PackOptions::default() };
+        support::write_package(&shop, &assemble_with(&typed, options));
         link(&shop, "zod", &zod);
         tsc(major, &shop, "tsconfig.build.json");
 
@@ -119,7 +120,10 @@ fn packed_package_installs_runs_and_type_checks() {
         let pricing = dir.join("pricing");
         support::write_package(
             &pricing,
-            &assemble_versioned(&accept(&pricing_krate).expect("accept pricing"), None, "0.1.0"),
+            &assemble_with(
+                &accept(&pricing_krate).expect("accept pricing"),
+                PackOptions { version: "0.1.0", ..PackOptions::default() },
+            ),
         );
         tsc(major, &pricing, "tsconfig.build.json");
 
