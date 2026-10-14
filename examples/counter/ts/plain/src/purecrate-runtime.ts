@@ -49,10 +49,15 @@ export class Panic extends Error {
   static [Symbol.hasInstance](value: unknown): boolean {
     return typeof value === "object" && value !== null && PANIC in (value as object);
   }
-  /** Throws `message` as is: `panic!`, `assert!`, `Option::unwrap`. */
-  static raise(message: string): never {
+  /**
+   * Throws `message` as is: `panic!`, `assert!`, `Option::unwrap`. A
+   * property with no written type, so TS does not narrow past a call as it
+   * would past a `never` method: the generator's flow analysis does not
+   * either, and the two must agree (design/01 §7.17).
+   */
+  static readonly raise = (message: string): never => {
     throw new Panic(message);
-  }
+  };
 }
 
 /** The `default` of a `switch` that names every variant: unreachable. */

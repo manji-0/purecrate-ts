@@ -210,6 +210,7 @@ impl Body {
             18 => self.block_value(depth),
             19 => self.branch_value(depth),
             20 => self.closure_stmt(e),
+            12 => self.panics(e),
             22..=24 => match self.g.rng.below(5) {
                 0 => self.loop_value(depth),
                 1 => self.while_let(depth),
@@ -272,6 +273,11 @@ impl Body {
 
     /// An expression of type `to` that reads `v`, of type `from`.
     fn convert(&mut self, v: &str, from: Ty, to: Ty, e: u32) -> String {
+        if self.g.rng.below(2) == 0 {
+            if let Some(x) = self.convert_std(v, from, to, e) {
+                return x;
+            }
+        }
         let g = &mut self.g;
         match (from, to) {
             (Ty::Int, Ty::Int) => {
@@ -300,6 +306,70 @@ impl Body {
             (Ty::Res, Ty::Opt) => format!("{v}.ok()"),
             (Ty::Res, Ty::Res) => format!("{v}.map_err(|{v}| {v} | {})", g.lit()),
         }
+    }
+
+    /// What `convert` gives through 0.18.0's std methods: a value argument
+    /// (evaluated on both sides) may hold `?`, a closure's body reads only
+    /// its parameter and literals. `unwrap` and `expect` panic on `None`;
+    /// `Vec`s are built in place.
+    fn convert_std(&mut self, v: &str, from: Ty, to: Ty, e: u32) -> Option<String> {
+        let g = &mut self.g;
+        let k = g.rng.below(5);
+        Some(match (from, to, k) {
+            (Ty::Opt, Ty::Int, 0) => format!("{v}.unwrap_or_else(|| {})", g.lit()),
+            (Ty::Opt, Ty::Int, 1) => format!("{v}.map_or({}, |x| x ^ {})", g.int(e), g.lit()),
+            (Ty::Opt, Ty::Int, 2) => format!("{v}.map_or_else(|| {}, |x| x | {})", g.lit(), g.lit()),
+            (Ty::Opt, Ty::Int, 3) => format!("{v}.unwrap()"),
+            (Ty::Opt, Ty::Int, _) => format!("{v}.expect(\"no {v}\")"),
+            (Ty::Opt, Ty::Bool, 0 | 1) => format!("{v}.is_some_and(|x| x < {})", g.lit()),
+            (Ty::Opt, Ty::Bool, _) => format!("{v}.is_none_or(|x| x != {})", g.lit()),
+            (Ty::Opt, Ty::Opt, 0) => format!("{v}.and_then(|x| x.checked_mul({}))", g.lit()),
+            (Ty::Opt, Ty::Opt, 1) => format!("{v}.filter(|x| *x > {})", g.lit()),
+            (Ty::Opt, Ty::Opt, 2) => format!("{v}.or({})", g.expr(Ty::Opt, e)),
+            (Ty::Opt, Ty::Opt, _) => format!("{v}.or_else(|| Some({}))", g.lit()),
+            (Ty::Opt, Ty::Res, _) => format!("{v}.ok_or_else(|| {})", g.lit()),
+            (Ty::Res, Ty::Int, 0 | 1) => format!("{v}.unwrap_or({})", g.int(e)),
+            (Ty::Res, Ty::Int, 2) => format!("{v}.unwrap_or_else(|x| x ^ {})", g.lit()),
+            (Ty::Res, Ty::Int, _) => format!("{v}.map_or({}, |x| x & {})", g.int(e), g.lit()),
+            (Ty::Res, Ty::Bool, 0) => format!("{v}.is_ok()"),
+            (Ty::Res, Ty::Bool, 1) => format!("{v}.is_err()"),
+            (Ty::Res, Ty::Bool, 2) => format!("{v}.is_ok_and(|x| x > {})", g.lit()),
+            (Ty::Res, Ty::Bool, _) => format!("{v}.is_err_and(|x| x == {})", g.lit()),
+            (Ty::Res, Ty::Opt, _) => format!("{v}.err()"),
+            (Ty::Res, Ty::Res, 0 | 1) => {
+                format!("{v}.and_then(|x| if x > {} {{ Ok(x) }} else {{ Err(x) }})", g.lit())
+            }
+            (Ty::Res, Ty::Res, _) => format!("{v}.or_else(|x| if x < {} {{ Ok(x) }} else {{ Err(x) }})", g.lit()),
+            (Ty::Int, Ty::Int, 0) => {
+                format!("vec![{v}, {}, {}].iter().fold({}, |a, x| a ^ x)", g.int(e), g.lit(), g.lit())
+            }
+            (Ty::Int, Ty::Int, 1) => format!("vec![{v}, {}].iter().rev().fold(0i32, |a, x| a * 3 + x)", g.int(e)),
+            (Ty::Int, Ty::Int, 2) => {
+                format!("vec![{v}, {}].iter().zip(vec![{}, {}].iter()).map(|(x, y)| x - y).sum::<i32>()", g.int(e), g.lit(), g.lit())
+            }
+            (Ty::Int, Ty::Opt, 0) => format!("vec![{v}, {}].get({}).copied()", g.int(e), g.rng.below(4)),
+            (Ty::Int, Ty::Opt, 1) => format!("vec![{v}, {}].first().copied()", g.int(e)),
+            (Ty::Int, Ty::Opt, 2) => format!("vec![{}, {v}].last().copied()", g.int(e)),
+            (Ty::Int, Ty::Bool, 0 | 1) => format!("vec![{}, {}].contains(&{v})", g.int(e), g.lit()),
+            _ => return None,
+        })
+    }
+
+    /// `assert!` with and without a message, and `panic!` under a test.
+    fn panics(&mut self, e: u32) {
+        let line = match (self.g.rng.below(3), self.g.var(Ty::Int)) {
+            (0, Some(v)) => format!("assert!({v} != {});", self.g.lit()),
+            (1, _) => {
+                let test = self.g.boolean(e);
+                let shown = self.g.var(Ty::Int).map_or_else(|| "h0".to_string(), |v| v);
+                format!("assert!({test}, \"failed with {{}}\", {shown});")
+            }
+            _ => {
+                let test = self.g.boolean(e);
+                format!("if {test} {{ panic!(\"stop at {{h0}}\") }}")
+            }
+        };
+        self.line(&line);
     }
 
     /// `h0`, which every function returns mixed in, takes in a name in

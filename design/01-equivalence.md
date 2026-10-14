@@ -13,7 +13,7 @@ For an accepted public function `f` and its generated counterpart `f'`, and for 
 | Return value | `f(x)` and `f'(x')` are equal as values |
 | Types | TS types represent the Rust types exactly (`i64` → `bigint`, width brands) and pass `tsc --strict` |
 | Expected failure | `Err` has the same variant and the same payload |
-| Unexpected failure | Where Rust panics, TS throws (same message for arithmetic) |
+| Unexpected failure | Where Rust panics, TS throws `Panic` with Rust's message (arithmetic, indexing, and the panics of §7.17) |
 
 **The reference is the Rust debug build.** Overflow and division by zero panic there, so they throw in TS. Release-mode wrapping is not matched. This was chosen over rejecting every operation that may panic (too narrow) and over accepting only `checked_*` APIs (too awkward), and it agrees with kamae's "the unexpected is an exception".
 
@@ -136,9 +136,9 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `uuid::Uuid` | `Uuid::parse_str`, `try_parse`, `nil`, `==`, `<`, `cmp` | `Uuid` (branded canonical `string`), `===`, `<` | `uuid_equivalence.rs`, `ordering_equivalence.rs` |
 | integers, `bool` | `cmp` (§6.6) | `Ord.cmp`, by JS `<` | `ordering_equivalence.rs` |
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
-| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, slicing `&xs[a..b]`, `cmp`, `clone`, `iter()` / `into_iter()` through `map` / `filter` (§7.13); built as `vec![a, b]`, by `collect()` (§7.12, §7.13), or grown by `push` or `insert` and edited by `remove` or `v[i] = x` on a `let mut` local (§7.14) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks, `Ord.cmpList`, `[...xs]`; the array, its `.map` / `.filter`, `Array.from` of `Iter.map` / `Iter.filter`, or `Iter.tryCollect`; `v.push(x)`, `Slice.insert(v, i, x)`, `Slice.remove(v, i)`, and `Slice.set(v, i, x)` (Rust's panic past the end, then `splice` or the write) on an `Array<T>` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs`, `adapters_equivalence.rs`, `grow_equivalence.rs`, `vec_insert_equivalence.rs`, `vec_edit_equivalence.rs`, `ordering_equivalence.rs` |
-| `Option` | `is_some`, `is_none`; `unwrap_or`, `ok_or`, `map` (§7); `clone`, `as_ref`, `as_deref` (on `Option<String>`) | `!== null`, `=== null`; the value itself for the last three | `std_methods_equivalence.rs`, `option_methods_equivalence.rs`, `grow_equivalence.rs` |
-| `Result` | `ok`, `map`, `map_err` (§7.1) | the `match` std writes | `parse_equivalence.rs` |
+| `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, `get`, `first`, `last`, `contains` (§7.18), slicing `&xs[a..b]`, `cmp`, `clone`, `iter()` / `into_iter()` through `rev` / `zip` and `map` / `filter` (§7.13); built as `vec![a, b]`, by `collect()` (§7.12, §7.13), or grown by `push` or `insert` and edited by `remove` or `v[i] = x` on a `let mut` local (§7.14) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks, `Ord.cmpList`, `[...xs]`; the array, its `.map` / `.filter`, `Array.from` of `Iter.map` / `Iter.filter`, or `Iter.tryCollect`; `v.push(x)`, `Slice.insert(v, i, x)`, `Slice.remove(v, i)`, and `Slice.set(v, i, x)` (Rust's panic past the end, then `splice` or the write) on an `Array<T>` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs`, `adapters_equivalence.rs`, `grow_equivalence.rs`, `vec_insert_equivalence.rs`, `vec_edit_equivalence.rs`, `ordering_equivalence.rs` |
+| `Option` | `is_some`, `is_none`; `unwrap`, `expect` (§7.17); `unwrap_or`, `unwrap_or_else`, `ok_or`, `ok_or_else`, `or`, `or_else`, `map`, `map_or`, `map_or_else`, `and_then`, `filter`, `is_some_and`, `is_none_or` (§7.1); `clone`, `as_ref`, `as_deref` (on `Option<String>`) | `!== null`, `=== null`; the value itself for the last three | `std_methods_equivalence.rs`, `option_methods_equivalence.rs`, `std_more_equivalence.rs`, `panics_equivalence.rs`, `grow_equivalence.rs` |
+| `Result` | `ok`, `err`, `is_ok`, `is_err`, `is_ok_and`, `is_err_and`, `unwrap_or`, `unwrap_or_else`, `map`, `map_err`, `map_or`, `and_then`, `or_else` (§7.1); not `unwrap` or `expect` (§7.17) | the `match` std writes | `parse_equivalence.rs`, `std_more_equivalence.rs` |
 | `String`, `&str` into an integer | `s.parse::<T>()` for every integer `T`, into `Result<T, ParseIntError>` (§6.7) | `Int.<t>.parse(s)` | `parse_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
 | integers, `bool`, `char`, `String`, `&str`, `Uuid` | `format!` with `{}`, a width, an alignment and fill, and zero padding on integers (§6.8) | a template literal; `Str.pad`, `Str.padZero` | `format_equivalence.rs`, `generated_strings_equivalence.rs` |
@@ -228,9 +228,9 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 
 | Construct | Becomes | Verified by |
 | --- | --- | --- |
-| [`Option::unwrap_or`, `ok_or`, `map`; `Result::ok`, `map`, `map_err`](#71-option-and-result-methods) | the `match` std writes | `option_methods_equivalence.rs`, `parse_equivalence.rs` |
+| [`Option`'s and `Result`'s combinators](#71-option-and-result-methods) (`unwrap_or`, `map`, `and_then`, `filter`, `map_or`, …) | the `match` std writes | `option_methods_equivalence.rs`, `parse_equivalence.rs`, `std_more_equivalence.rs` |
 | [match guards](#72-match-guards) | an `if` at the leaf of the decision tree | `guards_equivalence.rs` |
-| [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`, `find`, `max` / `min` and their `_by_key` / `_by` forms; `for` over `.enumerate()` | `Iter.<method>`, the loop std runs | `consumers_equivalence.rs`, `sort_pick_equivalence.rs` |
+| [scalar consumers](#73-scalar-consumers): `all`, `any`, `position`, `count`, `sum`, `fold`, `find`, `max` / `min` and their `_by_key` / `_by` forms; `for` over `.enumerate()` | `Iter.<method>`, the loop std runs | `consumers_equivalence.rs`, `sort_pick_equivalence.rs`, `std_more_equivalence.rs` |
 | [`bool` patterns](#74-bool-patterns) | an `if` chain, the last named arm the `else` | `bool_patterns_equivalence.rs` |
 | [tuple patterns](#75-tuple-patterns) in `let`, closure parameters, `for` | a one-arm tuple `match` | `destructure_equivalence.rs` |
 | [`vec![a, b]`](#76-veca-b) | the array literal | `vec_build_equivalence.rs` |
@@ -241,14 +241,16 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`impl Display` with a fixed text](#711-impl-display-with-a-fixed-text) | the method `toString`, the text per value | `display_equivalence.rs` |
 | [`s.split(c).collect()`](#712-a-list-collected-from-text) and `.map(f).collect()` | the array, its `map`, or `Iter.tryCollect` | `collect_equivalence.rs` |
 | [`loop`, `while let`, `if let`, `let`-`else`, `a..=b`, `(a..b).rev()`, `t.N`](#716-control-flow-on-patterns-and-ranges) | `for (;;)` with the value assigned or returned; a `match`; a range `for` with `<=` or stepping down | `loop_value_equivalence.rs`, `if_let_equivalence.rs` |
+| [`panic!`, `unreachable!`, `assert!`, `Option::unwrap` / `expect`](#717-panics) | `Panic.raise(m)` with Rust's message; `assert!` an `if` | `panics_equivalence.rs` |
+| [`get`, `first`, `last`, `contains` on a `Vec`](#718-reading-a-vec-get-first-last-contains) | `Slice.get` / `Slice.last` / `Slice.contains` | `std_more_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
 ### 7.1 `Option` and `Result` methods
 
-The receiver is bound once. `unwrap_or(d)` and `ok_or(e)` evaluate their argument before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. `map(f)` runs `f` only on `Some`. `o.map(f).unwrap_or(d)` is one `match o { Some(x) => f(x), None => d }` when `d` is a name or a literal: it has no effect and cannot panic, so whether it runs before `f` or only on `None` is not observable.
+The receiver is bound once. An argument that is a value, `unwrap_or(d)`, `ok_or(e)`, `or(o)`, `map_or(d, f)`'s `d`, and `expect(m)`, is evaluated before the `match`, whether or not the option is `Some`, as Rust does; JS `??` would skip it, and a `d` that overflows would then not panic. An argument that is a function runs only on the side that calls it: `map(f)`, `and_then(f)`, `filter(p)`, `is_some_and(p)`, and `is_none_or(p)` on `Some`, `unwrap_or_else(f)`, `ok_or_else(f)`, and `or_else(f)` on `None`, `map_or_else(d, f)` each on its own. `filter(p)` keeps the value where `p` is true; `is_none_or(p)` is `true` on `None`. A result that would be `Option<Option<_>>` (`and_then` with a function returning one) is refused, as both `None`s are `null`. `o.map(f).unwrap_or(d)` is one `match o { Some(x) => f(x), None => d }` when `d` is a name or a literal: it has no effect and cannot panic, so whether it runs before `f` or only on `None` is not observable.
 
-On a `Result`, `ok()` is `Some` of the `Ok` value or `None`; `map(f)` runs `f` only on `Ok`, `map_err(f)` only on `Err`. `f` is a closure of one parameter without `?` or `return`, a function name, or a one-field tuple variant (`PreId::Numeric`), as for `Option::map`. `r.map_err(f)?` is `match r { Ok(v) => v, Err(e) => return Err(f(e)) }`: the mapped `Result` is not built.
+On a `Result`, `ok()` is `Some` of the `Ok` value or `None`, `err()` the same of the `Err` value; `map(f)`, `and_then(f)`, and `is_ok_and(p)` run their function only on `Ok`, `map_err(f)`, `or_else(f)`, `unwrap_or_else(f)`, and `is_err_and(p)` only on `Err`; `unwrap_or(d)` and `map_or(d, f)`'s `d` run on both. `is_ok()` and `is_err()` test the side. `f` is a closure of one parameter without `?` or `return`, a function name, or a one-field tuple variant (`PreId::Numeric`), as for `Option::map`. `r.map_err(f)?` is `match r { Ok(v) => v, Err(e) => return Err(f(e)) }`: the mapped `Result` is not built.
 
 ### 7.2 Match guards
 
@@ -268,6 +270,7 @@ Tested with a guard that overflows only where its pattern matched, `_` after a g
 - `position` counts items (chars, not bytes, on `chars()`).
 - `sum` adds from zero left to right with the checked operator, so it panics on overflow where a debug build does; it is refused on floats, whose `Sum` starts from `-0.0`.
 - `find(f)` is the first item `f` takes. `max()` and `min()` order by `cmp` (`Ord.cmp`, or `Ord.cmpStr` by code point on `char`s, strings, and `Uuid`s), `max_by_key(f)` / `min_by_key(f)` by each key's `cmp`, computed once per item in order, and `max_by(f)` / `min_by(f)` by the closure's `Ordering`; of equals, `max` keeps the last and `min` the first, as std folds them. Over `Option` items each is refused (`Option<Option<_>>`).
+- `fold(init, f)` evaluates `init` once the source is made and before any item, then sets the accumulator to `f(acc, x)` for each item in order (`Iter.fold`). The accumulator's type is `init`'s; an unsuffixed number there with no type from the context is refused, as Rust infers its type from `f`.
 - `for (i, x) in ...enumerate()` reads a `usize` counter into `i` and advances it at the top of each pass, so `continue` keeps it right.
 
 Tested on strings of every width, early stops before an overflow, `sum` overflowing either way, and `continue` in an enumerated loop.
@@ -334,7 +337,7 @@ Tested with empty pieces, a non-ASCII separator, a function name and a closure, 
 
 <!-- constrained-by ./02-authoring.md#31-state-is-a-value-sequences-are-rebuilt -->
 
-`xs.iter()` (or `into_iter()`, `chars()`, `bytes()`, `s.split(c)`) through any `.map(f)` and `.filter(p)`, then a consumer (`collect`, `sum`, `count`, `all`, `any`, `position`). Rust's adaptors are lazy: for each item, every stage runs, then the consumer, before the next item. `Iter.map` and `Iter.filter` are generators, so the TS runs in that order too, and a panic in a stage or in `sum`'s addition comes at the same item as in Rust. One stage before `collect` prints as the array method (`xs.map(f)`, `xs.filter(p)`): with nothing else running between the calls, the order of `f`'s calls is the same. `filter`'s predicate takes `&T`; it reads the item, as everything here does.
+`xs.iter()` (or `into_iter()`, `chars()`, `bytes()`, `s.split(c)`) through any `.map(f)` and `.filter(p)`, then a consumer (`collect`, `sum`, `fold`, `count`, `all`, `any`, `position`), or a `for`. Right after the source, before any stage, `.rev()` is a new array of the items reversed (`[...xs].reverse()`, `Array.from(s).reverse()` for `chars()`), and `.zip(b)`, `b` another source or a `Vec`, a new array of pairs as long as the shorter (`Slice.zip`). Neither runs code of the crate, so making the array whole first is not observable; a stage before them (`map(f).rev()`, where Rust runs `f` from the back) is refused. Rust's adaptors are lazy: for each item, every stage runs, then the consumer, before the next item. `Iter.map` and `Iter.filter` are generators, so the TS runs in that order too, and a panic in a stage or in `sum`'s addition comes at the same item as in Rust. One stage before `collect` prints as the array method (`xs.map(f)`, `xs.filter(p)`): with nothing else running between the calls, the order of `f`'s calls is the same. `filter`'s predicate takes `&T`; it reads the item, as everything here does.
 
 ### 7.14 Growing and editing a `Vec`
 
@@ -350,10 +353,27 @@ Tested with empty pieces, a non-ASCII separator, a function name and a closure, 
 - **`while let P = e { body }`** is `loop { match e { P => body, _ => break } }`: `e` is evaluated before every pass, as Rust's desugaring does, and `continue` evaluates it again.
 - **`if let P = e { a } else { b }`** is `match e { P => a, <every other value> => b }`; **`let P = e else { d };`** is `match e { P => <the rest of the block>, <every other value> => d }`, so `P`'s names are bound for the rest and not in `d`, which rustc checks leaves (`return`, `break`, `continue`, a panic). Where `P` is `Some(x)`, `Ok(x)`, or `Err(x)`, it is `let x = match e { .. }`. `P` is any pattern a `match` arm may be that can fail to match; a struct pattern, a type annotation, and a pattern that always matches are refused.
 - **`for i in a..=b`** tests `i <= end`. Rust's `RangeInclusive` stops at `b` without computing `b + 1`, so `u8`'s `0..=255` does not overflow; the TS steps `i` past `b` once, as a JS number or `bigint` the body never sees, so it cannot wrap either. `a > b` runs no pass.
-- **`for i in (a..b).rev()`** starts at `b - 1` and steps down while `i >= a`; `(a..=b).rev()` starts at `b`. `a` and `b` are evaluated once, `a` first, as Rust builds the range before calling `rev`. The value below `a` that ends the loop (`-1` for an unsigned `0`) is never seen by the body. `rev` on anything but a range is refused.
+- **`for i in (a..b).rev()`** starts at `b - 1` and steps down while `i >= a`; `(a..=b).rev()` starts at `b`. `a` and `b` are evaluated once, `a` first, as Rust builds the range before calling `rev`. The value below `a` that ends the loop (`-1` for an unsigned `0`) is never seen by the body. `rev` on a sequence is §7.13's.
 - **`t.N`** reads a tuple's element `N`, as `t[N]`; an index past the tuple is refused.
 
 Tested with `break` values from the arms of a `match` (a `switch` in TS) and from nested loops, a loop left only by `return`, `while let` on a method, a `Result`, and a variant inside `Some`, `..=` and `.rev()` at both ends of `u8`, `i8`, and `u64` (past 2^53), empty ranges, bounds that panic in Rust's order, and `let`-`else` with several names, `mut`, `continue`, and `break` (`loop_value_equivalence.rs`, `if_let_equivalence.rs`), and as statements of the statements generator.
+
+### 7.17 Panics
+
+Each of these panics in Rust, so it throws in TS (`Panic.raise(m)`, a `Panic` as overflow's), with the message Rust's payload holds, which `purecrate-ts test` compares:
+
+- **`panic!()`** is `explicit panic`; **`panic!("..", args)`** the text `format!` makes of the same arguments (§6.8, its rules and refusals).
+- **`unreachable!()`** is `internal error: entered unreachable code`; with a message, that, `: `, and the message.
+- **`assert!(c, "..", args)`** is `if !c { panic!("..", args) }`: the message is built only when `c` is false, as Rust builds it. **`assert!(c)`** panics with `assertion failed: ` and `c` as rustc prints it, which is reproduced for names, literals as written, unary and binary operators, casts to a named type, calls, method calls, fields, indexing, references, and parentheses; any other condition is refused and asks for a message.
+- **`o.unwrap()`** on `None` is ``called `Option::unwrap()` on a `None` value``; **`o.expect(m)`** is `m`, evaluated before the `match`, on `Some` too.
+
+Refused: `Result::unwrap` / `expect` / `unwrap_err` / `expect_err`, `assert_eq!`, and `assert_ne!`, whose messages print a value with `{:?}`, which the output does not reproduce (§6.8); `todo!` and `unimplemented!`. A panic has type `!`. Neither TS nor the generator's flow analysis narrows past one: `Panic.raise` is a property with no written type, which TS does not read as ending control flow, so what each knows after a panic agrees. Statements after a panic in the same block are not printed.
+
+Tested with every message form, a message whose argument overflows only when the assertion fails, conditions of each shape, a panic in a `match` arm, an `if` side, and a loop, and `expect` with a literal, a parameter, and a `format!` (`panics_equivalence.rs`); and as statements and `unwrap` / `expect` of the statements generator.
+
+### 7.18 Reading a `Vec`: `get`, `first`, `last`, `contains`
+
+`xs.get(i)` is the element or `None` at or past the end (`Slice.get`), `xs.first()` is `get(0)`, and `xs.last()` the last element or `None` when empty (`Slice.last`); on a `Vec<Option<T>>` each is refused (`Option<Option<_>>`). A `get` with a range is refused. `xs.contains(&x)` compares each element with `x` as the derived `eq` does (`Slice.contains`, through `Eq.deep`): NaN is not equal to itself and `-0.0` equals `0.0`, as in Rust, where JS `includes` would find NaN. Tested on empty and one-element lists, `usize::MAX` as an index, floats with NaN and `-0.0`, strings, and structs (`std_more_equivalence.rs`).
 
 ## 8. Verification
 

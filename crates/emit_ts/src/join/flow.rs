@@ -772,13 +772,6 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             flow(value, st, cx);
             None
         }
-        // A panic's message runs, then nothing past it.
-        Expr::Call { callee: purecrate_ir::Callee::Panic, args } => {
-            for a in args.iter_mut() {
-                flow(a, st.clone(), cx)?;
-            }
-            None
-        }
         Expr::Break(value) => {
             let st = match value {
                 Some(v) => flow(v, st, cx)?,
