@@ -88,18 +88,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let keyed = matches!(name, "max_by_key" | "min_by_key");
                 let mut key = None;
                 if let Some((param, ty, body)) = pred {
-                    if let Some(written) = &ty {
-                        if self.norm(written) != self.norm(&item) {
-                            self.error(
-                                Reason::TypeMismatch,
-                                format!(
-                                    "`{name}`'s closure takes `{}`, the items are `{}`",
-                                    show(written),
-                                    show(&item)
-                                ),
-                            );
-                            return Some(failed);
-                        }
+                    if !self.param_fits(name, &ty, &item) {
+                        return Some(failed);
                     }
                     let closure = Expr::Closure {
                         params: vec![ClosureParam { name: param, ty: Some(item.clone()) }],
@@ -273,6 +263,21 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
+    /// Whether the type written on the parameter of `stage`'s closure, if
+    /// any, is the items' type, aliases followed; reported when not.
+    fn param_fits(&mut self, stage: &str, written: &Option<Ty>, item: &Ty) -> bool {
+        match written {
+            Some(w) if !self.same(w, item) => {
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("`{stage}`'s closure takes `{}`, the items are `{}`", show(w), show(item)),
+                );
+                false
+            }
+            _ => true,
+        }
+    }
+
     /// `s.split(c).collect()` and `s.split(c).map(f).collect()` into the
     /// `Vec<T>` or `Result<Vec<T>, E>` the context names (a turbofish, a
     /// `let` type, or the return type). The one way to build a `Vec` whose
@@ -359,14 +364,8 @@ impl<'d, 'a> Typer<'d, 'a> {
         let Some((param, written, body)) = self.one_param_fn("map", map) else {
             return Some(failed);
         };
-        if let Some(written) = &written {
-            if self.norm(written) != item {
-                self.error(
-                    Reason::TypeMismatch,
-                    format!("`map`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
-                );
-                return Some(failed);
-            }
+        if !self.param_fits("map", &written, &item) {
+            return Some(failed);
         }
         // A hole is what `f` returns: its `Ok` and `Err` for a `Result`.
         let (elem, err) = if hole(&elem) || err.as_ref().is_some_and(hole) {
@@ -502,14 +501,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             (stage @ ("map" | "filter"), [f]) => {
                 let (source, over, item) = self.sequence(receiver, consumer)?;
                 let (param, written, body) = self.one_param_fn(stage, f)?;
-                if let Some(written) = &written {
-                    if self.norm(written) != self.norm(&item) {
-                        self.error(
-                            Reason::TypeMismatch,
-                            format!("`{stage}`'s closure takes `{}`, the items are `{}`", show(written), show(&item)),
-                        );
-                        return None;
-                    }
+                if !self.param_fits(stage, &written, &item) {
+                    return None;
                 }
                 let ret = if stage == "map" { self.returns_of(&body, &param, &item)? } else { Ty::bool() };
                 let closure = Expr::Closure {

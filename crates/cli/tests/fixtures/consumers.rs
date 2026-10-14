@@ -88,3 +88,14 @@ pub fn pieces(list: &str) -> usize {
 pub fn token_at(list: &str, word: &str) -> Option<usize> {
     list.split(' ').position(|token| token == word)
 }
+
+pub type Id = u32;
+
+/// A closure's parameter written as an alias of the items' type: in a
+/// consumer, in a stage, and in the `map` before `collect`.
+pub fn by_alias(xs: Vec<Id>) -> (bool, Vec<u32>, Vec<u32>) {
+    let any = xs.iter().any(|x: &Id| *x == 7);
+    let kept = xs.iter().filter(|x: &&Id| **x > 2).map(|x| *x).collect::<Vec<u32>>();
+    let bumped = xs.iter().map(|x: &Id| *x + 1).collect::<Vec<u32>>();
+    (any, kept, bumped)
+}

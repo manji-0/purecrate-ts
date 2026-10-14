@@ -41,3 +41,21 @@ fn calling_a_closure_checks_its_signature() {
     assert_rejects("pub fn f(x: i32) -> i32 { let g = |v: i32| v; g(x, x) }", "closure `g` takes 1 argument(s), got 2");
     assert_rejects("pub fn f(x: i32) -> bool { let g = |v: i32| v; g(x) }", "expected `bool`, found `i32`");
 }
+
+#[test]
+fn an_iterator_closure_may_write_its_parameter_through_an_alias() {
+    let alias = "pub type Id = u32;\n";
+    assert_clean(&format!(
+        "{alias}pub fn f(xs: Vec<Id>) -> Vec<u32> {{ xs.iter().map(|x: &Id| *x + 1).collect::<Vec<u32>>() }}"
+    ));
+    assert_clean(&format!("{alias}pub fn f(xs: &[Id]) -> bool {{ xs.iter().any(|x: &Id| *x == 7) }}"));
+    assert_clean(&format!(
+        "{alias}pub fn f(xs: Vec<Id>) -> usize {{ xs.iter().filter(|x: &&Id| **x > 2).map(|x| *x).count() }}"
+    ));
+    assert_rejects(
+        &format!(
+            "{alias}pub fn f(xs: Vec<Id>) -> Vec<u32> {{ xs.iter().map(|x: &u8| u32::from(*x)).collect::<Vec<u32>>() }}"
+        ),
+        "`map`'s closure takes `u8`, the items are `Id`",
+    );
+}

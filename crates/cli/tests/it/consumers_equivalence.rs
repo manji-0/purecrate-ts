@@ -39,6 +39,9 @@ fn generated_consumers_match_rust() {
             cases.push(case!(consumers::total_wide(xs.clone())));
             cases.push(case!(consumers::items(xs.clone())));
         }
+        for xs in [vec![], vec![7u32, 1, 3], vec![2, 9, u32::MAX]] {
+            cases.push(case!(consumers::by_alias(xs)));
+        }
     });
 }
 
