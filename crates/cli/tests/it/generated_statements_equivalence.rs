@@ -47,6 +47,9 @@ struct Body {
     /// The seed, which names the module of associated consts and
     /// functions `paths` reads (`modules`).
     seed: u64,
+    /// `paths`'s own draws, apart from `g`'s, so the statements every
+    /// other seed drew before it was added stay as they were.
+    paths_rng: crate::support::Rng,
     /// Loops around the current statement, for `break` and `continue`,
     /// innermost last: whether each is a `loop` whose `break` carries an
     /// `i32`.
@@ -118,6 +121,9 @@ impl Body {
     }
 
     fn stmt(&mut self, depth: u32) {
+        if self.paths_rng.below(10) == 0 {
+            self.paths();
+        }
         let e = 2;
         let pick = if depth == 0 { self.g.rng.pick(&[0, 1, 2, 3, 13, 13, 14]) } else { self.g.rng.below(25) };
         match pick {
@@ -214,12 +220,11 @@ impl Body {
             19 => self.branch_value(depth),
             20 => self.closure_stmt(e),
             12 => self.panics(e),
-            22..=24 => match self.g.rng.below(6) {
+            22..=24 => match self.g.rng.below(5) {
                 0 => self.loop_value(depth),
                 1 => self.while_let(depth),
                 2 => self.let_else(e),
                 3 => self.if_let(depth),
-                4 => self.paths(e),
                 _ => self.tuple_field(e),
             },
             21 => {
@@ -666,13 +671,22 @@ impl Body {
     }
 
     /// An associated const, a function, or a variant of `modules`'s
-    /// module, named through `crate::`, `self::`, or the module, bound to
-    /// a new `i32`.
-    fn paths(&mut self, e: u32) {
+    /// module, named through `crate::`, `self::`, or the module, taken
+    /// into `h0`. Drawn from `paths_rng` alone; the argument is an `i32` in
+    /// scope or a literal.
+    fn paths(&mut self) {
         let s = self.seed;
-        let x = self.g.int(e);
-        let module = self.g.rng.pick(&["crate::", "self::", ""]);
-        let read = match self.g.rng.below(6) {
+        let r = &mut self.paths_rng;
+        let ints: Vec<&String> = self.g.scope.iter().filter(|(_, ty, _)| *ty == Ty::Int).map(|(v, _, _)| v).collect();
+        let x = match r.below(ints.len() as u64 + 2) as usize {
+            i if i < ints.len() => ints[i].clone(),
+            i if i == ints.len() => {
+                format!("{}i32", r.pick(&[0i64, 1, -1, 1000, -1000, 2_147_483_647, -2_147_483_648]))
+            }
+            _ => format!("{}i32", r.below(4001) as i64 - 2000),
+        };
+        let module = r.pick(&["crate::", "self::", ""]);
+        let read = match r.below(6) {
             0 => format!("{module}s{s}::K{s}::A"),
             1 => format!("{module}s{s}::K{s}::B"),
             2 => format!("{module}s{s}::K{s}::get()"),
@@ -680,9 +694,7 @@ impl Body {
             4 => format!("{module}s{s}::inner{s}::more{s}({x})"),
             _ => format!("if matches!({module}s{s}::pick{s}({x}), {module}s{s}::E{s}::A) {{ 1i32 }} else {{ 2i32 }}"),
         };
-        let v = self.name(Ty::Int);
-        self.line(&format!("let {v}: i32 = {read};"));
-        self.g.scope.push((v, Ty::Int, false));
+        self.line(&format!("h0 = h0.wrapping_mul(31).wrapping_add({read});"));
     }
 
     /// A tuple bound whole, read by `.0` and `.1`.
@@ -741,7 +753,14 @@ fn modules(seed: u64) -> String {
 
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
     source.push_str(&modules(seed));
-    let mut body = Body { g: Gen::new(seed ^ 0x5717), seed, loops: Vec::new(), out: String::new(), indent: 1 };
+    let mut body = Body {
+        g: Gen::new(seed ^ 0x5717),
+        seed,
+        paths_rng: crate::support::Rng::new(seed ^ 0x9a7f),
+        loops: Vec::new(),
+        out: String::new(),
+        indent: 1,
+    };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
         body.g.ret = ret;
