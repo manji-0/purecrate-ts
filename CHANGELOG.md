@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, and `to_string`** (design/01 §7.21). Case mapping is JS's `toLowerCase` / `toUpperCase`, which agree with Rust's full Unicode mappings (final sigma, `ß`, `İ`, ligatures) on every code point, Rust 1.98.1 against Node 24.20.0; the result depends on each side's Unicode version. `split(p)` takes a `&str` or `String` separator as well as a `char` or a closure: a non-empty literal prints as JS `split`, anything else through `Str.splitStr`, which splits an empty separator at each char boundary with an empty piece at each end, as Rust does. `split_whitespace()` splits on Rust's White_Space (`Str.splitWhitespace`, not JS `\s`, which holds U+FEFF and lacks U+0085), and `lines()` after each `\n` with one `\r` before it dropped (`Str.lines`); both stand where `split(c)` does: a `for`, a consumer, `collect`, through `map` / `filter`. `xs.join(sep)` on a `Vec` or slice of `String` / `&str` prints its separator always; `s.repeat(n)` is JS `repeat`, its failure past what memory holds not matched. `x.to_string()` is `format!("{}", x)` on what `format!` prints, and the text itself on a `String` or `&str`.
+
+### Refused
+
+- `s.split("")`, whose empty pieces at each end JS does not give; `s.chars()` is the alternative. `join` on items other than text or with a `char` separator. `to_string` on a float, as `format!` refuses one.
+
+Tested against Rust on final sigma, `ß`, `İ`, and ligatures, empty and multi-byte separators, every White_Space code point beside U+FEFF, U+180E, and U+200B, `\r` and `\n` in each order, empty lists and items, and every integer type at its bounds (`strings_more_equivalence.rs`); the refusals in `check`'s `strings_more.rs`; and as shapes of the strings generator, seeds 1 to 120. `corpus/patterns.rs`'s `p04_to_string`, `p16_to_lowercase`, `p46_split_whitespace`, `p47_lines`, `p48_join`, `p49_repeat`, and `q30_split_str` are accepted.
+
 ## 0.20.1 — 2026-10-15
 
 Five fixes, found while the source was read for code written twice: each place now states its rule once (about 1,000 lines fewer), and where two copies had drifted apart, the fix is the one copy. The output of every example and earlier fixture is byte for byte the same; only the runtime copies in `examples/` change, where two helpers are now one.

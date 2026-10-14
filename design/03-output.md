@@ -149,6 +149,11 @@ export const Meters = {
 | `&xs[a..b]` on a `Vec` or slice | `Slice.range(xs, a, b)` (`null` for an open end), with Rust's range checks |
 | `s.strip_prefix(p)` / `strip_suffix` | `Str.stripPrefix(s, p)` / `Str.stripSuffix` |
 | `s.split_once(p)` | `Str.splitOnce(s, p)` (`p` a `char` or `&str`; `None` is `null`) |
+| `s.to_lowercase()` / `to_uppercase()` | `s.toLowerCase()` / `s.toUpperCase()` |
+| `s.split(p)` with a `&str` | `s.split(", ")` for a non-empty literal; else `Str.splitStr(s, p)`, which splits an empty `p` at each char boundary with an empty piece at each end, as Rust does |
+| `s.split_whitespace()`, `s.lines()` | `Str.splitWhitespace(s)` (runs of Rust's whitespace, empty pieces dropped), `Str.lines(s)` (after each `\n`, one `\r` before it dropped, no line after a final `\n`); new arrays |
+| `xs.join(sep)`, `s.repeat(n)` | `xs.join(sep)`, the separator always written; `s.repeat(n)` |
+| `x.to_string()` | what `format!("{}", x)` prints (`` `${x}` ``); a `String` or `&str` as itself |
 | `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
@@ -167,7 +172,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `unwrap_or`, `ok_or`, `map`, `and_then`, `filter`, `map_or`, `unwrap_or_else`, … | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
 | `panic!`, `unreachable!`, `assert!`, `o.unwrap()`, `o.expect(m)` | `Panic.raise("..")` (a template literal for a formatted message); `assert!` as `if (!c) Panic.raise(..)`; `unwrap` as `o ?? Panic.raise(..)` |
 | `xs.get(i)`, `first()`, `last()`, `contains(&x)` | `Slice.get(xs, i)`, `Slice.get(xs, 0)`, `Slice.last(xs)`, `Slice.contains(xs, x)` |
-| `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
+| `for` over a `Vec`, `chars()`, `bytes()`, `split(p)`, `split_whitespace()`, or `lines()` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
 | `all`, `any`, `position`, `count`, `sum`, `fold` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)` |
 | `.rev()`, `.zip(ys)` right after the source | `Slice.rev(xs)`, `Slice.zip(xs, ys)`, new arrays |
