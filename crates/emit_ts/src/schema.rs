@@ -978,6 +978,8 @@ fn never(schema: WireSchema) -> Js {
 
 fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
     match ty {
+        // WIRE-TODO(0.20.0): a generic type's schema.
+        Ty::App { .. } | Ty::Param(_) => never(schema),
         // An object read into a `Map`, an array into a `Set` (the adapters).
         Ty::Map { value, .. } => call_path("btreeMap", vec![schema_ty(schema, value)]),
         Ty::Set(_) => raw("btreeSet"),
@@ -1175,6 +1177,8 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         call(Js::Paren(Box::new(arrow("()", Some("never"), body))), Vec::new())
     };
     match ty {
+        // WIRE-TODO(0.20.0): a generic type's writer.
+        Ty::App { .. } | Ty::Param(_) => throws("a generic type"),
         // An object in key order, as serde_json writes a `BTreeMap`.
         Ty::Map { value: inner, .. } => {
             let v = format!("v{depth}");

@@ -9,6 +9,7 @@ fn file<'a>(pkg: &'a Package, stem: &str) -> &'a str {
 fn erased_wrappers_are_named_in_types_only() {
     use purecrate_ir::{Fn, Item, Param, Vis, Wrapper};
     let share = Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("share"),
         owner: None,
@@ -96,6 +97,7 @@ export const step = (state: State, event: Event): State => {
 fn cmd_crate(body: Expr) -> Crate {
     use purecrate_ir::{Name, Param, Variant, Vis};
     let cmd = Item::Enum(Enum {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("Cmd"),
         variants: vec![
@@ -126,6 +128,7 @@ fn cmd_crate(body: Expr) -> Crate {
         doc: None,
     });
     let run = Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("run"),
         owner: None,
@@ -191,6 +194,7 @@ fn object_literal_arrow_body_is_parenthesized() {
     use purecrate_ir::{Name, Param, Vis};
     let mut krate = counter_example();
     krate.items.push(Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("zero"),
         owner: Some(Name::new("State")),
@@ -213,6 +217,7 @@ fn a_helper_with_one_user_file_is_printed_there() {
     use purecrate_ir::{Param, Vis};
     let helper = |name: &str, body: Expr| {
         Item::Fn(Fn {
+            generics: Vec::new(),
             vis: Vis::Internal,
             name: Name::new(name),
             owner: None,
@@ -249,6 +254,7 @@ fn imports_follow_body_and_nested_types() {
         cmd_crate(cmd_match(Expr::Call { callee: Callee::Fn(Name::new("next")), args: vec![Expr::var("cmd")] }));
     // `pub`, so it keeps its file (`homes`).
     krate.items.push(Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("next"),
         owner: None,
@@ -258,6 +264,7 @@ fn imports_follow_body_and_nested_types() {
         doc: None,
     }));
     krate.items.push(Item::Struct(Struct {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("Log"),
         fields: vec![purecrate_ir::Field {
@@ -289,6 +296,7 @@ fn enum_methods_join_the_companion() {
     use purecrate_ir::{Param, Vis};
     let mut krate = cmd_crate(Expr::int(0));
     krate.items.push(Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("weight"),
         owner: Some(Name::new("Cmd")),
@@ -325,6 +333,7 @@ fn index_exports_each_name_once() {
 fn result_is_imported_once() {
     use purecrate_ir::{Callee, Name, Param, Vis};
     let parse = Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("parse"),
         owner: None,
@@ -342,6 +351,7 @@ fn result_is_imported_once() {
 fn f64_fn(body: Expr) -> String {
     use purecrate_ir::{Name, Param, Prim, Vis};
     let f = Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("f"),
         owner: None,
@@ -374,6 +384,7 @@ fn nested_operators_keep_their_grouping() {
 fn bool_fn(body: Expr) -> String {
     use purecrate_ir::{Name, Param, Prim, Vis};
     let f = Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("f"),
         owner: None,

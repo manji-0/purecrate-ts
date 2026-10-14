@@ -194,6 +194,36 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (args, t) = match callee {
             Callee::Local(_) => (typed_args(self, Vec::new()), None),
+            Callee::Fn(n) if self.defs.free_fns.get(n.as_str()).is_some_and(|f| !f.generics.is_empty()) => {
+                let f = self.defs.free_fns[n.as_str()];
+                let (params, ret) = sig(f);
+                let what = format!("`{}`", n.as_str());
+                self.generic_args(
+                    &what,
+                    &f.generics,
+                    Vec::new(),
+                    &params,
+                    args,
+                    &ret.unwrap_or(Ty::Prim(Prim::Unit)),
+                    want,
+                )
+            }
+            Callee::Method { ty, name }
+                if self.defs.methods.get(&(ty.as_str(), name.as_str())).is_some_and(|f| !f.generics.is_empty()) =>
+            {
+                let f = self.defs.methods[&(ty.as_str(), name.as_str())];
+                let (params, ret) = sig(f);
+                let what = format!("`{}::{}`", ty.as_str(), name.as_str());
+                self.generic_args(
+                    &what,
+                    &f.generics,
+                    Vec::new(),
+                    &params,
+                    args,
+                    &ret.unwrap_or(Ty::Prim(Prim::Unit)),
+                    want,
+                )
+            }
             Callee::Fn(n) => {
                 let sig = self.defs.free_fns.get(n.as_str()).map(|f| sig(f));
                 let (params, ret) = sig.unwrap_or_default();
@@ -546,6 +576,106 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: callee.clone(), args };
         (e, self.expect(want, t))
+    }
+
+    /// A struct's or variant's fields typed against their declared types,
+    /// and the value's type: `Named`, or for a generic one an `App` whose
+    /// arguments come from `want` or else from the fields.
+    pub(super) fn construct(
+        &mut self,
+        ty: &Name,
+        variant: Option<&str>,
+        fields: &Fields,
+        want: Option<&Ty>,
+    ) -> (Fields, Option<Ty>) {
+        let params = self
+            .defs
+            .structs
+            .get(ty.as_str())
+            .map(|s| s.generics.clone())
+            .or_else(|| self.defs.enums.get(ty.as_str()).map(|e| e.generics.clone()))
+            .unwrap_or_default();
+        if params.is_empty() {
+            return (self.construct_fields(ty.as_str(), variant, fields), Some(Ty::Named(ty.clone())));
+        }
+        let mut binds = Vec::new();
+        if let Some(w) = want {
+            self.unify(
+                &Ty::App { name: ty.clone(), args: params.iter().map(|p| Ty::Param(p.clone())).collect() },
+                w,
+                &params,
+                &mut binds,
+            );
+        }
+        let declared = self.declared_fields(ty.as_str(), variant);
+        let typed_field = |me: &mut Self, decl: Option<&Ty>, x: &Expr, binds: &mut Vec<(Name, Ty)>| -> Expr {
+            let d = decl.map(|d| d.subst(binds));
+            let hint = d.filter(|d| !Self::open(d, &params));
+            let (e, t) = me.expr(x, hint.as_ref());
+            if let (None, Some(t), Some(d)) = (&hint, &t, decl) {
+                me.unify(d, t, &params, binds);
+            }
+            e
+        };
+        let fields = match fields {
+            Fields::Unit => Fields::Unit,
+            Fields::Positional(xs) => Fields::Positional(
+                xs.iter()
+                    .enumerate()
+                    .map(|(i, x)| typed_field(self, declared.get(i).map(|(_, t)| t), x, &mut binds))
+                    .collect(),
+            ),
+            Fields::Named(pairs) => Fields::Named(
+                pairs
+                    .iter()
+                    .map(|(n, x)| {
+                        let decl = declared.iter().find(|(d, _)| d.as_deref() == Some(n.as_str())).map(|(_, t)| t);
+                        (n.clone(), typed_field(self, decl, x, &mut binds))
+                    })
+                    .collect(),
+            ),
+        };
+        if let Some(p) = params.iter().find(|p| !binds.iter().any(|(b, _)| b == *p)) {
+            self.error(
+                Reason::NeedsAnnotation,
+                format!(
+                    "the type `{}` of this `{}` is not known here; annotate the binding it goes to",
+                    p.as_str(),
+                    ty.as_str()
+                ),
+            );
+            return (fields, None);
+        }
+        if !self.instance_ok(&binds, &format!("`{}`", ty.as_str())) {
+            return (fields, None);
+        }
+        (fields, Some(self.applied_ty(ty, &params, &binds)))
+    }
+
+    /// The declared fields of a struct, or of a variant: each name (none in
+    /// a tuple variant) and type, its parameters unbound.
+    fn declared_fields(&self, ty: &str, variant: Option<&str>) -> Vec<(Option<String>, Ty)> {
+        match variant {
+            None => self
+                .defs
+                .structs
+                .get(ty)
+                .map(|s| s.fields.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect())
+                .unwrap_or_default(),
+            Some(v) => match self
+                .defs
+                .enums
+                .get(ty)
+                .and_then(|e| e.variants.iter().find(|x| x.name.as_str() == v))
+                .map(|x| &x.fields)
+            {
+                Some(VariantFields::Tuple(tys)) => tys.iter().map(|t| (None, t.clone())).collect(),
+                Some(VariantFields::Struct(fs)) => {
+                    fs.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect()
+                }
+                _ => Vec::new(),
+            },
+        }
     }
 
     pub(super) fn construct_fields(&mut self, ty: &str, variant: Option<&str>, fields: &Fields) -> Fields {

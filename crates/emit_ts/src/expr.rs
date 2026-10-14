@@ -27,9 +27,16 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
-    crate::scoped(&crate::PUSHED, pushed, || {
+    // `<T>(x: T): T => ..`: a generic function's type parameters.
+    let generics = if f.generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", f.generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
+    };
+    let body = crate::scoped(&crate::PUSHED, pushed, || {
         crate::scoped(&crate::TESTED, tested(&f.body), || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
-    })
+    });
+    format!("{generics}{body}")
 }
 
 /// The places `body` tests with a `match` (a tuple's elements each), the
@@ -344,6 +351,10 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
         Ty::Vec(inner) => format!("ReadonlyArray<{}>", emit_ty(inner)),
         Ty::Map { key, value } => format!("ReadonlyMap<{}, {}>", emit_ty(key), emit_ty(value)),
         Ty::Set(key) => format!("ReadonlySet<{}>", emit_ty(key)),
+        Ty::App { name, args } => {
+            format!("{}<{}>", name.as_str(), args.iter().map(emit_ty).collect::<Vec<_>>().join(", "))
+        }
+        Ty::Param(n) => n.as_str().to_string(),
         Ty::Tuple(elems) => {
             let inner = elems.iter().map(emit_ty).collect::<Vec<_>>().join(", ");
             format!("readonly [{inner}]")

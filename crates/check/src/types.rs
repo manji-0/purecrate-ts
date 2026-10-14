@@ -21,6 +21,7 @@ use crate::defs::Defs;
 mod access;
 mod calls;
 mod format;
+mod generic;
 mod iter;
 mod methods;
 mod ops;
@@ -360,17 +361,17 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
             Expr::Closure { params, ret, body } => self.closure(params, ret.as_ref(), body, want),
             Expr::Construct { ty, variant, fields, base } => {
-                let fields = self.construct_fields(ty.as_str(), variant.as_ref().map(|v| v.as_str()), fields);
-                let want_ty = Ty::Named(ty.clone());
-                let base = match base {
-                    Some(b) => {
-                        let (b, _) = self.expr(b, Some(&want_ty));
-                        Some(Box::new(b))
-                    }
-                    None => None,
+                // `S { a, ..base }` of a generic `S`: the base gives its type.
+                let base_typed = base.as_ref().map(|b| self.expr(b, want));
+                let hint = base_typed.as_ref().and_then(|(_, t)| t.clone()).or_else(|| want.cloned());
+                let (fields, t) = self.construct(ty, variant.as_ref().map(|v| v.as_str()), fields, hint.as_ref());
+                let e = Expr::Construct {
+                    ty: ty.clone(),
+                    variant: variant.clone(),
+                    fields,
+                    base: base_typed.map(|(b, _)| Box::new(b)),
                 };
-                let e = Expr::Construct { ty: ty.clone(), variant: variant.clone(), fields, base };
-                (e, self.expect(want, Some(want_ty)))
+                (e, self.expect(want, t))
             }
             Expr::Index { base, index } => {
                 let (base, bt) = self.expr(base, None);
@@ -398,14 +399,18 @@ impl<'d, 'a> Typer<'d, 'a> {
                     let e = Expr::Field { base: Box::new(base), name: Name::new(format!("[{i}]")) };
                     return (e, self.expect(want, Some(t)));
                 }
-                let t = bt.as_ref().and_then(|bt| match self.norm(bt) {
-                    Ty::Named(s) => self
-                        .defs
-                        .structs
-                        .get(s.as_str())
-                        .and_then(|st| st.fields.iter().find(|f| f.name == *name))
-                        .map(|f| f.ty.clone()),
-                    _ => None,
+                let t = bt.as_ref().and_then(|bt| {
+                    let bt = self.norm(bt);
+                    let binds = self.bindings_of(&bt);
+                    match bt.applied() {
+                        Some((s, _)) => self
+                            .defs
+                            .structs
+                            .get(s.as_str())
+                            .and_then(|st| st.fields.iter().find(|f| f.name == *name))
+                            .map(|f| f.ty.subst(&binds)),
+                        None => None,
+                    }
                 });
                 if let (None, Some(bt)) = (&t, &bt) {
                     if name.as_str().parse::<usize>().is_ok() {
@@ -534,6 +539,10 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Vec(t) => format!("Vec<{}>", show(t)),
         Ty::Map { key, value } => format!("BTreeMap<{}, {}>", show(key), show(value)),
         Ty::Set(t) => format!("BTreeSet<{}>", show(t)),
+        Ty::App { name, args } => {
+            format!("{}<{}>", name.as_str(), args.iter().map(show).collect::<Vec<_>>().join(", "))
+        }
+        Ty::Param(n) => n.as_str().to_string(),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(show).collect::<Vec<_>>().join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
         Ty::Fn { params, ret } => {

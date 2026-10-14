@@ -56,7 +56,7 @@ pub fn plan(krate: &Crate, spans: &[(usize, purecrate_syntax::LineCol)]) -> (Vec
         if f.vis != Vis::Pub || !owner_is_public(krate, f) {
             continue;
         }
-        let name = rust_name(f);
+        let name = rust_name(krate, f);
         let why = if f.owner.is_none() && f.name.as_str() == "main" {
             Some("`main` is the crate's entry point".to_string())
         } else if super::printers::ts_printer(krate, &f.ret).is_none() {
@@ -95,10 +95,32 @@ fn ts_key(f: &Fn) -> String {
     }
 }
 
-fn rust_name(f: &Fn) -> String {
+/// The function as the harness calls it: a generic one at `i32` for each
+/// type parameter (`Page::<i32>::len`, `first::<i32>`), which every bound
+/// the subset takes holds of.
+fn rust_name(krate: &Crate, f: &Fn) -> String {
+    let at = |n: usize| if n == 0 { String::new() } else { format!("::<{}>", vec!["i32"; n].join(", ")) };
     match &f.owner {
-        Some(owner) => format!("{}::{}", owner.as_str(), f.name.as_str()),
-        None => f.name.as_str().to_string(),
+        Some(owner) => {
+            let outer = krate
+                .items
+                .iter()
+                .find(|i| i.name() == owner)
+                .map(|i| match i {
+                    Item::Struct(s) => s.generics.len(),
+                    Item::Enum(e) => e.generics.len(),
+                    _ => 0,
+                })
+                .unwrap_or(0);
+            format!(
+                "{}{}::{}{}",
+                owner.as_str(),
+                at(outer),
+                f.name.as_str(),
+                at(f.generics.len() - outer.min(f.generics.len()))
+            )
+        }
+        None => format!("{}{}", f.name.as_str(), at(f.generics.len())),
     }
 }
 
@@ -110,6 +132,11 @@ fn ty_text(ty: &Ty) -> String {
         Ty::Vec(t) => format!("Vec<{}>", ty_text(t)),
         Ty::Map { key, value } => format!("BTreeMap<{}, {}>", ty_text(key), ty_text(value)),
         Ty::Set(t) => format!("BTreeSet<{}>", ty_text(t)),
+        Ty::App { name, args } => {
+            format!("{}<{}>", name.as_str(), args.iter().map(ty_text).collect::<Vec<_>>().join(", "))
+        }
+        // A generic function is tested at `i32` (`instantiate`).
+        Ty::Param(_) => "i32".to_string(),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(ty_text).collect::<Vec<_>>().join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
         Ty::Fn { .. } => "a closure".to_string(),
@@ -173,6 +200,8 @@ impl<'a> Makeable<'a> {
             Ty::Prim(_) => true,
             Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => self.can(t),
             Ty::Map { key, value } => self.can(key) && self.can(value),
+            Ty::Param(_) => true,
+            Ty::App { name, args } => self.named.contains(name.as_str()) && args.iter().all(|t| self.can(t)),
             Ty::Result { ok, err } => self.can(ok) && self.can(err),
             Ty::Tuple(ts) => (1..=5).contains(&ts.len()) && ts.iter().all(|t| self.can(t)),
             Ty::Named(n) => match self.krate.items.iter().find(|i| i.name() == n) {
@@ -340,7 +369,10 @@ fn rust_ty(ty: &Ty) -> Option<String> {
         Ty::Result { ok, err } => format!("Result<{}, {}>", rust_ty(ok)?, rust_ty(err)?),
         Ty::Tuple(ts) => format!("({},)", ts.iter().map(rust_ty).collect::<Option<Vec<_>>>()?.join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
-        Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => return None,
+        Ty::Param(_) => "i32".to_string(),
+        Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::App { .. } | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => {
+            return None
+        }
     })
 }
 
@@ -375,7 +407,7 @@ fn show_struct(st: &Struct) -> String {
             format!("format!(\"{name} {{{{ {pattern} }}}}\", {args})")
         }
     };
-    show_impl(name, &body)
+    show_impl(name, &st.generics, &body)
 }
 
 fn show_enum(en: &Enum) -> String {
@@ -406,22 +438,34 @@ fn show_enum(en: &Enum) -> String {
         };
         arms.push_str(&format!("            {arm}\n"));
     }
-    show_impl(name, &format!("match self {{\n{arms}        }}"))
+    show_impl(name, &en.generics, &format!("match self {{\n{arms}        }}"))
 }
 
 fn binds(n: usize) -> String {
     (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>().join(", ")
 }
 
-fn show_impl(name: &str, body: &str) -> String {
+/// `impl<T: Bound> ... for Name<T>`'s two halves, or the bare name.
+fn generic_head(name: &str, generics: &[purecrate_ir::Name], bound: &str) -> (String, String) {
+    if generics.is_empty() {
+        return (String::new(), name.to_string());
+    }
+    let params = generics.iter().map(|g| format!("{}: {bound}", g.as_str())).collect::<Vec<_>>().join(", ");
+    let args = generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", ");
+    (format!("<{params}>"), format!("{name}<{args}>"))
+}
+
+fn show_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
+    let (head, ty) = generic_head(name, generics, "crate::__purecrate::Show");
     format!(
-        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl crate::__purecrate::Show for {name} {{\n    fn show(&self) -> String {{\n        {body}\n    }}\n}}\n"
+        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl{head} crate::__purecrate::Show for {ty} {{\n    fn show(&self) -> String {{\n        {body}\n    }}\n}}\n"
     )
 }
 
-fn arb_impl(name: &str, body: &str) -> String {
+fn arb_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
+    let (head, ty) = generic_head(name, generics, "crate::__purecrate::Arb");
     format!(
-        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl crate::__purecrate::Arb for {name} {{\n    fn arb(__r: &mut crate::__purecrate::Rng) -> Option<(Self, String)> {{\n        __r.nest(|__r| {{\n{body}        }})\n    }}\n}}\n"
+        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl{head} crate::__purecrate::Arb for {ty} {{\n    fn arb(__r: &mut crate::__purecrate::Rng) -> Option<(Self, String)> {{\n        __r.nest(|__r| {{\n{body}        }})\n    }}\n}}\n"
     )
 }
 
@@ -444,7 +488,7 @@ fn arb_open(st: &Struct) -> String {
             )
         }
     };
-    arb_impl(name, &body)
+    arb_impl(name, &st.generics, &body)
 }
 
 /// Up to 16 tries: a constructor drawn, its arguments drawn, and the
@@ -457,7 +501,7 @@ fn arb_closed(krate: &Crate, make: &Makeable<'_>, st: &Struct) -> String {
     for (k, f) in ways.iter().enumerate() {
         let n = f.params.len();
         let (lets, js) = draw(&annotations(f), "                        ");
-        let call = format!("{}({})", rust_name(f), args(n));
+        let call = format!("{}({})", rust_name(krate, f), args(n));
         let ts = ts_key(f);
         let (unwrap, wrap) = match gives(st, &f.ret).expect("a producer") {
             Gives::Plain => ("Some(__v)", "{}"),
@@ -473,7 +517,7 @@ fn arb_closed(krate: &Crate, make: &Makeable<'_>, st: &Struct) -> String {
         "            for _ in 0..16 {{\n                let made = match __r.below({}) {{\n{arms}                    _ => None,\n                }};\n                if made.is_some() {{\n                    return made;\n                }}\n            }}\n            None\n",
         ways.len()
     );
-    arb_impl(name, &body)
+    arb_impl(name, &st.generics, &body)
 }
 
 /// A variant drawn, up to 8 times until its fields can be.
@@ -517,7 +561,7 @@ fn arb_enum(make: &Makeable<'_>, en: &Enum) -> String {
         "            for _ in 0..8 {{\n                let made = match __r.below({}) {{\n{arms}                    _ => None,\n                }};\n                if made.is_some() {{\n                    return made;\n                }}\n            }}\n            None\n",
         ways.len()
     );
-    arb_impl(name, &body)
+    arb_impl(name, &en.generics, &body)
 }
 
 /// What the crate itself spells, drawn from more often than the fixed

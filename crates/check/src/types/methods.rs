@@ -303,12 +303,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
-        let owner = rt.as_ref().and_then(|t| match self.norm(t) {
-            Ty::Named(n) => {
+        let owner = rt.as_ref().and_then(|t| match self.norm(t).applied() {
+            Some((n, _)) => {
                 let params = self.defs.methods.get(&(n.as_str(), name.as_str())).map(|f| f.params.len());
-                params.map(|p| (n, p))
+                params.map(|p| (n.clone(), p))
             }
-            _ => None,
+            None => None,
         });
         match (owner, rt) {
             (Some((ty, params)), Some(rt)) => {
@@ -324,8 +324,33 @@ impl<'d, 'a> Typer<'d, 'a> {
                         ),
                     );
                 }
-                let (param_tys, ret) =
-                    self.defs.methods.get(&(ty.as_str(), name.as_str())).map(|f| sig(f)).unwrap_or_default();
+                let f = self.defs.methods[&(ty.as_str(), name.as_str())];
+                if !f.generics.is_empty() {
+                    // `impl<T> Page<T>`: the receiver binds the impl's
+                    // parameters, the arguments the method's own.
+                    let (param_tys, ret) = sig(f);
+                    let mut binds = Vec::new();
+                    if let Some(first) = param_tys.first() {
+                        self.unify(first, &rt, &f.generics, &mut binds);
+                    }
+                    let what = format!("`{}.{}`", ty.as_str(), name.as_str());
+                    let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
+                    let (rest, t) = self.generic_args(
+                        &what,
+                        &f.generics,
+                        binds,
+                        param_tys.get(1..).unwrap_or(&[]),
+                        args,
+                        &ret,
+                        want,
+                    );
+                    let e = Expr::Call {
+                        callee: Callee::Method { ty, name: name.clone() },
+                        args: std::iter::once(recv).chain(rest).collect(),
+                    };
+                    return (e, self.expect(want, t));
+                }
+                let (param_tys, ret) = sig(f);
                 self.expect(param_tys.first(), Some(rt));
                 let mut typed = vec![recv];
                 for (a, p) in args.iter().zip(param_tys.iter().skip(1).map(Some).chain(std::iter::repeat(None))) {

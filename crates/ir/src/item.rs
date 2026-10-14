@@ -103,6 +103,8 @@ impl Serde {
 pub struct Struct {
     pub vis: Vis,
     pub name: Name,
+    /// Type parameters (`Page<T>`), each `Ty::Param` in the fields.
+    pub generics: Vec<Name>,
     pub fields: Vec<Field>,
     /// Some field is not `pub`. Outside the crate Rust builds the value only
     /// through the crate's functions, so the TS type is branded and its
@@ -130,6 +132,8 @@ impl Struct {
 pub struct Enum {
     pub vis: Vis,
     pub name: Name,
+    /// Type parameters, each `Ty::Param` in the variants.
+    pub generics: Vec<Name>,
     pub variants: Vec<Variant>,
     /// `#[repr(u8)]` and the like: the type of the discriminants, `isize`
     /// without one (range checked as `i64`).
@@ -160,6 +164,7 @@ impl Enum {
             wire: None,
         };
         Enum {
+            generics: Vec::new(),
             vis,
             name: Name::new(ORDERING),
             variants: vec![variant("Less", -1), variant("Equal", 0), variant("Greater", 1)],
@@ -212,6 +217,9 @@ pub struct Fn {
     pub vis: Vis,
     pub name: Name,
     pub owner: Option<Name>,
+    /// Type parameters: the owner's (`impl<T> Page<T>`), then the function's
+    /// own, each `Ty::Param` in the signature and body.
+    pub generics: Vec<Name>,
     pub params: Vec<Param>,
     pub ret: Ty,
     pub body: Expr,

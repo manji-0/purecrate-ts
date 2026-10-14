@@ -65,17 +65,46 @@ pub(crate) fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {
         .collect()
 }
 
+/// `Page<T>` where a generic type is declared, `Page` otherwise.
+fn declared(name: &str, generics: &[Name]) -> String {
+    if generics.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}<{}>", generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
+    }
+}
+
+/// A constructor's type parameters and the type it gives: the parameters
+/// its fields name, the others `never` (`Tree.Leaf(): Tree<never>`, which
+/// any `Tree<T>` takes, its fields being read only).
+fn ctor_head(name: &str, generics: &[Name], fields: &[&Ty]) -> (String, String) {
+    if generics.is_empty() {
+        return (String::new(), name.to_string());
+    }
+    let used: Vec<&Name> =
+        generics.iter().filter(|g| fields.iter().any(|t| t.any(&|x| matches!(x, Ty::Param(p) if p == *g)))).collect();
+    let head = if used.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", used.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
+    };
+    let args =
+        generics.iter().map(|g| if used.contains(&g) { g.as_str() } else { "never" }).collect::<Vec<_>>().join(", ");
+    (head, format!("{name}<{args}>"))
+}
+
 pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
     let name = en.name.as_str();
+    let typed = declared(name, &en.generics);
     let mut out = jsdoc(&en.doc, "");
     // On one line where it fits, else a variant per line, as oxfmt prints it.
     let members: Vec<String> = en.variants.iter().map(variant_type).collect();
-    let one = format!("export type {name} = {};", members.join(" | "));
+    let one = format!("export type {typed} = {};", members.join(" | "));
     if one.len() <= crate::WIDTH {
         out.push_str(&one);
         out.push('\n');
     } else {
-        out.push_str(&format!("export type {name} ="));
+        out.push_str(&format!("export type {typed} ="));
         for m in &members {
             out.push_str(&format!("\n  | {m}"));
         }
@@ -86,7 +115,7 @@ pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
     for v in &en.variants {
         out.push_str(&jsdoc(&v.doc, "  "));
         out.push_str(&format!("  {}: ", v.name.as_str()));
-        out.push_str(&variant_ctor(name, v));
+        out.push_str(&variant_ctor(name, &en.generics, v));
         out.push_str(",\n");
     }
     out.push_str(&companion_methods(krate, name));
@@ -114,9 +143,16 @@ pub(crate) fn variant_type(v: &purecrate_ir::Variant) -> String {
     }
 }
 
-pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
+pub(crate) fn variant_ctor(name: &str, generics: &[Name], v: &purecrate_ir::Variant) -> String {
     let kind = v.name.as_str();
-    match &v.fields {
+    let tys: Vec<&Ty> = match &v.fields {
+        VariantFields::Unit => Vec::new(),
+        VariantFields::Tuple(ts) => ts.iter().collect(),
+        VariantFields::Struct(fs) => fs.iter().map(|f| &f.ty).collect(),
+    };
+    let (head, ty) = ctor_head(name, generics, &tys);
+    let ty = ty.as_str();
+    let ctor = match &v.fields {
         VariantFields::Unit => format!("(): {ty} => ({{ kind: \"{kind}\" }})"),
         VariantFields::Tuple(elems) if elems.len() == 1 => {
             format!("(value: {}): {ty} => ({{ kind: \"{kind}\", value }})", emit_ty(&elems[0]))
@@ -140,7 +176,8 @@ pub(crate) fn variant_ctor(ty: &str, v: &purecrate_ir::Variant) -> String {
                 assigns = assigns.join(", ")
             )
         }
-    }
+    };
+    format!("{head}{ctor}")
 }
 
 pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
@@ -162,9 +199,9 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     // A struct with no fields is an object with none: `{}` as a type would
     // take any value but `null` (and lint refuses it).
     if fields.trim().is_empty() {
-        out.push_str(&format!("export type {name} = Readonly<Record<string, never>>;\n\n"));
+        out.push_str(&format!("export type {} = Readonly<Record<string, never>>;\n\n", declared(name, &st.generics)));
     } else {
-        out.push_str(&format!("export type {name} = Readonly<{{\n{fields}\n}}>;\n\n"));
+        out.push_str(&format!("export type {} = Readonly<{{\n{fields}\n}}>;\n\n", declared(name, &st.generics)));
     }
     let params = st
         .fields
@@ -175,7 +212,8 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     let assigns = st.fields.iter().map(|f| ctor_assign(f.name.as_str())).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("export const {name} = {{\n"));
     let object = if assigns.trim().is_empty() { "{}".to_string() } else { format!("{{ {assigns} }}") };
-    out.push_str(&format!("  of: ({params}): {name} => ({object}),\n"));
+    let (head, ty) = ctor_head(name, &st.generics, &st.fields.iter().map(|f| &f.ty).collect::<Vec<_>>());
+    out.push_str(&format!("  of: {head}({params}): {ty} => ({object}),\n"));
     out.push_str(&companion_methods(krate, name));
     out
 }

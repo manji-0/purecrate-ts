@@ -13,6 +13,29 @@ pub const HOLE: &str = "_";
 
 thread_local! {
     static HOLES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The type parameters in scope (`impl<T>`, then `fn f<U>`).
+    static PARAMS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Type parameters in scope while it lives: a name among them lowers to
+/// `Ty::Param`.
+pub struct ParamScope(usize);
+
+impl ParamScope {
+    pub fn enter(names: &[Name]) -> ParamScope {
+        PARAMS.with(|p| {
+            let mut p = p.borrow_mut();
+            let depth = p.len();
+            p.extend(names.iter().map(|n| n.as_str().to_string()));
+            ParamScope(depth)
+        })
+    }
+}
+
+impl Drop for ParamScope {
+    fn drop(&mut self) {
+        PARAMS.with(|p| p.borrow_mut().truncate(self.0));
+    }
 }
 
 /// `ty` where `_` may stand for a part the checker fills in
@@ -79,6 +102,9 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     }
     let last = &path.segments[0];
     let name = last.ident.to_string();
+    if last.arguments.is_empty() && PARAMS.with(|p| p.borrow().contains(&name)) {
+        return Ok(Ty::Param(Name::new(name)));
+    }
     if name == "Self" {
         return Err(ParseError::new(Reason::SelfType, "`Self` outside an inherent impl is not in v0"));
     }
@@ -158,8 +184,14 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
             let ok = args.pop().unwrap();
             Ok(Ty::result(ok, err))
         }
-        _ if generics(&last.arguments)?.is_empty() => Ok(Ty::Named(Name::new(name))),
-        _ => Err(ParseError::new(Reason::Generics, format!("user generics are not in v0: {name}"))),
+        _ => {
+            let args = generics(&last.arguments)?;
+            if args.is_empty() {
+                Ok(Ty::Named(Name::new(name)))
+            } else {
+                Ok(Ty::App { name: Name::new(name), args })
+            }
+        }
     }
 }
 

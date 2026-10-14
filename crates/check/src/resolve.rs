@@ -93,7 +93,22 @@ impl<'a> Cx<'_, 'a> {
                 format!("type `{}` is not defined in this crate", n.as_str()),
             ),
             Ty::Ignored { inner, .. } => self.ty(inner),
-            Ty::Named(_) | Ty::Prim(_) | Ty::Never => {}
+            Ty::Named(_) | Ty::Prim(_) | Ty::Param(_) | Ty::Never => {}
+            Ty::App { name, args } => {
+                match self.defs.generics_of(name.as_str()) {
+                    None => self.error_about(
+                        Reason::UndefinedType,
+                        name.as_str(),
+                        format!("type `{}` is not defined in this crate", name.as_str()),
+                    ),
+                    Some(n) if n != args.len() => self.error(
+                        Reason::TypeArity,
+                        format!("`{}` takes {n} type argument(s), got {}", name.as_str(), args.len()),
+                    ),
+                    Some(_) => {}
+                }
+                args.iter().for_each(|t| self.ty(t));
+            }
             Ty::Fn { params, ret } => {
                 params.iter().for_each(|t| self.ty(t));
                 self.ty(ret);

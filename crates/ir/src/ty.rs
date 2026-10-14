@@ -267,6 +267,14 @@ pub enum Ty {
     Set(Box<Ty>),
     Tuple(Vec<Ty>),
     Named(Name),
+    /// A generic struct or enum with its type arguments: `Page<u32>`
+    /// (design/01 §7.20).
+    App {
+        name: Name,
+        args: Vec<Ty>,
+    },
+    /// A type parameter in scope: opaque in the body that has it.
+    Param(Name),
     Fn {
         params: Vec<Ty>,
         ret: Box<Ty>,
@@ -285,15 +293,50 @@ impl Ty {
         match self {
             Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => vec![t],
             Ty::Result { ok, err } | Ty::Map { key: ok, value: err } => vec![ok, err],
-            Ty::Tuple(ts) => ts.iter().collect(),
+            Ty::Tuple(ts) | Ty::App { args: ts, .. } => ts.iter().collect(),
             Ty::Fn { params, ret } => params.iter().chain(std::iter::once(&**ret)).collect(),
-            Ty::Prim(_) | Ty::Named(_) | Ty::Never => Vec::new(),
+            Ty::Prim(_) | Ty::Named(_) | Ty::Param(_) | Ty::Never => Vec::new(),
         }
     }
 
     /// Whether `f` holds for this type or one written inside it.
     pub fn any(&self, f: &impl Fn(&Ty) -> bool) -> bool {
         f(self) || self.children().into_iter().any(|t| t.any(f))
+    }
+
+    /// This type with each `Ty::Param` named in `bindings` replaced by its
+    /// type: a generic item's field or signature at one instantiation.
+    pub fn subst(&self, bindings: &[(Name, Ty)]) -> Ty {
+        if bindings.is_empty() {
+            return self.clone();
+        }
+        let s = |t: &Ty| Box::new(t.subst(bindings));
+        match self {
+            Ty::Param(n) => bindings.iter().find(|(p, _)| p == n).map_or_else(|| self.clone(), |(_, t)| t.clone()),
+            Ty::Option(t) => Ty::Option(s(t)),
+            Ty::Vec(t) => Ty::Vec(s(t)),
+            Ty::Set(t) => Ty::Set(s(t)),
+            Ty::Result { ok, err } => Ty::Result { ok: s(ok), err: s(err) },
+            Ty::Map { key, value } => Ty::Map { key: s(key), value: s(value) },
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| t.subst(bindings)).collect()),
+            Ty::App { name, args } => {
+                Ty::App { name: name.clone(), args: args.iter().map(|t| t.subst(bindings)).collect() }
+            }
+            Ty::Fn { params, ret } => {
+                Ty::Fn { params: params.iter().map(|t| t.subst(bindings)).collect(), ret: s(ret) }
+            }
+            Ty::Ignored { wrapper, inner } => Ty::Ignored { wrapper: *wrapper, inner: s(inner) },
+            Ty::Prim(_) | Ty::Named(_) | Ty::Never => self.clone(),
+        }
+    }
+
+    /// The name and type arguments of a struct or enum type: `Named` has none.
+    pub fn applied(&self) -> Option<(&Name, &[Ty])> {
+        match self {
+            Ty::Named(n) => Some((n, &[])),
+            Ty::App { name, args } => Some((name, args)),
+            _ => None,
+        }
     }
 
     pub fn bool() -> Self {

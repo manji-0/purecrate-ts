@@ -150,6 +150,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                         // A derived `PartialEq` (rustc refuses `==` without
                         // one), compared part by part.
                         Ty::Named(_)
+                        | Ty::App { .. }
+                        | Ty::Param(_)
                         | Ty::Option(_)
                         | Ty::Result { .. }
                         | Ty::Vec(_)
@@ -172,6 +174,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                                 "it holds a value JS cannot compare as Rust does (`ParseIntError`, `uuid::Error`, a function); compare the parts with a `match`".into()
                             }
                             Ty::Prim(Prim::Bool) => "use `a.cmp(&b)`, which orders `false` first".into(),
+                            Ty::Param(p) => format!(
+                                "a `{}` is not compared in v0, whatever its bound: the output does not know its type; compare a key of a known type (`max_by_key`), or take a closure that orders",
+                                p.as_str()
+                            ),
                             Ty::Named(n) => format!(
                                 "use `matches!(x, {}::Variant)`, a `match`, or compare the parts and chain them with `then`",
                                 n.as_str()
@@ -257,6 +263,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             Ty::Prim(Prim::ParseIntError | Prim::UuidError) => false,
             Ty::Prim(_) => true,
             Ty::Option(x) | Ty::Vec(x) | Ty::Set(x) => self.deep_comparable(&x, seen),
+            // Its instantiations are checked where they are made (`instance_ok`).
+            Ty::Param(_) => true,
+            Ty::App { name, args } => {
+                args.iter().all(|a| self.deep_comparable(a, seen)) && self.deep_comparable(&Ty::Named(name), seen)
+            }
             Ty::Map { value, .. } => self.deep_comparable(&value, seen),
             Ty::Result { ok, err } => self.deep_comparable(&ok, seen) && self.deep_comparable(&err, seen),
             Ty::Tuple(xs) => xs.iter().all(|x| self.deep_comparable(x, seen)),

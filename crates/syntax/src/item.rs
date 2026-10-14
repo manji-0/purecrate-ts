@@ -463,9 +463,8 @@ fn enum_repr(attrs: &[syn::Attribute]) -> Result<Option<IntTy>, ParseError> {
 }
 
 fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
-    if has_type_generics(&e.generics) {
-        return Err(ParseError::new(Reason::Generics, "generic enums are not in v0"));
-    }
+    let generics = type_params(&e.generics)?;
+    let _scope = crate::ty::ParamScope::enter(&generics);
     if e.variants.is_empty() {
         return Err(ParseError::new(
             Reason::UnsupportedItem,
@@ -500,6 +499,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         });
     }
     Ok(Enum {
+        generics,
         vis: lower_vis(&e.vis),
         name: Name::new(e.ident.to_string()),
         variants,
@@ -516,9 +516,8 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
 }
 
 fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
-    if has_type_generics(&s.generics) {
-        return Err(ParseError::new(Reason::Generics, "generic structs are not in v0"));
-    }
+    let generics = type_params(&s.generics)?;
+    let _scope = crate::ty::ParamScope::enter(&generics);
     let container = serde_attrs(&s.attrs, Place::Struct)?;
     let closed = s.fields.iter().any(|f| lower_vis(&f.vis) != Vis::Pub);
     let fields = match &s.fields {
@@ -547,6 +546,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
     };
     let wire_from = container.try_from.as_ref().map(lower_type).transpose()?;
     Ok(Struct {
+        generics,
         vis: lower_vis(&s.vis),
         name: Name::new(s.ident.to_string()),
         fields,
@@ -581,7 +581,7 @@ fn lower_fields(fields: &SynFields, rule: Option<RenameRule>) -> Result<VariantF
 /// Free function (`owner: None`) or method folded onto `owner`'s companion.
 fn lower_fn(
     cx: &Cx,
-    owner: Option<Name>,
+    owner: Option<(Name, purecrate_ir::Ty, Vec<Name>)>,
     sig: &syn::Signature,
     vis: &Visibility,
     block: &syn::Block,
@@ -598,18 +598,22 @@ fn lower_fn(
     if let Some(abi) = &sig.abi {
         return reject("extern abi", abi.span());
     }
-    if has_type_generics(&sig.generics) {
-        return Err(ParseError::new(Reason::Generics, "generic functions are not in v0").or_at(sig.generics.span()));
-    }
+    let own = type_params(&sig.generics).map_err(|e| e.or_at(sig.generics.span()))?;
+    let _scope = crate::ty::ParamScope::enter(&own);
+    let (owner, owner_ty, outer) = match owner {
+        Some((name, ty, outer)) => (Some(name), Some(ty), outer),
+        None => (None, None, Vec::new()),
+    };
     let mut params = Vec::new();
     for input in &sig.inputs {
-        params.push(lower_param(owner.as_ref(), input).map_err(|e| e.or_at(input.span()))?);
+        params.push(lower_param(owner_ty.as_ref(), input).map_err(|e| e.or_at(input.span()))?);
     }
     let ret = match &sig.output {
         syn::ReturnType::Default => purecrate_ir::Ty::Prim(purecrate_ir::Prim::Unit),
         syn::ReturnType::Type(_, t) => lower_type(t)?,
     };
     Ok(Fn {
+        generics: outer.into_iter().chain(own).collect(),
         vis: lower_vis(vis),
         name: Name::new(sig.ident.to_string()),
         owner,
@@ -620,14 +624,14 @@ fn lower_fn(
     })
 }
 
-fn lower_param(owner: Option<&Name>, input: &syn::FnArg) -> Result<Param, ParseError> {
+fn lower_param(owner: Option<&purecrate_ir::Ty>, input: &syn::FnArg) -> Result<Param, ParseError> {
     match input {
         syn::FnArg::Receiver(r) => match owner {
             Some(_) if r.reference.is_some() && r.mutability.is_some() => Err(ParseError::new(
                 Reason::RefReceiver,
                 "`&mut self` is not in v0: take `self` and return the new value",
             )),
-            Some(owner) => Ok(Param { name: Name::new("self"), ty: purecrate_ir::Ty::Named(owner.clone()) }),
+            Some(owner) => Ok(Param { name: Name::new("self"), ty: owner.clone() }),
             None => Err(ParseError::new(Reason::UnsupportedItem, "`self` outside an impl block")),
         },
         syn::FnArg::Typed(p) => match &*p.pat {
@@ -700,10 +704,11 @@ fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
         _ => return None,
     };
     let mut text = text;
-    SelfIsOwner(owner_ident).visit_expr_mut(&mut text);
+    SelfIsOwner(owner_ident, None).visit_expr_mut(&mut text);
     let owner = Name::new(owner_ident.to_string());
     let body = lower_expr(cx, &text).ok()?;
     Some(Item::Fn(Fn {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("to_string"),
         owner: Some(owner.clone()),
@@ -807,9 +812,10 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
                 reject_attrs(&f.attrs)?;
                 let mut f = f.clone();
                 SelfError(&error).visit_impl_item_fn_mut(&mut f);
-                SelfIsOwner(owner_ident).visit_impl_item_fn_mut(&mut f);
+                SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
-                let lowered = lower_fn(cx, Some(owner.clone()), &f.sig, &public, &f.block)
+                let owned = (owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
+                let lowered = lower_fn(cx, Some(owned), &f.sig, &public, &f.block)
                     .map(|l| l.with_doc(&f.attrs))
                     .map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
@@ -857,9 +863,15 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     if matches!(kind, Some(TraitImpl::Skipped)) {
         return Ok(Vec::new());
     }
-    if has_type_generics(&imp.generics) {
-        return Err(ParseError::new(Reason::Generics, "generic impls are not in v0"));
+    if kind.is_some() && has_type_generics(&imp.generics) {
+        return Err(ParseError::new(
+            Reason::Generics,
+            "a generic trait impl is not in v0; write an inherent `impl<T> S<T>`",
+        ));
     }
+    let outer = type_params(&imp.generics)?;
+    let _scope = crate::ty::ParamScope::enter(&outer);
+    let owner_ty = crate::ty::lower_type(&imp.self_ty)?;
     let owner_ident = match &*imp.self_ty {
         syn::Type::Path(p) if p.path.segments.len() == 1 => p.path.segments[0].ident.clone(),
         _ => {
@@ -878,8 +890,9 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
         let lowered = match item {
             syn::ImplItem::Fn(f) => reject_attrs(&f.attrs).and_then(|()| {
                 let mut f = f.clone();
-                SelfIsOwner(&owner_ident).visit_impl_item_fn_mut(&mut f);
-                lower_fn(cx, Some(owner.clone()), &f.sig, &f.vis, &f.block).map(|l| l.with_doc(&f.attrs))
+                SelfIsOwner(&owner_ident, Some(&imp.self_ty)).visit_impl_item_fn_mut(&mut f);
+                let owned = (owner.clone(), owner_ty.clone(), outer.clone());
+                lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block).map(|l| l.with_doc(&f.attrs))
             }),
             _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
         };
@@ -888,11 +901,22 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     Ok(out)
 }
 
-/// Rewrites `Self` to the impl's type name in types, paths and patterns.
+/// Rewrites `Self` to the impl's type name in types, paths and patterns;
+/// as a type, to the impl's whole type (`Page<T>`) where it is given.
 /// Nested items keep their own `Self`.
-struct SelfIsOwner<'a>(&'a syn::Ident);
+struct SelfIsOwner<'a>(&'a syn::Ident, Option<&'a syn::Type>);
 
 impl VisitMut for SelfIsOwner<'_> {
+    fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+        if let (Some(full), syn::Type::Path(p)) = (self.1, &*ty) {
+            if p.qself.is_none() && p.path.is_ident("Self") {
+                *ty = full.clone();
+                return;
+            }
+        }
+        visit_mut::visit_type_mut(self, ty);
+    }
+
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
         if let Some(first) = path.segments.first_mut() {
             if first.ident == "Self" {
@@ -903,6 +927,73 @@ impl VisitMut for SelfIsOwner<'_> {
     }
 
     fn visit_item_mut(&mut self, _: &mut SynItem) {}
+}
+
+/// The traits a type parameter may be bounded by: what the structural output
+/// honors (`Clone` is the value, `==` is `Eq.deep`), and `PartialOrd` /
+/// `Ord` / `Debug`, accepted but not usable on a `T` (design/01 §7.20).
+const BOUNDS: &[&str] = &["Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Debug"];
+
+/// The type parameters of an item, their bounds checked; lifetimes skipped.
+fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
+    let bounded = |bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>| {
+        for b in bounds {
+            match b {
+                syn::TypeParamBound::Trait(t)
+                    if matches!(t.modifier, syn::TraitBoundModifier::None)
+                        && t.path.get_ident().is_some_and(|i| BOUNDS.contains(&i.to_string().as_str())) => {}
+                syn::TypeParamBound::Lifetime(_) => {}
+                other => {
+                    return Err(ParseError::new(
+                        Reason::Generics,
+                        format!(
+                            "the bound {} is not in v0: a type parameter may be bounded by `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`",
+                            snippet(other)
+                        ),
+                    ))
+                }
+            }
+        }
+        Ok(())
+    };
+    let mut names = Vec::new();
+    for p in &generics.params {
+        match p {
+            syn::GenericParam::Lifetime(_) => {}
+            syn::GenericParam::Const(c) => {
+                return Err(ParseError::new(Reason::Generics, "const generics are not in v0").or_at(c.span()))
+            }
+            syn::GenericParam::Type(t) => {
+                if t.default.is_some() {
+                    return Err(
+                        ParseError::new(Reason::Generics, "a type parameter's default is not in v0").or_at(t.span())
+                    );
+                }
+                bounded(&t.bounds)?;
+                names.push(Name::new(t.ident.to_string()));
+            }
+        }
+    }
+    if let Some(w) = &generics.where_clause {
+        for pred in &w.predicates {
+            match pred {
+                syn::WherePredicate::Type(t) if matches!(&t.bounded_ty, syn::Type::Path(p) if p.path.get_ident().is_some_and(|i| names.iter().any(|n| i == n.as_str()))) => {
+                    bounded(&t.bounds)?
+                }
+                syn::WherePredicate::Lifetime(_) => {}
+                other => {
+                    return Err(ParseError::new(
+                        Reason::Generics,
+                        format!(
+                            "the `where` clause {} is not in v0: bound a type parameter by the traits listed",
+                            snippet(other)
+                        ),
+                    ))
+                }
+            }
+        }
+    }
+    Ok(names)
 }
 
 /// Lifetimes only relate references, which lower to plain values.

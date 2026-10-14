@@ -376,9 +376,10 @@ pub(crate) struct Refs {
 impl Refs {
     fn ty(&mut self, ty: &Ty) {
         match ty {
-            Ty::Named(n) => {
+            Ty::Named(n) | Ty::App { name: n, .. } => {
                 self.types.insert(n.as_str().to_string());
             }
+            Ty::Param(_) => {}
             Ty::Result { .. } => self.result_type = true,
             Ty::Prim(purecrate_ir::Prim::Char) => self.char_type = true,
             Ty::Prim(purecrate_ir::Prim::Uuid) => self.uuid_type = true,

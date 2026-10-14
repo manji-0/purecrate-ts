@@ -65,6 +65,15 @@ pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
         Ty::Vec(inner) => format!("vec({})", ts_printer(krate, inner)?),
         Ty::Map { value, .. } => format!("map({})", ts_printer(krate, value)?),
         Ty::Set(_) => "set".into(),
+        // Inside a generic type's printer, the printer it was given; a
+        // generic function is tested at `i32`.
+        Ty::Param(p) if PRINT_PARAMS.with(|s| s.borrow().contains(p)) => format!("p${}", p.as_str()),
+        Ty::Param(_) => "int".into(),
+        Ty::App { name, args } => format!(
+            "((x) => show${}(x, {}))",
+            name.as_str(),
+            args.iter().map(|t| ts_printer(krate, t)).collect::<Option<Vec<_>>>()?.join(", ")
+        ),
         Ty::Tuple(elems) => {
             format!("tup([{}])", elems.iter().map(|t| ts_printer(krate, t)).collect::<Option<Vec<_>>>()?.join(", "))
         }
@@ -79,11 +88,25 @@ pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
     })
 }
 
+thread_local! {
+    /// The type parameters of the type whose printer is being written.
+    static PRINT_PARAMS: std::cell::RefCell<Vec<purecrate_ir::Name>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// `show$T` for every struct and enum: the TS shape of the value (design/03
-/// §2) printed as the Rust side prints it.
+/// §2) printed as the Rust side prints it; a generic one takes a printer per
+/// type parameter.
 pub fn ts_printers(krate: &Crate) -> String {
     let mut out = String::new();
     for item in &krate.items {
+        let generics = match item {
+            Item::Struct(s) => s.generics.clone(),
+            Item::Enum(e) => e.generics.clone(),
+            _ => Vec::new(),
+        };
+        // `show$Page = (v, p$T) => ..`: a printer per type parameter.
+        let extra: String = generics.iter().map(|g| format!(", p${}", g.as_str())).collect();
+        PRINT_PARAMS.with(|s| *s.borrow_mut() = generics.clone());
         match item {
             Item::Struct(st) => {
                 let name = st.name.as_str();
@@ -94,7 +117,7 @@ pub fn ts_printers(krate: &Crate) -> String {
                     }
                     fields => format!("`{name} {{ {} }}`", ts_fields(krate, fields, "v")),
                 };
-                out.push_str(&format!("const show${name} = (v) => {body};\n"));
+                out.push_str(&format!("const show${name} = (v{extra}) => {body};\n"));
             }
             Item::Enum(en) => {
                 let name = en.name.as_str();
@@ -122,11 +145,12 @@ pub fn ts_printers(krate: &Crate) -> String {
                     arms.push_str(&format!("    case \"{var}\": return {text};\n"));
                 }
                 out.push_str(&format!(
-                    "const show${name} = (v) => {{\n  switch (v.kind) {{\n{arms}    default: return `not a {name}: ${{String(v.kind)}}`;\n  }}\n}};\n"
+                    "const show${name} = (v{extra}) => {{\n  switch (v.kind) {{\n{arms}    default: return `not a {name}: ${{String(v.kind)}}`;\n  }}\n}};\n"
                 ));
             }
             Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
         }
+        PRINT_PARAMS.with(|s| s.borrow_mut().clear());
     }
     out
 }

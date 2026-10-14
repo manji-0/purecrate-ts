@@ -255,7 +255,8 @@ impl<'d, 'a> Typer<'d, 'a> {
         let Pattern::Variant { ty, variant, bind } = pattern else {
             return;
         };
-        if let Some(t) = scrutinee.filter(|t| **t != Ty::Named(ty.clone())) {
+        let binds = scrutinee.map(|t| self.bindings_of(&self.norm(t))).unwrap_or_default();
+        if let Some(t) = scrutinee.filter(|t| self.norm(t).applied().map(|(n, _)| n) != Some(ty)) {
             self.error(
                 Reason::TypeMismatch,
                 format!("pattern `{}::{}` does not match a value of type `{}`", ty.as_str(), variant.as_str(), show(t)),
@@ -270,12 +271,12 @@ impl<'d, 'a> Typer<'d, 'a> {
         match (bind, fields) {
             (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => {
                 for (p, t) in ps.iter().zip(tys) {
-                    self.bind(p, Some(t));
+                    self.bind(p, Some(&t.subst(&binds)));
                 }
             }
             (VariantBind::Struct(ps), Some(VariantFields::Struct(fs))) => {
                 for (field, p) in ps {
-                    let ty = fs.iter().find(|f| f.name == *field).map(|f| f.ty.clone());
+                    let ty = fs.iter().find(|f| f.name == *field).map(|f| f.ty.subst(&binds));
                     self.bind(p, ty.as_ref());
                 }
             }

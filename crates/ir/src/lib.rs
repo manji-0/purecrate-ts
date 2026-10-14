@@ -38,6 +38,7 @@ pub fn counter_example() -> Crate {
     use item::{Enum as EnumItem, Field as FieldItem, Fn as FnItem, Struct as StructItem};
 
     let event = Item::Enum(EnumItem {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("Event"),
         variants: vec![
@@ -59,6 +60,7 @@ pub fn counter_example() -> Crate {
     });
 
     let state = Item::Struct(StructItem {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("State"),
         fields: vec![FieldItem { name: Name::new("n"), ty: Ty::i32(), doc: None, wire: None }],
@@ -84,6 +86,7 @@ pub fn counter_example() -> Crate {
     let n_field = Expr::Field { base: Box::new(Expr::var("state")), name: Name::new("n") };
 
     let step = Item::Fn(FnItem {
+        generics: Vec::new(),
         vis: Vis::Pub,
         name: Name::new("step"),
         owner: None,

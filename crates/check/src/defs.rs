@@ -49,6 +49,12 @@ impl<'a> Defs<'a> {
         d
     }
 
+    /// How many type parameters a struct or enum has; `None` when `name` is
+    /// neither.
+    pub fn generics_of(&self, name: &str) -> Option<usize> {
+        self.structs.get(name).map(|s| s.generics.len()).or_else(|| self.enums.get(name).map(|e| e.generics.len()))
+    }
+
     pub fn is_type(&self, name: &str) -> bool {
         self.structs.contains_key(name) || self.enums.contains_key(name) || self.aliases.contains_key(name)
     }
