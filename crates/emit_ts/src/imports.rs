@@ -524,6 +524,7 @@ impl Refs {
                     | Callee::StrSplitStr
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
+                    Callee::SliceElem { .. } | Callee::SliceRest { .. } => self.slice = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip | Callee::VecRev => self.slice = true,
                     Callee::Tree(op) => {
                         use purecrate_ir::TreeOp as T;

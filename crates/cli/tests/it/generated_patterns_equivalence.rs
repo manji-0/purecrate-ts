@@ -5,7 +5,10 @@
 //! is refused), bind names that may hide a parameter, and are guarded by
 //! the expressions `generated_equivalence.rs` draws, closures that hide
 //! names included. The bodies build the next state or fail, as
-//! `fn step(state, event) -> Result<State, Error>` does.
+//! `fn step(state, event) -> Result<State, Error>` does. Beside them, from
+//! a generator of its own, a `match *xs` whose arms are slice patterns of
+//! the integer patterns (`[a, .., 0..=9]`), `if let [p, rest @ ..]`, and
+//! `matches!` on a slice.
 //!
 //! The audit of 0.9.1 found a guard reading a name its closure hid, in a
 //! struct pattern no fixture spelled; this looks for that class.
@@ -62,7 +65,7 @@ impl Show for State {
 }
 "#;
 
-const PARAMS: &str = "s: State, e: Event, a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>, c: bool";
+const PARAMS: &str = "s: State, e: Event, a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>, c: bool, xs: &[i32]";
 
 /// What a function returns.
 #[derive(Clone, Copy, PartialEq)]
@@ -119,6 +122,29 @@ impl Pats {
             2 if field => format!("Some({})", self.small()),
             2 => format!("Some({})", self.int_pat()),
             _ => self.bind(Ty::Opt),
+        }
+    }
+
+    /// A slice pattern over `*xs`, whose elements bind `i32`s.
+    fn slice_pat(&mut self) -> String {
+        match self.g.rng.below(8) {
+            0 => "[]".into(),
+            1 => format!("[{}]", self.int_pat()),
+            2 => {
+                let (x, y) = (self.int_pat(), self.int_pat());
+                format!("[{x}, {y}]")
+            }
+            3 => format!("[{}, ..]", self.int_pat()),
+            4 => format!("[.., {}]", self.int_pat()),
+            5 => {
+                let (x, y) = (self.int_pat(), self.int_pat());
+                format!("[{x}, .., {y}]")
+            }
+            6 => {
+                let (x, y) = (self.int_pat(), self.int_pat());
+                format!("[{x}, {y}, _, ..]")
+            }
+            _ => "[] | [_]".into(),
         }
     }
 
@@ -228,6 +254,43 @@ impl Pats {
         let last = self.body(ret);
         writeln!(out, "        _ => {last},").expect("write");
         out
+    }
+
+    /// A `match` on `xs`, or a test of it. Drawn from a generator of its
+    /// own, so the functions above stay as each seed drew them before.
+    fn slice_function(&mut self, ret: Ret) -> String {
+        match self.g.rng.below(3) {
+            // `*xs`: the elements bind values, as the other patterns do.
+            0 | 1 => format!("    match *xs {{\n{}    }}", self.arms(ret, false, |p| p.slice_pat())),
+            // What `rest @ ..` binds, and `matches!` on a slice.
+            _ => {
+                let head = match self.g.rng.below(3) {
+                    0 => "_".into(),
+                    _ => self.small().to_string(),
+                };
+                let n = self.g.int(1);
+                let then = match ret {
+                    Ret::Int => format!("rest.len() as i32 + {n}"),
+                    Ret::Step => format!("Ok(State::Count(rest.len() as i32 + {n}))"),
+                };
+                let else_ = self.body(ret);
+                let test = if self.g.rng.below(2) == 0 {
+                    format!("let [{head}, rest @ ..] = xs")
+                } else {
+                    format!("let [rest @ .., {head}] = xs")
+                };
+                // `matches!` binds names only for its guard; none here.
+                let scope = self.g.scope.len();
+                self.bound.clear();
+                let other = self.slice_pat();
+                let other = if self.bound.is_empty() { other } else { "[_, _, ..]".into() };
+                self.g.scope.truncate(scope);
+                format!(
+                    "    if matches!(*xs, {other}) {{\n        {else_}\n    }} else if {test} {{\n        {then}\n    }} else {{\n        {}\n    }}",
+                    self.body(ret)
+                )
+            }
+        }
     }
 
     fn function(&mut self, ret: Ret) -> String {
@@ -342,8 +405,21 @@ fn generated_patterns_match_rust() {
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);
         }
+        let mut p = Pats { g: Gen::new(seed ^ 0x511ce), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.slice_function(ret);
+            let name = format!("p{seed}_s{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
     }
     let mut rng = Rng::new(seeds[0] ^ 0x5eed);
+    let mut lists = Rng::new(seeds[0] ^ 0x511ce);
     let rows: Vec<_> = (0..12)
         .map(|_| {
             let (s, e) = (state_value(&mut rng), event_value(&mut rng));
@@ -352,15 +428,19 @@ fn generated_patterns_match_rust() {
             let (a, b) = (int(&mut rng), int(&mut rng));
             let o = if rng.below(3) == 0 { None } else { Some(int(&mut rng)) };
             let r: Result<i32, i32> = if rng.below(3) == 0 { Err(int(&mut rng)) } else { Ok(int(&mut rng)) };
-            (s, e, a, b, o, r, rng.below(2) == 0)
+            let c = rng.below(2) == 0;
+            // Of a generator of its own, so the other arguments stay as each
+            // seed drew them before.
+            let xs: Vec<i32> = (0..lists.below(5)).map(|_| int(&mut lists)).collect();
+            (s, e, a, b, o, r, c, xs)
         })
         .collect();
 
     let rows: Vec<Args> = rows
         .iter()
-        .map(|(s, e, a, b, o, r, c)| Args {
-            rust: format!("{}, {}, {a}, {b}, {o:?}, {r:?}, {c}", s.0, e.0),
-            js: [s.1.clone(), e.1.clone(), a.js(), b.js(), o.js(), r.js(), c.js()].join(", "),
+        .map(|(s, e, a, b, o, r, c, xs)| Args {
+            rust: format!("{}, {}, {a}, {b}, {o:?}, {r:?}, {c}, &{xs:?}", s.0, e.0),
+            js: [s.1.clone(), e.1.clone(), a.js(), b.js(), o.js(), r.js(), c.js(), xs.js()].join(", "),
         })
         .collect();
     compare_rows("generated_patterns", &seeds, &source, SHOW_TYPES, &fns, &rows);

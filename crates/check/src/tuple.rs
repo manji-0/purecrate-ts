@@ -17,7 +17,7 @@
 //! element is tested once on a path, so TS never narrows a value that a
 //! later `switch` would name again.
 
-use purecrate_ir::{tuple_field, Arm, Expr, Name, Pattern, Ty, VariantBind, VariantFields};
+use purecrate_ir::{tuple_field, Arm, BinOp, Callee, Expr, IntTy, Lit, Name, Pattern, Ty, VariantBind, VariantFields};
 
 use crate::defs::{Defs, Peel};
 
@@ -34,11 +34,15 @@ struct Row {
 struct Lowering<'d, 'a, 'n> {
     defs: &'d Defs<'a>,
     fresh: &'n mut usize,
+    /// Some path ran out of arms: no value reaches it, if rustc found the
+    /// arms exhaustive.
+    holes: bool,
 }
 
 /// `scrutinee` has type `(tys..)`, normalized; `arms` are typed tuple arms,
-/// `|` of tuples, or a last `_`.
-pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: &mut usize) -> Expr {
+/// `|` of tuples, or a last `_`. With the tree, whether some path ran out
+/// of arms (`Expr::Unreachable` there).
+pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: &mut usize) -> (Expr, bool) {
     let width = tys.len();
     let mut rows = Vec::new();
     for arm in arms {
@@ -58,7 +62,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
             rows.push(Row { pats, binds: Vec::new(), guard: arm.guard.clone(), body: arm.body.clone() });
         }
     }
-    let mut lw = Lowering { defs, fresh };
+    let mut lw = Lowering { defs, fresh, holes: false };
     // Places are read where they are; anything else once, in order.
     let (subjects, lets): (Vec<Expr>, Vec<(Name, Ty, Expr)>) = match scrutinee {
         Expr::Tuple(xs) if xs.iter().all(is_place) => (xs, Vec::new()),
@@ -90,7 +94,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
     };
     let subjects: Vec<(Expr, Ty)> = subjects.into_iter().zip(tys).collect();
     let tree = lw.compile(&subjects, rows);
-    wrap(lets, tree)
+    (wrap(lets, tree), lw.holes)
 }
 
 fn is_place(expr: &Expr) -> bool {
@@ -135,6 +139,7 @@ impl Lowering<'_, '_, '_> {
         if rows.is_empty() {
             // Only after an `if` on a literal whose `else` rustc knows no
             // value reaches (ranges covering the type).
+            self.holes = true;
             return Expr::Unreachable;
         }
         let Some(col) = rows[0].pats.iter().position(refutable) else {
@@ -158,6 +163,7 @@ impl Lowering<'_, '_, '_> {
         match ty {
             Ty::Named(n) if self.defs.enums.contains_key(n.as_str()) => self.enum_column(subjects, col, n, rows),
             Ty::Tuple(elems) => self.tuple_column(subjects, col, elems, rows),
+            Ty::Vec(item) => self.slice_column(subjects, col, item, rows),
             Ty::Option(inner) => {
                 let some = self.name("value");
                 let arms = vec![
@@ -325,6 +331,96 @@ impl Lowering<'_, '_, '_> {
             })
             .collect();
         self.compile(&inner_subjects, rows)
+    }
+
+    /// A slice some row tests with a slice pattern (design/01 §7.24): an `if`
+    /// chain on its length, as rustc splits the lengths. With `m` the
+    /// longest fixed length plus one, or the longest `..` pattern's most
+    /// elements before `..` plus its most after, if more, each length below
+    /// `m` is a case whose elements are columns, read where they sit
+    /// (`Slice.at(xs, 1)`); every length from `m` on is the last case, whose
+    /// columns are the first and last elements any `..` pattern names. A
+    /// row that names the whole slice binds it; `rest @ ..` binds the
+    /// elements between as a new array.
+    fn slice_column(&mut self, subjects: &[(Expr, Ty)], col: usize, item: &Ty, rows: Vec<Row>) -> Expr {
+        let (subject, ty) = subjects[col].clone();
+        let item = self.norm(item);
+        let shape = |p: &Pattern| match p {
+            Pattern::Slice { prefix, rest, suffix } => Some((prefix.len(), rest.is_some(), suffix.len())),
+            _ => None,
+        };
+        let shapes: Vec<(usize, bool, usize)> = rows.iter().filter_map(|r| shape(&r.pats[col])).collect();
+        let fixed = shapes.iter().filter(|s| !s.1).map(|s| s.0 + 1).max().unwrap_or(0);
+        let front = shapes.iter().filter(|s| s.1).map(|s| s.0).max().unwrap_or(0);
+        let back = shapes.iter().filter(|s| s.1).map(|s| s.2).max().unwrap_or(0);
+        let m = fixed.max(front + back);
+        let elem = |index: usize, from_end: bool| {
+            (Expr::Call { callee: Callee::SliceElem { index, from_end }, args: vec![subject.clone()] }, item.clone())
+        };
+        // The rows of one case: `len` elements, or with `long`, `front`
+        // from the front and `back` from the back.
+        let case = |len: usize, long: bool| -> Vec<Row> {
+            rows.iter()
+                .filter_map(|row| {
+                    let mut row = row.clone();
+                    let width = if long { front + back } else { len };
+                    match std::mem::replace(&mut row.pats[col], Pattern::Wildcard) {
+                        Pattern::Slice { prefix, rest, suffix } => {
+                            let (p, s) = (prefix.len(), suffix.len());
+                            match &rest {
+                                None if long || p != len => return None,
+                                Some(_) if !long && p + s > len => return None,
+                                _ => {}
+                            }
+                            if let Some(Pattern::Var(r)) = rest.as_deref() {
+                                let cut = Callee::SliceRest { front: p, back: s };
+                                let value = Expr::Call { callee: cut, args: vec![subject.clone()] };
+                                row.binds.push((r.clone(), ty.clone(), value));
+                            }
+                            let gap = width - p - s;
+                            row.pats.extend(prefix);
+                            row.pats.extend(vec![Pattern::Wildcard; gap]);
+                            row.pats.extend(suffix);
+                        }
+                        p => {
+                            if let Pattern::Var(n) = p {
+                                row.binds.push((n, ty.clone(), subject.clone()));
+                            }
+                            row.pats.extend(vec![Pattern::Wildcard; width]);
+                        }
+                    }
+                    Some(row)
+                })
+                .collect()
+        };
+        let mut long_subjects = subjects.to_vec();
+        long_subjects.extend((0..front).map(|i| elem(i, false)));
+        long_subjects.extend((1..=back).rev().map(|k| elem(k, true)));
+        let mut tree = self.compile(&long_subjects, case(m, true));
+        let cases: Vec<Expr> = (0..m)
+            .map(|len| {
+                let mut inner = subjects.to_vec();
+                inner.extend((0..len).map(|i| elem(i, false)));
+                self.compile(&inner, case(len, false))
+            })
+            .collect();
+        // Tested shortest first. Lengths that run the same code as the
+        // longer ones share their test, or none where that is the last case.
+        let mut end = m;
+        while end > 0 {
+            let here = &cases[end - 1];
+            let start = (0..end).rev().take_while(|&len| cases[len] == *here).last().unwrap_or(end - 1);
+            if *here != tree {
+                // Every shorter length has been tested before this one.
+                let (op, at) = if start + 1 == end { (BinOp::Eq, start) } else { (BinOp::Le, end - 1) };
+                let length = Expr::Call { callee: Callee::VecLen, args: vec![subject.clone()] };
+                let at = Lit::Int { value: at as i128, ty: Some(IntTy::Usize), byte: false, hex: false };
+                let cond = Expr::Binary { op, left: Box::new(length), right: Box::new(Expr::Lit(at)) };
+                tree = Expr::If { cond: Box::new(cond), then: Box::new(here.clone()), else_: Box::new(tree) };
+            }
+            end = start;
+        }
+        tree
     }
 
     /// `Option` or `Result`: both cases, each binding its payload to a fresh

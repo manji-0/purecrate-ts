@@ -34,7 +34,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         if let Some(Ty::Tuple(ts)) = &st {
             if arms.iter().any(|a| a.pattern.is_tuple_case()) {
                 let tys = ts.iter().map(|t| self.norm(t)).collect();
-                return (crate::tuple::lower(self.defs, scrutinee, tys, arms, &mut self.fresh), result);
+                return (self.tree(scrutinee, tys, arms), result);
             }
         }
         // Guards, and arms that test inside a case, are tested in the same
@@ -51,9 +51,26 @@ impl<'d, 'a> Typer<'d, 'a> {
                 })
                 .collect();
             let scrutinee = Expr::Tuple(vec![scrutinee]);
-            return (crate::tuple::lower(self.defs, scrutinee, vec![t.clone()], arms, &mut self.fresh), result);
+            return (self.tree(scrutinee, vec![t.clone()], arms), result);
         }
         (Expr::Match { scrutinee: Box::new(scrutinee), arms }, result)
+    }
+
+    /// The decision tree of `arms` (`tuple::lower`). rustc checks the arms
+    /// are exhaustive, and so does `exhaustive` for the lengths of a slice;
+    /// where a slice pattern is involved and some path of the tree still
+    /// ran out of arms, the match is refused here too, rather than trusting
+    /// what was not checked (design/01 §7.24).
+    fn tree(&mut self, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>) -> Expr {
+        let slices = arms.iter().any(|a| has_slice(&a.pattern));
+        let (tree, holes) = crate::tuple::lower(self.defs, scrutinee, tys, arms, &mut self.fresh);
+        if slices && holes {
+            self.error(
+                Reason::NonExhaustive,
+                "this match on a slice may leave some value out; add a last `_` arm".to_string(),
+            );
+        }
+        tree
     }
 
     /// The normalized element types of a tuple scrutinee of `width`, or
@@ -69,6 +86,22 @@ impl<'d, 'a> Typer<'d, 'a> {
                 vec![None; width]
             }
             _ => vec![None; width],
+        }
+    }
+
+    /// The normalized item type of a slice pattern's scrutinee, or `None`
+    /// after reporting a scrutinee that is not a `Vec` or slice.
+    fn slice_item(&mut self, scrutinee: Option<&Ty>) -> Option<Ty> {
+        match scrutinee {
+            Some(Ty::Vec(t)) => Some(self.norm(t)),
+            Some(t) if *t != Ty::Never => {
+                self.error(
+                    Reason::TypeMismatch,
+                    format!("a slice pattern does not match a value of type `{}`", show(t)),
+                );
+                None
+            }
+            _ => None,
         }
     }
 
@@ -88,6 +121,15 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Pattern::Or(alts) if pattern.is_tuple_case() || pattern.nests() => {
                 return Pattern::Or(alts.iter().map(|a| self.lit_pattern(a, scrutinee)).collect());
+            }
+            // `bind` has reported a scrutinee that is not a slice.
+            Pattern::Slice { prefix, rest, suffix } => {
+                let item = match scrutinee {
+                    Some(Ty::Vec(t)) => Some(self.norm(t)),
+                    _ => None,
+                };
+                let mut each = |ps: &[Pattern]| ps.iter().map(|p| self.lit_pattern(p, item.as_ref())).collect();
+                return Pattern::Slice { prefix: each(prefix), rest: rest.clone(), suffix: each(suffix) };
             }
             // A literal inside a case takes the field's or the payload's type.
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => {
@@ -240,6 +282,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 return;
             }
+            // Each element binds an item, `rest @ ..` a slice.
+            (Pattern::Slice { prefix, rest, suffix }, _) => {
+                let item = self.slice_item(scrutinee);
+                for p in prefix.iter().chain(suffix) {
+                    self.bind(p, item.as_ref());
+                }
+                if let Some(r) = rest {
+                    self.bind(r, item.map(|t| Ty::Vec(Box::new(t))).as_ref());
+                }
+                return;
+            }
         };
         if let Some(n) = name {
             self.scopes.push((n, ty));
@@ -273,6 +326,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => {}
         }
     }
+}
+
+fn has_slice(pattern: &Pattern) -> bool {
+    matches!(pattern, Pattern::Slice { .. }) || pattern.children().into_iter().any(has_slice)
 }
 
 pub(super) fn describe(pattern: &Pattern) -> &'static str {

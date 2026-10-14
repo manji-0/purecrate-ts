@@ -33,6 +33,9 @@ pub fn p20_iter_max(xs: &[u32]) -> Option<u32> { xs.iter().copied().max() }
 pub fn p21_fold(xs: &[i64]) -> i64 { xs.iter().fold(0, |a, x| a + x) }
 pub fn p22_windows(xs: &[u32]) -> bool { xs.windows(2).all(|w| w[0] <= w[1]) }
 pub fn p23_slice_pattern(xs: &[u32]) -> u32 { match xs { [] => 0, [x, ..] => *x } }
+pub fn p23b_slice_rest(xs: &[u32]) -> usize { match xs { [_, rest @ ..] => rest.len(), [] => 0 } }
+pub fn p23c_slice_ends(xs: &[u32]) -> u32 { match xs { [first, .., last] => first + last, [x] => *x, [] => 0 } }
+pub fn p23d_slice_let_else(xs: Vec<u32>) -> u32 { let [a, b, ..] = xs.as_slice() else { return 0 }; a + b }
 pub fn p24_trait_impl_call(i: &Item) -> i64 { i.price() }
 impl Priced for Item { fn price(&self) -> i64 { self.price } }
 pub fn p25_mut_self(it: &mut Item) { it.qty += 1; }

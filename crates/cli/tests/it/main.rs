@@ -80,6 +80,7 @@ mod review_holes_equivalence;
 mod scoped_names;
 mod semver_equivalence;
 mod signup_equivalence;
+mod slice_patterns_equivalence;
 mod slicing_equivalence;
 mod sort_pick_equivalence;
 mod ssh_equivalence;

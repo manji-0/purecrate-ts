@@ -314,6 +314,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (args, t)
             }
+            // Written only by `tuple`, after typing.
+            Callee::SliceElem { .. } | Callee::SliceRest { .. } => {
+                let (args, tys) = self.typed_all(args);
+                let t = match callee {
+                    Callee::SliceElem { .. } => self.vec_item(&tys[0]),
+                    _ => tys[0].clone(),
+                };
+                (args, t)
+            }
             Callee::VecGet | Callee::VecLast => {
                 let (args, tys) = self.typed_all(args);
                 (args, self.vec_item(&tys[0]).map(Ty::option))

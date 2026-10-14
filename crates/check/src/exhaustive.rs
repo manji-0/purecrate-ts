@@ -54,6 +54,7 @@ fn case_of(pattern: &Pattern) -> Option<(&str, &str)> {
         | Pattern::Lit(_)
         | Pattern::Or(_)
         | Pattern::Range { .. }
+        | Pattern::Slice { .. }
         | Pattern::Tuple(_) => None,
     }
 }
@@ -78,6 +79,9 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     }
     if arms.iter().any(|a| a.pattern.is_tuple_case()) {
         return tuple_arms(i, arms, out);
+    }
+    if arms.iter().any(|a| a.pattern.is_slice_case()) {
+        return slice_arms(i, arms, out);
     }
     // An arm testing inside a case covers only part of it, so the cases
     // cannot be counted here. rustc has checked the arms are exhaustive; the
@@ -214,6 +218,78 @@ fn tuple_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
                 return;
             }
         }
+    }
+}
+
+/// A `match` on a slice: every arm a slice pattern (or `|` of them), or a
+/// last `_` or name. The lengths are covered as rustc decides it: below
+/// `m`, the longest fixed length plus one or the most elements a `..`
+/// pattern names, if more, each length is a case of its own; from `m` on
+/// all are one case, which only a pattern with `..` takes. A guarded arm
+/// covers nothing. Whether the elements are covered within a length is
+/// left to the decision tree (`tuple`), which refuses a match that leaves
+/// some value out (design/01 §7.24).
+fn slice_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
+    let shapes = |p: &Pattern| -> Vec<(usize, bool)> {
+        let one = |p: &Pattern| match p {
+            Pattern::Slice { prefix, rest, suffix } => Some((prefix.len() + suffix.len(), rest.is_some())),
+            _ => None,
+        };
+        match p {
+            Pattern::Or(alts) => alts.iter().filter_map(one).collect(),
+            other => one(other).into_iter().collect(),
+        }
+    };
+    let mut covered: Vec<(usize, bool)> = Vec::new();
+    let mut all: Vec<(usize, bool)> = Vec::new();
+    for (n, arm) in arms.iter().enumerate() {
+        match &arm.pattern {
+            Pattern::Wildcard | Pattern::Var(_) if n + 1 == arms.len() => {
+                if arm.guard.is_none() {
+                    return;
+                }
+            }
+            Pattern::Wildcard | Pattern::Var(_) => {
+                out.push(Diagnostic::at(i, Reason::ArmPattern, "`_` must be the last arm"));
+                return;
+            }
+            p if p.is_slice_case() => {
+                all.extend(shapes(p));
+                if arm.guard.is_none() {
+                    covered.extend(shapes(p));
+                }
+            }
+            _ => {
+                out.push(Diagnostic::at(
+                    i,
+                    Reason::ArmPattern,
+                    "a match on a slice takes slice patterns, or a last `_`",
+                ));
+                return;
+            }
+        }
+    }
+    let fixed = all.iter().filter(|(_, rest)| !rest).map(|(n, _)| n + 1).max().unwrap_or(0);
+    let open = all.iter().filter(|(_, rest)| *rest).map(|(n, _)| *n).max().unwrap_or(0);
+    let m = fixed.max(open);
+    let takes = |len: usize| covered.iter().any(|&(n, rest)| if rest { n <= len } else { n == len });
+    let show = |len: usize, rest: bool| {
+        let mut elems = vec!["_"; len];
+        if rest {
+            elems.push("..");
+        }
+        format!("`[{}]`", elems.join(", "))
+    };
+    let mut missing: Vec<String> = (0..m).filter(|&len| !takes(len)).map(|len| show(len, false)).collect();
+    if !covered.iter().any(|(_, rest)| *rest) {
+        missing.push(show(m, true));
+    }
+    if !missing.is_empty() {
+        out.push(Diagnostic::at(
+            i,
+            Reason::NonExhaustive,
+            format!("match on a slice is missing {}; add the arms, or a last `_`", missing.join(", ")),
+        ));
     }
 }
 

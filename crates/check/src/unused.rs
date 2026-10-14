@@ -430,6 +430,9 @@ fn is_pure(expr: &Expr) -> bool {
             | Callee::VecContains
             | Callee::VecRev
             | Callee::VecZip
+            // Made only where the length holds them.
+            | Callee::SliceElem { .. }
+            | Callee::SliceRest { .. }
             | Callee::Tree(
                 purecrate_ir::TreeOp::NewMap
                 | purecrate_ir::TreeOp::NewSet

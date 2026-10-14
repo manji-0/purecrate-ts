@@ -129,8 +129,47 @@ pub(super) fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> 
             Ok(Pattern::Tuple(t.elems.iter().map(|p| lower_pat(cx, p)).collect::<Result<Vec<_>, _>>()?))
         }
         Pat::Or(o) => Ok(Pattern::Or(o.cases.iter().map(|p| lower_pat(cx, p)).collect::<Result<Vec<_>, _>>()?)),
+        Pat::Slice(s) => slice_pat(cx, s),
         other => Err(ParseError::new(Reason::UnsupportedPattern, format!("unsupported pattern {}", snippet(other)))),
     }
+}
+
+/// `[p, .., q]` (design/01 §7.24): the elements before `..`, what `..`
+/// binds (`rest @ ..` a name, plain `..` nothing), and the elements after
+/// it. `[..]` is `_` and `[rest @ ..]` the name, as both take every slice.
+fn slice_pat(cx: &Cx, s: &syn::PatSlice) -> Result<Pattern, ParseError> {
+    let mut prefix = Vec::new();
+    let mut rest: Option<Box<Pattern>> = None;
+    let mut suffix = Vec::new();
+    for elem in &s.elems {
+        let here = match elem {
+            Pat::Rest(_) => Some(Pattern::Wildcard),
+            Pat::Ident(id) if matches!(id.subpat.as_ref().map(|(_, p)| &**p), Some(Pat::Rest(_))) => {
+                if id.by_ref.is_some() || id.mutability.is_some() {
+                    return Err(ParseError::new(
+                        Reason::UnsupportedPattern,
+                        "`rest @ ..` binds a plain name in v0, without `ref` or `mut`",
+                    )
+                    .or_at(elem.span()));
+                }
+                Some(Pattern::Var(Name::new(id.ident.to_string())))
+            }
+            _ => None,
+        };
+        match (here, &rest) {
+            (Some(_), Some(_)) => {
+                return Err(ParseError::new(Reason::UnsupportedPattern, "a slice pattern has at most one `..`")
+                    .or_at(elem.span()))
+            }
+            (Some(r), None) => rest = Some(Box::new(r)),
+            (None, None) => prefix.push(lower_pat(cx, elem)?),
+            (None, Some(_)) => suffix.push(lower_pat(cx, elem)?),
+        }
+    }
+    Ok(match rest {
+        Some(r) if prefix.is_empty() && suffix.is_empty() => *r,
+        rest => Pattern::Slice { prefix, rest, suffix },
+    })
 }
 
 /// `path` is one name, of a crate struct.
@@ -177,6 +216,31 @@ pub(super) fn arm_pattern(pattern: Pattern) -> Result<Pattern, ParseError> {
                     Reason::ArmPattern,
                     format!(
                         "`|` arms may not bind names in v0, found binding `{}`; write one arm per tuple",
+                        name.as_str()
+                    ),
+                ));
+            }
+            return Ok(pattern);
+        }
+        Pattern::Slice { .. } => {
+            tuple_elems(&pattern.children().into_iter().cloned().collect::<Vec<_>>())?;
+            return Ok(pattern);
+        }
+        Pattern::Or(alts) if pattern.is_slice_case() => {
+            for alt in alts {
+                if !matches!(alt, Pattern::Slice { .. }) {
+                    return Err(ParseError::new(
+                        Reason::ArmPattern,
+                        format!("each side of `|` must be a slice pattern here, found {}", describe_pat(alt)),
+                    ));
+                }
+                arm_pattern(alt.clone())?;
+            }
+            if let Some(name) = pattern.bindings().first() {
+                return Err(ParseError::new(
+                    Reason::ArmPattern,
+                    format!(
+                        "`|` arms may not bind names in v0, found binding `{}`; write one arm per slice pattern",
                         name.as_str()
                     ),
                 ));
@@ -232,8 +296,9 @@ pub(super) fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
         | Pattern::Lit(_)
         | Pattern::Or(_)
         | Pattern::Range { .. }
+        | Pattern::Slice { .. }
         | Pattern::Tuple(_) => Err(ParseError::new(Reason::ArmPattern, format!(
-            "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, or be `_` in v0, found {}",
+            "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, a slice pattern, or be `_` in v0, found {}",
             describe_pat(pattern)
         ))),
     }
@@ -266,6 +331,7 @@ pub(super) fn describe_pat(pattern: &Pattern) -> String {
         Pattern::Or(_) => "`|`".into(),
         Pattern::Range { .. } => "a range".into(),
         Pattern::Tuple(_) => "a tuple".into(),
+        Pattern::Slice { .. } => "a slice pattern".into(),
     }
 }
 
@@ -430,6 +496,7 @@ fn strip_mut(pat: &mut Pat, names: &mut Vec<Name>) {
         }
         Pat::TupleStruct(t) => t.elems.iter_mut().for_each(|p| strip_mut(p, names)),
         Pat::Tuple(t) => t.elems.iter_mut().for_each(|p| strip_mut(p, names)),
+        Pat::Slice(s) => s.elems.iter_mut().for_each(|p| strip_mut(p, names)),
         Pat::Struct(s) => s.fields.iter_mut().for_each(|f| strip_mut(&mut f.pat, names)),
         Pat::Or(o) => o.cases.iter_mut().for_each(|p| strip_mut(p, names)),
         Pat::Reference(r) => strip_mut(&mut r.pat, names),

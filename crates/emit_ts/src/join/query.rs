@@ -76,6 +76,8 @@ pub(super) fn effectless(expr: &Expr) -> bool {
                 | Callee::VecContains
                 | Callee::VecRev
                 | Callee::VecZip
+                | Callee::SliceElem { .. }
+                | Callee::SliceRest { .. }
                 | Callee::Tree(
                     purecrate_ir::TreeOp::Get
                     | purecrate_ir::TreeOp::Has

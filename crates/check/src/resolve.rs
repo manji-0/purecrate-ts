@@ -505,6 +505,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::VecContains => self.arity("`Vec::contains`", 2, argc),
             Callee::VecRev => self.arity("`rev`", 1, argc),
             Callee::VecZip => self.arity("`zip`", 2, argc),
+            Callee::SliceElem { .. } | Callee::SliceRest { .. } => self.arity("a slice pattern's element", 1, argc),
             Callee::OptionIsSome => self.arity("`Option::is_some`", 1, argc),
             Callee::OptionIsNone => self.arity("`Option::is_none`", 1, argc),
             Callee::StrBytes => self.arity("`str::as_bytes`", 1, argc),
@@ -653,6 +654,7 @@ impl<'a> Cx<'_, 'a> {
             Pattern::Var(n) => bound.push(n.as_str().to_string()),
             Pattern::Wildcard | Pattern::Lit(_) | Pattern::Range { .. } | Pattern::OptionNone => {}
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().for_each(|p| self.pattern(p, bound)),
+            Pattern::Slice { .. } => pattern.children().into_iter().for_each(|p| self.pattern(p, bound)),
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => self.pattern(p, bound),
             Pattern::Variant { ty, variant, bind } => {
                 let Some(var) = self.variant(ty, variant) else { return };

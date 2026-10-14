@@ -771,6 +771,15 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             }
         }
         C::VecLen => format!("({}.length as Usize)", recv(&args[0], indent)),
+        // A slice pattern's element: the tree has tested the length.
+        C::SliceElem { index, from_end: false } => format!("Slice.at({}, {index})", emit_expr(&args[0], indent)),
+        C::SliceElem { index, from_end: true } => {
+            format!("Slice.at({}, {}.length - {index})", emit_expr(&args[0], indent), recv(&args[0], indent))
+        }
+        C::SliceRest { front, back: 0 } => format!("Slice.range({}, {front}, null)", emit_expr(&args[0], indent)),
+        C::SliceRest { front, back } => {
+            format!("Slice.range({}, {front}, {}.length - {back})", emit_expr(&args[0], indent), recv(&args[0], indent))
+        }
         C::VecPush => format!("{}.push({})", recv(&args[0], indent), item(1)),
         // A literal index reads bare: `Slice.get` takes a `number`.
         C::VecGet => {

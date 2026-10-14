@@ -63,8 +63,12 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         // `clone` is a new array for a `Vec`, which a local may push to, and
         // the value itself for anything else, which nothing writes; `as_ref`
-        // and `as_deref` on an `Option` are the option (design/01 §7.14).
-        if args.is_empty() && matches!(name.as_str(), "clone" | "as_ref" | "as_deref" | "cloned" | "copied") {
+        // and `as_deref` on an `Option` are the option (design/01 §7.14), and
+        // `as_slice` on a `Vec` the array, which nothing writes while the
+        // slice is borrowed (§7.24).
+        if args.is_empty()
+            && matches!(name.as_str(), "clone" | "as_ref" | "as_deref" | "cloned" | "copied" | "as_slice")
+        {
             if let (Some(rt), Some(nt)) = (&rt, &nt) {
                 match (name.as_str(), nt) {
                     ("clone", Ty::Vec(_)) => {
@@ -82,6 +86,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                     ("as_deref", Ty::Option(inner)) if matches!(self.norm(inner), Ty::Prim(Prim::String)) => {
                         return (recv, self.expect(want, Some(Ty::option(Ty::Prim(Prim::Str)))));
                     }
+                    // `Option<Vec<T>>` to `Option<&[T]>`, and `Vec<T>` to `&[T]`:
+                    // one type here, as every reference is the value.
+                    ("as_deref", Ty::Option(inner)) if matches!(self.norm(inner), Ty::Vec(_)) => {
+                        return (recv, self.expect(want, Some(rt.clone())));
+                    }
+                    ("as_slice", Ty::Vec(_)) => return (recv, self.expect(want, Some(rt.clone()))),
                     _ => {}
                 }
             }
@@ -604,6 +614,7 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local)",
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
+            "`as_slice`",
         ],
         Ty::Option(_) => ["is_some", "is_none"]
             .into_iter()

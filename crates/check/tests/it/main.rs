@@ -24,6 +24,7 @@ mod ordering;
 mod reach;
 mod resolve;
 mod serde_attrs;
+mod slice_patterns;
 mod statements;
 mod strings;
 mod strings_more;

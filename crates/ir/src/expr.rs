@@ -546,6 +546,23 @@ pub enum Callee {
     /// `a.iter().zip(b)`: a new array of pairs, as long as the shorter.
     /// Prints as `Slice.zip(a, b)`.
     VecZip,
+    /// An element of a slice whose length a slice pattern has tested
+    /// (design/01 §7.24): the `index`th from the front, or with `from_end`,
+    /// from the back (`1` is the last). The argument is the slice. Made by
+    /// `check::tuple` only, where the length is known to hold it. Prints as
+    /// `Slice.at(xs, i)` or `Slice.at(xs, xs.length - k)`.
+    SliceElem {
+        index: usize,
+        from_end: bool,
+    },
+    /// What `rest @ ..` binds in a slice pattern: a new array of the
+    /// elements after the first `front` and before the last `back`. Made by
+    /// `check::tuple` only, where the length is at least `front + back`.
+    /// Prints as `Slice.range(xs, front, xs.length - back)`.
+    SliceRest {
+        front: usize,
+        back: usize,
+    },
     /// `v.push(x)` on a local `let mut v: Vec<T>`, of type `()`: the one
     /// write to an array (design/01 §7.14). Prints as `v.push(x)`.
     VecPush,
@@ -777,6 +794,17 @@ pub enum Pattern {
     /// may have; tuples do not nest. `check::accept` splits the `match` into
     /// one `match` per element (`check::tuple`), so none reaches emit.
     Tuple(Vec<Pattern>),
+    /// `[p, q, .., r]` on a `Vec` or slice (design/01 §7.24): `prefix` from
+    /// the front, then with `rest` any number of elements (`..` is `_`,
+    /// `name @ ..` binds them as a new slice), then `suffix` from the back.
+    /// Without `rest`, the slice holds exactly `prefix`. `check::accept`
+    /// lowers a `match` with one into a decision tree on the length
+    /// (`check::tuple`), so none reaches emit.
+    Slice {
+        prefix: Vec<Pattern>,
+        rest: Option<Box<Pattern>>,
+        suffix: Vec<Pattern>,
+    },
 }
 
 impl Pattern {
@@ -785,7 +813,17 @@ impl Pattern {
         match self {
             Pattern::Wildcard | Pattern::Var(_) => false,
             Pattern::Tuple(ps) => ps.iter().any(Pattern::refutable),
+            // `[..]` and `[rest @ ..]` take every length.
+            Pattern::Slice { prefix, rest, suffix } => !(prefix.is_empty() && suffix.is_empty() && rest.is_some()),
             _ => true,
+        }
+    }
+
+    /// A slice pattern, or `|` of them: an arm of a `match` on a slice.
+    pub fn is_slice_case(&self) -> bool {
+        match self {
+            Pattern::Or(alts) => alts.iter().any(|a| matches!(a, Pattern::Slice { .. })),
+            p => matches!(p, Pattern::Slice { .. }),
         }
     }
 
@@ -803,6 +841,8 @@ impl Pattern {
             },
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => p.refutable(),
             Pattern::Or(ps) | Pattern::Tuple(ps) => ps.iter().any(Pattern::nests),
+            // Its length is tested before its elements, in the tree.
+            Pattern::Slice { .. } => true,
             Pattern::Wildcard | Pattern::Var(_) | Pattern::Lit(_) | Pattern::OptionNone | Pattern::Range { .. } => {
                 false
             }
@@ -886,6 +926,7 @@ impl Pattern {
             }
             Pattern::Variant { bind: VariantBind::Struct(ps), .. } => ps.iter().map(|(_, p)| p).collect(),
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![p],
+            Pattern::Slice { prefix, rest, suffix } => prefix.iter().chain(rest.as_deref()).chain(suffix).collect(),
             Pattern::Variant { bind: VariantBind::Unit, .. }
             | Pattern::Wildcard
             | Pattern::Var(_)
@@ -903,6 +944,9 @@ impl Pattern {
             }
             Pattern::Variant { bind: VariantBind::Struct(ps), .. } => ps.iter_mut().map(|(_, p)| p).collect(),
             Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![p],
+            Pattern::Slice { prefix, rest, suffix } => {
+                prefix.iter_mut().chain(rest.as_deref_mut()).chain(suffix.iter_mut()).collect()
+            }
             Pattern::Variant { bind: VariantBind::Unit, .. }
             | Pattern::Wildcard
             | Pattern::Var(_)
@@ -1506,6 +1550,8 @@ impl Expr {
                 base.as_ref().is_none_or(|b| b.is_inlinable()) && fields.is_inlinable()
             }
             Expr::Call { callee: Callee::OptionNone | Callee::StringNew, .. } => true,
+            // A slice pattern's element, where the length holds it.
+            Expr::Call { callee: Callee::SliceElem { .. }, args } => args.iter().all(Self::is_inlinable),
             Expr::Call { callee: Callee::OptionSome | Callee::ResultOk | Callee::ResultErr, args } => {
                 args.iter().all(Self::is_inlinable)
             }
