@@ -286,7 +286,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 #### Building a `String`
 
 - A string literal is `&str` and cannot stand where `String` is expected. Write `String::from("a")`.
-- `x.to_string()` is what `format!("{}", x)` prints, on the types `format!` takes (floats refused as there); on a `String` or `&str` it is the text. `.to_owned()` and `.into()` are rejected, to keep one spelling.
+- `x.to_string()` is what `format!("{}", x)` prints, on the types `format!` takes (floats refused as there); a string, a `char`, or a `Uuid` prints as itself. `.to_owned()` and `.into()` are rejected, to keep one spelling.
 - `s.repeat(n)` and `xs.join(sep)` (`xs` of `String` / `&str`, `sep` a `&str`) build one too ([01 §7.21](./01-equivalence.md#721-cutting-and-building-text)).
 - `format!("INV-{n:05}")` builds one from numbers, text, `char`s, `bool`s, and `Uuid`s ([§2](#2-what-can-be-written)). An argument other than a local, a literal, or a field of one is placed once, in the order written; bind it with `let` otherwise. Floats, `{:?}`, `{:x}`, a precision, and the crate's own types are refused.
 - `s.clone()` or `String::from(&s)` copies a `String`, `o.clone()` an `Option<String>`; `o.as_ref()` and `o.as_deref()` read an `Option` in place. In TS each is the value itself: nothing writes a string.

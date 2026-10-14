@@ -57,11 +57,13 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// `x.to_string()` on a primitive `t`: what `format!("{}", x)` prints,
-    /// refused where it is; a `String` or `&str` is the value, as `clone` is.
-    /// `None` where `t` has no `Display` (`()`), left to the usual message.
+    /// refused where it is. A string, a `char`, and a `Uuid` are already the
+    /// text `{}` prints (a `Uuid` its canonical form, §6.3 of design/01), so
+    /// the value itself, as `clone` is. `None` where `t` has no `Display`
+    /// (`()`), left to the usual message.
     pub(super) fn displayed_text(&mut self, recv: Expr, t: &Ty, want: Option<&Ty>) -> Option<Typed> {
         let string = Some(Ty::Prim(Prim::String));
-        if matches!(t, Ty::Prim(Prim::String | Prim::Str)) {
+        if matches!(t, Ty::Prim(Prim::String | Prim::Str | Prim::Char | Prim::Uuid)) {
             return Some((recv, self.expect(want, string)));
         }
         if matches!(t, Ty::Prim(p) if p.float().is_some()) {

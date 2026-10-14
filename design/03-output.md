@@ -153,7 +153,7 @@ export const Meters = {
 | `s.split(p)` with a `&str` | `s.split(", ")` for a non-empty literal; else `Str.splitStr(s, p)`, which splits an empty `p` at each char boundary with an empty piece at each end, as Rust does |
 | `s.split_whitespace()`, `s.lines()` | `Str.splitWhitespace(s)` (runs of Rust's whitespace, empty pieces dropped), `Str.lines(s)` (after each `\n`, one `\r` before it dropped, no line after a final `\n`); new arrays |
 | `xs.join(sep)`, `s.repeat(n)` | `xs.join(sep)`, the separator always written; `s.repeat(n)` |
-| `x.to_string()` | what `format!("{}", x)` prints (`` `${x}` ``); a `String` or `&str` as itself |
+| `x.to_string()` | what `format!("{}", x)` prints (`` `${n}` ``); a string, a `char`, or a `Uuid` as itself |
 | `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.

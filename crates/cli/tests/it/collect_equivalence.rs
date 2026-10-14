@@ -84,5 +84,5 @@ fn collect_off_a_split_is_refused() {
     refuse("pub fn f(s: &str) -> usize { let parts = s.split('.').collect(); parts.len() }\n", "needs its target");
     refuse("pub fn f(s: &str) -> Vec<u8> { s.split('.').collect() }\n", "expected `Vec<u8>`");
     refuse("pub fn f(s: &str) -> u32 { s.split('.').map(|p| p.len()).collect() }\n", "not `u32`");
-    refuse("pub fn f(s: &str) -> Vec<u8> { s.split(\".\").map(|p| 1u8).collect() }\n", "`char` separator");
+    refuse("pub fn f(s: &str) -> Vec<u8> { s.split(\"\").map(|p| 1u8).collect() }\n", "`split(\"\")` is not in v0");
 }
