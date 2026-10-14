@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.18.0 — 2026-10-14
+
+`Option`'s and `Result`'s combinators, `get`, `first`, `last`, and `contains` on a `Vec`, `fold`, `rev` and `zip` on a sequence, and `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect` with Rust's messages; eleven examples use them. The statements generator's new forms found four places, each also in 0.17.0, where narrowing differed from TS's, fixed here. The distance to the ideal is 78%.
+
+### Added
+
+- **`Option`: `and_then`, `filter`, `map_or`, `map_or_else`, `unwrap_or_else`, `ok_or_else`, `or`, `or_else`, `is_some_and`, `is_none_or`; `Result`: `err`, `is_ok`, `is_err`, `is_ok_and`, `is_err_and`, `unwrap_or`, `unwrap_or_else`, `map_or`, `and_then`, `or_else`** (design/01 §7.1). Each is the `match` std writes. A value argument (`map_or`'s default, `or`'s option) runs before the `match`, on both sides, as Rust evaluates it; a function runs only on its own side. One that would make an `Option<Option<_>>` is refused.
+- **`panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect`** (design/01 §7.17), each throwing `Panic` with Rust's message: `explicit panic`, `internal error: entered unreachable code`, a `format!`-style message, `assertion failed: ` and the condition as rustc prints it (names, literals, operators, casts, calls, method calls, fields, indexing, references, parentheses; any other condition asks for a message), ``called `Option::unwrap()` on a `None` value``, and `expect`'s argument, evaluated on `Some` too. `assert!`'s message is built only when it fails. Refused: `unwrap` and `expect` on a `Result` and `assert_eq!` / `assert_ne!`, whose messages print a value with `{:?}`.
+- **`get`, `first`, `last`, and `contains` on a `Vec`** (design/01 §7.18): `Slice.get`, `Slice.last`, and `Slice.contains`, which compares as the derived `eq` does (NaN unequal to itself, `-0.0` equal to `0.0`, where JS `includes` would find NaN).
+- **`fold(init, |acc, x| ..)`** on a sequence (`Iter.fold`), `init` evaluated before any item. An unsuffixed number as `init` with no type from the context is refused, as Rust infers its type from the closure.
+- **`.rev()` and `.zip(ys)` right after a sequence's source**, before any `map` or `filter` (design/01 §7.13), in a consumer, `collect`, or a `for`: the items reversed, or paired up to the shorter side, as a new array. After a stage they are refused: Rust runs a `map` from the back under `rev`.
+
+Tested against Rust with arguments that overflow on the side Rust evaluates them, lists that are empty or end early, NaN and `-0.0`, structs, every message form, and messages whose argument overflows only when the assertion fails (`std_more_equivalence.rs`, `panics_equivalence.rs`); and as forms of the statements generator, `unwrap` and `expect` on `None` and `assert!` and `panic!` among them, seeds 1 to 120.
+
+### Fixed
+
+- **A name after a spread was not seen by the runtime's trim** (`[...Str.bytes(s)]`), so a package's copy could leave out what it called; `s.bytes().rev()` prints one.
+
+Output tsc refused where narrowing differed from TS's, values unchanged, each also in 0.17.0: `matches!` on a value that is no place (`r.ok()`) did not decide its guard, so a comparison TS had as `true !== false` was printed; `v && !v` was not folded where TS narrows `!v` by `v`; a `const` aliasing a test of a place (`!c || r.ok().is_some()`) was not read again once the place was known, so code TS has as `never` was printed; and `if a { c } else { true }` was taken as `!a || c`, which the printer leaves a `?:` TS does not narrow by (`narrowing.rs`: `guard_on_built`, `contradiction`, `alias_decided_late`, `true_else_side`). A panic narrows neither TS nor the generator's flow: `Panic.raise` is a property with no written type, which TS does not read as ending control flow.
+
+### Examples
+
+- **ulid, semver, jsonpatch, negotiate, oidc, ssh, raft, punycode, calendar, payment, and iban** use the new methods where they wrote the `match` or the loop (design/07 §2.2): ulid 94 → 79 lines (1.6× → 1.3×), semver 142 → 124 (2.0× → 1.7×), punycode 263 → 250, negotiate 295 → 282, jsonpatch 633 → 621, oidc 573 → 568, payment 125 → 122, iban 48 → 46, calendar 732 → 729.
+
+### Documentation
+
+- **Distance to the ideal** (design/07 §2.5): 78% with 0.18.0, from 73%; the plan said 79%, but `step_by`, `flat_map`, `filter_map`, `windows`, and `dedup` stay out.
+
 ## 0.17.0 — 2026-10-14
 
 `loop` with a value, `while let`, `if let` and `let`-`else` on any pattern that can fail, `a..=b`, a reversed range, and a tuple's `.0`; seven examples use them. The statements generator's new forms found three miscompiles released through 0.16.0, fixed here, and every generator agrees with Rust and type-checks on seeds 1 to 120. The distance to the ideal is 73%.

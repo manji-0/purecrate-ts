@@ -16,7 +16,7 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | Same-named companion | `export type T` + `export const T = { … } as const` |
 | Function properties, `export const f = (…) =>` | no classes, no method syntax, no `this`, no `export function` |
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports. A function the package does not export, whose callers all sit in one other file, is printed in that file, unexported, after a blank line: a helper of a helper follows it (`Crate::homes`). Why: a 5-line `is-digit.ts` sent a reader of its one caller to another file; where a helper lands depends only on the source, never on how many files there are, and files stay flat, as the modules are ([02 §3.3](./02-authoring.md#33-names-are-unique-across-the-crate)) |
-| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing) throw |
+| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing, and `panic!`, `assert!`, `unwrap`, through `Panic.raise`) throw |
 | Time and IDs are arguments | the domain never generates them |
 | `return` ends a branch | where a value is returned, a branch that returns is an `if` the next one follows, not an `else` (`if (s === "") return ..;` then the rest); a branch of one `return` sits on its `if`'s line. A function name passed as a function (`.map(f)`, `Iter.all(xs, f)`) is `f`, not an arrow around it |
 | Lines up to 100 columns | `build` and `check --out` run oxfmt over every generated file (`crates/cli/src/oxfmt.rs`: 0.71.0, width 100, whatever `.oxfmtrc.json` the project has), so its breaks are oxfmt's; the copied runtime and adapters are hand-written and left alone. Without oxfmt they stop and write nothing. What oxfmt keeps as it finds it, the printer decides: an object, array, or argument list written one item a line stays open (a struct literal's fields, a discriminant table too long for its line, a call given a function called at once); blank lines between paragraphs; parentheses, which follow operator precedence (`emit_ts::tx`); a comment's place. An `import` of one name and a template literal stay on their line, as oxfmt leaves them |
@@ -161,10 +161,13 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
 | a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
 | guarded arms | the tuple `match` tree with an `if` on each guard ([3.3.2](#332-guards-and-option-methods)) |
-| `unwrap_or`, `ok_or`, `map` | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
+| `unwrap_or`, `ok_or`, `map`, `and_then`, `filter`, `map_or`, `unwrap_or_else`, … | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
+| `panic!`, `unreachable!`, `assert!`, `o.unwrap()`, `o.expect(m)` | `Panic.raise("..")` (a template literal for a formatted message); `assert!` as `if (!c) Panic.raise(..)`; `unwrap` as `o ?? Panic.raise(..)` |
+| `xs.get(i)`, `first()`, `last()`, `contains(&x)` | `Slice.get(xs, i)`, `Slice.get(xs, 0)`, `Slice.last(xs)`, `Slice.contains(xs, x)` |
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
-| `all`, `any`, `position`, `count`, `sum` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)` |
+| `all`, `any`, `position`, `count`, `sum`, `fold` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)` |
+| `.rev()`, `.zip(ys)` right after the source | `[...xs].reverse()` (`Array.from(s).reverse()` for `chars()`), `Slice.zip(xs, ys)`, new arrays |
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
 | `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
