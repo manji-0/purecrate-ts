@@ -337,32 +337,33 @@ impl<'d, 'a> Typer<'d, 'a> {
         let r = self.fresh_name("result");
         let value = self.fresh_name("value");
         let v = |n: &Name| Expr::Var(n.clone());
-        let two = |ok_body: Expr, err_pat: Pattern, err_body: Expr| Expr::Match {
+        let ok_value = || Pattern::Var(value.clone());
+        let two = |ok_pat: Pattern, ok_body: Expr, err_pat: Pattern, err_body: Expr| Expr::Match {
             scrutinee: Box::new(Expr::Var(r.clone())),
             arms: vec![
-                Arm { guard: None, pattern: Pattern::ResultOk(Box::new(Pattern::Var(value.clone()))), body: ok_body },
+                Arm { guard: None, pattern: Pattern::ResultOk(Box::new(ok_pat)), body: ok_body },
                 Arm { guard: None, pattern: Pattern::ResultErr(Box::new(err_pat)), body: err_body },
             ],
         };
-        // `Ok(None)` and `Err(_)` would both be `null`.
-        if name == "ok" && args.is_empty() && matches!(self.norm(ok), Ty::Option(_)) {
-            self.error(Reason::NestedOption, format!(
-                "`ok()` of `Result<{}, _>` is `Option<Option<_>>`, and both `None`s are `null` in TS; `match` the `Result`",
-                show(ok)
-            ));
-            return Some((Expr::Lit(Lit::Unit), None));
+        let call = |callee: Callee, args: Vec<Expr>| Expr::Call { callee, args };
+        // `Ok(None)` and `Err(_)` would both be `null`, and `None` and
+        // `Err(None)`.
+        if args.is_empty() && matches!(name, "ok" | "err") {
+            let (side, of) = match name {
+                "ok" => (ok, format!("Result<{}, _>", show(ok))),
+                _ => (err, format!("Result<_, {}>", show(err))),
+            };
+            if matches!(self.norm(side), Ty::Option(_)) {
+                self.error(Reason::NestedOption, format!(
+                    "`{name}()` of `{of}` is `Option<Option<_>>`, and both `None`s are `null` in TS; `match` the `Result`"
+                ));
+                return Some((Expr::Lit(Lit::Unit), None));
+            }
         }
         if matches!(name, "unwrap" | "expect" | "unwrap_err" | "expect_err") {
             self.error(Reason::MethodCall, format!(
                 "`Result::{name}`'s panic message prints the other side with `{{:?}}`, which v0 does not reproduce; `match` the `Result`, or use `?`, `unwrap_or`, or `ok()` and `Option::{}`",
                 if name.starts_with("unwrap") { "unwrap" } else { "expect" }
-            ));
-            return Some((Expr::Lit(Lit::Unit), None));
-        }
-        if name == "err" && args.is_empty() && matches!(self.norm(err), Ty::Option(_)) {
-            self.error(Reason::NestedOption, format!(
-                "`err()` of `Result<_, {}>` is `Option<Option<_>>`, and both `None`s are `null` in TS; `match` the `Result`",
-                show(err)
             ));
             return Some((Expr::Lit(Lit::Unit), None));
         }
@@ -374,9 +375,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         let (rest, want) = match (name, args) {
             ("ok", []) => (
                 two(
-                    Expr::Call { callee: Callee::OptionSome, args: vec![v(&value)] },
+                    ok_value(),
+                    call(Callee::OptionSome, vec![v(&value)]),
                     Pattern::Wildcard,
-                    Expr::Call { callee: Callee::OptionNone, args: vec![] },
+                    call(Callee::OptionNone, vec![]),
                 ),
                 want.cloned().or_else(|| Some(Ty::option(ok.clone()))),
             ),
@@ -384,33 +386,26 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let e = self.fresh_name("error");
                 (
                     two(
-                        Expr::Call { callee: Callee::OptionNone, args: vec![] },
+                        ok_value(),
+                        call(Callee::OptionNone, vec![]),
                         Pattern::Var(e.clone()),
-                        Expr::Call { callee: Callee::OptionSome, args: vec![v(&e)] },
+                        call(Callee::OptionSome, vec![v(&e)]),
                     ),
                     want.cloned().or_else(|| Some(Ty::option(err.clone()))),
                 )
             }
             ("is_ok" | "is_err", []) => {
                 let on_ok = name == "is_ok";
-                (two(Expr::Lit(Lit::Bool(on_ok)), Pattern::Wildcard, Expr::Lit(Lit::Bool(!on_ok))), Some(Ty::bool()))
+                let rest =
+                    two(ok_value(), Expr::Lit(Lit::Bool(on_ok)), Pattern::Wildcard, Expr::Lit(Lit::Bool(!on_ok)));
+                (rest, Some(Ty::bool()))
             }
             ("is_ok_and" | "is_err_and", [f]) => {
                 let (pattern, body) = self.arm_fn(&what, f)?;
                 let rest = if name == "is_ok_and" {
-                    Expr::Match {
-                        scrutinee: Box::new(Expr::Var(r.clone())),
-                        arms: vec![
-                            Arm { guard: None, pattern: Pattern::ResultOk(Box::new(pattern)), body },
-                            Arm {
-                                guard: None,
-                                pattern: Pattern::ResultErr(Box::new(Pattern::Wildcard)),
-                                body: Expr::Lit(Lit::Bool(false)),
-                            },
-                        ],
-                    }
+                    two(pattern, body, Pattern::Wildcard, Expr::Lit(Lit::Bool(false)))
                 } else {
-                    two(Expr::Lit(Lit::Bool(false)), pattern, body)
+                    two(ok_value(), Expr::Lit(Lit::Bool(false)), pattern, body)
                 };
                 (rest, Some(Ty::bool()))
             }
@@ -426,81 +421,45 @@ impl<'d, 'a> Typer<'d, 'a> {
                     }
                 };
                 if name == "unwrap_or" {
-                    (two(v(&value), Pattern::Wildcard, d), want.cloned().or_else(|| Some(ok.clone())))
+                    (two(ok_value(), v(&value), Pattern::Wildcard, d), want.cloned().or_else(|| Some(ok.clone())))
                 } else {
                     let (pattern, body) = self.arm_fn(&what, &args[1])?;
-                    let rest = Expr::Match {
-                        scrutinee: Box::new(Expr::Var(r.clone())),
-                        arms: vec![
-                            Arm { guard: None, pattern: Pattern::ResultOk(Box::new(pattern)), body },
-                            Arm { guard: None, pattern: Pattern::ResultErr(Box::new(Pattern::Wildcard)), body: d },
-                        ],
-                    };
-                    (rest, want.cloned().or(ty))
+                    (two(pattern, body, Pattern::Wildcard, d), want.cloned().or(ty))
                 }
             }
             ("unwrap_or_else", [f]) => {
                 let (pattern, body) = self.arm_fn(&what, f)?;
-                (two(v(&value), pattern, body), want.cloned().or_else(|| Some(ok.clone())))
+                (two(ok_value(), v(&value), pattern, body), want.cloned().or_else(|| Some(ok.clone())))
             }
             ("and_then", [f]) => {
                 let (pattern, body) = self.arm_fn(&what, f)?;
                 let want = want.cloned().or_else(|| self.alone(&[(&pattern, ok)], &body));
                 let e = self.fresh_name("error");
-                let rest = Expr::Match {
-                    scrutinee: Box::new(Expr::Var(r.clone())),
-                    arms: vec![
-                        Arm { guard: None, pattern: Pattern::ResultOk(Box::new(pattern)), body },
-                        Arm {
-                            guard: None,
-                            pattern: Pattern::ResultErr(Box::new(Pattern::Var(e.clone()))),
-                            body: Expr::Call { callee: Callee::ResultErr, args: vec![v(&e)] },
-                        },
-                    ],
-                };
-                (rest, want)
+                (two(pattern, body, Pattern::Var(e.clone()), call(Callee::ResultErr, vec![v(&e)])), want)
             }
             ("or_else", [f]) => {
                 let (pattern, body) = self.arm_fn(&what, f)?;
                 let want = want.cloned().or_else(|| self.alone(&[(&pattern, err)], &body));
-                (two(Expr::Call { callee: Callee::ResultOk, args: vec![v(&value)] }, pattern, body), want)
+                (two(ok_value(), call(Callee::ResultOk, vec![v(&value)]), pattern, body), want)
             }
             ("map" | "map_err", [f]) => {
-                let (pattern, body) = self.arm_fn(&format!("`Result::{name}`"), f)?;
+                let (pattern, body) = self.arm_fn(&what, f)?;
                 let on_ok = name == "map";
-                // With no type from the context, the new type is the body's:
-                // typed once on its own here, its reports dropped.
+                // With no type from the context, the new type is the body's.
                 let want = want.cloned().or_else(|| {
-                    let before = self.out.len();
-                    let depth = self.scopes.len();
-                    self.bind(&pattern, Some(if on_ok { ok } else { err }));
-                    let (_, t) = self.expr(&body, None);
-                    self.scopes.truncate(depth);
-                    self.out.truncate(before);
+                    let t = self.alone(&[(&pattern, if on_ok { ok } else { err })], &body);
                     t.map(|t| if on_ok { Ty::result(t, err.clone()) } else { Ty::result(ok.clone(), t) })
                 });
                 let rest = if on_ok {
                     let e = self.fresh_name("error");
-                    Expr::Match {
-                        scrutinee: Box::new(Expr::Var(r.clone())),
-                        arms: vec![
-                            Arm {
-                                guard: None,
-                                pattern: Pattern::ResultOk(Box::new(pattern)),
-                                body: Expr::Call { callee: Callee::ResultOk, args: vec![body] },
-                            },
-                            Arm {
-                                guard: None,
-                                pattern: Pattern::ResultErr(Box::new(Pattern::Var(e.clone()))),
-                                body: Expr::Call { callee: Callee::ResultErr, args: vec![v(&e)] },
-                            },
-                        ],
-                    }
+                    let err_body = call(Callee::ResultErr, vec![v(&e)]);
+                    two(pattern, call(Callee::ResultOk, vec![body]), Pattern::Var(e), err_body)
                 } else {
                     two(
-                        Expr::Call { callee: Callee::ResultOk, args: vec![v(&value)] },
+                        ok_value(),
+                        call(Callee::ResultOk, vec![v(&value)]),
                         pattern,
-                        Expr::Call { callee: Callee::ResultErr, args: vec![body] },
+                        call(Callee::ResultErr, vec![body]),
                     )
                 };
                 (rest, want)
