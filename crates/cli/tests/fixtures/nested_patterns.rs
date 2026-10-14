@@ -166,3 +166,21 @@ pub fn quad(x: (u32, (bool, u32))) -> u32 {
         (_, (_, m)) => m + 1000,
     }
 }
+
+/// A variant inside `Some` beside a last `_`: the `Option` prints as its
+/// payload or `null`, so one place is tested for `null` and then for its
+/// variant (0.16.0 decided the second test false and kept only `_`).
+pub fn method_in_some(o: Option<Method>) -> u32 {
+    match o {
+        Some(Method::Card) => 1,
+        _ => 7,
+    }
+}
+
+pub fn login_in_some(o: Option<Login>) -> u32 {
+    match o {
+        Some(Login::Paid(_, Some(n))) => n,
+        Some(Login::PasswordChecked { attempts, .. }) => u32::from(attempts) + 1000,
+        _ => 7,
+    }
+}

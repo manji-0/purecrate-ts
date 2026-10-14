@@ -324,6 +324,23 @@ pub(super) const SOME: &str = "$Some";
 
 pub(super) const NONE: &str = "$None";
 
+/// Whether two lists of cases are of one kind: literals (`$=7`), `Option`'s,
+/// `Result`'s, a `bool`'s, or an enum's variants. An `Option` prints as its
+/// payload or `null`, so one place is tested for `$Some` and then, as that
+/// payload, for its variants: neither rules the other out.
+pub(super) fn same_kind(a: &[Name], b: &[Name]) -> bool {
+    let kind = |cs: &[Name]| {
+        cs.first().map(|c| match c.as_str() {
+            s if s.starts_with("$=") => 0,
+            SOME | NONE => 1,
+            OK | ERR => 2,
+            TRUE | FALSE => 3,
+            _ => 4,
+        })
+    };
+    kind(a) == kind(b)
+}
+
 /// The variants a pattern on an enum, a `Result`, or an `Option` admits;
 /// none for any other pattern.
 pub(super) fn variants_of(pattern: &Pattern) -> Vec<Name> {

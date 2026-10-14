@@ -29,6 +29,7 @@ fn logins() -> Vec<Login> {
 fn generated_nested_patterns_match_rust() {
     support::equivalence("nested_patterns", nested_patterns::SOURCE, |cases| {
         for l in logins() {
+            cases.push(case!(nested_patterns::login_in_some(Some(l.clone()))));
             cases.push(case!(nested_patterns::next(l.clone())));
             cases.push(case!(nested_patterns::card_amount(l.clone())));
             cases.push(case!(nested_patterns::guarded(&l)));
@@ -40,6 +41,8 @@ fn generated_nested_patterns_match_rust() {
                 cases.push(case!(nested_patterns::pair(a, l.clone())));
             }
         }
+        cases.push(case!(nested_patterns::login_in_some(None::<Login>)));
+        grid!(cases, nested_patterns::method_in_some; o in [None, Some(Method::Card), Some(Method::Bank)]);
         grid!(
             cases, nested_patterns::deep;
             r in [Ok(None), Ok(Some(Method::Card)), Ok(Some(Method::Bank)), Err(0u8), Err(1), Err(255)]

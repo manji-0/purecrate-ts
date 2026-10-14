@@ -143,12 +143,10 @@ fn refine(cond: &Expr, st: &State) -> (Option<State>, Option<State>) {
         let mut s = st.clone();
         for (p, cases) in tests(cond, holds) {
             // A value tested against a literal (`$=7`) and a case of its type
-            // (`$Some`) are known apart: neither rules the other out.
-            let literal = |cs: &Vec<Name>| cs.iter().all(|c| c.as_str().starts_with("$="));
+            // (`$Some`), or an `Option` and then its payload's variant, are
+            // known apart: neither rules the other out.
             let left = match s.get(&p) {
-                Some(known) if literal(&known) == literal(&cases) => {
-                    cases.into_iter().filter(|c| known.contains(c)).collect()
-                }
+                Some(known) if same_kind(&known, &cases) => cases.into_iter().filter(|c| known.contains(c)).collect(),
                 _ => cases,
             };
             if left.is_empty() {
@@ -1199,7 +1197,8 @@ fn loop_head(
 /// same).
 fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     let Expr::Match { scrutinee, arms } = expr else { unreachable!("a match") };
-    let known = st.get(scrutinee);
+    let named: Vec<Name> = arms.iter().flat_map(|a| variants_of(&a.pattern)).collect();
+    let known = st.get(scrutinee).filter(|k| named.is_empty() || same_kind(k, &named));
     let universe = arms.iter().find_map(|a| enum_of(&a.pattern)).and_then(|ty| crate::enum_variants(ty.as_str()));
     // TS has narrowed the place to `known`: it refuses a `case` of any other
     // variant ("not comparable").
