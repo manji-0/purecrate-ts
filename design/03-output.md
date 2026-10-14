@@ -169,6 +169,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `let V(x) = e else { return .. };` | the guard `if (e.kind !== "V") return ..;`, then the payload read where TS has narrowed it; on `Some`/`Ok`/`Err` as `let x = match` below |
 | `match` / `if let` on `Option` | branch on `=== null` |
 | `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
+| `match` on a slice (`[x, .., y]`, `[x, rest @ ..]`) | an `if` chain on `xs.length` (shortest first; lengths running the same code share one test, `xs.length <= 1`), then the elements as tuple elements, read where they sit: `Slice.at(xs, 0)`, `Slice.at(xs, xs.length - 1)`; `rest` as `Slice.range(xs, 1, xs.length - 1)`, a new array ([01 §7.24](./01-equivalence.md#724-slice-patterns)) |
 | a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
 | guarded arms | the tuple `match` tree with an `if` on each guard ([3.3.2](#332-guards-and-option-methods)) |
 | `unwrap_or`, `ok_or`, `map`, `and_then`, `filter`, `map_or`, `unwrap_or_else`, … | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |

@@ -24,6 +24,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Exhaustiveness | `match` on one enum: arms naming a variant, `A \| B` binding nothing, and a last `_` | `switch` listing every case + `assertNever` |
 | Guards | `p if c =>` on any arm, a binding arm (`n if n > 3`) included, and in `matches!`; a guarded arm does not count toward exhaustiveness | a decision tree: each value tested once, the guard at its arm's leaf |
 | Transition tables | `match (state, event)`: tuple arms whose elements are `_`, a binding, or an arm pattern | nested `switch`es, one per element, each listing every case + `assertNever` |
+| Slice patterns | `[]`, `[x]`, `[x, .., y]`, `[x, rest @ ..]`, `[rest @ .., x]` on a `&[T]`, `xs.as_slice()`, `&xs[..]`, or `*xs`, in `match`, a tuple arm, `if let`, `let`-`else`, `while let`, and `matches!`, with guards; elements any arm pattern ([§3.5](#slice-matches), [01 §7.24](./01-equivalence.md#724-slice-patterns)) | an `if` chain on `xs.length`, then `Slice.at(xs, i)`; `rest` a new array, `Slice.range(xs, i, xs.length - j)` |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number, with the character it wrote before it (`/* '@' */ 64`); an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | Ordering | `use std::cmp::Ordering;`; `a.cmp(&b)` on integers, `char`, `bool`, strings, `Uuid`, and `Vec`s of these (element by element, then the shorter first); `<` `<=` `>` `>=` on strings (code points); `Ordering::Less` in patterns, `==`, `is_lt()` and the other predicates, `reverse()`, `then(o)`, `then_with(\|\| ..)` | a fieldless enum; `cmp` as `Ord.cmp`, or `Ord.cmpStr` (by code point) on `char`, strings, and `Uuid`, and `Ord.cmpList(a, b, Ord.cmp)` on `Vec`s; `then` as `Ord.then` |
@@ -35,7 +36,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals; `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, and `v[i] = x` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-rebuilt)) |
-| Copies | `clone()` on any type, `as_ref()` on an `Option`, `as_deref()` on an `Option<String>` | `[...xs]` for a `Vec`, else the value itself |
+| Copies | `clone()` on any type, `as_ref()` on an `Option`, `as_deref()` on an `Option<String>` or `Option<Vec<T>>`, `as_slice()` on a `Vec` | `[...xs]` for a `Vec`, else the value itself |
 | Tuple patterns | `let (a, mut b, _) = t;` (annotated or not), `\|(a, b)\| ..`, `for (k, v) in &pairs` and `for &(k, v) in pairs.iter()`: each element `_`, a name, `mut` a name, or `&` one of these; tuples do not nest. `t.0`, `t.1` read an element | one `const` per element; a `mut` element a `let`; `t[0]` |
 | Integers | `+ - * / %`, bitwise `& \| ^ !`, and shifts `<< >>` (and their `op=`) on `i8`–`i32`, `u8`–`u32` with debug semantics; bitwise and shifts not on `usize` | `Int.<ty>.*` |
 | Integer methods | `min`, `max`, `abs` (signed), `pow(e: u32)`, and `checked_*`, `saturating_*`, `wrapping_*` of `add`, `sub`, `mul`, `pow`, and (`checked_`, `wrapping_`) `div`, `rem`, `neg`, on every integer type | `Int.<ty>.checkedAdd(a, b)` etc., from the exact result |
@@ -218,6 +219,7 @@ Each arm names what it takes. The accepted patterns depend on what is matched. A
 | `char` | a literal (`'@'`), a range with a literal at both ends (`'a'..='z'`), or several joined by `\|` | required |
 | `&str` | a string literal, or several joined by `\|` (`"card" \| "credit_card" =>`). A `String` is matched through `s.as_str()`, as rustc requires | required |
 | tuple | see [Tuple matches](#tuple-matches) | not required where the arms cover every case |
+| slice (`&[T]`) | see [Slice matches](#slice-matches) | not required where the arms cover every length and element |
 
 #### Struct patterns
 
@@ -252,6 +254,20 @@ Output:
 - An arm that several cases reach is printed once per case: `(_, Event::Reset)` appears under every state.
 - Cases that reach the same code and bind nothing share one `case` list.
 
+#### Slice matches
+
+`match xs` on a `&[T]` (`xs.as_slice()` or `&xs[..]` of a `Vec`; `*xs` to bind the elements by value). An arm is a slice pattern, `|` of them binding nothing, or a last `_`:
+
+- `[]`, `[a, b]`: exactly that many elements;
+- `[a, ..]`, `[.., z]`, `[a, .., z]`: at least that many, `..` taking the rest;
+- `[a, rest @ ..]`, `[rest @ .., z]`, `[a, rest @ .., z]`: `rest` the elements `..` takes, a `&[T]`.
+
+Each element is `_`, a name, or any pattern a tuple's element may be, with guards after. Also in `if let`, `let`-`else` (with `mut` on an element), `while let`, `matches!`, and as an element of a tuple arm (`match (xs, ys)`).
+
+No `_` is required where the arms cover every length, as rustc decides it, and every element within each length. `check` names a length left out (``match on a slice is missing `[_, _, ..]` ``); an element left out asks for a last `_`, also where ranges cover a whole integer type (`[0..=255]` on `&[u8]`), which rustc would accept.
+
+Output: an `if` chain on `xs.length`, shortest first, then the elements as values of a decision tree (`Slice.at(xs, 0)`, `Slice.at(xs, xs.length - 1)`). `rest` is `Slice.range(xs, 1, xs.length - 1)`, a new array where Rust's is a view: the same values, at the cost of a copy.
+
 #### Guards
 
 `p if c =>` is accepted on any arm above, and on a binding arm (`n if n > 3 =>`, not in a tuple match).
@@ -278,6 +294,7 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 #### Not accepted
 
 - `|` arms that bind names
+- `ref` or `mut` on `rest @ ..`, and two `..` in one slice pattern
 - binding-only arms without a guard
 - float literal patterns
 - half-open ranges (`5..`) and ranges bounded by a path (`i32::MIN..=0`)
