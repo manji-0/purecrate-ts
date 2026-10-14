@@ -179,7 +179,7 @@ Besides the capabilities in §2.1:
 
 - **The type/function file-name collision** (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
-### 2.5 Distance to the ideal (2026-10-13, 0.20.0 2026-10-14)
+### 2.5 Distance to the ideal (2026-10-13, 0.21.0 2026-10-15)
 
 <!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
 
@@ -197,23 +197,23 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | String comparison, search, slicing, `split(char)`, `trim`, `parse` | 3 | 0.85 | accepted |
 | `if let` on an enum's variant, `let`-`else` | 3 | 1 | accepted from 0.17.0 (0.6 before: a `match` with `_`) |
 | `Option` / `Result` `and_then`, `unwrap_or_else`, `filter` | 3 | 1 | accepted from 0.18.0 (0.5 before: a `match`) |
-| `fold`, `zip`, `flat_map`, `filter_map`, `windows`, `dedup`, `get`, `last`, `contains` on a `Vec` | 3 | 0.75 | `fold`, `zip`, `get`, `last`, `contains` accepted from 0.18.0 (0.4 before: a `for`); `flat_map`, `filter_map`, `windows`, `dedup` `[expr/method-call]` |
+| `fold`, `zip`, `flat_map`, `filter_map`, `windows`, `dedup`, `get`, `last`, `contains` on a `Vec` | 3 | 1 | `fold`, `zip`, `get`, `last`, `contains` accepted from 0.18.0 (0.4 before: a `for`); `flat_map`, `filter_map`, `flatten`, `windows`, `chunks`, `dedup` from 0.21.0 (0.75 before) |
 | A tuple's `.0` | 2 | 1 | accepted from 0.17.0 (0.7 before: a tuple `let`) |
 | `loop`, `while let` | 2 | 1 | accepted from 0.17.0 (0.5 before) |
-| `a..=b`, `step_by`, `rev` | 2 | 0.85 | `a..=b` and `rev` on a range accepted from 0.17.0 (0.5 before), `rev` right after a sequence's source from 0.18.0; `step_by` `[expr/loop]` |
-| Slice patterns (`[x, ..]`) | 1 | 0.5 | `[pattern/other]` |
-| `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 0.4 | `[expr/method-call]` |
+| `a..=b`, `step_by`, `rev` | 2 | 1 | `a..=b` and `rev` on a range accepted from 0.17.0 (0.5 before), `rev` right after a sequence's source from 0.18.0; `step_by` on a range, and a range as any sequence's source (`(1..=n).sum()`), from 0.21.0 (0.85 before) |
+| Slice patterns (`[x, ..]`) | 1 | 0.9 | accepted from 0.21.0 (0.5 before), `[]`, `[x, ..]`, `[first, rest @ .., last]`, exhaustive by length; a `match` whose elements leave a value out asks for a last `_`, also where ranges cover a whole type (`[0..=255]` on `&[u8]`) |
+| `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 1 | accepted from 0.21.0 (0.4 before: `[expr/method-call]`), with `split_whitespace` and `to_string`; the literal `split("")` is refused |
 | Numbers to text (`format!`, `to_string`) | 3 | 0.9 | accepted from 0.16.0 (0.2 before: digits built by hand; idsmith 82 `format!`, 37 `to_string`); `to_string` is `format!("{n}")`, floats stay out |
 | Keyed collections (`HashMap`, `BTreeMap`, sets) | 3 | 0.6 | `BTreeMap<String, V>` / `BTreeSet<String>` accepted from 0.19.0 (0.2 before: a `Vec` of pairs searched in order); `HashMap` is written `BTreeMap`, another spelling; other key types stay `[type/disallowed]` |
 | Generic types and functions (`Page<T>`) | 2 | 0.9 | accepted from 0.20.0, on the wire too (0.2 before: one copy per type; 16 functions and 21 types in the corpus outside idsmith); a `T` is not ordered |
 | Fixed-size arrays and tables | 2 | 0.5 | `[type/array]`: a `Vec` or a `match` |
-| Associated consts, calls through module paths | 2 | 0.5 | `[check/undefined-fn]`, `[expr/external-path]`: a crate-level `const`; 24 in the corpus outside idsmith |
+| Associated consts, calls through module paths | 2 | 1 | accepted from 0.21.0 (0.5 before: `[check/undefined-fn]`, `[expr/external-path]`); an associated const in a pattern takes a guard |
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow; 78% with 0.18.0's std methods; 81% with 0.19.0's keyed collections; 83% with 0.20.0's type parameters** (the plan said 75%, 79%, 83%, and 86%: `step_by`, `flat_map`, `filter_map`, `windows`, and `dedup` stay out, keys other than `String` wait for a use, a `T` is not ordered, and `corpus/patterns.rs`'s `p50` still needs its `0` typed, a matter of inference, not of the range). Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]` then, accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, 0.9 now; traits with `Display`, after type parameters, 0.3; each weight 2) gives 61% as measured and 82% now; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow; 78% with 0.18.0's std methods; 81% with 0.19.0's keyed collections; 83% with 0.20.0's type parameters; 90% with 0.21.0's notation** (the plan said 75%, 79%, 83%, and 86%: keys other than `String` wait for a use, and a `T` is not ordered). `survey corpus/patterns.rs` accepts 91 of its 99 functions with 0.21.0, 47 of 72 before it; the eight left are `HashMap`, a set of integers, an array, a trait method, `&mut self`, `&` on a `usize`, `{:.2}` on a float, and `partition`. Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]` then, accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, 0.9 now; traits with `Display`, after type parameters, 0.3; each weight 2) gives 61% as measured and 88% now; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** The whole plan in §3 is done: `format!` on integers, the control flow, the std on `Option` / `Result` / `Vec`, keyed collections, and type parameters, to 83% (86% planned). What is left is notation, not capability: shapes another spelling writes at some cost in length. The plan in §3 takes the largest of them, by decision.
+**What moves it.** The whole plan in §3 is done: `format!` on integers, the control flow, the std on `Option` / `Result` / `Vec`, keyed collections, and type parameters, to 83% (86% planned); 0.21.0 took the largest notation left (text cut and built, the adaptors and ranges, associated consts and module paths, slice patterns), to 90%. What is left is mostly traits (§5), which `Display`, `PartialOrd` on a `T`, and the corpus's trait method wait for.
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
@@ -230,6 +230,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 3. ~~**0.18.0, std on `Option`, `Result`, and `Vec`.**~~ Done ([01 §7.1](./01-equivalence.md#71-option-and-result-methods), [§7.17](./01-equivalence.md#717-panics), [§7.18](./01-equivalence.md#718-reading-a-vec-get-first-last-contains)). `and_then`, `unwrap_or_else`, `ok_or_else`, `or`, `or_else`, `filter`, `map_or`, `map_or_else`, `is_some_and`, `is_none_or` on `Option`, their counterparts on `Result`; `get`, `first`, `last`, `contains` on a `Vec`; `fold`, and `rev` and `zip` right after a sequence's source; `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect`, each with Rust's message. Out: `Result::unwrap` / `expect` and `assert_eq!` / `assert_ne!`, whose messages print a value with `{:?}`; `rev` or `zip` after a `map` or `filter`; `step_by`, `flat_map`, `filter_map`. The statements generator's new forms found four places where flow narrowed otherwise than TS, each also in 0.17.0, fixed with it (CHANGELOG 0.18.0).
 4. ~~**0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`**~~ Done ([01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring), [04 §3.3](./04-wire.md#33-reading-rules)). A `Map` / `Set` read in key order by code point; `get`, `contains_key`, `len`, `is_empty`, `clone`, `iter` / `keys` / `values`, `for`, `collect`, `==`, and `insert` / `remove` on a local; a JSON object (a set an array) on the wire, every own key a key. Out: keys other than `String`, `HashMap` / `HashSet`, `entry`, `range`, `cmp`.
 5. ~~**0.20.0, type parameters**~~ Done ([01 §7.20](./01-equivalence.md#720-type-parameters)). On structs, enums, inherent `impl` blocks, and functions, emitted as TS generics, the type arguments inferred at each call and construction; the bounds `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Debug`. On the wire, a generic type's schema is a function of its parameters' schemas. Out: ordering a `T` (no comparator for an unknown type), a turbofish, traits.
+6. ~~**0.21.0, notation**~~ Done (2026-10-15, by decision after the plan above: the rows of §2.5 with the most weight left): [01 §7.21](./01-equivalence.md#721-cutting-and-building-text) `to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, `to_string`; [§7.22](./01-equivalence.md#722-iterator-adaptors-and-ranges) `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, `step_by`, a range as a sequence, an accumulator's literal typed by its first use; [§7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules) associated consts and paths through modules; [§7.24](./01-equivalence.md#724-slice-patterns) slice patterns.
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
@@ -241,17 +242,17 @@ What the evidence currently points at, strongest first. The five examples of 202
 | ~~`==` on the crate's enums and structs that derive `PartialEq`~~ | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
 | ~~String trimming and search, sorting, and picking an item~~ | negotiate: a byte-by-byte list scanner, insertion sorts (2.6×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); tuple sort keys and `Reverse` stay out |
 | ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
-| Paths through modules (`crate::m::f`, `super::T`) | — | names are already unique after flattening, so this is resolution only |
+| ~~Paths through modules (`crate::m::f`, `super::T`)~~ | — | done in 0.21.0: resolution only, as names are unique after flattening |
 | ~~Narrowing `as` between integers~~ | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); a widening `From` takes keeps `T::from(x)` as its one spelling |
 | Type parameters and string-keyed maps | §2.5 | 0.19.0 and 0.20.0 in the plan above; §5 |
-| Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion | specified with local `const` in 0.4.0 | waits for a use |
+| ~~Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion~~ | specified with local `const` in 0.4.0 | done in 0.21.0 |
 | crates.io and Windows binaries | — | when a user asks; since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement |
 
 **1.0** needs every withdrawal criterion of [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria) answered. The generated API's compatibility within a minor series is [§9](#9-generated-api-stability). The real-use criterion stays open until the tool is adopted unprompted; Oxide `Name` remains local evidence ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; `loop`, labelled `break`/`continue`, `a..=b` in `for`, iterator adaptors other than `map`, `filter`, `copied`, and `cloned` (`rev`, `zip`, `enumerate` before a consumer, `take`, `skip`); the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; the adaptors `take`, `skip`, `take_while`, `skip_while`, `peekable`, and `partition`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
 
 ## 5. v1: when type expressiveness runs out
 
@@ -264,7 +265,7 @@ Planned by decision (2026-10-14, §3), no longer waiting for an example.
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Mutating a `Vec` other than a local's `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`: through a field, an element's array, a parameter, or `pop` / `truncate` / `extend` / `sort_unstable`. `split` on a `&str` (a closure on a `char` is taken).
+- Mutating a `Vec` other than a local's `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`: through a field, an element's array, a parameter, or `pop` / `truncate` / `extend` / `sort_unstable`.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - serde's `untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, and `transparent`: refused with their location; the reasons are in [04 §4](./04-wire.md#4-out-of-scope).
