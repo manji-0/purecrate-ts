@@ -36,6 +36,24 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
+        self.method_call_typed(receiver, name, args, want, before, recv, rt)
+    }
+
+    /// The rest of `method_call`, once the receiver is typed: apart, so
+    /// the frame each link of a chain holds while its receiver is typed
+    /// (`self.expr` above) is small.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn method_call_typed(
+        &mut self,
+        receiver: &Expr,
+        name: &Name,
+        args: &[Expr],
+        want: Option<&Ty>,
+        before: usize,
+        recv: Expr,
+        rt: Option<Ty>,
+    ) -> Typed {
         if let Some(t @ (Ty::Map { .. } | Ty::Set(_))) = rt.as_ref().map(|t| self.norm(t)) {
             if let Some(typed) = self.tree_method(recv.clone(), &t, name.as_str(), args, want) {
                 return typed;
@@ -326,29 +344,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
                 let f = self.defs.methods[&(ty.as_str(), name.as_str())];
                 if !f.generics.is_empty() {
-                    // `impl<T> Page<T>`: the receiver binds the impl's
-                    // parameters, the arguments the method's own.
-                    let (param_tys, ret) = sig(f);
-                    let mut binds = Vec::new();
-                    if let Some(first) = param_tys.first() {
-                        self.unify(first, &rt, &f.generics, &mut binds);
-                    }
-                    let what = format!("`{}.{}`", ty.as_str(), name.as_str());
-                    let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
-                    let (rest, t) = self.generic_args(
-                        &what,
-                        &f.generics,
-                        binds,
-                        param_tys.get(1..).unwrap_or(&[]),
-                        args,
-                        &ret,
-                        want,
-                    );
-                    let e = Expr::Call {
-                        callee: Callee::Method { ty, name: name.clone() },
-                        args: std::iter::once(recv).chain(rest).collect(),
-                    };
-                    return (e, self.expect(want, t));
+                    return self.generic_method(f, ty, name, recv, &rt, args, want);
                 }
                 let (param_tys, ret) = sig(f);
                 self.expect(param_tys.first(), Some(rt));
@@ -404,6 +400,37 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (receiver.clone(), None)
             }
         }
+    }
+
+    /// A method of `impl<T> Page<T>` called on a typed receiver: the
+    /// receiver binds the impl's parameters, the arguments the method's own.
+    /// Apart from `method_call`, whose frame every link of a chain holds.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn generic_method(
+        &mut self,
+        f: &Fn,
+        ty: Name,
+        name: &Name,
+        recv: Expr,
+        rt: &Ty,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Typed {
+        let (param_tys, ret) = sig(f);
+        let mut binds = Vec::new();
+        if let Some(first) = param_tys.first() {
+            self.unify(first, rt, &f.generics, &mut binds);
+        }
+        let what = format!("`{}.{}`", ty.as_str(), name.as_str());
+        let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
+        let (rest, t) =
+            self.generic_args(&what, &f.generics, binds, param_tys.get(1..).unwrap_or(&[]), args, &ret, want);
+        let e = Expr::Call {
+            callee: Callee::Method { ty, name: name.clone() },
+            args: std::iter::once(recv).chain(rest).collect(),
+        };
+        (e, self.expect(want, t))
     }
 
     /// `e as T`: a fieldless enum to an integer type that holds every

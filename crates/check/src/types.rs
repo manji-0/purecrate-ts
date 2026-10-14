@@ -134,6 +134,40 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// Expands aliases. Alias cycles are cut after a fixed depth.
+    /// `S { .. }` or a variant: `S { a, ..base }` of a generic `S` takes
+    /// its type from the base. Apart from `expr`, whose frame a chain of
+    /// calls holds at every link.
+    #[inline(never)]
+    fn construct_expr(
+        &mut self,
+        ty: &Name,
+        variant: Option<&Name>,
+        fields: &Fields,
+        base: Option<&Expr>,
+        want: Option<&Ty>,
+    ) -> Typed {
+        let base_typed = base.map(|b| self.expr(b, want));
+        let hint = base_typed.as_ref().and_then(|(_, t)| t.clone()).or_else(|| want.cloned());
+        let (fields, t) = self.construct(ty, variant.map(|v| v.as_str()), fields, hint.as_ref());
+        let e = Expr::Construct {
+            ty: ty.clone(),
+            variant: variant.cloned(),
+            fields,
+            base: base_typed.map(|(b, _)| Box::new(b)),
+        };
+        (e, self.expect(want, t))
+    }
+
+    /// A struct field's type, at the struct's type arguments.
+    #[inline(never)]
+    fn field_ty(&self, base: &Ty, name: &Name) -> Option<Ty> {
+        let base = self.norm(base);
+        let binds = self.bindings_of(&base);
+        let (s, _) = base.applied()?;
+        let st = self.defs.structs.get(s.as_str())?;
+        st.fields.iter().find(|f| f.name == *name).map(|f| f.ty.subst(&binds))
+    }
+
     fn norm(&self, ty: &Ty) -> Ty {
         let mut t = ty.peel().clone();
         for _ in 0..32 {
@@ -361,17 +395,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
             Expr::Closure { params, ret, body } => self.closure(params, ret.as_ref(), body, want),
             Expr::Construct { ty, variant, fields, base } => {
-                // `S { a, ..base }` of a generic `S`: the base gives its type.
-                let base_typed = base.as_ref().map(|b| self.expr(b, want));
-                let hint = base_typed.as_ref().and_then(|(_, t)| t.clone()).or_else(|| want.cloned());
-                let (fields, t) = self.construct(ty, variant.as_ref().map(|v| v.as_str()), fields, hint.as_ref());
-                let e = Expr::Construct {
-                    ty: ty.clone(),
-                    variant: variant.clone(),
-                    fields,
-                    base: base_typed.map(|(b, _)| Box::new(b)),
-                };
-                (e, self.expect(want, t))
+                self.construct_expr(ty, variant.as_ref(), fields, base.as_deref(), want)
             }
             Expr::Index { base, index } => {
                 let (base, bt) = self.expr(base, None);
@@ -399,19 +423,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     let e = Expr::Field { base: Box::new(base), name: Name::new(format!("[{i}]")) };
                     return (e, self.expect(want, Some(t)));
                 }
-                let t = bt.as_ref().and_then(|bt| {
-                    let bt = self.norm(bt);
-                    let binds = self.bindings_of(&bt);
-                    match bt.applied() {
-                        Some((s, _)) => self
-                            .defs
-                            .structs
-                            .get(s.as_str())
-                            .and_then(|st| st.fields.iter().find(|f| f.name == *name))
-                            .map(|f| f.ty.subst(&binds)),
-                        None => None,
-                    }
-                });
+                let t = bt.as_ref().and_then(|bt| self.field_ty(bt, name));
                 if let (None, Some(bt)) = (&t, &bt) {
                     if name.as_str().parse::<usize>().is_ok() {
                         self.error(
