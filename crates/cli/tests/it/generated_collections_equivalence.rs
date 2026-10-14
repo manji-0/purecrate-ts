@@ -8,7 +8,11 @@
 //! duplicates), and read by `find`, `max` / `min`, `max_by_key` /
 //! `min_by_key`, `max_by` / `min_by`, `position`, `any`, `all`, `count`,
 //! and `sum`, inside loops that push to or remove from the `Vec` they walk
-//! a copy of. `==` / `!=` compare `Vec`s, `Option`s, tuples, the struct,
+//! a copy of. From 0.21.0, `dedup` and `dedup_by_key` edit a `Vec` too, and
+//! `filter_map`, `flat_map`, `flatten`, `windows`, `chunks` (sizes of 0
+//! among them), and ranges stepped by `step_by` either side of `rev` feed
+//! the consumers, added into `acc`; these draw from a second generator, so
+//! each seed's other statements are the ones it drew before. `==` / `!=` compare `Vec`s, `Option`s, tuples, the struct,
 //! and the enum, with `NaN` and `-0.0` in float fields. Inputs hold empty
 //! vectors, duplicates, `i32::MIN` / `MAX`, strings ordered differently by
 //! code point and by UTF-16 unit, and indices past the end.
@@ -143,6 +147,8 @@ struct Var {
 
 struct G {
     rng: Rng,
+    /// What draws the 0.21.0 shapes, apart from `rng`.
+    extra: Rng,
     scope: Vec<Var>,
     next: usize,
     out: String,
@@ -759,7 +765,83 @@ impl G {
         self.line(&text);
     }
 
+    /// A statement, and now and then one of 0.21.0's after it: `dedup` on
+    /// a `let mut` `Vec`, or an adaptor's `i32` added into `acc`. Each draws
+    /// from `extra`, as `rng` in turn.
     fn stmt(&mut self, depth: u32) {
+        self.drawn(depth);
+        let which = self.extra.below(8);
+        if which > 1 {
+            return;
+        }
+        std::mem::swap(&mut self.rng, &mut self.extra);
+        match (which, self.mut_vec(None)) {
+            (0, Some((v, ty))) => self.dedup(&v, ty),
+            _ => {
+                let x = self.adapted();
+                self.line(&format!("acc = acc.wrapping_add({x});"));
+            }
+        }
+        std::mem::swap(&mut self.rng, &mut self.extra);
+    }
+
+    /// `dedup`, or `dedup_by_key` with a key that may overflow.
+    fn dedup(&mut self, v: &str, ty: T) {
+        let text = match (ty, self.rng.below(2)) {
+            (_, 0) => format!("{v}.dedup();"),
+            (T::VI, _) => format!("{v}.dedup_by_key(|x| {});", self.key_int("*x")),
+            (T::VS, _) => format!("{v}.dedup_by_key(|s| {});", self.key_s()),
+            (T::VP, _) => format!("{v}.dedup_by_key(|p| {});", self.key_p()),
+            _ => format!("{v}.dedup_by_key(|e| matches!(e, E::B(_)));"),
+        };
+        self.line(&text);
+    }
+
+    /// An `i32` from the iterator adaptors and ranges: `filter_map`,
+    /// `flat_map`, `flatten`, `windows`, `chunks`, and `step_by` with `rev`
+    /// on either side, before a consumer. A size or a step of `i % 3` or `j
+    /// % 3` may be 0, which panics. A closure reads no `let mut` local:
+    /// the `Vec` is copied into a `let` first.
+    fn adapted(&mut self) -> String {
+        let v = self.vec_of(T::VI);
+        let n = self.rng.pick(&["i % 3", "j % 3", "1 + j % 3", "2"]);
+        let e = match self.rng.below(9) {
+            0 => format!("{v}.iter().filter_map(|x| x.checked_mul(k)).sum::<i32>()"),
+            1 => {
+                let key = self.key_int("*x");
+                format!("{v}.iter().flat_map(|x| vec![*x, {key}]).fold(0i32, |a, x| a.wrapping_mul(3).wrapping_add(x))")
+            }
+            2 => format!("({v}.iter().flat_map(|x| x.checked_add(k)).count() as i32)"),
+            3 => {
+                let w = self.vec_of(T::VI);
+                format!("vec![{v}.clone(), {w}.clone()].into_iter().flatten().sum::<i32>()")
+            }
+            4 => {
+                let p = self.vec_of(T::VP);
+                format!("{p}.iter().map(|p| p.c).flatten().map(|c| i32::from(c)).sum::<i32>()")
+            }
+            5 => format!("({v}.windows({n}).filter(|w| w[0] < w[w.len() - 1]).count() as i32)"),
+            6 => format!("{v}.chunks({n}).map(|c| c[c.len() - 1]).sum::<i32>()"),
+            7 => {
+                let range = match self.rng.below(4) {
+                    0 => format!("(0..w.len()).step_by({n})"),
+                    1 => format!("(0..=w.len()).rev().step_by({n})"),
+                    2 => format!("(0..w.len()).step_by({n}).rev()"),
+                    _ => format!("(i..j + 3).rev().step_by({n}).rev()"),
+                };
+                format!(
+                    "{{ let w: Vec<i32> = {v}.clone(); {range}.map(|n| w.get(n).copied().unwrap_or(k)).sum::<i32>() }}"
+                )
+            }
+            _ => {
+                let lo = self.int(1);
+                format!("(({lo}) % 4..=3).step_by({n}).fold(k, |a, x| a.wrapping_sub(x))")
+            }
+        };
+        e
+    }
+
+    fn drawn(&mut self, depth: u32) {
         let pick = if depth == 0 { self.rng.below(9) } else { self.rng.below(21) };
         if pick >= 19 {
             return self.tree_stmt();
@@ -987,8 +1069,15 @@ impl G {
 const RETS: [T; 13] = [T::VI, T::VI, T::VS, T::VP, T::VE, T::OI, T::OP, T::OS, T::OU, T::OE, T::Int, T::Bool, T::Us];
 
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<String>) {
-    let mut g =
-        G { rng: Rng::new(seed ^ 0xc011), scope: Vec::new(), next: 0, out: String::new(), indent: 1, ret: T::Int };
+    let mut g = G {
+        rng: Rng::new(seed ^ 0xc011),
+        extra: Rng::new(seed ^ 0x0221),
+        scope: Vec::new(),
+        next: 0,
+        out: String::new(),
+        indent: 1,
+        ret: T::Int,
+    };
     for n in 0..count {
         g.next = 0;
         g.out.clear();

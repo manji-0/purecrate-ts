@@ -6,6 +6,11 @@
 //! statements around them, where the audit of 0.8.1 found a `?` in a
 //! range's end that ran before its start.
 //!
+//! From 0.21.0 a range `for` is also stepped by `step_by` with `rev` on
+//! either side, and an accumulator `let mut s = 0;` that its first use
+//! types sums one, mixed into `h0`. These draw from a second generator, so
+//! each seed's other statements are the ones it drew before.
+//!
 //! Every loop is bounded: a range's ends are taken `% 4` and `% 6`, and a
 //! `while` counts a local nothing else writes up to a bound under 5, first
 //! in its body, so `continue` cannot skip it. Overflow, division by zero,
@@ -41,6 +46,7 @@ use std::fmt::Write as _;
 
 use crate::generated_equivalence::{compare, Gen, Ty, PARAMS};
 use crate::support::generated::{fn_count, seeds, SEEDS};
+use crate::support::Rng;
 
 struct Body {
     g: Gen,
@@ -57,6 +63,8 @@ struct Body {
     /// Lines written so far, indented.
     out: String,
     indent: usize,
+    /// What draws the 0.21.0 shapes, apart from `g`'s generator.
+    extra: Rng,
 }
 
 /// Names a binding may take besides `v<n>`: ones the translator makes up
@@ -120,10 +128,51 @@ impl Body {
         }
     }
 
+    /// A statement, and now and then an accumulator after it.
     fn stmt(&mut self, depth: u32) {
         if self.paths_rng.below(10) == 0 {
             self.paths();
         }
+        self.drawn(depth);
+        if self.extra.below(10) == 0 {
+            self.accumulate();
+        }
+    }
+
+    /// `let mut s = <unsuffixed>;` summing a stepped range, the start typed
+    /// by `s += i` as rustc types it, then mixed into `h0`. Its ends draw
+    /// from `extra`, as `g`'s generator in turn.
+    fn accumulate(&mut self) {
+        let names = self.g.next_name;
+        std::mem::swap(&mut self.g.rng, &mut self.extra);
+        let (lo, hi) = (self.g.int(2), self.g.int(2));
+        std::mem::swap(&mut self.g.rng, &mut self.extra);
+        self.g.next_name = names;
+        let n = self.extra.below(1 << 20);
+        let (v, i) = (format!("s{n}x"), format!("n{n}x"));
+        let start = self.extra.pick(&["0", "1", "-1", "7"]);
+        let range = self.stepped(&lo, &hi);
+        self.line(&format!("let mut {v} = {start};"));
+        self.line(&format!("for {i} in {range} {{"));
+        self.line(&format!("    {v} += {i};"));
+        self.line("}");
+        self.line(&format!("h0 = h0.wrapping_mul(31).wrapping_add({v});"));
+    }
+
+    /// A range of `lo % 4` to `hi % 6` stepped by `step_by` (by 0, which
+    /// panics, now and then), with `rev` before it, after it, or both.
+    fn stepped(&mut self, lo: &str, hi: &str) -> String {
+        let k = self.extra.pick(&["1", "2", "3", "2", "3", "0"]);
+        match self.extra.below(5) {
+            0 => format!("(({lo}) % 4..({hi}) % 6).step_by({k})"),
+            1 => format!("(({lo}) % 4..=({hi}) % 6).step_by({k})"),
+            2 => format!("(({lo}) % 4..=({hi}) % 6).rev().step_by({k})"),
+            3 => format!("(({lo}) % 4..({hi}) % 6).step_by({k}).rev()"),
+            _ => format!("(({lo}) % 4..({hi}) % 6).rev().step_by({k}).rev()"),
+        }
+    }
+
+    fn drawn(&mut self, depth: u32) {
         let e = 2;
         let pick = if depth == 0 { self.g.rng.pick(&[0, 1, 2, 3, 13, 13, 14]) } else { self.g.rng.below(25) };
         match pick {
@@ -161,6 +210,8 @@ impl Body {
                     2 => format!("(({lo}) % 4..=({hi}) % 6).rev()"),
                     _ => format!("({lo}) % 4..({hi}) % 6"),
                 };
+                // Or stepped by `step_by`, with `rev` on either side.
+                let range = if self.extra.below(3) == 0 { self.stepped(&lo, &hi) } else { range };
                 self.block(&format!("for {i} in {range}"), depth - 1, 4);
                 self.g.scope.pop();
                 self.loops.pop();
@@ -765,6 +816,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
         loops: Vec::new(),
         out: String::new(),
         indent: 1,
+        extra: Rng::new(seed ^ 0x0221),
     };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
