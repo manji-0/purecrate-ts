@@ -130,23 +130,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return Some((call, self.expect(want, Some(Ty::named(ORDERING)))));
             }
             _ => {
-                let call = match args[0].unpositioned() {
-                    Expr::Closure { params, body, .. } if params.is_empty() => {
-                        if body.exits() {
-                            self.error(Reason::Closure, "a closure passed to `Ordering::then_with` may not use `?` or `return` in v0; write the `match`".into());
-                            return failed();
-                        }
-                        (**body).clone()
-                    }
-                    Expr::Var(f) => Expr::Call { callee: Callee::Fn(f.clone()), args: Vec::new() },
-                    _ => {
-                        self.error(
-                            Reason::Closure,
-                            "`Ordering::then_with` takes a closure `|| ..` or a function name in v0".into(),
-                        );
-                        return failed();
-                    }
-                };
+                let Some(call) = self.thunk("`Ordering::then_with`", &args[0]) else { return failed() };
                 [same("Less"), ("Equal", call), same("Greater")]
             }
         };

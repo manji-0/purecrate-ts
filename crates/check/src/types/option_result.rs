@@ -259,14 +259,10 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// The `f` of `unwrap_or_else(f)` and the like, as the body that runs
     /// in its place: a closure of no parameters, or a function name called
     /// with none. `None` after reporting anything else.
-    fn thunk(&mut self, what: &str, f: &Expr) -> Option<Expr> {
+    pub(super) fn thunk(&mut self, what: &str, f: &Expr) -> Option<Expr> {
         match f.unpositioned() {
             Expr::Closure { params, body, .. } if params.is_empty() => {
-                if body.exits() {
-                    self.error(
-                        Reason::Closure,
-                        format!("a closure passed to {what} may not use `?` or `return` in v0; write the `match`"),
-                    );
+                if self.exits_reported(what, body, "write the `match`") {
                     return None;
                 }
                 Some((**body).clone())
@@ -279,6 +275,20 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
     }
 
+    /// Whether `body`, of a closure passed to `what`, uses `?` or `return`,
+    /// which would leave the enclosing function once the closure is inlined;
+    /// reported, `tail` saying what to write instead.
+    pub(super) fn exits_reported(&mut self, what: &str, body: &Expr, tail: &str) -> bool {
+        let exits = body.exits();
+        if exits {
+            self.error(
+                Reason::Closure,
+                format!("a closure passed to {what} may not use `?` or `return` in v0; {tail}"),
+            );
+        }
+        exits
+    }
+
     /// The `f` of `Result::map(f)`, `Option::and_then(f)`, and the like as
     /// an arm's pattern and body: a closure of one parameter (`|_| ..` binds
     /// nothing), a function name, or a one-field tuple variant. `what` names
@@ -286,11 +296,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn arm_fn(&mut self, what: &str, f: &Expr) -> Option<(Pattern, Expr)> {
         match f.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
-                if body.exits() {
-                    self.error(
-                        Reason::Closure,
-                        format!("a closure passed to {what} may not use `?` or `return` in v0; write the `match`"),
-                    );
+                if self.exits_reported(what, body, "write the `match`") {
                     return None;
                 }
                 let p = &params[0];

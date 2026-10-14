@@ -179,11 +179,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let Some(acc) = acc else { return failed };
         let f = match args[1].unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 2 => {
-                if body.exits() {
-                    self.error(
-                        Reason::Closure,
-                        "a closure passed to `fold` may not use `?` or `return` in v0; write the loop".to_string(),
-                    );
+                if self.exits_reported("`fold`", body, "write the loop") {
                     return failed;
                 }
                 let mut named = |p: &ClosureParam| {
@@ -259,11 +255,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
         match arg.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
-                if body.exits() {
-                    self.error(
-                        Reason::Closure,
-                        format!("a closure passed to `{method}` may not use `?` or `return` in v0; write the loop"),
-                    );
+                if self.exits_reported(&format!("`{method}`"), body, "write the loop") {
                     return None;
                 }
                 let p = &params[0];
