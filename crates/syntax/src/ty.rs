@@ -54,7 +54,7 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
 /// Primitives with no chosen TS form yet.
 const UNSUPPORTED_PRIMS: [&str; 1] = ["isize"];
 
-const FORBIDDEN_CONTAINERS: [&str; 6] = ["Rc", "Cell", "RefCell", "HashMap", "BTreeMap", "HashSet"];
+const FORBIDDEN_CONTAINERS: [&str; 5] = ["Rc", "Cell", "RefCell", "HashMap", "HashSet"];
 
 fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     // The `uuid` crate is the one outside dependency whose types are modeled
@@ -88,7 +88,16 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         );
     }
     if FORBIDDEN_CONTAINERS.contains(&name.as_str()) {
-        return Err(ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0")).detail(name));
+        let hint = match name.as_str() {
+            // Rust leaves a hash map's order unspecified, so a function that
+            // iterates one has no one result to match (design/07 §5).
+            "HashMap" => "; use `BTreeMap<String, V>`, which iterates in key order",
+            "HashSet" => "; use `BTreeSet<String>`, which iterates in key order",
+            _ => "",
+        };
+        return Err(
+            ParseError::new(Reason::DisallowedType, format!("`{name}` is not allowed in v0{hint}")).detail(name)
+        );
     }
     if name == "Mutex" {
         return Err(ParseError::new(
@@ -123,6 +132,22 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         "Uuid" if generics(&last.arguments)?.is_empty() => Ok(Ty::Prim(Prim::Uuid)),
         "Option" => Ok(Ty::option(first_generic(&last.arguments)?)),
         "Vec" => Ok(Ty::Vec(Box::new(first_generic(&last.arguments)?))),
+        "BTreeMap" | "BTreeSet" => {
+            let mut args = generics(&last.arguments)?;
+            let want = if name == "BTreeMap" { 2 } else { 1 };
+            if args.len() != want {
+                return Err(ParseError::new(Reason::TypeArity, format!("`{name}` needs {want} type argument(s)")));
+            }
+            if args[0] != Ty::Prim(Prim::String) {
+                return Err(ParseError::new(
+                    Reason::DisallowedType,
+                    format!("`{name}`'s keys are `String` in v0 (design/01 §7.19)"),
+                )
+                .detail(name));
+            }
+            let key = Box::new(args.remove(0));
+            Ok(if name == "BTreeMap" { Ty::Map { key, value: Box::new(args.remove(0)) } } else { Ty::Set(key) })
+        }
         "Result" => {
             let args = generics(&last.arguments)?;
             if args.len() != 2 {

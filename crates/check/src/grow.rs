@@ -9,9 +9,9 @@
 //! parameter, a field, or a returned value is. No closure reads it: a
 //! closure would see the array as it is when called, not when made.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use purecrate_ir::{Callee, Crate, Expr, Item, Name, Over, Reason};
+use purecrate_ir::{Callee, Crate, Expr, Item, Name, Over, Reason, TreeOp};
 
 use crate::Diagnostic;
 
@@ -19,11 +19,16 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
     let mut out = Vec::new();
     for (i, item) in krate.items.iter_mut().enumerate() {
         let Item::Fn(f) = item else { continue };
-        let mut pushed = HashSet::new();
-        f.body.walk(|e| pushed.extend(e.grown().cloned()));
-        if pushed.is_empty() {
+        let mut kinds: HashMap<Name, Kind> = HashMap::new();
+        f.body.walk(|e| {
+            if let Some(n) = e.grown() {
+                kinds.insert(n.clone(), kind(e));
+            }
+        });
+        if kinds.is_empty() {
             continue;
         }
+        let pushed: HashSet<Name> = kinds.keys().cloned().collect();
         if let Some(n) = captured(&f.body, &pushed, false) {
             out.push(Diagnostic::at(
                 i,
@@ -35,7 +40,7 @@ pub fn grow(mut krate: Crate) -> Result<Crate, Vec<Diagnostic>> {
             ));
             continue;
         }
-        own(&mut f.body, &pushed);
+        own(&mut f.body, &kinds);
     }
     if out.is_empty() {
         Ok(krate)
@@ -53,23 +58,61 @@ fn captured(expr: &Expr, pushed: &HashSet<Name>, inside: bool) -> Option<Name> {
     }
 }
 
-/// A new array: nothing else holds it.
-fn fresh(value: &Expr) -> bool {
-    matches!(value, Expr::Array(_) | Expr::Call { callee: Callee::Collect { .. }, .. })
+/// What a grown local holds: an array, or (design/01 §7.19) a map or a set.
+#[derive(Clone, Copy)]
+enum Kind {
+    Array,
+    Map,
+    Set,
 }
 
-fn copy(value: &mut Expr) {
+fn kind(write: &Expr) -> Kind {
+    match write {
+        Expr::Call { callee: Callee::Tree(TreeOp::Insert | TreeOp::RemoveKey), .. } => Kind::Map,
+        Expr::Call { callee: Callee::Tree(_), .. } => Kind::Set,
+        _ => Kind::Array,
+    }
+}
+
+/// A new array, map, or set: nothing else holds it.
+fn fresh(value: &Expr) -> bool {
+    matches!(
+        value,
+        Expr::Array(_)
+            | Expr::Call { callee: Callee::Collect { .. }, .. }
+            | Expr::Call {
+                callee: Callee::Tree(
+                    TreeOp::NewMap
+                        | TreeOp::NewSet
+                        | TreeOp::CloneMap
+                        | TreeOp::CloneSet
+                        | TreeOp::FromPairs
+                        | TreeOp::FromKeys
+                ),
+                ..
+            }
+    )
+}
+
+fn copy(value: &mut Expr, kind: Kind) {
     if !fresh(value) {
         let v = std::mem::replace(value, Expr::Array(Vec::new()));
-        *value = Expr::Call { callee: Callee::Collect { result: false, over: Over::Items }, args: vec![v] };
+        let callee = match kind {
+            Kind::Array => Callee::Collect { result: false, over: Over::Items },
+            Kind::Map => Callee::Tree(TreeOp::CloneMap),
+            Kind::Set => Callee::Tree(TreeOp::CloneSet),
+        };
+        *value = Expr::Call { callee, args: vec![v] };
     }
 }
 
-/// Each binding and assignment of a grown local takes an array of its own.
-fn own(expr: &mut Expr, pushed: &HashSet<Name>) {
+/// Each binding and assignment of a grown local takes a value of its own.
+fn own(expr: &mut Expr, kinds: &HashMap<Name, Kind>) {
     match expr {
-        Expr::Let { name, value, .. } | Expr::Assign { name, value } if pushed.contains(name) => copy(value),
+        Expr::Let { name, value, .. } | Expr::Assign { name, value } if kinds.contains_key(name) => {
+            copy(value, kinds[name])
+        }
         _ => {}
     }
-    expr.children_mut().into_iter().for_each(|c| own(c, pushed));
+    expr.children_mut().into_iter().for_each(|c| own(c, kinds));
 }

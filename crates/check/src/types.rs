@@ -28,6 +28,7 @@ mod option_result;
 mod ordering;
 mod patterns;
 mod prim;
+mod tree;
 
 use crate::Diagnostic;
 use calls::*;
@@ -298,6 +299,18 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::ForEach { var, over, source: string, body } => {
                 let before = self.out.len();
                 let (s, st) = self.expr(string, None);
+                // `for (k, v) in &m`, `for k in &s`: the items in key order.
+                let (s, st) = match st.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Map { key, value }) if *over == Over::Items => (
+                        Expr::Call { callee: Callee::Tree(purecrate_ir::TreeOp::Entries), args: vec![s] },
+                        Some(Ty::Vec(Box::new(Ty::Tuple(vec![*key, *value])))),
+                    ),
+                    Some(Ty::Set(key)) if *over == Over::Items => (
+                        Expr::Call { callee: Callee::Tree(purecrate_ir::TreeOp::Keys), args: vec![s] },
+                        Some(Ty::Vec(key)),
+                    ),
+                    _ => (s, st),
+                };
                 let norm = st.as_ref().map(|t| self.norm(t));
                 let item = match (over, &norm) {
                     (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Some(Ty::Prim(Prim::Char)),
@@ -519,6 +532,8 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Option(t) => format!("Option<{}>", show(t)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", show(ok), show(err)),
         Ty::Vec(t) => format!("Vec<{}>", show(t)),
+        Ty::Map { key, value } => format!("BTreeMap<{}, {}>", show(key), show(value)),
+        Ty::Set(t) => format!("BTreeSet<{}>", show(t)),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(show).collect::<Vec<_>>().join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
         Ty::Fn { params, ret } => {

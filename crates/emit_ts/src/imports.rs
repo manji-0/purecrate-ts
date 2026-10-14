@@ -352,6 +352,8 @@ pub(crate) struct Refs {
     ord: bool,
     /// `Iter` from `./str.ts`, for `all`, `any`, `position`, `count`, `sum`.
     iter: bool,
+    /// `BTree`, for a `BTreeMap`'s `get`, `insert`, `remove`, and order.
+    btree: bool,
     /// The `Char` runtime, and the `Char` type, from `./str.ts`.
     char_value: bool,
     char_type: bool,
@@ -387,7 +389,14 @@ impl Refs {
                     self.nums.insert(name.to_string());
                 }
             }
-            Ty::Option(_) | Ty::Vec(_) | Ty::Ignored { .. } | Ty::Tuple(_) | Ty::Fn { .. } | Ty::Never => {}
+            Ty::Option(_)
+            | Ty::Vec(_)
+            | Ty::Map { .. }
+            | Ty::Set(_)
+            | Ty::Ignored { .. }
+            | Ty::Tuple(_)
+            | Ty::Fn { .. }
+            | Ty::Never => {}
         }
         ty.children().into_iter().for_each(|t| self.ty(t));
     }
@@ -508,6 +517,18 @@ impl Refs {
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
                     Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip | Callee::VecRev => self.slice = true,
+                    Callee::Tree(op) => {
+                        use purecrate_ir::TreeOp as T;
+                        match op {
+                            T::Get | T::Insert | T::Add | T::RemoveKey | T::Entries | T::Keys | T::Values => {
+                                self.btree = true
+                            }
+                            T::Len => {
+                                self.nums.insert("Usize".into());
+                            }
+                            _ => {}
+                        }
+                    }
                     Callee::Format(pieces) => {
                         self.str |= pieces
                             .iter()
@@ -694,6 +715,7 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.eq.then_some("Eq"),
         refs.ord.then_some("Ord"),
         refs.iter.then_some("Iter"),
+        refs.btree.then_some("BTree"),
     ];
     let types = [
         (refs.result_type && !refs.result_value).then_some("Result"),

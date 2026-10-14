@@ -430,6 +430,17 @@ fn is_pure(expr: &Expr) -> bool {
             | Callee::VecContains
             | Callee::VecRev
             | Callee::VecZip
+            | Callee::Tree(
+                purecrate_ir::TreeOp::NewMap
+                | purecrate_ir::TreeOp::NewSet
+                | purecrate_ir::TreeOp::Get
+                | purecrate_ir::TreeOp::Has
+                | purecrate_ir::TreeOp::Len
+                | purecrate_ir::TreeOp::IsEmpty
+                | purecrate_ir::TreeOp::Entries
+                | purecrate_ir::TreeOp::Keys
+                | purecrate_ir::TreeOp::Values,
+            )
             // No `str` method on the allow-list panics; slicing does, and is
             // `Callee::Slice`, not here.
             | Callee::Str(_)

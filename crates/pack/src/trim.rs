@@ -82,6 +82,7 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
             ("Eq.", "eq"),
             ("Ord.", "ord"),
             ("Iter.", "iter"),
+            ("BTree.", "btree"),
             ("Char.", "char"),
             ("Uuid.", "uuid"),
             ("Json.", "json"),
@@ -92,7 +93,7 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 }
                 let member = ident(&source[at + prefix.len()..]);
                 out.insert(match name {
-                    "str" | "slice" | "eq" | "ord" | "iter" => format!("{name}.{member}"),
+                    "str" | "slice" | "eq" | "ord" | "iter" | "btree" => format!("{name}.{member}"),
                     "char" if member == "is" => "char.is".to_string(),
                     other => other.to_string(),
                 });
@@ -448,6 +449,13 @@ mod tests {
             "iter.sum",
             "iter.find",
             "iter.fold",
+            "btree.get",
+            "btree.insert",
+            "btree.add",
+            "btree.remove",
+            "btree.entries",
+            "btree.keys",
+            "btree.values",
             "iter.maxBy",
             "iter.minBy",
             "iter.maxByKey",

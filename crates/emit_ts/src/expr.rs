@@ -342,6 +342,8 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
         Ty::Option(inner) => format!("{} | null", emit_ty(inner)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", emit_ty(ok), emit_ty(err)),
         Ty::Vec(inner) => format!("ReadonlyArray<{}>", emit_ty(inner)),
+        Ty::Map { key, value } => format!("ReadonlyMap<{}, {}>", emit_ty(key), emit_ty(value)),
+        Ty::Set(key) => format!("ReadonlySet<{}>", emit_ty(key)),
         Ty::Tuple(elems) => {
             let inner = elems.iter().map(emit_ty).collect::<Vec<_>>().join(", ");
             format!("readonly [{inner}]")
@@ -594,6 +596,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
             if let purecrate_ir::Callee::Format(pieces) = callee {
                 return emit_format(pieces, args, indent);
             }
+            if let purecrate_ir::Callee::Tree(op) = callee {
+                return emit_tree(*op, args, indent);
+            }
             if let purecrate_ir::Callee::Panic = callee {
                 return format!("Panic.raise({})", crate::tidy::strip_outer(&emit_expr(&args[0], indent)));
             }
@@ -618,7 +623,9 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                     format!("Int.{}.{}", ty.as_str(), op.as_str())
                 }
                 purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
-                purecrate_ir::Callee::Format(_) | purecrate_ir::Callee::Panic => unreachable!("printed above"),
+                purecrate_ir::Callee::Format(_) | purecrate_ir::Callee::Panic | purecrate_ir::Callee::Tree(_) => {
+                    unreachable!("printed above")
+                }
                 purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
                 purecrate_ir::Callee::AsFloat(_) => String::new(),
                 purecrate_ir::Callee::StringNew => return "\"\"".into(),
@@ -1135,7 +1142,19 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
         return format!("Iter.tryCollect({}, {f})", iterable(over, emit_tx(source, indent)));
     }
     // `rev` and `zip` already make a new array.
-    let fresh = |e: &Expr| matches!(e, Expr::Call { callee: Callee::VecRev | Callee::VecZip, .. });
+    let fresh = |e: &Expr| {
+        matches!(
+            e,
+            Expr::Call {
+                callee: Callee::VecRev
+                    | Callee::VecZip
+                    | Callee::Tree(
+                        purecrate_ir::TreeOp::Entries | purecrate_ir::TreeOp::Keys | purecrate_ir::TreeOp::Values
+                    ),
+                ..
+            }
+        )
+    };
     match (f, source) {
         (None, s) if (split(s) && !lazy(s)) || fresh(s) => emit_expr(s, indent),
         // A choice or an operator under `...` is parenthesized, as oxfmt prints it.
@@ -1405,6 +1424,30 @@ pub(crate) fn subst(expr: &Expr, name: &Name, with: &Expr) -> Expr {
     }
     go(&mut out, name, with);
     out
+}
+
+/// A `BTreeMap` / `BTreeSet` operation (design/01 §7.19).
+fn emit_tree(op: purecrate_ir::TreeOp, args: &[Expr], indent: usize) -> String {
+    use purecrate_ir::TreeOp as T;
+    let c = || receiver(emit_tx(&args[0], indent));
+    let arg = |i: usize| emit_item(&args[i], indent);
+    match op {
+        T::NewMap => "new Map()".into(),
+        T::NewSet => "new Set()".into(),
+        T::Get => format!("BTree.get({}, {})", emit_expr(&args[0], indent), arg(1)),
+        T::Has => format!("{}.has({})", c(), arg(1)),
+        T::Len => format!("({}.size as Usize)", c()),
+        T::IsEmpty => format!("{}.size === 0", c()),
+        T::Insert => format!("BTree.insert({}, {}, {})", emit_expr(&args[0], indent), arg(1), arg(2)),
+        T::Add => format!("BTree.add({}, {})", emit_expr(&args[0], indent), arg(1)),
+        T::RemoveKey => format!("BTree.remove({}, {})", emit_expr(&args[0], indent), arg(1)),
+        T::Delete => format!("{}.delete({})", c(), arg(1)),
+        T::CloneMap | T::FromPairs => format!("new Map({})", emit_expr(&args[0], indent)),
+        T::CloneSet | T::FromKeys => format!("new Set({})", emit_expr(&args[0], indent)),
+        T::Entries => format!("BTree.entries({})", emit_expr(&args[0], indent)),
+        T::Keys => format!("BTree.keys({})", emit_expr(&args[0], indent)),
+        T::Values => format!("BTree.values({})", emit_expr(&args[0], indent)),
+    }
 }
 
 pub(crate) fn emit_iife(expr: &Expr, indent: usize) -> String {

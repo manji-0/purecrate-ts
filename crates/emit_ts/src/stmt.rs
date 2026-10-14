@@ -557,6 +557,8 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     let grown = crate::PUSHED.with(|p| p.borrow().contains(name));
     let shown = |t: &Ty| match t {
         Ty::Vec(item) if grown => format!("Array<{}>", emit_ty(item)),
+        Ty::Map { key, value } if grown => format!("Map<{}, {}>", emit_ty(key), emit_ty(value)),
+        Ty::Set(key) if grown => format!("Set<{}>", emit_ty(key)),
         t => emit_ty(t),
     };
     let annotation = ty.filter(|_| !inferred).map(|t| format!(": {}", shown(t))).unwrap_or_default();
@@ -691,7 +693,9 @@ fn infers_as(value: &Expr, ty: &Ty) -> bool {
 fn declares_return(value: &Expr) -> bool {
     use purecrate_ir::Callee as C;
     matches!(peel(value), Expr::Call { callee, .. }
-        if !matches!(callee, C::Variant { .. } | C::ResultOk | C::ResultErr | C::OptionSome | C::OptionNone))
+        if !matches!(callee, C::Variant { .. } | C::ResultOk | C::ResultErr | C::OptionSome | C::OptionNone
+            // `new Map()` is a `Map<any, any>`: the binding names its type.
+            | C::Tree(purecrate_ir::TreeOp::NewMap | purecrate_ir::TreeOp::NewSet)))
 }
 
 /// What `x?` is held in before its test: `<name>Result` or `<name>Option`

@@ -76,6 +76,15 @@ pub(super) fn effectless(expr: &Expr) -> bool {
                 | Callee::VecContains
                 | Callee::VecRev
                 | Callee::VecZip
+                | Callee::Tree(
+                    purecrate_ir::TreeOp::Get
+                    | purecrate_ir::TreeOp::Has
+                    | purecrate_ir::TreeOp::Len
+                    | purecrate_ir::TreeOp::IsEmpty
+                    | purecrate_ir::TreeOp::Entries
+                    | purecrate_ir::TreeOp::Keys
+                    | purecrate_ir::TreeOp::Values,
+                )
                 | Callee::StringFrom,
             args,
         } => args.iter().all(effectless),

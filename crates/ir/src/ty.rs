@@ -257,6 +257,14 @@ pub enum Ty {
         err: Box<Ty>,
     },
     Vec(Box<Ty>),
+    /// `BTreeMap<K, V>`; `K` is `String` (design/01 §7.19). A TS `Map`,
+    /// iterated in Rust's key order.
+    Map {
+        key: Box<Ty>,
+        value: Box<Ty>,
+    },
+    /// `BTreeSet<K>`; `K` is `String`. A TS `Set`, iterated in key order.
+    Set(Box<Ty>),
     Tuple(Vec<Ty>),
     Named(Name),
     Fn {
@@ -275,8 +283,8 @@ impl Ty {
     /// The types written inside this one, in source order.
     pub fn children(&self) -> Vec<&Ty> {
         match self {
-            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => vec![t],
-            Ty::Result { ok, err } => vec![ok, err],
+            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => vec![t],
+            Ty::Result { ok, err } | Ty::Map { key: ok, value: err } => vec![ok, err],
             Ty::Tuple(ts) => ts.iter().collect(),
             Ty::Fn { params, ret } => params.iter().chain(std::iter::once(&**ret)).collect(),
             Ty::Prim(_) | Ty::Named(_) | Ty::Never => Vec::new(),

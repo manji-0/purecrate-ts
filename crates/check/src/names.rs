@@ -79,6 +79,7 @@ const PACKAGE_NAMES: &[&str] = &[
     "Eq",
     "Ord",
     "Iter",
+    "BTree",
     "Char",
     "Uuid",
     "UuidError",

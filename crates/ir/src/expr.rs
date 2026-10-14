@@ -727,6 +727,9 @@ pub enum Callee {
     /// `xs.contains(&x)`: whether an element `==` `x`, compared as the
     /// derived `eq` does. Prints as `Slice.contains(xs, x)`.
     VecContains,
+    /// A `BTreeMap<String, V>` or `BTreeSet<String>` operation (design/01
+    /// §7.19): a TS `Map` / `Set`, read in Rust's key order.
+    Tree(TreeOp),
     /// `xs.iter().rev()` (or of `chars()`, `bytes()`, `split(c)`): a new
     /// array of the items in reverse. Prints as `Slice.rev(xs)`.
     VecRev,
@@ -1114,6 +1117,50 @@ pub enum SliceOf {
     Str,
     /// A `Vec` or slice.
     Items,
+}
+
+/// What `Callee::Tree` does. The first argument is the map or set, where
+/// there is one; a key is a `&str` or `String`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeOp {
+    /// `BTreeMap::new()`, `BTreeSet::new()`: `new Map()`, `new Set()`.
+    NewMap,
+    NewSet,
+    /// `m.get(k)`: the value, or `None`. `BTree.get(m, k)`.
+    Get,
+    /// `m.contains_key(k)`, `s.contains(k)`: `c.has(k)`.
+    Has,
+    /// `len()` and `is_empty()`: `c.size`.
+    Len,
+    IsEmpty,
+    /// `m.insert(k, v)` on a local's own map: the old value, or `None`.
+    Insert,
+    /// `s.insert(k)` on a local's own set: whether `k` was new.
+    Add,
+    /// `m.remove(k)` on a local's own map: the old value, or `None`.
+    RemoveKey,
+    /// `s.remove(k)` on a local's own set: whether `k` was there.
+    Delete,
+    /// `clone()`: `new Map(m)`, `new Set(s)`.
+    CloneMap,
+    CloneSet,
+    /// The pairs, the keys (of a map or a set), or the values, in key
+    /// order: a new array. `BTree.entries(m)`, `BTree.keys(c)`,
+    /// `BTree.values(m)`.
+    Entries,
+    Keys,
+    Values,
+    /// `collect()` of pairs into a map (a later key replaces an earlier
+    /// one's value), or of keys into a set.
+    FromPairs,
+    FromKeys,
+}
+
+impl TreeOp {
+    /// Whether it writes its first argument, a local's own map or set.
+    pub fn writes(self) -> bool {
+        matches!(self, TreeOp::Insert | TreeOp::Add | TreeOp::RemoveKey | TreeOp::Delete)
+    }
 }
 
 /// A consuming iterator method (`Callee::Consume`).
@@ -1567,6 +1614,10 @@ impl Expr {
                 callee: Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecSort(_),
                 args,
             } => match args.first() {
+                Some(Expr::Var(n)) => Some(n),
+                _ => None,
+            },
+            Expr::Call { callee: Callee::Tree(op), args } if op.writes() => match args.first() {
                 Some(Expr::Var(n)) => Some(n),
                 _ => None,
             },

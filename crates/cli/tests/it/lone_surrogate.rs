@@ -1,7 +1,7 @@
 //! A JS string may hold a lone surrogate, which no Rust `str` does
 //! (design/01 §6): a `pub` function checks each parameter that may hold a
 //! string (one, or one anywhere in an open struct, an enum, an `Option`, a
-//! `Vec`, or a tuple) on entry and panics, so the encoding never meets one;
+//! `Vec`, a tuple, or a `BTreeMap`'s keys and values or a `BTreeSet`) on entry and panics, so the encoding never meets one;
 //! a private helper, a closed type, and a type with no string are not
 //! checked.
 
@@ -15,6 +15,8 @@ use purecrate_pack::assemble;
 use purecrate_syntax::parse_source;
 
 const SOURCE: &str = r#"
+use std::collections::{BTreeMap, BTreeSet};
+
 pub fn byte_len(s: &str) -> usize {
     helper(s)
 }
@@ -80,10 +82,14 @@ pub fn deep(w: Wrapped, s: Shape, xs: Vec<Option<String>>, o: Option<Vec<String>
 pub fn unchecked(c: Count, s: Sealed) -> usize {
     s.len() + usize::from(c.n)
 }
+
+pub fn keyed(m: BTreeMap<String, String>, s: BTreeSet<String>) -> usize {
+    m.len() + s.len()
+}
 "#;
 
 const DRIVER: &str = r#"
-import { byteLen, deep, firstLen, Sealed, unchecked } from "./src/index.ts";
+import { byteLen, deep, firstLen, keyed, Sealed, unchecked } from "./src/index.ts";
 const out = [];
 const panics = (f) => {
   try {
@@ -109,6 +115,9 @@ for (const [what, f] of [
   ["in a Vec in an Option", () => deep(w("a"), named("a"), [], ["\ud800"], [0, ""])],
   ["in a tuple", () => deep(w("a"), named("a"), [], null, [0, "\ud800"])],
   ["through a constructor", () => Sealed.new("\ud800")],
+  ["in a map's key", () => keyed(new Map([["\ud800", "a"]]), new Set())],
+  ["in a map's value", () => keyed(new Map([["a", "\udc00"]]), new Set())],
+  ["in a set", () => keyed(new Map(), new Set(["ok", "\ud800"]))],
 ]) {
   const got = panics(f);
   if (got !== message) out.push(`${what}: ${got}`);
@@ -120,6 +129,7 @@ for (const [what, f, want] of [
   ["none and a Vec", () => firstLen(null, ["a", "😀"]), 2],
   ["deep", () => deep(w("ab"), { kind: "Tagged", tag: "😀" }, ["x", null], ["y"], [1, "z"]), 10],
   ["no string", () => unchecked({ n: 3 }, Sealed.new("é")), 5],
+  ["a map and a set", () => keyed(new Map([["😀", "é"]]), new Set(["a", "b"])), 3],
 ]) {
   const got = f();
   if (got !== want) out.push(`${what}: ${got}, want ${want}`);

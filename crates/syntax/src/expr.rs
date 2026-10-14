@@ -137,6 +137,21 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         {
             Ok(at(c.span(), Expr::Array(Vec::new())))
         }
+        // `BTreeMap::new()`, `BTreeSet::new()`: empty, of the type the context gives.
+        SynExpr::Call(c)
+            if c.args.is_empty()
+                && matches!(&*c.func, SynExpr::Path(p) if p.qself.is_none() && p.path.segments.len() == 2
+                    && (p.path.segments[0].ident == "BTreeMap" || p.path.segments[0].ident == "BTreeSet")
+                    && p.path.segments[1].ident == "new") =>
+        {
+            let SynExpr::Path(p) = &*c.func else { unreachable!("matched above") };
+            let op = if p.path.segments[0].ident == "BTreeMap" {
+                purecrate_ir::TreeOp::NewMap
+            } else {
+                purecrate_ir::TreeOp::NewSet
+            };
+            Ok(at(c.span(), Expr::Call { callee: Callee::Tree(op), args: Vec::new() }))
+        }
         SynExpr::Call(c) => Ok(at(c.span(), lower_call(cx, &c.func, c.args.iter().collect())?)),
         // `()` is the unit value, not an empty tuple: its type is `()` and
         // it prints as `undefined`.

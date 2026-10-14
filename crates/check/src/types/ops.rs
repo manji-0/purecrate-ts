@@ -149,7 +149,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                         Ty::Named(_) if self.is_ordering(t) => !ordered,
                         // A derived `PartialEq` (rustc refuses `==` without
                         // one), compared part by part.
-                        Ty::Named(_) | Ty::Option(_) | Ty::Result { .. } | Ty::Vec(_) | Ty::Tuple(_)
+                        Ty::Named(_)
+                        | Ty::Option(_)
+                        | Ty::Result { .. }
+                        | Ty::Vec(_)
+                        | Ty::Map { .. }
+                        | Ty::Set(_)
+                        | Ty::Tuple(_)
                             if !ordered && self.deep_comparable(t, &mut Vec::new()) =>
                         {
                             let eq = Expr::Call { callee: Callee::DeepEq, args: vec![l, r] };
@@ -250,7 +256,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ if self.num(t).is_some() => true,
             Ty::Prim(Prim::ParseIntError | Prim::UuidError) => false,
             Ty::Prim(_) => true,
-            Ty::Option(x) | Ty::Vec(x) => self.deep_comparable(&x, seen),
+            Ty::Option(x) | Ty::Vec(x) | Ty::Set(x) => self.deep_comparable(&x, seen),
+            Ty::Map { value, .. } => self.deep_comparable(&value, seen),
             Ty::Result { ok, err } => self.deep_comparable(&ok, seen) && self.deep_comparable(&err, seen),
             Ty::Tuple(xs) => xs.iter().all(|x| self.deep_comparable(x, seen)),
             Ty::Named(n) if seen.contains(&n) => true,

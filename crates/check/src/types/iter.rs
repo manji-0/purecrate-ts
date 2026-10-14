@@ -1,6 +1,8 @@
 //! Iterator chains: `sum`, `count`, `all`, `fold`, `collect`, `map(..).unwrap_or(..)`,
 //! and the sequences they consume.
 
+use purecrate_ir::TreeOp;
+
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
@@ -312,9 +314,18 @@ impl<'d, 'a> Typer<'d, 'a> {
         let target = want.map(|t| self.norm(t));
         // Into a `String`: the chars collected, then joined.
         let into_string = matches!(target, Some(Ty::Prim(Prim::String)));
+        // Into a `BTreeMap` (from pairs, a later key's value replacing an
+        // earlier one's) or a `BTreeSet`: the items collected, then built.
+        let into_tree = match &target {
+            Some(Ty::Map { .. }) => Some(TreeOp::FromPairs),
+            Some(Ty::Set(_)) => Some(TreeOp::FromKeys),
+            _ => None,
+        };
         let (result, elem, err) = match target {
             Some(Ty::Vec(t)) => (false, *t, None),
             Some(Ty::Prim(Prim::String)) => (false, Ty::Prim(Prim::Char), None),
+            Some(Ty::Map { key, value }) => (false, Ty::Tuple(vec![*key, *value]), None),
+            Some(Ty::Set(key)) => (false, *key, None),
             Some(Ty::Result { ok, err }) if matches!(self.norm(&ok), Ty::Vec(_)) => {
                 let Ty::Vec(t) = self.norm(&ok) else { unreachable!("matched above") };
                 (true, *t, Some(*err))
@@ -347,6 +358,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             let e = Expr::Call { callee: Callee::Collect { result, over }, args: vec![source] };
             if into_string {
                 return Some(self.joined_chars(e, &item));
+            }
+            if let Some(op) = into_tree {
+                return Some(self.tree_from(op, e, &item, want));
             }
             // The items are what the sequence gives, whatever the target says.
             let pieces = Ty::Vec(Box::new(item));
@@ -402,12 +416,44 @@ impl<'d, 'a> Typer<'d, 'a> {
         if into_string {
             return Some(self.joined_chars(e, &elem));
         }
+        if let Some(op) = into_tree {
+            return Some(self.tree_from(op, e, &elem, want));
+        }
         let filled = if result {
             Ty::Result { ok: Box::new(Ty::Vec(Box::new(elem))), err: Box::new(err.expect("a Result has its error")) }
         } else {
             Ty::Vec(Box::new(elem))
         };
         Some((e, Some(filled)))
+    }
+
+    /// Collected `items` as a map (`item` a `(String, V)` pair) or a set
+    /// (`item` a `String`), checked against the target the context names.
+    fn tree_from(&mut self, op: TreeOp, items: Expr, item: &Ty, want: Option<&Ty>) -> Typed {
+        let got = match (op, self.norm(item)) {
+            (TreeOp::FromPairs, Ty::Tuple(kv)) if kv.len() == 2 => {
+                Some(Ty::Map { key: Box::new(kv[0].clone()), value: Box::new(kv[1].clone()) })
+            }
+            (TreeOp::FromKeys, k) => Some(Ty::Set(Box::new(k))),
+            _ => None,
+        };
+        let Some(got) = got else {
+            self.error(
+                Reason::TypeMismatch,
+                format!("`collect` builds a `BTreeMap` from `(key, value)` pairs, found `{}`", show(item)),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        };
+        let key_ok = |t: &Ty| matches!(t, Ty::Map { key, .. } | Ty::Set(key) if **key == Ty::Prim(Prim::String));
+        if !key_ok(&got) {
+            self.error(
+                Reason::TypeMismatch,
+                format!("`collect` into a map or set takes `String` keys, found `{}`", show(&got)),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        }
+        let e = Expr::Call { callee: Callee::Tree(op), args: vec![items] };
+        (e, self.expect(want, Some(got)))
     }
 
     /// `chars` (a `Vec<char>`) as one `String`; `item` must be `char`.
@@ -490,7 +536,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (over, source) = match (adaptor, args.as_slice()) {
                     ("chars", []) => (Over::Chars, (**receiver).clone()),
                     ("bytes", []) => (Over::Bytes, (**receiver).clone()),
-                    ("iter" | "into_iter", []) => (Over::Items, (**receiver).clone()),
+                    ("iter" | "into_iter" | "keys" | "values", []) => (Over::Items, (**receiver).clone()),
                     // `s.split(c)` as a `for` gives it: the pieces, a `char` apart.
                     ("split", [sep]) => (
                         Over::Items,
@@ -500,6 +546,19 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 let before = self.out.len();
                 let (source, st) = self.expr(&source, None);
+                // A map's or a set's items in key order, as a new array.
+                let tree = |op: TreeOp, source: Expr| Expr::Call { callee: Callee::Tree(op), args: vec![source] };
+                let (source, st) = match (adaptor, st.as_ref().map(|t| self.norm(t))) {
+                    ("iter" | "into_iter", Some(Ty::Map { key, value })) => {
+                        (tree(TreeOp::Entries, source), Some(Ty::Vec(Box::new(Ty::Tuple(vec![*key, *value])))))
+                    }
+                    ("iter" | "into_iter" | "keys", Some(Ty::Set(key) | Ty::Map { key, .. })) => {
+                        (tree(TreeOp::Keys, source), Some(Ty::Vec(key)))
+                    }
+                    ("values", Some(Ty::Map { value, .. })) => (tree(TreeOp::Values, source), Some(Ty::Vec(value))),
+                    ("keys" | "values", _) => (source, None),
+                    _ => (source, st),
+                };
                 let item = match (over, st.as_ref().map(|t| self.norm(t))) {
                     (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
                     (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),
@@ -598,7 +657,7 @@ pub(super) fn is_sequence(expr: &Expr) -> bool {
     match (name.as_str(), args.len()) {
         ("copied" | "cloned", 0) | ("map" | "filter", 1) => is_sequence(receiver),
         ("rev", 0) | ("zip", 1) => is_source(receiver),
-        ("chars" | "bytes" | "iter" | "into_iter", 0) | ("split", 1) => true,
+        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values", 0) | ("split", 1) => true,
         _ => false,
     }
 }
@@ -609,7 +668,7 @@ fn is_source(expr: &Expr) -> bool {
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
         ("copied" | "cloned" | "rev", 0) | ("zip", 1) => is_source(receiver),
-        ("chars" | "bytes" | "iter" | "into_iter", 0) | ("split", 1) => true,
+        ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values", 0) | ("split", 1) => true,
         _ => false,
     }
 }

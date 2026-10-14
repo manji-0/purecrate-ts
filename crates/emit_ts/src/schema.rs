@@ -978,6 +978,8 @@ fn never(schema: WireSchema) -> Js {
 
 fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
     match ty {
+        // WIRE-TODO(0.19.0): an object read into a `Map`.
+        Ty::Map { .. } | Ty::Set(_) => never(schema),
         Ty::Prim(p) => raw(match p {
             purecrate_ir::Prim::Bool => "bool".to_string(),
             purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "str".into(),
@@ -1172,6 +1174,8 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         call(Js::Paren(Box::new(arrow("()", Some("never"), body))), Vec::new())
     };
     match ty {
+        // WIRE-TODO(0.19.0): an object in key order.
+        Ty::Map { .. } | Ty::Set(_) => throws("BTreeMap"),
         Ty::Prim(p) => match p {
             Prim::Bool => call_path("Json.bool", vec![raw(value)]),
             Prim::String | Prim::Str | Prim::Char | Prim::Uuid => call_path("Json.str", vec![raw(value)]),

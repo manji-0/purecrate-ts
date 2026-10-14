@@ -626,7 +626,9 @@ export const Str = {
       if (typeof v === "string") {
         if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
-        for (const e of Array.isArray(v) ? v : Object.values(v)) visit(e);
+        // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
+        const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
+        for (const e of parts) visit(e);
         wellFormedSeen.add(v);
       }
     };
@@ -975,6 +977,14 @@ export const Eq = {
     if (Array.isArray(a)) {
       return Array.isArray(b) && a.length === b.length && a.every((x, i) => Eq.deep(x, b[i]));
     }
+    // A `BTreeMap` or `BTreeSet`: the same keys, and equal values. Rust
+    // compares them in key order, where each key is once.
+    if (a instanceof Map) {
+      return b instanceof Map && a.size === b.size && [...a].every(([k, v]) => b.has(k) && Eq.deep(v, b.get(k)));
+    }
+    if (a instanceof Set) {
+      return b instanceof Set && a.size === b.size && [...a].every((k) => b.has(k));
+    }
     const x = a as Record<string, unknown>;
     const y = b as Record<string, unknown>;
     const keys = Object.keys(x);
@@ -982,6 +992,57 @@ export const Eq = {
   },
 } as const;
 // #endregion
+
+/**
+ * `BTreeMap<String, V>` and `BTreeSet<String>` as a `Map` / `Set`, read in
+ * Rust's key order: by code point (`Str.cmp`), as Rust orders UTF-8
+ * bytes, not by UTF-16 unit as `sort()` does. A caller's map may have been
+ * filled in any order, so each read in order sorts.
+ */
+export const BTree = {
+  // #region btree.get
+  /** `m.get(k)`: the value, or `null` (`Map.get` gives `undefined`). */
+  get: <V>(m: ReadonlyMap<string, V>, k: string): V | null => (m.has(k) ? (m.get(k) as V) : null),
+  // #endregion
+  // #region btree.insert
+  /** `m.insert(k, v)` on a local's own map: the value it replaces, or `null`. */
+  insert: <V>(m: Map<string, V>, k: string, v: V): V | null => {
+    const old = m.has(k) ? (m.get(k) as V) : null;
+    m.set(k, v);
+    return old;
+  },
+  // #endregion
+  // #region btree.add
+  /** `s.insert(k)` on a local's own set: whether `k` was new. */
+  add: (s: Set<string>, k: string): boolean => {
+    const fresh = !s.has(k);
+    s.add(k);
+    return fresh;
+  },
+  // #endregion
+  // #region btree.remove
+  /** `m.remove(k)` on a local's own map: the value it held, or `null`. */
+  remove: <V>(m: Map<string, V>, k: string): V | null => {
+    const old = m.has(k) ? (m.get(k) as V) : null;
+    m.delete(k);
+    return old;
+  },
+  // #endregion
+  // #region btree.keys btree.entries btree.values
+  /** The keys of a map or a set, in key order: a new array. */
+  keys: (c: ReadonlyMap<string, unknown> | ReadonlySet<string>): ReadonlyArray<string> =>
+    [...c.keys()].sort(Str.cmp),
+  // #endregion
+  // #region btree.entries
+  /** `m.iter()`: the pairs in key order. */
+  entries: <V>(m: ReadonlyMap<string, V>): ReadonlyArray<readonly [string, V]> =>
+    BTree.keys(m).map((k) => [k, m.get(k) as V] as const),
+  // #endregion
+  // #region btree.values
+  /** `m.values()`: the values in key order. */
+  values: <V>(m: ReadonlyMap<string, V>): ReadonlyArray<V> => BTree.keys(m).map((k) => m.get(k) as V),
+  // #endregion
+} as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {

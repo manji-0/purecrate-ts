@@ -237,7 +237,9 @@ export const Str = {
       if (typeof v === "string") {
         if (lone.test(v)) panicWith("a string holds a lone surrogate, which no Rust `str` does");
       } else if (typeof v === "object" && v !== null && !wellFormedSeen.has(v)) {
-        for (const e of Array.isArray(v) ? v : Object.values(v)) visit(e);
+        // A `BTreeMap`'s keys and values, a `BTreeSet`'s keys.
+        const parts = Array.isArray(v) ? v : v instanceof Map ? [...v.keys(), ...v.values()] : v instanceof Set ? [...v] : Object.values(v);
+        for (const e of parts) visit(e);
         wellFormedSeen.add(v);
       }
     };

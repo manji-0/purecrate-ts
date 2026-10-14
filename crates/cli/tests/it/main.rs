@@ -10,6 +10,7 @@ mod ast_equivalence;
 mod bits_equivalence;
 mod bool_patterns_equivalence;
 mod borrow_equivalence;
+mod btree_equivalence;
 mod build;
 mod calendar_equivalence;
 mod casts;

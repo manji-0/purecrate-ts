@@ -104,7 +104,17 @@ impl<'a> Cx<'_, 'a> {
                     "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS".to_string(),
                 );
             }
-            Ty::Option(t) | Ty::Vec(t) => self.ty(t),
+            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) => self.ty(t),
+            // `get` gives `Option<&V>`, and a missing key and a `None` or `()`
+            // value would both be `null` / `undefined` in TS.
+            Ty::Map { value, .. } if self.is_nullish(value) => self.error(
+                Reason::NestedOption,
+                format!("a `BTreeMap` of `{}` values is not in v0: `get` of a missing key and of that value would be the same in TS", crate::types::show(value)),
+            ),
+            Ty::Map { key, value } => {
+                self.ty(key);
+                self.ty(value);
+            }
             Ty::Result { ok, err } => {
                 self.ty(ok);
                 self.ty(err);
@@ -509,6 +519,17 @@ impl<'a> Cx<'_, 'a> {
             Callee::StringFrom => self.arity("`String::from`", 1, argc),
             Callee::Format(_) => {}
             Callee::Panic => self.arity("a panic", 1, argc),
+            Callee::Tree(op) => {
+                use purecrate_ir::TreeOp as T;
+                let n = match op {
+                    T::NewMap | T::NewSet => 0,
+                    T::Len | T::IsEmpty | T::CloneMap | T::CloneSet | T::Entries | T::Keys | T::Values => 1,
+                    T::FromPairs | T::FromKeys => 1,
+                    T::Get | T::Has | T::Add | T::RemoveKey | T::Delete => 2,
+                    T::Insert => 3,
+                };
+                self.arity("a `BTreeMap` / `BTreeSet` method", n, argc)
+            }
             Callee::StringNew => self.arity("`String::new`", 0, argc),
             Callee::StrWellFormed => self.arity("a string check", 1, argc),
             Callee::StrConcat => self.arity("`String::push`", 2, argc),

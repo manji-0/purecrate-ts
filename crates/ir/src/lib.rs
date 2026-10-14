@@ -12,7 +12,7 @@ mod ty;
 
 pub use expr::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, FloatConst, FloatMethod, FmtAlign, FmtPiece,
-    FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TryOn, UnOp, VariantBind,
+    FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp, VariantBind,
 };
 pub use item::{
     tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Tagging, Variant, VariantFields, Vis,
@@ -27,7 +27,8 @@ pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 /// equals one would shadow it. Runtime globals (`Math`, `Number`, `Error`,
 /// `BigInt`) are read through `globalThis`, so a crate may define `Error`;
 /// `Array` is not (`Array.from`, `Array<T>`), nor are the utility types.
-pub const TS_GLOBALS: &[&str] = &["globalThis", "Array", "Readonly", "ReadonlyArray", "Record"];
+pub const TS_GLOBALS: &[&str] =
+    &["globalThis", "Array", "Readonly", "ReadonlyArray", "Record", "Map", "Set", "ReadonlyMap", "ReadonlySet"];
 
 /// A property key an object literal treats as the prototype, not a field.
 pub const PROTO_KEY: &str = "__proto__";

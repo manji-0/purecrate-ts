@@ -23,6 +23,16 @@ const unit = (x) => (x === undefined ? "()" : `not unit: ${String(x)}`);
 const opt = (f) => (x) => (x === null ? "None" : `Some(${f(x)})`);
 const res = (f, g) => (x) => (x.kind === "Ok" ? `Ok(${f(x.value)})` : `Err(${g(x.error)})`);
 const vec = (f) => (xs) => `[${xs.map((x) => f(x)).join(", ")}]`;
+// A map's or a set's keys in Rust's order: by code point, not UTF-16 unit.
+const cps = (s) => [...s].map((c) => c.codePointAt(0));
+const byCp = (a, b) => {
+  const x = cps(a);
+  const y = cps(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return x.length - y.length;
+};
+const map = (f) => (m) => `{${[...m.keys()].sort(byCp).map((k) => `${str(k)}: ${f(m.get(k))}`).join(", ")}}`;
+const set = (s) => `{${[...s].sort(byCp).map(str).join(", ")}}`;
 const tup = (fs) => (xs) => `(${fs.map((f, i) => f(xs[i])).join(", ")})`;
 const run = (f, print) => {
   let r;
@@ -53,6 +63,8 @@ pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
         Ty::Option(inner) => format!("opt({})", ts_printer(krate, inner)?),
         Ty::Result { ok, err } => format!("res({}, {})", ts_printer(krate, ok)?, ts_printer(krate, err)?),
         Ty::Vec(inner) => format!("vec({})", ts_printer(krate, inner)?),
+        Ty::Map { value, .. } => format!("map({})", ts_printer(krate, value)?),
+        Ty::Set(_) => "set".into(),
         Ty::Tuple(elems) => {
             format!("tup([{}])", elems.iter().map(|t| ts_printer(krate, t)).collect::<Option<Vec<_>>>()?.join(", "))
         }

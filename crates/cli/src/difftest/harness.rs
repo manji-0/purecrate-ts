@@ -108,6 +108,8 @@ fn ty_text(ty: &Ty) -> String {
         Ty::Option(t) => format!("Option<{}>", ty_text(t)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", ty_text(ok), ty_text(err)),
         Ty::Vec(t) => format!("Vec<{}>", ty_text(t)),
+        Ty::Map { key, value } => format!("BTreeMap<{}, {}>", ty_text(key), ty_text(value)),
+        Ty::Set(t) => format!("BTreeSet<{}>", ty_text(t)),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(ty_text).collect::<Vec<_>>().join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
         Ty::Fn { .. } => "a closure".to_string(),
@@ -169,7 +171,8 @@ impl<'a> Makeable<'a> {
         match ty {
             Ty::Prim(Prim::Uuid | Prim::UuidError | Prim::ParseIntError) => false,
             Ty::Prim(_) => true,
-            Ty::Option(t) | Ty::Vec(t) | Ty::Ignored { inner: t, .. } => self.can(t),
+            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => self.can(t),
+            Ty::Map { key, value } => self.can(key) && self.can(value),
             Ty::Result { ok, err } => self.can(ok) && self.can(err),
             Ty::Tuple(ts) => (1..=5).contains(&ts.len()) && ts.iter().all(|t| self.can(t)),
             Ty::Named(n) => match self.krate.items.iter().find(|i| i.name() == n) {
@@ -337,7 +340,7 @@ fn rust_ty(ty: &Ty) -> Option<String> {
         Ty::Result { ok, err } => format!("Result<{}, {}>", rust_ty(ok)?, rust_ty(err)?),
         Ty::Tuple(ts) => format!("({},)", ts.iter().map(rust_ty).collect::<Option<Vec<_>>>()?.join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
-        Ty::Vec(_) | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => return None,
+        Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => return None,
     })
 }
 
@@ -966,6 +969,50 @@ pub(crate) mod __purecrate {
                 js.push(j);
             }
             Some((vs, format!("[{}]", js.join(", "))))
+        }
+    }
+
+    /// Drawn in any order, as a TS caller may fill one; a key drawn twice
+    /// keeps its last value on both sides.
+    impl<V: Arb> Arb for std::collections::BTreeMap<String, V> {
+        fn arb(r: &mut Rng) -> Option<(Self, String)> {
+            let n = if r.deep() { 0 } else { r.len(4) };
+            let mut m = std::collections::BTreeMap::new();
+            let mut js = Vec::new();
+            for _ in 0..n {
+                let (k, jk) = r.nest(String::arb)?;
+                let (v, jv) = r.nest(V::arb)?;
+                m.insert(k, v);
+                js.push(format!("[{jk}, {jv}]"));
+            }
+            Some((m, format!("new Map([{}])", js.join(", "))))
+        }
+    }
+
+    impl Arb for std::collections::BTreeSet<String> {
+        fn arb(r: &mut Rng) -> Option<(Self, String)> {
+            let n = if r.deep() { 0 } else { r.len(4) };
+            let mut s = std::collections::BTreeSet::new();
+            let mut js = Vec::new();
+            for _ in 0..n {
+                let (k, jk) = r.nest(String::arb)?;
+                s.insert(k);
+                js.push(jk);
+            }
+            Some((s, format!("new Set([{}])", js.join(", "))))
+        }
+    }
+
+    /// `{"a": 1, "b": 2}`, in key order.
+    impl<V: Show> Show for std::collections::BTreeMap<String, V> {
+        fn show(&self) -> String {
+            format!("{{{}}}", self.iter().map(|(k, v)| format!("{}: {}", k.show(), v.show())).collect::<Vec<_>>().join(", "))
+        }
+    }
+
+    impl Show for std::collections::BTreeSet<String> {
+        fn show(&self) -> String {
+            format!("{{{}}}", self.iter().map(|k| k.show()).collect::<Vec<_>>().join(", "))
         }
     }
 

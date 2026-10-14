@@ -481,6 +481,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::StringFrom => (typed_args(self, vec![Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::String))),
             Callee::Format(pieces) => return self.format(pieces, args, want),
+            Callee::Tree(op) => return self.tree_call(*op, args, want),
             // Written by `syntax` with a `&str` or `String` message.
             Callee::Panic => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Never)),
             Callee::StringNew => (Vec::new(), Some(Ty::Prim(Prim::String))),

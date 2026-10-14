@@ -107,6 +107,22 @@ impl<T: Js> Js for Vec<T> {
     }
 }
 
+/// Built in the order the test gives, which need not be key order.
+impl<V: Js> Js for std::collections::BTreeMap<String, V> {
+    fn js(&self) -> String {
+        format!(
+            "new Map([{}])",
+            self.iter().rev().map(|(k, v)| format!("[{}, {}]", k.js(), v.js())).collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
+impl Js for std::collections::BTreeSet<String> {
+    fn js(&self) -> String {
+        format!("new Set([{}])", self.iter().rev().map(|k| k.js()).collect::<Vec<_>>().join(", "))
+    }
+}
+
 impl<T: Js> Js for Option<T> {
     fn js(&self) -> String {
         match self {
@@ -295,6 +311,22 @@ impl<T: Show, E: Show> Show for Result<T, E> {
 impl<T: Show> Show for [T] {
     fn show(&self) -> String {
         format!("[{}]", self.iter().map(Show::show).collect::<Vec<_>>().join(", "))
+    }
+}
+
+/// `{"a": 1, "b": 2}`, in key order, as the generated test's printer.
+impl<V: Show> Show for std::collections::BTreeMap<String, V> {
+    fn show(&self) -> String {
+        format!(
+            "{{{}}}",
+            self.iter().map(|(k, v)| format!("{}: {}", k.show(), v.show())).collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
+impl Show for std::collections::BTreeSet<String> {
+    fn show(&self) -> String {
+        format!("{{{}}}", self.iter().map(|k| k.show()).collect::<Vec<_>>().join(", "))
     }
 }
 

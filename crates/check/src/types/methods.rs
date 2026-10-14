@@ -36,6 +36,11 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
+        if let Some(t @ (Ty::Map { .. } | Ty::Set(_))) = rt.as_ref().map(|t| self.norm(t)) {
+            if let Some(typed) = self.tree_method(recv.clone(), &t, name.as_str(), args, want) {
+                return typed;
+            }
+        }
         // `clone` is a new array for a `Vec`, which a local may push to, and
         // the value itself for anything else, which nothing writes; `as_ref`
         // and `as_deref` on an `Option` are the option (design/01 §7.14).
