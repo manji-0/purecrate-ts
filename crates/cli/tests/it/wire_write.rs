@@ -282,6 +282,18 @@ fn shape_values() -> Vec<(&'static str, String)> {
             serde_json::to_string(&Catalog { counts: BTreeMap::new(), tags: BTreeSet::new(), nested: BTreeMap::new() })
                 .unwrap(),
         ),
+        (
+            "Holding",
+            serde_json::to_string(&Holding {
+                labels: Paged { items: vec![label_of("a".into()), label_of("é".into())], total: 2 },
+                nums: Paged { items: vec![0, u64::MAX], total: 9 },
+                pick: Choice::One("x".into()),
+                other: Choice::Two { b: id_of(7), n: 255 },
+                none: Choice::Neither,
+                links: Links::Link(-1, Box::new(Links::Link(127, Box::new(Links::End)))),
+            })
+            .unwrap(),
+        ),
     ]
 }
 
@@ -292,7 +304,7 @@ fn shapes_read_from_serde_json_are_written_back_byte_for_byte() {
     // the schema reads back: that row is written from the domain value.
     let rows: Vec<String> = values.iter().map(|(ty, text)| format!("[{},{}]", js(ty), js(text))).collect();
     let script = format!(
-        "import {{ parseJson, Int }} from \"./src/purecrate-runtime.ts\";\n\
+        "import {{ Int }} from \"./src/purecrate-runtime.ts\";\n\
          import * as w from \"./src/purecrate-wire.ts\";\n\
          const out = [];\n\
          for (const [ty, text] of [{}]) {{\n\
@@ -302,13 +314,16 @@ fn shapes_read_from_serde_json_are_written_back_byte_for_byte() {
              continue;\n\
            }}\n\
            let got;\n\
-           try {{ got = w.toJson[ty](w[ty].parse(parseJson(text))); }} catch (e) {{ got = `threw ${{e}}`; }}\n\
+           try {{ got = w.toJson[ty](w.fromJson[ty](text)); }} catch (e) {{ got = `threw ${{e}}`; }}\n\
            if (got !== text) out.push(`${{ty}}: want ${{text}}\\n  got ${{got}}`);\n\
          }}\n\
          console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n",
         rows.join(",")
     );
-    assert_ok(run_node("shapes", shapes::SOURCE, &script));
+    // Each library reads the text back (`fromJson`), as serde does.
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        assert_ok(run_node_with(schema, "shapes", shapes::SOURCE, &script));
+    }
 }
 
 /// A state rebuilt by running its events again (`step` consumes the

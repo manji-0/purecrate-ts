@@ -28,7 +28,11 @@ fn a_binding_whose_type_is_not_known_is_rejected() {
 #[test]
 fn a_matched_value_whose_type_is_not_known_is_rejected() {
     let hint = "the type of the matched value is not known";
-    assert_rejects("pub fn f(a: i32) -> i32 { match Ok::<i32, i32>(a) { Ok(v) => v, Err(e) => e } }", hint);
+    // A turbofish is not read: refused while parsing, with the same advice.
+    common::assert_parse_rejects(
+        "pub fn f(a: i32) -> i32 { match Ok::<i32, i32>(a) { Ok(v) => v, Err(e) => e } }",
+        "write the type on the binding",
+    );
     assert_rejects("pub fn f(a: i32) -> i32 { match Ok(a) { Ok(v) => v, Err(_) => 0 } }", hint);
     assert_clean("pub fn f(a: i32) -> i32 { let r: Result<i32, i32> = Ok(a); match r { Ok(v) => v, Err(e) => e } }");
 }

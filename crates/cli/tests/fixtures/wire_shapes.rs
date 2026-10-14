@@ -32,6 +32,37 @@ pub struct Units {
 #[derive(Serialize, Deserialize)]
 pub struct Nothing {}
 
+/// Generic types: each schema a function of its parameters' schemas, each
+/// writer of its parameters' writers.
+#[derive(Serialize, Deserialize)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub total: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum Choice<A, B> {
+    One(A),
+    Two { b: B, n: u8 },
+    Neither,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum Links<T> {
+    End,
+    Link(T, Box<Links<T>>),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Holding {
+    pub labels: Paged<Label>,
+    pub nums: Paged<u64>,
+    pub pick: Choice<String, Id>,
+    pub other: Choice<String, Id>,
+    pub none: Choice<String, Id>,
+    pub links: Links<i8>,
+}
+
 /// A JSON object, keys in Rust's order, and an array of keys.
 #[derive(Serialize, Deserialize)]
 pub struct Catalog {

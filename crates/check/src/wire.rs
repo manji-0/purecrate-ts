@@ -14,28 +14,6 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     derive_fields(krate, &mut out);
     names_and_tags(krate, &mut out);
-    // A generic type's schema would be a function of its parameter's;
-    // not in v0 yet (design/07 §5).
-    for (i, item) in krate.items.iter().enumerate() {
-        let generic = match item {
-            Item::Struct(s) => !s.generics.is_empty(),
-            Item::Enum(e) => !e.generics.is_empty(),
-            _ => false,
-        };
-        if generic && (derives(item, "Serialize") || derives(item, "Deserialize")) {
-            out.push(
-                Diagnostic::at(
-                    i,
-                    Reason::SerdeDerive,
-                    format!(
-                        "`{}` is generic: a wire form for a generic type is not in v0; derive serde on a concrete type that holds it (`struct UserPage {{ page: Page<User> }}` is refused too: write the fields out)",
-                        item.name().as_str()
-                    ),
-                )
-                .about(item.name().as_str()),
-            );
-        }
-    }
     for (i, item) in krate.items.iter().enumerate() {
         let Item::Struct(s) = item else { continue };
         let Some(from) = &s.wire_from else { continue };
