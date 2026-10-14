@@ -45,6 +45,14 @@ const run = (f, print) => {
 };
 "#;
 
+/// A node script: `PRELUDE`, the crate's printers, `defs`, and `out`,
+/// the result of each of `runs` (a `run(..)` call), printed one per line
+/// by `print` (`out.join("\n")`, or with each line escaped).
+pub fn driver(krate: &Crate, defs: &str, runs: impl IntoIterator<Item = String>, print: &str) -> String {
+    let runs: String = runs.into_iter().map(|r| format!("  {r},\n")).collect();
+    format!("{PRELUDE}{}{defs}const out = [\n{runs}];\nconsole.log({print});\n", ts_printers(krate))
+}
+
 /// A JS function that prints a value of `ty` as `Show` does in Rust. `None`
 /// for a type no value of which is printed (a closure, `!`).
 pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {

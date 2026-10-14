@@ -3,7 +3,7 @@
 
 use purecrate_ir::{Crate, Item};
 
-use super::printers::{ts_printer, ts_printers, PRELUDE};
+use super::printers::ts_printer;
 use super::Case;
 
 pub(super) fn driver(krate: &Crate, cases: &[Case]) -> String {
@@ -11,11 +11,7 @@ pub(super) fn driver(krate: &Crate, cases: &[Case]) -> String {
     let mut names: Vec<String> = cases.iter().map(|c| purecrate_ir::to_camel(c.name)).collect();
     names.sort();
     names.dedup();
-    let mut out = String::from(PRELUDE);
-    out.push_str(&ts_printers(krate));
-    out.push_str(&format!("const {{ {} }} = pkg;\n", names.join(", ")));
-    out.push_str("const out = [\n");
-    for c in cases {
+    let runs = cases.iter().map(|c| {
         let ret = krate
             .items
             .iter()
@@ -25,8 +21,7 @@ pub(super) fn driver(krate: &Crate, cases: &[Case]) -> String {
             })
             .unwrap_or_else(|| panic!("no free function `{}`", c.name));
         let print = ts_printer(krate, ret).unwrap_or_else(|| panic!("a case cannot return {ret:?}"));
-        out.push_str(&format!("  run(() => {}, {print}),\n", c.call));
-    }
-    out.push_str("];\nconsole.log(out.join(\"\\n\"));\n");
-    out
+        format!("run(() => {}, {print})", c.call)
+    });
+    super::printers::driver(krate, &format!("const {{ {} }} = pkg;\n", names.join(", ")), runs, "out.join(\"\\n\")")
 }

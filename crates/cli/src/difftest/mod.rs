@@ -200,22 +200,18 @@ fn harness_binary(input: &Input, loaded: &Loaded, plan: &Plan<'_>, dir: &Path) -
 /// The node script: each case's call, printed as the Rust side printed it,
 /// one line per case and escaped as the harness escapes.
 fn driver(krate: &Crate, calls: &[Call], cases: &[Case]) -> String {
-    let mut out = String::from(printers::PRELUDE);
-    out.push_str(
+    let mut defs = String::from(
         "const esc = (s) => s.replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll(\"\\n\", \"\\\\n\").replaceAll(\"\\r\", \"\\\\r\").replaceAll(\"\\t\", \"\\\\t\");\n\
          const __ok = (r) => {\n  if (r.kind !== \"Ok\") throw new Error(\"purecrate-ts test: a constructor gave Err in TS and Ok in Rust\");\n  return r.value;\n};\n\
          const __some = (o) => {\n  if (o === null) throw new Error(\"purecrate-ts test: a constructor gave None in TS and Some in Rust\");\n  return o;\n};\n",
     );
-    out.push_str(&printers::ts_printers(krate));
     for (i, call) in calls.iter().enumerate() {
         let print = printers::ts_printer(krate, &call.ret).expect("a printable result (plan)");
-        out.push_str(&format!("const print{i} = {print};\n"));
+        defs.push_str(&format!("const print{i} = {print};\n"));
     }
-    out.push_str("const out = [\n");
-    for case in cases {
+    let runs = cases.iter().map(|case| {
         let i = calls.iter().position(|c| c.key == case.key).expect("a case of a planned call");
-        out.push_str(&format!("  run(() => {}({}), print{i}),\n", case.key, case.args));
-    }
-    out.push_str("];\nconsole.log(out.map(esc).join(\"\\n\"));\n");
-    out
+        format!("run(() => {}({}), print{i})", case.key, case.args)
+    });
+    printers::driver(krate, &defs, runs, "out.map(esc).join(\"\\n\")")
 }
