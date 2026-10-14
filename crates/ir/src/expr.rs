@@ -23,7 +23,6 @@ pub enum Lit {
     Str(String),
     Char(char),
     Unit,
-    Null,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

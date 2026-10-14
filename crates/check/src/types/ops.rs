@@ -102,7 +102,6 @@ impl<'d, 'a> Typer<'d, 'a> {
             Lit::Str(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Str)))),
             Lit::Char(_) => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Char)))),
             Lit::Unit => (Expr::Lit(lit.clone()), self.expect(want, Some(Ty::Prim(Prim::Unit)))),
-            Lit::Null => (Expr::Lit(lit.clone()), want.cloned()),
         }
     }
 

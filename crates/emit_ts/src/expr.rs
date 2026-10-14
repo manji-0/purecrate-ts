@@ -1468,7 +1468,6 @@ pub(crate) fn emit_lit(lit: &Lit) -> String {
         Lit::Str(s) => js_string(s),
         Lit::Char(c) => format!("({} as Char)", js_string(&c.to_string())),
         Lit::Unit => "undefined".into(),
-        Lit::Null => "null".into(),
     }
 }
 
