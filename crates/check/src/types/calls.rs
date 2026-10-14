@@ -194,46 +194,17 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (args, t) = match callee {
             Callee::Local(_) => (typed_args(self, Vec::new()), None),
-            Callee::Fn(n) if self.defs.free_fns.get(n.as_str()).is_some_and(|f| !f.generics.is_empty()) => {
-                let f = self.defs.free_fns[n.as_str()];
-                let (params, ret) = sig(f);
-                let what = format!("`{}`", n.as_str());
-                self.generic_args(
-                    &what,
-                    &f.generics,
-                    Vec::new(),
-                    &params,
-                    args,
-                    &ret.unwrap_or(Ty::Prim(Prim::Unit)),
-                    want,
-                )
-            }
-            Callee::Method { ty, name }
-                if self.defs.methods.get(&(ty.as_str(), name.as_str())).is_some_and(|f| !f.generics.is_empty()) =>
-            {
-                let f = self.defs.methods[&(ty.as_str(), name.as_str())];
-                let (params, ret) = sig(f);
-                let what = format!("`{}::{}`", ty.as_str(), name.as_str());
-                self.generic_args(
-                    &what,
-                    &f.generics,
-                    Vec::new(),
-                    &params,
-                    args,
-                    &ret.unwrap_or(Ty::Prim(Prim::Unit)),
-                    want,
-                )
-            }
-            Callee::Fn(n) => {
-                let sig = self.defs.free_fns.get(n.as_str()).map(|f| sig(f));
-                let (params, ret) = sig.unwrap_or_default();
-                (typed_args(self, params), ret)
-            }
-            Callee::Method { ty, name } => {
-                let sig = self.defs.methods.get(&(ty.as_str(), name.as_str())).map(|f| sig(f));
-                let (params, ret) = sig.unwrap_or_default();
-                (typed_args(self, params), ret)
-            }
+            Callee::Fn(_) | Callee::Method { .. } => match self.callee_fn(callee) {
+                Some((f, what)) if !f.generics.is_empty() => {
+                    let (params, ret) = sig(f);
+                    let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
+                    self.generic_args(&what, &f.generics, Vec::new(), &params, args, &ret, want)
+                }
+                f => {
+                    let (params, ret) = f.map(|(f, _)| sig(f)).unwrap_or_default();
+                    (typed_args(self, params), ret)
+                }
+            },
             Callee::StructNew(n) => {
                 let params = self
                     .defs
@@ -269,8 +240,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 match expected {
                     Some(inner) => (typed_args(self, vec![inner]), want.cloned()),
                     None => {
-                        let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                        let inner = typed.first().and_then(|(_, t)| t.clone());
+                        let (args, tys) = self.typed_all(args);
+                        let inner = tys.into_iter().next().flatten();
                         if inner.as_ref().is_some_and(|t| matches!(self.norm(t), Ty::Option(_))) {
                             self.error(
                                 Reason::NestedOption,
@@ -280,8 +251,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                             ),
                             );
                         }
-                        let t = inner.map(Ty::option);
-                        (typed.into_iter().map(|(e, _)| e).collect(), t)
+                        (args, inner.map(Ty::option))
                     }
                 }
             }
@@ -327,22 +297,20 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let from = if *to == FloatTy::F64 { FloatTy::F32 } else { FloatTy::F64 };
                 (typed_args(self, vec![Ty::Prim(from.into())]), Some(Ty::Prim((*to).into())))
             }
-            Callee::VecLen => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Usize))),
-            // Written only by `binary`, typed.
-            Callee::DeepEq => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool())),
-            // Written only by `method_call`, typed.
-            Callee::VecSort(_) => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
-            Callee::VecPush | Callee::VecInsert => {
-                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit)))
+            Callee::VecLen => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Usize))),
+            // Written only by `binary` and `method_call`, typed.
+            Callee::DeepEq | Callee::VecContains | Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
+                (typed_args(self, Vec::new()), Some(Ty::bool()))
             }
-            // Written only by `method_call`, typed.
-            Callee::VecContains => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool())),
+            // Written only by `method_call` and `syntax`, typed.
+            Callee::VecSort(_) | Callee::VecPush | Callee::VecInsert | Callee::StrWellFormed => {
+                (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit)))
+            }
+            // Written only by `method_call` and `collect`, typed.
+            Callee::StrConcat | Callee::StrFromChars => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::String))),
             Callee::VecRev | Callee::VecZip => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let mut items = typed.iter().map(|(_, t)| match t.as_ref().map(|t| self.norm(t)) {
-                    Some(Ty::Vec(item)) => Some(*item),
-                    _ => None,
-                });
+                let (args, tys) = self.typed_all(args);
+                let mut items = tys.iter().map(|t| self.vec_item(t));
                 let t = match callee {
                     Callee::VecRev => items.next().flatten().map(|t| Ty::Vec(Box::new(t))),
                     _ => match (items.next().flatten(), items.next().flatten()) {
@@ -350,23 +318,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                         _ => None,
                     },
                 };
-                (typed.into_iter().map(|(e, _)| e).collect(), t)
+                (args, t)
             }
             Callee::VecGet | Callee::VecLast => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let item = match typed[0].1.as_ref().map(|t| self.norm(t)) {
-                    Some(Ty::Vec(item)) => Some(Ty::Option(item)),
-                    _ => None,
-                };
-                (typed.into_iter().map(|(e, _)| e).collect(), item)
+                let (args, tys) = self.typed_all(args);
+                (args, self.vec_item(&tys[0]).map(Ty::option))
             }
             Callee::VecRemove => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let item = match typed[0].1.as_ref().map(|t| self.norm(t)) {
-                    Some(Ty::Vec(item)) => Some(*item),
-                    _ => None,
-                };
-                (typed.into_iter().map(|(e, _)| e).collect(), item)
+                let (args, tys) = self.typed_all(args);
+                (args, self.vec_item(&tys[0]))
             }
             // Written by `syntax` for `v[i] = x`: only a local's own array.
             Callee::VecSet => {
@@ -414,27 +374,24 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let e = Expr::Let { name, mutable: false, ty, value: Box::new(bound), then: Box::new(set) };
                 return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
             }
-            Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
-                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::bool()))
-            }
             // Written only by `binary`, on strings already typed.
             Callee::StrCmp => {
                 (typed_args(self, vec![Ty::Prim(Prim::Str), Ty::Prim(Prim::Str)]), Some(Ty::Prim(Prim::I32)))
             }
             // Written only by `sequence`, typed: a `Vec` of what the stage gives.
             Callee::IterMap { .. } | Callee::IterFilter { .. } => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let item = match (callee, typed.get(1).and_then(|(_, t)| t.clone())) {
+                let (args, tys) = self.typed_all(args);
+                let item = match (callee, tys.get(1).cloned().flatten()) {
                     (Callee::IterMap { .. }, Some(Ty::Fn { ret, .. })) => Some(*ret),
-                    (Callee::IterFilter { over }, _) => typed[0].1.as_ref().and_then(|t| self.walked(*over, t)),
+                    (Callee::IterFilter { over }, _) => tys[0].as_ref().and_then(|t| self.walked(*over, t)),
                     _ => None,
                 };
-                (typed.into_iter().map(|(e, _)| e).collect(), item.map(|t| Ty::Vec(Box::new(t))))
+                (args, item.map(|t| Ty::Vec(Box::new(t))))
             }
             // Written only by `consume`, typed.
             Callee::Consume { method, over } => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let item = typed[0].1.as_ref().and_then(|t| self.walked(*over, t));
+                let (args, tys) = self.typed_all(args);
+                let item = tys[0].as_ref().and_then(|t| self.walked(*over, t));
                 let t = match method {
                     purecrate_ir::Consume::All | purecrate_ir::Consume::Any => Some(Ty::bool()),
                     purecrate_ir::Consume::Position => Some(Ty::option(Ty::Prim(Prim::Usize))),
@@ -442,14 +399,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                     purecrate_ir::Consume::Sum(int) => Some(Ty::Prim(Prim::from(*int))),
                     _ => item.map(Ty::option),
                 };
-                (typed.into_iter().map(|(e, _)| e).collect(), t)
+                (args, t)
             }
             // Written only by `collect`, typed: the source, then `f` if mapped.
             Callee::Collect { result, over } => {
-                let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
-                let item = match typed.get(1).and_then(|(_, t)| t.clone()) {
+                let (args, tys) = self.typed_all(args);
+                let item = match tys.get(1).cloned().flatten() {
                     Some(Ty::Fn { ret, .. }) => Some(*ret),
-                    _ if typed.len() == 1 => typed[0].1.as_ref().and_then(|t| self.walked(*over, t)),
+                    _ if tys.len() == 1 => tys[0].as_ref().and_then(|t| self.walked(*over, t)),
                     _ => None,
                 };
                 let t = match (item, *result) {
@@ -457,15 +414,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (Some(item), false) => Some(Ty::Vec(Box::new(item))),
                     _ => None,
                 };
-                (typed.into_iter().map(|(e, _)| e).collect(), t)
+                (args, t)
             }
             // Written only by `cmp_method` and `ordering_method`, typed.
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => {
-                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::named(purecrate_ir::ORDERING)))
+                (typed_args(self, Vec::new()), Some(Ty::named(purecrate_ir::ORDERING)))
             }
-            Callee::StrBytes => {
-                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8)))))
-            }
+            Callee::StrBytes => (typed_args(self, Vec::new()), Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))),
             Callee::StrSplit => {
                 let (s, st) = self.expr(&args[0], None);
                 if let Some(t) =
@@ -500,13 +455,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             Callee::Format(pieces) => return self.format(pieces, args, want),
             Callee::Tree(op) => return self.tree_call(*op, args, want),
             // Written by `syntax` with a `&str` or `String` message.
-            Callee::Panic => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Never)),
+            Callee::Panic => (typed_args(self, Vec::new()), Some(Ty::Never)),
             Callee::StringNew => (Vec::new(), Some(Ty::Prim(Prim::String))),
-            Callee::StrWellFormed => (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::Unit))),
-            // Written only by `method_call` and `collect`, typed.
-            Callee::StrConcat | Callee::StrFromChars => {
-                (args.iter().map(|a| self.expr(a, None).0).collect(), Some(Ty::Prim(Prim::String)))
-            }
             Callee::Slice { start, end, .. } => {
                 let (base, bt) = self.expr(&args[0], None);
                 let (of, ret) = match bt.as_ref().map(|t| self.norm(t)) {
@@ -526,7 +476,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (e, self.expect(want, ret));
             }
             Callee::Str(m) => (
-                args.iter().map(|a| self.expr(a, None).0).collect(),
+                typed_args(self, Vec::new()),
                 Some(match m {
                     StrMethod::Len => Ty::Prim(Prim::Usize),
                     StrMethod::AsStr => Ty::Prim(Prim::Str),
@@ -563,6 +513,33 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let e = Expr::Call { callee: callee.clone(), args };
         (e, self.expect(want, t))
+    }
+
+    /// The crate function or method a `Callee::Fn` or `Callee::Method`
+    /// names, and how a message names it.
+    fn callee_fn(&self, callee: &Callee) -> Option<(&'a Fn, String)> {
+        match callee {
+            Callee::Fn(n) => self.defs.free_fns.get(n.as_str()).map(|f| (*f, format!("`{}`", n.as_str()))),
+            Callee::Method { ty, name } => self
+                .defs
+                .methods
+                .get(&(ty.as_str(), name.as_str()))
+                .map(|f| (*f, format!("`{}::{}`", ty.as_str(), name.as_str()))),
+            _ => None,
+        }
+    }
+
+    /// `args` typed with no hint, and the type of each.
+    fn typed_all(&mut self, args: &[Expr]) -> (Vec<Expr>, Vec<Option<Ty>>) {
+        args.iter().map(|a| self.expr(a, None)).unzip()
+    }
+
+    /// The item type of `t` when it is a `Vec`.
+    fn vec_item(&self, t: &Option<Ty>) -> Option<Ty> {
+        match t.as_ref().map(|t| self.norm(t)) {
+            Some(Ty::Vec(item)) => Some(*item),
+            _ => None,
+        }
     }
 
     /// A struct's or variant's fields typed against their declared types,
