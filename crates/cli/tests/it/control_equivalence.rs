@@ -81,6 +81,9 @@ fn generated_control_flow_matches_rust() {
             case!(control::side_map_err(1i32, Err::<i32, i32>(5i32))),
             case!(control::side_map_err(2i32, Err::<i32, i32>(5i32))),
             case!(control::side_map_err(2i32, Ok::<i32, i32>(4i32))),
+            case!(control::scrutinee_map_err(1i32, Err::<i32, i32>(5i32))),
+            case!(control::scrutinee_map_err(1i32, Ok::<i32, i32>(5i32))),
+            case!(control::scrutinee_map_err(1i32, Ok::<i32, i32>(500i32))),
         ]);
     });
 }

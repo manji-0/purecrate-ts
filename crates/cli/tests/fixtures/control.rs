@@ -246,3 +246,12 @@ pub fn side_map_err(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
     let v: i32 = if a == 1 { a } else { r.map_err(|e| e + 1)? | 3 };
     Ok(v)
 }
+
+/// `map_err(f)?` as a `match`'s scrutinee: bound before the `match`, not an
+/// inline function whose `return` the `Err` would leave only (through 0.16.0).
+pub fn scrutinee_map_err(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    match r.map_err(|e| e + 1)? {
+        0..=100 => Ok(a),
+        _ => Ok(2),
+    }
+}

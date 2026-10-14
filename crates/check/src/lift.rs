@@ -254,7 +254,7 @@ impl Lifter {
                 wrap(hoisted, Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
             }
             Expr::Match { scrutinee, arms } => {
-                let (scrutinee, hoisted) = self.extract(*scrutinee);
+                let (scrutinee, hoisted) = self.extract_operand(*scrutinee);
                 let arms = arms
                     .into_iter()
                     .map(|a| Arm { guard: None, pattern: a.pattern, body: self.stmt(a.body) })
@@ -340,7 +340,16 @@ impl Lifter {
         self.extract_into(expr, out)
     }
 
+    /// `extract` of a scrutinee, which may itself be a block that leaves the
+    /// function (`match r.map_err(f)? { .. }`): bound first.
+    fn extract_operand(&mut self, expr: Expr) -> (Expr, Hoisted) {
+        let mut hoisted = Vec::new();
+        let expr = self.operand(expr, &mut hoisted);
+        (expr, hoisted)
+    }
+
     /// Replaces each `?` in a strict position with a fresh variable.
+
     fn extract(&mut self, expr: Expr) -> (Expr, Hoisted) {
         let mut hoisted = Vec::new();
         let expr = self.extract_into(expr, &mut hoisted);
