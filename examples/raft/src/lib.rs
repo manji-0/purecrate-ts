@@ -359,7 +359,7 @@ fn is_majority(count: usize, peers: usize) -> bool {
 
 fn finish(node: Node, messages: Vec<Envelope>, reset: bool) -> Outcome {
     let mut applied: Vec<Applied> = Vec::new();
-    for i in node.last_applied + 1..node.commit_index + 1 {
+    for i in node.last_applied + 1..=node.commit_index {
         applied.push(Applied {
             index: i,
             entry: node.log[i - 1],
@@ -478,9 +478,8 @@ fn propose(node: Node, command: u64) -> Result<Outcome, StepError> {
 // largest N > commit_index with a majority of match_index >= N and
 // log[N].term == current_term.
 fn advance_commit(node: Node, progress: &[Progress]) -> Node {
-    let mut n = node.log.len();
     let mut commit = node.commit_index;
-    while n > node.commit_index {
+    for n in (node.commit_index + 1..=node.log.len()).rev() {
         if node.log[n - 1].term == node.current_term {
             let mut count: usize = 1;
             for p in progress {
@@ -493,7 +492,6 @@ fn advance_commit(node: Node, progress: &[Progress]) -> Node {
                 break;
             }
         }
-        n -= 1;
     }
     Node {
         commit_index: commit,
@@ -634,10 +632,8 @@ fn on_append_entries(node: Node, from: Uuid, m: AppendEntries) -> Result<Outcome
 }
 
 fn on_append_reply(node: Node, from: Uuid, m: AppendEntriesReply) -> Outcome {
-    let progress = match node.role.clone() {
-        Role::Leader { progress } => progress,
-        Role::Follower { leader: _ } => return finish(node, Vec::new(), false),
-        Role::Candidate { votes: _ } => return finish(node, Vec::new(), false),
+    let Role::Leader { progress } = node.role.clone() else {
+        return finish(node, Vec::new(), false);
     };
     if m.term != node.current_term {
         return finish(node, Vec::new(), false);

@@ -135,13 +135,8 @@ const onLine = (
   c: Connection,
   line: string,
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
-  let lines: U32;
-  if (c.phase.kind === "Version") {
-    const preambleLines = c.phase.preamble_lines;
-    lines = preambleLines;
-  } else {
-    return Result.err({ kind: "UnexpectedLine" });
-  }
+  if (c.phase.kind !== "Version") return Result.err({ kind: "UnexpectedLine" });
+  const lines = c.phase.preamble_lines;
 
   if (!line.startsWith("SSH-")) {
     if (lines === MAX_PREAMBLE_LINES) return Result.err({ kind: "TooManyPreambleLines" });
@@ -666,14 +661,8 @@ const onAnswer = (
   c: Connection,
   yes: boolean,
 ): Result<readonly [Connection, ReadonlyArray<Action>], Failure> => {
-  let kx: KexState;
-  if (c.phase.kind === "KeyExchange") {
-    const kx2 = c.phase.value;
-    kx = kx2;
-  } else {
-    return Result.err({ kind: "Misuse" });
-  }
-
+  if (c.phase.kind !== "KeyExchange") return Result.err({ kind: "Misuse" });
+  const kx = c.phase.value;
   if (kx.stage.kind !== "AwaitingApproval") return Result.err({ kind: "Misuse" });
   const algorithms = kx.stage.algorithms;
   const hostKey = kx.stage.host_key;
@@ -766,8 +755,8 @@ const nextKeyAttempt = (
     while (j < algs.length) {
       const a: SignatureAlgorithm = Slice.at(algs, j);
       if (c.server_sig_algs === null) return [i, a, i, Int.usize.add(j, 1 as Usize)];
-      if (listed(c.server_sig_algs, signatureName(a)))
-        return [i, a, Int.usize.add(i, 1 as Usize), 0 as Usize];
+      const list = c.server_sig_algs;
+      if (listed(list, signatureName(a))) return [i, a, Int.usize.add(i, 1 as Usize), 0 as Usize];
       j = Int.usize.add(j, 1 as Usize);
     }
 

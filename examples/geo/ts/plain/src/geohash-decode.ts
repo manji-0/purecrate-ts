@@ -28,9 +28,9 @@ export const geohashDecode = (hash: string): Result<GeohashCell, GeoError> => {
 
   for (const c of hash as Iterable<Char>) {
     if (count === GEOHASH_MAX_LEN) return Result.err({ kind: "GeohashTooLong" });
-    const option = Iter.position(BASE32, (a: U8): boolean => Char.fromU8(a) === c);
-    if (option === null) return Result.err({ kind: "BadGeohashChar", value: pos });
-    const idx = Int.u32.cast(option);
+    const n = Iter.position(BASE32, (a: U8): boolean => Char.fromU8(a) === c);
+    if (n === null) return Result.err({ kind: "BadGeohashChar", value: pos });
+    const idx = Int.u32.cast(n);
     let mask = 16 as U32;
     while (mask > 0) {
       const upper = Int.u32.and(idx, mask) !== 0;

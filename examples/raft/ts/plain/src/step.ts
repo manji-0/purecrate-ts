@@ -98,9 +98,8 @@ const finish = (node: Node, messages: ReadonlyArray<Envelope>, reset: boolean): 
   const applied: Array<Applied> = [];
 
   for (
-    let i = Int.usize.add(node.last_applied, 1 as Usize),
-      end = Int.usize.add(node.commit_index, 1 as Usize);
-    i < end;
+    let i = Int.usize.add(node.last_applied, 1 as Usize), end = node.commit_index;
+    i <= end;
     i = (i + 1) as Usize
   ) {
     applied.push({ index: i, entry: Slice.at(node.log, Int.usize.sub(i, 1 as Usize)) });
@@ -256,10 +255,13 @@ const propose = (node: Node, command: U64): Result<Outcome, StepError> => {
 };
 
 const advanceCommit = (node: Node, progress: ReadonlyArray<Progress>): Node => {
-  let n = node.log.length as Usize;
   let commit: Usize = node.commit_index;
 
-  while (n > node.commit_index) {
+  for (
+    let start = Int.usize.add(node.commit_index, 1 as Usize), n = node.log.length as Usize;
+    n >= start;
+    n = (n - 1) as Usize
+  ) {
     if (Slice.at(node.log, Int.usize.sub(n, 1 as Usize)).term === node.current_term) {
       let count = 1 as Usize;
 
@@ -274,8 +276,6 @@ const advanceCommit = (node: Node, progress: ReadonlyArray<Progress>): Node => {
         break;
       }
     }
-
-    n = Int.usize.sub(n, 1 as Usize);
   }
 
   return unsafeMakeNode({
@@ -447,20 +447,8 @@ const onAppendEntries = (node: Node, from: Uuid, m: AppendEntries): Result<Outco
 };
 
 const onAppendReply = (node: Node, from: Uuid, m: AppendEntriesReply): Outcome => {
-  let progress: ReadonlyArray<Progress>;
-  switch (node.role.kind) {
-    case "Leader": {
-      const progress2 = node.role.progress;
-      progress = progress2;
-      break;
-    }
-    case "Follower":
-    case "Candidate":
-      return finish(node, [], false);
-    default:
-      return assertNever(node.role);
-  }
-
+  if (node.role.kind !== "Leader") return finish(node, [], false);
+  const progress = node.role.progress;
   if (m.term !== node.current_term) return finish(node, [], false);
   const last = node.log.length as Usize;
   const updated: Array<Progress> = [];

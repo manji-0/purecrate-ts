@@ -95,7 +95,8 @@ const glob = (pattern: ReadonlyArray<U32>, name: ReadonlyArray<U32>): boolean =>
       n = Int.usize.add(n, 1 as Usize);
     } else {
       if (lastStar === null) return false;
-      p = Int.usize.add(lastStar, 1 as Usize);
+      const s = lastStar;
+      p = Int.usize.add(s, 1 as Usize);
       resume = Int.usize.add(resume, 1 as Usize);
       n = resume;
     }
@@ -123,12 +124,11 @@ const hashedNames = (field: string, name: ReadonlyArray<U32>): LineMatch => {
   const option = Str.stripPrefix(field, "|1|");
   const parts: readonly [string, string] | null =
     option !== null ? Str.splitOnce(option, "|") : null;
-
-  let decoded: readonly [ReadonlyArray<U32> | null, ReadonlyArray<U32> | null];
   if (parts === null) return { kind: "Unreadable" };
-
-  decoded = [base64Decode(parts[0]), base64Decode(parts[1])];
-
+  const decoded: readonly [ReadonlyArray<U32> | null, ReadonlyArray<U32> | null] = [
+    base64Decode(parts[0]),
+    base64Decode(parts[1]),
+  ];
   if (decoded[0] !== null && decoded[1] !== null) {
     if (decoded[0].length !== 20 || decoded[1].length !== 20) return { kind: "Unreadable" };
     const mac = hmacSha1(decoded[0], name);

@@ -304,10 +304,10 @@ pub fn geohash_decode(hash: &str) -> Result<GeohashCell, GeoError> {
         if count == GEOHASH_MAX_LEN {
             return Err(GeoError::GeohashTooLong);
         }
-        let idx = match BASE32.iter().position(|&a| char::from(a) == c) {
-            Some(n) => n as u32,
-            None => return Err(GeoError::BadGeohashChar(pos)),
+        let Some(n) = BASE32.iter().position(|&a| char::from(a) == c) else {
+            return Err(GeoError::BadGeohashChar(pos));
         };
+        let idx = n as u32;
         let mut mask: u32 = 16;
         while mask > 0 {
             let upper = idx & mask != 0;

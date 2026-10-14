@@ -376,9 +376,8 @@ pub fn validate_request(
         _ => return Err(AuthorizationError::Display(DisplayError::UnknownClient)),
     };
     // redirect_uri is REQUIRED in OIDC (§3.1.2.1), unlike RFC 6749 §4.1.1.
-    let redirect_uri = match &params.redirect_uri {
-        Some(u) => u,
-        None => return Err(AuthorizationError::Display(DisplayError::MissingRedirectUri)),
+    let Some(redirect_uri) = &params.redirect_uri else {
+        return Err(AuthorizationError::Display(DisplayError::MissingRedirectUri));
     };
     if !redirect_uri_registered(client, redirect_uri) {
         return Err(AuthorizationError::Display(DisplayError::UnregisteredRedirectUri));
@@ -567,13 +566,11 @@ pub enum OtpCheck {
 /// the last accepted one. Candidates outside that window are ignored, so
 /// the caller cannot widen it by passing more MACs.
 pub fn check_totp(code: &String, now: i64, enrollment: &TotpEnrollment, candidates: &Vec<StepMac>) -> OtpCheck {
-    let current = match totp_step(now, enrollment.t0, enrollment.period) {
-        Some(t) => t,
-        None => return OtpCheck::ClockBeforeEpoch,
+    let Some(current) = totp_step(now, enrollment.t0, enrollment.period) else {
+        return OtpCheck::ClockBeforeEpoch;
     };
-    let submitted = match parse_otp(code, enrollment.digits) {
-        Some(v) => v,
-        None => return OtpCheck::Malformed,
+    let Some(submitted) = parse_otp(code, enrollment.digits) else {
+        return OtpCheck::Malformed;
     };
     let mut replayed = false;
     for c in candidates {

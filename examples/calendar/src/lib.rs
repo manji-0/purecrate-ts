@@ -823,63 +823,60 @@ pub fn parse_rrule(s: &str) -> Result<Rule, RuleError> {
     let mut by_month: Option<Vec<i64>> = None;
     let mut wkst: Option<DayOfWeek> = None;
     for part in s.split(';') {
-        match part.split_once('=') {
-            None => return Err(RuleError::MissingEquals),
-            Some((name, value)) => {
-                let which = part_name(name)?;
-                let repeated = match which {
-                    RulePart::Freq => freq.is_some(),
-                    RulePart::Interval => interval.is_some(),
-                    RulePart::Count => count.is_some(),
-                    RulePart::Until => until.is_some(),
-                    RulePart::ByDay => by_day.is_some(),
-                    RulePart::ByMonthDay => by_month_day.is_some(),
-                    RulePart::ByMonth => by_month.is_some(),
-                    RulePart::Wkst => wkst.is_some(),
-                };
-                if repeated {
-                    return Err(RuleError::RepeatedPart(which));
-                }
-                match which {
-                    RulePart::Freq => {
-                        let f = parse_freq(value)?;
-                        freq = Some(f);
-                    }
-                    RulePart::Interval => {
-                        let n = parse_positive(value).ok_or(RuleError::InvalidValue(RulePart::Interval))?;
-                        interval = Some(n);
-                    }
-                    RulePart::Count => {
-                        let n = parse_positive(value).ok_or(RuleError::InvalidValue(RulePart::Count))?;
-                        count = Some(n);
-                    }
-                    RulePart::Until => {
-                        let u = parse_until(value)?;
-                        until = Some(u);
-                    }
-                    RulePart::ByDay => {
-                        let days = value.split(',').map(parse_by_day).collect::<Result<Vec<_>, _>>()?;
-                        by_day = Some(days);
-                    }
-                    RulePart::ByMonthDay => {
-                        let days = value.split(',').map(parse_month_day).collect::<Result<Vec<_>, _>>()?;
-                        by_month_day = Some(days);
-                    }
-                    RulePart::ByMonth => {
-                        let months = value.split(',').map(parse_month).collect::<Result<Vec<_>, _>>()?;
-                        by_month = Some(months);
-                    }
-                    RulePart::Wkst => {
-                        let d = day_code(value).ok_or(RuleError::InvalidValue(RulePart::Wkst))?;
-                        wkst = Some(d);
-                    }
-                }
+        let Some((name, value)) = part.split_once('=') else {
+            return Err(RuleError::MissingEquals);
+        };
+        let which = part_name(name)?;
+        let repeated = match which {
+            RulePart::Freq => freq.is_some(),
+            RulePart::Interval => interval.is_some(),
+            RulePart::Count => count.is_some(),
+            RulePart::Until => until.is_some(),
+            RulePart::ByDay => by_day.is_some(),
+            RulePart::ByMonthDay => by_month_day.is_some(),
+            RulePart::ByMonth => by_month.is_some(),
+            RulePart::Wkst => wkst.is_some(),
+        };
+        if repeated {
+            return Err(RuleError::RepeatedPart(which));
+        }
+        match which {
+            RulePart::Freq => {
+                let f = parse_freq(value)?;
+                freq = Some(f);
+            }
+            RulePart::Interval => {
+                let n = parse_positive(value).ok_or(RuleError::InvalidValue(RulePart::Interval))?;
+                interval = Some(n);
+            }
+            RulePart::Count => {
+                let n = parse_positive(value).ok_or(RuleError::InvalidValue(RulePart::Count))?;
+                count = Some(n);
+            }
+            RulePart::Until => {
+                let u = parse_until(value)?;
+                until = Some(u);
+            }
+            RulePart::ByDay => {
+                let days = value.split(',').map(parse_by_day).collect::<Result<Vec<_>, _>>()?;
+                by_day = Some(days);
+            }
+            RulePart::ByMonthDay => {
+                let days = value.split(',').map(parse_month_day).collect::<Result<Vec<_>, _>>()?;
+                by_month_day = Some(days);
+            }
+            RulePart::ByMonth => {
+                let months = value.split(',').map(parse_month).collect::<Result<Vec<_>, _>>()?;
+                by_month = Some(months);
+            }
+            RulePart::Wkst => {
+                let d = day_code(value).ok_or(RuleError::InvalidValue(RulePart::Wkst))?;
+                wkst = Some(d);
             }
         }
     }
-    let freq = match freq {
-        Some(f) => f,
-        None => return Err(RuleError::MissingFreq),
+    let Some(freq) = freq else {
+        return Err(RuleError::MissingFreq);
     };
     let end = match (count, until) {
         (Some(_), Some(_)) => return Err(RuleError::CountWithUntil),
@@ -1000,7 +997,7 @@ fn month_days(rule: &Rule, start: &LocalDateTime, year: i64, month: i64) -> Vec<
     let first = civil_to_days(year, month, 1);
     let last = first + len - 1;
     let plain = rule.by_month_day.is_empty() && rule.by_day.is_empty();
-    for dom in 1..len + 1 {
+    for dom in 1..=len {
         let day = first + dom - 1;
         let selected = if plain {
             dom == start.date.day
@@ -1022,10 +1019,10 @@ fn year_days(rule: &Rule, start: &LocalDateTime, year: i64) -> Vec<i64> {
         // 3779), whether BYDAY expands or BYMONTHDAY makes it a limit.
         let first = civil_to_days(year, 1, 1);
         let last = civil_to_days(year, 12, 31);
-        for month in 1..13i64 {
+        for month in 1..=12i64 {
             let len = month_length(year, month);
             let month_first = civil_to_days(year, month, 1);
-            for dom in 1..len + 1 {
+            for dom in 1..=len {
                 let day = month_first + dom - 1;
                 let selected = (rule.by_month_day.is_empty() || month_day_listed(&rule.by_month_day, dom, len))
                     && by_day_matches(&rule.by_day, day, first, last);
@@ -1036,7 +1033,7 @@ fn year_days(rule: &Rule, start: &LocalDateTime, year: i64) -> Vec<i64> {
         }
         return v;
     }
-    for month in 1..13i64 {
+    for month in 1..=12i64 {
         let wanted = !rule.by_month.is_empty() || !rule.by_month_day.is_empty() || month == start.date.month;
         if wanted {
             let days = month_days(rule, start, year, month);
@@ -1121,10 +1118,7 @@ pub fn expand(rule: &Rule, dtstart: &LocalDateTime, limit: u32, max_periods: u32
     let time = dtstart.hour * 3600 + dtstart.minute * 60 + dtstart.second;
     let last_day = until_day(rule.end);
     let last_time = until_time(rule.end);
-    let count: u32 = match rule.end {
-        RuleEnd::Count(c) => c,
-        _ => 0,
-    };
+    let count: u32 = if let RuleEnd::Count(c) = rule.end { c } else { 0 };
     let mut emitted: u32 = 0;
     let mut periods: u32 = 0;
     while periods < max_periods {

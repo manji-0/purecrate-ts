@@ -89,9 +89,8 @@ impl Ulid {
         let mut position: usize = 0;
         for c in text.chars() {
             let upper = c.to_ascii_uppercase();
-            let v = match ALPHABET.iter().position(|&a| char::from(a) == upper) {
-                Some(v) => v,
-                None => return Err(UlidError::InvalidCharacter { position }),
+            let Some(v) = ALPHABET.iter().position(|&a| char::from(a) == upper) else {
+                return Err(UlidError::InvalidCharacter { position });
             };
             if position == 0 {
                 first = v;

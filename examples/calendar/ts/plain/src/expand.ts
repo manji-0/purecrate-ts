@@ -95,7 +95,7 @@ const monthDays = (rule: Rule, start: LocalDateTime, year: I64, month: I64): Rea
   const last = Int.i64.sub(Int.i64.add(first, len), 1n as I64);
   const plain = rule.by_month_day.length === 0 && rule.by_day.length === 0;
 
-  for (let dom = 1n as I64, end = Int.i64.add(len, 1n as I64); dom < end; dom = (dom + 1n) as I64) {
+  for (let dom = 1n as I64, end = len; dom <= end; dom = (dom + 1n) as I64) {
     const day = Int.i64.sub(Int.i64.add(first, dom), 1n as I64);
     const selected = plain
       ? dom === start.date.day
@@ -118,15 +118,11 @@ const yearDays = (rule: Rule, start: LocalDateTime, year: I64): ReadonlyArray<I6
     const first = civilToDays(year, 1n as I64, 1n as I64);
     const last = civilToDays(year, 12n as I64, 31n as I64);
 
-    for (let month = 1n as I64; month < 13n; month = (month + 1n) as I64) {
+    for (let month = 1n as I64; month <= 12n; month = (month + 1n) as I64) {
       const len = monthLength(year, month);
       const monthFirst = civilToDays(year, month, 1n as I64);
 
-      for (
-        let dom = 1n as I64, end = Int.i64.add(len, 1n as I64);
-        dom < end;
-        dom = (dom + 1n) as I64
-      ) {
+      for (let dom = 1n as I64, end = len; dom <= end; dom = (dom + 1n) as I64) {
         const day = Int.i64.sub(Int.i64.add(monthFirst, dom), 1n as I64);
         const selected =
           (rule.by_month_day.length === 0 || monthDayListed(rule.by_month_day, dom, len)) &&
@@ -140,7 +136,7 @@ const yearDays = (rule: Rule, start: LocalDateTime, year: I64): ReadonlyArray<I6
     return v;
   }
 
-  for (let month = 1n as I64; month < 13n; month = (month + 1n) as I64) {
+  for (let month = 1n as I64; month <= 12n; month = (month + 1n) as I64) {
     const wanted =
       rule.by_month.length !== 0 || rule.by_month_day.length !== 0 || month === start.date.month;
     if (wanted) {

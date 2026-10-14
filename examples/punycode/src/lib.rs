@@ -146,9 +146,8 @@ fn encode_code_points(input: &Vec<u32>) -> Result<String, PunycodeError> {
         len += 1;
         if is_basic(*cp) {
             b += 1;
-            match char::from_u32(*cp) {
-                Some(c) => out.push(c),
-                None => {}
+            if let Some(c) = char::from_u32(*cp) {
+                out.push(c);
             }
         }
     }
@@ -207,20 +206,17 @@ fn decode_chars(input: &Vec<char>) -> Result<Vec<u32>, PunycodeError> {
     let mut out: Vec<u32> = Vec::new();
     let mut out_len: u32 = 0;
     let mut pos: usize = 0;
-    match last_delim {
-        Some(d) => {
-            for j in 0..d {
-                out.push(u32::from(input[j]));
-                out_len += 1;
-            }
-            // "if more than zero code points were consumed then consume one
-            // more (which will be the last delimiter)": a delimiter at 0 is
-            // read as a digit, and fails.
-            if d > 0 {
-                pos = d + 1;
-            }
+    if let Some(d) = last_delim {
+        for j in 0..d {
+            out.push(u32::from(input[j]));
+            out_len += 1;
         }
-        None => {}
+        // "if more than zero code points were consumed then consume one
+        // more (which will be the last delimiter)": a delimiter at 0 is
+        // read as a digit, and fails.
+        if d > 0 {
+            pos = d + 1;
+        }
     }
     let mut n = INITIAL_N;
     let mut i: u32 = 0;
@@ -231,7 +227,7 @@ fn decode_chars(input: &Vec<char>) -> Result<Vec<u32>, PunycodeError> {
         let mut k = BASE;
         // The RFC's `for (k = base;; k += base)`: `w` overflows (it grows by
         // at least base - tmax = 10 per digit) long before `k` would.
-        while k > 0 {
+        loop {
             if pos >= input.len() {
                 return Err(PunycodeError::BadDigit);
             }
@@ -274,10 +270,10 @@ pub fn decode(input: &str) -> Result<String, PunycodeError> {
     let cps = decode_chars(&cs)?;
     let mut out = String::new();
     for cp in &cps {
-        match char::from_u32(*cp) {
-            Some(c) => out.push(c),
-            None => return Err(PunycodeError::InvalidCodePoint),
-        }
+        let Some(c) = char::from_u32(*cp) else {
+            return Err(PunycodeError::InvalidCodePoint);
+        };
+        out.push(c);
     }
     Ok(out)
 }

@@ -812,14 +812,10 @@ fn glob(pattern: &Vec<u32>, name: &Vec<u32>) -> bool {
             p += 1;
             n += 1;
         } else {
-            match last_star {
-                Some(s) => {
-                    p = s + 1;
-                    resume += 1;
-                    n = resume;
-                }
-                None => return false,
-            }
+            let Some(s) = last_star else { return false };
+            p = s + 1;
+            resume += 1;
+            n = resume;
         }
     }
     while p < pattern.len() && pattern[p] == star {
@@ -844,10 +840,8 @@ fn hashed_names(field: &str, name: &Vec<u32>) -> LineMatch {
         Some(rest) => rest.split_once('|'),
         None => None,
     };
-    let decoded = match parts {
-        Some((s, h)) => (base64_decode(s), base64_decode(h)),
-        None => return LineMatch::Unreadable,
-    };
+    let Some((s, h)) = parts else { return LineMatch::Unreadable };
+    let decoded = (base64_decode(s), base64_decode(h));
     match decoded {
         (Some(salt), Some(hash)) => {
             if salt.len() != 20 || hash.len() != 20 {
@@ -1363,9 +1357,8 @@ fn sent(c: Connection, actions: Vec<Action>) -> (Connection, Vec<Action>) {
 }
 
 fn on_line(c: Connection, line: &str) -> Result<(Connection, Vec<Action>), Failure> {
-    let lines = match &c.phase {
-        Phase::Version { preamble_lines } => *preamble_lines,
-        _ => return Err(Failure::UnexpectedLine),
+    let Phase::Version { preamble_lines: lines } = c.phase else {
+        return Err(Failure::UnexpectedLine);
     };
     if !line.starts_with("SSH-") {
         if lines == MAX_PREAMBLE_LINES {
@@ -1512,12 +1505,9 @@ fn on_kex_init(
 fn in_kex(c: Connection, kx: KexState, m: Message, seq: u32) -> Result<(Connection, Vec<Action>), Failure> {
     // The server guessed wrong and sent a guessed packet: the next packet,
     // whatever it is, is dropped unread (RFC 4253 §7.1).
-    match kx.stage.clone() {
-        KexStage::AwaitingReply { algorithms, ignore_next: true } => {
-            let stage = KexStage::AwaitingReply { algorithms, ignore_next: false };
-            return Ok((Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c }, Vec::new()));
-        }
-        _ => {}
+    if let KexStage::AwaitingReply { algorithms, ignore_next: true } = kx.stage.clone() {
+        let stage = KexStage::AwaitingReply { algorithms, ignore_next: false };
+        return Ok((Connection { phase: Phase::KeyExchange(KexState { stage, ..kx }), ..c }, Vec::new()));
     }
     let server_keyed = matches!(kx.stage, KexStage::AwaitingApproval { peer_new_keys: true, .. });
     let kex_message = matches!(m, Message::KexInit(_) | Message::KexReply(_) | Message::NewKeys);
@@ -1642,9 +1632,8 @@ fn finish_kex(c: Connection, kx: KexState, before: Vec<Action>) -> (Connection, 
 }
 
 fn on_answer(c: Connection, yes: bool) -> Result<(Connection, Vec<Action>), Failure> {
-    let kx = match &c.phase {
-        Phase::KeyExchange(kx) => kx.clone(),
-        _ => return Err(Failure::Misuse),
+    let Phase::KeyExchange(kx) = c.phase.clone() else {
+        return Err(Failure::Misuse);
     };
     match kx.stage.clone() {
         KexStage::AwaitingApproval { algorithms, host_key, peer_new_keys } => {
@@ -1700,13 +1689,9 @@ fn next_key_attempt(c: &Connection, auth: &Auth) -> Option<(usize, SignatureAlgo
         let algs = signature_algorithms(c.config.identities[i].key_type);
         while j < algs.len() {
             let a = algs[j];
-            match &c.server_sig_algs {
-                None => return Some((i, a, i, j + 1)),
-                Some(list) => {
-                    if listed(list, &signature_name(a)) {
-                        return Some((i, a, i + 1, 0));
-                    }
-                }
+            let Some(list) = &c.server_sig_algs else { return Some((i, a, i, j + 1)) };
+            if listed(list, &signature_name(a)) {
+                return Some((i, a, i + 1, 0));
             }
             j += 1;
         }

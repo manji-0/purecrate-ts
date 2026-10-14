@@ -74,7 +74,7 @@ const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, Pun
 
     // The RFC's `for (k = base;; k += base)`: `w` overflows (it grows by
     // at least base - tmax = 10 per digit) long before `k` would.
-    while (k > 0) {
+    for (;;) {
       if (pos >= input.length) return Result.err({ kind: "BadDigit" });
       const digit = digitValue(Slice.at(input, pos));
       if (digit === null) return Result.err({ kind: "BadDigit" });
@@ -119,9 +119,9 @@ export const decode = (input: string): Result<string, PunycodeError> => {
   let out: string = "";
 
   for (const cp of cps) {
-    const option = Char.fromU32(cp);
-    if (option === null) return Result.err({ kind: "InvalidCodePoint" });
-    out += option;
+    const c = Char.fromU32(cp);
+    if (c === null) return Result.err({ kind: "InvalidCodePoint" });
+    out += c;
   }
 
   return Result.ok(out);
