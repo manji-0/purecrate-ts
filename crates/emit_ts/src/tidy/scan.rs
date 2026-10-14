@@ -255,10 +255,7 @@ pub(crate) fn top_prec(s: &str) -> u8 {
 /// `T` where `s` is one operand cast to it (`512 as Usize`, `b.length as
 /// Usize`, `x as number as U8`): the type the declaration of `s` has.
 pub(crate) fn cast_type(s: &str) -> Option<&str> {
-    let s = strip_outer(s);
-    let d = depths(s);
-    let at = (0..s.len()).rev().find(|&i| d[i] == Some(0) && s[i..].starts_with(" as "))?;
-    (top_prec(&s[..at]) == PREC_ATOMIC).then(|| s[at + 4..].trim())
+    split_cast(s).map(|(_, t)| t)
 }
 
 /// `s` as the value its last top-level assertion asserts, and the type:

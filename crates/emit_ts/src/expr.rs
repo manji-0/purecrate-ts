@@ -304,7 +304,7 @@ fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
         {
             // An object would read as a block; a `?:` is parenthesized on the
             // arrow's line, as oxfmt prints it.
-            let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond()) || crate::tidy::is_ternary(value);
+            let choice = as_tx(body, indent + 1).is_some_and(|t| t.is_cond()) || crate::tidy::choice(value).is_some();
             let value = if value.starts_with('{') || choice { format!("({value})") } else { value.to_string() };
             return format!("({params}): {ret} => {value}");
         }

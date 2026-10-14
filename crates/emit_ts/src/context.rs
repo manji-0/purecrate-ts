@@ -26,11 +26,10 @@ type Table = ((String, bool), String, String);
 thread_local! {
     /// Temporaries made so far (`temp`).
     pub(crate) static TEMPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Closed structs of the crate `emit` is printing (design/01 §4). The
-    /// expression printer has no `Crate`; `emit` sets this for its duration.
-    pub(crate) static CLOSED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
-    /// Each closed struct's fields, in order, likewise: an update of one
-    /// names every field (`expr::emit_struct_update`).
+    /// Each closed struct of the crate `emit` is printing (design/01 §4)
+    /// and its fields, in order: an update of one names every field
+    /// (`expr::emit_struct_update`). The expression printer has no `Crate`;
+    /// `emit` sets this for its duration.
     pub(crate) static CLOSED_FIELDS: RefCell<BTreeMap<String, Vec<String>>> = const { RefCell::new(BTreeMap::new()) };
     /// Structs of the crate, likewise: a place of one needs no `as` to
     /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
@@ -72,7 +71,7 @@ thread_local! {
 }
 
 pub(super) fn is_closed(name: &str) -> bool {
-    CLOSED.with(|c| c.borrow().contains(name))
+    CLOSED_FIELDS.with(|c| c.borrow().contains_key(name))
 }
 
 pub(super) fn is_struct(name: &str) -> bool {
