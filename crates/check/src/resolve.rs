@@ -5,7 +5,7 @@ use purecrate_ir::{
     Callee, Crate, Expr, Fields, Item, Name, Pattern, Prim, Reason, Ty, VariantBind, VariantFields, NEWTYPE_FIELD,
 };
 
-use crate::defs::Defs;
+use crate::defs::{Defs, Peel};
 use crate::Diagnostic;
 
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
@@ -140,34 +140,12 @@ impl<'a> Cx<'_, 'a> {
 
     /// `Option`, `()` or `!`, looking through aliases.
     fn is_nullish(&self, ty: &Ty) -> bool {
-        let mut t = ty;
-        for _ in 0..32 {
-            match t {
-                Ty::Option(_) | Ty::Prim(Prim::Unit) | Ty::Never => return true,
-                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
-                    Some(a) => t = &a.ty,
-                    None => return false,
-                },
-                _ => return false,
-            }
-        }
-        false
+        matches!(self.defs.expand(ty, Peel::Never), Ty::Option(_) | Ty::Prim(Prim::Unit) | Ty::Never)
     }
 
-    /// Through aliases; alias cycles stop after a fixed depth.
+    /// Through aliases and erased wrappers.
     fn is_option(&self, ty: &Ty) -> bool {
-        let mut t = ty.peel();
-        for _ in 0..32 {
-            match t {
-                Ty::Option(_) => return true,
-                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
-                    Some(a) => t = a.ty.peel(),
-                    None => return false,
-                },
-                _ => return false,
-            }
-        }
-        false
+        matches!(self.defs.expand(ty, Peel::Every), Ty::Option(_))
     }
 
     /// `Some(mutable)` for the innermost binding of `name`.

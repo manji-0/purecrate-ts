@@ -16,7 +16,7 @@ use purecrate_ir::{
     StrMethod, TryOn, Ty, UnOp, VariantBind, VariantFields,
 };
 
-use crate::defs::Defs;
+use crate::defs::{Defs, Peel};
 
 mod access;
 mod calls;
@@ -169,17 +169,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     /// Expands aliases. Alias cycles are cut after a fixed depth.
     fn norm(&self, ty: &Ty) -> Ty {
-        let mut t = ty.peel().clone();
-        for _ in 0..32 {
-            match &t {
-                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
-                    Some(a) => t = a.ty.clone(),
-                    None => return t,
-                },
-                _ => return t,
-            }
-        }
-        t
+        self.defs.expand(ty, Peel::First).clone()
     }
 
     fn num(&self, ty: &Ty) -> Option<Num> {

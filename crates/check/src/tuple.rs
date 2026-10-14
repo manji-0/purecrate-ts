@@ -19,7 +19,7 @@
 
 use purecrate_ir::{tuple_field, Arm, Expr, Name, Pattern, Ty, VariantBind, VariantFields};
 
-use crate::defs::Defs;
+use crate::defs::{Defs, Peel};
 
 /// One tuple arm still in play: the patterns of the elements not yet
 /// matched, the names bound so far, and the body.
@@ -120,17 +120,7 @@ impl Lowering<'_, '_, '_> {
     /// A field's type as `compile` reads it: `Box` and friends peeled,
     /// aliases followed.
     fn norm(&self, ty: &Ty) -> Ty {
-        let mut t = ty.peel().clone();
-        for _ in 0..32 {
-            match &t {
-                Ty::Named(n) => match self.defs.aliases.get(n.as_str()) {
-                    Some(a) => t = a.ty.peel().clone(),
-                    None => break,
-                },
-                _ => break,
-            }
-        }
-        t
+        self.defs.expand(ty, Peel::Every).clone()
     }
 
     /// Not a Rust identifier, so no source name is shadowed or captured;

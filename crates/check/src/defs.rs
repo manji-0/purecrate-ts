@@ -1,6 +1,16 @@
 use std::collections::HashMap;
 
-use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Struct};
+use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Struct, Ty};
+
+/// Where `Defs::expand` looks through `Box` and the other erased wrappers.
+#[derive(Clone, Copy)]
+pub enum Peel {
+    Never,
+    /// The type as written, not what an alias names.
+    First,
+    /// The type as written and what each alias names.
+    Every,
+}
 
 /// Crate-level definitions by name.
 pub struct Defs<'a> {
@@ -53,6 +63,24 @@ impl<'a> Defs<'a> {
     /// neither.
     pub fn generics_of(&self, name: &str) -> Option<usize> {
         self.structs.get(name).map(|s| s.generics.len()).or_else(|| self.enums.get(name).map(|e| e.generics.len()))
+    }
+
+    /// `ty` with its aliases followed, `Box` and the other erased wrappers
+    /// looked through where `peel` says. Alias cycles are cut after a fixed
+    /// depth.
+    pub fn expand<'t>(&'t self, ty: &'t Ty, peel: Peel) -> &'t Ty {
+        let mut t = if matches!(peel, Peel::Never) { ty } else { ty.peel() };
+        for _ in 0..32 {
+            match t {
+                Ty::Named(n) => match self.aliases.get(n.as_str()) {
+                    Some(a) if matches!(peel, Peel::Every) => t = a.ty.peel(),
+                    Some(a) => t = &a.ty,
+                    None => return t,
+                },
+                _ => return t,
+            }
+        }
+        t
     }
 
     pub fn is_type(&self, name: &str) -> bool {
