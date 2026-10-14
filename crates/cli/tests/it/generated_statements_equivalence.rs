@@ -677,7 +677,12 @@ impl Body {
     fn paths(&mut self) {
         let s = self.seed;
         let r = &mut self.paths_rng;
-        let ints: Vec<&String> = self.g.scope.iter().filter(|(_, ty, _)| *ty == Ty::Int).map(|(v, _, _)| v).collect();
+        // The innermost binding of a name is the one in scope, as `var` reads.
+        let scope = &self.g.scope;
+        let ints: Vec<&String> = (scope.iter().enumerate())
+            .filter(|(i, (n, t, _))| *t == Ty::Int && !scope[i + 1..].iter().any(|(m, _, _)| m == n))
+            .map(|(_, (v, _, _))| v)
+            .collect();
         let x = match r.below(ints.len() as u64 + 2) as usize {
             i if i < ints.len() => ints[i].clone(),
             i if i == ints.len() => {

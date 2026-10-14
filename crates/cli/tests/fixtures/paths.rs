@@ -44,6 +44,12 @@ pub mod shapes {
         }
     }
 
+    /// A private associated const, read from outside its `impl` in the
+    /// module that may.
+    pub fn origin_after(n: u32) -> u32 {
+        Shape::ORIGIN + n
+    }
+
     #[derive(Debug, Clone, PartialEq)]
     pub struct Grid {
         pub cells: Vec<Shape>,
@@ -143,6 +149,10 @@ pub fn is_dot(s: Shape) -> bool {
 
 pub fn checked_side(n: u32) -> u32 {
     shapes::Shape::checked(n)
+}
+
+pub fn origin_of(n: u32) -> u32 {
+    shapes::origin_after(n)
 }
 
 pub fn fits(n: usize) -> bool {
