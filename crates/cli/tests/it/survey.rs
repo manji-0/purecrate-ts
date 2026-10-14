@@ -53,14 +53,15 @@ fn every_module_file_is_read_once_and_tests_are_skipped() {
 #[test]
 fn each_public_item_gets_a_verdict() {
     let json = survey(&["--json"]);
-    for accepted in ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of", "Percent", "PercentError"]
+    // `shapes::Shape` names `Shape`, as `build` reads it.
+    for accepted in
+        ["twice", "area", "unit", "clamp01", "Shape", "sides_of", "diagonal_of", "Percent", "PercentError", "area_of"]
     {
         assert!(item(&json, accepted).contains("\"status\":\"accepted\""), "{}", item(&json, accepted));
     }
     let rejected = [
         ("sign_of", "\"code\":\"expr/method-call\",\"detail\":\"signum\""),
         ("describe", "\"code\":\"item/ref-receiver\""),
-        ("area_of", "\"code\":\"type/qualified-path\",\"detail\":\"shapes::Shape\""),
         ("Id", "\"code\":\"item/tuple-struct\""),
     ];
     for (name, cause) in rejected {
@@ -83,7 +84,7 @@ fn each_public_item_gets_a_verdict() {
 fn human_summary_counts_functions_and_types() {
     let text = survey(&[]);
     assert!(text.starts_with("crate survey-demo (4 file(s))"), "{text}");
-    assert!(text.contains("public functions: 14 — accepted 8 (57%), rejected 4, blocked by a dependency 2"), "{text}");
+    assert!(text.contains("public functions: 14 — accepted 9 (64%), rejected 3, blocked by a dependency 2"), "{text}");
     assert!(text.contains("public types: 5 — accepted 3 (60%), rejected 2, blocked by a dependency 0"), "{text}");
 }
 

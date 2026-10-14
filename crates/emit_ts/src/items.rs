@@ -23,10 +23,35 @@ pub(crate) fn jsdoc(doc: &Option<String>, indent: &str) -> String {
     out
 }
 
-/// The `pub` methods, closing the companion object, then the others as
-/// `tyName`, marked `@internal` (see `private_method`).
+/// `export const NAME: T = value;\n` for a const's folded value: no
+/// annotation where the value is cast to the type already.
+pub(crate) fn const_decl(name: &str, c: &purecrate_ir::Const) -> String {
+    let (value, ty) = const_value(c);
+    let annotation =
+        if crate::tidy::cast_type(&value) == Some(ty.as_str()) { String::new() } else { format!(": {ty}") };
+    format!("export const {name}{annotation} = {value};\n")
+}
+
+/// A const's folded value as printed, and its type.
+fn const_value(c: &purecrate_ir::Const) -> (String, String) {
+    let value = emit_expr(&c.value, 0);
+    (crate::tidy::strip_outer(&value).to_string(), emit_ty(&c.ty))
+}
+
+/// The `pub` associated consts and methods, closing the companion object,
+/// then the others as `tyName`, marked `@internal` (see `private_method`).
+/// A const member is cast to its type where the value is not already, as
+/// `as const` would give it the literal's type.
 pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
     let mut out = String::new();
+    let (public_consts, private_consts): (Vec<&purecrate_ir::Const>, Vec<&purecrate_ir::Const>) =
+        consts_on(krate, ty).into_iter().partition(|c| c.vis == Vis::Pub);
+    for c in public_consts {
+        let (value, t) = const_value(c);
+        let value = if crate::tidy::cast_type(&value) == Some(t.as_str()) { value } else { format!("{value} as {t}") };
+        out.push_str(&jsdoc(&c.doc, "  "));
+        out.push_str(&format!("  {}: {value},\n", c.name.as_str()));
+    }
     let (public, private): (Vec<&Fn>, Vec<&Fn>) = methods_on(krate, ty).into_iter().partition(|m| m.vis == Vis::Pub);
     for m in public {
         out.push_str(&jsdoc(&m.doc, "  "));
@@ -37,14 +62,14 @@ pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
         ));
     }
     out.push_str("} as const;\n");
+    for c in private_consts {
+        out.push('\n');
+        out.push_str(&jsdoc(&internal_doc(&c.doc), ""));
+        out.push_str(&const_decl(&private_method(ty, c.name.as_str()), c));
+    }
     for m in private {
         out.push('\n');
-        // Not `pub` in Rust: for the generated files only.
-        let doc = Some(match &m.doc {
-            Some(d) => format!("{d}\n@internal"),
-            None => "@internal".to_string(),
-        });
-        out.push_str(&jsdoc(&doc, ""));
+        out.push_str(&jsdoc(&internal_doc(&m.doc), ""));
         out.push_str(&format!(
             "export const {n} = {impl};\n",
             n = private_method(ty, m.name.as_str()),
@@ -52,6 +77,26 @@ pub(crate) fn companion_methods(krate: &Crate, ty: &str) -> String {
         ));
     }
     out
+}
+
+/// Not `pub` in Rust: for the generated files only.
+fn internal_doc(doc: &Option<String>) -> Option<String> {
+    Some(match doc {
+        Some(d) => format!("{d}\n@internal"),
+        None => "@internal".to_string(),
+    })
+}
+
+/// The associated consts of `ty`, in declaration order.
+pub(crate) fn consts_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a purecrate_ir::Const> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Const(c) if c.owner.as_ref().map(|n| n.as_str()) == Some(ty) => Some(c),
+            _ => None,
+        })
+        .collect()
 }
 
 pub(crate) fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {

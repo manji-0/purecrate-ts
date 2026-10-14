@@ -517,7 +517,13 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         Expr::Seq { first, then } if matches!(**first, Expr::Comment(_)) => emit_expr(then, indent),
         Expr::Comment(_) => unreachable!("a comment stands only as `first` of a `Seq`"),
         Expr::Lit(lit) => emit_lit(lit),
-        Expr::Var(n) => n.as_str().to_string(),
+        // An associated const: a member of its type's companion, or the
+        // internal name of one that is not `pub`.
+        Expr::Var(n) => match purecrate_ir::split_assoc_path(n.as_str()) {
+            Some((ty, name)) if is_private_method(ty, name) => private_method(ty, name),
+            Some((ty, name)) => format!("{ty}.{name}"),
+            None => n.as_str().to_string(),
+        },
         Expr::Field { base, name } if name.as_str() == NEWTYPE_FIELD => emit_expr(base, indent),
         Expr::Field { base, name } if name.as_str().starts_with('[') => {
             format!("{}{}", emit_expr(base, indent), name.as_str())

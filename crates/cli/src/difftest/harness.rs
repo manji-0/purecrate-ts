@@ -427,7 +427,10 @@ fn arb_open(st: &Struct) -> String {
         fields => {
             let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
             let inits = names.iter().enumerate().map(|(i, n)| format!("{n}: __a{i}")).collect::<Vec<_>>();
-            let value = if fields.is_empty() { name.to_string() } else { format!("{name} {{ {} }}", inits.join(", ")) };
+            // `S {}` builds a struct of no fields whether it was declared
+            // `struct S;` or `struct S {}`, where `S` names only the first.
+            let value =
+                if fields.is_empty() { format!("{name} {{}}") } else { format!("{name} {{ {} }}", inits.join(", ")) };
             let js = derive::js_literal(None, &derive::Fields::Named(names), &js_args(fields.len()));
             format!("{lets}            Some(({value}, {js}))\n")
         }

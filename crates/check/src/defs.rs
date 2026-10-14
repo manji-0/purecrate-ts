@@ -19,7 +19,8 @@ pub struct Defs<'a> {
     pub aliases: HashMap<&'a str, &'a Alias>,
     pub free_fns: HashMap<&'a str, &'a Fn>,
     pub methods: HashMap<(&'a str, &'a str), &'a Fn>,
-    pub consts: HashMap<&'a str, &'a Const>,
+    /// By `Const::path`: `N`, or `T::N` for an associated const.
+    pub consts: HashMap<String, &'a Const>,
 }
 
 impl<'a> Defs<'a> {
@@ -44,7 +45,7 @@ impl<'a> Defs<'a> {
                     d.aliases.insert(a.name.as_str(), a);
                 }
                 Item::Const(c) => {
-                    d.consts.insert(c.name.as_str(), c);
+                    d.consts.insert(c.path(), c);
                 }
                 Item::Fn(f) => match &f.owner {
                     Some(o) => {

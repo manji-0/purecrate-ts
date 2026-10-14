@@ -109,6 +109,11 @@ pub fn survey(
             UnitKind::Struct => "struct",
             UnitKind::Enum => "enum",
             UnitKind::Alias => "alias",
+            // Read by the functions judged, not judged on its own.
+            UnitKind::Const { .. } => {
+                *others.entry("const").or_insert(0) += 1;
+                continue;
+            }
             UnitKind::Other { what } => {
                 *others.entry(*what).or_insert(0) += 1;
                 continue;
@@ -142,11 +147,14 @@ struct Index {
     types: HashMap<String, Vec<usize>>,
     fns: HashMap<String, Vec<usize>>,
     methods: HashMap<(String, String), Vec<usize>>,
+    /// By the path an `Expr::Var` reads: `N`, or `T::N`.
+    consts: HashMap<String, Vec<usize>>,
 }
 
 impl Index {
     fn new(units: &[Unit]) -> Self {
-        let mut index = Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new() };
+        let mut index =
+            Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new(), consts: HashMap::new() };
         for (i, u) in units.iter().enumerate() {
             match &u.kind {
                 UnitKind::Struct | UnitKind::Enum | UnitKind::Alias => {
@@ -154,6 +162,13 @@ impl Index {
                 }
                 UnitKind::Fn => index.fns.entry(u.name.clone()).or_default().push(i),
                 UnitKind::Method { owner } => index.methods.entry((owner.clone(), u.name.clone())).or_default().push(i),
+                UnitKind::Const { owner } => {
+                    let path = match owner {
+                        Some(owner) => purecrate_ir::assoc_path(owner, &u.name),
+                        None => u.name.clone(),
+                    };
+                    index.consts.entry(path).or_default().push(i)
+                }
                 UnitKind::Other { .. } => {}
             }
         }
@@ -165,6 +180,7 @@ impl Index {
             Ref::Type(t) => self.types.get(t),
             Ref::Fn(f) => self.fns.get(f),
             Ref::Method(t, m) => self.methods.get(&(t.clone(), m.clone())),
+            Ref::Const(c) => self.consts.get(c),
             Ref::ReceiverCall(_) => None,
         };
         found.map(Vec::as_slice).unwrap_or(&[])
@@ -192,7 +208,7 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                 refs.extend(receiver_calls.iter().map(|m| Ref::Method(units[i].name.clone(), m.clone())));
             }
         }
-        if let UnitKind::Method { owner } = &units[i].kind {
+        if let UnitKind::Method { owner } | UnitKind::Const { owner: Some(owner) } = &units[i].kind {
             refs.push(Ref::Type(owner.clone()));
         }
         for r in references(item) {
@@ -261,6 +277,9 @@ enum Ref {
     Type(String),
     Fn(String),
     Method(String, String),
+    /// A name read with no binding: a const if one has it (`T::N` for an
+    /// associated one).
+    Const(String),
     /// `x.m()`: `m` on whichever type `x` has.
     ReceiverCall(String),
 }
@@ -333,6 +352,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             }
         }
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
+        Expr::Var(n) => out.push(Ref::Const(n.as_str().to_string())),
         Expr::Match { arms, .. } => {
             for arm in arms {
                 pattern_refs(&arm.pattern, out);

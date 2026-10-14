@@ -3,6 +3,7 @@
 
 mod common;
 
+mod assoc_consts;
 mod bits;
 mod box_erase;
 mod chars;

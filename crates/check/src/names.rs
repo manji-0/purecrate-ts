@@ -119,7 +119,7 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
 }
 
 fn is_top_level(item: &Item) -> bool {
-    !matches!(item, Item::Fn(f) if f.owner.is_some())
+    item.owner().is_none()
 }
 
 fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
@@ -176,7 +176,8 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// Companion members: `of` (structs) or variant constructors (enums), plus methods.
+/// Companion members: `of` (structs) or variant constructors (enums), plus
+/// methods and associated consts.
 fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
     let mut builtin: HashMap<&str, Vec<&str>> = HashMap::new();
     for item in &krate.items {
@@ -192,30 +193,32 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
     }
     let mut seen: HashMap<(&str, String), usize> = HashMap::new();
     for (i, item) in krate.items.iter().enumerate() {
-        let Item::Fn(f) = item else { continue };
-        let Some(owner) = &f.owner else { continue };
-        let (owner, rust) = (owner.as_str(), f.name.as_str());
-        // A method prints as its `to_camel` spelling (`check::rename`).
+        let Some(owner) = item.owner() else { continue };
+        let what = if matches!(item, Item::Const(_)) { "const" } else { "method" };
+        let (owner, rust) = (owner.as_str(), item.name().as_str());
+        // A method or const prints as its `to_camel` spelling (`check::rename`).
         let printed = to_camel(rust);
         let name = printed.as_str();
         if name == PROTO_KEY {
             out.push(Diagnostic::at(
                 i,
                 Reason::ReservedName,
-                format!("method `{owner}.{name}` would set the prototype of the emitted companion object"),
+                format!("{what} `{owner}.{name}` would set the prototype of the emitted companion object"),
             ));
         } else if builtin.get(owner).is_some_and(|b| b.contains(&name)) {
             out.push(Diagnostic::at(
                 i,
                 Reason::NameCollision,
-                format!("method `{owner}.{name}` collides with the generated companion member `{name}`"),
+                format!("{what} `{owner}.{name}` collides with the generated companion member `{name}`"),
             ));
         } else if let Some(&first) = seen.get(&(owner, printed.clone())) {
             let other = krate.items[first].name().as_str();
             let message = if other == rust {
-                format!("method `{owner}.{rust}` is defined more than once")
-            } else {
+                format!("{what} `{owner}.{rust}` is defined more than once")
+            } else if what == "method" && matches!(krate.items[first], Item::Fn(_)) {
                 format!("methods `{owner}.{other}` and `{owner}.{rust}` would both be `{owner}.{name}` in TS")
+            } else {
+                format!("`{owner}.{other}` and `{owner}.{rust}` would both be `{owner}.{name}` in TS")
             };
             out.push(Diagnostic::at(i, Reason::NameCollision, message).also(first));
         } else {

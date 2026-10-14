@@ -24,6 +24,15 @@ fn camel(n: &Name) -> Name {
     Name::new(to_camel(n.as_str()))
 }
 
+/// `camel` of an item read by name: of an associated const's path (`T::N`),
+/// the const's part only, as its declaration is renamed.
+fn camel_item(n: &Name) -> Name {
+    match purecrate_ir::split_assoc_path(n.as_str()) {
+        Some((owner, name)) => Name::new(purecrate_ir::assoc_path(owner, &to_camel(name))),
+        None => camel(n),
+    }
+}
+
 /// Also returns where each helper is printed (`Crate::homes`), keyed by its
 /// renamed name.
 pub fn rename(krate: Crate) -> (Crate, BTreeMap<String, String>) {
@@ -33,7 +42,7 @@ pub fn rename(krate: Crate) -> (Crate, BTreeMap<String, String>) {
     let items: Vec<(String, bool)> = krate
         .items
         .iter()
-        .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
+        .filter(|item| item.owner().is_none())
         .map(|item| (to_camel(item.name().as_str()), matches!(item, Item::Fn(_))))
         .collect();
     let file_reads = file_reads(&krate, &items);
@@ -329,7 +338,7 @@ impl Renamer {
             Expr::At { .. } => unreachable!("`accept` removes positions before renaming"),
             // Not bound here: a function or a `const`.
             Expr::Var(n) => Expr::Var(cx.env.get(n.as_str()).cloned().unwrap_or_else(|| {
-                let item = camel(&n);
+                let item = camel_item(&n);
                 self.free.insert(item.as_str().to_string());
                 item
             })),

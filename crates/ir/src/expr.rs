@@ -1074,6 +1074,8 @@ impl Arm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     Lit(Lit),
+    /// A local, a function, or a `const`; an associated const by its path,
+    /// `T::N` (`Const::path`).
     Var(Name),
     Let {
         name: Name,

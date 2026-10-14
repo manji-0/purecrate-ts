@@ -623,6 +623,16 @@ impl Refs {
             Expr::Var(n) if is_const(krate, n.as_str()) => {
                 self.values.insert(n.as_str().to_string());
             }
+            // An associated const, from its type's file.
+            Expr::Var(n) => match purecrate_ir::split_assoc_path(n.as_str()) {
+                Some((ty, name)) if private_in(krate, ty, name) => {
+                    self.privates.insert((ty.to_string(), name.to_string()));
+                }
+                Some((ty, _)) => {
+                    self.values.insert(ty.to_string());
+                }
+                None => {}
+            },
             Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
             _ => {}
         }
@@ -642,16 +652,19 @@ pub(crate) fn closed_in(krate: &Crate, name: &str) -> bool {
     krate.items.iter().any(|item| matches!(item, Item::Struct(st) if st.closed && st.name.as_str() == name))
 }
 
+/// `ty` has a method or an associated const `name` that is not `pub`.
 pub(crate) fn private_in(krate: &Crate, ty: &str, name: &str) -> bool {
     krate.items.iter().any(|item| {
-        matches!(item, Item::Fn(f) if f.vis == Vis::Internal
-            && f.name.as_str() == name
-            && f.owner.as_ref().is_some_and(|o| o.as_str() == ty))
+        item.vis() == Vis::Internal
+            && matches!(item, Item::Fn(_) | Item::Const(_))
+            && item.name().as_str() == name
+            && item.owner().is_some_and(|o| o.as_str() == ty)
     })
 }
 
+/// A crate-level const (not an associated one) is named `name`.
 pub(crate) fn is_const(krate: &Crate, name: &str) -> bool {
-    krate.items.iter().any(|item| matches!(item, Item::Const(c) if c.name.as_str() == name))
+    krate.items.iter().any(|item| matches!(item, Item::Const(c) if c.owner.is_none() && c.name.as_str() == name))
 }
 
 pub(crate) fn is_free_fn(krate: &Crate, name: &str) -> bool {

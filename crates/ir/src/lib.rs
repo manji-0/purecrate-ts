@@ -15,8 +15,8 @@ pub use expr::{
     FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp, VariantBind,
 };
 pub use item::{
-    tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Tagging, Variant, VariantFields, Vis,
-    CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
+    assoc_path, split_assoc_path, tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct, Tagging,
+    Variant, VariantFields, Vis, CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
 };
 pub use krate::Crate;
 pub use name::{lower_first, to_camel, to_kebab, upper_first, Name};

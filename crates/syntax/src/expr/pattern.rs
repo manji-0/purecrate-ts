@@ -277,6 +277,14 @@ pub(super) fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> 
         }
     }
     match segs.as_slice() {
+        // Rust matches the const's value; the IR would need a comparison.
+        [ty, c] if cx.is_assoc_const(ty, c) => Err(ParseError::new(
+            Reason::UnsupportedPattern,
+            format!(
+                "`{ty}::{c}` is a const: matching against a const is not in v0; compare with `==` or write its value"
+            ),
+        )
+        .detail(format!("{ty}::{c}"))),
         [ty, var] if cx.is_enum(ty) => {
             Ok(Pattern::Variant { ty: Name::new(ty.clone()), variant: Name::new(var.clone()), bind })
         }

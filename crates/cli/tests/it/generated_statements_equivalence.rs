@@ -44,6 +44,9 @@ use crate::support::generated::{fn_count, seeds, SEEDS};
 
 struct Body {
     g: Gen,
+    /// The seed, which names the module of associated consts and
+    /// functions `paths` reads (`modules`).
+    seed: u64,
     /// Loops around the current statement, for `break` and `continue`,
     /// innermost last: whether each is a `loop` whose `break` carries an
     /// `i32`.
@@ -211,11 +214,12 @@ impl Body {
             19 => self.branch_value(depth),
             20 => self.closure_stmt(e),
             12 => self.panics(e),
-            22..=24 => match self.g.rng.below(5) {
+            22..=24 => match self.g.rng.below(6) {
                 0 => self.loop_value(depth),
                 1 => self.while_let(depth),
                 2 => self.let_else(e),
                 3 => self.if_let(depth),
+                4 => self.paths(e),
                 _ => self.tuple_field(e),
             },
             21 => {
@@ -661,6 +665,26 @@ impl Body {
         }
     }
 
+    /// An associated const, a function, or a variant of `modules`'s
+    /// module, named through `crate::`, `self::`, or the module, bound to
+    /// a new `i32`.
+    fn paths(&mut self, e: u32) {
+        let s = self.seed;
+        let x = self.g.int(e);
+        let module = self.g.rng.pick(&["crate::", "self::", ""]);
+        let read = match self.g.rng.below(6) {
+            0 => format!("{module}s{s}::K{s}::A"),
+            1 => format!("{module}s{s}::K{s}::B"),
+            2 => format!("{module}s{s}::K{s}::get()"),
+            3 => format!("{module}s{s}::inner{s}::less{s}({x})"),
+            4 => format!("{module}s{s}::inner{s}::more{s}({x})"),
+            _ => format!("if matches!({module}s{s}::pick{s}({x}), {module}s{s}::E{s}::A) {{ 1i32 }} else {{ 2i32 }}"),
+        };
+        let v = self.name(Ty::Int);
+        self.line(&format!("let {v}: i32 = {read};"));
+        self.g.scope.push((v, Ty::Int, false));
+    }
+
     /// A tuple bound whole, read by `.0` and `.1`.
     fn tuple_field(&mut self, e: u32) {
         let (x, c) = (self.g.int(e), self.g.boolean(e));
@@ -697,8 +721,27 @@ impl Body {
     }
 }
 
+/// A module per seed for `Body::paths`: a type with associated consts (one
+/// private, read by a method, and one that reads another as `Self::`), an
+/// enum, and a child module whose functions reach them through `super::`
+/// and `crate::`, overflowing at the edges of `i32`.
+fn modules(seed: u64) -> String {
+    let mut rng = crate::support::Rng::new(seed ^ 0x9a7e);
+    let a = 1 + rng.below(1000) as i32;
+    let b = rng.below(2000) as i32 - 1000;
+    let s = seed;
+    format!(
+        "pub mod s{s} {{\n    pub struct K{s} {{}}\n\n    impl K{s} {{\n        pub const A: i32 = {a};\n        pub const B: i32 = Self::A * 3 + {b};\n        const C: i32 = -Self::B;\n\n        pub fn get() -> i32 {{\n            Self::C + K{s}::A\n        }}\n    }}\n\n\
+         \x20   pub enum E{s} {{\n        A,\n        B,\n    }}\n\n\
+         \x20   pub fn pick{s}(x: i32) -> E{s} {{\n        if x > K{s}::B {{\n            E{s}::A\n        }} else {{\n            self::E{s}::B\n        }}\n    }}\n\n\
+         \x20   pub mod inner{s} {{\n        pub fn less{s}(x: i32) -> i32 {{\n            x - super::K{s}::A\n        }}\n\n\
+         \x20       pub fn more{s}(x: i32) -> i32 {{\n            x + crate::s{s}::K{s}::B * super::super::s{s}::K{s}::A\n        }}\n    }}\n}}\n\n"
+    )
+}
+
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
-    let mut body = Body { g: Gen::new(seed ^ 0x5717), loops: Vec::new(), out: String::new(), indent: 1 };
+    source.push_str(&modules(seed));
+    let mut body = Body { g: Gen::new(seed ^ 0x5717), seed, loops: Vec::new(), out: String::new(), indent: 1 };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
         body.g.ret = ret;

@@ -62,7 +62,7 @@ pub(super) fn emit_index(krate: &Crate) -> String {
     }
     for item in krate.exported() {
         match item {
-            Item::Fn(f) if f.owner.is_some() => {}
+            _ if item.owner().is_some() => {}
             Item::Alias(al) => {
                 out.push_str(&format!(
                     "export type {{ {name} }} from \"./{stem}.ts\";\n",

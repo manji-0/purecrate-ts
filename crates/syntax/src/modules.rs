@@ -60,9 +60,8 @@ pub fn parse_files_spanned(
     for (i, f) in files.into_iter().enumerate() {
         flatten(f.items, sources[i].public, None, &reexports, &mut |item| flat.push((i, item)));
     }
-    let mut strip = StripModules { modules: &modules };
     for (_, item) in &mut flat {
-        strip.visit_item_mut(item);
+        strip_module_paths(item, &modules);
     }
 
     let mut cx = Cx::scan_items(flat.iter().map(|(_, i)| i));
@@ -175,6 +174,12 @@ fn demote(item: &mut SynItem) {
     *vis = syn::Visibility::Inherited;
 }
 
+/// Drops the leading `crate`, `self`, `super`, and module segments (of the
+/// crate's `modules`) of every path in `item`.
+pub(crate) fn strip_module_paths(item: &mut SynItem, modules: &HashSet<String>) {
+    StripModules { modules }.visit_item_mut(item);
+}
+
 /// Drops the leading `crate`, `self`, `super`, and module segments of a path.
 struct StripModules<'a> {
     modules: &'a HashSet<String>,
@@ -195,5 +200,53 @@ impl VisitMut for StripModules<'_> {
             }
         }
         visit_mut::visit_path_mut(self, path);
+    }
+
+    /// A macro's body is parsed only when it is lowered (`matches!`,
+    /// `assert!`), so its paths are shortened here as tokens.
+    fn visit_macro_mut(&mut self, mac: &mut syn::Macro) {
+        let tokens = std::mem::take(&mut mac.tokens);
+        mac.tokens = self.tokens(tokens);
+        visit_mut::visit_macro_mut(self, mac);
+    }
+}
+
+impl StripModules<'_> {
+    /// `tokens` with the module segments that start a path dropped, in
+    /// nested groups too. A segment after `::` (`::m::f`, `a::m`) or `.`
+    /// does not start one.
+    fn tokens(&self, tokens: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+        use proc_macro2::{Group, TokenTree};
+        let tts: Vec<TokenTree> = tokens.into_iter().collect();
+        let punct = |t: Option<&TokenTree>, c: char| matches!(t, Some(TokenTree::Punct(p)) if p.as_char() == c);
+        let path_sep = |i: usize| punct(tts.get(i), ':') && punct(tts.get(i + 1), ':');
+        let module = |i: usize| match tts.get(i) {
+            Some(TokenTree::Ident(id)) => {
+                let name = id.unraw().to_string();
+                name == "crate" || name == "self" || name == "super" || self.modules.contains(&name)
+            }
+            _ => false,
+        };
+        let mut out: Vec<TokenTree> = Vec::new();
+        let mut i = 0;
+        while i < tts.len() {
+            let starts = !(i >= 2 && path_sep(i - 2)) && !(i >= 1 && punct(tts.get(i - 1), '.'));
+            if starts {
+                // `m::` before another segment, as many times as it appears.
+                while module(i) && path_sep(i + 1) && matches!(tts.get(i + 3), Some(TokenTree::Ident(_))) {
+                    i += 3;
+                }
+            }
+            out.push(match &tts[i] {
+                TokenTree::Group(g) => {
+                    let mut inner = Group::new(g.delimiter(), self.tokens(g.stream()));
+                    inner.set_span(g.span());
+                    TokenTree::Group(inner)
+                }
+                other => other.clone(),
+            });
+            i += 1;
+        }
+        out.into_iter().collect()
     }
 }

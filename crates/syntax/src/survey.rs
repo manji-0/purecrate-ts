@@ -20,6 +20,11 @@ pub enum UnitKind {
     Struct,
     Enum,
     Alias,
+    /// A `const`, or an associated one of `owner`'s `impl`. Lowered, as the
+    /// functions that read it need it, but not judged on its own.
+    Const {
+        owner: Option<String>,
+    },
     /// Anything else that may be referenced or may hold code, e.g. `const`,
     /// `trait`, a trait impl. `what` names it for tallying.
     Other {
@@ -86,6 +91,12 @@ pub fn survey_files(sources: &[&str], all_causes: bool) -> Result<Vec<Unit>, (us
         let _ = ordering.rewrite(i, &mut f.items, &modules);
     }
     let injected = ordering.injected().ok().flatten();
+    // As `parse_files_spanned` does: `crate::m::f` and `m::f` name `f`.
+    for f in &mut files {
+        for item in &mut f.items {
+            crate::modules::strip_module_paths(item, &modules);
+        }
+    }
     let mut all = Vec::new();
     for f in &files {
         flatten(&f.items, &mut all);
@@ -181,6 +192,9 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
         }
         SynItem::Enum(e) => one(cx, UnitKind::Enum, e.ident.to_string(), public(&e.vis), LineCol::of(e.ident.span())),
         SynItem::Type(t) => one(cx, UnitKind::Alias, t.ident.to_string(), public(&t.vis), LineCol::of(t.ident.span())),
+        SynItem::Const(c) => {
+            one(cx, UnitKind::Const { owner: None }, c.ident.to_string(), public(&c.vis), LineCol::of(c.ident.span()))
+        }
         SynItem::Impl(imp) if imp.trait_.is_none() => imp
             .items
             .iter()
@@ -190,10 +204,15 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                 let owner = self_name(&imp.self_ty);
                 let (name, is_pub, at) = match member {
                     syn::ImplItem::Fn(f) => (f.sig.ident.to_string(), public(&f.vis), LineCol::of(f.sig.ident.span())),
+                    syn::ImplItem::Const(c) => (c.ident.to_string(), public(&c.vis), LineCol::of(c.ident.span())),
                     other => ("?".to_string(), false, LineCol::of(other.span())),
                 };
                 let lowered = lower_one(cx, SynItem::Impl(single), all_causes, "method");
-                unit(UnitKind::Method { owner }, name, is_pub, at, lowered)
+                let kind = match member {
+                    syn::ImplItem::Const(_) => UnitKind::Const { owner: Some(owner) },
+                    _ => UnitKind::Method { owner },
+                };
+                unit(kind, name, is_pub, at, lowered)
             })
             .collect(),
         // `impl TryFrom<T> for X` is the method `X::try_from`, which
@@ -212,7 +231,6 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
         other => {
             let what = match other {
                 SynItem::Impl(_) => "trait impl",
-                SynItem::Const(_) => "const",
                 SynItem::Static(_) => "static",
                 SynItem::Trait(_) => "trait",
                 SynItem::Macro(_) => "macro",
@@ -224,7 +242,6 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                     imp.trait_.as_ref().map(|(_, p, _)| path_text(p)).unwrap_or_default(),
                     self_name(&imp.self_ty)
                 ),
-                SynItem::Const(c) => c.ident.to_string(),
                 SynItem::Static(s) => s.ident.to_string(),
                 SynItem::Trait(t) => t.ident.to_string(),
                 _ => String::new(),

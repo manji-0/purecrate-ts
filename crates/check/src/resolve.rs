@@ -41,6 +41,15 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
             }
             Item::Alias(a) => cx.ty(&a.ty),
             Item::Const(c) => {
+                if let Some(owner) = &c.owner {
+                    if !defs.structs.contains_key(owner.as_str()) && !defs.enums.contains_key(owner.as_str()) {
+                        cx.error_about(
+                            Reason::UndefinedType,
+                            owner.as_str(),
+                            format!("`impl {}` has no struct or enum to attach to", owner.as_str()),
+                        );
+                    }
+                }
                 cx.ty(&c.ty);
                 cx.expr(&c.value);
             }

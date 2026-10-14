@@ -98,6 +98,9 @@ pub struct Cx {
     structs: HashSet<String>,
     variant_owner: HashMap<String, String>,
     variants: HashSet<(String, String)>,
+    /// The consts of inherent `impl` blocks, by type and name: `T::N` reads
+    /// one.
+    assoc_consts: HashSet<(String, String)>,
     /// Names made up while lowering (`$g1`, ... for guarded scrutinees).
     fresh: std::cell::Cell<u32>,
     /// When set (`survey --all-causes`), an expression or block that cannot
@@ -132,8 +135,20 @@ impl Cx {
         let mut structs = HashSet::new();
         let mut variant_owner = HashMap::new();
         let mut variants = HashSet::new();
+        let mut assoc_consts = HashSet::new();
         for item in items {
             match item {
+                SynItem::Impl(imp) if imp.trait_.is_none() => {
+                    if let syn::Type::Path(p) = &*imp.self_ty {
+                        if let Some(ty) = p.path.segments.last() {
+                            for member in &imp.items {
+                                if let syn::ImplItem::Const(c) = member {
+                                    assoc_consts.insert((ty.ident.to_string(), c.ident.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
                 SynItem::Enum(e) => {
                     enums.insert(e.ident.to_string());
                     for v in &e.variants {
@@ -152,6 +167,7 @@ impl Cx {
             structs,
             variant_owner,
             variants,
+            assoc_consts,
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
@@ -202,6 +218,11 @@ impl Cx {
 
     pub fn is_variant(&self, ty: &str, variant: &str) -> bool {
         self.variants.contains(&(ty.to_string(), variant.to_string()))
+    }
+
+    /// `ty` has the associated const `name`.
+    pub fn is_assoc_const(&self, ty: &str, name: &str) -> bool {
+        self.assoc_consts.contains(&(ty.to_string(), name.to_string()))
     }
 
     pub fn is_enum(&self, name: &str) -> bool {
@@ -397,6 +418,7 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
             .iter()
             .filter_map(|i| match i {
                 syn::ImplItem::Fn(f) => Some(LineCol::of(f.sig.ident.span())),
+                syn::ImplItem::Const(c) => Some(LineCol::of(c.ident.span())),
                 _ => None,
             })
             .collect(),
@@ -444,6 +466,26 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
 /// `const NAME: T = expr;`, folded by `check::accept`. `const _` and
 /// generic consts are not in v0.
 fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
+    let parts = ConstParts { vis: &c.vis, ident: &c.ident, generics: &c.generics, ty: &c.ty, expr: &c.expr };
+    lower_const_parts(cx, None, parts, &c.attrs, c.span())
+}
+
+/// What an item `const` and an associated one have in common.
+struct ConstParts<'a> {
+    vis: &'a Visibility,
+    ident: &'a syn::Ident,
+    generics: &'a syn::Generics,
+    ty: &'a syn::Type,
+    expr: &'a syn::Expr,
+}
+
+fn lower_const_parts(
+    cx: &Cx,
+    owner: Option<Name>,
+    c: ConstParts<'_>,
+    attrs: &[syn::Attribute],
+    span: proc_macro2::Span,
+) -> Result<Const, ParseError> {
     if !c.generics.params.is_empty() {
         return Err(ParseError::new(Reason::Generics, "generic consts are not in v0"));
     }
@@ -451,12 +493,13 @@ fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
         return Err(ParseError::new(Reason::UnsupportedItem, "`const _` is not in v0").detail("const"));
     }
     Ok(Const {
-        vis: lower_vis(&c.vis),
+        vis: lower_vis(c.vis),
         name: Name::new(c.ident.to_string()),
-        ty: lower_type(&c.ty)?,
-        value: lower_expr(cx, &c.expr)?,
-        doc: doc(&c.attrs),
-        comment: cx.comment_above(c.span().start().line),
+        owner,
+        ty: lower_type(c.ty)?,
+        value: lower_expr(cx, c.expr)?,
+        doc: doc(attrs),
+        comment: cx.comment_above(span.start().line),
     })
 }
 
@@ -910,11 +953,19 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
                 let mut f = f.clone();
                 SelfIsOwner(&owner_ident, Some(&imp.self_ty)).visit_impl_item_fn_mut(&mut f);
                 let owned = (owner.clone(), owner_ty.clone(), outer.clone());
-                lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block, &f.attrs)
+                lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block, &f.attrs).map(Item::Fn)
             }),
-            _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
+            // A member of the companion, read as `T::N` (`Self::N` here).
+            syn::ImplItem::Const(c) => reject_attrs(&c.attrs).and_then(|()| {
+                let mut c = c.clone();
+                SelfIsOwner(&owner_ident, Some(&imp.self_ty)).visit_impl_item_const_mut(&mut c);
+                let parts =
+                    ConstParts { vis: &c.vis, ident: &c.ident, generics: &c.generics, ty: &c.ty, expr: &c.expr };
+                lower_const_parts(cx, Some(owner.clone()), parts, &c.attrs, c.span()).map(Item::Const)
+            }),
+            _ => Err(ParseError::new(Reason::ImplShape, "only methods and consts in impl blocks in v0")),
         };
-        out.push(Item::Fn(lowered.map_err(|e| e.or_at(item.span()))?));
+        out.push(lowered.map_err(|e| e.or_at(item.span()))?);
     }
     Ok(out)
 }

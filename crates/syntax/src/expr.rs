@@ -802,6 +802,8 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             "None" => Ok(Expr::Call { callee: Callee::OptionNone, args: vec![] }),
             _ => Ok(Expr::var(one.clone())),
         },
+        // An associated const, read by its path (`Self::N` is `T::N` here).
+        [ty, c] if cx.is_assoc_const(ty, c) => Ok(Expr::var(purecrate_ir::assoc_path(ty, c))),
         [ty, var] if cx.is_enum(ty) => Ok(Expr::Construct {
             ty: Name::new(ty.clone()),
             variant: Some(Name::new(var.clone())),

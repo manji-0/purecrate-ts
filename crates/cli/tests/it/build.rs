@@ -483,6 +483,43 @@ fn module_trees_are_flattened() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// `crate::`, `self::`, and a child module's paths to a function, a type,
+/// an associated const, and a variant, in code and inside `matches!`; and
+/// privacy, which rustc enforces: an item another module keeps private is
+/// refused as rustc refuses it (design/01 §7.23).
+#[test]
+fn paths_through_modules_resolve_and_rustc_keeps_privacy() {
+    let dir = scratch("paths");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "pub mod m {\n    pub enum E {\n        A,\n        B,\n    }\n\n    pub struct T {\n        pub n: u32,\n    }\n\n    impl T {\n        pub const N: u32 = 7;\n    }\n\n    pub fn f() -> u32 {\n        crate::top() + self::T::N\n    }\n}\n\n\
+         fn top() -> u32 {\n    1\n}\n\n\
+         pub fn g(e: crate::m::E) -> u32 {\n    if matches!(e, crate::m::E::A) {\n        crate::m::T::N + crate::m::f()\n    } else {\n        self::m::T::N + m::T { n: 2 }.n\n    }\n}\n",
+    )
+    .expect("write");
+    let out = dir.join("out");
+    let built =
+        cli().args(["build".as_ref(), src.as_os_str(), "--out".as_ref(), out.as_os_str()]).output().expect("run");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let g = fs::read_to_string(out.join("src/g.ts")).expect("g.ts");
+    assert!(g.contains("T.N") && g.contains("\"A\""), "{g}");
+
+    let private_fn =
+        "mod m {\n    fn hidden() -> u32 {\n        1\n    }\n}\n\npub fn f() -> u32 {\n    m::hidden()\n}\n";
+    let private_const =
+        "mod m {\n    pub struct T {}\n\n    impl T {\n        const N: u32 = 1;\n    }\n}\n\npub fn f() -> u32 {\n    m::T::N\n}\n";
+    for (source, needle) in [(private_fn, "[rustc/E0603]"), (private_const, "is private")] {
+        fs::write(&src, source).expect("write");
+        let refused = check(&[src.as_os_str()]);
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(!refused.status.success() && stderr.contains(needle), "{source}\n{stderr}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 fn build_with(flags: &[&str], out: &Path) -> Output {
     build_example("counter", flags, out)
 }

@@ -108,7 +108,8 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     let mut previous: Option<&Item> = None;
     for item in items {
         // A blank line between declarations; a run of consts stays together.
-        let printed = !matches!(item, Item::Fn(f) if f.owner.is_some());
+        // A method or an associated const prints in its owner's companion.
+        let printed = item.owner().is_none();
         if printed {
             // A const with a `//` above it opens a paragraph of its own.
             let commented = matches!(item, Item::Const(c) if !c.comment.is_empty());
@@ -130,18 +131,13 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
             }
             Item::Fn(f) if f.owner.is_none() => out_.push_str(&emit_free_fn(f)),
             Item::Fn(_) => {}
+            Item::Const(c) if c.owner.is_some() => {}
             Item::Const(c) => {
                 c.comment
                     .iter()
                     .for_each(|l| out_.push_str(&if l.is_empty() { "//\n".to_string() } else { format!("// {l}\n") }));
                 out_.push_str(&jsdoc(&c.doc, ""));
-                let value = emit_expr(&c.value, 0);
-                let value = crate::tidy::strip_outer(&value);
-                let ty = emit_ty(&c.ty);
-                // A value cast to the type already states it.
-                let annotation =
-                    if crate::tidy::cast_type(value) == Some(ty.as_str()) { String::new() } else { format!(": {ty}") };
-                out_.push_str(&format!("export const {name}{annotation} = {value};\n", name = c.name.as_str()));
+                out_.push_str(&const_decl(c.name.as_str(), c));
             }
         }
     }

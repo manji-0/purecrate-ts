@@ -132,7 +132,8 @@ pub(super) fn is_private_method(ty: &str, name: &str) -> bool {
     PRIVATE.with(|p| p.borrow().contains(&(ty.to_string(), name.to_string())))
 }
 
-/// A method that is not `pub` in Rust stays off the exported companion: TS
+/// A method (or an associated const) that is not `pub` in Rust stays off
+/// the exported companion: TS
 /// callers outside the package must not reach what Rust callers cannot (a
 /// private `fn raw(v) -> Yen` would build a closed type unchecked). Like a
 /// closed struct's constructor, it is exported from the type's file but not
@@ -165,12 +166,8 @@ fn internal_base(key: &Internal) -> String {
 /// top-level names and from the others by a number where they meet
 /// (`unsafeMakeYen2` beside a `fn unsafe_make_yen`).
 pub(crate) fn internal_names(krate: &Crate) -> BTreeMap<Internal, String> {
-    let mut taken: BTreeSet<String> = krate
-        .items
-        .iter()
-        .filter(|item| !matches!(item, Item::Fn(f) if f.owner.is_some()))
-        .map(|item| item.name().as_str().to_string())
-        .collect();
+    let mut taken: BTreeSet<String> =
+        krate.items.iter().filter(|item| item.owner().is_none()).map(|item| item.name().as_str().to_string()).collect();
     let keys = closed_names(krate)
         .into_iter()
         .map(Internal::Ctor)
@@ -206,16 +203,13 @@ pub(crate) fn scoped<V: 'static, T>(
     out
 }
 
+/// The methods and associated consts that are not `pub`, by type and name.
 pub(super) fn private_methods(krate: &Crate) -> BTreeSet<(String, String)> {
     krate
         .items
         .iter()
-        .filter_map(|item| match item {
-            Item::Fn(f) if f.vis == Vis::Internal => {
-                f.owner.as_ref().map(|o| (o.as_str().to_string(), f.name.as_str().to_string()))
-            }
-            _ => None,
-        })
+        .filter(|item| item.vis() == Vis::Internal)
+        .filter_map(|item| item.owner().map(|o| (o.as_str().to_string(), item.name().as_str().to_string())))
         .collect()
 }
 

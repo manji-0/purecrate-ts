@@ -180,13 +180,17 @@ impl Enum {
 /// The one file that holds every `const` of a crate.
 pub const CONSTS_STEM: &str = "consts";
 
-/// `const NAME: T = expr;` at crate level. `check::accept` folds `value` to
-/// a `Lit` of `ty`: rustc evaluates it at compile time, so the TS holds the
-/// result, not the computation.
+/// `const NAME: T = expr;` at crate level, or in an inherent `impl` block
+/// (`owner`). `check::accept` folds `value` to a `Lit` of `ty`: rustc
+/// evaluates it at compile time, so the TS holds the result, not the
+/// computation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Const {
     pub vis: Vis,
     pub name: Name,
+    /// The type of `impl T { const N: u32 = 3; }`: the const is a member of
+    /// `T`'s companion, read as `Expr::Var` of its `path` (`T::N`).
+    pub owner: Option<Name>,
     pub ty: Ty,
     pub value: Expr,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
@@ -194,6 +198,28 @@ pub struct Const {
     /// The `//` lines directly above the item, each without its slashes,
     /// printed above it as `//` lines.
     pub comment: Vec<String>,
+}
+
+impl Const {
+    /// The name an `Expr::Var` reads it by: `N`, or `T::N` for an associated
+    /// const.
+    pub fn path(&self) -> String {
+        match &self.owner {
+            Some(owner) => assoc_path(owner.as_str(), self.name.as_str()),
+            None => self.name.as_str().to_string(),
+        }
+    }
+}
+
+/// `T::N`, the name an associated const is read by.
+pub fn assoc_path(owner: &str, name: &str) -> String {
+    format!("{owner}::{name}")
+}
+
+/// The owner and the name of an associated const's path (`T::N`); `None`
+/// for any other name.
+pub fn split_assoc_path(path: &str) -> Option<(&str, &str)> {
+    path.split_once("::")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,12 +283,24 @@ impl Item {
         }
     }
 
+    /// The type a method or an associated const belongs to.
+    pub fn owner(&self) -> Option<&Name> {
+        match self {
+            Item::Fn(f) => f.owner.as_ref(),
+            Item::Const(c) => c.owner.as_ref(),
+            _ => None,
+        }
+    }
+
     /// File that owns this concept after flatten.
-    /// Methods live in the owner's file; every const lives in `consts.ts`,
-    /// so `MAX_LEN` and `fn max_len` do not meet.
+    /// Methods and associated consts live in the owner's file; every other
+    /// const lives in `consts.ts`, so `MAX_LEN` and `fn max_len` do not meet.
     pub fn file_stem(&self) -> String {
         match self {
-            Item::Const(_) => CONSTS_STEM.to_string(),
+            Item::Const(c) => match &c.owner {
+                Some(owner) => owner.file_stem(),
+                None => CONSTS_STEM.to_string(),
+            },
             Item::Fn(f) => match &f.owner {
                 Some(owner) => owner.file_stem(),
                 None => f.name.file_stem(),

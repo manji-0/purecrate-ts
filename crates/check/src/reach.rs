@@ -14,10 +14,15 @@ pub fn prune_unreachable(krate: &Crate) -> Crate {
 fn reachable(krate: &Crate) -> Vec<bool> {
     let mut top: HashMap<&str, usize> = HashMap::new();
     let mut methods: HashMap<(&str, &str), usize> = HashMap::new();
+    let mut consts: HashMap<String, usize> = HashMap::new();
     for (i, item) in krate.items.iter().enumerate() {
         match item {
             Item::Fn(purecrate_ir::Fn { owner: Some(owner), name, .. }) => {
                 methods.insert((owner.as_str(), name.as_str()), i);
+            }
+            // Read by its path, `T::N`.
+            Item::Const(c) if c.owner.is_some() => {
+                consts.insert(c.path(), i);
             }
             other => {
                 top.insert(other.name().as_str(), i);
@@ -25,12 +30,9 @@ fn reachable(krate: &Crate) -> Vec<bool> {
         }
     }
 
-    // Methods start unkept: they follow their owner below.
-    let mut keep: Vec<bool> = krate
-        .items
-        .iter()
-        .map(|item| item.vis() == Vis::Pub && !matches!(item, Item::Fn(f) if f.owner.is_some()))
-        .collect();
+    // Methods and associated consts start unkept: they follow their owner
+    // below.
+    let mut keep: Vec<bool> = krate.items.iter().map(|item| item.vis() == Vis::Pub && item.owner().is_none()).collect();
 
     loop {
         let mut changed = false;
@@ -41,11 +43,9 @@ fn reachable(krate: &Crate) -> Vec<bool> {
             }
         };
         for (i, item) in krate.items.iter().enumerate() {
-            if let Item::Fn(f) = item {
-                let owner_kept = f.owner.as_ref().and_then(|o| top.get(o.as_str())).is_some_and(|&o| keep[o]);
-                if owner_kept && f.vis == Vis::Pub {
-                    mark(i, &mut keep);
-                }
+            let owner_kept = item.owner().and_then(|o| top.get(o.as_str())).is_some_and(|&o| keep[o]);
+            if owner_kept && item.vis() == Vis::Pub {
+                mark(i, &mut keep);
             }
             if !keep[i] {
                 continue;
@@ -53,7 +53,7 @@ fn reachable(krate: &Crate) -> Vec<bool> {
             let mut refs = Refs::default();
             refs.item(item);
             for name in &refs.top {
-                if let Some(&j) = top.get(name.as_str()) {
+                if let Some(&j) = top.get(name.as_str()).or_else(|| consts.get(name)) {
                     mark(j, &mut keep);
                 }
             }
@@ -62,10 +62,8 @@ fn reachable(krate: &Crate) -> Vec<bool> {
                     mark(j, &mut keep);
                 }
             }
-            if let Item::Fn(f) = item {
-                if let Some(&o) = f.owner.as_ref().and_then(|o| top.get(o.as_str())) {
-                    mark(o, &mut keep);
-                }
+            if let Some(&o) = item.owner().and_then(|o| top.get(o.as_str())) {
+                mark(o, &mut keep);
             }
         }
         if !changed {
@@ -142,7 +140,8 @@ impl Refs {
             },
             Expr::Construct { ty, .. } => self.name(ty),
             Expr::Match { arms, .. } => arms.iter().for_each(|arm| self.pattern(&arm.pattern)),
-            // A const; `rename` keeps local names off every item name.
+            // A const (an associated one by its path, `T::N`); `rename`
+            // keeps local names off every item name.
             Expr::Var(n) => self.name(n),
             _ => {}
         }
