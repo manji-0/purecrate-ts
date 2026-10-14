@@ -549,7 +549,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 if !self.param_fits(stage, &written, &item) {
                     return None;
                 }
-                let ret = self.returns_of(&body, &param, &item)?;
+                let ret = self.stage_returns(stage, &body, &param, &item)?;
                 let out = self.flattened(stage, &ret)?;
                 let closure = Expr::Closure {
                     params: vec![ClosureParam { name: param, ty: Some(item) }],
@@ -718,17 +718,40 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// The type `body` has with `param` bound to `item`, for a hole that
     /// `map(f)` fills; its diagnostics are left to the typing that follows.
     fn returns_of(&mut self, body: &Expr, param: &Name, item: &Ty) -> Option<Ty> {
-        let before = self.out.len();
-        self.scopes.push((param.as_str().to_string(), Some(item.clone())));
-        let (_, ty) = self.expr(body, None);
-        self.scopes.pop();
-        self.out.truncate(before);
+        let ty = self.returned(body, param, item);
         if ty.is_none() {
             self.error(
                 Reason::NeedsAnnotation,
                 "the `_` in `collect::<..>()` is not known from `map`'s function; name the type".to_string(),
             );
         }
+        ty
+    }
+
+    /// `returns_of` for `stage`'s function, which returns an `Option` or a
+    /// `Vec`: an iterator there is named as such.
+    fn stage_returns(&mut self, stage: &str, body: &Expr, param: &Name, item: &Ty) -> Option<Ty> {
+        let ty = self.returned(body, param, item);
+        if ty.is_none() {
+            let what = if stage == "filter_map" { "an `Option`" } else { "a `Vec` or an `Option` in v0" };
+            let not = if is_sequence(body) {
+                ", not an iterator: collect it into a `Vec`"
+            } else {
+                "; its type is not known here"
+            };
+            self.error(Reason::TypeMismatch, format!("`{stage}`'s function returns {what}{not}"));
+        }
+        ty
+    }
+
+    /// The type `body` has with `param` bound to `item`, what it reports
+    /// dropped.
+    fn returned(&mut self, body: &Expr, param: &Name, item: &Ty) -> Option<Ty> {
+        let before = self.out.len();
+        self.scopes.push((param.as_str().to_string(), Some(item.clone())));
+        let (_, ty) = self.expr(body, None);
+        self.scopes.pop();
+        self.out.truncate(before);
         ty
     }
 

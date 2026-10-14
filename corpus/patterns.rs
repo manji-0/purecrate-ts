@@ -73,6 +73,18 @@ pub fn p57_tuple_return(x: i32) -> (i32, i32) { (x, x) }
 pub fn p58_nested_closure(xs: &[i32], k: i32) -> Vec<i32> { let f = |x: i32| x * k; xs.iter().map(|x| f(*x)).collect() }
 pub fn p59_partition(xs: Vec<i32>) -> (Vec<i32>, Vec<i32>) { xs.into_iter().partition(|x| *x > 0) }
 pub fn p60_min_by_key(xs: &[Item]) -> Option<Item> { xs.iter().min_by_key(|i| i.price).cloned() }
+pub fn i01_flat_map_vec(xs: &[Item]) -> Vec<u32> { xs.iter().flat_map(|i| vec![i.qty, i.qty * 2]).collect() }
+pub fn i02_flat_map_option(xs: &[&str]) -> Vec<u32> { xs.iter().flat_map(|s| s.parse::<u32>().ok()).collect() }
+pub fn i03_flatten_option(xs: Vec<Option<i32>>) -> i32 { xs.into_iter().flatten().sum() }
+pub fn i04_filter_map_chars(s: &str) -> Vec<u32> { s.chars().filter_map(|c| c.to_digit(10)).collect() }
+pub fn i05_for_windows(xs: &[i64]) -> i64 { let mut m = 0; for w in xs.windows(2) { m = m.max(w[1] - w[0]); } m }
+pub fn i06_chunks(xs: &[u8]) -> usize { xs.chunks(4).filter(|c| c.len() == 4).count() }
+pub fn i07_dedup_by_key(xs: Vec<Item>) -> Vec<Item> { let mut v = xs; v.dedup_by_key(|i| i.qty); v }
+pub fn i08_rev_step_by(n: u32) -> Vec<u32> { (0..=n).rev().step_by(5).collect() }
+pub fn i09_step_by_rev(n: u8) -> Vec<u8> { (0..n).step_by(5).rev().collect() }
+pub fn i10_range_sum(n: u64) -> u64 { (1..=n).map(|x| x * x).sum() }
+pub fn i11_range_any(n: u32) -> bool { (2..n).any(|d| n % d == 0) }
+pub fn i12_for_filter_map(xs: &[Item]) -> u32 { let mut n = 0; for q in xs.iter().filter_map(|i| i.qty.checked_sub(1)) { n += q; } n }
 
 pub fn q09_loop(n: u32) -> u32 { let mut n = n; loop { if n > 10 { return n; } n += 1; } }
 pub fn q10_while_let(s: &str) -> u32 { let mut rest = s; let mut n = 0u32; while let Some((_head, tail)) = rest.split_once(',') { n += 1; rest = tail; } n }

@@ -916,7 +916,7 @@ export class Steps<T extends number | bigint> implements Iterable<T> {
     return new Steps(last, this.count, times(this.delta, unit(this.delta, -1)));
   }
   /** `.step_by(k)`: the first item, then every `k`th; `k` of 0 panics, as Rust's `assert!` does. */
-  stepBy(k: Usize): Steps<T> {
+  stepBy(k: number): Steps<T> {
     if (k === 0) throw new Panic("assertion failed: step != 0");
     if (this.count <= 1) return new Steps(this.first, this.count, this.delta);
     // `(count - 1) / k + 1` items, divided exactly.
@@ -1066,7 +1066,7 @@ export const Iter = {
   // #endregion
   // #region iter.flatten
   /** `.flatten()` over lists: lazy, each list's elements in order. */
-  flatten: function* <T>(xs: Iterable<Iterable<T>>): Generator<T, void, undefined> {
+  flatten: function* <T>(xs: Iterable<ReadonlyArray<T>>): Generator<T, void, undefined> {
     for (const x of xs) yield* x;
   },
   // #endregion
