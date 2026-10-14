@@ -25,7 +25,6 @@ pub enum Reason {
     /// A path that does not name a crate-local item, e.g. `std::cmp::max`.
     ExternalPath,
     ArmPattern,
-    NestedPattern,
     UnsupportedPattern,
     IfLetVariant,
     LiteralSuffix,
@@ -106,7 +105,6 @@ impl Reason {
             Reason::PositionalFields => "expr/positional-fields",
             Reason::ExternalPath => "expr/external-path",
             Reason::ArmPattern => "pattern/arm",
-            Reason::NestedPattern => "pattern/nested",
             Reason::UnsupportedPattern => "pattern/other",
             Reason::IfLetVariant => "pattern/if-let-variant",
             Reason::LiteralSuffix => "literal/suffix",

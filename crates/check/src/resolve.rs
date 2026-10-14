@@ -473,14 +473,6 @@ impl<'a> Cx<'_, 'a> {
                     format!("struct `{}` is not defined in this crate", n.as_str()),
                 ),
             },
-            Callee::Variant { ty, variant } => {
-                let label = format!("`{}::{}`", ty.as_str(), variant.as_str());
-                match self.variant(ty, variant).map(|v| &v.fields) {
-                    Some(VariantFields::Tuple(tys)) => self.arity(&label, tys.len(), argc),
-                    Some(_) => self.error(Reason::ConstructShape, format!("{label} is not a tuple variant")),
-                    None => {}
-                }
-            }
             Callee::ResultOk => self.arity("`Ok`", 1, argc),
             Callee::ResultErr => self.arity("`Err`", 1, argc),
             Callee::OptionSome => self.arity("`Some`", 1, argc),

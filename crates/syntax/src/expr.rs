@@ -1061,7 +1061,12 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
                 Callee::StructNew(Name::new(segs[0].clone()))
             } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {
-                Callee::Variant { ty: Name::new(segs[0].clone()), variant: Name::new(segs[1].clone()) }
+                return Ok(Expr::Construct {
+                    ty: Name::new(segs[0].clone()),
+                    variant: Some(Name::new(segs[1].clone())),
+                    fields: Fields::Positional(args),
+                    base: None,
+                });
             } else if segs.len() == 2 && (cx.is_enum(&segs[0]) || cx.is_struct(&segs[0])) {
                 Callee::Method { ty: Name::new(segs[0].clone()), name: Name::new(segs[1].clone()) }
             } else if segs.len() == 1 {
@@ -1069,20 +1074,6 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
             } else {
                 return Err(path_error(&segs, format!("unsupported call {}", segs.join("::"))));
             };
-            if matches!(callee, Callee::Variant { .. }) {
-                return Ok(Expr::Construct {
-                    ty: match &callee {
-                        Callee::Variant { ty, .. } => ty.clone(),
-                        _ => unreachable!(),
-                    },
-                    variant: match &callee {
-                        Callee::Variant { variant, .. } => Some(variant.clone()),
-                        _ => None,
-                    },
-                    fields: Fields::Positional(args),
-                    base: None,
-                });
-            }
             Ok(Expr::Call { callee, args })
         }
         _ => Err(ParseError::new(Reason::ExternalPath, "only simple calls in v0")),

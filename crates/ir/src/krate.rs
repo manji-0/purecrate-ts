@@ -110,15 +110,6 @@ impl Crate {
     /// The free functions `item` calls or names, by name alone: exact once
     /// `check` has renamed, since no local then has a helper's name.
     pub fn fns_named(&self, item: &Item) -> BTreeSet<String> {
-        fn walk(free: &BTreeSet<&str>, expr: &Expr, out: &mut BTreeSet<String>) {
-            match expr {
-                Expr::Call { callee: Callee::Fn(n), .. } | Expr::Var(n) if free.contains(n.as_str()) => {
-                    out.insert(n.as_str().to_string());
-                }
-                _ => {}
-            }
-            expr.children().into_iter().for_each(|c| walk(free, c, out));
-        }
         let free: BTreeSet<&str> = self
             .items
             .iter()
@@ -128,11 +119,17 @@ impl Crate {
             })
             .collect();
         let mut out = BTreeSet::new();
-        match item {
-            Item::Fn(f) => walk(&free, &f.body, &mut out),
-            Item::Const(c) => walk(&free, &c.value, &mut out),
+        let body = match item {
+            Item::Fn(f) => &f.body,
+            Item::Const(c) => &c.value,
+            _ => return out,
+        };
+        body.walk(|e| match e {
+            Expr::Call { callee: Callee::Fn(n), .. } | Expr::Var(n) if free.contains(n.as_str()) => {
+                out.insert(n.as_str().to_string());
+            }
             _ => {}
-        }
+        });
         out
     }
 }

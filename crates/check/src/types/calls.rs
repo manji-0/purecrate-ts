@@ -243,19 +243,6 @@ impl<'d, 'a> Typer<'d, 'a> {
                     .unwrap_or_default();
                 (typed_args(self, params), Some(Ty::Named(n.clone())))
             }
-            Callee::Variant { ty, variant } => {
-                let params = self
-                    .defs
-                    .enums
-                    .get(ty.as_str())
-                    .and_then(|e| e.variants.iter().find(|v| v.name == *variant))
-                    .and_then(|v| match &v.fields {
-                        VariantFields::Tuple(tys) => Some(tys.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (typed_args(self, params), Some(Ty::Named(ty.clone())))
-            }
             Callee::ResultOk | Callee::ResultErr => {
                 let expected = match want.map(|w| self.norm(w)) {
                     Some(Ty::Result { ok, err }) => Some((*ok, *err)),

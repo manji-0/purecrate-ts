@@ -696,12 +696,12 @@ fn infers_as(value: &Expr, ty: &Ty) -> bool {
     }
 }
 
-/// A call of something that declares what it returns: not a variant,
-/// `Ok` / `Err`, or `Some` / `None`, whose literal infers its own type.
+/// A call of something that declares what it returns: not `Ok` / `Err`,
+/// or `Some` / `None`, whose literal infers its own type.
 fn declares_return(value: &Expr) -> bool {
     use purecrate_ir::Callee as C;
     matches!(peel(value), Expr::Call { callee, .. }
-        if !matches!(callee, C::Variant { .. } | C::ResultOk | C::ResultErr | C::OptionSome | C::OptionNone
+        if !matches!(callee, C::ResultOk | C::ResultErr | C::OptionSome | C::OptionNone
             // `new Map()` is a `Map<any, any>`: the binding names its type.
             | C::Tree(purecrate_ir::TreeOp::NewMap | purecrate_ir::TreeOp::NewSet)))
 }

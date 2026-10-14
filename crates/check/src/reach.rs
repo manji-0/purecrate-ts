@@ -133,7 +133,7 @@ impl Refs {
     fn expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Call { callee, .. } => match callee {
-                Callee::Fn(n) | Callee::StructNew(n) | Callee::Variant { ty: n, .. } => self.name(n),
+                Callee::Fn(n) | Callee::StructNew(n) => self.name(n),
                 Callee::Method { ty, name } => {
                     self.name(ty);
                     self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));

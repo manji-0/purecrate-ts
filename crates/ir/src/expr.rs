@@ -97,45 +97,68 @@ pub enum IntOp {
     Method(IntMethod),
 }
 
-/// A method of `f32` / `f64` from the allow-list (design/01 §5.5).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FloatMethod {
-    /// Half away from zero, as Rust rounds (`Math.round` rounds half up).
-    Round,
-    Floor,
-    Ceil,
-    Trunc,
-    Abs,
-    IsNan,
-    IsFinite,
-    IsInfinite,
+/// Declares a method enum once: each variant with its Rust name and, where
+/// the runtime has one, its TS name. Gives the enum, `ALL` in declaration
+/// order (diagnostics list it), `name`, `from_name`, and `ts_name`.
+macro_rules! method_table {
+    (
+        $(#[$meta:meta])*
+        $Enum:ident { $($(#[$vmeta:meta])* $V:ident = $rust:literal / $ts:literal,)* }
+    ) => {
+        method_table! { $(#[$meta])* $Enum { $($(#[$vmeta])* $V = $rust,)* } }
+
+        impl $Enum {
+            /// The runtime's name.
+            pub fn ts_name(self) -> &'static str {
+                match self {
+                    $(Self::$V => $ts,)*
+                }
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        $Enum:ident { $($(#[$vmeta:meta])* $V:ident = $rust:literal,)* }
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum $Enum {
+            $($(#[$vmeta])* $V,)*
+        }
+
+        impl $Enum {
+            pub const ALL: [$Enum; [$($rust),*].len()] = [$(Self::$V),*];
+
+            /// The Rust method.
+            pub fn name(self) -> &'static str {
+                match self {
+                    $(Self::$V => $rust,)*
+                }
+            }
+
+            pub fn from_name(name: &str) -> Option<Self> {
+                Self::ALL.into_iter().find(|m| m.name() == name)
+            }
+        }
+    };
+}
+
+method_table! {
+    /// A method of `f32` / `f64` from the allow-list (design/01 §5.5).
+    FloatMethod {
+        /// Half away from zero, as Rust rounds (`Math.round` rounds half up).
+        Round = "round",
+        Floor = "floor",
+        Ceil = "ceil",
+        Trunc = "trunc",
+        Abs = "abs",
+        IsNan = "is_nan",
+        IsFinite = "is_finite",
+        IsInfinite = "is_infinite",
+    }
 }
 
 impl FloatMethod {
-    pub const ALL: [FloatMethod; 8] = [
-        FloatMethod::Round,
-        FloatMethod::Floor,
-        FloatMethod::Ceil,
-        FloatMethod::Trunc,
-        FloatMethod::Abs,
-        FloatMethod::IsNan,
-        FloatMethod::IsFinite,
-        FloatMethod::IsInfinite,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            FloatMethod::Round => "round",
-            FloatMethod::Floor => "floor",
-            FloatMethod::Ceil => "ceil",
-            FloatMethod::Trunc => "trunc",
-            FloatMethod::Abs => "abs",
-            FloatMethod::IsNan => "is_nan",
-            FloatMethod::IsFinite => "is_finite",
-            FloatMethod::IsInfinite => "is_infinite",
-        }
-    }
-
     /// A test, of type `bool`, rather than a float of the receiver's type.
     pub fn is_test(self) -> bool {
         matches!(self, FloatMethod::IsNan | FloatMethod::IsFinite | FloatMethod::IsInfinite)
@@ -161,119 +184,36 @@ impl FloatConst {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IntMethod {
-    Min,
-    Max,
-    /// Signed only; panics on `MIN` as negation does.
-    Abs,
-    Pow,
-    CheckedAdd,
-    CheckedSub,
-    CheckedMul,
-    CheckedDiv,
-    CheckedRem,
-    CheckedNeg,
-    CheckedPow,
-    SaturatingAdd,
-    SaturatingSub,
-    SaturatingMul,
-    SaturatingPow,
-    WrappingAdd,
-    WrappingSub,
-    WrappingMul,
-    WrappingDiv,
-    WrappingRem,
-    WrappingNeg,
-    WrappingPow,
+method_table! {
+    /// An integer method; the runtime's is `Int.<ty>.<ts_name>`.
+    IntMethod {
+        Min = "min" / "min",
+        Max = "max" / "max",
+        /// Signed only; panics on `MIN` as negation does.
+        Abs = "abs" / "abs",
+        Pow = "pow" / "pow",
+        CheckedAdd = "checked_add" / "checkedAdd",
+        CheckedSub = "checked_sub" / "checkedSub",
+        CheckedMul = "checked_mul" / "checkedMul",
+        CheckedDiv = "checked_div" / "checkedDiv",
+        CheckedRem = "checked_rem" / "checkedRem",
+        CheckedNeg = "checked_neg" / "checkedNeg",
+        CheckedPow = "checked_pow" / "checkedPow",
+        SaturatingAdd = "saturating_add" / "saturatingAdd",
+        SaturatingSub = "saturating_sub" / "saturatingSub",
+        SaturatingMul = "saturating_mul" / "saturatingMul",
+        SaturatingPow = "saturating_pow" / "saturatingPow",
+        WrappingAdd = "wrapping_add" / "wrappingAdd",
+        WrappingSub = "wrapping_sub" / "wrappingSub",
+        WrappingMul = "wrapping_mul" / "wrappingMul",
+        WrappingDiv = "wrapping_div" / "wrappingDiv",
+        WrappingRem = "wrapping_rem" / "wrappingRem",
+        WrappingNeg = "wrapping_neg" / "wrappingNeg",
+        WrappingPow = "wrapping_pow" / "wrappingPow",
+    }
 }
 
 impl IntMethod {
-    pub const ALL: [IntMethod; 22] = [
-        IntMethod::Min,
-        IntMethod::Max,
-        IntMethod::Abs,
-        IntMethod::Pow,
-        IntMethod::CheckedAdd,
-        IntMethod::CheckedSub,
-        IntMethod::CheckedMul,
-        IntMethod::CheckedDiv,
-        IntMethod::CheckedRem,
-        IntMethod::CheckedNeg,
-        IntMethod::CheckedPow,
-        IntMethod::SaturatingAdd,
-        IntMethod::SaturatingSub,
-        IntMethod::SaturatingMul,
-        IntMethod::SaturatingPow,
-        IntMethod::WrappingAdd,
-        IntMethod::WrappingSub,
-        IntMethod::WrappingMul,
-        IntMethod::WrappingDiv,
-        IntMethod::WrappingRem,
-        IntMethod::WrappingNeg,
-        IntMethod::WrappingPow,
-    ];
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|m| m.name() == name)
-    }
-
-    /// The Rust method.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Min => "min",
-            Self::Max => "max",
-            Self::Abs => "abs",
-            Self::Pow => "pow",
-            Self::CheckedAdd => "checked_add",
-            Self::CheckedSub => "checked_sub",
-            Self::CheckedMul => "checked_mul",
-            Self::CheckedDiv => "checked_div",
-            Self::CheckedRem => "checked_rem",
-            Self::CheckedNeg => "checked_neg",
-            Self::CheckedPow => "checked_pow",
-            Self::SaturatingAdd => "saturating_add",
-            Self::SaturatingSub => "saturating_sub",
-            Self::SaturatingMul => "saturating_mul",
-            Self::SaturatingPow => "saturating_pow",
-            Self::WrappingAdd => "wrapping_add",
-            Self::WrappingSub => "wrapping_sub",
-            Self::WrappingMul => "wrapping_mul",
-            Self::WrappingDiv => "wrapping_div",
-            Self::WrappingRem => "wrapping_rem",
-            Self::WrappingNeg => "wrapping_neg",
-            Self::WrappingPow => "wrapping_pow",
-        }
-    }
-
-    /// The runtime's name: `Int.<ty>.<ts_name>`.
-    pub fn ts_name(self) -> &'static str {
-        match self {
-            Self::Min => "min",
-            Self::Max => "max",
-            Self::Abs => "abs",
-            Self::Pow => "pow",
-            Self::CheckedAdd => "checkedAdd",
-            Self::CheckedSub => "checkedSub",
-            Self::CheckedMul => "checkedMul",
-            Self::CheckedDiv => "checkedDiv",
-            Self::CheckedRem => "checkedRem",
-            Self::CheckedNeg => "checkedNeg",
-            Self::CheckedPow => "checkedPow",
-            Self::SaturatingAdd => "saturatingAdd",
-            Self::SaturatingSub => "saturatingSub",
-            Self::SaturatingMul => "saturatingMul",
-            Self::SaturatingPow => "saturatingPow",
-            Self::WrappingAdd => "wrappingAdd",
-            Self::WrappingSub => "wrappingSub",
-            Self::WrappingMul => "wrappingMul",
-            Self::WrappingDiv => "wrappingDiv",
-            Self::WrappingRem => "wrappingRem",
-            Self::WrappingNeg => "wrappingNeg",
-            Self::WrappingPow => "wrappingPow",
-        }
-    }
-
     /// Arguments, the receiver included.
     pub fn arity(self) -> usize {
         match self {
@@ -334,134 +274,60 @@ impl IntOp {
     }
 }
 
-/// `str` methods whose result does not depend on UTF-8 versus UTF-16 for a
-/// well-formed string, or that go through the runtime's `Str` when it does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StrMethod {
-    /// UTF-8 byte count, as `usize`. Prints as `Str.len(s)`.
-    Len,
-    IsEmpty,
-    /// Takes a `&str` needle. A prefix, suffix or substring of UTF-8 bytes
-    /// on char boundaries is one of UTF-16 units too, and both needles are
-    /// well-formed, so the JS methods agree.
-    StartsWith,
-    EndsWith,
-    Contains,
-    /// The same `string`; lets a `String` be matched against literals.
-    AsStr,
-    /// Take a `&str`; `Option<&str>`. A prefix or suffix on char boundaries
-    /// has the same extent in UTF-8 bytes and UTF-16 units, so the rest is
-    /// the same string. Print as `Str.stripPrefix` / `Str.stripSuffix`.
-    StripPrefix,
-    StripSuffix,
-    /// Takes a `char` or a `&str`; `Option<(&str, &str)>`, the text around
-    /// the first match. The first match in UTF-8 bytes is the first in
-    /// UTF-16 units, both sides are on char boundaries, and an empty needle
-    /// matches at 0 in both. Prints as `Str.splitOnce`.
-    SplitOnce,
-    /// Takes a `&str`. Equal once ASCII `A`..=`Z` are folded to lower case,
-    /// every other byte as it is: folding maps ASCII to ASCII and leaves the
-    /// rest, so comparing folded UTF-16 units agrees with folded UTF-8
-    /// bytes. Prints as `Str.eqIgnoreAsciiCase`.
-    EqIgnoreAsciiCase,
-    /// A new `String` with ASCII `A`..=`Z` (or `a`..=`z`) folded, every
-    /// other character as it is (JS `toLowerCase` folds all of Unicode).
-    /// Prints as `Str.toAsciiLowercase` / `Str.toAsciiUppercase`.
-    ToAsciiLowercase,
-    ToAsciiUppercase,
-    /// Without leading and trailing `char::is_whitespace` (Unicode
-    /// White_Space, which JS `trim` does not match: it trims U+FEFF and not
-    /// U+0085). Prints as `Str.trim` / `Str.trimStart` / `Str.trimEnd`.
-    Trim,
-    TrimStart,
-    TrimEnd,
-    /// Take a `char`, a `&str` (start or end only, as std's searchers), or
-    /// a closure on a `char`; the rest of the string once every leading
-    /// (trailing) match is gone. Print as `Str.trimMatches` and so on.
-    TrimMatches,
-    TrimStartMatches,
-    TrimEndMatches,
-    /// Takes a `char`, a `&str`, or a closure on a `char`; the UTF-8 byte
-    /// offset of the first match, as `Option<usize>`. Prints as `Str.find`.
-    Find,
+method_table! {
+    /// `str` methods whose result does not depend on UTF-8 versus UTF-16 for a
+    /// well-formed string, or that go through the runtime's `Str` when it does.
+    StrMethod {
+        /// UTF-8 byte count, as `usize`. Prints as `Str.len(s)`.
+        Len = "len" / "len",
+        IsEmpty = "is_empty" / "isEmpty",
+        /// Takes a `&str` needle. A prefix, suffix or substring of UTF-8 bytes
+        /// on char boundaries is one of UTF-16 units too, and both needles are
+        /// well-formed, so the JS methods agree.
+        StartsWith = "starts_with" / "startsWith",
+        EndsWith = "ends_with" / "endsWith",
+        Contains = "contains" / "includes",
+        /// The same `string`; lets a `String` be matched against literals.
+        AsStr = "as_str" / "asStr",
+        /// Take a `&str`; `Option<&str>`. A prefix or suffix on char boundaries
+        /// has the same extent in UTF-8 bytes and UTF-16 units, so the rest is
+        /// the same string. Print as `Str.stripPrefix` / `Str.stripSuffix`.
+        StripPrefix = "strip_prefix" / "stripPrefix",
+        StripSuffix = "strip_suffix" / "stripSuffix",
+        /// Takes a `char` or a `&str`; `Option<(&str, &str)>`, the text around
+        /// the first match. The first match in UTF-8 bytes is the first in
+        /// UTF-16 units, both sides are on char boundaries, and an empty needle
+        /// matches at 0 in both. Prints as `Str.splitOnce`.
+        SplitOnce = "split_once" / "splitOnce",
+        /// Takes a `&str`. Equal once ASCII `A`..=`Z` are folded to lower case,
+        /// every other byte as it is: folding maps ASCII to ASCII and leaves the
+        /// rest, so comparing folded UTF-16 units agrees with folded UTF-8
+        /// bytes. Prints as `Str.eqIgnoreAsciiCase`.
+        EqIgnoreAsciiCase = "eq_ignore_ascii_case" / "eqIgnoreAsciiCase",
+        /// A new `String` with ASCII `A`..=`Z` (or `a`..=`z`) folded, every
+        /// other character as it is (JS `toLowerCase` folds all of Unicode).
+        /// Prints as `Str.toAsciiLowercase` / `Str.toAsciiUppercase`.
+        ToAsciiLowercase = "to_ascii_lowercase" / "toAsciiLowercase",
+        ToAsciiUppercase = "to_ascii_uppercase" / "toAsciiUppercase",
+        /// Without leading and trailing `char::is_whitespace` (Unicode
+        /// White_Space, which JS `trim` does not match: it trims U+FEFF and not
+        /// U+0085). Prints as `Str.trim` / `Str.trimStart` / `Str.trimEnd`.
+        Trim = "trim" / "trim",
+        TrimStart = "trim_start" / "trimStart",
+        TrimEnd = "trim_end" / "trimEnd",
+        /// Take a `char`, a `&str` (start or end only, as std's searchers), or
+        /// a closure on a `char`; the rest of the string once every leading
+        /// (trailing) match is gone. Print as `Str.trimMatches` and so on.
+        TrimMatches = "trim_matches" / "trimMatches",
+        TrimStartMatches = "trim_start_matches" / "trimStartMatches",
+        TrimEndMatches = "trim_end_matches" / "trimEndMatches",
+        /// Takes a `char`, a `&str`, or a closure on a `char`; the UTF-8 byte
+        /// offset of the first match, as `Option<usize>`. Prints as `Str.find`.
+        Find = "find" / "find",
+    }
 }
 
 impl StrMethod {
-    pub const ALL: [StrMethod; 19] = [
-        StrMethod::Len,
-        StrMethod::IsEmpty,
-        StrMethod::StartsWith,
-        StrMethod::EndsWith,
-        StrMethod::Contains,
-        StrMethod::AsStr,
-        StrMethod::StripPrefix,
-        StrMethod::StripSuffix,
-        StrMethod::SplitOnce,
-        StrMethod::EqIgnoreAsciiCase,
-        StrMethod::ToAsciiLowercase,
-        StrMethod::ToAsciiUppercase,
-        StrMethod::Trim,
-        StrMethod::TrimStart,
-        StrMethod::TrimEnd,
-        StrMethod::TrimMatches,
-        StrMethod::TrimStartMatches,
-        StrMethod::TrimEndMatches,
-        StrMethod::Find,
-    ];
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|m| m.name() == name)
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Len => "len",
-            Self::IsEmpty => "is_empty",
-            Self::StartsWith => "starts_with",
-            Self::EndsWith => "ends_with",
-            Self::Contains => "contains",
-            Self::AsStr => "as_str",
-            Self::StripPrefix => "strip_prefix",
-            Self::StripSuffix => "strip_suffix",
-            Self::SplitOnce => "split_once",
-            Self::EqIgnoreAsciiCase => "eq_ignore_ascii_case",
-            Self::ToAsciiLowercase => "to_ascii_lowercase",
-            Self::ToAsciiUppercase => "to_ascii_uppercase",
-            Self::Trim => "trim",
-            Self::TrimStart => "trim_start",
-            Self::TrimEnd => "trim_end",
-            Self::TrimMatches => "trim_matches",
-            Self::TrimStartMatches => "trim_start_matches",
-            Self::TrimEndMatches => "trim_end_matches",
-            Self::Find => "find",
-        }
-    }
-
-    /// The runtime's name, `Str.<ts_name>`.
-    pub fn ts_name(self) -> &'static str {
-        match self {
-            Self::Len => "len",
-            Self::IsEmpty => "isEmpty",
-            Self::StartsWith => "startsWith",
-            Self::EndsWith => "endsWith",
-            Self::Contains => "includes",
-            Self::AsStr => "asStr",
-            Self::StripPrefix => "stripPrefix",
-            Self::StripSuffix => "stripSuffix",
-            Self::SplitOnce => "splitOnce",
-            Self::EqIgnoreAsciiCase => "eqIgnoreAsciiCase",
-            Self::ToAsciiLowercase => "toAsciiLowercase",
-            Self::ToAsciiUppercase => "toAsciiUppercase",
-            Self::Trim => "trim",
-            Self::TrimStart => "trimStart",
-            Self::TrimEnd => "trimEnd",
-            Self::TrimMatches => "trimMatches",
-            Self::TrimStartMatches => "trimStartMatches",
-            Self::TrimEndMatches => "trimEndMatches",
-            Self::Find => "find",
-        }
-    }
-
     /// Takes a pattern: a `char`, a `&str`, or a closure on a `char`.
     pub fn takes_pattern(self) -> bool {
         matches!(self, Self::TrimMatches | Self::TrimStartMatches | Self::TrimEndMatches | Self::Find)
@@ -493,110 +359,42 @@ impl StrMethod {
     }
 }
 
-/// `char` methods that look only at ASCII or at the code point, so no
-/// Unicode table is involved (design/01 §6). Each prints as `Char.<ts>(c,
-/// ..)`; the receiver is the first argument.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CharMethod {
-    IsAscii,
-    IsAsciiAlphabetic,
-    IsAsciiAlphanumeric,
-    IsAsciiControl,
-    IsAsciiDigit,
-    IsAsciiGraphic,
-    IsAsciiHexdigit,
-    IsAsciiLowercase,
-    IsAsciiPunctuation,
-    IsAsciiUppercase,
-    /// Space, tab, LF, FF, CR. Not VT, unlike `is_whitespace` and JS `\s`.
-    IsAsciiWhitespace,
-    ToAsciiLowercase,
-    ToAsciiUppercase,
-    /// Takes `&char`.
-    EqIgnoreAsciiCase,
-    /// UTF-8 bytes, as `usize`.
-    LenUtf8,
-    /// Takes a `u32` radix; panics outside 2..=36 as Rust does.
-    IsDigit,
-    /// Takes a `u32` radix; `Option<u32>`.
-    ToDigit,
+method_table! {
+    /// `char` methods that look only at ASCII or at the code point, so no
+    /// Unicode table is involved (design/01 §6). Each prints as `Char.<ts>(c,
+    /// ..)`; the receiver is the first argument.
+    CharMethod {
+        IsAscii = "is_ascii" / "isAscii",
+        IsAsciiAlphabetic = "is_ascii_alphabetic" / "isAsciiAlphabetic",
+        IsAsciiAlphanumeric = "is_ascii_alphanumeric" / "isAsciiAlphanumeric",
+        IsAsciiControl = "is_ascii_control" / "isAsciiControl",
+        IsAsciiDigit = "is_ascii_digit" / "isAsciiDigit",
+        IsAsciiGraphic = "is_ascii_graphic" / "isAsciiGraphic",
+        IsAsciiHexdigit = "is_ascii_hexdigit" / "isAsciiHexdigit",
+        IsAsciiLowercase = "is_ascii_lowercase" / "isAsciiLowercase",
+        IsAsciiPunctuation = "is_ascii_punctuation" / "isAsciiPunctuation",
+        IsAsciiUppercase = "is_ascii_uppercase" / "isAsciiUppercase",
+        /// Space, tab, LF, FF, CR. Not VT, unlike `is_whitespace` and JS `\s`.
+        IsAsciiWhitespace = "is_ascii_whitespace" / "isAsciiWhitespace",
+        ToAsciiLowercase = "to_ascii_lowercase" / "toAsciiLowercase",
+        ToAsciiUppercase = "to_ascii_uppercase" / "toAsciiUppercase",
+        /// Takes `&char`.
+        EqIgnoreAsciiCase = "eq_ignore_ascii_case" / "eqIgnoreAsciiCase",
+        /// UTF-8 bytes, as `usize`.
+        LenUtf8 = "len_utf8" / "lenUtf8",
+        /// Takes a `u32` radix; panics outside 2..=36 as Rust does.
+        IsDigit = "is_digit" / "isDigit",
+        /// Takes a `u32` radix; `Option<u32>`.
+        ToDigit = "to_digit" / "toDigit",
+    }
 }
 
 impl CharMethod {
-    pub const ALL: [CharMethod; 17] = [
-        CharMethod::IsAscii,
-        CharMethod::IsAsciiAlphabetic,
-        CharMethod::IsAsciiAlphanumeric,
-        CharMethod::IsAsciiControl,
-        CharMethod::IsAsciiDigit,
-        CharMethod::IsAsciiGraphic,
-        CharMethod::IsAsciiHexdigit,
-        CharMethod::IsAsciiLowercase,
-        CharMethod::IsAsciiPunctuation,
-        CharMethod::IsAsciiUppercase,
-        CharMethod::IsAsciiWhitespace,
-        CharMethod::ToAsciiLowercase,
-        CharMethod::ToAsciiUppercase,
-        CharMethod::EqIgnoreAsciiCase,
-        CharMethod::LenUtf8,
-        CharMethod::IsDigit,
-        CharMethod::ToDigit,
-    ];
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|m| m.name() == name)
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::IsAscii => "is_ascii",
-            Self::IsAsciiAlphabetic => "is_ascii_alphabetic",
-            Self::IsAsciiAlphanumeric => "is_ascii_alphanumeric",
-            Self::IsAsciiControl => "is_ascii_control",
-            Self::IsAsciiDigit => "is_ascii_digit",
-            Self::IsAsciiGraphic => "is_ascii_graphic",
-            Self::IsAsciiHexdigit => "is_ascii_hexdigit",
-            Self::IsAsciiLowercase => "is_ascii_lowercase",
-            Self::IsAsciiPunctuation => "is_ascii_punctuation",
-            Self::IsAsciiUppercase => "is_ascii_uppercase",
-            Self::IsAsciiWhitespace => "is_ascii_whitespace",
-            Self::ToAsciiLowercase => "to_ascii_lowercase",
-            Self::ToAsciiUppercase => "to_ascii_uppercase",
-            Self::EqIgnoreAsciiCase => "eq_ignore_ascii_case",
-            Self::LenUtf8 => "len_utf8",
-            Self::IsDigit => "is_digit",
-            Self::ToDigit => "to_digit",
-        }
-    }
-
     /// Arguments after the receiver.
     pub fn args(self) -> usize {
         match self {
             Self::EqIgnoreAsciiCase | Self::IsDigit | Self::ToDigit => 1,
             _ => 0,
-        }
-    }
-
-    /// The runtime's name: `Char.<ts_name>`.
-    pub fn ts_name(self) -> &'static str {
-        match self {
-            Self::IsAscii => "isAscii",
-            Self::IsAsciiAlphabetic => "isAsciiAlphabetic",
-            Self::IsAsciiAlphanumeric => "isAsciiAlphanumeric",
-            Self::IsAsciiControl => "isAsciiControl",
-            Self::IsAsciiDigit => "isAsciiDigit",
-            Self::IsAsciiGraphic => "isAsciiGraphic",
-            Self::IsAsciiHexdigit => "isAsciiHexdigit",
-            Self::IsAsciiLowercase => "isAsciiLowercase",
-            Self::IsAsciiPunctuation => "isAsciiPunctuation",
-            Self::IsAsciiUppercase => "isAsciiUppercase",
-            Self::IsAsciiWhitespace => "isAsciiWhitespace",
-            Self::ToAsciiLowercase => "toAsciiLowercase",
-            Self::ToAsciiUppercase => "toAsciiUppercase",
-            Self::EqIgnoreAsciiCase => "eqIgnoreAsciiCase",
-            Self::LenUtf8 => "lenUtf8",
-            Self::IsDigit => "isDigit",
-            Self::ToDigit => "toDigit",
         }
     }
 }
@@ -699,10 +497,6 @@ pub enum Callee {
     Method {
         ty: Name,
         name: Name,
-    },
-    Variant {
-        ty: Name,
-        variant: Name,
     },
     StructNew(Name),
     ResultOk,
@@ -1006,38 +800,30 @@ impl Pattern {
     /// An integer literal or range, or `|` of them: an arm of a `match` on
     /// an integer.
     pub fn is_int_case(&self) -> bool {
-        match self {
-            Pattern::Lit(Lit::Int { .. }) | Pattern::Range { lo: Lit::Int { .. }, .. } => true,
-            Pattern::Or(alts) => alts.iter().all(Pattern::is_int_case),
-            _ => false,
-        }
+        self.all_alts(|p| matches!(p, Pattern::Lit(Lit::Int { .. }) | Pattern::Range { lo: Lit::Int { .. }, .. }))
     }
 
     /// A `char` literal or range, or `|` of them: an arm of a `match` on a
     /// `char`.
     pub fn is_char_case(&self) -> bool {
-        match self {
-            Pattern::Lit(Lit::Char(_)) | Pattern::Range { lo: Lit::Char(_), .. } => true,
-            Pattern::Or(alts) => alts.iter().all(Pattern::is_char_case),
-            _ => false,
-        }
+        self.all_alts(|p| matches!(p, Pattern::Lit(Lit::Char(_)) | Pattern::Range { lo: Lit::Char(_), .. }))
     }
 
     /// A string literal, or `|` of them: an arm of a `match` on a `&str`.
     pub fn is_str_case(&self) -> bool {
-        match self {
-            Pattern::Lit(Lit::Str(_)) => true,
-            Pattern::Or(alts) => alts.iter().all(Pattern::is_str_case),
-            _ => false,
-        }
+        self.all_alts(|p| matches!(p, Pattern::Lit(Lit::Str(_))))
     }
 
     /// `true` or `false`, or `|` of them: an arm of a `match` on a `bool`.
     pub fn is_bool_case(&self) -> bool {
+        self.all_alts(|p| matches!(p, Pattern::Lit(Lit::Bool(_))))
+    }
+
+    /// `leaf` holds for the pattern, or for each side of `|`.
+    fn all_alts(&self, leaf: fn(&Pattern) -> bool) -> bool {
         match self {
-            Pattern::Lit(Lit::Bool(_)) => true,
-            Pattern::Or(alts) => alts.iter().all(Pattern::is_bool_case),
-            _ => false,
+            Pattern::Or(alts) => alts.iter().all(|a| a.all_alts(leaf)),
+            p => leaf(p),
         }
     }
 
@@ -1609,18 +1395,14 @@ impl Expr {
     /// The local a `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, or `v[i] =
     /// x` writes.
     pub fn grown(&self) -> Option<&Name> {
-        match self {
-            Expr::Call {
-                callee: Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecSort(_),
-                args,
-            } => match args.first() {
-                Some(Expr::Var(n)) => Some(n),
-                _ => None,
-            },
-            Expr::Call { callee: Callee::Tree(op), args } if op.writes() => match args.first() {
-                Some(Expr::Var(n)) => Some(n),
-                _ => None,
-            },
+        let Expr::Call { callee, args } = self else { return None };
+        let writes = match callee {
+            Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecSort(_) => true,
+            Callee::Tree(op) => op.writes(),
+            _ => false,
+        };
+        match args.first() {
+            Some(Expr::Var(n)) if writes => Some(n),
             _ => None,
         }
     }

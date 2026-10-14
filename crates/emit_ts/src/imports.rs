@@ -454,7 +454,7 @@ impl Refs {
                     Callee::Method { ty, name } if private_in(krate, ty.as_str(), name.as_str()) => {
                         self.privates.insert((ty.as_str().to_string(), name.as_str().to_string()));
                     }
-                    Callee::Method { ty, .. } | Callee::Variant { ty, .. } | Callee::StructNew(ty) => {
+                    Callee::Method { ty, .. } | Callee::StructNew(ty) => {
                         self.values.insert(ty.as_str().to_string());
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result_value = true,

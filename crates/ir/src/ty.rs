@@ -233,7 +233,6 @@ impl Prim {
 pub enum Wrapper {
     Box,
     Arc,
-    Mutex,
 }
 
 impl Wrapper {
@@ -241,8 +240,12 @@ impl Wrapper {
         match self {
             Wrapper::Box => "Box",
             Wrapper::Arc => "Arc",
-            Wrapper::Mutex => "Mutex",
         }
+    }
+
+    /// The wrapper the Rust type `name` is, if any.
+    pub fn of_rust_name(name: &str) -> Option<Wrapper> {
+        [Wrapper::Box, Wrapper::Arc].into_iter().find(|w| w.rust_name() == name)
     }
 }
 

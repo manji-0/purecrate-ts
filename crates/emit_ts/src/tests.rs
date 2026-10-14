@@ -13,14 +13,14 @@ fn erased_wrappers_are_named_in_types_only() {
         vis: Vis::Pub,
         name: Name::new("share"),
         owner: None,
-        params: vec![Param { name: Name::new("n"), ty: Ty::ignored(Wrapper::Mutex, Ty::i32()) }],
+        params: vec![Param { name: Name::new("n"), ty: Ty::ignored(Wrapper::Arc, Ty::i32()) }],
         ret: Ty::ignored(Wrapper::Box, Ty::i32()),
         body: Expr::Ignored { wrapper: Wrapper::Arc, expr: Box::new(Expr::var("n")) },
         doc: None,
     });
     let pkg = emit(&Crate::new("wraps", vec![share]));
     let src = file(&pkg, "share");
-    assert!(src.contains("(n: /* Mutex */ I32): /* Box */ I32 => n;"), "{src}");
+    assert!(src.contains("(n: /* Arc */ I32): /* Box */ I32 => n;"), "{src}");
 }
 
 #[test]

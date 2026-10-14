@@ -314,7 +314,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
                 out.push(Ref::Type(ty.as_str().to_string()));
                 out.push(Ref::Method(ty.as_str().to_string(), name.as_str().to_string()));
             }
-            Callee::Variant { ty, .. } | Callee::StructNew(ty) => out.push(Ref::Type(ty.as_str().to_string())),
+            Callee::StructNew(ty) => out.push(Ref::Type(ty.as_str().to_string())),
             _ => {}
         },
         Expr::MethodCall { name, args, .. } => {
