@@ -1,6 +1,6 @@
 //! Every `as` the generator prints is one of the kinds design/03 §1.1 lists,
 //! each sound for a reason outside TS: a literal rustc has range-checked, a
-//! `.length`, a lossless widening, a `for` counter below its bound, a folded
+//! `.length` (or a `Map`'s `.size`), a lossless widening, a `for` counter below its bound, a folded
 //! discriminant, a float (an `f32` rounded by `fround` or negated), the crate's own constructor, or a union given back
 //! its declared type. A brand (a newtype or closed struct of the crate) is
 //! cast to only in its constructor. Read over the output of every example
@@ -71,7 +71,9 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("Iterable<Char>") {
         return Some("a string's code points are chars");
     }
-    if target_name == "Usize" && value.trim_end_matches(')').ends_with(".length") {
+    if target_name == "Usize"
+        && [".length", ".size"].iter().any(|l| value.trim_end_matches(')').ends_with(l))
+    {
         return Some("length");
     }
     // `x as number as U32` / `x as bigint as U128`: both halves.

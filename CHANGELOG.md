@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.19.0 — 2026-10-14
+
+`BTreeMap<String, V>` and `BTreeSet<String>`, as a TS `Map` / `Set` read in Rust's key order and as a JSON object on the wire. The distance to the ideal is 81%.
+
+### Added
+
+- **`BTreeMap<String, V>` and `BTreeSet<String>`** (design/01 §7.19). A `ReadonlyMap<string, V>` / `ReadonlySet<string>`, sorted at every read in order: by code point, as Rust orders a `String`'s bytes, where JS's `sort()` puts U+E000..U+FFFF above a key outside the BMP. `BTreeMap::new()`, `get` (an `Option`), `contains_key` / `contains`, `len`, `is_empty`, `clone`, `iter` / `keys` / `values` and `for (k, v) in &m` into consumers, `collect` and loops, `collect()` from `(String, V)` pairs (a later key's value replacing an earlier one's) or from `String`s, and `==` (`Eq.deep` compares maps and sets by key). `insert` and `remove` write a `let mut` local that owns its map, as a grown `Vec` owns its array. Keys are `String` only; a map of `Option` or `()` values is refused, as is `HashMap` / `HashSet`, whose order Rust leaves unspecified (the refusal names `BTreeMap`).
+- **On the wire** (design/04 §3.3): a map is a JSON object, its keys written in Rust's order and read whatever order they come in; a set an array. Every own key is a key, `__proto__` and `constructor` too, which zod's and valibot's records drop, so each adapter reads the object itself (`btreeMap`, `btreeSet`); a key with a lone surrogate is refused and a repeated key keeps its last value, as serde does. Round-tripped byte for byte against serde_json in all three libraries.
+- `Str.wellFormed` reads a map's keys and values and a set's keys.
+
+Tested against Rust with keys on both sides of U+FFFD and outside the BMP, maps built in reverse order, a key twice, `__proto__` as a key, the caller's map left as it was, overflow at the first value in key order, and a struct holding a map and a set compared with `==` (`btree_equivalence.rs`, `lone_surrogate.rs`, `wire_write.rs`); and as three new statements of the collections generator, seeds 1 to 120.
+
+### Documentation
+
+- **Distance to the ideal** (design/07 §2.5): 81% with 0.19.0, from 78%; the plan said 83%, but keys other than `String` wait for a use.
+
 ## 0.18.0 — 2026-10-14
 
 `Option`'s and `Result`'s combinators, `get`, `first`, `last`, and `contains` on a `Vec`, `fold`, `rev` and `zip` on a sequence, and `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect` with Rust's messages; eleven examples use them. The statements generator's new forms found four places, each also in 0.17.0, where narrowing differed from TS's, fixed here. Every generator agrees with Rust on seeds 1 to 120, and all but one of the 960 runs type-check (below). The distance to the ideal is 78%.

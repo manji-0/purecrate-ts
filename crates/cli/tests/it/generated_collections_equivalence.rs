@@ -29,7 +29,9 @@ use crate::support::generated::{compare_rows, fn_count, seeds, Args, SEEDS};
 use crate::support::{Js, Rng};
 
 /// The crate's types, the same in every seed.
-const TYPES: &str = "#[derive(Clone, PartialEq, Debug)]
+const TYPES: &str = "use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct P {
     pub a: i32,
     pub b: String,
@@ -781,7 +783,10 @@ impl G {
     }
 
     fn stmt(&mut self, depth: u32) {
-        let pick = if depth == 0 { self.rng.below(9) } else { self.rng.below(19) };
+        let pick = if depth == 0 { self.rng.below(9) } else { self.rng.below(21) };
+        if pick >= 19 {
+            return self.tree_stmt();
+        }
         let target = self.mut_vec(None);
         match (pick, target) {
             (0, _) | (_, None) => self.new_vec(),
@@ -933,6 +938,55 @@ impl G {
             _ => {
                 let x = self.boolean(2);
                 self.line(&format!("flag = flag || {x};"));
+            }
+        }
+    }
+
+    /// A `BTreeMap` or `BTreeSet` built from literal strings (ordered
+    /// differently by code point and by UTF-16 unit) and read in key order
+    /// into `acc`, so an order that differs from Rust's changes the result;
+    /// `insert`'s old value and `acc +=` may overflow.
+    fn tree_stmt(&mut self) {
+        let m = self.fresh("m");
+        let (a, b) = (self.str_lit(), self.str_lit());
+        let x = self.fresh("x");
+        // `xs` and `ys` may have been moved by now: literals, in any order.
+        let n = 1 + self.rng.below(5);
+        let words = (0..n).map(|_| self.str_lit()).collect::<Vec<_>>().join(", ");
+        let ints = (0..n).map(|_| self.int_lit()).collect::<Vec<_>>().join(", ");
+        let ys = format!("vec![{words}]");
+        let xs = format!("vec![{ints}]");
+        match self.rng.below(3) {
+            0 => {
+                self.line(&format!("let mut {m}: BTreeMap<String, i32> = BTreeMap::new();"));
+                self.line(&format!("for ({x}, n) in {ys}.iter().zip({xs}.iter()) {{"));
+                self.line(&format!("    if let Some(o) = {m}.insert({x}.clone(), *n) {{"));
+                self.line("        acc += o;");
+                self.line("    }");
+                self.line("}");
+                self.line(&format!("if let Some(o) = {m}.remove(&{a}) {{"));
+                self.line("    acc -= o;");
+                self.line("}");
+                self.line(&format!("for ({x}, n) in &{m} {{"));
+                self.line(&format!("    acc = acc.wrapping_mul(31).wrapping_add(*n).wrapping_add({x}.len() as i32);"));
+                self.line("}");
+                self.line(&format!("flag = flag != {m}.contains_key(&{b});"));
+            }
+            1 => {
+                self.line(&format!("let mut {m}: BTreeSet<String> = {ys}.into_iter().collect();"));
+                self.line(&format!("flag = {m}.insert({a}) != flag;"));
+                self.line(&format!("if {m}.remove(&{b}) {{"));
+                self.line("    acc += 1;");
+                self.line("}");
+                self.line(&format!("for {x} in &{m} {{"));
+                self.line(&format!("    acc = acc.wrapping_mul(7).wrapping_add({x}.chars().count() as i32);"));
+                self.line("}");
+            }
+            _ => {
+                self.line(&format!("let {m}: BTreeMap<String, usize> = {ys}.iter().map(|y| (y.clone(), y.len())).collect();"));
+                self.line(&format!("acc += {m}.get(&{a}).copied().unwrap_or(0) as i32;"));
+                self.line(&format!("acc = {m}.keys().fold(acc, |t, key| t.wrapping_mul(3).wrapping_add(key.len() as i32));"));
+                self.line(&format!("acc += {m}.values().map(|n| *n as i32).sum::<i32>();"));
             }
         }
     }

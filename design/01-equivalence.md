@@ -138,6 +138,7 @@ Methods are added one at a time, as examples ask ([07 §1](./07-roadmap.md#1-how
 | `std::cmp::Ordering` | `Less` / `Equal` / `Greater`, `==`, `is_eq` … `is_ge`, `reverse`, `then`, `then_with` (§6.6, §7) | a fieldless enum | `ordering_equivalence.rs` |
 | `Vec`, slices, `as_bytes()` | indexing, `len`, `is_empty`, `get`, `first`, `last`, `contains` (§7.18), slicing `&xs[a..b]`, `cmp`, `clone`, `iter()` / `into_iter()` through `rev` / `zip` and `map` / `filter` (§7.13); built as `vec![a, b]`, by `collect()` (§7.12, §7.13), or grown by `push` or `insert` and edited by `remove` or `v[i] = x` on a `let mut` local (§7.14) | `Slice.at(xs, i)`, a bounds check with Rust's panic message, `length`, `length === 0`, `Slice.range` with Rust's checks, `Ord.cmpList`, `[...xs]`; the array, its `.map` / `.filter`, `Array.from` of `Iter.map` / `Iter.filter`, or `Iter.tryCollect`; `v.push(x)`, `Slice.insert(v, i, x)`, `Slice.remove(v, i)`, and `Slice.set(v, i, x)` (Rust's panic past the end, then `splice` or the write) on an `Array<T>` | `std_methods_equivalence.rs`, `slicing_equivalence.rs`, `vec_build_equivalence.rs`, `collect_equivalence.rs`, `adapters_equivalence.rs`, `grow_equivalence.rs`, `vec_insert_equivalence.rs`, `vec_edit_equivalence.rs`, `ordering_equivalence.rs` |
 | `Option` | `is_some`, `is_none`; `unwrap`, `expect` (§7.17); `unwrap_or`, `unwrap_or_else`, `ok_or`, `ok_or_else`, `or`, `or_else`, `map`, `map_or`, `map_or_else`, `and_then`, `filter`, `is_some_and`, `is_none_or` (§7.1); `clone`, `as_ref`, `as_deref` (on `Option<String>`) | `!== null`, `=== null`; the value itself for the last three | `std_methods_equivalence.rs`, `option_methods_equivalence.rs`, `std_more_equivalence.rs`, `panics_equivalence.rs`, `grow_equivalence.rs` |
+| `BTreeMap<String, V>`, `BTreeSet<String>` | `new`, `get`, `contains_key` / `contains`, `len`, `is_empty`, `clone`, `iter` / `keys` / `values` and `for` in key order, `collect` from pairs or keys, `==`; `insert` and `remove` on a `let mut` local (§7.19) | a `Map` / `Set`; `BTree.get`, `BTree.keys` sorted by code point | `btree_equivalence.rs`, `wire_write.rs`, `lone_surrogate.rs` |
 | `Result` | `ok`, `err`, `is_ok`, `is_err`, `is_ok_and`, `is_err_and`, `unwrap_or`, `unwrap_or_else`, `map`, `map_err`, `map_or`, `and_then`, `or_else` (§7.1); not `unwrap` or `expect` (§7.17) | the `match` std writes | `parse_equivalence.rs`, `std_more_equivalence.rs` |
 | `String`, `&str` into an integer | `s.parse::<T>()` for every integer `T`, into `Result<T, ParseIntError>` (§6.7) | `Int.<t>.parse(s)` | `parse_equivalence.rs` |
 | integers | `min`, `max`, `abs`, `pow`, `checked_*`, `saturating_*`, `wrapping_*` (§7) | `Int.<ty>.min` etc. | `int_methods_equivalence.rs` |
@@ -243,6 +244,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`loop`, `while let`, `if let`, `let`-`else`, `a..=b`, `(a..b).rev()`, `t.N`](#716-control-flow-on-patterns-and-ranges) | `for (;;)` with the value assigned or returned; a `match`; a range `for` with `<=` or stepping down | `loop_value_equivalence.rs`, `if_let_equivalence.rs` |
 | [`panic!`, `unreachable!`, `assert!`, `Option::unwrap` / `expect`](#717-panics) | `Panic.raise(m)` with Rust's message; `assert!` an `if` | `panics_equivalence.rs` |
 | [`get`, `first`, `last`, `contains` on a `Vec`](#718-reading-a-vec-get-first-last-contains) | `Slice.get` / `Slice.last` / `Slice.contains` | `std_more_equivalence.rs` |
+| [`BTreeMap<String, V>`, `BTreeSet<String>`](#719-btreemapstring-v-and-btreesetstring) | a `Map` / `Set` read in key order | `btree_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -374,6 +376,18 @@ Tested with every message form, a message whose argument overflows only when the
 ### 7.18 Reading a `Vec`: `get`, `first`, `last`, `contains`
 
 `xs.get(i)` is the element or `None` at or past the end (`Slice.get`), `xs.first()` is `get(0)`, and `xs.last()` the last element or `None` when empty (`Slice.last`); on a `Vec<Option<T>>` each is refused (`Option<Option<_>>`). A `get` with a range is refused. `xs.contains(&x)` compares each element with `x` as the derived `eq` does (`Slice.contains`, through `Eq.deep`): NaN is not equal to itself and `-0.0` equals `0.0`, as in Rust, where JS `includes` would find NaN. Tested on empty and one-element lists, `usize::MAX` as an index, floats with NaN and `-0.0`, strings, and structs (`std_more_equivalence.rs`).
+
+### 7.19 `BTreeMap<String, V>` and `BTreeSet<String>`
+
+A map is a TS `Map<string, V>` (`ReadonlyMap` but for a local it writes), a set a `Set<string>`. A JS `Map` iterates in insertion order and a caller's may have been filled in any, so every read in order sorts the keys first (`BTree.keys`, `entries`, `values`): by code point, as Rust orders a `String`'s UTF-8 bytes, where JS's `sort()` compares UTF-16 units and puts U+E000..U+FFFF above a key outside the BMP. `for (k, v) in &m`, `m.iter()`, `m.keys()`, `m.values()`, and a set's `iter()` give that array, into a `for`, a consumer, or `collect`.
+
+- `get(k)` is the value or `None` (`BTree.get`: `Map.get` gives `undefined`); `contains_key(k)` / `contains(k)` is `has`; `len()` the `size`. A key argument is a `&str` or a `String`.
+- `insert(k, v)` gives the replaced value or `None`, a set's `insert(k)` whether `k` was new; `remove(k)` the removed value or `None` (on a set, whether it was there). Each writes only a `let mut` local bound to a map or set of its own (`BTreeMap::new()`, `clone()`, `collect()`; any other value is copied when bound), which no closure reads, as §7.14's `Vec`.
+- `collect()` from `(String, V)` pairs builds a map, a later key's value replacing an earlier one's, as Rust's `FromIterator` does; from `String`s a set.
+- `==` compares keys and values as the derived `eq` does (`Eq.deep`, order aside: both sides hold each key once).
+- Keys are `String` only. A map of `Option` or `()` values is refused: `get` of a missing key and of such a value would be the same. `HashMap` and `HashSet` are refused: Rust leaves their order unspecified. `cmp`, `entry`, `get_mut`, `range`, `first_key_value`, and indexing `m[k]` are refused.
+
+A `pub` function checks a map's keys and values and a set's keys for lone surrogates on entry (§6). Tested with keys on both sides of U+FFFD and outside the BMP, maps built in reverse order, a key twice, `__proto__` and `constructor` as keys, the caller's map left as it was, overflow at the first value in key order, and derived `==` on a struct holding a map and a set (`btree_equivalence.rs`, `lone_surrogate.rs`); and as statements of the collections generator.
 
 ## 8. Verification
 
