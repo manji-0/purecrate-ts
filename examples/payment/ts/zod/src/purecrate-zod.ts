@@ -68,6 +68,32 @@ export const f64: Out<F64, number> = float.transform(Int.f64.of) as unknown as O
 /** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 export const str = z.string().refine((s) => !LONE_SURROGATE.test(s), "a string without a lone surrogate");
+
+/**
+ * serde's `BTreeMap<String, V>`: a JSON object read into a `Map`. Every own
+ * key is a key, `__proto__` and `constructor` too (the libraries' records
+ * drop some), and a key with a lone surrogate is refused as serde refuses
+ * it; `JSON.parse` has kept a repeated key's last value, as serde does.
+ */
+export const btreeMap = <T extends z.ZodType>(inner: T) =>
+  z.unknown().transform((x, ctx): ReadonlyMap<string, z.output<T>> => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) {
+      ctx.addIssue({ code: "custom", message: "a JSON object", input: x });
+      return z.NEVER;
+    }
+    const m = new Map<string, z.output<T>>();
+    for (const k of Object.keys(x)) {
+      const r = inner.safeParse((x as Readonly<Record<string, unknown>>)[k]);
+      if (LONE_SURROGATE.test(k) || !r.success) {
+        ctx.addIssue({ code: "custom", message: `key ${JSON.stringify(k)}: ${r.success ? "a lone surrogate" : r.error.message}`, input: x });
+        return z.NEVER;
+      }
+      m.set(k, r.data);
+    }
+    return m;
+  });
+/** serde's `BTreeSet<String>`: a JSON array of strings, read into a `Set` (a repeated one kept once). */
+export const btreeSet = z.array(str).transform((xs): ReadonlySet<string> => new Set(xs));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char: Out<Char, string> = z.string().refine(Char.is, "a single character") as unknown as Out<Char, string>;
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

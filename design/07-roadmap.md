@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-14, 0.18.0)
+Status: current (2026-10-14, 0.19.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->

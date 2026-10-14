@@ -2,7 +2,7 @@
 
 ## 0.19.0 — 2026-10-14
 
-`BTreeMap<String, V>` and `BTreeSet<String>`, as a TS `Map` / `Set` read in Rust's key order and as a JSON object on the wire. The distance to the ideal is 81%.
+`BTreeMap<String, V>` and `BTreeSet<String>`, as a TS `Map` / `Set` read in Rust's key order and as a JSON object on the wire. Every generator agrees with Rust on seeds 1 to 120, and all but statements seed 119 (0.18.0's known one) type-check. The distance to the ideal is 81%.
 
 ### Added
 

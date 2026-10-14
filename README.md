@@ -13,7 +13,7 @@ It is not a compiler for arbitrary Rust. You write new domain code within [the P
 Download the binary for your platform from the [latest release](https://github.com/manji-0/purecrate-ts/releases/latest) (Linux x86_64 and aarch64, macOS x86_64 and arm64), or build it from a tag:
 
 ```sh
-cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.18.0 purecrate-ts
+cargo install --git https://github.com/manji-0/purecrate-ts --tag v0.19.0 purecrate-ts
 ```
 
 The binary carries the runtime and the schema adapters; it needs `rustc`, and oxfmt to write the output (see below). Changes are listed in [CHANGELOG.md](CHANGELOG.md).

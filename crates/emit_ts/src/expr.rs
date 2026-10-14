@@ -1442,8 +1442,20 @@ fn emit_tree(op: purecrate_ir::TreeOp, args: &[Expr], indent: usize) -> String {
         T::Add => format!("BTree.add({}, {})", emit_expr(&args[0], indent), arg(1)),
         T::RemoveKey => format!("BTree.remove({}, {})", emit_expr(&args[0], indent), arg(1)),
         T::Delete => format!("{}.delete({})", c(), arg(1)),
-        T::CloneMap | T::FromPairs => format!("new Map({})", emit_expr(&args[0], indent)),
-        T::CloneSet | T::FromKeys => format!("new Set({})", emit_expr(&args[0], indent)),
+        T::CloneMap => format!("new Map({})", emit_expr(&args[0], indent)),
+        T::CloneSet => format!("new Set({})", emit_expr(&args[0], indent)),
+        // `Map` and `Set` take any iterable: a copy of an array is not needed.
+        T::FromPairs | T::FromKeys => {
+            let items = match &args[0] {
+                Expr::Call { callee: purecrate_ir::Callee::Collect { result: false, over }, args: inner }
+                    if inner.len() == 1 =>
+                {
+                    iterable(*over, emit_tx(&inner[0], indent))
+                }
+                other => emit_expr(other, indent),
+            };
+            format!("new {}({items})", if op == T::FromPairs { "Map" } else { "Set" })
+        }
         T::Entries => format!("BTree.entries({})", emit_expr(&args[0], indent)),
         T::Keys => format!("BTree.keys({})", emit_expr(&args[0], indent)),
         T::Values => format!("BTree.values({})", emit_expr(&args[0], indent)),

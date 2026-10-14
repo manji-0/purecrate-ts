@@ -345,6 +345,34 @@ export const Str = {
     };
     visit(x);
   },
+  /**
+   * `Ord for str`: -1, 0, or 1 by code point, as Rust's UTF-8 bytes order.
+   * JS `<` compares UTF-16 units, which puts U+E000..=U+FFFF above the
+   * surrogates of the supplementary planes; at the first unit that differs,
+   * those are moved back below them. A shorter prefix orders first.
+   */
+  cmp: (a: string, b: string): -1 | 0 | 1 => {
+    const key = (u: number): number => (u < 0xd800 ? u : u < 0xe000 ? u + 0x2000 : u - 0x800);
+    const n = a.length < b.length ? a.length : b.length;
+    for (let i = 0; i < n; i++) {
+      const x = a.charCodeAt(i);
+      const y = b.charCodeAt(i);
+      if (x !== y) return key(x) < key(y) ? -1 : 1;
+    }
+    return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
+  },
+} as const;
+
+/**
+ * `BTreeMap<String, V>` and `BTreeSet<String>` as a `Map` / `Set`, read in
+ * Rust's key order: by code point (`Str.cmp`), as Rust orders UTF-8
+ * bytes, not by UTF-16 unit as `sort()` does. A caller's map may have been
+ * filled in any order, so each read in order sorts.
+ */
+export const BTree = {
+  /** The keys of a map or a set, in key order: a new array. */
+  keys: (c: ReadonlyMap<string, unknown> | ReadonlySet<string>): ReadonlyArray<string> =>
+    [...c.keys()].sort(Str.cmp),
 } as const;
 
 const utf8Len = (s: string): Usize => {
@@ -594,4 +622,9 @@ export const Json = {
     return "null";
   },
   array: <T>(xs: ReadonlyArray<T>, write: (x: T) => string): string => `[${xs.map((x) => write(x)).join(",")}]`,
+  /** A `BTreeMap<String, V>`: an object, its keys in Rust's order, each written as a string. */
+  map: <V>(m: ReadonlyMap<string, V>, write: (v: V) => string): string =>
+    `{${BTree.keys(m).map((k) => `${JSON.stringify(k)}:${write(m.get(k) as V)}`).join(",")}}`,
+  /** A `BTreeSet<String>`: an array of its keys in order. */
+  set: (s: ReadonlySet<string>): string => `[${BTree.keys(s).map((k) => JSON.stringify(k)).join(",")}]`,
 } as const;

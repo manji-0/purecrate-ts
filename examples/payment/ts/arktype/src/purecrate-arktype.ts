@@ -142,6 +142,30 @@ export const sequence =
 /** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 export const str = type("string").narrow((s, ctx) => !LONE_SURROGATE.test(s) || ctx.mustBe("a string without a lone surrogate"));
+
+/**
+ * serde's `BTreeMap<String, V>`: a JSON object read into a `Map`. Every own
+ * key is a key, `__proto__` and `constructor` too (the libraries' records
+ * drop some), and a key with a lone surrogate is refused as serde refuses
+ * it; `JSON.parse` has kept a repeated key's last value, as serde does.
+ */
+export const btreeMap = <T extends Type<any>>(inner: T): Wire<ReadonlyMap<string, T["infer"]>> =>
+  type("unknown").pipe((x, ctx): ReadonlyMap<string, T["infer"]> => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return ctx.error("a JSON object") as never;
+    const m = new Map<string, T["infer"]>();
+    for (const k of Object.keys(x)) {
+      if (LONE_SURROGATE.test(k)) return ctx.error(`key ${JSON.stringify(k)} without a lone surrogate`) as never;
+      const parsed = inner((x as Readonly<Record<string, unknown>>)[k]);
+      if (parsed instanceof type.errors) return fail(ctx, parsed);
+      m.set(k, parsed);
+    }
+    return m;
+  });
+/** serde's `BTreeSet<String>`: a JSON array of strings, read into a `Set` (a repeated one kept once). */
+export const btreeSet: Wire<ReadonlySet<string>> = type("unknown").pipe((x, ctx): ReadonlySet<string> => {
+  const parsed = str.array()(x);
+  return parsed instanceof type.errors ? fail(ctx, parsed) : new Set(parsed);
+});
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */
