@@ -49,6 +49,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// parameters `decl` once what is known of `params` is put in, and the
     /// result: `ret` with every parameter bound, from the arguments or from
     /// `want`. `binds` comes in with what the receiver fixed (`impl<T>`).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn generic_args(
         &mut self,
         what: &str,

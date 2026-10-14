@@ -307,7 +307,7 @@ Byte string literals (`b"pm_"`) are a `&[u8]`, in an expression or as a crate-le
 
 #### Type constructors
 
-Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (from 0.19.0, [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring)), and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match`, a tuple pattern, or `.0`) and slices `&[T]` (read like a `Vec`). There are no user type parameters and no traits.
+Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (from 0.19.0, [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring)), and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match`, a tuple pattern, or `.0`) and slices `&[T]` (read like a `Vec`). From 0.20.0 a struct, an enum, an `impl` block, and a function may have type parameters bounded by `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug` ([01 §7.20](./01-equivalence.md#720-type-parameters)): a `T` may be moved, cloned, compared with `==`, and put in a `Vec`, an `Option`, or a struct, not ordered; a generic type has no wire form yet. There are no traits.
 
 #### Rejected types
 

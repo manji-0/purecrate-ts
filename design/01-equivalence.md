@@ -245,6 +245,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`panic!`, `unreachable!`, `assert!`, `Option::unwrap` / `expect`](#717-panics) | `Panic.raise(m)` with Rust's message; `assert!` an `if` | `panics_equivalence.rs` |
 | [`get`, `first`, `last`, `contains` on a `Vec`](#718-reading-a-vec-get-first-last-contains) | `Slice.get` / `Slice.last` / `Slice.contains` | `std_more_equivalence.rs` |
 | [`BTreeMap<String, V>`, `BTreeSet<String>`](#719-btreemapstring-v-and-btreesetstring) | a `Map` / `Set` read in key order | `btree_equivalence.rs` |
+| [type parameters](#720-type-parameters) | TS generics, one copy for every type | `generics_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -388,6 +389,18 @@ A map is a TS `Map<string, V>` (`ReadonlyMap` but for a local it writes), a set 
 - Keys are `String` only. A map of `Option` or `()` values is refused: `get` of a missing key and of such a value would be the same. `HashMap` and `HashSet` are refused: Rust leaves their order unspecified. `cmp`, `entry`, `get_mut`, `range`, `first_key_value`, and indexing `m[k]` are refused.
 
 A `pub` function checks a map's keys and values and a set's keys for lone surrogates on entry (§6). Tested with keys on both sides of U+FFFD and outside the BMP, maps built in reverse order, a key twice, `__proto__` and `constructor` as keys, the caller's map left as it was, overflow at the first value in key order, and derived `==` on a struct holding a map and a set (`btree_equivalence.rs`, `lone_surrogate.rs`); and as statements of the collections generator.
+
+### 7.20 Type parameters
+
+A struct, an enum, an inherent `impl` block, and a function may have type parameters (`struct Page<T>`, `impl<T: Clone> Page<T>`, `fn first<T: Clone>(xs: &[T]) -> Option<T>`), each a TS type parameter of the one emitted declaration: nothing is copied per type. A `T` is opaque in the body that has it. It may be moved, returned, put in a `Vec`, an `Option`, a tuple, a struct, or a variant, cloned (`clone` of a value nothing writes is the value, §7.14), and compared with `==` / `!=` (`Eq.deep`, which compares any value part by part as the derived `eq` does).
+
+- **Bounds.** `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`, on the parameter or in a `where` clause; any other bound, a const parameter, and a default are refused. `PartialOrd` / `Ord` are accepted but a `T` is not ordered: `<`, `cmp`, `max`, and `sort` on a `T` are refused, as the output does not know how to compare a value whose type it does not know; order by a key of a known type (`max_by_key(|p| p.total)`). `Debug` is inert (`{:?}` is refused anyway).
+- **Inference.** At a call, each type argument comes from the arguments (first-order: `Vec<T>` against `Vec<u32>` gives `u32`), else from the type the call's value goes to; at a construction (`Page { items, total }`), from the fields or the type the value goes to; a method of `impl<T> Page<T>` takes the receiver's. One that nothing gives is refused and asks for an annotation. A turbofish on a call (`empty::<u32>()`) is refused with the same advice.
+- **Instantiations refused.** A type argument that is an `Option`, `()`, or `!` (a generic item's `Option<T>` or map value would print as `null` / `undefined` both ways, as §6's `Option<Option<_>>`), and one `Eq.deep` does not compare as Rust does (`ParseIntError`, `uuid::Error`, a function).
+- **Output.** A constructor (`of`, a variant) that holds no value of some parameter gives the type with `never` there (`Tree.Leaf(): Tree<never>`), which any instantiation takes, as the type's fields are read only.
+- **Not yet.** A generic type deriving `Serialize` or `Deserialize` is refused: its schema would be a function of its parameters' schemas. Traits wait (design/07 §5).
+
+Tested with a generic struct as a parameter, a field, and a result, nested in `Option` and `Vec`, a two-parameter struct and enum, a recursive generic enum through `Box`, a generic function called at two types in one body and recursively, struct update on a generic struct, and `==` on generic values (`generics_equivalence.rs`); the refusals in `check`'s `generics.rs`. `purecrate-ts test` calls a generic function with every parameter at `i32`, which every accepted bound holds of.
 
 ## 8. Verification
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.20.0 — 2026-10-14
+
+Type parameters on structs, enums, `impl` blocks, and functions, emitted as TS generics with their type arguments inferred. The plan of 0.16.0 to 0.20.0 is done; the distance to the ideal is 83%.
+
+### Added
+
+- **Type parameters** (design/01 §7.20): `struct Page<T>`, `enum Tree<T>`, `impl<T: Clone> Page<T>`, `fn first<T: Clone>(xs: &[T]) -> Option<T>`, each one TS declaration with a type parameter (`export type Page<T>`, `<T>(xs: ReadonlyArray<T>): T | null => ..`), no copy per type. A `T` may be moved, returned, put in a `Vec`, `Option`, tuple, struct, or variant, cloned, and compared with `==` (`Eq.deep`). Bounds: `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Debug`, on the parameter or in `where`. Type arguments are inferred at each call from the arguments and the type the value goes to, at a construction from the fields, and for a method from the receiver; one nothing gives asks for an annotation. A constructor that holds no `T` gives `never` there (`Tree.Leaf(): Tree<never>`).
+- `purecrate-ts test` calls a generic function with each type parameter at `i32`, and draws and prints generic types through their parameters.
+
+### Refused
+
+- Ordering a `T` (`<`, `cmp`, `max`, `sort`), whatever its bound: the output has no comparator for a value whose type it does not know; order by a key of a known type. Other bounds, const generics, defaults, a turbofish on a call, and a generic trait impl.
+- A type argument that is an `Option`, `()`, or `!` (a generic item's `Option<T>` would print `null` both ways), or that `Eq.deep` does not compare as Rust does.
+- A generic type deriving `Serialize` or `Deserialize`: its schema would be a function of its parameters' schemas, which waits.
+
+Tested against Rust with a generic struct as a parameter, field, and result, nested in `Option` and `Vec`, two-parameter types, a recursive generic enum through `Box`, a generic function at two types in one body and recursively, struct update on a generic struct, and `==` on generic values (`generics_equivalence.rs`); the refusals in `check`'s `generics.rs`. `corpus/patterns.rs`'s `Page<T>` and `p07_generic` are accepted.
+
+### Documentation
+
+- **Distance to the ideal** (design/07 §2.5): 83% with 0.20.0, from 81%; the plan said 86%, but a `T` is not ordered and a generic type has no wire form yet.
+
 ## 0.19.0 — 2026-10-14
 
 `BTreeMap<String, V>` and `BTreeSet<String>`, as a TS `Map` / `Set` read in Rust's key order and as a JSON object on the wire. Every generator agrees with Rust on seeds 1 to 120, and all but statements seed 119 (0.18.0's known one) type-check. The distance to the ideal is 81%.

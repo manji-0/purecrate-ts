@@ -1008,6 +1008,18 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     match func {
         SynExpr::Path(p) => {
             let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            // `f::<u32>()`, `Page::<u32>::new(..)`: the type arguments are
+            // inferred from the arguments and the binding, not read here.
+            if p.path.segments.iter().any(|s| !s.arguments.is_empty()) {
+                return Err(ParseError::new(
+                    Reason::Generics,
+                    format!(
+                        "a turbofish on a call ({}) is not in v0: the type arguments come from the arguments, or write the type on the binding (`let v: Vec<u32> = empty();`)",
+                        snippet(p)
+                    ),
+                )
+                .detail("turbofish"));
+            }
             if segs == ["Mutex", "new"] {
                 return Err(ParseError::new(
                     Reason::Mutex,
