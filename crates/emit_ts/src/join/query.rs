@@ -142,3 +142,40 @@ pub(crate) fn root_var(expr: &Expr) -> Option<&Name> {
         _ => None,
     }
 }
+
+/// Whether the printer writes `expr` as one expression (`expr::as_tx`)
+/// rather than a function called in place, inside which TS narrows nothing
+/// for the code around it: what needs no statements; a `match` on a place
+/// whose arms are such (`o !== null && c`); on another value, one test
+/// (`["a", "b"].includes(e)`, `f().kind === "A"`, `f() ?? d`); an `if` of
+/// such sides.
+pub(super) fn in_place(expr: &Expr) -> bool {
+    use purecrate_ir::Callee;
+    match expr {
+        Expr::Let { name, mutable: false, value, then, .. }
+            if value.is_inlinable()
+                && !then.any(|e| matches!(e, Expr::Call { callee: Callee::Local(n), .. } if n == name)) =>
+        {
+            in_place(then)
+        }
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
+            arms.iter().all(|a| a.guard.is_none() && in_place(&a.body))
+        }
+        Expr::Match { arms, .. } => {
+            let coalesced = match arms.as_slice() {
+                [some, other] => {
+                    matches!((&some.pattern, &some.body), (Pattern::OptionSome(p), Expr::Var(read))
+                        if matches!(&**p, Pattern::Var(n) if n == read))
+                        && matches!(other.pattern, Pattern::OptionNone | Pattern::Wildcard)
+                        && some.guard.is_none()
+                        && other.guard.is_none()
+                        && in_place(&other.body)
+                }
+                _ => false,
+            };
+            coalesced || crate::expr::one_of(arms).is_some() || crate::stmt::one_variant_test(arms).is_some()
+        }
+        Expr::If { then, else_, .. } => in_place(then) && in_place(else_),
+        e => !e.needs_statements(),
+    }
+}

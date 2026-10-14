@@ -1209,7 +1209,7 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
 /// `matches!(e, "a" | "b")` of literals, as the literals and whether the
 /// match is `true` for them: `["a", "b"].includes(e)` reads `e` once, where
 /// a scrutinee that is not a place would otherwise need an inline function.
-fn one_of(arms: &[purecrate_ir::Arm]) -> Option<(String, bool)> {
+pub(crate) fn one_of(arms: &[purecrate_ir::Arm]) -> Option<(String, bool)> {
     let [a, b] = arms else { return None };
     if a.guard.is_some() || b.guard.is_some() || b.pattern != Pattern::Wildcard {
         return None;

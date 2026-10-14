@@ -937,3 +937,19 @@ pub fn decided_while_side(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) 
     }
     Ok(h)
 }
+
+/// `a` prints as `let a;` written on each side of the `if`, which TS does
+/// not narrow by the aliased test `v` (only a `const` or a parameter never
+/// written): `a.unwrap_or(10)` under `if v` stays a test.
+pub fn alias_of_assigned(b: i32, o: Option<i32>, c: bool) -> i32 {
+    let a: Option<i32> = if b > 0 {
+        if c {
+            return 1;
+        }
+        o
+    } else {
+        o.map(|v| v + 1)
+    };
+    let v: bool = matches!(a, Some(_) if c);
+    if v { a.unwrap_or(10) } else { 0 }
+}

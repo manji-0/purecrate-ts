@@ -95,6 +95,10 @@ struct Cx {
     /// Names something in the function writes (`let mut`, assignment):
     /// a closure drops what is known of them.
     written: HashSet<String>,
+    /// Names bound by a `let` the printer writes as `let x: T;` and a write
+    /// on each side (`printed_assigned`): TS narrows such a name by an
+    /// aliased test no more than one the source writes.
+    assigned: HashSet<String>,
 }
 
 impl Cx {
@@ -119,11 +123,49 @@ pub(super) fn flow_fn(body: &mut Expr) {
     collect_written(body, &mut written);
     for _ in 0..4 {
         let before = body.clone();
-        let mut cx = Cx { loops: Vec::new(), written: written.clone() };
+        let mut assigned = HashSet::new();
+        body.walk(|e| {
+            if let Expr::Let { name, mutable: false, value, .. } = e {
+                if printed_assigned(value) {
+                    assigned.insert(name.as_str().to_string());
+                }
+            }
+        });
+        let mut cx = Cx { loops: Vec::new(), written: written.clone(), assigned };
         flow(body, State::default(), &mut cx);
         if *body == before {
             break;
         }
+    }
+}
+
+/// Whether a `let` of `value` prints as `let x: T;` and a write on each
+/// side (`stmt::emit_let`): a value of statements the printer writes as no
+/// one expression, other than a `?` and the side an `if` or a two-way
+/// `match` keeps past one that leaves (`let_else`), which are a `const`.
+/// A `match` on a value that is no place is bound first and left alone.
+fn printed_assigned(value: &Expr) -> bool {
+    let v = crate::stmt::peel_identity(value);
+    if !v.needs_statements() || in_place(v) {
+        return false;
+    }
+    let jumps = crate::stmt::ends_in_jump;
+    match v {
+        Expr::Try { .. } => false,
+        Expr::If { then, else_, .. } => match (jumps(then), jumps(else_)) {
+            (true, false) => printed_assigned(else_),
+            (false, true) => printed_assigned(then),
+            _ => true,
+        },
+        Expr::Match { scrutinee, arms } if is_place(scrutinee) => match arms.as_slice() {
+            [a, b] if jumps(&a.body) != jumps(&b.body) => {
+                printed_assigned(if jumps(&a.body) { &b.body } else { &a.body })
+            }
+            _ => true,
+        },
+        Expr::Match { .. } => false,
+        Expr::Let { name, then, .. } if name.as_str().starts_with('$') => printed_assigned(then),
+        _ => true,
     }
 }
 
@@ -719,7 +761,9 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             // `const v = r.kind === "Ok"`: a test TS narrows by through `v`,
             // where nothing writes `v` or what the test reads.
             let alias = !mutable || !then.assigns(&name);
-            let tested = |e: &Expr| reads_of(e).iter().all(|n| !cx.written.contains(n.as_str()));
+            let tested = |e: &Expr| {
+                reads_of(e).iter().all(|n| !cx.written.contains(n.as_str()) && !cx.assigned.contains(n.as_str()))
+            };
             // Either side may decide (`!c || r.is_ok()` decides `r` failing).
             let decides = !tests(value, true).is_empty() || !tests(value, false).is_empty();
             let cond = (alias && decides && tested(value)).then(|| (**value).clone());

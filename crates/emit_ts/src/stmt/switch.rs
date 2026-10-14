@@ -401,7 +401,7 @@ fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
 /// The comparison and the variant where every arm is a unit variant whose
 /// body is `true` or `false`, and one variant alone is `true` (`===`) or
 /// alone is `false` (`!==`).
-fn one_variant_test(arms: &[purecrate_ir::Arm]) -> Option<(Op, &Name)> {
+pub(crate) fn one_variant_test(arms: &[purecrate_ir::Arm]) -> Option<(Op, &Name)> {
     let mut yes = Vec::new();
     let mut no = Vec::new();
     for arm in arms {
