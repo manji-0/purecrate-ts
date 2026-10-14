@@ -16,11 +16,7 @@ use std::collections::BTreeMap;
 
 /// `src` with every compiler-made name in its code replaced.
 pub(crate) fn plain_names(src: &str) -> String {
-    let spans: Vec<(usize, usize)> = crate::imports::ident_spans(src)
-        .into_iter()
-        .filter(|(_, _, after_dot)| !after_dot)
-        .map(|(start, end, _)| (start, end))
-        .collect();
+    let spans = crate::imports::code_spans(src);
     let blocks = crate::imports::brace_spans(src);
     // Each made name, in order of first use, with its first and last use.
     let mut uses: Vec<(&str, usize, usize)> = Vec::new();
@@ -38,7 +34,7 @@ pub(crate) fn plain_names(src: &str) -> String {
         return src.to_string();
     }
     let mut given: Vec<((usize, usize), String)> = Vec::new();
-    let mut renamed: BTreeMap<&str, String> = BTreeMap::new();
+    let mut renamed: BTreeMap<String, String> = BTreeMap::new();
     for (word, first, last) in uses {
         let region = blocks
             .iter()
@@ -64,24 +60,20 @@ pub(crate) fn plain_names(src: &str) -> String {
                 || given.iter().any(|((open, close), n)| n == name && *open < region.1 && region.0 < *close)
         };
         let (base, from) = made(word).expect("a made name");
-        let name = (from..)
-            .map(|n| if n == 1 { base.clone() } else { format!("{base}{n}") })
-            .find(|n| !taken(n))
-            .expect("a free name");
+        let name = free_name(&base, from, taken);
         given.push((region, name.clone()));
-        renamed.insert(word, name);
+        renamed.insert(word.to_string(), name);
     }
-    let mut out = String::with_capacity(src.len());
-    let mut at = 0;
-    for &(start, end) in &spans {
-        if let Some(name) = renamed.get(&src[start..end]) {
-            out.push_str(&src[at..start]);
-            out.push_str(name);
-            at = end;
-        }
-    }
-    out.push_str(&src[at..]);
-    out
+    rename_idents(src, &renamed)
+}
+
+/// `base` numbered from `from` (`1` is `base` itself, then `base2`, ..):
+/// the first that is not `taken`.
+fn free_name(base: &str, from: usize, taken: impl Fn(&str) -> bool) -> String {
+    (from..)
+        .map(|n| if n == 1 { base.to_string() } else { format!("{base}{n}") })
+        .find(|n| !taken(n))
+        .expect("a free name")
 }
 
 /// The wire file's own names, plain: a domain type and its companion,
@@ -90,11 +82,7 @@ pub(crate) fn plain_names(src: &str) -> String {
 /// (`Method$arm$Card` → `methodCardArm`). They are top-level, so each is
 /// told apart from every other identifier in the file.
 pub(crate) fn wire_name_map(src: &str) -> BTreeMap<String, String> {
-    let spans: Vec<(usize, usize)> = crate::imports::ident_spans(src)
-        .into_iter()
-        .filter(|(_, _, after_dot)| !after_dot)
-        .map(|(start, end, _)| (start, end))
-        .collect();
+    let spans = crate::imports::code_spans(src);
     let lower = purecrate_ir::lower_first;
     let wire_base = |word: &str| -> Option<String> {
         let (ty, rest) = word.split_once('$')?;
@@ -121,10 +109,7 @@ pub(crate) fn wire_name_map(src: &str) -> BTreeMap<String, String> {
             continue;
         }
         let Some(base) = wire_base(word) else { continue };
-        let name = (1..)
-            .map(|n| if n == 1 { base.clone() } else { format!("{base}{n}") })
-            .find(|n| !taken.contains(n))
-            .expect("a free name");
+        let name = free_name(&base, 1, |n| taken.contains(n));
         taken.insert(name.clone());
         renamed.insert(word.to_string(), name);
     }
@@ -139,10 +124,7 @@ pub(crate) fn rename_idents(src: &str, map: &BTreeMap<String, String>) -> String
     }
     let mut out = String::with_capacity(src.len());
     let mut at = 0;
-    for (start, end, after_dot) in crate::imports::ident_spans(src) {
-        if after_dot {
-            continue;
-        }
+    for (start, end) in crate::imports::code_spans(src) {
         if let Some(name) = map.get(&src[start..end]) {
             out.push_str(&src[at..start]);
             out.push_str(name);

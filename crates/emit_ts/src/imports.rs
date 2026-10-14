@@ -143,11 +143,13 @@ fn local_name(spec: &str) -> &str {
 /// after a `.` (a property name is not a reference to a binding). The
 /// `${..}` of a template literal is code.
 fn code_idents(src: &str) -> BTreeSet<String> {
-    ident_spans(src)
-        .into_iter()
-        .filter(|(_, _, after_dot)| !after_dot)
-        .map(|(start, end, _)| src[start..end].to_string())
-        .collect()
+    code_spans(src).into_iter().map(|(start, end)| src[start..end].to_string()).collect()
+}
+
+/// The byte range of each identifier in the code of `src` that is not
+/// after a `.`: a binding's, not a property's.
+pub(crate) fn code_spans(src: &str) -> Vec<(usize, usize)> {
+    ident_spans(src).into_iter().filter(|(_, _, after_dot)| !after_dot).map(|(start, end, _)| (start, end)).collect()
 }
 
 /// Each identifier in the code of `src`, outside comments and string
@@ -413,6 +415,16 @@ impl Refs {
         }
     }
 
+    /// What a walk over a string reads: `Char` for its chars, `Str` for its
+    /// bytes; nothing for a list's items.
+    fn over(&mut self, over: purecrate_ir::Over) {
+        match over {
+            purecrate_ir::Over::Chars => self.char_type = true,
+            purecrate_ir::Over::Bytes => self.str = true,
+            purecrate_ir::Over::Items => {}
+        }
+    }
+
     /// What the printed code of `expr` will import; everything else is
     /// walked through.
     fn expr(&mut self, krate: &Crate, expr: &Expr) {
@@ -453,19 +465,11 @@ impl Refs {
                         // A `collect` over a closure's `split` maps a generator
                         // with `Iter.map`; an unread import is pruned.
                         self.iter = true;
-                        match over {
-                            purecrate_ir::Over::Chars => self.char_type = true,
-                            purecrate_ir::Over::Bytes => self.str = true,
-                            purecrate_ir::Over::Items => {}
-                        }
+                        self.over(*over);
                     }
                     Callee::Consume { method, over } => {
                         self.iter = true;
-                        match over {
-                            purecrate_ir::Over::Chars => self.char_type = true,
-                            purecrate_ir::Over::Bytes => self.str = true,
-                            purecrate_ir::Over::Items => {}
-                        }
+                        self.over(*over);
                         if let purecrate_ir::Consume::Sum(int) = method {
                             self.int = true;
                             self.nums.insert(int.ts_name().to_string());
@@ -602,11 +606,7 @@ impl Refs {
                     self.ctors.insert(ty.as_str().to_string());
                 }
             }
-            Expr::ForEach { over, .. } => match over {
-                purecrate_ir::Over::Chars => self.char_type = true,
-                purecrate_ir::Over::Bytes => self.str = true,
-                purecrate_ir::Over::Items => {}
-            },
+            Expr::ForEach { over, .. } => self.over(*over),
             Expr::Lit(lit) => match lit {
                 purecrate_ir::Lit::Int { ty: Some(t), .. } => {
                     self.nums.insert(t.ts_name().to_string());
@@ -734,25 +734,21 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
     if !runtime.is_empty() {
         out.push_str(&format!("import {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
     }
-    for v in refs.values.iter().filter(|v| elsewhere(v)) {
-        out.push_str(&format!("import {{ {v} }} from \"./{s}.ts\";\n", s = file_of(v)));
-    }
-    for (ty, name) in refs.privates.iter().filter(|(ty, _)| elsewhere(ty)) {
-        out.push_str(&format!(
-            "import {{ {m} }} from \"./{s}.ts\";\n",
-            m = private_method(ty, name),
-            s = Name::new(ty.clone()).file_stem()
-        ));
-    }
-    for c in refs.ctors.iter().filter(|c| elsewhere(c)) {
-        out.push_str(&format!(
-            "import {{ {ctor} }} from \"./{s}.ts\";\n",
-            ctor = closed_ctor(c),
-            s = Name::new(c.clone()).file_stem()
-        ));
-    }
-    for t in refs.types.iter().filter(|t| elsewhere(t) && !refs.values.contains(*t)) {
-        out.push_str(&format!("import type {{ {t} }} from \"./{s}.ts\";\n", s = Name::new(t.clone()).file_stem()));
+    // Each name from another file of the crate: the keyword, the name, and
+    // the file's stem.
+    let stem_of = |name: &String| Name::new(name.clone()).file_stem();
+    let own = (refs.values.iter().filter(|v| elsewhere(v)).map(|v| ("import", v.clone(), file_of(v))))
+        .chain(
+            (refs.privates.iter().filter(|(ty, _)| elsewhere(ty)))
+                .map(|(ty, name)| ("import", private_method(ty, name), stem_of(ty))),
+        )
+        .chain(refs.ctors.iter().filter(|c| elsewhere(c)).map(|c| ("import", closed_ctor(c), stem_of(c))))
+        .chain(
+            (refs.types.iter().filter(|t| elsewhere(t) && !refs.values.contains(*t)))
+                .map(|t| ("import type", t.clone(), stem_of(t))),
+        );
+    for (keyword, name, stem) in own {
+        out.push_str(&format!("{keyword} {{ {name} }} from \"./{stem}.ts\";\n"));
     }
     out
 }

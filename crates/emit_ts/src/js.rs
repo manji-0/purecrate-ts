@@ -97,8 +97,17 @@ pub(crate) fn ternary(test: Js, then: Js, else_: Js) -> Js {
     Js::Ternary(Box::new(test), Box::new(then), Box::new(else_))
 }
 
-fn comma_line() -> Doc {
-    concat(vec![text(","), Doc::Line])
+/// `open`, the items indented and apart by `,` and a line, a trailing comma
+/// where the group around breaks, then `close`; `line` (soft or not) before
+/// the first and after the last.
+fn bracketed(open: &str, line: Doc, items: Vec<Doc>, close: &str) -> Doc {
+    concat(vec![
+        text(open),
+        indent(concat(vec![line.clone(), join(concat(vec![text(","), Doc::Line]), items)])),
+        if_break(text(","), text("")),
+        line,
+        text(close),
+    ])
 }
 
 impl Js {
@@ -229,13 +238,7 @@ fn array_doc(elems: &[Js]) -> Doc {
     let matrix = elems.len() > 1
         && (elems.iter().all(|e| matches!(e, Js::Array(x) if x.len() > 1))
             || elems.iter().all(|e| matches!(e, Js::Object(p) if !p.is_empty())));
-    let body = concat(vec![
-        text("["),
-        indent(concat(vec![Doc::SoftLine, join(comma_line(), elems.iter().map(Js::doc).collect())])),
-        if_break(text(","), text("")),
-        Doc::SoftLine,
-        text("]"),
-    ]);
+    let body = bracketed("[", Doc::SoftLine, elems.iter().map(Js::doc).collect(), "]");
     if matrix {
         broken_group(body)
     } else {
@@ -254,13 +257,7 @@ fn object_doc(props: &[(String, Js)]) -> Doc {
             v => assign(text(format!("{k}:")), v.doc()),
         })
         .collect();
-    group(concat(vec![
-        text("{"),
-        indent(concat(vec![Doc::Line, join(comma_line(), items)])),
-        if_break(text(","), text("")),
-        Doc::Line,
-        text("}"),
-    ]))
+    group(bracketed("{", Doc::Line, items, "}"))
 }
 
 pub(crate) fn block_doc(stmts: &[Stmt]) -> Doc {
@@ -458,15 +455,8 @@ fn arguments_doc(args: &[Js]) -> Doc {
         return text("()");
     }
     let docs: Vec<Doc> = args.iter().map(Js::doc).collect();
-    let broken_out = |docs: Vec<Doc>| {
-        broken_group(concat(vec![
-            text("("),
-            indent(concat(vec![Doc::SoftLine, join(comma_line(), docs)])),
-            text(","),
-            Doc::SoftLine,
-            text(")"),
-        ]))
-    };
+    // Broken, the trailing comma is always there.
+    let broken_out = |docs: Vec<Doc>| broken_group(bracketed("(", Doc::SoftLine, docs, ")"));
     if composition(args) {
         return broken_out(docs);
     }
@@ -476,13 +466,7 @@ fn arguments_doc(args: &[Js]) -> Doc {
         && (n < 2 || args[n - 2].kind() != last.kind() || last.kind() == 0)
         && !(n == 2 && matches!(args[0], Js::Arrow(_)) && matches!(last, Js::Array(_)));
     if !group_last {
-        return group(concat(vec![
-            text("("),
-            indent(concat(vec![Doc::SoftLine, join(comma_line(), docs.clone())])),
-            if_break(text(","), text("")),
-            Doc::SoftLine,
-            text(")"),
-        ]));
+        return group(bracketed("(", Doc::SoftLine, docs, ")"));
     }
     if docs[..n - 1].iter().any(has_hard) {
         return broken_out(docs);

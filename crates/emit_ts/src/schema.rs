@@ -363,7 +363,7 @@ fn named_in(item: &Item) -> Vec<String> {
 /// strongly connected components come out dependencies first; the input's
 /// order breaks ties, so the output is deterministic.
 fn wire_order<'a>(items: &[&'a Item]) -> Vec<(&'a Item, bool)> {
-    struct Tarjan<'b> {
+    struct Tarjan {
         edges: Vec<Vec<usize>>,
         index: Vec<Option<usize>>,
         low: Vec<usize>,
@@ -371,9 +371,8 @@ fn wire_order<'a>(items: &[&'a Item]) -> Vec<(&'a Item, bool)> {
         stack: Vec<usize>,
         next: usize,
         out: Vec<(usize, bool)>,
-        _p: std::marker::PhantomData<&'b ()>,
     }
-    impl Tarjan<'_> {
+    impl Tarjan {
         fn visit(&mut self, v: usize) {
             self.index[v] = Some(self.next);
             self.low[v] = self.next;
@@ -425,7 +424,6 @@ fn wire_order<'a>(items: &[&'a Item]) -> Vec<(&'a Item, bool)> {
         stack: Vec::new(),
         next: 0,
         out: Vec::new(),
-        _p: std::marker::PhantomData,
     };
     for v in 0..n {
         if t.index[v].is_none() {
@@ -618,22 +616,24 @@ fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
         .collect()
 }
 
+/// Every name the wire module may read; `prune_unused` drops the unread
+/// and sorts the rest.
 fn header(schema: WireSchema) -> String {
-    let own: &str = match schema {
-        WireSchema::Zod => "\
-import { z } from \"zod\";
-import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, optionalField, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-zod\";
-",
-        WireSchema::Valibot => "\
-import * as v from \"valibot\";
-import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-valibot\";
-",
-        WireSchema::Arktype => "\
-import { type, type Type } from \"arktype\";
-import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, fail, i128, i16, i32, i64, i8, internallyTagged, keyed, memo, nullable, record, sequence, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
-",
+    let shared = "adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, \
+                  internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, \
+                  uuidError";
+    let (library, own) = match schema {
+        WireSchema::Zod => ("import { z } from \"zod\";", "optionalField, unitVariant, variant"),
+        WireSchema::Valibot => ("import * as v from \"valibot\";", "unitVariant, variant"),
+        WireSchema::Arktype => {
+            ("import { type, type Type } from \"arktype\";", "fail, keyed, memo, sequence, type Wire")
+        }
     };
-    format!("import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{own}")
+    format!(
+        "import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{library}\n\
+         import {{ {shared}, {own} }} from \"{}\";\n",
+        schema.package()
+    )
 }
 
 /// Zod and valibot. Where the object's output is not the domain value as it
@@ -1133,16 +1133,9 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
             purecrate_ir::Prim::UuidError => "uuidError".into(),
             purecrate_ir::Prim::ParseIntError => "parseIntError".into(),
             purecrate_ir::Prim::Unit => "unit".into(),
-            other => other
-                .int()
-                .map(|t| t.as_str().to_string())
-                .or_else(|| {
-                    other.float().map(|t| match t {
-                        purecrate_ir::FloatTy::F32 => "f32".into(),
-                        purecrate_ir::FloatTy::F64 => "f64".into(),
-                    })
-                })
-                .unwrap_or_else(|| "str".into()),
+            other => {
+                other.int().map(|t| t.as_str()).or_else(|| other.float().map(|t| t.as_str())).unwrap_or("str").into()
+            }
         }),
         Ty::Option(inner) => {
             let inner = schema_ty(schema, inner);

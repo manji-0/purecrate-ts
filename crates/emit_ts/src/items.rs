@@ -65,32 +65,38 @@ pub(crate) fn methods_on<'a>(krate: &'a Crate, ty: &str) -> Vec<&'a Fn> {
         .collect()
 }
 
+/// `<A, B>`, or nothing where there are no names.
+fn angled<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let names: Vec<&str> = names.into_iter().collect();
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", names.join(", "))
+    }
+}
+
 /// `Page<T>` where a generic type is declared, `Page` otherwise.
 fn declared(name: &str, generics: &[Name]) -> String {
-    if generics.is_empty() {
-        name.to_string()
-    } else {
-        format!("{name}<{}>", generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
-    }
+    format!("{name}{}", angled(generics.iter().map(Name::as_str)))
 }
 
 /// A constructor's type parameters and the type it gives: the parameters
 /// its fields name, the others `never` (`Tree.Leaf(): Tree<never>`, which
 /// any `Tree<T>` takes, its fields being read only).
 fn ctor_head(name: &str, generics: &[Name], fields: &[&Ty]) -> (String, String) {
-    if generics.is_empty() {
-        return (String::new(), name.to_string());
-    }
     let used: Vec<&Name> =
         generics.iter().filter(|g| fields.iter().any(|t| t.any(&|x| matches!(x, Ty::Param(p) if p == *g)))).collect();
-    let head = if used.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", used.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
-    };
-    let args =
-        generics.iter().map(|g| if used.contains(&g) { g.as_str() } else { "never" }).collect::<Vec<_>>().join(", ");
-    (head, format!("{name}<{args}>"))
+    let args = generics.iter().map(|g| if used.contains(&g) { g.as_str() } else { "never" });
+    (angled(used.iter().map(|g| g.as_str())), format!("{name}{}", angled(args)))
+}
+
+/// A struct constructor's parameters (`lastError: I32`) and the fields of
+/// the object it builds (`last_error: lastError`).
+fn ctor_fields(fields: &[purecrate_ir::Field]) -> (String, String) {
+    let params =
+        fields.iter().map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty))).collect::<Vec<_>>();
+    let assigns = fields.iter().map(|f| ctor_assign(f.name.as_str())).collect::<Vec<_>>();
+    (params.join(", "), assigns.join(", "))
 }
 
 pub(crate) fn emit_enum(krate: &Crate, en: &Enum) -> String {
@@ -167,14 +173,8 @@ pub(crate) fn variant_ctor(name: &str, generics: &[Name], v: &purecrate_ir::Vari
             )
         }
         VariantFields::Struct(fields) => {
-            let params: Vec<String> =
-                fields.iter().map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty))).collect();
-            let assigns: Vec<String> = fields.iter().map(|f| ctor_assign(f.name.as_str())).collect();
-            format!(
-                "({params}): {ty} => ({{ kind: \"{kind}\", {assigns} }})",
-                params = params.join(", "),
-                assigns = assigns.join(", ")
-            )
+            let (params, assigns) = ctor_fields(fields);
+            format!("({params}): {ty} => ({{ kind: \"{kind}\", {assigns} }})")
         }
     };
     format!("{head}{ctor}")
@@ -203,13 +203,7 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     } else {
         out.push_str(&format!("export type {} = Readonly<{{\n{fields}\n}}>;\n\n", declared(name, &st.generics)));
     }
-    let params = st
-        .fields
-        .iter()
-        .map(|f| format!("{}: {}", ctor_param(f.name.as_str()), emit_ty(&f.ty)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let assigns = st.fields.iter().map(|f| ctor_assign(f.name.as_str())).collect::<Vec<_>>().join(", ");
+    let (params, assigns) = ctor_fields(&st.fields);
     out.push_str(&format!("export const {name} = {{\n"));
     let object = if assigns.trim().is_empty() { "{}".to_string() } else { format!("{{ {assigns} }}") };
     let (head, ty) = ctor_head(name, &st.generics, &st.fields.iter().map(|f| &f.ty).collect::<Vec<_>>());

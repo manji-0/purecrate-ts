@@ -35,11 +35,16 @@ pub(super) fn emit_index(krate: &Crate) -> String {
         runtime.push("Result");
     }
     runtime.extend(["Panic", "assertNever"]);
+    let mut types: Vec<&str> =
+        IntTy::ALL.into_iter().filter(|t| surface_holds(krate, Prim::from(*t))).map(IntTy::ts_name).collect();
+    for t in [FloatTy::F32, FloatTy::F64] {
+        if surface_holds(krate, Prim::from(t)) {
+            types.push(t.ts_name());
+        }
+    }
     // `Int` makes the values of the brands the surface holds; without one,
     // the runtime's copy has no `Int` to export.
-    let numeric = IntTy::ALL.into_iter().any(|t| surface_holds(krate, Prim::from(t)))
-        || [FloatTy::F32, FloatTy::F64].into_iter().any(|t| surface_holds(krate, Prim::from(t)));
-    if numeric {
+    if !types.is_empty() {
         runtime.push("Int");
     }
     if surface_holds(krate, Prim::Char) {
@@ -52,13 +57,6 @@ pub(super) fn emit_index(krate: &Crate) -> String {
         runtime.push("type ParseIntError");
     }
     out.push_str(&format!("export {{ {} }} from \"purecrate\";\n", runtime.join(", ")));
-    let mut types: Vec<&str> =
-        IntTy::ALL.into_iter().filter(|t| surface_holds(krate, Prim::from(*t))).map(IntTy::ts_name).collect();
-    for t in [FloatTy::F32, FloatTy::F64] {
-        if surface_holds(krate, Prim::from(t)) {
-            types.push(t.ts_name());
-        }
-    }
     if !types.is_empty() {
         out.push_str(&format!("export type {{ {} }} from \"purecrate\";\n", types.join(", ")));
     }
