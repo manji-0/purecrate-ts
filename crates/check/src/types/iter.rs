@@ -827,6 +827,28 @@ pub(super) fn is_sequence(expr: &Expr) -> bool {
     }
 }
 
+/// What an iterator chain may end in (`TypeCx::consume`, `collect`), and the
+/// stages before it.
+pub(super) const CONSUMERS: &str = "`all`, `any`, `position`, `find`, `count`, `sum`, `max`, `min`, `max_by_key`, `min_by_key`, `max_by`, `min_by`, `fold`, and `collect`, after any `map`, `filter`, `filter_map`, `flat_map`, `flatten`, `copied`, `cloned`, `rev`, `zip`, and `step_by`; or a `for` over it";
+
+/// A method that starts a sequence (`is_sequence`).
+pub(super) fn is_source_name(name: &str) -> bool {
+    matches!(
+        name,
+        "chars"
+            | "bytes"
+            | "iter"
+            | "into_iter"
+            | "keys"
+            | "values"
+            | "split_whitespace"
+            | "lines"
+            | "split"
+            | "windows"
+            | "chunks"
+    )
+}
+
 /// A sequence with no stage that runs code: a source, `copied`, `cloned`,
 /// `rev`, `zip`, and `step_by`.
 fn is_source(expr: &Expr) -> bool {

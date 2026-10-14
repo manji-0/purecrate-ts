@@ -36,6 +36,32 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
+        // A method no consumer takes, on an iterator chain
+        // (`xs.into_iter().partition(f)`): the chain's source alone is no
+        // value in v0, and its refusal (`.into_iter()` on `Vec<i32>`) would
+        // blame a method the chain is allowed. The method is named instead.
+        if self.out.len() > before
+            && iter::is_sequence(receiver)
+            && !iter::is_sequence(&whole)
+            && self.out[before..]
+                .iter()
+                .all(|d| d.reason == Reason::MethodCall && d.detail.as_deref().is_some_and(iter::is_source_name))
+        {
+            self.out.truncate(before);
+            self.out.push(
+                Diagnostic::at(
+                    self.item,
+                    Reason::MethodCall,
+                    format!(
+                        "`.{}()` on an iterator is not on the std allow-list; allowed: {}",
+                        name.as_str(),
+                        iter::CONSUMERS
+                    ),
+                )
+                .about(name.as_str()),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        }
         self.method_call_typed(receiver, name, args, want, before, recv, rt)
     }
 

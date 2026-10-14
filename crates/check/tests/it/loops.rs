@@ -64,7 +64,7 @@ fn split_takes_a_char_or_a_str_and_stands_in_a_for_head() {
     assert_clean("pub fn f(s: &str) -> bool { s.split(' ').count() > 1 }");
     assert_rejects(
         "pub fn f(s: &str) -> usize { s.split(' ').len() }",
-        "`.split()` on `&str` is not on the std allow-list",
+        "`.len()` on an iterator is not on the std allow-list",
     );
 }
 

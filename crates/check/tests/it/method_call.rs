@@ -208,3 +208,15 @@ fn sorting_and_picking() {
         "`max` over `Option<u8>` items is `Option<Option<_>>`",
     );
 }
+
+/// A method no consumer takes, at the end of an iterator chain, is refused
+/// by its own name, not by the source (`into_iter`) the chain is allowed.
+#[test]
+fn an_iterator_method_off_the_list_is_named() {
+    for src in [
+        "pub fn f(xs: Vec<i32>) -> (Vec<i32>, Vec<i32>) { xs.into_iter().partition(|x| *x > 0) }",
+        "pub fn f(xs: Vec<i32>) -> (Vec<i32>, Vec<i32>) { xs.iter().map(|x| x + 1).partition(|x| *x > 0) }",
+    ] {
+        assert_rejects(src, "`.partition()` on an iterator is not on the std allow-list; allowed: `all`");
+    }
+}
