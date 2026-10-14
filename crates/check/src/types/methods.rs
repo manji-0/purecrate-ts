@@ -322,8 +322,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Some(f) => std::slice::from_ref(f),
                     None => args,
                 };
-                if args.first().is_some_and(|a| !matches!(a.unpositioned(), Expr::Closure { .. }) || a.exits()) {
-                    self.error(Reason::Closure, format!("`{method}` takes a closure without `?` or `return` in v0"));
+                // The closure stays an arrow (`Slice.sortBy(v, (a, b) => ..)`),
+                // so a `return` in it leaves it, as in Rust.
+                if args.first().is_some_and(|a| !matches!(a.unpositioned(), Expr::Closure { .. })) {
+                    self.error(Reason::Closure, format!("`{method}` takes a closure or a function name in v0"));
                     return failed;
                 }
                 let (sort, args) = match method {

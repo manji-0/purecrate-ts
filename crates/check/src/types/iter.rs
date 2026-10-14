@@ -54,13 +54,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                     self.error(Reason::Closure, format!("`{name}` takes a closure `|a, b| ..` in v0"));
                     return Some(failed);
                 }
-                if args[0].exits() {
-                    self.error(
-                        Reason::Closure,
-                        format!("a closure passed to `{name}` may not use `?` or `return` in v0; write the loop"),
-                    );
-                    return Some(failed);
-                }
+                // The closure stays an arrow (`Iter.maxBy(xs, (a, b) => ..)`),
+                // so a `return` in it leaves it, as in Rust.
                 let (closure, _) = self.expr(&args[0], Some(&f));
                 call_args.push(closure);
                 if name == "max_by" {

@@ -59,3 +59,24 @@ fn an_iterator_closure_may_write_its_parameter_through_an_alias() {
         "`map`'s closure takes `u8`, the items are `Id`",
     );
 }
+
+#[test]
+fn a_comparator_closure_may_return_from_itself() {
+    // `max_by`'s and `sort_by`'s closures stay arrows, so `return` leaves
+    // the closure in TS as in Rust; `?` there is refused as on any `Ordering`.
+    assert_clean(
+        "use std::cmp::Ordering;
+         pub fn f(xs: Vec<i32>, bad: i32) -> Option<i32> {
+             xs.iter().max_by(|a, b| { if **a == bad { return Ordering::Less; } a.cmp(b) }).copied()
+         }
+         pub fn g(xs: Vec<i32>, bad: i32) -> Vec<i32> {
+             let mut v = xs;
+             v.sort_by(|a, b| { if *a == bad { return Ordering::Greater; } a.cmp(b) });
+             v
+         }",
+    );
+    assert_rejects(
+        "pub fn f(xs: Vec<i32>, d: Option<i32>) -> Option<i32> { xs.iter().min_by(|a, b| { let _k = d?; a.cmp(b) }).copied() }",
+        "in a function returning `Ordering`",
+    );
+}
