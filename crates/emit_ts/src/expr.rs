@@ -25,24 +25,6 @@ fn body_names_param(body: &Expr, p: &Name) -> bool {
 pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     let checked = checked_strings(f);
     let f = &checked;
-    // `check` marks the parameters the body never reads (`_a`); one read
-    // only in a side `join` folds away (`if false { a } else { 1 }`) is
-    // unread in the printed body too, and TS refuses it the same way.
-    let joined = crate::join::joined(&f.body);
-    let printed = |n: &Name| {
-        if n.as_str().starts_with('_') || crate::join::mentions(&joined, n) {
-            return n.as_str().to_string();
-        }
-        (0..)
-            .map(|k| if k == 0 { format!("_{}", n.as_str()) } else { format!("_{}{k}", n.as_str()) })
-            .find(|c| {
-                !f.params.iter().any(|p| p.name.as_str() == c)
-                    && !crate::join::mentions(&joined, &Name::new(c.as_str()))
-            })
-            .expect("a free name")
-    };
-    let params =
-        f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
     // `<T>(x: T): T => ..`: a generic function's type parameters. One its
@@ -59,15 +41,6 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         .map(|g| (g.clone(), Ty::Named(Name::new("unknown"))))
         .collect();
     let kept: Vec<&Name> = f.generics.iter().filter(|g| !once.iter().any(|(o, _)| o == *g)).collect();
-    let params = if once.is_empty() {
-        params
-    } else {
-        f.params
-            .iter()
-            .map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty.subst(&once))))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
     let generics = if kept.is_empty() {
         String::new()
     } else {
@@ -75,10 +48,33 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     };
     let body = crate::scoped(&crate::PUSHED, pushed, || {
         crate::scoped(&crate::TESTED, tested(&f.body), || {
-            arrow(&params, &emit_ty(&f.ret.subst(&once)), &f.body, indent)
+            let joined = crate::join::joined(&f.body);
+            let names: Vec<&Name> = f.params.iter().map(|p| &p.name).collect();
+            let params = f
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", unread_param(&p.name, &names, &joined), emit_ty(&p.ty.subst(&once))))
+                .collect::<Vec<_>>()
+                .join(", ");
+            arrow(&params, &emit_ty(&f.ret.subst(&once)), &joined, indent)
         })
     });
     format!("{generics}{body}")
+}
+
+/// A parameter as the arrow names it. `check` marks the parameters the body
+/// never reads (`_a`); one read only where the flow decided the code away
+/// (`if false { a } else { 1 }`) is unread in the printed body (`joined`)
+/// too, and TS refuses it the same way: it is `_a`, or `_a<k>` where
+/// another parameter (`names`) or the body has that name.
+fn unread_param(n: &Name, names: &[&Name], joined: &Expr) -> String {
+    if n.as_str().starts_with('_') || crate::join::mentions(joined, n) {
+        return n.as_str().to_string();
+    }
+    (0..)
+        .map(|k| if k == 0 { format!("_{}", n.as_str()) } else { format!("_{}{k}", n.as_str()) })
+        .find(|c| !names.iter().any(|p| p.as_str() == c) && !crate::join::mentions(joined, &Name::new(c.as_str())))
+        .expect("a free name")
 }
 
 /// The places `body` tests with a `match` (a tuple's elements each), the
@@ -271,33 +267,24 @@ fn cheap(e: &Expr) -> bool {
 }
 
 pub(crate) fn closure_arrow(params: &[ClosureParam], ret: Option<&Ty>, body: &Expr, indent: usize) -> String {
-    // As `fn_arrow` does: a parameter read only where the flow decided
-    // the code away is unread in the printed body, which TS refuses.
     let joined = crate::join::joined(body);
-    let printed = |n: &Name| {
-        if n.as_str().starts_with('_') || crate::join::mentions(&joined, n) {
-            return n.as_str().to_string();
+    let names: Vec<&Name> = params.iter().map(|p| &p.name).collect();
+    let typed = |p: &ClosureParam| {
+        let name = unread_param(&p.name, &names, &joined);
+        match &p.ty {
+            Some(t) => format!("{name}: {}", emit_ty(t)),
+            None => name,
         }
-        (0..)
-            .map(|k| if k == 0 { format!("_{}", n.as_str()) } else { format!("_{}{k}", n.as_str()) })
-            .find(|c| {
-                !params.iter().any(|p| p.name.as_str() == c) && !crate::join::mentions(&joined, &Name::new(c.as_str()))
-            })
-            .expect("a free name")
     };
-    let typed = |name: &Name, ty: Option<&Ty>| match ty {
-        Some(t) => format!("{}: {}", printed(name), emit_ty(t)),
-        None => printed(name),
-    };
-    let params = params.iter().map(|p| typed(&p.name, p.ty.as_ref())).collect::<Vec<_>>().join(", ");
+    let params = params.iter().map(typed).collect::<Vec<_>>().join(", ");
     match ret {
-        Some(r) => arrow(&params, &emit_ty(r), body, indent),
-        None => format!("({params}) => {}", arrow_expr(&crate::join::joined(body), indent)),
+        Some(r) => arrow(&params, &emit_ty(r), &joined, indent),
+        None => format!("({params}) => {}", arrow_expr(&joined, indent)),
     }
 }
 
-pub(crate) fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
-    let body = &crate::join::joined(body);
+/// `(params): ret => body`, `body` already `join::joined`.
+fn arrow(params: &str, ret: &str, body: &Expr, indent: usize) -> String {
     // `String::from(x)` prints as `x`: a `match` under it is the body itself.
     let body = match body {
         Expr::Call { callee: Callee::StringFrom, args } if args[0].needs_statements() => &args[0],
@@ -499,7 +486,7 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
             Tx::bin(op, emit_tx(&args[0], indent), Tx::atom("null"))
         }
         Expr::Call { callee: Callee::VecIsEmpty | Callee::Str(purecrate_ir::StrMethod::IsEmpty), args } => {
-            Tx::bin(Op::Eq, Tx::atom(format!("{}.length", receiver(emit_tx(&args[0], indent)))), Tx::atom("0"))
+            Tx::bin(Op::Eq, Tx::atom(format!("{}.length", recv(&args[0], indent))), Tx::atom("0"))
         }
         Expr::Call { callee: Callee::OptionSome | Callee::StringFrom, args } => emit_tx(&args[0], indent),
         // A `string` and a `Char` or `string`: JS `+` joins them.
@@ -535,7 +522,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         Expr::Field { base, name } if name.as_str().starts_with('[') => {
             format!("{}{}", emit_expr(base, indent), name.as_str())
         }
-        Expr::Field { base, name } => format!("{}.{n}", receiver(emit_tx(base, indent)), n = name.as_str()),
+        Expr::Field { base, name } => format!("{}.{n}", recv(base, indent), n = name.as_str()),
         // `Slice.at` takes a plain `number`: a literal index needs no brand,
         // nor a `u32 as usize`, whose value is already that `number`.
         Expr::Index { base, index } => format!(
@@ -555,9 +542,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         Expr::Binary { .. } | Expr::Unary { .. } => unreachable!("`emit_tx` prints operators"),
         // `|x| f(x)`, which a function name passed to `map` or `all` becomes,
         // is `f` itself: its parameter and return types are the arrow's.
-        Expr::Closure { params, body, .. } if forwards(params, body).is_some() => {
-            forwards(params, body).expect("checked above").to_string()
-        }
+        Expr::Closure { params, body, .. } if let Some(f) = forwards(params, body) => f.to_string(),
         Expr::Closure { params, ret, body } => {
             format!("({})", closure_arrow(params, ret.as_ref(), body, indent))
         }
@@ -586,385 +571,7 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         Expr::Break(_) | Expr::Continue => {
             unreachable!("`check::accept` keeps `break` and `continue` in statement position")
         }
-        // Variant names are identifiers other than `__proto__` (checked), so
-        // an object literal is a plain table.
-        Expr::Call { callee: purecrate_ir::Callee::Discriminant { to, table, of }, args } => {
-            match typed_table(table, of, to.is_big(), &args[0], indent) {
-                Some(lookup) => format!("({lookup} as {})", to.ts_name()),
-                None => {
-                    // `kind` may be typed `string` here (a variant literal
-                    // widens), and a consumer may set `noUncheckedIndexedAccess`:
-                    // hence both casts.
-                    let t = to.ts_name();
-                    let entries = table
-                        .iter()
-                        .map(|(v, d)| {
-                            format!(
-                                "{}: {}",
-                                v.as_str(),
-                                crate::tidy::strip_outer(&emit_lit(&Lit::Int {
-                                    value: *d,
-                                    ty: Some(*to),
-                                    byte: false,
-                                    hex: false
-                                }))
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
-                }
-            }
-        }
-        Expr::Call { callee, args } => {
-            if let purecrate_ir::Callee::Consume { method, over } = callee {
-                let source = iterable(*over, emit_tx(&args[0], indent));
-                return match method {
-                    purecrate_ir::Consume::Count => format!("Iter.count({source})"),
-                    purecrate_ir::Consume::Sum(int) => format!(
-                        "Iter.sum({source}, Int.{}.add, {})",
-                        int.as_str(),
-                        crate::tidy::strip_outer(&emit_lit(&Lit::Int {
-                            value: 0,
-                            ty: Some(*int),
-                            byte: false,
-                            hex: false
-                        }))
-                    ),
-                    purecrate_ir::Consume::Max { text } | purecrate_ir::Consume::Min { text } => {
-                        format!("Iter.{}({source}, {})", method.ts_name(), if *text { "Ord.cmpStr" } else { "Ord.cmp" })
-                    }
-                    purecrate_ir::Consume::MaxByKey { text } | purecrate_ir::Consume::MinByKey { text } => format!(
-                        "Iter.{}({source}, {}, {})",
-                        method.ts_name(),
-                        emit_item(&args[1], indent),
-                        if *text { "Ord.cmpStr" } else { "Ord.cmp" }
-                    ),
-                    purecrate_ir::Consume::Fold => {
-                        format!("Iter.fold({source}, {}, {})", emit_item(&args[1], indent), emit_item(&args[2], indent))
-                    }
-                    m => format!("Iter.{}({source}, {})", m.ts_name(), emit_item(&args[1], indent)),
-                };
-            }
-            if let purecrate_ir::Callee::Format(pieces) = callee {
-                return emit_format(pieces, args, indent);
-            }
-            if let purecrate_ir::Callee::Tree(op) = callee {
-                return emit_tree(*op, args, indent);
-            }
-            if let purecrate_ir::Callee::Panic = callee {
-                return format!("Panic.raise({})", crate::tidy::strip_outer(&emit_expr(&args[0], indent)));
-            }
-            let c = match callee {
-                purecrate_ir::Callee::Fn(n) | purecrate_ir::Callee::Local(n) => n.as_str().to_string(),
-                purecrate_ir::Callee::Method { ty, name } if is_private_method(ty.as_str(), name.as_str()) => {
-                    private_method(ty.as_str(), name.as_str())
-                }
-                purecrate_ir::Callee::Method { ty, name } => {
-                    format!("{}.{}", ty.as_str(), name.as_str())
-                }
-                purecrate_ir::Callee::Variant { ty, variant } => {
-                    format!("{}.{}", ty.as_str(), variant.as_str())
-                }
-                purecrate_ir::Callee::StructNew(n) if is_closed(n.as_str()) => closed_ctor(n.as_str()),
-                purecrate_ir::Callee::StructNew(n) => format!("{}.of", n.as_str()),
-                purecrate_ir::Callee::ResultOk => "Result.ok".into(),
-                purecrate_ir::Callee::ResultErr => "Result.err".into(),
-                purecrate_ir::Callee::OptionSome => String::new(),
-                purecrate_ir::Callee::OptionNone => "null".into(),
-                purecrate_ir::Callee::Int { ty, op } => {
-                    format!("Int.{}.{}", ty.as_str(), op.as_str())
-                }
-                purecrate_ir::Callee::Discriminant { .. } => unreachable!("printed above"),
-                purecrate_ir::Callee::Format(_) | purecrate_ir::Callee::Panic | purecrate_ir::Callee::Tree(_) => {
-                    unreachable!("printed above")
-                }
-                purecrate_ir::Callee::Fround => "globalThis.Math.fround".into(),
-                purecrate_ir::Callee::AsFloat(_) => String::new(),
-                purecrate_ir::Callee::StringNew => return "\"\"".into(),
-                purecrate_ir::Callee::StrWellFormed => {
-                    return format!("Str.wellFormed({})", emit_expr(&args[0], indent))
-                }
-                purecrate_ir::Callee::StrFromChars => {
-                    return format!("{}.join(\"\")", receiver(emit_tx(&args[0], indent)));
-                }
-                purecrate_ir::Callee::StrConcat => unreachable!("`emit_tx` prints `+`"),
-                purecrate_ir::Callee::VecLen
-                | purecrate_ir::Callee::VecPush
-                | purecrate_ir::Callee::VecInsert
-                | purecrate_ir::Callee::VecRemove
-                | purecrate_ir::Callee::VecSet
-                | purecrate_ir::Callee::VecIsEmpty
-                | purecrate_ir::Callee::VecGet
-                | purecrate_ir::Callee::VecLast
-                | purecrate_ir::Callee::VecContains
-                | purecrate_ir::Callee::VecRev
-                | purecrate_ir::Callee::VecZip
-                | purecrate_ir::Callee::OptionIsSome
-                | purecrate_ir::Callee::OptionIsNone
-                | purecrate_ir::Callee::StrBytes
-                | purecrate_ir::Callee::StrSplit
-                | purecrate_ir::Callee::Collect { .. }
-                | purecrate_ir::Callee::IterMap { .. }
-                | purecrate_ir::Callee::IterFilter { .. }
-                | purecrate_ir::Callee::StringFrom
-                | purecrate_ir::Callee::Slice { .. }
-                | purecrate_ir::Callee::Str(_)
-                | purecrate_ir::Callee::IntFrom { .. }
-                | purecrate_ir::Callee::CharCode(_) => String::new(),
-                // `cast` takes any `number` or `bigint`: a literal or a length
-                // is read without its brand.
-                purecrate_ir::Callee::IntCast { to, .. } => {
-                    let x = bare(&args[0], indent).unwrap_or_else(|| emit_item(&args[0], indent));
-                    return format!("Int.{}.cast({})", to.as_str(), crate::tidy::uncast(&x));
-                }
-                purecrate_ir::Callee::FloatToInt { to, .. } => {
-                    return format!("Int.{}.castFloat({})", to.as_str(), emit_item(&args[0], indent));
-                }
-                purecrate_ir::Callee::FloatFrom(_) => unreachable!("`check::accept` rewrites `from`"),
-                purecrate_ir::Callee::Float { .. }
-                | purecrate_ir::Callee::FloatConst { .. }
-                | purecrate_ir::Callee::IntToFloat { .. }
-                | purecrate_ir::Callee::FloatToFloat { .. } => String::new(),
-                purecrate_ir::Callee::CharFromU8 => "Char.fromU8".into(),
-                purecrate_ir::Callee::CharFromU32 => "Char.fromU32".into(),
-                purecrate_ir::Callee::Char(m) => format!("Char.{}", m.ts_name()),
-                purecrate_ir::Callee::UuidParse => "Uuid.parseStr".into(),
-                purecrate_ir::Callee::UuidNil => "Uuid.nil".into(),
-                purecrate_ir::Callee::StrParse(t) => format!("Int.{}.parse", t.as_str()),
-                purecrate_ir::Callee::StrCmp => "Str.cmp".into(),
-                purecrate_ir::Callee::DeepEq => "Eq.deep".into(),
-                purecrate_ir::Callee::VecSort(sort) => {
-                    let by = |text: bool| if text { "Ord.cmpStr" } else { "Ord.cmp" };
-                    let v = emit_expr(&args[0], indent);
-                    return match sort {
-                        purecrate_ir::Sort::Natural { text } => format!("Slice.sortBy({v}, {})", by(*text)),
-                        purecrate_ir::Sort::By => format!("Slice.sortBy({v}, {})", emit_item(&args[1], indent)),
-                        purecrate_ir::Sort::ByKey { text } => {
-                            format!("Slice.sortByKey({v}, {}, {})", emit_item(&args[1], indent), by(*text))
-                        }
-                    };
-                }
-                purecrate_ir::Callee::OrdCmp { text: false } => "Ord.cmp".into(),
-                purecrate_ir::Callee::OrdCmp { text: true } => "Ord.cmpStr".into(),
-                purecrate_ir::Callee::OrdThen => "Ord.then".into(),
-                purecrate_ir::Callee::OrdCmpList { .. } => "Ord.cmpList".into(),
-                purecrate_ir::Callee::Consume { .. } => unreachable!("printed above"),
-            };
-            // `Eq.deep` takes `unknown`: an operand's brand is no use to it.
-            if matches!(callee, purecrate_ir::Callee::DeepEq) {
-                return format!(
-                    "Eq.deep({}, {})",
-                    crate::tidy::uncast(&emit_item(&args[0], indent)),
-                    crate::tidy::uncast(&emit_item(&args[1], indent))
-                );
-            }
-            if let purecrate_ir::Callee::OrdCmpList { text } = callee {
-                let by = if *text { "Ord.cmpStr" } else { "Ord.cmp" };
-                return format!("Ord.cmpList({}, {}, {by})", emit_expr(&args[0], indent), emit_expr(&args[1], indent));
-            }
-            if let purecrate_ir::Callee::CharCode(to) = callee {
-                let code = format!("Char.code({})", emit_expr(&args[0], indent));
-                return if to.is_big() { format!("(globalThis.BigInt({code}) as {})", to.ts_name()) } else { code };
-            }
-            if let purecrate_ir::Callee::IntFrom { from, to } = callee {
-                // A discriminant widened: the table's number is cast once.
-                if let Expr::Call { callee: purecrate_ir::Callee::Discriminant { table, of, .. }, args: inner } =
-                    peel_identity(&args[0])
-                {
-                    if let (false, Some(lookup)) = (to.is_big(), typed_table(table, of, false, &inner[0], indent)) {
-                        return format!("({lookup} as {})", to.ts_name());
-                    }
-                }
-                let x = emit_tx(&args[0], indent);
-                let from = from.expect("check::accept sets the source width");
-                return match (from.is_big(), to.is_big()) {
-                    _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
-                    (false, true) => format!(
-                        "(globalThis.BigInt({}) as {})",
-                        crate::tidy::uncast(&uncast_default(&x.print())),
-                        to.ts_name()
-                    ),
-                    (true, true) => format!("({} as bigint as {})", cast_operand(x), to.ts_name()),
-                    _ => as_number_as(cast_operand(x), to.ts_name()),
-                };
-            }
-            if matches!(callee, purecrate_ir::Callee::StrBytes) {
-                return format!("Str.bytes({})", emit_expr(&args[0], indent));
-            }
-            if let purecrate_ir::Callee::Slice { of, start, end } = callee {
-                return emit_slice(of.expect("check::accept sets what is sliced"), *start, *end, args, indent);
-            }
-            if matches!(callee, purecrate_ir::Callee::StrSplit)
-                && matches!(peel_identity(&args[1]), Expr::Closure { .. })
-            {
-                return format!("Str.splitBy({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::StrSplit) {
-                // JS `split` takes a string; the `char` needs no brand.
-                return format!(
-                    "{}.split({})",
-                    receiver(emit_tx(&args[0], indent)),
-                    bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
-                );
-            }
-            if let purecrate_ir::Callee::IterMap { over } | purecrate_ir::Callee::IterFilter { over } = callee {
-                let stage = if matches!(callee, purecrate_ir::Callee::IterMap { .. }) { "map" } else { "filter" };
-                let source = iterable(*over, emit_tx(&args[0], indent));
-                return format!("Iter.{stage}({source}, {})", emit_item(&args[1], indent));
-            }
-            if let purecrate_ir::Callee::Collect { result, over } = callee {
-                return emit_collect(*result, *over, args, indent);
-            }
-            if let purecrate_ir::Callee::Str(m) = callee {
-                // The object of `.startsWith` and the other members; a call
-                // argument (`Str.len(s)`) takes it as it is.
-                let s = receiver(emit_tx(&args[0], indent));
-                let needle = || bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
-                return match m {
-                    purecrate_ir::StrMethod::Len => format!("Str.len({s})"),
-                    purecrate_ir::StrMethod::IsEmpty => unreachable!("`emit_tx` prints a comparison"),
-                    purecrate_ir::StrMethod::StartsWith => format!("{s}.startsWith({})", needle()),
-                    purecrate_ir::StrMethod::EndsWith => format!("{s}.endsWith({})", needle()),
-                    purecrate_ir::StrMethod::Contains => format!("{s}.includes({})", needle()),
-                    purecrate_ir::StrMethod::AsStr => s,
-                    purecrate_ir::StrMethod::StripPrefix => {
-                        format!("Str.stripPrefix({s}, {})", needle())
-                    }
-                    purecrate_ir::StrMethod::StripSuffix => {
-                        format!("Str.stripSuffix({s}, {})", needle())
-                    }
-                    purecrate_ir::StrMethod::SplitOnce => {
-                        format!("Str.splitOnce({s}, {})", needle())
-                    }
-                    purecrate_ir::StrMethod::EqIgnoreAsciiCase => {
-                        format!("Str.eqIgnoreAsciiCase({s}, {})", needle())
-                    }
-                    m if m.needles() == 0 => format!("Str.{}({s})", m.ts_name()),
-                    m => format!("Str.{}({s}, {})", m.ts_name(), needle()),
-                };
-            }
-            if matches!(callee, purecrate_ir::Callee::VecLen) {
-                return format!("({}.length as Usize)", receiver(emit_tx(&args[0], indent)));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecPush) {
-                return format!("{}.push({})", receiver(emit_tx(&args[0], indent)), emit_item(&args[1], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecInsert) {
-                return format!(
-                    "Slice.insert({}, {}, {})",
-                    emit_expr(&args[0], indent),
-                    emit_item(&args[1], indent),
-                    emit_item(&args[2], indent)
-                );
-            }
-            if matches!(callee, purecrate_ir::Callee::VecGet) {
-                // A literal index reads bare: `Slice.get` takes a `number`.
-                let i = bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
-                return format!("Slice.get({}, {i})", emit_expr(&args[0], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecRev) {
-                return format!("Slice.rev({})", emit_expr(&args[0], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecZip) {
-                return format!("Slice.zip({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecContains) {
-                return format!("Slice.contains({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecLast) {
-                return format!("Slice.last({})", emit_expr(&args[0], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecRemove) {
-                return format!("Slice.remove({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
-            }
-            if matches!(callee, purecrate_ir::Callee::VecSet) {
-                return format!(
-                    "Slice.set({}, {}, {})",
-                    emit_expr(&args[0], indent),
-                    emit_item(&args[1], indent),
-                    emit_item(&args[2], indent)
-                );
-            }
-            if let purecrate_ir::Callee::Float { ty, m } = callee {
-                use purecrate_ir::FloatMethod as F;
-                let x = || float_arg(&args[0], indent);
-                let t = ty.ts_name();
-                return match m {
-                    // `round` takes the branded float, so the value's cast stays.
-                    F::Round => format!("Int.{}.round({})", ty.as_str(), emit_item(&args[0], indent)),
-                    F::Floor | F::Ceil | F::Trunc | F::Abs => {
-                        let f = match m {
-                            F::Floor => "floor",
-                            F::Ceil => "ceil",
-                            F::Trunc => "trunc",
-                            _ => "abs",
-                        };
-                        format!("(globalThis.Math.{f}({}) as {t})", x())
-                    }
-                    F::IsNan => format!("globalThis.Number.isNaN({})", x()),
-                    F::IsFinite => format!("globalThis.Number.isFinite({})", x()),
-                    // A call, not `Math.abs(x) === Infinity`: a `!` before it
-                    // would take only the left side.
-                    F::IsInfinite => format!("Int.{}.isInfinite({})", ty.as_str(), x()),
-                };
-            }
-            if let purecrate_ir::Callee::FloatConst { ty, c } = callee {
-                let v = match c {
-                    purecrate_ir::FloatConst::Nan => "NaN",
-                    purecrate_ir::FloatConst::Infinity => "POSITIVE_INFINITY",
-                    purecrate_ir::FloatConst::NegInfinity => "NEGATIVE_INFINITY",
-                };
-                return format!("(globalThis.Number.{v} as {})", ty.ts_name());
-            }
-            if let purecrate_ir::Callee::IntToFloat { from, to } = callee {
-                let x = emit_item(&args[0], indent);
-                return match (from.is_big(), to) {
-                    (false, purecrate_ir::FloatTy::F64) => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
-                    (false, purecrate_ir::FloatTy::F32) => {
-                        format!("(globalThis.Math.fround({}) as F32)", crate::tidy::uncast(&x))
-                    }
-                    (true, purecrate_ir::FloatTy::F64) => {
-                        format!("(globalThis.Number({}) as F64)", crate::tidy::uncast(&x))
-                    }
-                    (true, purecrate_ir::FloatTy::F32) => format!("Int.f32.ofBig({})", crate::tidy::uncast(&x)),
-                };
-            }
-            if let purecrate_ir::Callee::FloatToFloat { to } = callee {
-                return match to {
-                    purecrate_ir::FloatTy::F64 => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
-                    purecrate_ir::FloatTy::F32 => format!(
-                        "(globalThis.Math.fround({}) as F32)",
-                        crate::tidy::uncast(&emit_item(&args[0], indent))
-                    ),
-                };
-            }
-            if matches!(callee, purecrate_ir::Callee::Fround) {
-                return format!(
-                    "(globalThis.Math.fround({}) as F32)",
-                    crate::tidy::uncast(&emit_expr(&args[0], indent))
-                );
-            }
-            if let purecrate_ir::Callee::AsFloat(ft) = callee {
-                return format!("({} as {})", cast_operand(emit_tx(&args[0], indent)), ft.ts_name());
-            }
-            if matches!(callee, purecrate_ir::Callee::OptionNone) {
-                return "null".into();
-            }
-            // A shift amount is a plain `number` in the runtime: a literal
-            // there needs no brand.
-            let shift = matches!(callee, purecrate_ir::Callee::Int { op, .. } if op.is_shift());
-            let a = args
-                .iter()
-                .enumerate()
-                .map(|(i, e)| match (shift && i == 1, peel_identity(e)) {
-                    (true, Expr::Lit(lit @ Lit::Int { .. })) => bare_lit(lit),
-                    _ => emit_item(e, indent),
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{c}({a})")
-        }
+        Expr::Call { callee, args } => emit_call(callee, args, indent),
         Expr::Tuple(elems) | Expr::Array(elems) => {
             let items: Vec<String> = elems.iter().map(|e| emit_item(e, indent)).collect();
             bracket_list(&items, indent)
@@ -972,6 +579,314 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
         Expr::Return(e) => format!("(() => {{ return {}; }})()", emit_expr(e, indent)),
         Expr::Unreachable => "assertNever(undefined as never)".into(),
         Expr::Cast { .. } => unreachable!("`check::accept` rewrites `as`"),
+    }
+}
+
+/// A call, as the runtime or TS spells it.
+fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
+    use purecrate_ir::Callee as C;
+    if let Some(f) = runtime_fn(callee) {
+        return runtime_call(f, args, indent);
+    }
+    let item = |i: usize| emit_item(&args[i], indent);
+    match callee {
+        C::Fn(n) | C::Local(n) => call(n.as_str(), args, indent),
+        C::Method { ty, name } if is_private_method(ty.as_str(), name.as_str()) => {
+            call(&private_method(ty.as_str(), name.as_str()), args, indent)
+        }
+        C::Method { ty, name } => call(&format!("{}.{}", ty.as_str(), name.as_str()), args, indent),
+        C::Variant { ty, variant } => call(&format!("{}.{}", ty.as_str(), variant.as_str()), args, indent),
+        C::StructNew(n) if is_closed(n.as_str()) => call(&closed_ctor(n.as_str()), args, indent),
+        C::StructNew(n) => call(&format!("{}.of", n.as_str()), args, indent),
+        C::ResultOk => call("Result.ok", args, indent),
+        C::ResultErr => call("Result.err", args, indent),
+        C::OptionNone => "null".into(),
+        C::Int { ty, op } => {
+            // A shift amount is a plain `number` in the runtime: a literal
+            // there needs no brand.
+            let a = args
+                .iter()
+                .enumerate()
+                .map(|(i, e)| match (op.is_shift() && i == 1, peel_identity(e)) {
+                    (true, Expr::Lit(lit @ Lit::Int { .. })) => bare_lit(lit),
+                    _ => emit_item(e, indent),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Int.{}.{}({a})", ty.as_str(), op.as_str())
+        }
+        C::CharFromU8 => call("Char.fromU8", args, indent),
+        C::CharFromU32 => call("Char.fromU32", args, indent),
+        C::Char(m) => call(&format!("Char.{}", m.ts_name()), args, indent),
+        C::UuidParse => call("Uuid.parseStr", args, indent),
+        C::UuidNil => call("Uuid.nil", args, indent),
+        C::StrParse(t) => call(&format!("Int.{}.parse", t.as_str()), args, indent),
+        C::StrCmp => call("Str.cmp", args, indent),
+        C::OrdCmp { text } => call(ord_cmp(*text), args, indent),
+        C::OrdThen => call("Ord.then", args, indent),
+        // Variant names are identifiers other than `__proto__` (checked), so
+        // an object literal is a plain table.
+        C::Discriminant { to, table, of } => match typed_table(table, of, to.is_big(), &args[0], indent) {
+            Some(lookup) => format!("({lookup} as {})", to.ts_name()),
+            None => {
+                // `kind` may be typed `string` here (a variant literal
+                // widens), and a consumer may set `noUncheckedIndexedAccess`:
+                // hence both casts.
+                let t = to.ts_name();
+                let entries = table
+                    .iter()
+                    .map(|(v, d)| {
+                        format!(
+                            "{}: {}",
+                            v.as_str(),
+                            crate::tidy::strip_outer(&emit_lit(&Lit::Int {
+                                value: *d,
+                                ty: Some(*to),
+                                byte: false,
+                                hex: false
+                            }))
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("(({{ {entries} }} as Record<string, {t}>)[{}.kind] as {t})", emit_expr(&args[0], indent))
+            }
+        },
+        C::Consume { method, over } => {
+            use purecrate_ir::Consume as K;
+            let source = iterable(*over, emit_tx(&args[0], indent));
+            match method {
+                K::Count => format!("Iter.count({source})"),
+                K::Sum(int) => format!(
+                    "Iter.sum({source}, Int.{}.add, {})",
+                    int.as_str(),
+                    crate::tidy::strip_outer(&emit_lit(&Lit::Int {
+                        value: 0,
+                        ty: Some(*int),
+                        byte: false,
+                        hex: false
+                    }))
+                ),
+                K::Max { text } | K::Min { text } => format!("Iter.{}({source}, {})", method.ts_name(), ord_cmp(*text)),
+                K::MaxByKey { text } | K::MinByKey { text } => {
+                    format!("Iter.{}({source}, {}, {})", method.ts_name(), item(1), ord_cmp(*text))
+                }
+                K::Fold => format!("Iter.fold({source}, {}, {})", item(1), item(2)),
+                m => format!("Iter.{}({source}, {})", m.ts_name(), item(1)),
+            }
+        }
+        C::Format(pieces) => emit_format(pieces, args, indent),
+        C::Tree(op) => emit_tree(*op, args, indent),
+        C::Panic => format!("Panic.raise({})", crate::tidy::strip_outer(&emit_expr(&args[0], indent))),
+        C::StringNew => "\"\"".into(),
+        C::StrFromChars => format!("{}.join(\"\")", recv(&args[0], indent)),
+        // `cast` takes any `number` or `bigint`: a literal or a length is
+        // read without its brand.
+        C::IntCast { to, .. } => {
+            format!("Int.{}.cast({})", to.as_str(), crate::tidy::uncast(&plain_arg(&args[0], indent)))
+        }
+        C::FloatToInt { to, .. } => format!("Int.{}.castFloat({})", to.as_str(), item(0)),
+        C::FloatFrom(_) => unreachable!("`check::accept` rewrites `from`"),
+        C::VecSort(sort) => {
+            let v = emit_expr(&args[0], indent);
+            match sort {
+                purecrate_ir::Sort::Natural { text } => format!("Slice.sortBy({v}, {})", ord_cmp(*text)),
+                purecrate_ir::Sort::By => format!("Slice.sortBy({v}, {})", item(1)),
+                purecrate_ir::Sort::ByKey { text } => format!("Slice.sortByKey({v}, {}, {})", item(1), ord_cmp(*text)),
+            }
+        }
+        // `Eq.deep` takes `unknown`: an operand's brand is no use to it.
+        C::DeepEq => format!("Eq.deep({}, {})", crate::tidy::uncast(&item(0)), crate::tidy::uncast(&item(1))),
+        C::OrdCmpList { text } => {
+            format!("Ord.cmpList({}, {}, {})", emit_expr(&args[0], indent), emit_expr(&args[1], indent), ord_cmp(*text))
+        }
+        C::CharCode(to) => {
+            let code = format!("Char.code({})", emit_expr(&args[0], indent));
+            if to.is_big() {
+                format!("(globalThis.BigInt({code}) as {})", to.ts_name())
+            } else {
+                code
+            }
+        }
+        C::IntFrom { from, to } => {
+            // A discriminant widened: the table's number is cast once.
+            if let Expr::Call { callee: C::Discriminant { table, of, .. }, args: inner } = peel_identity(&args[0]) {
+                if let (false, Some(lookup)) = (to.is_big(), typed_table(table, of, false, &inner[0], indent)) {
+                    return format!("({lookup} as {})", to.ts_name());
+                }
+            }
+            let x = emit_tx(&args[0], indent);
+            let from = from.expect("check::accept sets the source width");
+            match (from.is_big(), to.is_big()) {
+                _ if from == *to => unreachable!("`emit_tx` reads a widening to the same type as its value"),
+                (false, true) => format!(
+                    "(globalThis.BigInt({}) as {})",
+                    crate::tidy::uncast(&uncast_default(&x.print())),
+                    to.ts_name()
+                ),
+                (true, true) => format!("({} as bigint as {})", cast_operand(x), to.ts_name()),
+                _ => as_number_as(cast_operand(x), to.ts_name()),
+            }
+        }
+        C::Slice { of, start, end } => {
+            emit_slice(of.expect("check::accept sets what is sliced"), *start, *end, args, indent)
+        }
+        C::StrSplit if matches!(peel_identity(&args[1]), Expr::Closure { .. }) => {
+            format!("Str.splitBy({}, {})", emit_expr(&args[0], indent), item(1))
+        }
+        // JS `split` takes a string; the `char` needs no brand.
+        C::StrSplit => format!(
+            "{}.split({})",
+            recv(&args[0], indent),
+            bare(&args[1], indent).unwrap_or_else(|| emit_expr(&args[1], indent))
+        ),
+        C::IterMap { over } | C::IterFilter { over } => {
+            let stage = if matches!(callee, C::IterMap { .. }) { "map" } else { "filter" };
+            let source = iterable(*over, emit_tx(&args[0], indent));
+            format!("Iter.{stage}({source}, {})", item(1))
+        }
+        C::Collect { result, over } => emit_collect(*result, *over, args, indent),
+        C::Str(m) => {
+            use purecrate_ir::StrMethod as S;
+            // The object of `.startsWith` and the other members; a call
+            // argument (`Str.len(s)`) takes it as it is.
+            let s = recv(&args[0], indent);
+            match m {
+                S::IsEmpty => unreachable!("`emit_tx` prints a comparison"),
+                S::StartsWith | S::EndsWith | S::Contains => {
+                    format!("{s}.{}({})", m.ts_name(), plain_arg(&args[1], indent))
+                }
+                S::AsStr => s,
+                m if m.needles() == 0 => format!("Str.{}({s})", m.ts_name()),
+                m => format!("Str.{}({s}, {})", m.ts_name(), plain_arg(&args[1], indent)),
+            }
+        }
+        C::VecLen => format!("({}.length as Usize)", recv(&args[0], indent)),
+        C::VecPush => format!("{}.push({})", recv(&args[0], indent), item(1)),
+        // A literal index reads bare: `Slice.get` takes a `number`.
+        C::VecGet => {
+            let i = plain_arg(&args[1], indent);
+            format!("Slice.get({}, {i})", emit_expr(&args[0], indent))
+        }
+        C::Float { ty, m } => {
+            use purecrate_ir::FloatMethod as F;
+            let x = || float_arg(&args[0], indent);
+            let t = ty.ts_name();
+            match m {
+                // `round` takes the branded float, so the value's cast stays.
+                F::Round => format!("Int.{}.round({})", ty.as_str(), item(0)),
+                F::Floor | F::Ceil | F::Trunc | F::Abs => {
+                    let f = match m {
+                        F::Floor => "floor",
+                        F::Ceil => "ceil",
+                        F::Trunc => "trunc",
+                        _ => "abs",
+                    };
+                    format!("(globalThis.Math.{f}({}) as {t})", x())
+                }
+                F::IsNan => format!("globalThis.Number.isNaN({})", x()),
+                F::IsFinite => format!("globalThis.Number.isFinite({})", x()),
+                // A call, not `Math.abs(x) === Infinity`: a `!` before it
+                // would take only the left side.
+                F::IsInfinite => format!("Int.{}.isInfinite({})", ty.as_str(), x()),
+            }
+        }
+        C::FloatConst { ty, c } => {
+            let v = match c {
+                purecrate_ir::FloatConst::Nan => "NaN",
+                purecrate_ir::FloatConst::Infinity => "POSITIVE_INFINITY",
+                purecrate_ir::FloatConst::NegInfinity => "NEGATIVE_INFINITY",
+            };
+            format!("(globalThis.Number.{v} as {})", ty.ts_name())
+        }
+        C::IntToFloat { from, to } => {
+            let x = item(0);
+            match (from.is_big(), to) {
+                (false, FloatTy::F64) => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
+                (false, FloatTy::F32) => format!("(globalThis.Math.fround({}) as F32)", crate::tidy::uncast(&x)),
+                (true, FloatTy::F64) => format!("(globalThis.Number({}) as F64)", crate::tidy::uncast(&x)),
+                (true, FloatTy::F32) => format!("Int.f32.ofBig({})", crate::tidy::uncast(&x)),
+            }
+        }
+        C::FloatToFloat { to } => match to {
+            FloatTy::F64 => as_number_as(cast_operand(emit_tx(&args[0], indent)), "F64"),
+            FloatTy::F32 => format!("(globalThis.Math.fround({}) as F32)", crate::tidy::uncast(&item(0))),
+        },
+        C::Fround => {
+            format!("(globalThis.Math.fround({}) as F32)", crate::tidy::uncast(&emit_expr(&args[0], indent)))
+        }
+        C::AsFloat(ft) => format!("({} as {})", cast_operand(emit_tx(&args[0], indent)), ft.ts_name()),
+        C::OptionSome | C::StringFrom | C::OptionIsSome | C::OptionIsNone | C::VecIsEmpty | C::StrConcat => {
+            unreachable!("`emit_tx` prints it")
+        }
+        C::VecInsert
+        | C::VecRemove
+        | C::VecSet
+        | C::VecLast
+        | C::VecContains
+        | C::VecRev
+        | C::VecZip
+        | C::StrBytes
+        | C::StrWellFormed => unreachable!("`runtime_fn` names it"),
+    }
+}
+
+/// The runtime function a call is when it takes its first argument as an
+/// expression and the rest as items (`Slice.insert(v, i, x)`).
+fn runtime_fn(callee: &Callee) -> Option<&'static str> {
+    use purecrate_ir::{Callee as C, TreeOp as T};
+    Some(match callee {
+        C::VecInsert => "Slice.insert",
+        C::VecRemove => "Slice.remove",
+        C::VecSet => "Slice.set",
+        C::VecLast => "Slice.last",
+        C::VecContains => "Slice.contains",
+        C::VecRev => "Slice.rev",
+        C::VecZip => "Slice.zip",
+        C::StrBytes => "Str.bytes",
+        C::StrWellFormed => "Str.wellFormed",
+        C::Tree(T::Get) => "BTree.get",
+        C::Tree(T::Insert) => "BTree.insert",
+        C::Tree(T::Add) => "BTree.add",
+        C::Tree(T::RemoveKey) => "BTree.remove",
+        C::Tree(T::CloneMap) => "new Map",
+        C::Tree(T::CloneSet) => "new Set",
+        C::Tree(T::Entries) => "BTree.entries",
+        C::Tree(T::Keys) => "BTree.keys",
+        C::Tree(T::Values) => "BTree.values",
+        _ => return None,
+    })
+}
+
+/// `f(a, b, ..)` as `runtime_fn` names it: `a` as an expression, the rest
+/// as items.
+fn runtime_call(f: &str, args: &[Expr], indent: usize) -> String {
+    let rest = args[1..].iter().map(|e| format!(", {}", emit_item(e, indent))).collect::<String>();
+    format!("{f}({}{rest})", emit_expr(&args[0], indent))
+}
+
+/// `f(a, b, ..)`, each argument an item.
+fn call(f: &str, args: &[Expr], indent: usize) -> String {
+    format!("{f}({})", args.iter().map(|e| emit_item(e, indent)).collect::<Vec<_>>().join(", "))
+}
+
+/// `e` as the object of `.member` (`receiver`).
+fn recv(e: &Expr, indent: usize) -> String {
+    receiver(emit_tx(e, indent))
+}
+
+/// An argument that takes a plain `number` or string: a literal or a
+/// length without its brand (`bare`), anything else as an item.
+fn plain_arg(e: &Expr, indent: usize) -> String {
+    bare(e, indent).unwrap_or_else(|| emit_item(e, indent))
+}
+
+/// The comparison the runtime orders by: strings by their UTF-8 bytes.
+fn ord_cmp(text: bool) -> &'static str {
+    if text {
+        "Ord.cmpStr"
+    } else {
+        "Ord.cmp"
     }
 }
 
@@ -1149,11 +1064,8 @@ pub(crate) fn as_tx(expr: &Expr, indent: usize) -> Option<Tx> {
         Expr::Match { scrutinee, arms } if is_place(scrutinee) => match_tx(scrutinee, arms, indent),
         // A `match` on a value that is not a place, read once: `call ?? d`,
         // or a test `call.kind === "A"`.
-        Expr::Match { .. } if crate::stmt::coalesced_tx(expr, indent).is_some() => {
-            crate::stmt::coalesced_tx(expr, indent)
-        }
-        Expr::Match { scrutinee, arms } if one_of(arms).is_some() => {
-            let (lits, yes) = one_of(arms)?;
+        Expr::Match { .. } if let Some(t) = crate::stmt::coalesced_tx(expr, indent) => Some(t),
+        Expr::Match { scrutinee, arms } if let Some((lits, yes)) = one_of(arms) => {
             let test = Tx::atom(format!("[{lits}].includes({})", emit_tx(scrutinee, indent).print()));
             Some(if yes { test } else { Tx::Not(Box::new(test)) })
         }
@@ -1223,10 +1135,10 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
         (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
             if !stage(&inner[0]) =>
         {
-            format!("{}.filter({})", receiver(emit_tx(&inner[0], indent)), emit_item(&inner[1], indent))
+            format!("{}.filter({})", recv(&inner[0], indent), emit_item(&inner[1], indent))
         }
         (None, s) => format!("Array.from({})", iterable(over, emit_tx(s, indent))),
-        (Some(f), s) if array => format!("{}.map({f})", receiver(emit_tx(s, indent))),
+        (Some(f), s) if array => format!("{}.map({f})", recv(s, indent)),
         (Some(f), s) => format!("Array.from(Iter.map({}, {f}))", iterable(over, emit_tx(s, indent))),
     }
 }
@@ -1482,21 +1394,15 @@ pub(crate) fn subst(expr: &Expr, name: &Name, with: &Expr) -> Expr {
 /// A `BTreeMap` / `BTreeSet` operation (design/01 §7.19).
 fn emit_tree(op: purecrate_ir::TreeOp, args: &[Expr], indent: usize) -> String {
     use purecrate_ir::TreeOp as T;
-    let c = || receiver(emit_tx(&args[0], indent));
+    let c = || recv(&args[0], indent);
     let arg = |i: usize| emit_item(&args[i], indent);
     match op {
         T::NewMap => "new Map()".into(),
         T::NewSet => "new Set()".into(),
-        T::Get => format!("BTree.get({}, {})", emit_expr(&args[0], indent), arg(1)),
         T::Has => format!("{}.has({})", c(), arg(1)),
         T::Len => format!("({}.size as Usize)", c()),
         T::IsEmpty => format!("{}.size === 0", c()),
-        T::Insert => format!("BTree.insert({}, {}, {})", emit_expr(&args[0], indent), arg(1), arg(2)),
-        T::Add => format!("BTree.add({}, {})", emit_expr(&args[0], indent), arg(1)),
-        T::RemoveKey => format!("BTree.remove({}, {})", emit_expr(&args[0], indent), arg(1)),
         T::Delete => format!("{}.delete({})", c(), arg(1)),
-        T::CloneMap => format!("new Map({})", emit_expr(&args[0], indent)),
-        T::CloneSet => format!("new Set({})", emit_expr(&args[0], indent)),
         // `Map` and `Set` take any iterable: a copy of an array is not needed.
         T::FromPairs | T::FromKeys => {
             let items = match &args[0] {
@@ -1509,9 +1415,9 @@ fn emit_tree(op: purecrate_ir::TreeOp, args: &[Expr], indent: usize) -> String {
             };
             format!("new {}({items})", if op == T::FromPairs { "Map" } else { "Set" })
         }
-        T::Entries => format!("BTree.entries({})", emit_expr(&args[0], indent)),
-        T::Keys => format!("BTree.keys({})", emit_expr(&args[0], indent)),
-        T::Values => format!("BTree.values({})", emit_expr(&args[0], indent)),
+        T::Get | T::Insert | T::Add | T::RemoveKey | T::CloneMap | T::CloneSet | T::Entries | T::Keys | T::Values => {
+            unreachable!("`runtime_fn` names it")
+        }
     }
 }
 
@@ -1682,9 +1588,8 @@ fn emit_slice(of: purecrate_ir::SliceOf, start: bool, end: bool, args: &[Expr], 
         // `Slice.range` takes plain numbers: a literal or a length is read
         // without its brand, which would be an unnecessary assertion there.
         purecrate_ir::SliceOf::Items => {
-            let bound = |e: &Expr| bare(e, indent).unwrap_or_else(|| emit_item(e, indent));
-            let a = if start { bound(&args[1]) } else { "null".into() };
-            let b = if end { bound(&args[args.len() - 1]) } else { "null".into() };
+            let a = if start { plain_arg(&args[1], indent) } else { "null".into() };
+            let b = if end { plain_arg(&args[args.len() - 1], indent) } else { "null".into() };
             format!("Slice.range({base}, {a}, {b})")
         }
     }
@@ -1807,9 +1712,7 @@ fn bare(expr: &Expr, indent: usize) -> Option<String> {
     match peel_identity(expr) {
         Expr::Ignored { expr, .. } => bare(expr, indent),
         Expr::Lit(lit @ (Lit::Int { ty: Some(_), .. } | Lit::Char(_))) => Some(bare_lit(lit)),
-        Expr::Call { callee: purecrate_ir::Callee::VecLen, args } => {
-            Some(format!("{}.length", receiver(emit_tx(&args[0], indent))))
-        }
+        Expr::Call { callee: purecrate_ir::Callee::VecLen, args } => Some(format!("{}.length", recv(&args[0], indent))),
         _ => None,
     }
 }
