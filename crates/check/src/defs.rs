@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Struct, Ty};
+use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Name, Struct, Ty, Variant, VariantFields};
 
 /// Where `Defs::expand` looks through `Box` and the other erased wrappers.
 #[derive(Clone, Copy)]
@@ -62,7 +62,37 @@ impl<'a> Defs<'a> {
     /// How many type parameters a struct or enum has; `None` when `name` is
     /// neither.
     pub fn generics_of(&self, name: &str) -> Option<usize> {
-        self.structs.get(name).map(|s| s.generics.len()).or_else(|| self.enums.get(name).map(|e| e.generics.len()))
+        self.type_params(name).map(<[_]>::len)
+    }
+
+    /// A struct's or enum's type parameters; `None` when `name` is neither.
+    pub fn type_params(&self, name: &str) -> Option<&'a [Name]> {
+        self.structs
+            .get(name)
+            .map(|s| s.generics.as_slice())
+            .or_else(|| self.enums.get(name).map(|e| e.generics.as_slice()))
+    }
+
+    /// The variant `variant` of the enum `ty`, when both exist.
+    pub fn variant(&self, ty: &str, variant: &str) -> Option<&'a Variant> {
+        self.enums.get(ty).and_then(|e| e.variants.iter().find(|v| v.name.as_str() == variant))
+    }
+
+    /// The declared fields of a struct, or of a variant: each name (none in
+    /// a tuple variant) and type, its parameters unbound.
+    pub fn fields_of(&self, ty: &str, variant: Option<&str>) -> Vec<(Option<&'a Name>, &'a Ty)> {
+        match variant {
+            None => self
+                .structs
+                .get(ty)
+                .map(|s| s.fields.iter().map(|f| (Some(&f.name), &f.ty)).collect())
+                .unwrap_or_default(),
+            Some(v) => match self.variant(ty, v).map(|x| &x.fields) {
+                Some(VariantFields::Tuple(tys)) => tys.iter().map(|t| (None, t)).collect(),
+                Some(VariantFields::Struct(fs)) => fs.iter().map(|f| (Some(&f.name), &f.ty)).collect(),
+                _ => Vec::new(),
+            },
+        }
     }
 
     /// `ty` with its aliases followed, `Box` and the other erased wrappers

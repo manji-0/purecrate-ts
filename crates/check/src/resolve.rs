@@ -577,11 +577,11 @@ impl<'a> Cx<'_, 'a> {
     /// Reports and returns `None` when the enum or the variant is unknown.
     fn variant(&mut self, ty: &Name, variant: &Name) -> Option<&'a purecrate_ir::Variant> {
         let t = ty.as_str();
-        let Some(e) = self.defs.enums.get(t).copied() else {
+        if !self.defs.enums.contains_key(t) {
             self.error_about(Reason::UndefinedType, t, format!("enum `{t}` is not defined in this crate"));
             return None;
-        };
-        let found = e.variants.iter().find(|x| x.name == *variant);
+        }
+        let found = self.defs.variant(t, variant.as_str());
         if found.is_none() {
             self.error(Reason::ConstructShape, format!("enum `{t}` has no variant `{}`", variant.as_str()));
         }
@@ -659,7 +659,6 @@ impl<'a> Cx<'_, 'a> {
 
 /// `ty::variant` is a tuple variant of one field: in Rust, a function.
 pub(crate) fn one_field_variant(defs: &Defs, ty: &Name, variant: &Name) -> bool {
-    defs.enums.get(ty.as_str()).is_some_and(|e| {
-        e.variants.iter().any(|v| v.name == *variant && matches!(&v.fields, VariantFields::Tuple(ts) if ts.len() == 1))
-    })
+    defs.variant(ty.as_str(), variant.as_str())
+        .is_some_and(|v| matches!(&v.fields, VariantFields::Tuple(ts) if ts.len() == 1))
 }

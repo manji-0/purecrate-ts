@@ -119,14 +119,8 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// a `Named` (none) or an `App`.
     pub(super) fn bindings_of(&self, ty: &Ty) -> Vec<(Name, Ty)> {
         let Some((name, args)) = ty.applied() else { return Vec::new() };
-        let params = self
-            .defs
-            .structs
-            .get(name.as_str())
-            .map(|s| s.generics.clone())
-            .or_else(|| self.defs.enums.get(name.as_str()).map(|e| e.generics.clone()))
-            .unwrap_or_default();
-        params.into_iter().zip(args.iter().cloned()).collect()
+        let params = self.defs.type_params(name.as_str()).unwrap_or_default();
+        params.iter().cloned().zip(args.iter().cloned()).collect()
     }
 
     /// The type a struct or enum named `name` is with its parameters bound

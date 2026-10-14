@@ -575,13 +575,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         fields: &Fields,
         want: Option<&Ty>,
     ) -> (Fields, Option<Ty>) {
-        let params = self
-            .defs
-            .structs
-            .get(ty.as_str())
-            .map(|s| s.generics.clone())
-            .or_else(|| self.defs.enums.get(ty.as_str()).map(|e| e.generics.clone()))
-            .unwrap_or_default();
+        let params = self.defs.type_params(ty.as_str()).unwrap_or_default();
         if params.is_empty() {
             return (self.construct_fields(ty.as_str(), variant, fields), Some(Ty::Named(ty.clone())));
         }
@@ -594,7 +588,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 &mut binds,
             );
         }
-        let declared = self.declared_fields(ty.as_str(), variant);
+        let declared = self.defs.fields_of(ty.as_str(), variant);
         let typed_field = |me: &mut Self, decl: Option<&Ty>, x: &Expr, binds: &mut Vec<(Name, Ty)>| -> Expr {
             let hint = decl.filter(|d| !Self::open(d, &params, binds)).map(|d| d.subst(binds));
             let (e, t) = me.expr(x, hint.as_ref());
@@ -608,14 +602,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             Fields::Positional(xs) => Fields::Positional(
                 xs.iter()
                     .enumerate()
-                    .map(|(i, x)| typed_field(self, declared.get(i).map(|(_, t)| t), x, &mut binds))
+                    .map(|(i, x)| typed_field(self, declared.get(i).map(|(_, t)| *t), x, &mut binds))
                     .collect(),
             ),
             Fields::Named(pairs) => Fields::Named(
                 pairs
                     .iter()
                     .map(|(n, x)| {
-                        let decl = declared.iter().find(|(d, _)| d.as_deref() == Some(n.as_str())).map(|(_, t)| t);
+                        let decl = declared.iter().find(|(d, _)| *d == Some(n)).map(|(_, t)| *t);
                         (n.clone(), typed_field(self, decl, x, &mut binds))
                     })
                     .collect(),
@@ -638,72 +632,19 @@ impl<'d, 'a> Typer<'d, 'a> {
         (fields, Some(self.applied_ty(ty, &params, &binds)))
     }
 
-    /// The declared fields of a struct, or of a variant: each name (none in
-    /// a tuple variant) and type, its parameters unbound.
-    fn declared_fields(&self, ty: &str, variant: Option<&str>) -> Vec<(Option<String>, Ty)> {
-        match variant {
-            None => self
-                .defs
-                .structs
-                .get(ty)
-                .map(|s| s.fields.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect())
-                .unwrap_or_default(),
-            Some(v) => match self
-                .defs
-                .enums
-                .get(ty)
-                .and_then(|e| e.variants.iter().find(|x| x.name.as_str() == v))
-                .map(|x| &x.fields)
-            {
-                Some(VariantFields::Tuple(tys)) => tys.iter().map(|t| (None, t.clone())).collect(),
-                Some(VariantFields::Struct(fs)) => {
-                    fs.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect()
-                }
-                _ => Vec::new(),
-            },
-        }
-    }
-
     pub(super) fn construct_fields(&mut self, ty: &str, variant: Option<&str>, fields: &Fields) -> Fields {
-        let declared: Vec<(Option<String>, Ty)> = match variant {
-            None => self
-                .defs
-                .structs
-                .get(ty)
-                .map(|s| s.fields.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect())
-                .unwrap_or_default(),
-            Some(v) => match self
-                .defs
-                .enums
-                .get(ty)
-                .and_then(|e| e.variants.iter().find(|x| x.name.as_str() == v))
-                .map(|x| &x.fields)
-            {
-                Some(VariantFields::Tuple(tys)) => tys.iter().map(|t| (None, t.clone())).collect(),
-                Some(VariantFields::Struct(fs)) => {
-                    fs.iter().map(|f| (Some(f.name.as_str().to_string()), f.ty.clone())).collect()
-                }
-                _ => Vec::new(),
-            },
-        };
+        let declared = self.defs.fields_of(ty, variant);
         match fields {
             Fields::Unit => Fields::Unit,
             Fields::Positional(xs) => Fields::Positional(
-                xs.iter()
-                    .enumerate()
-                    .map(|(i, x)| {
-                        let want = declared.get(i).map(|(_, t)| t.clone());
-                        self.expr(x, want.as_ref()).0
-                    })
-                    .collect(),
+                xs.iter().enumerate().map(|(i, x)| self.expr(x, declared.get(i).map(|(_, t)| *t)).0).collect(),
             ),
             Fields::Named(pairs) => Fields::Named(
                 pairs
                     .iter()
                     .map(|(n, x)| {
-                        let want =
-                            declared.iter().find(|(d, _)| d.as_deref() == Some(n.as_str())).map(|(_, t)| t.clone());
-                        (n.clone(), self.expr(x, want.as_ref()).0)
+                        let want = declared.iter().find(|(d, _)| *d == Some(n)).map(|(_, t)| *t);
+                        (n.clone(), self.expr(x, want).0)
                     })
                     .collect(),
             ),

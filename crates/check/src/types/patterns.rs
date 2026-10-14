@@ -105,16 +105,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
             }
             Pattern::Variant { ty, variant, bind } => {
-                let fields = self
-                    .defs
-                    .enums
-                    .get(ty.as_str())
-                    .and_then(|e| e.variants.iter().find(|v| v.name == *variant))
-                    .map(|v| v.fields.clone());
+                let fields = self.defs.variant(ty.as_str(), variant.as_str()).map(|v| &v.fields);
                 let bind = match (bind, fields) {
                     (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => VariantBind::Tuple(
                         ps.iter()
-                            .zip(&tys)
+                            .zip(tys)
                             .map(|(p, t)| {
                                 let t = self.norm(t);
                                 self.lit_pattern(p, Some(&t))
@@ -262,12 +257,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 format!("pattern `{}::{}` does not match a value of type `{}`", ty.as_str(), variant.as_str(), show(t)),
             );
         }
-        let fields = self
-            .defs
-            .enums
-            .get(ty.as_str())
-            .and_then(|e| e.variants.iter().find(|v| v.name == *variant))
-            .map(|v| &v.fields);
+        let fields = self.defs.variant(ty.as_str(), variant.as_str()).map(|v| &v.fields);
         match (bind, fields) {
             (VariantBind::Tuple(ps), Some(VariantFields::Tuple(tys))) => {
                 for (p, t) in ps.iter().zip(tys) {
