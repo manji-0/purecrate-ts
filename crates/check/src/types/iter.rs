@@ -1,8 +1,6 @@
 //! Iterator chains: `sum`, `count`, `all`, `fold`, `collect`, `map(..).unwrap_or(..)`,
 //! and the sequences they consume.
 
-use purecrate_ir::TreeOp;
-
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
@@ -547,25 +545,20 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let before = self.out.len();
                 let (source, st) = self.expr(&source, None);
                 // A map's or a set's items in key order, as a new array.
-                let tree = |op: TreeOp, source: Expr| Expr::Call { callee: Callee::Tree(op), args: vec![source] };
                 let (source, st) = match (adaptor, st.as_ref().map(|t| self.norm(t))) {
-                    ("iter" | "into_iter", Some(Ty::Map { key, value })) => {
-                        (tree(TreeOp::Entries, source), Some(Ty::Vec(Box::new(Ty::Tuple(vec![*key, *value])))))
+                    ("iter" | "into_iter", Some(t @ Ty::Map { .. })) => self.tree_items(TreeOp::Entries, source, t),
+                    ("iter" | "into_iter" | "keys", Some(t @ (Ty::Set(_) | Ty::Map { .. }))) => {
+                        self.tree_items(TreeOp::Keys, source, t)
                     }
-                    ("iter" | "into_iter" | "keys", Some(Ty::Set(key) | Ty::Map { key, .. })) => {
-                        (tree(TreeOp::Keys, source), Some(Ty::Vec(key)))
-                    }
-                    ("values", Some(Ty::Map { value, .. })) => (tree(TreeOp::Values, source), Some(Ty::Vec(value))),
+                    ("values", Some(t @ Ty::Map { .. })) => self.tree_items(TreeOp::Values, source, t),
                     ("keys" | "values", _) => (source, None),
                     _ => (source, st),
                 };
-                let item = match (over, st.as_ref().map(|t| self.norm(t))) {
-                    (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::Char),
-                    (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Ty::Prim(Prim::U8),
-                    (Over::Items, Some(Ty::Vec(t))) => *t,
-                    (_, found) => {
+                let item = match st.as_ref().and_then(|t| self.walked(over, t)) {
+                    Some(item) => item,
+                    None => {
                         if self.out.len() == before {
-                            let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
+                            let found = st.as_ref().map(|t| show(&self.norm(t))).unwrap_or_else(|| "?".into());
                             self.error(
                                 Reason::TypeMismatch,
                                 format!(

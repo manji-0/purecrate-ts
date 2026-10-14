@@ -13,7 +13,7 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy, FmtAlign,
     FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, Sort,
-    StrMethod, TryOn, Ty, UnOp, VariantBind, VariantFields,
+    StrMethod, TreeOp, TryOn, Ty, UnOp, VariantBind, VariantFields,
 };
 
 use crate::defs::{Defs, Peel};
@@ -320,23 +320,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (s, st) = self.expr(string, None);
                 // `for (k, v) in &m`, `for k in &s`: the items in key order.
                 let (s, st) = match st.as_ref().map(|t| self.norm(t)) {
-                    Some(Ty::Map { key, value }) if *over == Over::Items => (
-                        Expr::Call { callee: Callee::Tree(purecrate_ir::TreeOp::Entries), args: vec![s] },
-                        Some(Ty::Vec(Box::new(Ty::Tuple(vec![*key, *value])))),
-                    ),
-                    Some(Ty::Set(key)) if *over == Over::Items => (
-                        Expr::Call { callee: Callee::Tree(purecrate_ir::TreeOp::Keys), args: vec![s] },
-                        Some(Ty::Vec(key)),
-                    ),
+                    Some(t @ Ty::Map { .. }) if *over == Over::Items => self.tree_items(TreeOp::Entries, s, t),
+                    Some(t @ Ty::Set(_)) if *over == Over::Items => self.tree_items(TreeOp::Keys, s, t),
                     _ => (s, st),
                 };
-                let norm = st.as_ref().map(|t| self.norm(t));
-                let item = match (over, &norm) {
-                    (Over::Chars, Some(Ty::Prim(Prim::String | Prim::Str))) => Some(Ty::Prim(Prim::Char)),
-                    (Over::Bytes, Some(Ty::Prim(Prim::String | Prim::Str))) => Some(Ty::Prim(Prim::U8)),
-                    (Over::Items, Some(Ty::Vec(t))) => Some((**t).clone()),
-                    _ => None,
-                };
+                let item = st.as_ref().and_then(|t| self.walked(*over, t));
                 if item.is_none() && self.out.len() == before {
                     let found = st.as_ref().map(show).unwrap_or_else(|| "?".into());
                     let what = match over {

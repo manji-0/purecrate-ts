@@ -1,8 +1,6 @@
 //! `BTreeMap<String, V>` and `BTreeSet<String>` (design/01 §7.19): their
 //! methods, typed into `Callee::Tree`.
 
-use purecrate_ir::TreeOp;
-
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
@@ -11,7 +9,15 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn tree_call(&mut self, op: TreeOp, args: &[Expr], want: Option<&Ty>) -> Typed {
         let typed: Vec<Typed> = args.iter().map(|a| self.expr(a, None)).collect();
         let first = typed.first().and_then(|(_, t)| t.as_ref()).map(|t| self.norm(t));
-        let t = match (op, first) {
+        let t = self.tree_ty(op, first, want);
+        let e = Expr::Call { callee: Callee::Tree(op), args: typed.into_iter().map(|(e, _)| e).collect() };
+        (e, self.expect(want, t))
+    }
+
+    /// The type of a `Callee::Tree` call whose first argument is of type
+    /// `first` (normalized): a new map or set takes `want`'s.
+    pub(super) fn tree_ty(&mut self, op: TreeOp, first: Option<Ty>, want: Option<&Ty>) -> Option<Ty> {
+        match (op, first) {
             (TreeOp::NewMap | TreeOp::NewSet, _) => match want.map(|w| self.norm(w)) {
                 Some(w @ Ty::Map { .. }) if op == TreeOp::NewMap => Some(w),
                 Some(w @ Ty::Set(_)) if op == TreeOp::NewSet => Some(w),
@@ -39,9 +45,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             },
             (TreeOp::FromKeys, Some(Ty::Vec(item))) => Some(Ty::Set(item)),
             _ => None,
-        };
-        let e = Expr::Call { callee: Callee::Tree(op), args: typed.into_iter().map(|(e, _)| e).collect() };
-        (e, self.expect(want, t))
+        }
+    }
+
+    /// A map's entries, keys, or values (`op`), or a set's keys, in key
+    /// order as a new array, and its type; `ty` is `source`'s, normalized.
+    pub(super) fn tree_items(&mut self, op: TreeOp, source: Expr, ty: Ty) -> (Expr, Option<Ty>) {
+        let t = self.tree_ty(op, Some(ty), None);
+        (Expr::Call { callee: Callee::Tree(op), args: vec![source] }, t)
     }
 
     /// `m.get(k)` and the other methods of a typed `BTreeMap` / `BTreeSet`

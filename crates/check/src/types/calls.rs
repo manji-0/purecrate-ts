@@ -4,11 +4,11 @@ use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
     /// The items `over` walks in a value of type `ty`.
-    pub(super) fn walked(&self, over: purecrate_ir::Over, ty: &Ty) -> Option<Ty> {
+    pub(super) fn walked(&self, over: Over, ty: &Ty) -> Option<Ty> {
         match (over, self.norm(ty)) {
-            (purecrate_ir::Over::Chars, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::Char)),
-            (purecrate_ir::Over::Bytes, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::U8)),
-            (purecrate_ir::Over::Items, Ty::Vec(t)) => Some(*t),
+            (Over::Chars, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::Char)),
+            (Over::Bytes, Ty::Prim(Prim::String | Prim::Str)) => Some(Ty::Prim(Prim::U8)),
+            (Over::Items, Ty::Vec(t)) => Some(*t),
             _ => None,
         }
     }
