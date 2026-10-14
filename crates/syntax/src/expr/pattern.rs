@@ -78,10 +78,7 @@ pub(super) fn lower_matches(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseErro
     let hit = guard.unwrap_or(Expr::Lit(Lit::Bool(true)));
     Ok(Expr::Match {
         scrutinee: Box::new(lower_expr(cx, &scrutinee)?),
-        arms: vec![
-            Arm { guard: None, pattern, body: hit },
-            Arm { guard: None, pattern: Pattern::Wildcard, body: Expr::Lit(Lit::Bool(false)) },
-        ],
+        arms: vec![Arm::new(pattern, hit), Arm::new(Pattern::Wildcard, Expr::Lit(Lit::Bool(false)))],
     })
 }
 
@@ -118,43 +115,15 @@ pub(super) fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> 
         }
         // `S { f: p, .. }` of a struct: a fresh name here, its fields tested
         // and bound by the arm (`struct_arm`).
-        Pat::Struct(s) if s.path.segments.len() == 1 && cx.is_struct(&s.path.segments[0].ident.to_string()) => {
-            let fields = s
-                .fields
-                .iter()
-                .map(|f| match &f.member {
-                    Member::Named(id) => Ok((Name::new(id.to_string()), lower_pat(cx, &f.pat)?)),
-                    Member::Unnamed(_) => {
-                        Err(ParseError::new(Reason::PositionalFields, "unnamed fields in struct pattern"))
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+        Pat::Struct(s) if names_struct(cx, &s.path) => {
+            let fields = struct_pat_fields(cx, s)?;
             // Named after the struct: `$paymentMethod3` prints `paymentMethod`.
             let ty = s.path.segments[0].ident.to_string();
             let name = cx.fresh(&format!("{}{}", ty[..1].to_lowercase(), &ty[1..]));
             cx.push_struct_pat(crate::item::StructPat { name: name.clone(), fields });
             Ok(Pattern::Var(name))
         }
-        Pat::Struct(s) => {
-            let bind = VariantBind::Struct(
-                s.fields
-                    .iter()
-                    .map(|f| {
-                        let name = match &f.member {
-                            Member::Named(id) => Name::new(id.to_string()),
-                            Member::Unnamed(_) => {
-                                return Err(ParseError::new(
-                                    Reason::PositionalFields,
-                                    "unnamed fields in struct pattern",
-                                ))
-                            }
-                        };
-                        Ok((name, lower_pat(cx, &f.pat)?))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
-            path_variant_pat(cx, &s.path, bind)
-        }
+        Pat::Struct(s) => path_variant_pat(cx, &s.path, VariantBind::Struct(struct_pat_fields(cx, s)?)),
         Pat::Tuple(t) if t.elems.len() == 1 => lower_pat(cx, &t.elems[0]),
         Pat::Tuple(t) if t.elems.len() > 1 => {
             Ok(Pattern::Tuple(t.elems.iter().map(|p| lower_pat(cx, p)).collect::<Result<Vec<_>, _>>()?))
@@ -162,6 +131,22 @@ pub(super) fn lower_pat_node(cx: &Cx, pat: &Pat) -> Result<Pattern, ParseError> 
         Pat::Or(o) => Ok(Pattern::Or(o.cases.iter().map(|p| lower_pat(cx, p)).collect::<Result<Vec<_>, _>>()?)),
         other => Err(ParseError::new(Reason::UnsupportedPattern, format!("unsupported pattern {}", snippet(other)))),
     }
+}
+
+/// `path` is one name, of a crate struct.
+fn names_struct(cx: &Cx, path: &syn::Path) -> bool {
+    path.segments.len() == 1 && cx.is_struct(&path.segments[0].ident.to_string())
+}
+
+/// The fields of `S { f: p, .. }`, each with its pattern lowered.
+fn struct_pat_fields(cx: &Cx, s: &syn::PatStruct) -> Result<Vec<(Name, Pattern)>, ParseError> {
+    s.fields
+        .iter()
+        .map(|f| match &f.member {
+            Member::Named(id) => Ok((Name::new(id.to_string()), lower_pat(cx, &f.pat)?)),
+            Member::Unnamed(_) => Err(ParseError::new(Reason::PositionalFields, "unnamed fields in struct pattern")),
+        })
+        .collect()
 }
 
 /// v0 prints `match` as `switch (x.kind)`: each arm names one variant and
@@ -236,30 +221,22 @@ pub(super) fn tuple_elems(elems: &[Pattern]) -> Result<(), ParseError> {
 
 /// Checks that `pattern` names a case and binds only names or `_` inside.
 pub(super) fn variant_fields(pattern: &Pattern) -> Result<(), ParseError> {
-    let inner: Vec<&Pattern> = match pattern {
-        Pattern::Variant { bind, .. } => match bind {
-            VariantBind::Unit => Vec::new(),
-            VariantBind::Tuple(pats) => pats.iter().collect(),
-            VariantBind::Struct(pairs) => pairs.iter().map(|(_, p)| p).collect(),
-        },
-        Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) => vec![&**p],
-        Pattern::OptionNone => Vec::new(),
+    match pattern {
+        Pattern::Variant { .. }
+        | Pattern::OptionSome(_)
+        | Pattern::ResultOk(_)
+        | Pattern::ResultErr(_)
+        | Pattern::OptionNone => pattern.children().into_iter().try_for_each(field_pattern),
         Pattern::Wildcard
         | Pattern::Var(_)
         | Pattern::Lit(_)
         | Pattern::Or(_)
         | Pattern::Range { .. }
-        | Pattern::Tuple(_) => {
-            return Err(ParseError::new(Reason::ArmPattern, format!(
-                "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, or be `_` in v0, found {}",
-                describe_pat(pattern)
-            )))
-        }
-    };
-    for p in inner {
-        field_pattern(p)?;
+        | Pattern::Tuple(_) => Err(ParseError::new(Reason::ArmPattern, format!(
+            "match arms must name an enum variant, `Some`/`None`, `Ok`/`Err`, an integer, a `char`, or a range of either, a string literal, or be `_` in v0, found {}",
+            describe_pat(pattern)
+        ))),
     }
-    Ok(())
 }
 
 /// A variant field (or the payload of `Some`, `Ok`, `Err`, or a tuple's
@@ -293,7 +270,7 @@ pub(super) fn describe_pat(pattern: &Pattern) -> String {
 }
 
 pub(super) fn path_variant_pat(cx: &Cx, path: &syn::Path, bind: VariantBind) -> Result<Pattern, ParseError> {
-    let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let segs = path_idents(path);
     if let [one] = segs.as_slice() {
         if let Some(p) = prelude_pat(one, bind.clone())? {
             return Ok(p);
@@ -338,7 +315,7 @@ pub(super) fn lower_if_let(cx: &Cx, l: &syn::ExprLet, then: Expr, else_: Expr) -
     let other = other_case(&pattern);
     Ok(Expr::Match {
         scrutinee: Box::new(lower_expr(cx, &l.expr)?),
-        arms: vec![Arm { guard: None, pattern, body: then }, Arm { guard: None, pattern: other, body: else_ }],
+        arms: vec![Arm::new(pattern, then), Arm::new(other, else_)],
     })
 }
 
@@ -412,10 +389,7 @@ impl LetElse {
                 let x = x.clone();
                 let value = Expr::Match {
                     scrutinee: Box::new(self.scrutinee),
-                    arms: vec![
-                        Arm { guard: None, pattern: self.pattern.clone(), body: Expr::Var(x.clone()) },
-                        Arm { guard: None, pattern: self.other, body: self.else_ },
-                    ],
+                    arms: vec![Arm::new(self.pattern.clone(), Expr::Var(x.clone())), Arm::new(self.other, self.else_)],
                 };
                 let mutable = self.mutable.contains(&x);
                 return Expr::Let { name: x, mutable, ty: None, value: Box::new(value), then: Box::new(rest) };
@@ -430,10 +404,7 @@ impl LetElse {
         });
         Expr::Match {
             scrutinee: Box::new(self.scrutinee),
-            arms: vec![
-                Arm { guard: None, pattern: self.pattern, body: rest },
-                Arm { guard: None, pattern: self.other, body: self.else_ },
-            ],
+            arms: vec![Arm::new(self.pattern, rest), Arm::new(self.other, self.else_)],
         }
     }
 }
@@ -555,7 +526,7 @@ impl Destructure {
             value: Box::new(Expr::Var(temp)),
             then: Box::new(then),
         });
-        Expr::Match { scrutinee: Box::new(scrutinee), arms: vec![Arm { guard: None, pattern: self.pattern, body }] }
+        Expr::Match { scrutinee: Box::new(scrutinee), arms: vec![Arm::new(self.pattern, body)] }
     }
 }
 
@@ -604,8 +575,8 @@ pub(super) fn struct_arm(
                 p if p.bindings().is_empty() => tests.push(Expr::Match {
                     scrutinee: Box::new(in_guard),
                     arms: vec![
-                        Arm { guard: None, pattern: p, body: Expr::Lit(Lit::Bool(true)) },
-                        Arm { guard: None, pattern: Pattern::Wildcard, body: Expr::Lit(Lit::Bool(false)) },
+                        Arm::new(p, Expr::Lit(Lit::Bool(true))),
+                        Arm::new(Pattern::Wildcard, Expr::Lit(Lit::Bool(false))),
                     ],
                 }),
                 _ => {
@@ -617,7 +588,10 @@ pub(super) fn struct_arm(
             }
         }
     }
-    let guard = guard.map(|g| read_places(g, &places));
+    let guard = guard.map(|mut g| {
+        read_places(&mut g, &places);
+        g
+    });
     let guard = tests.into_iter().chain(guard).reduce(|a, b| Expr::Binary {
         op: BinOp::And,
         left: Box::new(a),
@@ -638,79 +612,47 @@ pub(super) fn struct_arm(
 /// `expr` with each read of a name in `places` replaced by its place,
 /// except where a binding inside `expr` (a closure's parameter, a `let`, a
 /// `match` arm's pattern, a `for` variable) hides the name.
-fn read_places(mut expr: Expr, places: &[(Name, Expr)]) -> Expr {
+fn read_places(expr: &mut Expr, places: &[(Name, Expr)]) {
     let without = |hidden: &[&Name]| -> Vec<(Name, Expr)> {
         places.iter().filter(|(n, _)| !hidden.contains(&n)).cloned().collect()
     };
-    match &mut expr {
+    match expr {
         Expr::Var(n) => {
             if let Some((_, p)) = places.iter().find(|(m, _)| m == n) {
-                return p.clone();
+                *expr = p.clone();
             }
-            return expr;
         }
         Expr::Closure { params, body, .. } => {
-            let inner = without(&params.iter().map(|p| &p.name).collect::<Vec<_>>());
-            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
-            **body = read_places(b, &inner);
-            return expr;
+            read_places(body, &without(&params.iter().map(|p| &p.name).collect::<Vec<_>>()));
         }
         Expr::Let { name, value, then, .. } => {
-            let v = std::mem::replace(&mut **value, Expr::Lit(Lit::Unit));
-            **value = read_places(v, places);
-            let inner = without(&[&*name]);
-            let t = std::mem::replace(&mut **then, Expr::Lit(Lit::Unit));
-            **then = read_places(t, &inner);
-            return expr;
+            read_places(value, places);
+            read_places(then, &without(&[&*name]));
         }
         Expr::Match { scrutinee, arms } => {
-            let sc = std::mem::replace(&mut **scrutinee, Expr::Lit(Lit::Unit));
-            **scrutinee = read_places(sc, places);
+            read_places(scrutinee, places);
             for arm in arms.iter_mut() {
-                let bound = arm.pattern.bindings();
-                let inner = without(&bound);
-                if let Some(g) = arm.guard.take() {
-                    arm.guard = Some(read_places(g, &inner));
-                }
-                let b = std::mem::replace(&mut arm.body, Expr::Lit(Lit::Unit));
-                arm.body = read_places(b, &inner);
+                let inner = without(&arm.pattern.bindings());
+                arm.guard.iter_mut().chain([&mut arm.body]).for_each(|e| read_places(e, &inner));
             }
-            return expr;
         }
         Expr::For { var, start, end, body, .. } => {
-            let st = std::mem::replace(&mut **start, Expr::Lit(Lit::Unit));
-            **start = read_places(st, places);
-            let en = std::mem::replace(&mut **end, Expr::Lit(Lit::Unit));
-            **end = read_places(en, places);
-            let inner = without(&[&*var]);
-            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
-            **body = read_places(b, &inner);
-            return expr;
+            read_places(start, places);
+            read_places(end, places);
+            read_places(body, &without(&[&*var]));
         }
         Expr::ForEach { var, source, body, .. } => {
-            let src = std::mem::replace(&mut **source, Expr::Lit(Lit::Unit));
-            **source = read_places(src, places);
-            let inner = without(&[&*var]);
-            let b = std::mem::replace(&mut **body, Expr::Lit(Lit::Unit));
-            **body = read_places(b, &inner);
-            return expr;
+            read_places(source, places);
+            read_places(body, &without(&[&*var]));
         }
-        _ => {}
+        other => other.children_mut().into_iter().for_each(|c| read_places(c, places)),
     }
-    for c in expr.children_mut() {
-        let e = std::mem::replace(c, Expr::Lit(Lit::Unit));
-        *c = read_places(e, places);
-    }
-    expr
 }
 
 /// Whether `pat` holds a struct pattern, which the arm turns into a guard.
 pub(super) fn has_struct_pat(cx: &Cx, pat: &Pat) -> bool {
     match pat {
-        Pat::Struct(s) => {
-            (s.path.segments.len() == 1 && cx.is_struct(&s.path.segments[0].ident.to_string()))
-                || s.fields.iter().any(|f| has_struct_pat(cx, &f.pat))
-        }
+        Pat::Struct(s) => names_struct(cx, &s.path) || s.fields.iter().any(|f| has_struct_pat(cx, &f.pat)),
         Pat::TupleStruct(t) => t.elems.iter().any(|p| has_struct_pat(cx, p)),
         Pat::Tuple(t) => t.elems.iter().any(|p| has_struct_pat(cx, p)),
         Pat::Or(o) => o.cases.iter().any(|p| has_struct_pat(cx, p)),

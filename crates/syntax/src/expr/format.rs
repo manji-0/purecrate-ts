@@ -158,26 +158,12 @@ fn is_atom(e: &SynExpr) -> bool {
     }
 }
 
-/// Whether an argument may write a local: an assignment, or a statement
-/// in a block, where `push` and the other writes stand before `check`
-/// rewrites them. A captured name placed before it would read the local
-/// before the write in TS, after it in Rust.
+/// Whether an argument may write a local: an assignment, `v[i] = x`, or a
+/// statement in a block, where `push` and the other writes stand before
+/// `check` rewrites them. A captured name placed before it would read the
+/// local before the write in TS, after it in Rust.
 fn writes(e: &Expr) -> bool {
-    e.any(|e| {
-        matches!(
-            e,
-            Expr::Assign { .. }
-                | Expr::Seq { .. }
-                | Expr::Call {
-                    callee: Callee::VecPush
-                        | Callee::VecInsert
-                        | Callee::VecRemove
-                        | Callee::VecSet
-                        | Callee::VecSort(_),
-                    ..
-                }
-        )
-    })
+    e.any(|e| matches!(e, Expr::Assign { .. } | Expr::Seq { .. } | Expr::Call { callee: Callee::VecSet, .. }))
 }
 
 fn merge_text(pieces: Vec<FmtPiece>) -> Vec<FmtPiece> {

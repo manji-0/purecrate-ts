@@ -1,11 +1,11 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, ClosureParam, Expr, Fields, FloatConst, FloatTy, IntTy, Lit, Name, Over, Pattern, Pos, Prim,
-    Reason, Ty, UnOp, VariantBind, Wrapper, NEWTYPE_FIELD,
+    Reason, Ty, UnOp, VariantBind, Wrapper,
 };
 use syn::spanned::Spanned;
 use syn::{BinOp as SynBinOp, Expr as SynExpr, Item as SynItem, Member, Pat, UnOp as SynUnOp};
 
-use crate::item::{snippet, Cx, LineCol, ParseError};
+use crate::item::{path_idents, path_text, snippet, Cx, LineCol, ParseError};
 use crate::ty::lower_type;
 
 mod format;
@@ -40,18 +40,15 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         }),
         SynExpr::Lit(l) => Ok(Expr::Lit(lower_lit(&l.lit)?)),
         SynExpr::Path(p) => lower_path_expr(cx, &p.path),
-        SynExpr::Field(f) => match &f.member {
-            Member::Named(id) => {
-                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(id.to_string()) })
-            }
-            Member::Unnamed(i) if i.index == 0 => {
-                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(NEWTYPE_FIELD) })
-            }
-            // `t.1` of a tuple; the types say whether the base is one.
-            Member::Unnamed(i) => {
-                Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(i.index.to_string()) })
-            }
-        },
+        // `t.1` of a tuple, or `n.0` of a newtype (`NEWTYPE_FIELD`); the
+        // types say which the base is.
+        SynExpr::Field(f) => {
+            let name = match &f.member {
+                Member::Named(id) => id.to_string(),
+                Member::Unnamed(i) => i.index.to_string(),
+            };
+            Ok(Expr::Field { base: Box::new(lower_expr(cx, &f.base)?), name: Name::new(name) })
+        }
         SynExpr::Assign(a) if element_target(&a.left).is_some() => {
             let (v, at) = element_target(&a.left).expect("checked by the guard");
             let at = lower_expr(cx, at)?;
@@ -118,40 +115,16 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let comments = Comments::of_span(m.span());
             let mut arms = Vec::new();
             for arm in &m.arms {
-                arms.push(Arm {
-                    guard: None,
-                    pattern: arm_pattern(lower_pat(cx, &arm.pat)?).map_err(|e| e.or_at(arm.pat.span()))?,
-                    body: comments.above(arm.span(), at(arm.body.span(), lower_expr(cx, &arm.body)?)),
-                });
+                arms.push(Arm::new(
+                    arm_pattern(lower_pat(cx, &arm.pat)?).map_err(|e| e.or_at(arm.pat.span()))?,
+                    comments.above(arm.span(), at(arm.body.span(), lower_expr(cx, &arm.body)?)),
+                ));
             }
             Ok(Expr::Match { scrutinee: Box::new(lower_expr(cx, &m.expr)?), arms })
         }
         SynExpr::Struct(s) => lower_struct_expr(cx, s),
         // Calls carry their own position, so a diagnostic about one points
         // at it rather than at the statement around it.
-        // `Vec::new()` is `vec![]`: an empty array whose type the context gives.
-        SynExpr::Call(c)
-            if c.args.is_empty()
-                && matches!(&*c.func, SynExpr::Path(p) if p.qself.is_none() && p.path.segments.len() == 2
-                    && p.path.segments[0].ident == "Vec" && p.path.segments[1].ident == "new") =>
-        {
-            Ok(at(c.span(), Expr::Array(Vec::new())))
-        }
-        // `BTreeMap::new()`, `BTreeSet::new()`: empty, of the type the context gives.
-        SynExpr::Call(c)
-            if c.args.is_empty()
-                && matches!(&*c.func, SynExpr::Path(p) if p.qself.is_none() && p.path.segments.len() == 2
-                    && (p.path.segments[0].ident == "BTreeMap" || p.path.segments[0].ident == "BTreeSet")
-                    && p.path.segments[1].ident == "new") =>
-        {
-            let SynExpr::Path(p) = &*c.func else { unreachable!("matched above") };
-            let op = if p.path.segments[0].ident == "BTreeMap" {
-                purecrate_ir::TreeOp::NewMap
-            } else {
-                purecrate_ir::TreeOp::NewSet
-            };
-            Ok(at(c.span(), Expr::Call { callee: Callee::Tree(op), args: Vec::new() }))
-        }
         SynExpr::Call(c) => Ok(at(c.span(), lower_call(cx, &c.func, c.args.iter().collect())?)),
         // `()` is the unit value, not an empty tuple: its type is `()` and
         // it prints as `undefined`.
@@ -371,15 +344,15 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             None => cx.fresh("p"),
         },
         _ if tuple.is_some() => cx.fresh("p"),
-        Pat::Ident(p) if p.by_ref.is_none() && p.mutability.is_none() && p.subpat.is_none() => {
-            Name::new(p.ident.to_string())
-        }
         // `for _ in 0..n`: a name nothing reads.
         Pat::Wild(_) => cx.fresh("i"),
-        _ => {
-            return reject(
-                "`for` takes a plain name, `_`, or a tuple of names for its variable, not `mut` or another pattern",
-            )
+        pat => {
+            let Some(name) = plain_name(pat) else {
+                return reject(
+                    "`for` takes a plain name, `_`, or a tuple of names for its variable, not `mut` or another pattern",
+                );
+            };
+            name
         }
     };
     // Lowered after the source, so fresh names and diagnostics keep source order.
@@ -418,8 +391,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         },
         None => each,
     };
-    let each = |over: Over, source: &SynExpr| -> Result<Expr, ParseError> {
-        let source = lower_expr(cx, source)?;
+    let each = |over: Over, source: Expr| -> Result<Expr, ParseError> {
         Ok(counted(Expr::ForEach { var: var.clone(), over, source: Box::new(source), body: Box::new(body()?) }))
     };
     // `(a..b).rev()`: the range, stepped down from its end. `xs.iter().rev()`
@@ -428,11 +400,11 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         SynExpr::MethodCall(m) if m.method == "rev" && m.args.is_empty() && m.turbofish.is_none() => {
             match strip_parens(&m.receiver) {
                 range @ SynExpr::Range(_) => (range, true),
-                _ => return each(Over::Items, iterable),
+                _ => return each(Over::Items, lower_expr(cx, iterable)?),
             }
         }
         SynExpr::MethodCall(m) if m.method == "zip" && m.args.len() == 1 && m.turbofish.is_none() => {
-            return each(Over::Items, iterable);
+            return each(Over::Items, lower_expr(cx, iterable)?);
         }
         other => (other, false),
     };
@@ -444,28 +416,12 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             (Some(a), Some(b)) => (a, b, matches!(r.limits, syn::RangeLimits::Closed(_))),
             _ => return reject("`for` takes a range with both ends, `a..b` or `a..=b`"),
         },
-        SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && m.method == "chars" => {
-            return each(Over::Chars, &m.receiver);
-        }
-        SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && m.method == "bytes" => {
-            return each(Over::Bytes, &m.receiver);
-        }
-        SynExpr::MethodCall(m)
-            if m.args.is_empty() && m.turbofish.is_none() && (m.method == "iter" || m.method == "into_iter") =>
-        {
-            return each(Over::Items, &m.receiver);
+        SynExpr::MethodCall(m) if m.args.is_empty() && m.turbofish.is_none() && over_of(&m.method).is_some() => {
+            return each(over_of(&m.method).expect("checked by the guard"), lower_expr(cx, &m.receiver)?);
         }
         SynExpr::MethodCall(m) if m.args.len() == 1 && m.turbofish.is_none() && m.method == "split" => {
-            let source = Expr::Call {
-                callee: Callee::StrSplit,
-                args: vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?],
-            };
-            return Ok(counted(Expr::ForEach {
-                var: var.clone(),
-                over: Over::Items,
-                source: Box::new(source),
-                body: Box::new(body()?),
-            }));
+            let args = vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?];
+            return each(Over::Items, Expr::Call { callee: Callee::StrSplit, args });
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(
@@ -475,11 +431,32 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         }
         // Any other value, `s.as_bytes()` or a method returning a `Vec`
         // included: the types say whether it is one.
-        other => return each(Over::Items, other),
+        other => return each(Over::Items, lower_expr(cx, other)?),
     };
     let (start, end) = (lower_expr(cx, start)?, lower_expr(cx, end)?);
     let (start, end, body) = (Box::new(start), Box::new(end), Box::new(body()?));
     Ok(Expr::For { var: var.clone(), ty: None, start, end, inclusive, rev, body })
+}
+
+/// What `for` over `<receiver>.<method>()` walks: a string's chars or
+/// bytes, or a `Vec`'s items.
+fn over_of(method: &syn::Ident) -> Option<Over> {
+    match method.to_string().as_str() {
+        "chars" => Some(Over::Chars),
+        "bytes" => Some(Over::Bytes),
+        "iter" | "into_iter" => Some(Over::Items),
+        _ => None,
+    }
+}
+
+/// The name `pat` binds when it is a plain name: not `ref`, `mut`, or `x @ p`.
+fn plain_name(pat: &Pat) -> Option<Name> {
+    match pat {
+        Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
+            Some(Name::new(id.ident.to_string()))
+        }
+        _ => None,
+    }
 }
 
 fn strip_parens(e: &SynExpr) -> &SynExpr {
@@ -549,12 +526,7 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
         })();
         match lowered {
             Ok(stmt) => stmts.push((span, stmt)),
-            Err(e) => {
-                let e = e.or_at(span);
-                if !cx.recover(&e) {
-                    return Err(e);
-                }
-            }
+            Err(e) => cx.recover_or_fail(e.or_at(span))?,
         }
     }
     let mut tail: Option<Expr> = None;
@@ -564,11 +536,8 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
         let span = stmt.span();
         let lowered = match stmt {
             syn::Stmt::Local(local) => lower_local(cx, local).map(|l| stmts.push((span, l))),
-            syn::Stmt::Expr(e, None) if i == last => {
-                lower_expr(cx, e).map(|e| tail = Some(comments.above(span, at(span, e))))
-            }
             // `return x;` ends the block with the same meaning as `return x`.
-            syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
+            syn::Stmt::Expr(e, None) | syn::Stmt::Expr(e @ SynExpr::Return(_), Some(_)) if i == last => {
                 lower_expr(cx, e).map(|e| tail = Some(comments.above(span, at(span, e))))
             }
             syn::Stmt::Expr(e, _) => lower_expr(cx, e).map(|e| stmts.push((span, Stmt::Effect(e)))),
@@ -591,10 +560,7 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
         // In recovery (`survey --all-causes`) a statement that fails is
         // recorded and left out, and the rest of the block goes on.
         if let Err(e) = lowered {
-            let e = e.or_at(span);
-            if !cx.recover(&e) {
-                return Err(e);
-            }
+            cx.recover_or_fail(e.or_at(span))?;
         }
     }
     // A comment before the `}` of a block that ends in a statement ends it.
@@ -610,29 +576,26 @@ fn lower_block_stmts(cx: &Cx, block: &syn::Block, consts: &[&syn::ItemConst]) ->
             Stmt::Let { name, mutable, ty, value } => {
                 Expr::Let { name, mutable, ty, value: Box::new(value), then: Box::new(then) }
             }
-            Stmt::Destructure { tuple, typed, value } => match typed {
-                Some((name, ty)) => Expr::Let {
-                    name: name.clone(),
-                    mutable: false,
-                    ty: Some(ty),
-                    value: Box::new(value),
-                    then: Box::new(tuple.bind(Expr::Var(name), then)),
-                },
-                // `let (a, b) = match x { .., None => return 0 };`: a
-                // `return` may end a `let`'s value but not a `match`'s
-                // scrutinee, so the value is bound first.
-                None if value.any(|e| matches!(e, Expr::Return(_))) => {
-                    let name = cx.fresh("pair");
-                    Expr::Let {
+            Stmt::Destructure { tuple, typed, value } => {
+                let bound = match typed {
+                    Some((name, ty)) => Some((name, Some(ty))),
+                    // `let (a, b) = match x { .., None => return 0 };`: a
+                    // `return` may end a `let`'s value but not a `match`'s
+                    // scrutinee, so the value is bound first.
+                    None if value.any(|e| matches!(e, Expr::Return(_))) => Some((cx.fresh("pair"), None)),
+                    None => None,
+                };
+                match bound {
+                    Some((name, ty)) => Expr::Let {
                         name: name.clone(),
                         mutable: false,
-                        ty: None,
+                        ty,
                         value: Box::new(value),
                         then: Box::new(tuple.bind(Expr::Var(name), then)),
-                    }
+                    },
+                    None => tuple.bind(value, then),
                 }
-                None => tuple.bind(value, then),
-            },
+            }
             Stmt::LetElse(l) => l.bind(then),
             Stmt::Effect(first) => Expr::Seq { first: Box::new(first), then: Box::new(then) },
         };
@@ -649,7 +612,7 @@ pub(super) struct Comments {
 
 /// The text of a `//` comment line, or `None` for code, a blank line,
 /// `///`, `//!`, or `/* */`.
-fn comment_text(line: &str) -> Option<String> {
+pub(crate) fn comment_text(line: &str) -> Option<String> {
     match line.trim().strip_prefix("//") {
         Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
             Some(one_line(rest.strip_prefix(' ').unwrap_or(rest).trim_end()))
@@ -661,7 +624,7 @@ fn comment_text(line: &str) -> Option<String> {
 /// `text` with what JS reads as a line end and Rust does not (a lone CR,
 /// U+2028, U+2029) made a space: in a printed `//` comment, the rest of
 /// the line would be code.
-pub(crate) fn one_line(text: &str) -> String {
+fn one_line(text: &str) -> String {
     text.replace(['\r', '\u{2028}', '\u{2029}'], " ")
 }
 
@@ -833,7 +796,7 @@ fn compound_op(op: SynBinOp) -> Option<SynBinOp> {
 }
 
 fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
-    let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let segs = path_idents(path);
     match segs.as_slice() {
         [one] => match one.as_str() {
             "true" => Ok(Expr::Lit(Lit::Bool(true))),
@@ -895,27 +858,21 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
                 tuples.push((name.clone(), tuple));
                 return Ok(ClosureParam { name, ty });
             }
-            match pat {
-                Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
-                    Ok(ClosureParam { name: Name::new(id.ident.to_string()), ty })
-                }
-                Pat::Wild(_) => Ok(ClosureParam { name: Name::new("_"), ty }),
-                // `|&x|`: a reference reads as its value.
-                Pat::Reference(r) if r.mutability.is_none() => match &*r.pat {
-                    Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() => {
-                        Ok(ClosureParam { name: Name::new(id.ident.to_string()), ty })
-                    }
-                    other => Err(ParseError::new(
-                        Reason::ParamPattern,
-                        format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(other)),
-                    )
-                    .or_at(other.span())),
-                },
-                other => Err(ParseError::new(
+            if let Pat::Wild(_) = pat {
+                return Ok(ClosureParam { name: Name::new("_"), ty });
+            }
+            // `|&x|`: a reference reads as its value.
+            let inner = match pat {
+                Pat::Reference(r) if r.mutability.is_none() => &*r.pat,
+                other => other,
+            };
+            match plain_name(inner) {
+                Some(name) => Ok(ClosureParam { name, ty }),
+                None => Err(ParseError::new(
                     Reason::ParamPattern,
-                    format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(other)),
+                    format!("closure parameters are plain names or tuples of them in v0, found {}", snippet(inner)),
                 )
-                .or_at(other.span())),
+                .or_at(inner.span())),
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -931,7 +888,7 @@ fn lower_closure(cx: &Cx, c: &syn::ExprClosure) -> Result<Expr, ParseError> {
 }
 
 fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
-    let segs: Vec<String> = s.path.segments.iter().map(|p| p.ident.to_string()).collect();
+    let segs = path_idents(&s.path);
     if s.rest.is_some() && segs.len() != 1 {
         return Err(ParseError::new(Reason::StructUpdate, "functional record update syntax requires a struct"));
     }
@@ -959,17 +916,6 @@ fn lower_struct_expr(cx: &Cx, s: &syn::ExprStruct) -> Result<Expr, ParseError> {
             Ok(Expr::Construct { ty: Name::new(ty.clone()), variant: Some(Name::new(var.clone())), fields, base: None })
         }
         _ => Err(path_error(&segs, format!("unknown struct constructor {}", segs.join("::")))),
-    }
-}
-
-fn wrapper_new(segs: &[String]) -> Option<Wrapper> {
-    match segs {
-        [name, new] if new == "new" => match name.as_str() {
-            "Box" => Some(Wrapper::Box),
-            "Arc" => Some(Wrapper::Arc),
-            _ => None,
-        },
-        _ => None,
     }
 }
 
@@ -1005,79 +951,90 @@ fn uuid_fn(segs: &[String]) -> Option<Callee> {
 
 fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, ParseError> {
     let args = args.into_iter().map(|a| lower_expr(cx, a)).collect::<Result<Vec<_>, _>>()?;
-    match func {
-        SynExpr::Path(p) => {
-            let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            // `f::<u32>()`, `Page::<u32>::new(..)`: the type arguments are
-            // inferred from the arguments and the binding, not read here.
-            if p.path.segments.iter().any(|s| !s.arguments.is_empty()) {
-                return Err(ParseError::new(
-                    Reason::Generics,
-                    format!(
-                        "a turbofish on a call ({}) is not in v0: the type arguments come from the arguments, or write the type on the binding (`let v: Vec<u32> = empty();`)",
-                        snippet(p)
-                    ),
-                )
-                .detail("turbofish"));
-            }
-            if segs == ["Mutex", "new"] {
-                return Err(ParseError::new(
-                    Reason::Mutex,
-                    "`Mutex::new` is shared mutable state; the subset is pure functions (design/02 §3.7)",
-                )
-                .detail("Mutex"));
-            }
-            if let Some(wrapper) = wrapper_new(&segs) {
-                if args.len() != 1 {
-                    return Err(ParseError::new(
-                        Reason::ConstructShape,
-                        format!("`{}::new` takes 1 argument, got {}", wrapper.rust_name(), args.len()),
-                    ));
-                }
-                return Ok(Expr::Ignored { wrapper, expr: Box::new(args.into_iter().next().unwrap()) });
-            }
-            let callee = if segs == ["Some"] {
-                Callee::OptionSome
-            } else if segs == ["None"] {
-                Callee::OptionNone
-            } else if segs == ["Ok"] {
-                Callee::ResultOk
-            } else if segs == ["Err"] {
-                Callee::ResultErr
-            } else if segs == ["String", "from"] {
-                Callee::StringFrom
-            } else if segs == ["String", "new"] {
-                Callee::StringNew
-            } else if segs == ["char", "from"] {
-                Callee::CharFromU8
-            } else if segs == ["char", "from_u32"] {
-                Callee::CharFromU32
-            } else if let Some(callee) = uuid_fn(&segs) {
-                callee
-            } else if let Some(to) = int_from(&segs) {
-                Callee::IntFrom { from: None, to }
-            } else if let Some(to) = float_of(&segs, "from") {
-                Callee::FloatFrom(to)
-            } else if segs.len() == 1 && cx.is_struct(&segs[0]) {
-                Callee::StructNew(Name::new(segs[0].clone()))
-            } else if segs.len() == 2 && cx.is_variant(&segs[0], &segs[1]) {
-                return Ok(Expr::Construct {
-                    ty: Name::new(segs[0].clone()),
-                    variant: Some(Name::new(segs[1].clone())),
-                    fields: Fields::Positional(args),
-                    base: None,
-                });
-            } else if segs.len() == 2 && (cx.is_enum(&segs[0]) || cx.is_struct(&segs[0])) {
-                Callee::Method { ty: Name::new(segs[0].clone()), name: Name::new(segs[1].clone()) }
-            } else if segs.len() == 1 {
-                Callee::Fn(Name::new(segs[0].clone()))
-            } else {
-                return Err(path_error(&segs, format!("unsupported call {}", segs.join("::"))));
-            };
-            Ok(Expr::Call { callee, args })
+    let SynExpr::Path(p) = func else {
+        return Err(ParseError::new(Reason::ExternalPath, "only simple calls in v0"));
+    };
+    let segs = path_idents(&p.path);
+    let strs: Vec<&str> = segs.iter().map(String::as_str).collect();
+    // Empty, of the type the context gives: `Vec::new()` is `vec![]`. Before
+    // the turbofish check, as `Vec::<u32>::new()` is one too.
+    if args.is_empty() && p.qself.is_none() {
+        let tree = |op| Ok(Expr::Call { callee: Callee::Tree(op), args: Vec::new() });
+        match strs.as_slice() {
+            ["Vec", "new"] => return Ok(Expr::Array(Vec::new())),
+            ["BTreeMap", "new"] => return tree(purecrate_ir::TreeOp::NewMap),
+            ["BTreeSet", "new"] => return tree(purecrate_ir::TreeOp::NewSet),
+            _ => {}
         }
-        _ => Err(ParseError::new(Reason::ExternalPath, "only simple calls in v0")),
     }
+    // `f::<u32>()`, `Page::<u32>::new(..)`: the type arguments are
+    // inferred from the arguments and the binding, not read here.
+    if p.path.segments.iter().any(|s| !s.arguments.is_empty()) {
+        return Err(ParseError::new(
+            Reason::Generics,
+            format!(
+                "a turbofish on a call ({}) is not in v0: the type arguments come from the arguments, or write the type on the binding (`let v: Vec<u32> = empty();`)",
+                snippet(p)
+            ),
+        )
+        .detail("turbofish"));
+    }
+    if strs == ["Mutex", "new"] {
+        return Err(ParseError::new(
+            Reason::Mutex,
+            "`Mutex::new` is shared mutable state; the subset is pure functions (design/02 §3.7)",
+        )
+        .detail("Mutex"));
+    }
+    if let [name, "new"] = strs.as_slice() {
+        if let Some(wrapper) = Wrapper::of_rust_name(name) {
+            if args.len() != 1 {
+                return Err(ParseError::new(
+                    Reason::ConstructShape,
+                    format!("`{name}::new` takes 1 argument, got {}", args.len()),
+                ));
+            }
+            return Ok(Expr::Ignored { wrapper, expr: Box::new(args.into_iter().next().unwrap()) });
+        }
+    }
+    let callee = match (std_callee(&segs), segs.as_slice()) {
+        (Some(callee), _) => callee,
+        (None, [ty]) if cx.is_struct(ty) => Callee::StructNew(Name::new(ty.clone())),
+        (None, [f]) => Callee::Fn(Name::new(f.clone())),
+        (None, [ty, variant]) if cx.is_variant(ty, variant) => {
+            return Ok(Expr::Construct {
+                ty: Name::new(ty.clone()),
+                variant: Some(Name::new(variant.clone())),
+                fields: Fields::Positional(args),
+                base: None,
+            })
+        }
+        (None, [ty, name]) if cx.is_enum(ty) || cx.is_struct(ty) => {
+            Callee::Method { ty: Name::new(ty.clone()), name: Name::new(name.clone()) }
+        }
+        _ => return Err(path_error(&segs, format!("unsupported call {}", segs.join("::")))),
+    };
+    Ok(Expr::Call { callee, args })
+}
+
+/// A call of something std or the prelude has, by its path.
+fn std_callee(segs: &[String]) -> Option<Callee> {
+    let strs: Vec<&str> = segs.iter().map(String::as_str).collect();
+    Some(match strs.as_slice() {
+        ["Some"] => Callee::OptionSome,
+        ["None"] => Callee::OptionNone,
+        ["Ok"] => Callee::ResultOk,
+        ["Err"] => Callee::ResultErr,
+        ["String", "from"] => Callee::StringFrom,
+        ["String", "new"] => Callee::StringNew,
+        ["char", "from"] => Callee::CharFromU8,
+        ["char", "from_u32"] => Callee::CharFromU32,
+        _ => {
+            return uuid_fn(segs)
+                .or_else(|| int_from(segs).map(|to| Callee::IntFrom { from: None, to }))
+                .or_else(|| float_of(segs, "from").map(Callee::FloatFrom))
+        }
+    })
 }
 
 /// `vec![a, b]`: a `Vec` of exactly the listed elements, printed as the
@@ -1192,10 +1149,6 @@ fn lower_un(op: SynUnOp) -> Result<UnOp, ParseError> {
                 .detail(text.trim_matches('`')))
         }
     }
-}
-
-fn path_text(path: &syn::Path) -> String {
-    path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
 }
 
 /// The `syn` variant name, e.g. `Async`, for tallying unsupported syntax.

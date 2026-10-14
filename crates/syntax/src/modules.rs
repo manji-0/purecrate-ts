@@ -39,11 +39,8 @@ pub fn parse_files_spanned(
 ) -> Result<(Crate, ItemSpans), (usize, ParseError)> {
     let mut files = sources
         .iter()
-        .map(|s| s.text)
         .enumerate()
-        .map(|(i, s)| {
-            syn::parse_file(s).map_err(|e| (i, ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span())))
-        })
+        .map(|(i, s)| item::parse(s.text).map_err(|e| (i, e)))
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut modules = HashSet::new();
@@ -155,7 +152,7 @@ fn flatten(items: Vec<SynItem>, public: bool, module: Option<&str>, re: &Reexpor
             }
             SynItem::Use(_) => {}
             _ => {
-                let reexported = item_name(&item).is_some_and(|n| re.names.contains(&n))
+                let reexported = item::item_ident(&item).is_some_and(|n| re.names.contains(&n.to_string()))
                     || module.is_some_and(|m| re.globs.contains(m));
                 if !public && !reexported {
                     demote(&mut item);
@@ -163,16 +160,6 @@ fn flatten(items: Vec<SynItem>, public: bool, module: Option<&str>, re: &Reexpor
                 out(item);
             }
         }
-    }
-}
-
-fn item_name(item: &SynItem) -> Option<String> {
-    match item {
-        SynItem::Struct(s) => Some(s.ident.to_string()),
-        SynItem::Enum(e) => Some(e.ident.to_string()),
-        SynItem::Fn(f) => Some(f.sig.ident.to_string()),
-        SynItem::Type(t) => Some(t.ident.to_string()),
-        _ => None,
     }
 }
 

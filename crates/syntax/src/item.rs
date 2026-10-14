@@ -67,6 +67,21 @@ pub fn snippet(node: &impl Spanned) -> String {
     }
 }
 
+/// A source file, or `syn`'s error as `[syntax/invalid]`.
+pub fn parse(source: &str) -> Result<syn::File, ParseError> {
+    syn::parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))
+}
+
+/// The names of `path`'s segments, without their arguments.
+pub fn path_idents(path: &syn::Path) -> Vec<String> {
+    path.segments.iter().map(|s| s.ident.to_string()).collect()
+}
+
+/// `path` as written, without its arguments: `std::cmp::max`.
+pub fn path_text(path: &syn::Path) -> String {
+    path_idents(path).join("::")
+}
+
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.at {
@@ -155,11 +170,9 @@ impl Cx {
         let lines = self.source.borrow();
         let mut out = Vec::new();
         for i in (0..line.saturating_sub(1)).rev() {
-            match lines.get(i).and_then(|l| l.trim().strip_prefix("//")) {
-                Some(rest) if !rest.starts_with('/') && !rest.starts_with('!') => {
-                    out.push(crate::expr::one_line(rest.strip_prefix(' ').unwrap_or(rest).trim_end()));
-                }
-                _ => break,
+            match lines.get(i).and_then(|l| crate::expr::comment_text(l)) {
+                Some(text) => out.push(text),
+                None => break,
             }
         }
         out.reverse();
@@ -224,6 +237,15 @@ impl Cx {
         }
     }
 
+    /// `recover`, as a result: `Err(e)` when not in recovery.
+    pub fn recover_or_fail(&self, e: ParseError) -> Result<(), ParseError> {
+        if self.recover(&e) {
+            Ok(())
+        } else {
+            Err(e)
+        }
+    }
+
     /// Runs `f` with `names` in scope as a block's `const` items.
     pub fn with_local_consts<T>(&self, names: Vec<String>, f: impl FnOnce() -> T) -> T {
         let n = names.len();
@@ -248,7 +270,7 @@ impl Cx {
 
 /// Attributes that would make the emitted TS disagree with the Rust build if
 /// they were dropped. Everything else (`derive`, `doc`, lints) is inert here.
-fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
+fn reject_attrs<'a>(attrs: impl IntoIterator<Item = &'a syn::Attribute>) -> Result<(), ParseError> {
     for attr in attrs {
         let path = attr.path();
         let (reason, message) = if path.is_ident("serde") {
@@ -269,8 +291,7 @@ fn reject_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
 /// `reject_attrs` but for `#[serde(...)]`, which the caller reads where it
 /// is written (`serde_attrs`).
 fn reject_other_attrs(attrs: &[syn::Attribute]) -> Result<(), ParseError> {
-    let others: Vec<syn::Attribute> = attrs.iter().filter(|a| !a.path().is_ident("serde")).cloned().collect();
-    reject_attrs(&others)
+    reject_attrs(attrs.iter().filter(|a| !a.path().is_ident("serde")))
 }
 
 /// The fields of a struct or a struct variant, each with its JSON name:
@@ -307,6 +328,19 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
     }
 }
 
+/// The name of an item lowered as one named item: a struct, an enum, a
+/// function, a type alias, or a `const`.
+pub(crate) fn item_ident(item: &SynItem) -> Option<&syn::Ident> {
+    match item {
+        SynItem::Enum(e) => Some(&e.ident),
+        SynItem::Struct(s) => Some(&s.ident),
+        SynItem::Fn(f) => Some(&f.sig.ident),
+        SynItem::Type(t) => Some(&t.ident),
+        SynItem::Const(c) => Some(&c.ident),
+        _ => None,
+    }
+}
+
 /// The text of `///` and `/** */` comments (`#[doc = "..."]`), one line
 /// each, less the one space after `///`; `None` without any.
 fn doc(attrs: &[syn::Attribute]) -> Option<String> {
@@ -323,16 +357,6 @@ fn doc(attrs: &[syn::Attribute]) -> Option<String> {
     }
     let first = lines.iter().position(|l| !l.is_empty())?;
     Some(lines[first..].join("\n"))
-}
-
-trait WithDoc {
-    fn with_doc(self, attrs: &[syn::Attribute]) -> Self;
-}
-
-impl WithDoc for Fn {
-    fn with_doc(self, attrs: &[syn::Attribute]) -> Self {
-        Fn { doc: doc(attrs), ..self }
-    }
 }
 
 /// The serde derives in `#[derive(...)]`, by the last path segment, so
@@ -367,11 +391,6 @@ pub fn is_test_only(item: &SynItem) -> bool {
 pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, ParseError> {
     let span = item.span();
     let names: Vec<LineCol> = match &item {
-        SynItem::Enum(e) => vec![LineCol::of(e.ident.span())],
-        SynItem::Struct(s) => vec![LineCol::of(s.ident.span())],
-        SynItem::Fn(f) => vec![LineCol::of(f.sig.ident.span())],
-        SynItem::Type(t) => vec![LineCol::of(t.ident.span())],
-        SynItem::Const(c) => vec![LineCol::of(c.ident.span())],
         // One per lowered method; `type Error` of a `TryFrom` impl is not one.
         SynItem::Impl(imp) => imp
             .items
@@ -381,15 +400,14 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
                 _ => None,
             })
             .collect(),
-        _ => Vec::new(),
+        other => item_ident(other).map(|id| LineCol::of(id.span())).into_iter().collect(),
     };
-    let attrs: Vec<syn::Attribute> = item_attrs(&item)
-        .iter()
-        // A struct's and an enum's are read where they are lowered.
-        .filter(|a| !(matches!(item, SynItem::Struct(_) | SynItem::Enum(_)) && a.path().is_ident("serde")))
-        .cloned()
-        .collect();
-    reject_attrs(&attrs)?;
+    reject_attrs(
+        item_attrs(&item)
+            .iter()
+            // A struct's and an enum's are read where they are lowered.
+            .filter(|a| !(matches!(item, SynItem::Struct(_) | SynItem::Enum(_)) && a.path().is_ident("serde"))),
+    )?;
     let items = lower_item_node(cx, item).map_err(|e| e.or_at(span))?;
     Ok(items.into_iter().zip(names).collect())
 }
@@ -398,7 +416,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
     match item {
         SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(cx, &e)?)]),
         SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
-        SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block)?.with_doc(&f.attrs))]),
+        SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block, &f.attrs)?)]),
         SynItem::Type(t) => {
             if !has_type_generics(&t.generics) {
                 Ok(vec![Item::Alias(Alias {
@@ -426,7 +444,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
 /// `const NAME: T = expr;`, folded by `check::accept`. `const _` and
 /// generic consts are not in v0.
 fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
-    if has_type_generics(&c.generics) || !c.generics.params.is_empty() {
+    if !c.generics.params.is_empty() {
         return Err(ParseError::new(Reason::Generics, "generic consts are not in v0"));
     }
     if c.ident == "_" {
@@ -452,7 +470,7 @@ fn enum_repr(attrs: &[syn::Attribute]) -> Result<Option<IntTy>, ParseError> {
                 .detail("repr")
                 .or_at(attr.span())
         })?;
-        let ty = IntTy::ALL.into_iter().find(|t| id == t.as_str()).ok_or_else(|| {
+        let ty = IntTy::of_suffix(&id.to_string()).ok_or_else(|| {
             ParseError::new(Reason::UnsupportedItem, format!("`#[repr({id})]` is not in v0; use an integer type"))
                 .detail("repr")
                 .or_at(attr.span())
@@ -585,6 +603,7 @@ fn lower_fn(
     sig: &syn::Signature,
     vis: &Visibility,
     block: &syn::Block,
+    attrs: &[syn::Attribute],
 ) -> Result<Fn, ParseError> {
     let reject = |what: &str, span: proc_macro2::Span| {
         Err(ParseError::new(Reason::FnQualifier, format!("{what} is not allowed in v0")).detail(what).or_at(span))
@@ -620,7 +639,7 @@ fn lower_fn(
         params,
         ret,
         body: lower_block(cx, block)?,
-        doc: None,
+        doc: doc(attrs),
     })
 }
 
@@ -656,7 +675,7 @@ enum TraitImpl {
 }
 
 fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
-    let idents: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let idents = path_idents(path);
     let idents: Vec<&str> = idents.iter().map(String::as_str).collect();
     match idents.as_slice() {
         ["Display"] | ["fmt", "Display"] | ["std" | "core", "fmt", "Display"] => Some(TraitImpl::Display),
@@ -815,9 +834,8 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
                 SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
                 let owned = (owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
-                let lowered = lower_fn(cx, Some(owned), &f.sig, &public, &f.block)
-                    .map(|l| l.with_doc(&f.attrs))
-                    .map_err(|e| e.or_at(item.span()))?;
+                let lowered =
+                    lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
             }
             other => {
@@ -838,7 +856,7 @@ struct SelfError<'a>(&'a syn::Type);
 impl VisitMut for SelfError<'_> {
     fn visit_type_mut(&mut self, ty: &mut syn::Type) {
         if let syn::Type::Path(p) = ty {
-            let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            let idents = path_idents(&p.path);
             if p.qself.is_none() && idents == ["Self", "Error"] {
                 *ty = self.0.clone();
                 return;
@@ -892,7 +910,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
                 let mut f = f.clone();
                 SelfIsOwner(&owner_ident, Some(&imp.self_ty)).visit_impl_item_fn_mut(&mut f);
                 let owned = (owner.clone(), owner_ty.clone(), outer.clone());
-                lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block).map(|l| l.with_doc(&f.attrs))
+                lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block, &f.attrs)
             }),
             _ => Err(ParseError::new(Reason::ImplShape, "only methods in impl blocks in v0")),
         };
@@ -1010,7 +1028,6 @@ fn lower_vis(vis: &Visibility) -> Vis {
 
 fn item_kind(item: &SynItem) -> &'static str {
     match item {
-        SynItem::Const(_) => "const",
         SynItem::Static(_) => "static",
         SynItem::Trait(_) | SynItem::TraitAlias(_) => "trait",
         SynItem::Union(_) => "union",

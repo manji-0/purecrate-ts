@@ -8,7 +8,7 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::Item as SynItem;
 
-use crate::item::{self, is_test_only, Cx, LineCol, ParseError};
+use crate::item::{self, is_test_only, parse, path_text, Cx, LineCol, ParseError};
 use crate::std_ordering::StdOrdering;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,10 +45,7 @@ pub struct Unit {
 /// Out-of-line `mod x;` declarations, as paths relative to the declaring
 /// file's module directory: `mod a { mod b; }` gives `["a", "b"]`.
 pub fn module_decls(source: &str) -> Result<Vec<Vec<String>>, ParseError> {
-    let file = parse(source)?;
-    let mut out = Vec::new();
-    collect_mods(&file.items, &mut Vec::new(), &mut out);
-    Ok(out)
+    Ok(module_decls_vis(source)?.into_iter().map(|(path, _)| path).collect())
 }
 
 /// `module_decls` with whether each is reached through `pub` modules only.
@@ -70,19 +67,6 @@ pub fn module_decls_vis(source: &str) -> Result<Vec<(Vec<String>, bool)>, ParseE
     let mut out = Vec::new();
     walk(&file.items, &mut Vec::new(), true, &mut out);
     Ok(out)
-}
-
-fn collect_mods(items: &[SynItem], prefix: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
-    for item in items.iter().filter(|i| !is_test_only(i)) {
-        if let SynItem::Mod(m) = item {
-            prefix.push(m.ident.unraw().to_string());
-            match &m.content {
-                Some((_, inner)) => collect_mods(inner, prefix, out),
-                None => out.push(prefix.clone()),
-            }
-            prefix.pop();
-        }
-    }
 }
 
 /// A file `syn` cannot parse fails the whole survey; everything else is
@@ -140,10 +124,6 @@ fn module_names(items: &[SynItem], out: &mut HashSet<String>) {
             }
         }
     }
-}
-
-fn parse(source: &str) -> Result<syn::File, ParseError> {
-    syn::parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))
 }
 
 /// Items of the file and of its inline modules, test-only ones left out.
@@ -268,8 +248,4 @@ fn self_name(ty: &syn::Type) -> String {
         syn::Type::Path(p) => path_text(&p.path),
         other => other.span().source_text().unwrap_or_default(),
     }
-}
-
-fn path_text(p: &syn::Path) -> String {
-    p.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
 }

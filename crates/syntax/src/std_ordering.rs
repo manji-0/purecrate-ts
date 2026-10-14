@@ -166,16 +166,7 @@ impl Visit<'_> {
                 && ident(tts.get(i + 3), ORDERING)
                 && !self.modules.contains("cmp")
             {
-                self.fail(
-                    ParseError::new(
-                        Reason::QualifiedPath,
-                        format!(
-                        "`cmp::{ORDERING}` is not in v0; write `use std::cmp::{ORDERING};` and name it `{ORDERING}`"
-                    ),
-                    )
-                    .detail(format!("cmp::{ORDERING}"))
-                    .or_at(tts[i].span()),
-                );
+                self.fail(cmp_path_error(tts[i].span()));
             }
             out.push(match &tts[i] {
                 TokenTree::Group(g) => {
@@ -189,6 +180,16 @@ impl Visit<'_> {
         }
         out.into_iter().collect()
     }
+}
+
+/// `cmp::Ordering` through `use std::cmp;`, at `span`.
+fn cmp_path_error(span: proc_macro2::Span) -> ParseError {
+    ParseError::new(
+        Reason::QualifiedPath,
+        format!("`cmp::{ORDERING}` is not in v0; write `use std::cmp::{ORDERING};` and name it `{ORDERING}`"),
+    )
+    .detail(format!("cmp::{ORDERING}"))
+    .or_at(span)
 }
 
 impl VisitMut for Visit<'_> {
@@ -207,7 +208,7 @@ impl VisitMut for Visit<'_> {
     }
 
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
-        let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let segs = crate::item::path_idents(path);
         match segs.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
             ["std" | "core", "cmp", o, ..]
                 if *o == ORDERING && path.segments.iter().take(2).all(|s| s.arguments.is_empty()) =>
@@ -217,16 +218,7 @@ impl VisitMut for Visit<'_> {
                 path.segments = path.segments.iter().skip(2).cloned().collect();
             }
             ["cmp", o, ..] if *o == ORDERING && path.leading_colon.is_none() && !self.modules.contains("cmp") => {
-                self.fail(
-                    ParseError::new(
-                        Reason::QualifiedPath,
-                        format!(
-                        "`cmp::{ORDERING}` is not in v0; write `use std::cmp::{ORDERING};` and name it `{ORDERING}`"
-                    ),
-                    )
-                    .detail(format!("cmp::{ORDERING}"))
-                    .or_at(path.span()),
-                );
+                self.fail(cmp_path_error(path.span()));
             }
             _ => {}
         }

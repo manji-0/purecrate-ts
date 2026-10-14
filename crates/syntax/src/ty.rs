@@ -2,7 +2,7 @@ use purecrate_ir::{Name, Prim, Reason, Ty, Wrapper};
 use syn::spanned::Spanned;
 use syn::{GenericArgument, PathArguments, Type};
 
-use crate::item::{snippet, ParseError};
+use crate::item::{path_idents, snippet, ParseError};
 
 pub fn lower_type(ty: &Type) -> Result<Ty, ParseError> {
     lower_type_node(ty).map_err(|e| e.or_at(ty.span()))
@@ -83,7 +83,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     // The `uuid` crate is the one outside dependency whose types are modeled
     // (design/01 §6). Its error is named through the crate, as in
     // `Result<Uuid, uuid::Error>`, since a bare `Error` is usually the crate's own.
-    let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let segs = path_idents(path);
     let plain = path.segments.iter().all(|s| s.arguments.is_empty());
     match (plain, segs.iter().map(String::as_str).collect::<Vec<_>>().as_slice()) {
         (true, ["uuid", "Uuid"]) => return Ok(Ty::Prim(Prim::Uuid)),
@@ -98,7 +98,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
             Reason::QualifiedPath,
             format!("qualified type path {} is not in v0; use a crate-local name", snippet(path)),
         )
-        .detail(path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")));
+        .detail(segs.join("::")));
     }
     let last = &path.segments[0];
     let name = last.ident.to_string();
@@ -134,7 +134,7 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
     }
     // `Box` / `Arc` are erased to the inner type. Emit keeps a comment
     // that says why Rust has the wrapper and why single-threaded TS drops it.
-    if let Some(wrapper) = wrapper(&name) {
+    if let Some(wrapper) = Wrapper::of_rust_name(&name) {
         return Ok(Ty::ignored(wrapper, first_generic(&last.arguments)?));
     }
     match name.as_str() {
@@ -192,14 +192,6 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
                 Ok(Ty::App { name: Name::new(name), args })
             }
         }
-    }
-}
-
-fn wrapper(name: &str) -> Option<Wrapper> {
-    match name {
-        "Box" => Some(Wrapper::Box),
-        "Arc" => Some(Wrapper::Arc),
-        _ => None,
     }
 }
 

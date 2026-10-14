@@ -9,8 +9,7 @@ mod std_ordering;
 mod survey;
 mod ty;
 
-use purecrate_ir::{Crate, Item, Reason};
-use syn::parse_file;
+use purecrate_ir::{Crate, Item};
 
 pub use item::{LineCol, ParseError};
 pub use modules::{parse_files_spanned, Source};
@@ -32,8 +31,7 @@ pub fn parse_source(crate_name: &str, source: &str) -> Result<Crate, ParseError>
 /// Function bodies mark statements, block tails and `match` arms with
 /// `Expr::At`, so diagnostics can point inside a function.
 pub fn parse_source_spanned(crate_name: &str, source: &str) -> Result<(Crate, Vec<LineCol>), ParseError> {
-    let mut file =
-        parse_file(source).map_err(|e| ParseError::new(Reason::InvalidSyntax, e.to_string()).or_at(e.span()))?;
+    let mut file = item::parse(source)?;
     if file.items.iter().any(|i| matches!(i, syn::Item::Mod(_)) && !item::is_test_only(i)) {
         // One file with modules: the module-aware path, which reads the
         // inline ones and reports an out-of-line one as missing.
