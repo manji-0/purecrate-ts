@@ -383,7 +383,7 @@ fn args(n: usize) -> String {
 fn case(call: &Call) -> String {
     let (lets, js) = draw(&call.types, "            ");
     format!(
-        "    __purecrate_cases.push(crate::__purecrate::Case {{\n        key: {key:?},\n        run: |__r| {{\n{lets}            let __js = {js};\n            Some((__js, crate::__purecrate::call(move || {f}({args}))))\n        }},\n    }});\n",
+        "    __purecrate_cases.push(crate::__purecrate::Case {{\n        key: {key:?},\n        run: |__r| {{\n{lets}            let __js = {js};\n            Some((__js, crate::__purecrate::shown(move || {f}({args}))))\n        }},\n    }});\n",
         key = call.key,
         f = call.rust,
         args = args(call.types.len()),
@@ -650,8 +650,10 @@ fn literal_end(b: &[u8], start: usize, quote: u8) -> usize {
 }
 
 /// The harness's own module, appended to the crate root: the draws, the
-/// canonical text of std's types, and the loop that runs the cases.
-const PRELUDE: &str = r##"
+/// canonical text of std's types (`show.rs`), and the loop that runs the
+/// cases.
+const PRELUDE: &str = concat!(
+    r##"
 #[doc(hidden)]
 #[allow(warnings, clippy::all)]
 pub(crate) mod __purecrate {
@@ -763,11 +765,6 @@ pub(crate) mod __purecrate {
         fn arb(r: &mut Rng) -> Option<(Self, String)>;
     }
 
-    /// The canonical text both sides print (design/01 §8).
-    pub trait Show {
-        fn show(&self) -> String;
-    }
-
     macro_rules! int {
         ($($t:ty, $js:literal;)*) => {$(
             impl Arb for $t {
@@ -780,11 +777,6 @@ pub(crate) mod __purecrate {
                         _ => ((u128::from(r.next()) << 64) | u128::from(r.next())) as $t,
                     };
                     Some((v, format!($js, v)))
-                }
-            }
-            impl Show for $t {
-                fn show(&self) -> String {
-                    self.to_string()
                 }
             }
         )*};
@@ -807,22 +799,10 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl Show for usize {
-        fn show(&self) -> String {
-            self.to_string()
-        }
-    }
-
     impl Arb for bool {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let v = r.below(2) == 0;
             Some((v, v.to_string()))
-        }
-    }
-
-    impl Show for bool {
-        fn show(&self) -> String {
-            self.to_string()
         }
     }
 
@@ -839,14 +819,6 @@ pub(crate) mod __purecrate {
         }
     }
 
-    fn js_float(x: f64) -> String {
-        if x.is_infinite() {
-            if x > 0.0 { "Infinity" } else { "-Infinity" }.into()
-        } else {
-            format!("{x:?}")
-        }
-    }
-
     impl Arb for f64 {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let v = float(r);
@@ -859,26 +831,6 @@ pub(crate) mod __purecrate {
             let v = if r.below(4) == 0 { f32::from_bits(r.next() as u32) } else { float(r) as f32 };
             Some((v, format!("Math.fround({})", js_float(f64::from(v)))))
         }
-    }
-
-    impl Show for f32 {
-        fn show(&self) -> String {
-            f64::from(*self).to_bits().to_string()
-        }
-    }
-
-    impl Show for f64 {
-        fn show(&self) -> String {
-            self.to_bits().to_string()
-        }
-    }
-
-    /// Rust's escapes, but U+0000 as `\u{0}`: `{:?}` writes `\0`, which
-    /// before a digit is a legacy octal escape node refuses.
-    fn js_str(s: &str) -> String {
-        let body: String =
-            s.chars().map(|c| if c == '\0' { "\\u{0}".to_string() } else { c.escape_debug().to_string() }).collect();
-        format!("\"{body}\"")
     }
 
     impl Arb for String {
@@ -903,49 +855,9 @@ pub(crate) mod __purecrate {
         }
     }
 
-    /// Printable ASCII but `"` and `\` as is, any other code point `\u{hex}`.
-    impl Show for str {
-        fn show(&self) -> String {
-            let mut out = String::from("\"");
-            for c in self.chars() {
-                if (' '..='~').contains(&c) && c != '"' && c != '\\' {
-                    out.push(c);
-                } else {
-                    out.push_str(&format!("\\u{{{:x}}}", u32::from(c)));
-                }
-            }
-            out.push('"');
-            out
-        }
-    }
-
-    impl Show for String {
-        fn show(&self) -> String {
-            self.as_str().show()
-        }
-    }
-
-    impl Show for char {
-        fn show(&self) -> String {
-            format!("'{}'", self.to_string().show())
-        }
-    }
-
     impl Arb for () {
         fn arb(_: &mut Rng) -> Option<(Self, String)> {
             Some(((), "undefined".into()))
-        }
-    }
-
-    impl Show for () {
-        fn show(&self) -> String {
-            "()".into()
-        }
-    }
-
-    impl Show for std::num::ParseIntError {
-        fn show(&self) -> String {
-            "ParseIntError".into()
         }
     }
 
@@ -953,12 +865,6 @@ pub(crate) mod __purecrate {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let v = r.pick(&[std::cmp::Ordering::Less, std::cmp::Ordering::Equal, std::cmp::Ordering::Greater]);
             Some((v, format!("({{ kind: \"{v:?}\" }})")))
-        }
-    }
-
-    impl Show for std::cmp::Ordering {
-        fn show(&self) -> String {
-            format!("Ordering::{self:?}")
         }
     }
 
@@ -972,15 +878,6 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl<T: Show> Show for Option<T> {
-        fn show(&self) -> String {
-            match self {
-                Some(v) => format!("Some({})", v.show()),
-                None => "None".into(),
-            }
-        }
-    }
-
     impl<T: Arb, E: Arb> Arb for Result<T, E> {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             if r.below(2) == 0 {
@@ -989,15 +886,6 @@ pub(crate) mod __purecrate {
             } else {
                 let (e, js) = r.nest(E::arb)?;
                 Some((Err(e), format!("{{ kind: \"Err\", error: {js} }}")))
-            }
-        }
-    }
-
-    impl<T: Show, E: Show> Show for Result<T, E> {
-        fn show(&self) -> String {
-            match self {
-                Ok(v) => format!("Ok({})", v.show()),
-                Err(e) => format!("Err({})", e.show()),
             }
         }
     }
@@ -1047,35 +935,10 @@ pub(crate) mod __purecrate {
         }
     }
 
-    /// `{"a": 1, "b": 2}`, in key order.
-    impl<V: Show> Show for std::collections::BTreeMap<String, V> {
-        fn show(&self) -> String {
-            format!("{{{}}}", self.iter().map(|(k, v)| format!("{}: {}", k.show(), v.show())).collect::<Vec<_>>().join(", "))
-        }
-    }
-
-    impl Show for std::collections::BTreeSet<String> {
-        fn show(&self) -> String {
-            format!("{{{}}}", self.iter().map(|k| k.show()).collect::<Vec<_>>().join(", "))
-        }
-    }
-
     impl<T: Arb + 'static> Arb for &'static [T] {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let (v, js) = Vec::<T>::arb(r)?;
             Some((Box::leak(v.into_boxed_slice()), js))
-        }
-    }
-
-    impl<T: Show> Show for [T] {
-        fn show(&self) -> String {
-            format!("[{}]", self.iter().map(Show::show).collect::<Vec<_>>().join(", "))
-        }
-    }
-
-    impl<T: Show> Show for Vec<T> {
-        fn show(&self) -> String {
-            self.as_slice().show()
         }
     }
 
@@ -1086,22 +949,10 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl<T: Show + ?Sized> Show for &T {
-        fn show(&self) -> String {
-            (**self).show()
-        }
-    }
-
     impl<T: Arb> Arb for Box<T> {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let (v, js) = T::arb(r)?;
             Some((Box::new(v), js))
-        }
-    }
-
-    impl<T: Show + ?Sized> Show for Box<T> {
-        fn show(&self) -> String {
-            (**self).show()
         }
     }
 
@@ -1112,12 +963,6 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl<T: Show + ?Sized> Show for std::sync::Arc<T> {
-        fn show(&self) -> String {
-            (**self).show()
-        }
-    }
-
     impl<T: Arb> Arb for std::sync::Mutex<T> {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let (v, js) = T::arb(r)?;
@@ -1125,50 +970,30 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl<T: Show> Show for std::sync::Mutex<T> {
-        fn show(&self) -> String {
-            self.lock().map(|v| v.show()).unwrap_or_else(|_| "poisoned".into())
-        }
-    }
-
     macro_rules! tuple {
-        ($($t:ident $i:tt $j:ident),+) => {
+        ($($t:ident $j:ident),+) => {
             impl<$($t: Arb),+> Arb for ($($t,)+) {
                 fn arb(r: &mut Rng) -> Option<(Self, String)> {
                     $(let ($t, $j) = $t::arb(r)?;)+
                     Some((($($t,)+), format!("[{}]", [$($j),+].join(", "))))
                 }
             }
-            impl<$($t: Show),+> Show for ($($t,)+) {
-                fn show(&self) -> String {
-                    format!("({})", [$(self.$i.show()),+].join(", "))
-                }
-            }
         };
     }
-    tuple!(A 0 ja);
-    tuple!(A 0 ja, B 1 jb);
-    tuple!(A 0 ja, B 1 jb, C 2 jc);
-    tuple!(A 0 ja, B 1 jb, C 2 jc, D 3 jd);
-    tuple!(A 0 ja, B 1 jb, C 2 jc, D 3 jd, E 4 je);
+    tuple!(A ja);
+    tuple!(A ja, B jb);
+    tuple!(A ja, B jb, C jc);
+    tuple!(A ja, B jb, C jc, D jd);
+    tuple!(A ja, B jb, C jc, D jd, E je);
 
+"##,
+    include_str!("show.rs"),
+    r##"
     /// One function under test: its TS name, and a call on drawn arguments
     /// that gives the TS arguments and the printed result.
     pub struct Case {
         pub key: &'static str,
         pub run: fn(&mut Rng) -> Option<(String, String)>,
-    }
-
-    fn message(p: Box<dyn std::any::Any + Send>) -> String {
-        p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default()
-    }
-
-    /// `f`'s result printed, or `panic(message)`.
-    pub fn call<T: Show>(f: impl FnOnce() -> T) -> String {
-        match catch_unwind(AssertUnwindSafe(f)) {
-            Ok(v) => v.show(),
-            Err(p) => format!("panic({})", message(p)),
-        }
     }
 
     /// `f`'s result, or `None` if it panics: a constructor that panics
@@ -1211,4 +1036,5 @@ pub(crate) mod __purecrate {
         }
     }
 }
-"##;
+"##
+);

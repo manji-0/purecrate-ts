@@ -436,22 +436,6 @@ impl G {
     }
 }
 
-/// `Show` for the types beyond `i32` and `bool`; a float as its bits, as
-/// `support::Show` and the driver's `bits` print it.
-const SHOW_TYPES: &str = "impl Show for i8 { fn show(&self) -> String { self.to_string() } }
-impl Show for i16 { fn show(&self) -> String { self.to_string() } }
-impl Show for i64 { fn show(&self) -> String { self.to_string() } }
-impl Show for i128 { fn show(&self) -> String { self.to_string() } }
-impl Show for u8 { fn show(&self) -> String { self.to_string() } }
-impl Show for u16 { fn show(&self) -> String { self.to_string() } }
-impl Show for u32 { fn show(&self) -> String { self.to_string() } }
-impl Show for u64 { fn show(&self) -> String { self.to_string() } }
-impl Show for u128 { fn show(&self) -> String { self.to_string() } }
-impl Show for usize { fn show(&self) -> String { self.to_string() } }
-impl Show for f64 { fn show(&self) -> String { self.to_bits().to_string() } }
-impl Show for f32 { fn show(&self) -> String { f64::from(*self).to_bits().to_string() } }
-";
-
 /// An `f64` argument: an edge, a value with a fraction of a half or a
 /// quarter, or any non-NaN bit pattern.
 fn f64_arg(rng: &mut Rng) -> f64 {
@@ -603,5 +587,5 @@ fn generated_floats_match_rust() {
             }
         })
         .collect();
-    compare_rows("generated_floats", &seeds, &source, SHOW_TYPES, &fns, &rows);
+    compare_rows("generated_floats", &seeds, &source, "", &fns, &rows);
 }

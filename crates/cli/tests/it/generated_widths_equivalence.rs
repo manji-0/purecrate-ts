@@ -442,19 +442,6 @@ fn wrap(w: W, v: i128) -> i128 {
     }
 }
 
-/// `Show` for the widths beyond `i32`.
-const SHOW_WIDTHS: &str = "impl Show for u8 { fn show(&self) -> String { self.to_string() } }
-impl Show for i8 { fn show(&self) -> String { self.to_string() } }
-impl Show for u16 { fn show(&self) -> String { self.to_string() } }
-impl Show for i16 { fn show(&self) -> String { self.to_string() } }
-impl Show for u32 { fn show(&self) -> String { self.to_string() } }
-impl Show for i64 { fn show(&self) -> String { self.to_string() } }
-impl Show for u64 { fn show(&self) -> String { self.to_string() } }
-impl Show for i128 { fn show(&self) -> String { self.to_string() } }
-impl Show for u128 { fn show(&self) -> String { self.to_string() } }
-impl Show for usize { fn show(&self) -> String { self.to_string() } }
-";
-
 /// One argument of width `w`: small, an edge (MIN, MAX, ±1, powers of two
 /// around 2^31, 2^32, 2^53, 2^63, 2^64, 2^127), or anywhere in the width.
 fn arg(rng: &mut Rng, w: W) -> String {
@@ -545,5 +532,5 @@ fn generated_widths_match_rust() {
             Args { rust: rust.join(", "), js: js.join(", ") }
         })
         .collect();
-    compare_rows("generated_widths", &seeds, &source, SHOW_WIDTHS, &fns, &rows);
+    compare_rows("generated_widths", &seeds, &source, "", &fns, &rows);
 }

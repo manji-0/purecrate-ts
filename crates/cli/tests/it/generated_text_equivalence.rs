@@ -221,25 +221,6 @@ impl G {
     }
 }
 
-/// `Show` for the types these functions return, as `support::Show` prints
-/// them (a string quoted, printable ASCII but `"` and `\` as is).
-const SHOW_TEXT: &str = r#"
-impl Show for usize { fn show(&self) -> String { self.to_string() } }
-impl Show for String {
-    fn show(&self) -> String {
-        let mut out = String::from("\"");
-        for c in self.chars() {
-            if (' '..='~').contains(&c) && c != '"' && c != '\\' { out.push(c); } else { out.push_str(&format!("\\u{{{:x}}}", u32::from(c))); }
-        }
-        out.push('"');
-        out
-    }
-}
-impl<T: Show> Show for Vec<T> {
-    fn show(&self) -> String { format!("[{}]", self.iter().map(Show::show).collect::<Vec<_>>().join(", ")) }
-}
-"#;
-
 #[test]
 fn generated_text_matches_rust() {
     let seeds = seeds(SEEDS);
@@ -276,5 +257,5 @@ fn generated_text_matches_rust() {
             js: [s.js(), t.js(), xs.js(), a.js()].join(", "),
         })
         .collect();
-    compare_rows("generated_text", &seeds, &source, SHOW_TEXT, &fns, &rows);
+    compare_rows("generated_text", &seeds, &source, "", &fns, &rows);
 }

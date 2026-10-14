@@ -36,18 +36,7 @@ pub struct Case {
 }
 
 pub fn run<T: Show>(name: &'static str, call: String, f: impl FnOnce() -> T + UnwindSafe) -> Case {
-    let rust = match panic::catch_unwind(f) {
-        Ok(v) => v.show(),
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_default();
-            format!("panic({message})")
-        }
-    };
-    Case { name, call, rust }
+    Case { name, call, rust: values::shown(f) }
 }
 
 /// `case!(module::f(a, b))` runs `module::f` in Rust and records the TS call.

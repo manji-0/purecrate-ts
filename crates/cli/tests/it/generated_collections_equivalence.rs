@@ -48,31 +48,8 @@ pub enum E {
 }
 ";
 
-/// `Show` for what the baseline prints beyond `SHOW_PRELUDE`'s, as
-/// `purecrate_canon` prints it.
+/// `Show` for the crate's types, as `purecrate_canon` prints them.
 const SHOW_TYPES: &str = r#"
-impl Show for usize { fn show(&self) -> String { self.to_string() } }
-impl Show for u8 { fn show(&self) -> String { self.to_string() } }
-impl Show for f64 { fn show(&self) -> String { self.to_bits().to_string() } }
-impl Show for String {
-    fn show(&self) -> String {
-        let mut out = String::from("\"");
-        for c in self.chars() {
-            if (' '..='~').contains(&c) && c != '"' && c != '\\' { out.push(c); } else { out.push_str(&format!("\\u{{{:x}}}", u32::from(c))); }
-        }
-        out.push('"');
-        out
-    }
-}
-impl<T: Show> Show for Vec<T> {
-    fn show(&self) -> String { format!("[{}]", self.iter().map(Show::show).collect::<Vec<_>>().join(", ")) }
-}
-impl<A: Show, B: Show> Show for (A, B) {
-    fn show(&self) -> String { format!("({}, {})", self.0.show(), self.1.show()) }
-}
-impl<A: Show, B: Show, C: Show> Show for (A, B, C) {
-    fn show(&self) -> String { format!("({}, {}, {})", self.0.show(), self.1.show(), self.2.show()) }
-}
 impl Show for P {
     fn show(&self) -> String {
         format!("P {{ a: {}, b: {}, c: {}, f: {} }}", self.a.show(), self.b.show(), self.c.show(), self.f.show())

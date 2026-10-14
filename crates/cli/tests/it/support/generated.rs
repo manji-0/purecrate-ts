@@ -32,29 +32,10 @@ pub fn dump(source: &str) {
     }
 }
 
-/// What every baseline starts with: `Show` for the generated types, and
-/// `run`, which prints a result as `support::Show` would, or
+/// What every baseline starts with: `Show` for std's types, as
+/// `support::Show` prints them, and `shown`, which prints a result or
 /// `panic(message)`.
-pub const SHOW_PRELUDE: &str = r#"
-trait Show { fn show(&self) -> String; }
-impl Show for i32 { fn show(&self) -> String { self.to_string() } }
-impl Show for bool { fn show(&self) -> String { self.to_string() } }
-impl<T: Show> Show for Option<T> {
-    fn show(&self) -> String { match self { Some(v) => format!("Some({})", v.show()), None => "None".into() } }
-}
-impl<T: Show, E: Show> Show for Result<T, E> {
-    fn show(&self) -> String { match self { Ok(v) => format!("Ok({})", v.show()), Err(e) => format!("Err({})", e.show()) } }
-}
-fn run<T: Show>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> String {
-    match std::panic::catch_unwind(f) {
-        Ok(v) => v.show(),
-        Err(p) => {
-            let m = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
-            format!("panic({})", m.unwrap_or_default())
-        }
-    }
-}
-"#;
+pub const SHOW_PRELUDE: &str = include_str!("../../../src/difftest/show.rs");
 
 /// One row of arguments, as Rust source and as TS.
 pub struct Args {
@@ -62,16 +43,16 @@ pub struct Args {
     pub js: String,
 }
 
-/// Runs `fns` of `source` in Rust (with `show`, `Show` for the types
-/// beyond `SHOW_PRELUDE`'s) and in the generated TS on each of `rows`, and
+/// Runs `fns` of `source` in Rust (with `show`, `Show` for the crate's
+/// own types) and in the generated TS on each of `rows`, and
 /// asserts they agree; on a failure, prints the source.
 pub fn compare_rows(crate_name: &str, seeds: &[u64], source: &str, show: &str, fns: &[String], rows: &[Args]) {
     dump(source);
     let mut program =
-        format!("{source}{SHOW_PRELUDE}{show}fn main() {{\n    std::panic::set_hook(Box::new(|_| {{}}));\n");
+        format!("{source}\n{SHOW_PRELUDE}{show}fn main() {{\n    std::panic::set_hook(Box::new(|_| {{}}));\n");
     for row in rows {
         for name in fns {
-            program.push_str(&format!("    println!(\"{{}}\", run(|| {name}({})));\n", row.rust));
+            program.push_str(&format!("    println!(\"{{}}\", shown(|| {name}({})));\n", row.rust));
         }
     }
     program.push_str("}\n");
