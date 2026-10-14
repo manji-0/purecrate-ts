@@ -889,6 +889,69 @@ const best = <T, K>(xs: Iterable<T>, key: (x: T) => K, cmp: (a: K, b: K) => Orde
 };
 // #endregion
 
+// #region iter.range iter.rangeInclusive
+/**
+ * A range walked as Rust walks it (design/01 §7.22): `count` items, the
+ * first `first`, each next `delta` from the last, computed as the loop asks.
+ * The values are JS numbers (each item, and each distance between two, is
+ * below 2^53, so exact) or `bigint`s, so a step past the last item, which
+ * nothing reads, cannot wrap: Rust's never overflows either. `rev` and
+ * `stepBy` make a new range at once, in the order they are written, so
+ * `rev().stepBy(k)` steps from the last item and `stepBy(k).rev()` ends at
+ * the first.
+ */
+export class Steps<T extends number | bigint> implements Iterable<T> {
+  readonly first: T;
+  readonly count: T;
+  readonly delta: T;
+  constructor(first: T, count: T, delta: T) {
+    this.first = first;
+    this.count = count;
+    this.delta = delta;
+  }
+  /** `.rev()`: the same items, the last first. */
+  rev(): Steps<T> {
+    if (this.count <= 1) return new Steps(this.first, this.count, this.delta);
+    const last = plus(this.first, times(plus(this.count, unit(this.count, -1)), this.delta));
+    return new Steps(last, this.count, times(this.delta, unit(this.delta, -1)));
+  }
+  /** `.step_by(k)`: the first item, then every `k`th; `k` of 0 panics, as Rust's `assert!` does. */
+  stepBy(k: Usize): Steps<T> {
+    if (k === 0) throw new Panic("assertion failed: step != 0");
+    if (this.count <= 1) return new Steps(this.first, this.count, this.delta);
+    // `(count - 1) / k + 1` items, divided exactly.
+    const step = typeof this.count === "bigint" ? (BigInt(k) as T) : (k as number as T);
+    const before = plus(this.count, unit(this.count, -1));
+    const count = plus(quotient(before, step), unit(this.count, 1));
+    return new Steps(this.first, count, count <= 1 ? this.delta : times(this.delta, step));
+  }
+  *[Symbol.iterator](): Generator<T, void, undefined> {
+    let x = this.first;
+    for (let i = unit(this.count, 0); i < this.count; i = plus(i, unit(this.count, 1))) {
+      yield x;
+      x = plus(x, this.delta);
+    }
+  }
+}
+
+/** `n` as a number or a `bigint`, as `like` is. */
+const unit = <T extends number | bigint>(like: T, n: number): T =>
+  (typeof like === "bigint" ? BigInt(n) : n) as T;
+const plus = <T extends number | bigint>(a: T, b: T): T =>
+  (typeof a === "bigint" ? a + (b as bigint) : (a as number) + (b as number)) as T;
+const times = <T extends number | bigint>(a: T, b: T): T =>
+  (typeof a === "bigint" ? a * (b as bigint) : (a as number) * (b as number)) as T;
+/** `a / b` rounded toward zero, `a` and `b` not negative: exact on numbers too. */
+const quotient = <T extends number | bigint>(a: T, b: T): T =>
+  (typeof a === "bigint" ? a / (b as bigint) : ((a as number) - ((a as number) % (b as number))) / (b as number)) as T;
+
+const steps = <T extends number | bigint>(a: T, b: T, inclusive: boolean): Steps<T> => {
+  const span = plus(b, times(a, unit(a, -1)));
+  const count = inclusive ? (b >= a ? plus(span, unit(a, 1)) : unit(a, 0)) : b > a ? span : unit(a, 0);
+  return new Steps(a, count, unit(a, 1));
+};
+// #endregion
+
 /**
  * The consuming iterator methods, as std's default methods run them: in
  * order, `all` stopping at the first `false`, `any` and `position` at the
@@ -991,6 +1054,29 @@ export const Iter = {
     }
     return Result.ok(out);
   },
+  // #endregion
+  // #region iter.filterMap
+  /** `.filter_map(f)`: lazy, as `map`; each `Some`'s value, a `None` (`null`) skipped. */
+  filterMap: function* <T, U>(xs: Iterable<T>, f: (x: T) => U | null): Generator<U, void, undefined> {
+    for (const x of xs) {
+      const y = f(x);
+      if (y !== null) yield y;
+    }
+  },
+  // #endregion
+  // #region iter.flatten
+  /** `.flatten()` over lists: lazy, each list's elements in order. */
+  flatten: function* <T>(xs: Iterable<Iterable<T>>): Generator<T, void, undefined> {
+    for (const x of xs) yield* x;
+  },
+  // #endregion
+  // #region iter.range
+  /** `a..b` as a sequence: from `a` up to, not including, `b`. */
+  range: <T extends number | bigint>(a: T, b: T): Steps<T> => steps(a, b, false),
+  // #endregion
+  // #region iter.rangeInclusive
+  /** `a..=b` as a sequence: from `a` up to `b`. */
+  rangeInclusive: <T extends number | bigint>(a: T, b: T): Steps<T> => steps(a, b, true),
   // #endregion
 } as const;
 
@@ -1160,6 +1246,42 @@ export const Slice = {
   /** `v.sort_by_key(f)`: stable, by each key's `cmp`. */
   sortByKey: <T, K>(xs: T[], f: (x: T) => K, cmp: (a: K, b: K) => Ordering): void => {
     xs.sort((a, b) => ORDER[cmp(f(a), f(b)).kind]);
+  },
+  // #endregion
+  // #region slice.windows
+  /** `xs.windows(n)`: each run of `n` elements in a row, as new arrays; `n` of 0 panics, as in Rust. */
+  windows: <T>(xs: ReadonlyArray<T>, n: number): ReadonlyArray<ReadonlyArray<T>> => {
+    if (n === 0) throw new Panic("window size must be non-zero");
+    const out: ReadonlyArray<T>[] = [];
+    for (let i = 0; i + n <= xs.length; i++) out.push(xs.slice(i, i + n));
+    return out;
+  },
+  // #endregion
+  // #region slice.chunks
+  /** `xs.chunks(n)`: the elements `n` at a time, the last run maybe shorter; `n` of 0 panics. */
+  chunks: <T>(xs: ReadonlyArray<T>, n: number): ReadonlyArray<ReadonlyArray<T>> => {
+    if (n === 0) throw new Panic("chunk size must be non-zero");
+    const out: ReadonlyArray<T>[] = [];
+    for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
+    return out;
+  },
+  // #endregion
+  // #region slice.dedup
+  /** `v.dedup()` on a local's own array: each run of equal elements (as `==`) kept as its first. */
+  dedup: <T>(xs: T[]): void => Slice.dedupByKey(xs, (x) => x),
+  // #endregion
+  // #region slice.dedupByKey slice.dedup
+  /**
+   * `v.dedup_by_key(f)`: an element is dropped when its key `==` the key of
+   * the last one kept, computed in Rust's order (the element's, then the
+   * kept one's).
+   */
+  dedupByKey: <T, K>(xs: T[], f: (x: T) => K): void => {
+    let kept = Math.min(xs.length, 1);
+    for (let i = 1; i < xs.length; i++) {
+      if (!Eq.deep(f(xs[i] as T), f(xs[kept - 1] as T))) xs[kept++] = xs[i] as T;
+    }
+    xs.length = kept;
   },
   // #endregion
 } as const;

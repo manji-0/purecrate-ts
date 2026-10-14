@@ -753,6 +753,23 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             let source = iterable(*over, emit_tx(&args[0], indent));
             format!("Iter.{stage}({source}, {})", item(1))
         }
+        C::IterFilterMap { over } => {
+            format!("Iter.filterMap({}, {})", iterable(*over, emit_tx(&args[0], indent)), item(1))
+        }
+        C::IterFlatten { over } => format!("Iter.flatten({})", iterable(*over, emit_tx(&args[0], indent))),
+        // A literal size reads bare: the runtime takes a `number`.
+        C::VecWindows { chunks } => {
+            let f = if *chunks { "Slice.chunks" } else { "Slice.windows" };
+            format!("{f}({}, {})", emit_expr(&args[0], indent), plain_arg(&args[1], indent))
+        }
+        C::VecDedup if args.len() == 2 => format!("Slice.dedupByKey({}, {})", emit_expr(&args[0], indent), item(1)),
+        C::VecDedup => format!("Slice.dedup({})", emit_expr(&args[0], indent)),
+        C::Range { inclusive, .. } => {
+            let f = if *inclusive { "Iter.rangeInclusive" } else { "Iter.range" };
+            format!("{f}({}, {})", item(0), item(1))
+        }
+        C::RangeRev => format!("{}.rev()", recv(&args[0], indent)),
+        C::RangeStep => format!("{}.stepBy({})", recv(&args[0], indent), plain_arg(&args[1], indent)),
         C::Collect { result, over } => emit_collect(*result, *over, args, indent),
         C::Str(m) => {
             use purecrate_ir::StrMethod as S;
@@ -1113,7 +1130,18 @@ fn receiver(x: Tx) -> String {
 /// next, as in Rust.
 fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: usize) -> String {
     use purecrate_ir::Callee;
-    let stage = |e: &Expr| matches!(e, Expr::Call { callee: Callee::IterMap { .. } | Callee::IterFilter { .. }, .. });
+    let stage = |e: &Expr| {
+        matches!(
+            e,
+            Expr::Call {
+                callee: Callee::IterMap { .. }
+                    | Callee::IterFilter { .. }
+                    | Callee::IterFilterMap { .. }
+                    | Callee::IterFlatten { .. },
+                ..
+            }
+        )
+    };
     let split = |e: &Expr| {
         matches!(
             e,
@@ -1125,8 +1153,14 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
             }
         )
     };
-    // `split` with a closure is `Str.splitBy`, a generator: not an array.
-    let lazy = |e: &Expr| matches!(e, Expr::Call { callee: Callee::StrSplit, args } if matches!(peel_identity(&args[1]), Expr::Closure { .. }));
+    // A range is computed as it is walked, and `split` with a closure is
+    // `Str.splitBy`, a generator: neither is an array.
+    let computed =
+        |e: &Expr| matches!(e, Expr::Call { callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep, .. });
+    let lazy = |e: &Expr| {
+        computed(e)
+            || matches!(e, Expr::Call { callee: Callee::StrSplit, args } if matches!(peel_identity(&args[1]), Expr::Closure { .. }))
+    };
     let source = &args[0];
     let array = over == purecrate_ir::Over::Items && !stage(source) && !lazy(source);
     let f = args.get(1).map(|f| emit_item(f, indent));
@@ -1141,6 +1175,7 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
             Expr::Call {
                 callee: Callee::VecRev
                     | Callee::VecZip
+                    | Callee::VecWindows { .. }
                     | Callee::Tree(
                         purecrate_ir::TreeOp::Entries | purecrate_ir::TreeOp::Keys | purecrate_ir::TreeOp::Values
                     ),
@@ -1161,7 +1196,7 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
         }
         // One `filter` over an array.
         (None, Expr::Call { callee: Callee::IterFilter { over: purecrate_ir::Over::Items }, args: inner })
-            if !stage(&inner[0]) =>
+            if !stage(&inner[0]) && !computed(&inner[0]) =>
         {
             format!("{}.filter({})", recv(&inner[0], indent), emit_item(&inner[1], indent))
         }

@@ -112,6 +112,10 @@ struct Typer<'d, 'a> {
     /// For each `loop` around the expression, innermost last: the type its
     /// `break`s carry, once known.
     loops: Vec<Option<Ty>>,
+    /// `let` bindings of an unsuffixed integer whose type a later use is
+    /// looked for in (`Let`): each one's index in `scopes`, and the first
+    /// integer type a use asks of it.
+    open: Vec<(usize, Option<Ty>)>,
 }
 
 type Typed = (Expr, Option<Ty>);
@@ -121,7 +125,16 @@ type Bound = (Name, Option<Ty>, Expr);
 
 impl<'d, 'a> Typer<'d, 'a> {
     fn new(defs: &'d Defs<'a>, item: usize, out: &'d mut Vec<Diagnostic>) -> Self {
-        Typer { defs, item, out, ret: Ty::Prim(Prim::Unit), scopes: Vec::new(), fresh: 0, loops: Vec::new() }
+        Typer {
+            defs,
+            item,
+            out,
+            ret: Ty::Prim(Prim::Unit),
+            scopes: Vec::new(),
+            fresh: 0,
+            loops: Vec::new(),
+            open: Vec::new(),
+        }
     }
 
     fn error(&mut self, reason: Reason, message: String) {
@@ -206,6 +219,35 @@ impl<'d, 'a> Typer<'d, 'a> {
         self.scopes.iter().rev().find(|(n, _)| n == name).and_then(|(_, t)| t.clone())
     }
 
+    /// The `open` entry `name` reads, while no use has given it a type.
+    fn open_slot(&self, name: &str) -> Option<usize> {
+        let at = self.scopes.iter().rposition(|(n, _)| n == name)?;
+        self.open.iter().position(|(i, t)| *i == at && t.is_none())
+    }
+
+    /// Whether `expr`'s numeric type comes only from its surroundings: an
+    /// unsuffixed literal, or a binding of one whose type is looked for.
+    fn contextual(&self, expr: &Expr) -> bool {
+        needs_context_in(expr, &|n| self.open_slot(n.as_str()).is_some())
+    }
+
+    /// The integer type the first use of `name` in `then` asks of it, `name`
+    /// bound to an unsuffixed integer (`let mut s = 0; .. s += i; ..`), as
+    /// rustc infers it. `then` is typed once to find it, then dropped with
+    /// what it reported; the caller types it again with the type found, so
+    /// every use is checked against it.
+    fn first_use_type(&mut self, name: &Name, then: &Expr, want: Option<&Ty>) -> Option<Ty> {
+        let (out, fresh, loops) = (self.out.len(), self.fresh, self.loops.clone());
+        self.scopes.push((name.as_str().to_string(), None));
+        self.open.push((self.scopes.len() - 1, None));
+        let _ = self.expr(then, want);
+        let (_, found) = self.open.pop().expect("pushed above");
+        self.scopes.pop();
+        self.out.truncate(out);
+        (self.fresh, self.loops) = (fresh, loops);
+        found
+    }
+
     /// `body` typed with the names `lets` binds in scope.
     fn scoped(&mut self, lets: &[Bound], body: &Expr, want: Option<&Ty>) -> Typed {
         let depth = self.scopes.len();
@@ -231,6 +273,11 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Lit(lit) => self.lit(lit, false, want),
             Expr::Var(n) => {
+                if let (Some(slot), Some(w)) = (self.open_slot(n.as_str()), want) {
+                    if int_of(&self.norm(w)).is_some() {
+                        self.open[slot].1 = Some(w.clone());
+                    }
+                }
                 let t = self.lookup(n.as_str()).or_else(|| {
                     let bound = self.scopes.iter().any(|(s, _)| s == n.as_str());
                     (!bound).then(|| self.defs.consts.get(n.as_str()).map(|c| c.ty.clone())).flatten()
@@ -268,8 +315,15 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Break(None) | Expr::Continue => (expr.clone(), Some(Ty::Never)),
             Expr::Let { name, mutable, ty, value, then } => {
+                // `let mut s = 0;`: the type of the first use that asks for
+                // one, as rustc infers it, where nothing else gives one.
+                // Inside that search, a nested one is not searched again.
+                let inferred = match ty {
+                    None if is_bare_int(value) && self.open.is_empty() => self.first_use_type(name, then, want),
+                    _ => None,
+                };
                 let before = self.out.len();
-                let (value, vt) = self.expr(value, ty.as_ref());
+                let (value, vt) = self.expr(value, ty.as_ref().or(inferred.as_ref()));
                 // A type with holes (`collect::<Vec<_>>()`) is what the value
                 // filled them with.
                 let ty = &ty.clone().filter(|t| !has_hole(t));
@@ -325,6 +379,19 @@ impl<'d, 'a> Typer<'d, 'a> {
                 self.scopes.pop();
                 let (start, end, body) = (Box::new(s), Box::new(e), Box::new(b));
                 let e = Expr::For { var: var.clone(), ty: int, start, end, inclusive: *inclusive, rev: *rev, body };
+                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            }
+            // Over a sequence: its stages run as the loop asks for each item.
+            Expr::ForEach { var, over: Over::Items, source, body } if iter::is_sequence(source) => {
+                let walked = if self.reorder_reported(source) { None } else { self.sequence(source, "for") };
+                let (s, over, item) = match walked {
+                    Some((s, over, item)) => (s, over, Some(item)),
+                    None => (Expr::Lit(Lit::Unit), Over::Items, None),
+                };
+                self.scopes.push((var.as_str().to_string(), item));
+                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+                self.scopes.pop();
+                let e = Expr::ForEach { var: var.clone(), over, source: Box::new(s), body: Box::new(b) };
                 (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
             }
             Expr::ForEach { var, over, source: string, body } => {
@@ -501,18 +568,26 @@ fn num_of(ty: &Ty) -> Option<Num> {
 
 /// Expressions whose numeric type comes only from their surroundings.
 fn needs_context(expr: &Expr) -> bool {
+    needs_context_in(expr, &|_| false)
+}
+
+/// `needs_context`, with the bindings `open` names (of an unsuffixed
+/// integer, their type not yet known) as such expressions too.
+fn needs_context_in(expr: &Expr, open: &dyn std::ops::Fn(&Name) -> bool) -> bool {
+    let needs = |e: &Expr| needs_context_in(e, open);
     match expr.unpositioned() {
         Expr::Lit(Lit::Int { ty: None, .. } | Lit::Float { ty: None, .. }) => true,
-        Expr::Unary { op: UnOp::Neg, expr } => needs_context(expr),
+        Expr::Var(n) => open(n),
+        Expr::Unary { op: UnOp::Neg, expr } => needs(expr),
         Expr::Binary { op: BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem, left, right } => {
-            needs_context(left) && needs_context(right)
+            needs(left) && needs(right)
         }
-        Expr::Binary { op, left, right } if op.is_bitwise() => needs_context(left) && needs_context(right),
-        Expr::Binary { op, left, .. } if op.is_shift() => needs_context(left),
-        Expr::Unary { op: UnOp::Not, expr } => needs_context(expr),
-        Expr::If { then, else_, .. } => needs_context(then) && needs_context(else_),
-        Expr::Let { then, .. } | Expr::Seq { then, .. } => needs_context(then),
-        Expr::Array(xs) => xs.iter().all(needs_context),
+        Expr::Binary { op, left, right } if op.is_bitwise() => needs(left) && needs(right),
+        Expr::Binary { op, left, .. } if op.is_shift() => needs(left),
+        Expr::Unary { op: UnOp::Not, expr } => needs(expr),
+        Expr::If { then, else_, .. } => needs(then) && needs(else_),
+        Expr::Let { then, .. } | Expr::Seq { then, .. } => needs(then),
+        Expr::Array(xs) => xs.iter().all(needs),
         _ => false,
     }
 }

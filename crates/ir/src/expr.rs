@@ -683,6 +683,46 @@ pub enum Callee {
     IterFilter {
         over: Over,
     },
+    /// `.filter_map(f)` on what `over` walks, `f` returning an `Option`:
+    /// lazy as `IterMap`, each `Some`'s value kept. `flat_map(f)` with `f`
+    /// returning an `Option`, and `flatten()` over `Option` items (with `f`
+    /// the item itself), are this stage. Prints as `Iter.filterMap`.
+    IterFilterMap {
+        over: Over,
+    },
+    /// `.flatten()` on what `over` walks, its items `Vec`s: lazy as
+    /// `IterMap`, each item's elements in order. `flat_map(f)` with `f`
+    /// returning a `Vec` is this over `IterMap`. Prints as `Iter.flatten`.
+    IterFlatten {
+        over: Over,
+    },
+    /// `xs.windows(n)` (`chunks: false`) or `xs.chunks(n)` on a `Vec` or
+    /// slice: a new array of the slices, panicking with Rust's message
+    /// when `n` is 0. Prints as `Slice.windows(xs, n)` / `Slice.chunks`.
+    VecWindows {
+        chunks: bool,
+    },
+    /// `v.dedup()` (one argument) or `v.dedup_by_key(f)` (two) on a local
+    /// `let mut v: Vec<T>`, of type `()`: each run of equal elements (or
+    /// keys), compared as `==` does, kept as its first, in the local's own
+    /// array. Prints as `Slice.dedup(v)` / `Slice.dedupByKey(v, f)`.
+    VecDedup,
+    /// `a..b` (or `a..=b` with `inclusive`) as a sequence: written by
+    /// `syntax` only as the receiver of a method, typed by `check::accept`
+    /// (which sets `ty`) only before an iterator method (design/01 §7.22).
+    /// The arguments are `a` and `b`. Prints as `Iter.range(a, b)` /
+    /// `Iter.rangeInclusive(a, b)`, a lazy arithmetic sequence.
+    Range {
+        inclusive: bool,
+        ty: Option<IntTy>,
+    },
+    /// `.rev()` on a `Range` (or on one of these): the same items, last
+    /// first, computed, not collected. Prints as `r.rev()`.
+    RangeRev,
+    /// `.step_by(k)` on a `Range` (or on one of these): every `k`th item from
+    /// the first, panicking when `k` is 0 as Rust's `assert!` does. The
+    /// arguments are the range and `k`. Prints as `r.stepBy(k)`.
+    RangeStep,
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `format!(..)`: `pieces` in order, each a run of text or an argument
@@ -1474,7 +1514,12 @@ impl Expr {
     pub fn grown(&self) -> Option<&Name> {
         let Expr::Call { callee, args } = self else { return None };
         let writes = match callee {
-            Callee::VecPush | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecSort(_) => true,
+            Callee::VecPush
+            | Callee::VecInsert
+            | Callee::VecRemove
+            | Callee::VecSet
+            | Callee::VecSort(_)
+            | Callee::VecDedup => true,
             Callee::Tree(op) => op.writes(),
             _ => false,
         };

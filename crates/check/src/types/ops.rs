@@ -7,7 +7,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// Types two expressions that must agree, e.g. `if` branches or the
     /// operands of `+`. An untyped literal borrows the other side's type.
     pub(super) fn pair(&mut self, a: &Expr, b: &Expr, want: Option<&Ty>) -> (Expr, Option<Ty>, Expr, Option<Ty>) {
-        if want.is_none() && needs_context(a) && !needs_context(b) {
+        if want.is_none() && self.contextual(a) && !self.contextual(b) {
             let (b, bt) = self.expr(b, None);
             let hint = bt.clone().filter(|t| *t != Ty::Never);
             let (a, at) = self.expr(a, hint.as_ref());
@@ -23,7 +23,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// Operands of a comparison. Rust compares `String` and `&str` in either
     /// order, so a string side only asks the other side for `&str`.
     pub(super) fn compared(&mut self, a: &Expr, b: &Expr) -> (Expr, Option<Ty>, Expr, Option<Ty>) {
-        if needs_context(a) && !needs_context(b) {
+        if self.contextual(a) && !self.contextual(b) {
             return self.pair(a, b, None);
         }
         let (a, at) = self.expr(a, None);

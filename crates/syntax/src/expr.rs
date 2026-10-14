@@ -180,7 +180,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let call = at(
                 m.method.span(),
                 Expr::MethodCall {
-                    receiver: Box::new(lower_expr(cx, &m.receiver)?),
+                    receiver: Box::new(lower_receiver(cx, &m.receiver)?),
                     name: Name::new(method),
                     args: Vec::new(),
                 },
@@ -200,7 +200,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
         SynExpr::MethodCall(m) => Ok(at(
             m.method.span(),
             Expr::MethodCall {
-                receiver: Box::new(lower_expr(cx, &m.receiver)?),
+                receiver: Box::new(lower_receiver(cx, &m.receiver)?),
                 name: Name::new(m.method.to_string()),
                 args: m.args.iter().map(|a| lower_expr(cx, a)).collect::<Result<_, _>>()?,
             },
@@ -275,6 +275,21 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
     }
 }
 
+/// A method's receiver: `(a..b)` or `(a..=b)` with both ends is the range
+/// as a sequence, which `check::accept` types only before an iterator
+/// method (design/01 §7.22); anything else is an expression.
+fn lower_receiver(cx: &Cx, receiver: &SynExpr) -> Result<Expr, ParseError> {
+    match strip_parens(receiver) {
+        SynExpr::Range(r) if r.start.is_some() && r.end.is_some() => {
+            let (Some(a), Some(b)) = (&r.start, &r.end) else { unreachable!("checked by the guard") };
+            let inclusive = matches!(r.limits, syn::RangeLimits::Closed(_));
+            let args = vec![lower_expr(cx, a)?, lower_expr(cx, b)?];
+            Ok(at(receiver.span(), Expr::Call { callee: Callee::Range { inclusive, ty: None }, args }))
+        }
+        _ => lower_expr(cx, receiver),
+    }
+}
+
 /// `expr`, marked with where its source starts, for diagnostics.
 fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
     let LineCol { line, col } = LineCol::of(span);
@@ -283,27 +298,12 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
 
 /// Iterator adaptors, named so that `for` over one says so rather than
 /// failing later on the method call.
-const ITERATOR_ADAPTORS: &[&str] = &[
-    "enumerate",
-    "rev",
-    "zip",
-    "map",
-    "filter",
-    "filter_map",
-    "skip",
-    "take",
-    "step_by",
-    "windows",
-    "chunks",
-    "cloned",
-    "copied",
-    "peekable",
-    "char_indices",
-    "splitn",
-    "rsplit",
-    "keys",
-    "values",
-];
+const ITERATOR_ADAPTORS: &[&str] =
+    &["enumerate", "rev", "zip", "skip", "take", "peekable", "char_indices", "splitn", "rsplit", "keys", "values"];
+
+/// Iterator adaptors a `for` walks as a sequence `check::accept` types.
+const SEQUENCE_ADAPTORS: &[&str] =
+    &["map", "filter", "filter_map", "flat_map", "flatten", "step_by", "windows", "chunks", "cloned", "copied"];
 
 /// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
 /// `split(p)`, `split_whitespace()`, or `lines()`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
@@ -421,9 +421,14 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
             let args = vec![lower_expr(cx, &m.receiver)?, lower_expr(cx, &m.args[0])?];
             return each(Over::Items, Expr::Call { callee: Callee::StrSplit, args });
         }
+        // A sequence's stage, `step_by` on a range, or `windows` on a `Vec`:
+        // the types say whether the chain is one (design/01 §7.13, §7.22).
+        SynExpr::MethodCall(m) if m.turbofish.is_none() && SEQUENCE_ADAPTORS.contains(&m.method.to_string().as_str()) => {
+            return each(Over::Items, lower_expr(cx, iterable)?);
+        }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(
-                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, with `.rev()`, `.zip(..)`, or `.enumerate()`",
+                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, with `.rev()`, `.zip(..)`, `.enumerate()`, `.step_by(k)` on a range, or a stage (`.map(f)`, `.filter(p)`, `.filter_map(f)`, `.flat_map(f)`, `.flatten()`)",
                 m.method
             ))
         }

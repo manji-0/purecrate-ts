@@ -459,7 +459,11 @@ impl Refs {
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result_value = true,
                     Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => self.ord = true,
-                    Callee::Collect { over, .. } | Callee::IterMap { over } | Callee::IterFilter { over } => {
+                    Callee::Collect { over, .. }
+                    | Callee::IterMap { over }
+                    | Callee::IterFilter { over }
+                    | Callee::IterFilterMap { over }
+                    | Callee::IterFlatten { over } => {
                         // `Iter.map`, `Iter.filter`, and `Iter.tryCollect`, or
                         // the array's own method.
                         // A `collect` over a closure's `split` maps a generator
@@ -550,6 +554,8 @@ impl Refs {
                         }
                     }
                     Callee::DeepEq => self.eq = true,
+                    Callee::VecWindows { .. } | Callee::VecDedup => self.slice = true,
+                    Callee::Range { .. } => self.iter = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;

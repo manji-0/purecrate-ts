@@ -10,19 +10,19 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// link of a chain.
     pub(super) fn method_call(&mut self, receiver: &Expr, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
         let whole = Expr::MethodCall { receiver: Box::new(receiver.clone()), name: name.clone(), args: args.to_vec() };
-        if let Some(m) = iter::stage_before_reorder(&whole) {
-            self.error(
-                Reason::MethodCall,
-                format!("`{m}` comes right after the source in v0 (`xs.iter().{m}(..).map(f)`), before any `map` or `filter`, so each runs in Rust's order"),
-            );
+        if self.reorder_reported(&whole) {
             return (Expr::Lit(Lit::Unit), None);
         }
         // `xs.iter().rev()` and `a.iter().zip(b)` as a value (a `for`'s
-        // source): the new array.
+        // source): the new array. A range's is not one.
         if matches!(name.as_str(), "rev" | "zip") && iter::is_sequence(&whole) {
             let Some((source, _, item)) = self.sequence(&whole, name.as_str()) else {
                 return (Expr::Lit(Lit::Unit), None);
             };
+            if iter::typed_range(&source) {
+                self.error(Reason::Range, "a range's `rev()` is a sequence in v0, before `.step_by(k)`, `.map(f)`, a consumer, or `collect`, or in a `for`; it is not a value".to_string());
+                return (Expr::Lit(Lit::Unit), None);
+            }
             return (source, self.expect(want, Some(Ty::Vec(Box::new(item)))));
         }
         if let Some(typed) = self.consume(receiver, name.as_str(), args, want) {
@@ -96,8 +96,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
-        if let (Some(Ty::Vec(item)), "push" | "insert" | "remove" | "sort" | "sort_by" | "sort_by_key") =
-            (&nt, name.as_str())
+        if let (
+            Some(Ty::Vec(item)),
+            "push" | "insert" | "remove" | "sort" | "sort_by" | "sort_by_key" | "dedup" | "dedup_by_key",
+        ) = (&nt, name.as_str())
         {
             return self.vec_write(name.as_str(), recv, item, args, want);
         }
@@ -354,6 +356,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             "insert" => (2, "2 arguments", "grows"),
             "remove" => (1, "1 argument", "takes from"),
             "sort" => (0, "0 argument(s)", "sorts"),
+            "dedup" => (0, "0 argument(s)", "dedups"),
+            "dedup_by_key" => (1, "1 argument(s)", "dedups"),
             _ => (1, "1 argument(s)", "sorts"),
         };
         if args.len() != takes {
@@ -378,6 +382,35 @@ impl<'d, 'a> Typer<'d, 'a> {
             "remove" => {
                 let (at, _) = self.expr(&args[0], Some(&usize_));
                 (Callee::VecRemove, vec![recv, at], item.clone())
+            }
+            "dedup" | "dedup_by_key" => {
+                let mut call = vec![recv];
+                let compared = match args.first() {
+                    None => item.clone(),
+                    Some(f) => {
+                        let Some((param, written, body)) = self.one_param_fn(method, f) else { return failed };
+                        let ty = written.or(Some(item.clone()));
+                        let closure = Expr::Closure {
+                            params: vec![ClosureParam { name: param, ty }],
+                            ret: None,
+                            body: Box::new(body),
+                        };
+                        let (closure, ct) = self.expr(&closure, None);
+                        call.push(closure);
+                        match ct.map(|t| self.norm(&t)) {
+                            Some(Ty::Fn { ret, .. }) => *ret,
+                            _ => return failed,
+                        }
+                    }
+                };
+                if !self.deep_comparable(&compared, &mut Vec::new()) {
+                    self.error(
+                        Reason::Comparison,
+                        format!("`{method}` compares with `==`, and `{}` holds a value JS cannot compare as Rust does (`ParseIntError`, `uuid::Error`, a function)", show(&compared)),
+                    );
+                    return failed;
+                }
+                (Callee::VecDedup, call, Ty::Prim(Prim::Unit))
             }
             _ => {
                 let named = args.first().and_then(|a| self.named_fn(a, item.clone()));
@@ -611,7 +644,8 @@ fn std_methods(ty: &Ty) -> Option<String> {
             "join (on `String`s or `&str`s)",
             "iter",
             "into_iter",
-            "push, insert, remove, `xs[i] = x`, sort, sort_by, and sort_by_key (on a `let mut` local)",
+            "windows and chunks (before a consumer or in a `for`)",
+            "push, insert, remove, `xs[i] = x`, sort, sort_by, sort_by_key, dedup, and dedup_by_key (on a `let mut` local)",
             "indexing `xs[i]`",
             "slicing `xs[a..b]`",
             "`as_slice`",

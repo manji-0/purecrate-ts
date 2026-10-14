@@ -237,7 +237,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         })
     }
 
-    fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
+    pub(super) fn one_param_fn(&mut self, method: &str, arg: &Expr) -> Option<(Name, Option<Ty>, Expr)> {
         match arg.unpositioned() {
             Expr::Closure { params, body, .. } if params.len() == 1 => {
                 if self.exits_reported(&format!("`{method}`"), body, "write the loop") {
@@ -458,13 +458,40 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// §7.13). Typed: the source, what it walks, and its items. `None` after
     /// an error; `expr` is one by `is_sequence`.
     pub(super) fn sequence(&mut self, expr: &Expr, consumer: &str) -> Option<(Expr, Over, Ty)> {
+        if let Expr::Call { callee: Callee::Range { inclusive, .. }, args } = expr.unpositioned() {
+            return self.range(*inclusive, args);
+        }
         let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { unreachable!("is_sequence") };
         match (name.as_str(), args.as_slice()) {
             ("copied" | "cloned", []) => self.sequence(receiver, consumer),
+            // A range's items, reversed or stepped as they are walked:
+            // computed, never collected (design/01 §7.22).
+            ("rev", []) | ("step_by", [_]) if is_range_based(receiver) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let e = match args.first() {
+                    None => Expr::Call { callee: Callee::RangeRev, args: vec![source] },
+                    Some(k) => {
+                        let (k, _) = self.expr(k, Some(&Ty::Prim(Prim::Usize)));
+                        Expr::Call { callee: Callee::RangeStep, args: vec![source, k] }
+                    }
+                };
+                Some((e, over, item))
+            }
+            ("step_by", [_]) => {
+                self.error(
+                    Reason::MethodCall,
+                    "`step_by` steps a range in v0 (`(a..b).step_by(k)`, `(a..=b).rev().step_by(k)`), not a list or a string's items".to_string(),
+                );
+                None
+            }
             // On a source only, so no stage runs out of Rust's order: the
             // items reversed, or paired up to the shorter side.
             ("rev" | "zip", _) => {
                 let (source, over, item) = self.sequence(receiver, consumer)?;
+                if name.as_str() == "zip" && typed_range(&source) {
+                    self.error(Reason::MethodCall, "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`".to_string());
+                    return None;
+                }
                 let source = items(source, over);
                 if name.as_str() == "rev" {
                     return Some((Expr::Call { callee: Callee::VecRev, args: vec![source] }, Over::Items, item));
@@ -472,6 +499,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let other = &args[0];
                 let (other, other_item) = if is_sequence(other) {
                     let (o, over, t) = self.sequence(other, consumer)?;
+                    if typed_range(&o) {
+                        self.error(Reason::MethodCall, "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`".to_string());
+                        return None;
+                    }
                     (items(o, over), t)
                 } else {
                     let before = self.out.len();
@@ -509,6 +540,73 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (callee, out) =
                     if stage == "map" { (Callee::IterMap { over }, ret) } else { (Callee::IterFilter { over }, item) };
                 Some((Expr::Call { callee, args: vec![source, closure] }, Over::Items, out))
+            }
+            // `f` returns an `Option` (`filter_map`, `flat_map`) or a `Vec`
+            // (`flat_map`): the `Some`s' values, or each `Vec`'s elements.
+            (stage @ ("filter_map" | "flat_map"), [f]) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let (param, written, body) = self.one_param_fn(stage, f)?;
+                if !self.param_fits(stage, &written, &item) {
+                    return None;
+                }
+                let ret = self.returns_of(&body, &param, &item)?;
+                let out = self.flattened(stage, &ret)?;
+                let closure = Expr::Closure {
+                    params: vec![ClosureParam { name: param, ty: Some(item) }],
+                    ret: Some(ret.clone()),
+                    body: Box::new(body),
+                };
+                let (closure, _) = self.expr(&closure, None);
+                let e = match self.norm(&ret) {
+                    Ty::Option(_) => Expr::Call { callee: Callee::IterFilterMap { over }, args: vec![source, closure] },
+                    _ => {
+                        let mapped = Expr::Call { callee: Callee::IterMap { over }, args: vec![source, closure] };
+                        Expr::Call { callee: Callee::IterFlatten { over: Over::Items }, args: vec![mapped] }
+                    }
+                };
+                Some((e, Over::Items, out))
+            }
+            // Over `Vec` items, their elements; over `Option` items, the
+            // `Some`s' values, as `filter_map` of the item itself.
+            ("flatten", []) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let out = self.flattened("flatten", &item)?;
+                let e = match self.norm(&item) {
+                    Ty::Option(_) => {
+                        let x = self.fresh_name("x");
+                        let closure = Expr::Closure {
+                            params: vec![ClosureParam { name: x.clone(), ty: Some(item.clone()) }],
+                            ret: Some(item),
+                            body: Box::new(Expr::Var(x)),
+                        };
+                        let (closure, _) = self.expr(&closure, None);
+                        Expr::Call { callee: Callee::IterFilterMap { over }, args: vec![source, closure] }
+                    }
+                    _ => Expr::Call { callee: Callee::IterFlatten { over }, args: vec![source] },
+                };
+                Some((e, Over::Items, out))
+            }
+            // The slices of a `Vec`, each `n` long: overlapping (`windows`)
+            // or one after another, the last maybe shorter (`chunks`).
+            (adaptor @ ("windows" | "chunks"), [n]) => {
+                let before = self.out.len();
+                let (xs, xt) = self.expr(receiver, None);
+                let item = match xt.as_ref().map(|t| self.norm(t)) {
+                    Some(Ty::Vec(t)) => Ty::Vec(t),
+                    found => {
+                        if self.out.len() == before {
+                            let found = found.as_ref().map(show).unwrap_or_else(|| "?".into());
+                            self.error(
+                                Reason::TypeMismatch,
+                                format!("`{adaptor}` takes a `Vec` or slice, found `{found}`"),
+                            );
+                        }
+                        return None;
+                    }
+                };
+                let (n, _) = self.expr(n, Some(&Ty::Prim(Prim::Usize)));
+                let callee = Callee::VecWindows { chunks: adaptor == "chunks" };
+                Some((Expr::Call { callee, args: vec![xs, n] }, Over::Items, item))
             }
             (adaptor, _) => {
                 let (over, source) = match (adaptor, args.as_slice()) {
@@ -555,6 +653,66 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Some((source, over, item))
             }
         }
+    }
+
+    /// Whether `expr` puts `rev`, `zip`, or `step_by` after a stage that
+    /// runs code, reported.
+    pub(super) fn reorder_reported(&mut self, expr: &Expr) -> bool {
+        let Some(m) = stage_before_reorder(expr) else { return false };
+        let message = if m == "step_by" {
+            "`step_by` comes right after the range in v0 (`(a..b).step_by(k).map(f)`), before any `map` or `filter`, so each runs in Rust's order".to_string()
+        } else {
+            format!("`{m}` comes right after the source in v0 (`xs.iter().{m}(..).map(f)`), before any `map` or `filter`, so each runs in Rust's order")
+        };
+        self.error(Reason::MethodCall, message);
+        true
+    }
+
+    /// What `flatten` gives of `t`, an item or `f`'s result for `filter_map`
+    /// and `flat_map`: a `Vec`'s elements or an `Option`'s value (only an
+    /// `Option` for `filter_map`). Rust takes any `IntoIterator`; v0 these
+    /// two. `None` once reported.
+    fn flattened(&mut self, stage: &str, t: &Ty) -> Option<Ty> {
+        match self.norm(t) {
+            Ty::Option(u) => Some(*u),
+            Ty::Vec(u) if stage != "filter_map" => Some(*u),
+            Ty::Never => None,
+            other => {
+                let what = match stage {
+                    "filter_map" => "`filter_map`'s function returns an `Option`".to_string(),
+                    "flat_map" => "`flat_map`'s function returns a `Vec` or an `Option` in v0".to_string(),
+                    _ => "`flatten` takes items that are `Vec`s or `Option`s in v0".to_string(),
+                };
+                self.error(Reason::TypeMismatch, format!("{what}, found `{}`", show(&other)));
+                None
+            }
+        }
+    }
+
+    /// `a..b` or `a..=b` as a sequence: the bounds of one integer type, an
+    /// unsuffixed start taking the end's, as in a `for`. Each is evaluated
+    /// once, `a` first.
+    fn range(&mut self, inclusive: bool, args: &[Expr]) -> Option<(Expr, Over, Ty)> {
+        let [start, end] = args else { unreachable!("`syntax` writes both bounds") };
+        let before = self.out.len();
+        let ((s, st), (e, et)) = if is_bare_int(start) {
+            let (e, et) = self.expr(end, None);
+            (self.expr(start, et.as_ref()), (e, et))
+        } else {
+            let (s, st) = self.expr(start, None);
+            let e = self.expr(end, st.as_ref());
+            ((s, st), e)
+        };
+        let bound = st.or(et);
+        let Some(it) = bound.as_ref().and_then(|t| int_of(&self.norm(t))) else {
+            if self.out.len() == before {
+                let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
+                self.error(Reason::TypeMismatch, format!("a range `a..b` is of one integer type, found `{found}`"));
+            }
+            return None;
+        };
+        let range = Expr::Call { callee: Callee::Range { inclusive, ty: Some(it) }, args: vec![s, e] };
+        Some((range, Over::Items, bound.expect("an integer type")))
     }
 
     /// The type `body` has with `param` bound to `item`, for a hole that
@@ -625,38 +783,68 @@ impl<'d, 'a> Typer<'d, 'a> {
 }
 
 /// Whether `expr` is a sequence `TypeCx::sequence` types: a source (with
-/// `rev()` or `zip(..)` on it), then any `map`, `filter`, `copied`, and
-/// `cloned`.
+/// `rev()`, `zip(..)`, or on a range `step_by(k)` on it), then any `map`,
+/// `filter`, `filter_map`, `flat_map`, `flatten`, `copied`, and `cloned`.
 pub(super) fn is_sequence(expr: &Expr) -> bool {
+    if is_range(expr) {
+        return true;
+    }
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
-        ("copied" | "cloned", 0) | ("map" | "filter", 1) => is_sequence(receiver),
-        ("rev", 0) | ("zip", 1) => is_source(receiver),
+        ("copied" | "cloned" | "flatten", 0) | ("map" | "filter" | "filter_map" | "flat_map", 1) => {
+            is_sequence(receiver)
+        }
+        ("rev", 0) | ("zip" | "step_by", 1) => is_source(receiver),
         ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values" | "split_whitespace" | "lines", 0)
-        | ("split", 1) => true,
+        | ("split" | "windows" | "chunks", 1) => true,
         _ => false,
     }
 }
 
 /// A sequence with no stage that runs code: a source, `copied`, `cloned`,
-/// `rev`, and `zip`.
+/// `rev`, `zip`, and `step_by`.
 fn is_source(expr: &Expr) -> bool {
+    if is_range(expr) {
+        return true;
+    }
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
-        ("copied" | "cloned" | "rev", 0) | ("zip", 1) => is_source(receiver),
+        ("copied" | "cloned" | "rev", 0) | ("zip" | "step_by", 1) => is_source(receiver),
         ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values" | "split_whitespace" | "lines", 0)
-        | ("split", 1) => true,
+        | ("split" | "windows" | "chunks", 1) => true,
         _ => false,
     }
 }
 
-/// Whether `expr` is `rev()` or `zip(..)` where a stage that runs code
-/// comes before it, which v0 refuses.
+/// `(a..b)` or `(a..=b)` as `syntax` writes a method's receiver.
+fn is_range(expr: &Expr) -> bool {
+    matches!(expr.unpositioned(), Expr::Call { callee: Callee::Range { .. }, .. })
+}
+
+/// A range, then any `rev()` and `step_by(k)`.
+fn is_range_based(expr: &Expr) -> bool {
+    match expr.unpositioned() {
+        Expr::MethodCall { receiver, name, args } => {
+            matches!((name.as_str(), args.len()), ("rev", 0) | ("step_by", 1)) && is_range_based(receiver)
+        }
+        e => is_range(e),
+    }
+}
+
+/// Whether a typed sequence is a range's (`Iter.range`, then any `rev` and
+/// `step_by`): computed as it is walked, not an array.
+pub(super) fn typed_range(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep, .. })
+}
+
+/// Whether `expr` is `rev()`, `zip(..)`, or `step_by(..)` where a stage that
+/// runs code comes before it, which v0 refuses.
 pub(super) fn stage_before_reorder(expr: &Expr) -> Option<&'static str> {
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return None };
     match (name.as_str(), args.len()) {
         ("rev", 0) if !is_source(receiver) && is_sequence(receiver) => Some("rev"),
         ("zip", 1) if !is_source(receiver) && is_sequence(receiver) => Some("zip"),
+        ("step_by", 1) if !is_source(receiver) && is_sequence(receiver) => Some("step_by"),
         _ => stage_before_reorder(receiver),
     }
 }

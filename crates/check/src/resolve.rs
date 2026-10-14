@@ -523,7 +523,19 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrSplit | Callee::StrSplitStr => self.arity("`str::split`", 2, argc),
             Callee::StrRepeat => self.arity("`str::repeat`", 2, argc),
             Callee::StrJoin => self.arity("`join`", 2, argc),
-            Callee::IterMap { .. } | Callee::IterFilter { .. } => self.arity("an iterator stage", 2, argc),
+            Callee::IterMap { .. } | Callee::IterFilter { .. } | Callee::IterFilterMap { .. } => {
+                self.arity("an iterator stage", 2, argc)
+            }
+            Callee::IterFlatten { .. } => self.arity("`flatten`", 1, argc),
+            Callee::VecWindows { .. } => self.arity("`windows`", 2, argc),
+            Callee::VecDedup => {
+                if !(1..=2).contains(&argc) {
+                    self.arity("`dedup`", 1, argc);
+                }
+            }
+            Callee::Range { .. } => self.arity("a range", 2, argc),
+            Callee::RangeRev => self.arity("`rev`", 1, argc),
+            Callee::RangeStep => self.arity("`step_by`", 2, argc),
             Callee::Collect { .. } => {
                 if !(1..=2).contains(&argc) {
                     self.arity("`collect`", 2, argc);

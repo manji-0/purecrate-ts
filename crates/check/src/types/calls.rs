@@ -391,6 +391,48 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 (args, item.map(|t| Ty::Vec(Box::new(t))))
             }
+            // Written only by `sequence`, typed: a `Vec` of the `Some`s' values.
+            Callee::IterFilterMap { .. } => {
+                let (args, tys) = self.typed_all(args);
+                let item = match tys.get(1).cloned().flatten().map(|t| self.norm(&t)) {
+                    Some(Ty::Fn { ret, .. }) => match self.norm(&ret) {
+                        Ty::Option(t) => Some(*t),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                (args, item.map(|t| Ty::Vec(Box::new(t))))
+            }
+            // Written only by `sequence`, typed: the items' elements.
+            Callee::IterFlatten { .. } => {
+                let (args, tys) = self.typed_all(args);
+                let inner = self.vec_item(&tys[0]);
+                (args, self.vec_item(&inner).map(|t| Ty::Vec(Box::new(t))))
+            }
+            // Written only by `sequence`, typed: the slices.
+            Callee::VecWindows { .. } => {
+                let (args, tys) = self.typed_all(args);
+                (args, tys[0].clone().map(|t| Ty::Vec(Box::new(t))))
+            }
+            Callee::VecDedup => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit))),
+            // Written by `syntax` as a method's receiver; `sequence` types
+            // it there. Anywhere else a range is not a value.
+            Callee::Range { ty: None, .. } => {
+                self.error(Reason::Range, "a range `a..b` is a sequence in v0, before `.rev()`, `.step_by(k)`, `.map(f)`, a consumer, or `collect`, or in a `for`; it is not a value".to_string());
+                return (Expr::Lit(Lit::Unit), None);
+            }
+            Callee::Range { ty: Some(it), .. } => {
+                let t = Ty::Prim((*it).into());
+                (typed_args(self, vec![t.clone(), t.clone()]), Some(Ty::Vec(Box::new(t))))
+            }
+            Callee::RangeRev | Callee::RangeStep => {
+                let first = self.expr(&args[0], None);
+                let mut typed = vec![first.0];
+                if let Some(k) = args.get(1) {
+                    typed.push(self.expr(k, Some(&Ty::Prim(Prim::Usize))).0);
+                }
+                (typed, first.1)
+            }
             // Written only by `consume`, typed.
             Callee::Consume { method, over } => {
                 let (args, tys) = self.typed_all(args);
