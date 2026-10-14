@@ -49,6 +49,44 @@ impl WireSchema {
             Self::Arktype => "2.1.22",
         }
     }
+
+    /// The namespace of zod's or valibot's own schemas (`z.tuple`).
+    fn ns(self) -> &'static str {
+        match self {
+            Self::Zod => "z",
+            Self::Valibot => "v",
+            Self::Arktype => unreachable!("arktype's own schemas are `type`'s"),
+        }
+    }
+
+    /// The declared type of a schema that gives an `of`. For zod and
+    /// valibot, `unknown` is the input type's default.
+    fn schema_type(self, of: &str) -> String {
+        match self {
+            Self::Zod => format!("z.ZodType<{of}>"),
+            Self::Valibot => format!("v.GenericSchema<unknown, {of}>"),
+            Self::Arktype => format!("Wire<{of}>"),
+        }
+    }
+
+    /// `schema`'s output passed through `build`, which makes the domain
+    /// value of what it read.
+    fn piped(self, schema: Js, build: Js) -> Js {
+        match self {
+            Self::Zod => method(schema, "transform", vec![build]),
+            Self::Valibot => call_path("v.pipe", vec![schema, call_path("v.transform", vec![build])]),
+            Self::Arktype => method(schema, "pipe", vec![build]),
+        }
+    }
+
+    /// `input` read through `schema`, which throws where it refuses it.
+    fn parse_call(self, schema: Js, input: Js) -> Js {
+        match self {
+            Self::Zod => method(schema, "parse", vec![input]),
+            Self::Valibot => call_path("v.parse", vec![schema, input]),
+            Self::Arktype => method(schema, "assert", vec![input]),
+        }
+    }
 }
 
 /// The serde derives of a struct or enum (design/04 §3.2): a schema reads
@@ -134,56 +172,30 @@ fn emit_wire_in(krate: &Crate, schema: WireSchema) -> String {
         // Arktype compiles each shape on first use (`memo`), so any order works.
         for item in &wired {
             let generics = generics_of(item);
-            // arktype: a parameter's schema is any `Type`, its value type
-            // what that type reads (`WT["infer"]`), as the adapter's
-            // `nullable` takes one.
-            PARAMS.with(|p| *p.borrow_mut() = generics.iter().map(|g| ark_infer(g)).collect());
-            let mut own = Vec::new();
-            match item {
-                Item::Struct(s) => ark_struct(s, &refusal(krate, s), &doc_of(item), &mut own),
-                Item::Enum(e) if e.tagging != Tagging::External => ark_tagged(e, &doc_of(item), &mut own),
-                Item::Enum(e) => ark_enum(e, &doc_of(item), &mut own),
-                _ => {}
-            }
-            if generics.is_empty() {
-                chunks.extend(own);
-            } else {
-                chunks.extend(generic_ark(item.name().as_str(), &generics, own));
-            }
-            PARAMS.with(|p| p.borrow_mut().clear());
+            chunks.extend(crate::scoped(&PARAMS, params_for(schema, &generics), || ark_item(krate, item, &generics)));
         }
     } else {
         for (item, recursive) in wire_order(&wired) {
             let generics = generics_of(item);
-            PARAMS.with(|p| *p.borrow_mut() = generics.clone());
-            let value = match item {
-                Item::Struct(s) => struct_schema(schema, s, &refusal(krate, s)),
-                Item::Enum(e) if e.tagging != Tagging::External => tagged_schema(schema, e),
-                Item::Enum(e) => enum_schema(schema, e.name.as_str(), &e.variants),
-                _ => continue,
-            };
-            chunks.push(Chunk::Text(format!("\n{}", doc_of(item))));
-            let name = item.name().as_str();
-            let (ty, value) = declare(schema, name, value, recursive);
-            if generics.is_empty() {
-                chunks.push(Chunk::decl(true, name, Some(ty), value));
-            } else {
-                // `<T>(wireT: z.ZodType<T>): z.ZodType<Page$<T>> => ..`: a
-                // schema of the parameters' schemas.
-                let param_ty = |g: &str| match schema {
-                    WireSchema::Zod => format!("z.ZodType<{g}>"),
-                    WireSchema::Valibot => format!("v.GenericSchema<unknown, {g}>"),
-                    WireSchema::Arktype => unreachable!("arktype is printed above"),
+            chunks.extend(crate::scoped(&PARAMS, params_for(schema, &generics), || {
+                let value = match item {
+                    Item::Struct(s) => struct_schema(schema, s, &refusal(krate, s)),
+                    Item::Enum(e) if e.tagging != Tagging::External => tagged_schema(schema, e),
+                    Item::Enum(e) => enum_schema(schema, e.name.as_str(), &e.variants),
+                    _ => return Vec::new(),
                 };
-                let params = generics
-                    .iter()
-                    .map(|g| format!("{}: {}", param_value("wire", g), param_ty(g)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let head = format!("<{}>({params})", generics.join(", "));
-                chunks.push(Chunk::decl(true, name, None, arrow(&head, Some(&ty), expr_body(value))));
-            }
-            PARAMS.with(|p| p.borrow_mut().clear());
+                let name = item.name().as_str();
+                let (ty, value) = declare(schema, name, value, recursive);
+                // A generic item's schema is a function of its parameters'
+                // schemas: `<T>(wireT: z.ZodType<T>): z.ZodType<Page$<T>> => ..`.
+                let decl = if generics.is_empty() {
+                    Chunk::decl(true, name, Some(ty), value)
+                } else {
+                    let head = generic_head(schema, &generics, None);
+                    Chunk::decl(true, name, None, arrow(&head, Some(&ty), expr_body(value)))
+                };
+                vec![Chunk::Text(format!("\n{}", doc_of(item))), decl]
+            }));
         }
     }
     from_json(schema, &wired, &mut chunks);
@@ -221,30 +233,66 @@ fn generics_of(item: &Item) -> Vec<String> {
     names.iter().map(|n| n.as_str().to_string()).collect()
 }
 
-/// A generic item's arktype declarations as one function of its
-/// parameters' schemas: each shape a `const` inside it, the morph returned.
-fn generic_ark(name: &str, generics: &[String], own: Vec<Chunk>) -> Vec<Chunk> {
-    let mut out = Vec::new();
-    let mut body: Vec<Stmt> = generics
-        .iter()
-        .map(|g| Stmt::Const(param_value("anyWire", g), Js::As(Box::new(raw(param_value("wire", g))), "Type".into())))
-        .collect();
-    let mut result = None;
-    for c in own {
-        match c {
-            Chunk::Text(t) if t.trim().is_empty() => {}
-            Chunk::Text(t) => out.push(Chunk::Text(t)),
-            Chunk::Decl { name: n, value, .. } if n == name => result = Some(value),
-            Chunk::Decl { name: n, value, .. } => body.push(Stmt::Const(n, value)),
-        }
+/// What `PARAMS` holds while a generic item's schema is written: its type
+/// parameters, or with arktype, where a parameter's schema is any `Type`,
+/// what each one reads (`WT["infer"]`), as the adapter's `nullable` takes.
+fn params_for(schema: WireSchema, generics: &[String]) -> Vec<String> {
+    match schema {
+        WireSchema::Arktype => generics.iter().map(|g| ark_infer(g)).collect(),
+        _ => generics.to_vec(),
     }
-    let result = result.expect("the item's own declaration");
-    body.push(Stmt::Return(result));
-    let params = generics.iter().map(|g| format!("{}: W{g}", param_value("wire", g))).collect::<Vec<_>>().join(", ");
-    let head =
-        format!("<{}>({params})", generics.iter().map(|g| format!("W{g} extends Type")).collect::<Vec<_>>().join(", "));
-    out.insert(0, Chunk::Text("\n".into()));
-    out.push(Chunk::decl(true, name, None, arrow(&head, Some(&format!("Wire<{}>", dom(name))), Body::Block(body))));
+}
+
+/// The head of a function of a generic item's parameters' schemas, after
+/// `lead`: `<T>(wireT: z.ZodType<T>)`, with arktype
+/// `<WT extends Type>(wireT: WT)`; `(lead)` alone for an item with none.
+fn generic_head(schema: WireSchema, generics: &[String], lead: Option<&str>) -> String {
+    let (types, params): (Vec<String>, Vec<String>) = generics
+        .iter()
+        .map(|g| {
+            let wire = param_value("wire", g);
+            match schema {
+                WireSchema::Arktype => (format!("W{g} extends Type"), format!("{wire}: W{g}")),
+                _ => (g.clone(), format!("{wire}: {}", schema.schema_type(g))),
+            }
+        })
+        .unzip();
+    let types = if types.is_empty() { String::new() } else { format!("<{}>", types.join(", ")) };
+    let params: Vec<String> = lead.map(str::to_string).into_iter().chain(params).collect();
+    format!("{types}({})", params.join(", "))
+}
+
+/// An arktype item's declarations. A generic item's are one function of
+/// its parameters' schemas, each shape a `const` inside it and the item's
+/// schema returned.
+fn ark_item(krate: &Crate, item: &Item, generics: &[String]) -> Vec<Chunk> {
+    let ark = match item {
+        Item::Struct(s) => ark_struct(s, &refusal(krate, s)),
+        Item::Enum(e) if e.tagging != Tagging::External => ark_tagged(e),
+        Item::Enum(e) => ark_enum(e),
+        _ => return Vec::new(),
+    };
+    let name = item.name().as_str();
+    // The declared `Wire<T$>` gives the adapters' type parameter.
+    let ty = WireSchema::Arktype.schema_type(&dom(name));
+    let mut out = vec![Chunk::Text("\n".into())];
+    if generics.is_empty() {
+        out.extend(ark.shapes.into_iter().map(|(n, value)| Chunk::decl(false, n, None, value)));
+        out.push(Chunk::Text(doc_of(item)));
+        out.push(Chunk::decl(true, name, Some(ty), ark.value));
+    } else {
+        let mut body: Vec<Stmt> = generics
+            .iter()
+            .map(|g| {
+                Stmt::Const(param_value("anyWire", g), Js::As(Box::new(raw(param_value("wire", g))), "Type".into()))
+            })
+            .collect();
+        body.extend(ark.shapes.into_iter().map(|(n, value)| Stmt::Const(n, value)));
+        body.push(Stmt::Return(ark.value));
+        let head = generic_head(WireSchema::Arktype, generics, None);
+        out.push(Chunk::Text(doc_of(item)));
+        out.push(Chunk::decl(true, name, None, arrow(&head, Some(&ty), Body::Block(body))));
+    }
     out
 }
 
@@ -277,13 +325,6 @@ fn from_json(schema: WireSchema, wired: &[&Item], chunks: &mut Vec<Chunk>) {
         .map(|item| {
             let name = item.name().as_str();
             let generics = generics_of(item);
-            PARAMS.with(|p| {
-                *p.borrow_mut() = if schema == WireSchema::Arktype {
-                    generics.iter().map(|g| ark_infer(g)).collect()
-                } else {
-                    generics.clone()
-                }
-            });
             let text = call_path("parseJson", vec![raw("text")]);
             // A generic type's schema is made of its parameters' schemas.
             let schema_of = if generics.is_empty() {
@@ -291,31 +332,10 @@ fn from_json(schema: WireSchema, wired: &[&Item], chunks: &mut Vec<Chunk>) {
             } else {
                 call_path(name, generics.iter().map(|g| raw(param_value("wire", g))).collect())
             };
-            let read = match schema {
-                WireSchema::Zod => method(schema_of, "parse", vec![text]),
-                WireSchema::Valibot => call_path("v.parse", vec![schema_of, text]),
-                WireSchema::Arktype => method(schema_of, "assert", vec![text]),
-            };
-            let head = if generics.is_empty() {
-                "(text: string)".to_string()
-            } else {
-                let param_ty = |g: &str| match schema {
-                    WireSchema::Zod => format!("z.ZodType<{g}>"),
-                    WireSchema::Valibot => format!("v.GenericSchema<unknown, {g}>"),
-                    WireSchema::Arktype => format!("W{g}"),
-                };
-                let params =
-                    generics.iter().map(|g| format!("{}: {}", param_value("wire", g), param_ty(g))).collect::<Vec<_>>();
-                let heads = if schema == WireSchema::Arktype {
-                    generics.iter().map(|g| format!("W{g} extends Type")).collect::<Vec<_>>().join(", ")
-                } else {
-                    generics.join(", ")
-                };
-                format!("<{heads}>(text: string, {})", params.join(", "))
-            };
-            let entry = (name.to_string(), arrow(&head, Some(&dom(name)), expr_body(read)));
-            PARAMS.with(|p| p.borrow_mut().clear());
-            entry
+            let read = schema.parse_call(schema_of, text);
+            let head = generic_head(schema, &generics, Some("text: string"));
+            let ret = crate::scoped(&PARAMS, params_for(schema, &generics), || dom(name));
+            (name.to_string(), arrow(&head, Some(&ret), expr_body(read)))
         })
         .collect();
     chunks.push(Chunk::decl(true, "fromJson", None, Js::As(Box::new(Js::Object(entries)), "const".into())));
@@ -436,14 +456,9 @@ fn wire_order<'a>(items: &[&'a Item]) -> Vec<(&'a Item, bool)> {
 /// The schema's declared type, and its value behind `lazy` only for a
 /// recursive type.
 fn declare(schema: WireSchema, name: &str, value: Js, recursive: bool) -> (String, Js) {
-    let (ty, lazy) = match schema {
-        // `unknown` is the input type's default.
-        WireSchema::Zod => (format!("z.ZodType<{}>", dom(name)), "z.lazy"),
-        WireSchema::Valibot => (format!("v.GenericSchema<unknown, {}>", dom(name)), "v.lazy"),
-        WireSchema::Arktype => unreachable!("arktype declarations are printed by `ark_*`"),
-    };
-    let value = if recursive { call_path(lazy, vec![arrow("()", None, expr_body(value))]) } else { value };
-    (ty, value)
+    let lazy = format!("{}.lazy", schema.ns());
+    let value = if recursive { call_path(&lazy, vec![arrow("()", None, expr_body(value))]) } else { value };
+    (schema.schema_type(&dom(name)), value)
 }
 
 /// `{ kind: "V", a: .. }`, the domain value a variant arm builds.
@@ -649,11 +664,7 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
         let value = schema_ty(schema, inner);
         // `x`, not `v`, which names valibot's namespace.
         let build = arrow("(x)", Some(&dom(name)), expr_body(newtype_build(s, "x")));
-        return match schema {
-            WireSchema::Zod => method(value, "transform", vec![build]),
-            WireSchema::Valibot => call_path("v.pipe", vec![value, call_path("v.transform", vec![build])]),
-            WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
-        };
+        return schema.piped(value, build);
     }
     let fields = Js::Object(object_fields(schema, &s.fields));
     // The object's own output is the domain value, but for a closed struct
@@ -676,11 +687,7 @@ fn struct_schema(schema: WireSchema, s: &Struct, refused: &Refusal) -> Js {
         return object;
     }
     let build = arrow("(x)", Some(&dom(name)), expr_body(record_build(s, fill(schema, &s.fields, "x"))));
-    match schema {
-        WireSchema::Zod => method(object, "transform", vec![build]),
-        WireSchema::Valibot => call_path("v.pipe", vec![object, call_path("v.transform", vec![build])]),
-        WireSchema::Arktype => unreachable!("arktype structs are printed by `ark_struct`"),
-    }
+    schema.piped(object, build)
 }
 
 /// `name: schema` for each field of a struct or struct variant, keyed by
@@ -708,7 +715,7 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, refused: &Refusal)
     let from = schema_ty(schema, from);
     let message = try_from_message(name, refused);
     let ret = dom(name);
-    let failed = raw("r.kind === \"Err\"");
+    let failed = raw(FAILED);
     match schema {
         WireSchema::Zod => {
             let issue = Js::Object(vec![
@@ -717,33 +724,36 @@ fn try_from_schema(schema: WireSchema, s: &Struct, from: &Ty, refused: &Refusal)
                 ("input".into(), raw("x")),
                 ("params".into(), Js::Object(vec![("error".into(), raw("r.error"))])),
             ]);
-            let body = vec![
-                Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw("x")])),
-                Stmt::IfBlock(
-                    failed,
-                    vec![Stmt::Expr(call_path("ctx.addIssue", vec![issue])), Stmt::Return(raw("z.NEVER"))],
-                ),
-                Stmt::Return(raw("r.value")),
-            ];
-            method(from, "transform", vec![arrow("(x, ctx)", Some(&ret), Body::Block(body))])
+            let on_err = Stmt::IfBlock(
+                failed,
+                vec![Stmt::Expr(call_path("ctx.addIssue", vec![issue])), Stmt::Return(raw("z.NEVER"))],
+            );
+            let body = try_from_stmts(name, "x", on_err);
+            schema.piped(from, arrow("(x, ctx)", Some(&ret), Body::Block(body)))
         }
         WireSchema::Valibot => {
-            let body = vec![
-                Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw("dataset.value")])),
-                Stmt::IfBlock(
-                    failed,
-                    vec![
-                        Stmt::Expr(call_path("addIssue", vec![Js::Object(vec![("message".into(), message)])])),
-                        Stmt::Return(raw("NEVER")),
-                    ],
-                ),
-                Stmt::Return(raw("r.value")),
-            ];
+            let issue = Js::Object(vec![("message".into(), message)]);
+            let on_err =
+                Stmt::IfBlock(failed, vec![Stmt::Expr(call_path("addIssue", vec![issue])), Stmt::Return(raw("NEVER"))]);
+            let body = try_from_stmts(name, "dataset.value", on_err);
             let transform = arrow("({ dataset, addIssue, NEVER })", Some(&ret), Body::Block(body));
             call_path("v.pipe", vec![from, call_path("v.rawTransform", vec![transform])])
         }
         WireSchema::Arktype => unreachable!("arktype reads `try_from` in `ark_struct`"),
     }
+}
+
+/// The test of a `try_from`'s result `r` that fails the read.
+const FAILED: &str = "r.kind === \"Err\"";
+
+/// `const r = S$.tryFrom(input);`, `on_err` where it is an `Err`, then
+/// `return r.value;`.
+fn try_from_stmts(name: &str, input: &str, on_err: Stmt) -> Vec<Stmt> {
+    vec![
+        Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw(input)])),
+        on_err,
+        Stmt::Return(raw("r.value")),
+    ]
 }
 
 /// The domain value of a newtype from its parsed inner value. A closed
@@ -801,11 +811,7 @@ fn enum_schema(schema: WireSchema, name: &str, variants: &[purecrate_ir::Variant
         return call_path("unitEnum", vec![Js::Array(names)]);
     }
     let arms = variants.iter().map(|v| variant_arm(schema, name, v)).collect();
-    match schema {
-        WireSchema::Zod => call_path("z.union", vec![Js::Array(arms)]),
-        WireSchema::Valibot => call_path("v.union", vec![Js::Array(arms)]),
-        WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
-    }
+    call_path(&format!("{}.union", schema.ns()), vec![Js::Array(arms)])
 }
 
 /// serde's externally tagged enum: `{"Variant": ..}` has exactly one key, so
@@ -818,12 +824,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, v: &purecrate_ir::Variant) -
     let (wrapper, rest) = match &v.fields {
         VariantFields::Unit => {
             let value = arrow("()", Some(&ret), expr_body(variant_value(variant, Vec::new())));
-            let tag = call_path("unitVariant", vec![str_lit(wire)]);
-            return match schema {
-                WireSchema::Zod => method(tag, "transform", vec![value]),
-                WireSchema::Valibot => call_path("v.pipe", vec![tag, call_path("v.transform", vec![value])]),
-                WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
-            };
+            return schema.piped(call_path("unitVariant", vec![str_lit(wire)]), value);
         }
         VariantFields::Tuple(tys) => tuple_json(schema, &access("x", wire), tys),
         VariantFields::Struct(fs) => {
@@ -834,13 +835,7 @@ fn variant_arm(schema: WireSchema, enum_name: &str, v: &purecrate_ir::Variant) -
     };
     let value = arrow("(x)", Some(&ret), expr_body(variant_value(variant, rest)));
     let keyed = Js::Object(vec![(prop(wire), wrapper)]);
-    match schema {
-        WireSchema::Zod => method(call_path("variant", vec![keyed]), "transform", vec![value]),
-        WireSchema::Valibot => {
-            call_path("v.pipe", vec![call_path("variant", vec![keyed]), call_path("v.transform", vec![value])])
-        }
-        WireSchema::Arktype => unreachable!("arktype enums are printed by `ark_enum`"),
-    }
+    schema.piped(call_path("variant", vec![keyed]), value)
 }
 
 /// An internally or adjacently tagged enum (design/04 §3.6): the adapter's
@@ -856,17 +851,18 @@ fn tagged_schema(schema: WireSchema, en: &Enum) -> Js {
         .iter()
         .filter_map(|v| {
             let (shape, value) = tagged_arm(schema, v)?;
-            let build = arrow("(x)", Some(&ret), expr_body(value));
-            let arm = match schema {
-                WireSchema::Zod => method(shape, "transform", vec![build]),
-                WireSchema::Valibot => call_path("v.pipe", vec![shape, call_path("v.transform", vec![build])]),
-                WireSchema::Arktype => unreachable!("arktype tagged enums are printed by `ark_tagged`"),
-            };
-            Some((prop(v.wire_name()), arm))
+            Some((prop(v.wire_name()), schema.piped(shape, arrow("(x)", Some(&ret), expr_body(value)))))
         })
         .collect();
-    let mut args = vec![Js::Object(arms)];
-    args.splice(0..0, tagged_head(en));
+    tagged_call(en, Vec::new(), arms)
+}
+
+/// The adapter's `internallyTagged` or `adjacentlyTagged` over `lead`, the
+/// tag (and content) keys, `units`, the `arms`, and `tagged_tail`.
+fn tagged_call(en: &Enum, lead: Vec<Js>, arms: Vec<(String, Js)>) -> Js {
+    let mut args = lead;
+    args.extend(tagged_head(en));
+    args.push(Js::Object(arms));
     args.extend(tagged_tail(en));
     let helper = if matches!(en.tagging, Tagging::Internal { .. }) { "internallyTagged" } else { "adjacentlyTagged" };
     call_path(helper, args)
@@ -932,45 +928,53 @@ fn tagged_arm(schema: WireSchema, v: &Variant) -> Option<(Js, Js)> {
     }
 }
 
+/// An arktype item's schema, and the memoized shapes it reads, each
+/// declared beside it (or, for a generic item, inside its function).
+struct Ark {
+    shapes: Vec<(String, Js)>,
+    value: Js,
+}
+
 /// Arktype: each non-unit variant's arm a memoized shape piped into the
 /// domain value, then the adapter's helper over them (`tagged_schema`).
-fn ark_tagged(en: &Enum, doc: &str, chunks: &mut Vec<Chunk>) {
+fn ark_tagged(en: &Enum) -> Ark {
     let name = en.name.as_str();
     let ret = dom(name);
-    chunks.push(Chunk::Text("\n".into()));
+    let mut shapes = Vec::new();
     let mut arms = Vec::new();
     for v in &en.variants {
         let Some((shape, value)) = tagged_arm(WireSchema::Arktype, v) else { continue };
         let arm = format!("{name}$arm${}", v.name.as_str());
-        let piped = method(shape, "pipe", vec![arrow("(x)", Some(&ret), expr_body(value))]);
-        chunks.push(Chunk::decl(false, arm.clone(), None, memo(piped)));
+        let piped = WireSchema::Arktype.piped(shape, arrow("(x)", Some(&ret), expr_body(value)));
+        shapes.push((arm.clone(), memo(piped)));
         arms.push((prop(v.wire_name()), raw(arm)));
     }
-    let mut args = vec![str_lit(name)];
-    args.extend(tagged_head(en));
-    args.push(Js::Object(arms));
-    args.extend(tagged_tail(en));
-    let helper = if matches!(en.tagging, Tagging::Internal { .. }) { "internallyTagged" } else { "adjacentlyTagged" };
-    chunks.push(Chunk::Text(doc.to_string()));
-    // The declared `Wire<E$>` gives the helper's type parameter.
-    chunks.push(Chunk::decl(true, name, Some(format!("Wire<{ret}>")), call_path(helper, args)));
+    Ark { shapes, value: tagged_call(en, vec![str_lit(name)], arms) }
 }
 
-/// `type("unknown").pipe((v, ctx): T$ => { .. })`, an arktype morph whose
-/// body starts by reading `wire` into `parsed`.
+/// `type("unknown").pipe(args)`.
+fn unknown_pipe(args: Vec<Js>) -> Js {
+    method(call_path("type", vec![str_lit("unknown")]), "pipe", args)
+}
+
+/// `type("unknown").pipe((v, ctx): T$ => { .. })`, an arktype morph.
 fn ark_morph(name: &str, body: Vec<Stmt>) -> Js {
-    let pipe = arrow("(v, ctx)", Some(&dom(name)), Body::Block(body));
-    method(call_path("type", vec![str_lit("unknown")]), "pipe", vec![pipe])
+    unknown_pipe(vec![arrow("(v, ctx)", Some(&dom(name)), Body::Block(body))])
 }
 
+/// `const parsed = shape()(v);`: `v` read through the memoized `shape`.
+fn parsed(shape: &str) -> Stmt {
+    Stmt::Const("parsed".into(), call(call(raw(shape), Vec::new()), vec![raw("v")]))
+}
+
+/// `return fail(ctx, parsed);`: the morph fails with what `parsed` reported.
+fn fail() -> Box<Stmt> {
+    Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")])))
+}
+
+/// `wire` read into `parsed`, and the morph failed where it refused it.
 fn ark_parsed(wire: &str) -> Vec<Stmt> {
-    vec![
-        Stmt::Const("parsed".into(), call(call(raw(wire), Vec::new()), vec![raw("v")])),
-        Stmt::If(
-            raw("parsed instanceof type.errors"),
-            Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")]))),
-        ),
-    ]
+    vec![parsed(wire), Stmt::If(raw("parsed instanceof type.errors"), fail())]
 }
 
 /// A struct's arktype shape: the sequence form read in field order and a
@@ -983,7 +987,7 @@ fn ark_record(fields: &[purecrate_ir::Field]) -> Js {
         "narrow",
         vec![raw("record")],
     );
-    method(call_path("type", vec![str_lit("unknown")]), "pipe", vec![call_path("sequence", vec![names]), object])
+    unknown_pipe(vec![call_path("sequence", vec![names]), object])
 }
 
 /// `memo(() => shape)`.
@@ -996,20 +1000,14 @@ fn memo(shape: Js) -> Js {
 /// on first use (`memo`), so a definition may refer to a schema declared
 /// later in the file. Variants are tried one at a time: arktype rejects an
 /// unordered union of two object morphs.
-fn ark_struct(s: &Struct, refused: &Refusal, doc: &str, chunks: &mut Vec<Chunk>) {
+fn ark_struct(s: &Struct, refused: &Refusal) -> Ark {
     let name = s.name.as_str();
     let wire = format!("{name}$wire");
     let (shape, tail) = match (&s.wire_from, s.newtype_inner()) {
         (Some(from), _) => {
             let message = try_from_message(name, refused);
-            let tail = vec![
-                Stmt::Const("r".into(), call_path(&format!("{name}$.tryFrom"), vec![raw("parsed")])),
-                Stmt::If(
-                    raw("r.kind === \"Err\""),
-                    Box::new(Stmt::Return(Js::As(Box::new(call_path("ctx.error", vec![message])), "never".into()))),
-                ),
-                Stmt::Return(raw("r.value")),
-            ];
+            let error = Js::As(Box::new(call_path("ctx.error", vec![message])), "never".into());
+            let tail = try_from_stmts(name, "parsed", Stmt::If(raw(FAILED), Box::new(Stmt::Return(error))));
             (schema_ty(WireSchema::Arktype, from), tail)
         }
         (None, Some(inner)) => (schema_ty(WireSchema::Arktype, inner), vec![Stmt::Return(newtype_build(s, "parsed"))]),
@@ -1021,39 +1019,26 @@ fn ark_struct(s: &Struct, refused: &Refusal, doc: &str, chunks: &mut Vec<Chunk>)
     };
     let mut body = ark_parsed(&wire);
     body.extend(tail);
-    chunks.push(Chunk::Text("\n".into()));
-    chunks.push(Chunk::decl(false, wire, None, memo(shape)));
-    chunks.push(Chunk::Text(doc.to_string()));
-    chunks.push(Chunk::decl(true, name, Some(format!("Wire<{}>", dom(name))), ark_morph(name, body)));
+    Ark { shapes: vec![(wire, memo(shape))], value: ark_morph(name, body) }
 }
 
-fn ark_enum(en: &purecrate_ir::Enum, doc: &str, chunks: &mut Vec<Chunk>) {
+fn ark_enum(en: &purecrate_ir::Enum) -> Ark {
     let name = en.name.as_str();
-    chunks.push(Chunk::Text("\n".into()));
     if let Some(names) = unit_names(&en.variants) {
-        chunks.push(Chunk::Text(doc.to_string()));
-        let value = call_path("unitEnum", vec![str_lit(name), Js::Array(names)]);
-        chunks.push(Chunk::decl(true, name, Some(format!("Wire<{}>", dom(name))), value));
-        return;
+        return Ark { shapes: Vec::new(), value: call_path("unitEnum", vec![str_lit(name), Js::Array(names)]) };
     }
+    let mut shapes = Vec::new();
     let mut body = Vec::new();
     for variant in &en.variants {
         let (arm, shape, tests) = ark_variant(name, variant);
         let keyed = Js::Object(vec![("\"+\"".into(), str_lit("reject")), (ark_prop(variant.wire_name()), shape)]);
         // A key twice in the wrapper is refused before the shape reads it.
-        let wrapper = method(
-            call_path("type", vec![str_lit("unknown")]),
-            "pipe",
-            vec![call_path("sequence", Vec::new()), call_path("type", vec![keyed])],
-        );
-        chunks.push(Chunk::decl(false, arm, None, memo(wrapper)));
+        let wrapper = unknown_pipe(vec![call_path("sequence", Vec::new()), call_path("type", vec![keyed])]);
+        shapes.push((arm, memo(wrapper)));
         body.extend(tests);
     }
     body.push(Stmt::Return(Js::As(Box::new(call_path("ctx.error", vec![str_lit(name)])), "never".into())));
-    chunks.push(Chunk::Text(doc.to_string()));
-    let pipe = arrow("(v, ctx)", Some(&dom(name)), Body::Block(body));
-    let value = method(call_path("type", vec![str_lit("unknown")]), "pipe", vec![pipe]);
-    chunks.push(Chunk::decl(true, name, Some(format!("Wire<{}>", dom(name))), value));
+    Ark { shapes, value: ark_morph(name, body) }
 }
 
 /// One variant's memoized shape: its name, the JSON under the variant's key,
@@ -1061,11 +1046,8 @@ fn ark_enum(en: &purecrate_ir::Enum, doc: &str, chunks: &mut Vec<Chunk>) {
 fn ark_variant(en: &str, variant: &purecrate_ir::Variant) -> (String, Js, Vec<Stmt>) {
     let (name, wire) = (variant.name.as_str(), variant.wire_name());
     let arm = format!("{en}$arm${name}");
-    let parsed = Stmt::Const("parsed".into(), call(call(raw(arm.clone()), Vec::new()), vec![raw("v")]));
-    let keyed = Stmt::If(
-        call_path("keyed", vec![raw("v"), str_lit(wire)]),
-        Box::new(Stmt::Return(call_path("fail", vec![raw("ctx"), raw("parsed")]))),
-    );
+    let parsed = parsed(&arm);
+    let keyed = Stmt::If(call_path("keyed", vec![raw("v"), str_lit(wire)]), fail());
     let accepted = |value: Js| Stmt::If(raw("!(parsed instanceof type.errors)"), Box::new(Stmt::Return(value)));
     let (shape, rest) = match &variant.fields {
         VariantFields::Unit => {
@@ -1094,9 +1076,8 @@ fn tuple_json(schema: WireSchema, at: &str, tys: &[Ty]) -> (Js, Vec<(String, Js)
     }
     let inner = Js::Array(tys.iter().map(|ty| schema_ty(schema, ty)).collect());
     let json = match schema {
-        WireSchema::Zod => call_path("z.tuple", vec![inner]),
-        WireSchema::Valibot => call_path("v.tuple", vec![inner]),
         WireSchema::Arktype => inner,
+        _ => call_path(&format!("{}.tuple", schema.ns()), vec![inner]),
     };
     (json, vec![("content".into(), raw(at))])
 }
@@ -1105,21 +1086,15 @@ fn schema_ty(schema: WireSchema, ty: &Ty) -> Js {
     schema_ty_in(schema, ty, false)
 }
 
-fn never(schema: WireSchema) -> Js {
-    match schema {
-        WireSchema::Zod => call_path("z.never", Vec::new()),
-        WireSchema::Valibot => call_path("v.never", Vec::new()),
-        WireSchema::Arktype => raw("type.never"),
-    }
-}
-
 fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
+    // zod's and valibot's own schema `name` of `args` (`z.array(..)`).
+    let own = |name: &str, args: Vec<Js>| call_path(&format!("{}.{name}", schema.ns()), args);
     match ty {
         // `Page(User)`: a generic type's schema of its arguments' schemas.
         Ty::App { name, args } => call_path(name.as_str(), args.iter().map(|t| schema_ty(schema, t)).collect()),
         // arktype validates a definition at the type level, which an
         // unresolved `WT` does not pass: inside the function it reads the
-        // schema as a `Type` (of `unknown`, `generic_ark`).
+        // schema as a `Type` (of `unknown`, `ark_item`).
         Ty::Param(p) if schema == WireSchema::Arktype => raw(param_value("anyWire", p.as_str())),
         Ty::Param(p) => raw(param_value("wire", p.as_str())),
         // An object read into a `Map`, an array into a `Set` (the adapters).
@@ -1150,19 +1125,20 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
             }
         }
         Ty::Vec(inner) => match schema {
-            WireSchema::Zod => call_path("z.array", vec![schema_ty(schema, inner)]),
-            WireSchema::Valibot => call_path("v.array", vec![schema_ty(schema, inner)]),
             WireSchema::Arktype => method(schema_ty(schema, inner), "array", Vec::new()),
+            _ => own("array", vec![schema_ty(schema, inner)]),
         },
         Ty::Tuple(elems) => {
             let inner = Js::Array(elems.iter().map(|t| schema_ty(schema, t)).collect());
             match schema {
-                WireSchema::Zod => call_path("z.tuple", vec![inner]),
-                WireSchema::Valibot => call_path("v.tuple", vec![inner]),
                 WireSchema::Arktype => call_path("type", vec![inner]),
+                _ => own("tuple", vec![inner]),
             }
         }
-        Ty::Result { .. } | Ty::Fn { .. } | Ty::Never => never(schema),
+        Ty::Result { .. } | Ty::Fn { .. } | Ty::Never => match schema {
+            WireSchema::Arktype => raw("type.never"),
+            _ => own("never", Vec::new()),
+        },
         Ty::Named(n) => raw(n.as_str()),
         Ty::Ignored { inner, .. } => schema_ty_in(schema, inner, struct_field),
     }
@@ -1178,7 +1154,6 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
     for item in krate.exported().filter(|i| serde(i).ser) {
         let name = item.name().as_str();
         let generics = generics_of(item);
-        PARAMS.with(|p| *p.borrow_mut() = generics.clone());
         let body = match item {
             Item::Struct(s) => expr_body(match s.newtype_inner() {
                 Some(inner) => write_json(inner, "x", 0),
@@ -1192,45 +1167,30 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                 expr_body(raw("`\"${x.kind}\"`"))
             }
             Item::Enum(e) if e.tagging != Tagging::External => tagged_json(e),
-            Item::Enum(e) => {
-                let cases = e
-                    .variants
+            Item::Enum(e) => kind_switch(
+                e.variants
                     .iter()
                     .map(|v| {
-                        let (var, wire) = (v.name.as_str(), json_escape(v.wire_name()));
-                        let tagged = |inner: Js| {
-                            call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(&wire), inner])])])
-                        };
-                        let value = match &v.fields {
-                            VariantFields::Unit => str_lit(format!("\"{wire}\"")),
-                            VariantFields::Tuple(tys) if tys.len() == 1 => tagged(write_json(&tys[0], "x.value", 0)),
-                            VariantFields::Tuple(tys) => {
-                                let elems = tys
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0))
-                                    .collect();
-                                tagged(call_path("Json.tuple", vec![Js::Array(elems)]))
+                        let wire = json_escape(v.wire_name());
+                        let value = match variant_content_json(v) {
+                            None => str_lit(format!("\"{wire}\"")),
+                            Some(inner) => {
+                                call_path("Json.object", vec![Js::Array(vec![Js::Array(vec![str_lit(&wire), inner])])])
                             }
-                            VariantFields::Struct(fields) => tagged(object_json(fields, "x.")),
                         };
-                        (str_lit(var), vec![Stmt::Return(value)])
+                        (str_lit(v.name.as_str()), vec![Stmt::Return(value)])
                     })
-                    .collect::<Vec<_>>();
-                // Every variant has its case; the `default`, as in the domain
-                // files, keeps every path returning.
-                let mut cases = cases;
-                cases.push((raw("default"), vec![Stmt::Return(call_path("assertNever", vec![raw("x")]))]));
-                Body::Block(vec![Stmt::Switch(raw("x.kind"), cases)])
-            }
+                    .collect(),
+            ),
             Item::Alias(_) | Item::Fn(_) | Item::Const(_) => continue,
         };
+        let ty = crate::scoped(&PARAMS, generics.clone(), || dom(name));
         // An empty struct writes `{}` without reading its value.
         let x = if reads(&arrow("()", None, body.clone()), "x") { "x" } else { "_x" };
         // A generic type's writer takes one per type parameter
         // (`writeT: (v: T) => string`), unread where nothing holds a `T`.
         let head = if generics.is_empty() {
-            format!("({x}: {})", dom(name))
+            format!("({x}: {ty})")
         } else {
             let writers = generics
                 .iter()
@@ -1241,12 +1201,33 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("<{}>({x}: {}, {writers})", generics.join(", "), dom(name))
+            format!("<{}>({x}: {ty}, {writers})", generics.join(", "))
         };
         entries.push((name.to_string(), arrow(&head, Some("string"), body)));
-        PARAMS.with(|p| p.borrow_mut().clear());
     }
     chunks.push(Chunk::decl(true, "toJson", None, Js::As(Box::new(Js::Object(entries)), "const".into())));
+}
+
+/// A `switch` on `x.kind` over `cases`; the `default`, as in the domain
+/// files, keeps every path returning.
+fn kind_switch(mut cases: Vec<(Js, Vec<Stmt>)>) -> Body {
+    cases.push((raw("default"), vec![Stmt::Return(call_path("assertNever", vec![raw("x")]))]));
+    Body::Block(vec![Stmt::Switch(raw("x.kind"), cases)])
+}
+
+/// The JSON of a variant's content: a newtype variant's field, a tuple
+/// variant's fields as an array, a struct variant's as an object; `None`
+/// for a unit variant.
+fn variant_content_json(v: &Variant) -> Option<Js> {
+    match &v.fields {
+        VariantFields::Unit => None,
+        VariantFields::Struct(fs) => Some(object_json(fs, "x.")),
+        VariantFields::Tuple(tys) if tys.len() == 1 => Some(write_json(&tys[0], "x.value", 0)),
+        VariantFields::Tuple(tys) => {
+            let elems = tys.iter().enumerate().map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0)).collect();
+            Some(call_path("Json.tuple", vec![Js::Array(elems)]))
+        }
+    }
 }
 
 /// `toJson` of a tagged enum, as serde writes one: the tag first, then,
@@ -1260,16 +1241,11 @@ fn tagged_json(en: &Enum) -> Body {
         let value = match &en.tagging {
             Tagging::Internal { tag } => {
                 let tag = json_escape(tag);
-                let head = Js::Array(vec![str_lit(&tag), str_lit(&tag_value)]);
                 match &v.fields {
                     VariantFields::Unit => str_lit(format!("{{\"{tag}\":{tag_value}}}")),
                     VariantFields::Struct(fs) => {
-                        let mut pairs = vec![head];
-                        if let Js::Call(_, args) = object_json(fs, "x.") {
-                            if let Some(Js::Array(fields)) = args.into_iter().next() {
-                                pairs.extend(fields);
-                            }
-                        }
+                        let mut pairs = vec![Js::Array(vec![str_lit(&tag), str_lit(&tag_value)])];
+                        pairs.extend(object_pairs(fs, "x."));
                         call_path("Json.object", vec![Js::Array(pairs)])
                     }
                     VariantFields::Tuple(tys) => call_path(
@@ -1279,46 +1255,39 @@ fn tagged_json(en: &Enum) -> Body {
                 }
             }
             Tagging::Adjacent { tag, content } => {
-                let head = Js::Array(vec![str_lit(json_escape(tag)), str_lit(&tag_value)]);
-                let inner = match &v.fields {
-                    VariantFields::Unit => None,
-                    VariantFields::Struct(fs) => Some(object_json(fs, "x.")),
-                    VariantFields::Tuple(tys) if tys.len() == 1 => Some(write_json(&tys[0], "x.value", 0)),
-                    VariantFields::Tuple(tys) => Some(call_path(
-                        "Json.tuple",
-                        vec![Js::Array(
-                            tys.iter().enumerate().map(|(i, t)| write_json(t, &format!("x.content[{i}]"), 0)).collect(),
-                        )],
-                    )),
-                };
-                let mut pairs = vec![head];
-                pairs.extend(inner.map(|c| Js::Array(vec![str_lit(json_escape(content)), c])));
+                let mut pairs = vec![Js::Array(vec![str_lit(json_escape(tag)), str_lit(&tag_value)])];
+                pairs.extend(variant_content_json(v).map(|c| Js::Array(vec![str_lit(json_escape(content)), c])));
                 call_path("Json.object", vec![Js::Array(pairs)])
             }
             Tagging::External => unreachable!("an external tag is written by `to_json`"),
         };
         cases.push((str_lit(v.name.as_str()), vec![Stmt::Return(value)]));
     }
-    cases.push((raw("default"), vec![Stmt::Return(call_path("assertNever", vec![raw("x")]))]));
-    Body::Block(vec![Stmt::Switch(raw("x.kind"), cases)])
+    kind_switch(cases)
 }
 
-/// `{"a":…,"b":…}` for fields read from `<prefix><name>`, each under its
-/// JSON name, escaped as serde_json escapes it (`Json.object` writes the
-/// key as given), through `Json.object`, whose pairs break one per line
-/// where there are two or more.
+/// `{"a":…,"b":…}` for fields read from `<prefix><name>`, through
+/// `Json.object`, whose pairs break one per line where there are two or
+/// more; `"{}"` for none.
 fn object_json(fields: &[purecrate_ir::Field], prefix: &str) -> Js {
-    let pairs: Vec<Js> = fields
+    let pairs = object_pairs(fields, prefix);
+    if pairs.is_empty() {
+        return str_lit("{}");
+    }
+    call_path("Json.object", vec![Js::Array(pairs)])
+}
+
+/// `["a", …]` for each field read from `<prefix><name>`, under its JSON
+/// name, escaped as serde_json escapes it (`Json.object` writes the key as
+/// given).
+fn object_pairs(fields: &[purecrate_ir::Field], prefix: &str) -> Vec<Js> {
+    fields
         .iter()
         .map(|f| {
             let value = write_json(&f.ty, &format!("{prefix}{}", f.name.as_str()), 0);
             Js::Array(vec![str_lit(json_escape(f.wire_name())), value])
         })
-        .collect();
-    if pairs.is_empty() {
-        return str_lit("{}");
-    }
-    call_path("Json.object", vec![Js::Array(pairs)])
+        .collect()
 }
 
 /// A TS expression for the JSON text of `value`, of type `ty`. `depth`
@@ -1334,23 +1303,12 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         // `toJson.Page(x, (v0) => ..)`: a generic type's writer, given one
         // per type argument.
         Ty::App { name, args } => {
-            let v = format!("v{depth}");
-            let writers = args.iter().map(|t| {
-                let item = write_json(t, &v, depth + 1);
-                let param =
-                    if reads(&arrow("()", None, expr_body(item.clone())), &v) { v.clone() } else { format!("_{v}") };
-                arrow(&format!("({param})"), None, expr_body(item))
-            });
+            let writers = args.iter().map(|t| each(t, depth));
             call_path(&format!("toJson.{}", name.as_str()), std::iter::once(raw(value)).chain(writers).collect())
         }
         Ty::Param(p) => call_path(&param_value("write", p.as_str()), vec![raw(value)]),
         // An object in key order, as serde_json writes a `BTreeMap`.
-        Ty::Map { value: inner, .. } => {
-            let v = format!("v{depth}");
-            let item = write_json(inner, &v, depth + 1);
-            let param = if reads(&arrow("()", None, expr_body(item.clone())), &v) { v } else { format!("_{v}") };
-            call_path("Json.map", vec![raw(value), arrow(&format!("({param})"), None, expr_body(item))])
-        }
+        Ty::Map { value: inner, .. } => call_path("Json.map", vec![raw(value), each(inner, depth)]),
         Ty::Set(_) => call_path("Json.set", vec![raw(value)]),
         Ty::Prim(p) => match p {
             Prim::Bool => call_path("Json.bool", vec![raw(value)]),
@@ -1368,14 +1326,7 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         Ty::Option(inner) => {
             ternary(raw(format!("{value} === null")), str_lit("null"), write_json(inner, value, depth))
         }
-        Ty::Vec(inner) => {
-            let v = format!("v{depth}");
-            let item = write_json(inner, &v, depth + 1);
-            // `Vec<()>` writes `null` for each item without reading it.
-            let param = if reads(&arrow("()", None, expr_body(item.clone())), &v) { v } else { format!("_{v}") };
-            let each = arrow(&format!("({param})"), None, expr_body(item));
-            call_path("Json.array", vec![raw(value), each])
-        }
+        Ty::Vec(inner) => call_path("Json.array", vec![raw(value), each(inner, depth)]),
         Ty::Tuple(elems) => {
             let parts = elems.iter().enumerate().map(|(i, t)| write_json(t, &format!("{value}[{i}]"), depth)).collect();
             call_path("Json.tuple", vec![Js::Array(parts)])
@@ -1389,6 +1340,16 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         Ty::Ignored { inner, .. } => write_json(inner, value, depth),
         Ty::Fn { .. } | Ty::Never => str_lit("null"),
     }
+}
+
+/// `(v<depth>) => ..`, the writer of one `ty` inside a list, map, or generic
+/// type, its parameter `_v<depth>` where it is not read (`Vec<()>` writes
+/// `null` for each item).
+fn each(ty: &Ty, depth: usize) -> Js {
+    let v = format!("v{depth}");
+    let item = write_json(ty, &v, depth + 1);
+    let param = if reads(&item, &v) { v } else { format!("_{v}") };
+    arrow(&format!("({param})"), None, expr_body(item))
 }
 
 /// `expr` placed inside a template literal: a constant string or a nested
