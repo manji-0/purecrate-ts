@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — 2026-10-15
+
+The notation domain code commonly writes and v0 made longer: text cut and built (`to_lowercase`, `split` on a `&str`, `lines`, `join`, `repeat`, `to_string`), the adaptors `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, and `step_by` with ranges as sequences, an accumulator's literal typed by its first use, associated consts and paths through modules, and slice patterns. `survey corpus/patterns.rs` accepts 91 of 99 functions, 47 of 72 before; the distance to the ideal is 90% (design/07 §2.5). Every generator agrees with Rust on seeds 1 to 120; all but statements seed 119 (0.18.0's known one) type-check.
 
 ### Added
 
