@@ -26,6 +26,8 @@ use std::collections::BTreeSet;
 
 use purecrate_ir::{Crate, Enum, Fn, Item, Prim, Struct, Ty, VariantFields, Vis, NEWTYPE_FIELD};
 
+use super::derive;
+
 /// A function under test.
 pub struct Call {
     /// The TS function: `pkg.next`, `pkg.Ulid.parse`.
@@ -45,9 +47,17 @@ pub struct Skipped {
     pub why: String,
 }
 
+/// What `test` does with a crate: the functions it calls, those it cannot,
+/// and the types it can draw.
+pub struct Plan<'a> {
+    pub calls: Vec<Call>,
+    pub skipped: Vec<Skipped>,
+    make: Makeable<'a>,
+}
+
 /// The public functions of `krate`, split into those `test` calls and
 /// those it cannot.
-pub fn plan(krate: &Crate, spans: &[(usize, purecrate_syntax::LineCol)]) -> (Vec<Call>, Vec<Skipped>) {
+pub fn plan<'a>(krate: &'a Crate, spans: &'a [(usize, purecrate_syntax::LineCol)]) -> Plan<'a> {
     let make = Makeable::of(krate, spans);
     let mut calls = Vec::new();
     let mut skipped = Vec::new();
@@ -75,7 +85,7 @@ pub fn plan(krate: &Crate, spans: &[(usize, purecrate_syntax::LineCol)]) -> (Vec
             }),
         }
     }
-    (calls, skipped)
+    Plan { calls, skipped, make }
 }
 
 fn owner_is_public(krate: &Crate, f: &Fn) -> bool {
@@ -257,28 +267,23 @@ fn producers<'a>(krate: &'a Crate, spans: &[(usize, purecrate_syntax::LineCol)],
 
 /// What to append to each of `files` (by index), with `root` the crate
 /// root's index. `modules[i]` is file `i`'s module path.
-pub fn appended(
-    krate: &Crate,
-    spans: &[(usize, purecrate_syntax::LineCol)],
-    modules: &[Vec<String>],
-    calls: &[Call],
-    words: &Words,
-) -> Vec<String> {
-    let make = Makeable::of(krate, spans);
+pub fn appended(plan: &Plan<'_>, modules: &[Vec<String>], words: &Words) -> Vec<String> {
+    let Plan { calls, make, .. } = plan;
+    let (krate, spans) = (make.krate, make.spans);
     let mut out = vec![String::new(); modules.len()];
     for (i, item) in krate.items.iter().enumerate() {
         let file = spans[i].0;
         match item {
             Item::Struct(st) => {
-                out[file].push_str(&show_struct(st));
+                out[file].push_str(&derive::show_struct(st, SHOW, ATTRS));
                 if make.named.contains(st.name.as_str()) {
-                    out[file].push_str(&if st.closed { arb_closed(krate, &make, st) } else { arb_open(st) });
+                    out[file].push_str(&if st.closed { arb_closed(make, st) } else { arb_open(st) });
                 }
             }
             Item::Enum(en) if !en.std => {
-                out[file].push_str(&show_enum(en));
+                out[file].push_str(&derive::show_enum(en, SHOW, ATTRS));
                 if make.named.contains(en.name.as_str()) {
-                    out[file].push_str(&arb_enum(&make, en));
+                    out[file].push_str(&arb_enum(make, en));
                 }
             }
             _ => {}
@@ -390,83 +395,26 @@ fn case(call: &Call) -> String {
     )
 }
 
-fn show_struct(st: &Struct) -> String {
-    let name = st.name.as_str();
-    let body = match st.fields.as_slice() {
-        [] => format!("{name:?}.to_string()"),
-        [f] if f.name.as_str() == NEWTYPE_FIELD => {
-            format!("format!(\"{name}({{}})\", crate::__purecrate::Show::show(&self.0))")
-        }
-        fields => {
-            let pattern = fields.iter().map(|f| format!("{}: {{}}", f.name.as_str())).collect::<Vec<_>>().join(", ");
-            let args = fields
-                .iter()
-                .map(|f| format!("crate::__purecrate::Show::show(&self.{})", f.name.as_str()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("format!(\"{name} {{{{ {pattern} }}}}\", {args})")
-        }
-    };
-    show_impl(name, &st.generics, &body)
-}
-
-fn show_enum(en: &Enum) -> String {
-    let name = en.name.as_str();
-    let mut arms = String::new();
-    for v in &en.variants {
-        let var = v.name.as_str();
-        let arm = match &v.fields {
-            VariantFields::Unit => format!("{name}::{var} => \"{name}::{var}\".to_string(),"),
-            VariantFields::Tuple(tys) => {
-                let holes = vec!["{}"; tys.len()].join(", ");
-                let args = (0..tys.len())
-                    .map(|i| format!("crate::__purecrate::Show::show(f{i})"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{name}::{var}({}) => format!(\"{name}::{var}({holes})\", {args}),", binds(tys.len()))
-            }
-            VariantFields::Struct(fields) => {
-                let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
-                let pattern = names.iter().map(|n| format!("{n}: {{}}")).collect::<Vec<_>>().join(", ");
-                let args =
-                    names.iter().map(|n| format!("crate::__purecrate::Show::show({n})")).collect::<Vec<_>>().join(", ");
-                format!(
-                    "{name}::{var} {{ {} }} => format!(\"{name}::{var} {{{{ {pattern} }}}}\", {args}),",
-                    names.join(", ")
-                )
-            }
-        };
-        arms.push_str(&format!("            {arm}\n"));
-    }
-    show_impl(name, &en.generics, &format!("match self {{\n{arms}        }}"))
-}
-
-fn binds(n: usize) -> String {
-    (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>().join(", ")
-}
-
-/// `impl<T: Bound> ... for Name<T>`'s two halves, or the bare name.
-fn generic_head(name: &str, generics: &[purecrate_ir::Name], bound: &str) -> (String, String) {
-    if generics.is_empty() {
-        return (String::new(), name.to_string());
-    }
-    let params = generics.iter().map(|g| format!("{}: {bound}", g.as_str())).collect::<Vec<_>>().join(", ");
-    let args = generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", ");
-    (format!("<{params}>"), format!("{name}<{args}>"))
-}
-
-fn show_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
-    let (head, ty) = generic_head(name, generics, "crate::__purecrate::Show");
-    format!(
-        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl{head} crate::__purecrate::Show for {ty} {{\n    fn show(&self) -> String {{\n        {body}\n    }}\n}}\n"
-    )
-}
+/// What every impl the harness appends carries: the crate's lints are not
+/// the harness's business.
+const ATTRS: &str = "#[doc(hidden)]\n#[allow(warnings, clippy::all)]\n";
+const SHOW: &str = "crate::__purecrate::Show";
 
 fn arb_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
-    let (head, ty) = generic_head(name, generics, "crate::__purecrate::Arb");
-    format!(
-        "\n#[doc(hidden)]\n#[allow(warnings, clippy::all)]\nimpl{head} crate::__purecrate::Arb for {ty} {{\n    fn arb(__r: &mut crate::__purecrate::Rng) -> Option<(Self, String)> {{\n        __r.nest(|__r| {{\n{body}        }})\n    }}\n}}\n"
+    let sig = "fn arb(__r: &mut crate::__purecrate::Rng) -> Option<(Self, String)>";
+    derive::impl_block(
+        ATTRS,
+        "crate::__purecrate::Arb",
+        name,
+        generics,
+        sig,
+        &format!("__r.nest(|__r| {{\n{body}        }})"),
     )
+}
+
+/// `__j0, __j1, ..`: the TS of `n` drawn values.
+fn js_args(n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("__j{i}")).collect()
 }
 
 /// `(value, "({ a: .., b: .. })")` from a draw per field, or for a newtype
@@ -475,93 +423,80 @@ fn arb_open(st: &Struct) -> String {
     let name = st.name.as_str();
     let (lets, _) = draw(&untyped(st.fields.len()), "            ");
     let body = match st.fields.as_slice() {
-        [] => format!("            Some(({name}, \"({{}})\".to_string()))\n"),
         [f] if f.name.as_str() == NEWTYPE_FIELD => format!("{lets}            Some(({name}(__a0), __j0))\n"),
         fields => {
-            let inits =
-                fields.iter().enumerate().map(|(i, f)| format!("{}: __a{i}", f.name.as_str())).collect::<Vec<_>>();
-            let js = fields.iter().map(|f| format!("{}: {{}}", f.name.as_str())).collect::<Vec<_>>().join(", ");
-            let js_args = (0..fields.len()).map(|i| format!("__j{i}")).collect::<Vec<_>>().join(", ");
-            format!(
-                "{lets}            Some(({name} {{ {} }}, format!(\"({{{{ {js} }}}})\", {js_args})))\n",
-                inits.join(", ")
-            )
+            let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+            let inits = names.iter().enumerate().map(|(i, n)| format!("{n}: __a{i}")).collect::<Vec<_>>();
+            let value = if fields.is_empty() { name.to_string() } else { format!("{name} {{ {} }}", inits.join(", ")) };
+            let js = derive::js_literal(None, &derive::Fields::Named(names), &js_args(fields.len()));
+            format!("{lets}            Some(({value}, {js}))\n")
         }
     };
     arb_impl(name, &st.generics, &body)
 }
 
+/// Up to `tries` times: one of `ways` drawn, each an expression giving an
+/// `Option` of the value and its TS.
+fn retry(tries: u32, ways: &[String]) -> String {
+    let arms: String = ways.iter().enumerate().map(|(k, way)| format!("                    {k} => {way},\n")).collect();
+    format!(
+        "            for _ in 0..{tries} {{\n                let made = match __r.below({}) {{\n{arms}                    _ => None,\n                }};\n                if made.is_some() {{\n                    return made;\n                }}\n            }}\n            None\n",
+        ways.len()
+    )
+}
+
 /// Up to 16 tries: a constructor drawn, its arguments drawn, and the
 /// value kept when it gives one.
-fn arb_closed(krate: &Crate, make: &Makeable<'_>, st: &Struct) -> String {
-    let name = st.name.as_str();
-    let ways: Vec<&Fn> =
-        producers(krate, make.spans, st).into_iter().filter(|f| f.params.iter().all(|p| make.can(&p.ty))).collect();
-    let mut arms = String::new();
-    for (k, f) in ways.iter().enumerate() {
-        let n = f.params.len();
-        let (lets, js) = draw(&annotations(f), "                        ");
-        let call = format!("{}({})", rust_name(krate, f), args(n));
-        let ts = ts_key(f);
-        let (unwrap, wrap) = match gives(st, &f.ret).expect("a producer") {
-            Gives::Plain => ("Some(__v)", "{}"),
-            Gives::Ok => ("__v.ok()", "__ok({})"),
-            Gives::Some => ("__v", "__some({})"),
-        };
-        let recipe = wrap.replace("{}", &format!("{ts}({{}})"));
-        arms.push_str(&format!(
-            "                    {k} => (|| {{\n{lets}                        let __js = {js};\n                        let __v = crate::__purecrate::attempt(move || {call})?;\n                        Some(({unwrap}?, format!({recipe:?}, __js)))\n                    }})(),\n"
-        ));
-    }
-    let body = format!(
-        "            for _ in 0..16 {{\n                let made = match __r.below({}) {{\n{arms}                    _ => None,\n                }};\n                if made.is_some() {{\n                    return made;\n                }}\n            }}\n            None\n",
-        ways.len()
-    );
-    arb_impl(name, &st.generics, &body)
+fn arb_closed(make: &Makeable<'_>, st: &Struct) -> String {
+    let ways: Vec<String> = producers(make.krate, make.spans, st)
+        .into_iter()
+        .filter(|f| f.params.iter().all(|p| make.can(&p.ty)))
+        .map(|f| {
+            let (lets, js) = draw(&annotations(f), "                        ");
+            let call = format!("{}({})", rust_name(make.krate, f), args(f.params.len()));
+            let ts = ts_key(f);
+            let (unwrap, wrap) = match gives(st, &f.ret).expect("a producer") {
+                Gives::Plain => ("Some(__v)", "{}"),
+                Gives::Ok => ("__v.ok()", "__ok({})"),
+                Gives::Some => ("__v", "__some({})"),
+            };
+            let recipe = wrap.replace("{}", &format!("{ts}({{}})"));
+            format!(
+                "(|| {{\n{lets}                        let __js = {js};\n                        let __v = crate::__purecrate::attempt(move || {call})?;\n                        Some(({unwrap}?, format!({recipe:?}, __js)))\n                    }})()"
+            )
+        })
+        .collect();
+    arb_impl(st.name.as_str(), &st.generics, &retry(16, &ways))
 }
 
 /// A variant drawn, up to 8 times until its fields can be.
 fn arb_enum(make: &Makeable<'_>, en: &Enum) -> String {
     let name = en.name.as_str();
-    let mut arms = String::new();
-    let ways: Vec<_> = en.variants.iter().filter(|v| make.variant_ok(&v.fields)).collect();
-    for (k, v) in ways.iter().enumerate() {
-        let var = v.name.as_str();
-        let made = match &v.fields {
-            VariantFields::Unit => format!("Some(({name}::{var}, \"({{ kind: \\\"{var}\\\" }})\".to_string()))"),
-            VariantFields::Tuple(tys) => {
-                let (lets, _) = draw(&untyped(tys.len()), "                        ");
-                let js = if tys.len() == 1 {
-                    format!("format!(\"({{{{ kind: \\\"{var}\\\", value: {{}} }}}})\", __j0)")
-                } else {
-                    let holes = vec!["{}"; tys.len()].join(", ");
-                    let js_args = (0..tys.len()).map(|i| format!("__j{i}")).collect::<Vec<_>>().join(", ");
-                    format!("format!(\"({{{{ kind: \\\"{var}\\\", content: [{holes}] }}}})\", {js_args})")
-                };
-                format!(
-                    "(|| {{\n{lets}                        Some(({name}::{var}({}), {js}))\n                    }})()",
-                    args(tys.len())
-                )
+    let ways: Vec<String> = en
+        .variants
+        .iter()
+        .filter(|v| make.variant_ok(&v.fields))
+        .map(|v| {
+            let var = v.name.as_str();
+            let fields = derive::Fields::of(&v.fields);
+            let (value, n) = match &fields {
+                derive::Fields::Tuple(0) => (format!("{name}::{var}"), 0),
+                derive::Fields::Tuple(n) => (format!("{name}::{var}({})", args(*n)), *n),
+                derive::Fields::Named(names) => {
+                    let inits = names.iter().enumerate().map(|(i, n)| format!("{n}: __a{i}")).collect::<Vec<_>>();
+                    (format!("{name}::{var} {{ {} }}", inits.join(", ")), names.len())
+                }
+            };
+            let js = derive::js_literal(Some(var), &fields, &js_args(n));
+            if n == 0 {
+                format!("Some(({value}, {js}))")
+            } else {
+                let (lets, _) = draw(&untyped(n), "                        ");
+                format!("(|| {{\n{lets}                        Some(({value}, {js}))\n                    }})()")
             }
-            VariantFields::Struct(fields) => {
-                let (lets, _) = draw(&untyped(fields.len()), "                        ");
-                let inits =
-                    fields.iter().enumerate().map(|(i, f)| format!("{}: __a{i}", f.name.as_str())).collect::<Vec<_>>();
-                let js = fields.iter().map(|f| format!("{}: {{}}", f.name.as_str())).collect::<Vec<_>>().join(", ");
-                let js_args = (0..fields.len()).map(|i| format!("__j{i}")).collect::<Vec<_>>().join(", ");
-                format!(
-                    "(|| {{\n{lets}                        Some(({name}::{var} {{ {} }}, format!(\"({{{{ kind: \\\"{var}\\\", {js} }}}})\", {js_args})))\n                    }})()",
-                    inits.join(", ")
-                )
-            }
-        };
-        arms.push_str(&format!("                    {k} => {made},\n"));
-    }
-    let body = format!(
-        "            for _ in 0..8 {{\n                let made = match __r.below({}) {{\n{arms}                    _ => None,\n                }};\n                if made.is_some() {{\n                    return made;\n                }}\n            }}\n            None\n",
-        ways.len()
-    );
-    arb_impl(name, &en.generics, &body)
+        })
+        .collect();
+    arb_impl(name, &en.generics, &retry(8, &ways))
 }
 
 /// What the crate itself spells, drawn from more often than the fixed

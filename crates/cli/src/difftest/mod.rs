@@ -10,6 +10,7 @@
 //! TS side is the package `build` would write, and a node driver that
 //! makes the same calls and prints their results with the same printers.
 
+mod derive;
 mod harness;
 pub mod printers;
 
@@ -23,7 +24,7 @@ use purecrate_pack::{disk_path, SOURCE_CONDITION};
 
 use crate::args::{Input, TestOptions};
 use crate::Loaded;
-use harness::{Call, Words};
+use harness::{Call, Plan, Words};
 
 /// One call made on both sides.
 struct Case {
@@ -40,8 +41,9 @@ pub fn run(input: &Input, loaded: &Loaded, opts: &TestOptions) -> Result<(), Str
             file.path.display()
         ));
     }
-    let (calls, skipped) = harness::plan(&loaded.krate, &loaded.spans);
-    let mut report: Vec<String> = skipped.iter().map(|s| format!("  skipped   {}: {}", s.name, s.why)).collect();
+    let plan = harness::plan(&loaded.krate, &loaded.spans);
+    let calls = &plan.calls;
+    let mut report: Vec<String> = plan.skipped.iter().map(|s| format!("  skipped   {}: {}", s.name, s.why)).collect();
     if calls.is_empty() {
         report.insert(0, format!("{}: no public function to test", input.src.display()));
         return Err(report.join("\n"));
@@ -53,7 +55,7 @@ pub fn run(input: &Input, loaded: &Loaded, opts: &TestOptions) -> Result<(), Str
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("clear {}: {e}", dir.display()))?;
     }
-    let result = run_in(input, loaded, opts, &calls, &dir);
+    let result = run_in(input, loaded, opts, &plan, &dir);
     if !keep {
         fs::remove_dir_all(&dir).ok();
     }
@@ -61,7 +63,7 @@ pub fn run(input: &Input, loaded: &Loaded, opts: &TestOptions) -> Result<(), Str
 
     let mut failed = 0;
     let mut lines = Vec::new();
-    for call in &calls {
+    for call in calls {
         let mine: Vec<&(Case, String)> = cases.iter().filter(|(c, _)| c.key == call.key).collect();
         let wrong: Vec<&&(Case, String)> = mine.iter().filter(|(c, ts)| c.rust != *ts).collect();
         let name = call.key.trim_start_matches("pkg.");
@@ -117,12 +119,12 @@ fn run_in(
     input: &Input,
     loaded: &Loaded,
     opts: &TestOptions,
-    calls: &[Call],
+    plan: &Plan<'_>,
     dir: &Path,
 ) -> Result<Vec<(Case, String)>, String> {
     let rust_dir = dir.join("rust");
     let ts_dir = dir.join("ts");
-    let binary = harness_binary(input, loaded, calls, &rust_dir)?;
+    let binary = harness_binary(input, loaded, plan, &rust_dir)?;
     let output = Command::new(&binary)
         .arg(opts.seed.to_string())
         .arg(opts.cases.to_string())
@@ -153,7 +155,7 @@ fn run_in(
         fs::create_dir_all(path.parent().unwrap_or(&ts_dir)).map_err(|e| format!("mkdir {}: {e}", ts_dir.display()))?;
         fs::write(&path, &file.source).map_err(|e| format!("write {}: {e}", path.display()))?;
     }
-    fs::write(ts_dir.join("driver.ts"), driver(&loaded.krate, calls, &cases))
+    fs::write(ts_dir.join("driver.ts"), driver(&loaded.krate, &plan.calls, &cases))
         .map_err(|e| format!("write {}: {e}", ts_dir.display()))?;
     let output = Command::new("node")
         .arg(format!("--conditions={SOURCE_CONDITION}"))
@@ -173,14 +175,14 @@ fn run_in(
 }
 
 /// The crate's files with the harness appended, compiled.
-fn harness_binary(input: &Input, loaded: &Loaded, calls: &[Call], dir: &Path) -> Result<PathBuf, String> {
+fn harness_binary(input: &Input, loaded: &Loaded, plan: &Plan<'_>, dir: &Path) -> Result<PathBuf, String> {
     let root = loaded.files[0].path.parent().unwrap_or(Path::new("."));
     let mut words = Words::default();
     for file in &loaded.files {
         words.add(&file.text);
     }
     let modules: Vec<Vec<String>> = loaded.files.iter().map(|f| f.module.clone()).collect();
-    let extra = harness::appended(&loaded.krate, &loaded.spans, &modules, calls, &words);
+    let extra = harness::appended(plan, &modules, &words);
     for (file, extra) in loaded.files.iter().zip(&extra) {
         let rel = file.path.strip_prefix(root).unwrap_or(&file.path);
         let path = dir.join(rel);

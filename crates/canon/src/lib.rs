@@ -45,6 +45,10 @@
 use proc_macro::TokenStream;
 use purecrate_ir::{Item, Struct, VariantFields, NEWTYPE_FIELD};
 
+#[path = "../../cli/src/difftest/derive.rs"]
+mod derive;
+use derive::{binds, impl_block, js_literal, Fields};
+
 const SHOW: &str = "crate::support::Show";
 
 #[proc_macro]
@@ -80,7 +84,7 @@ pub fn fixture(input: TokenStream) -> TokenStream {
     for item in &krate.items {
         match item {
             Item::Struct(st) => {
-                out.push_str(&show_struct(st));
+                out.push_str(&derive::show_struct(st, SHOW, ""));
                 out.push_str(&serialize_struct(st));
                 out.push_str(&js_struct(st));
             }
@@ -88,7 +92,7 @@ pub fn fixture(input: TokenStream) -> TokenStream {
             // and serde has no `Serialize` for it.
             Item::Enum(en) if en.std => {}
             Item::Enum(en) => {
-                out.push_str(&show_enum(en));
+                out.push_str(&derive::show_enum(en, SHOW, ""));
                 out.push_str(&serialize_enum(en));
                 out.push_str(&js_enum(en));
             }
@@ -130,78 +134,16 @@ fn parse_input(input: TokenStream) -> (String, Vec<String>) {
     }
 }
 
-/// `impl<T: Bound> Bound for Name<T>`'s head and type, or `impl Bound for Name`.
-fn head(name: &str, generics: &[purecrate_ir::Name], bound: &str) -> (String, String) {
-    if generics.is_empty() {
-        return (String::new(), name.to_string());
-    }
-    let params = generics.iter().map(|g| format!("{}: {bound}", g.as_str())).collect::<Vec<_>>().join(", ");
-    let args = generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", ");
-    (format!("<{params}>"), format!("{name}<{args}>"))
-}
-
-fn show_struct(st: &Struct) -> String {
-    let name = st.name.as_str();
-    let body = match st.fields.as_slice() {
-        [] => format!("{name:?}.to_string()"),
-        [f] if f.name.as_str() == NEWTYPE_FIELD => {
-            format!("format!(\"{name}({{}})\", {SHOW}::show(&self.0))")
-        }
-        fields => {
-            let (pattern, args) = named(fields.iter().map(|f| f.name.as_str()), "&self.");
-            format!("format!(\"{name} {{{{ {pattern} }}}}\", {args})")
-        }
-    };
-    let (h, ty) = head(name, &st.generics, SHOW);
-    format!(
-        "    impl{h} {SHOW} for {ty} {{\n        fn show(&self) -> String {{\n            {body}\n        }}\n    }}\n"
-    )
-}
-
-fn show_enum(en: &purecrate_ir::Enum) -> String {
-    let name = en.name.as_str();
-    let mut arms = String::new();
-    for v in &en.variants {
-        let var = v.name.as_str();
-        let arm = match &v.fields {
-            VariantFields::Unit => format!("{name}::{var} => \"{name}::{var}\".to_string(),"),
-            VariantFields::Tuple(tys) => {
-                let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
-                let holes = vec!["{}"; tys.len()].join(", ");
-                let args = binds.iter().map(|b| format!("{SHOW}::show({b})")).collect::<Vec<_>>().join(", ");
-                format!("{name}::{var}({}) => format!(\"{name}::{var}({holes})\", {args}),", binds.join(", "))
-            }
-            VariantFields::Struct(fields) => {
-                let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
-                let (pattern, args) = named(names.iter().copied(), "");
-                format!(
-                    "{name}::{var} {{ {} }} => format!(\"{name}::{var} {{{{ {pattern} }}}}\", {args}),",
-                    names.join(", ")
-                )
-            }
-        };
-        arms.push_str(&format!("                {arm}\n"));
-    }
-    let (h, ty) = head(name, &en.generics, SHOW);
-    format!(
-        "    impl{h} {SHOW} for {ty} {{\n        fn show(&self) -> String {{\n            match self {{\n{arms}            }}\n        }}\n    }}\n"
-    )
-}
-
-/// `a: {}, b: {}` and the matching `Show::show(<prefix>a), ...`.
-fn named<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, String) {
-    let names: Vec<&str> = names.collect();
-    let pattern = names.iter().map(|n| format!("{n}: {{}}")).collect::<Vec<_>>().join(", ");
-    let args = names.iter().map(|n| format!("{SHOW}::show({prefix}{n})")).collect::<Vec<_>>().join(", ");
-    (pattern, args)
-}
-
 const SER: &str = "::serde_core::Serialize";
 
 fn serialize_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
-    let (h, ty) = head(name, generics, SER);
-    format!(
-        "    impl{h} {SER} for {ty} {{\n        fn serialize<S: ::serde_core::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {{\n            #[allow(unused_imports)]\n            use ::serde_core::ser::{{SerializeStruct, SerializeStructVariant, SerializeTupleVariant}};\n            {body}\n        }}\n    }}\n"
+    impl_block(
+        "",
+        SER,
+        name,
+        generics,
+        "fn serialize<S: ::serde_core::Serializer>(&self, s: S) -> Result<S::Ok, S::Error>",
+        &format!("#[allow(unused_imports)]\n        use ::serde_core::ser::{{SerializeStruct, SerializeStructVariant, SerializeTupleVariant}};\n        {body}"),
     )
 }
 
@@ -233,11 +175,10 @@ fn serialize_enum(en: &purecrate_ir::Enum) -> String {
                 format!("{name}::{var}(f0) => s.serialize_newtype_variant({name:?}, {i}, {var:?}, f0),")
             }
             VariantFields::Tuple(tys) => {
-                let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
-                let fields = binds.iter().map(|b| format!(" t.serialize_field({b})?;")).collect::<String>();
+                let fields = (0..tys.len()).map(|i| format!(" t.serialize_field(f{i})?;")).collect::<String>();
                 format!(
                     "{name}::{var}({}) => {{ let mut t = s.serialize_tuple_variant({name:?}, {i}, {var:?}, {})?;{fields} t.end() }}",
-                    binds.join(", "),
+                    binds(tys.len()),
                     tys.len()
                 )
             }
@@ -295,29 +236,19 @@ fn without_serde(text: &str) -> String {
 const JS: &str = "crate::support::Js";
 
 fn js_impl(name: &str, generics: &[purecrate_ir::Name], body: &str) -> String {
-    let (h, ty) = head(name, generics, JS);
-    format!("    impl{h} {JS} for {ty} {{\n        fn js(&self) -> String {{\n            {body}\n        }}\n    }}\n")
-}
-
-/// `{ a: .., b: .. }` from the `Js` of each `<prefix><name>`.
-fn js_fields<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> (String, String) {
-    let names: Vec<&str> = names.collect();
-    let pattern = names.iter().map(|n| format!("{n}: {{}}")).collect::<Vec<_>>().join(", ");
-    let args = names.iter().map(|n| format!("{JS}::js({prefix}{n})")).collect::<Vec<_>>().join(", ");
-    (pattern, args)
+    impl_block("", JS, name, generics, "fn js(&self) -> String", body)
 }
 
 fn js_struct(st: &Struct) -> String {
-    let name = st.name.as_str();
     let body = match st.fields.as_slice() {
         [f] if f.name.as_str() == NEWTYPE_FIELD => format!("{JS}::js(&self.0)"),
-        [] => "\"({})\".to_string()".to_string(),
         fields => {
-            let (pattern, args) = js_fields(fields.iter().map(|f| f.name.as_str()), "&self.");
-            format!("format!(\"({{{{ {pattern} }}}})\", {args})")
+            let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+            let args: Vec<String> = names.iter().map(|n| format!("{JS}::js(&self.{n})")).collect();
+            js_literal(None, &Fields::Named(names), &args)
         }
     };
-    js_impl(name, &st.generics, &body)
+    js_impl(st.name.as_str(), &st.generics, &body)
 }
 
 fn js_enum(en: &purecrate_ir::Enum) -> String {
@@ -325,30 +256,15 @@ fn js_enum(en: &purecrate_ir::Enum) -> String {
     let mut arms = String::new();
     for v in &en.variants {
         let var = v.name.as_str();
-        let arm = match &v.fields {
-            VariantFields::Unit => format!("{name}::{var} => \"({{ kind: \\\"{var}\\\" }})\".to_string(),"),
-            VariantFields::Tuple(tys) if tys.len() == 1 => {
-                format!("{name}::{var}(f0) => format!(\"({{{{ kind: \\\"{var}\\\", value: {{}} }}}})\", {JS}::js(f0)),")
-            }
-            VariantFields::Tuple(tys) => {
-                let binds = (0..tys.len()).map(|i| format!("f{i}")).collect::<Vec<_>>();
-                let holes = vec!["{}"; tys.len()].join(", ");
-                let args = binds.iter().map(|b| format!("{JS}::js({b})")).collect::<Vec<_>>().join(", ");
-                format!(
-                    "{name}::{var}({}) => format!(\"({{{{ kind: \\\"{var}\\\", content: [{holes}] }}}})\", {args}),",
-                    binds.join(", ")
-                )
-            }
-            VariantFields::Struct(fields) => {
-                let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>();
-                let (pattern, args) = js_fields(names.iter().copied(), "");
-                format!(
-                    "{name}::{var} {{ {} }} => format!(\"({{{{ kind: \\\"{var}\\\", {pattern} }}}})\", {args}),",
-                    names.join(", ")
-                )
+        let fields = Fields::of(&v.fields);
+        let (pattern, args) = match &fields {
+            Fields::Tuple(0) => (String::new(), Vec::new()),
+            Fields::Tuple(n) => (format!("({})", binds(*n)), (0..*n).map(|i| format!("{JS}::js(f{i})")).collect()),
+            Fields::Named(names) => {
+                (format!(" {{ {} }}", names.join(", ")), names.iter().map(|n| format!("{JS}::js({n})")).collect())
             }
         };
-        arms.push_str(&format!("                {arm}\n"));
+        arms.push_str(&format!("            {name}::{var}{pattern} => {},\n", js_literal(Some(var), &fields, &args)));
     }
-    js_impl(name, &en.generics, &format!("match self {{\n{arms}            }}"))
+    js_impl(name, &en.generics, &format!("match self {{\n{arms}        }}"))
 }
