@@ -806,11 +806,16 @@ pub fn uncalled_closure(a: i32, b: i32, o: Option<i32>, c: bool) -> Option<i32> 
 /// `if c { x } else { <a comparison of literals> }` in a `while` test:
 /// printed as `c && x`, which TS narrows by.
 pub fn literal_side_test(a: i32, r: Result<i32, i32>) -> i32 {
+    let mut a = a;
     let mut k: i32 = 0;
     let mut s: i32 = 0;
     while k < 3 && (if r.ok().is_some() { 0 > a } else { -100i32 == 100i32 }) {
         k += 1;
-        s += r.map(|_| 3i32).ok().unwrap_or(k);
+        a -= 1;
+        s += match r {
+            Ok(v) => v % 7,
+            Err(_) => k,
+        };
     }
     s
 }
@@ -837,8 +842,11 @@ pub fn closure_reads_place(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
 pub fn decided_then_side(a: i32, o: Option<i32>, c: bool) -> i32 {
     let mut h0: i32 = 0;
     let mut k: i32 = 0;
-    while k < 3 && c {
+    while k < 3 {
         k += 1;
+        if !c {
+            break;
+        }
         if if o.is_none() { o.is_some() } else { a == 100 } {
             h0 = h0.wrapping_add(o.unwrap_or(-7));
         }
