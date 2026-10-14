@@ -75,8 +75,9 @@ pub(super) fn holds_object(ty: &Ty) -> bool {
     ty.any(&|t| matches!(t, Ty::Named(_) | Ty::Result { .. } | Ty::Fn { .. }))
 }
 
-/// Whether `name` is read or assigned anywhere in `expr`.
-pub(super) fn mentions(expr: &Expr, name: &Name) -> bool {
+/// Whether `name` is read or assigned anywhere in `expr` (`join::mentions`
+/// counts reads only).
+pub(super) fn reads_or_assigns(expr: &Expr, name: &Name) -> bool {
     expr.any(|e| {
         matches!(e, Expr::Var(n) | Expr::Assign { name: n, .. } | Expr::Call { callee: purecrate_ir::Callee::Local(n), .. } if n == name)
     })

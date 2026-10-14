@@ -92,7 +92,7 @@ fn emit_loop_or(head: &str, body: &Expr, indent: usize, instead: Option<String>,
 }
 
 /// Whether `text` has `word` as an identifier, not inside a longer one.
-fn reads_word(text: &str, word: &str) -> bool {
+pub(super) fn reads_word(text: &str, word: &str) -> bool {
     let ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
     text.match_indices(word).any(|(at, _)| {
         !text[..at].chars().next_back().is_some_and(ident) && !text[at + word.len()..].chars().next().is_some_and(ident)

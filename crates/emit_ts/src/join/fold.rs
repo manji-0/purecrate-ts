@@ -46,10 +46,7 @@ pub(super) fn unread(expr: &mut Expr) {
     built_test(expr);
     match expr {
         Expr::Match { scrutinee, arms } => {
-            for arm in arms.iter_mut() {
-                let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
-                arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
-            }
+            arms.iter_mut().for_each(unbind_unread);
             // Every arm the same, binding nothing (`Some(_) => false, None =>
             // false`): the value, where the scrutinee does nothing.
             let same =
@@ -78,8 +75,7 @@ pub(super) fn unread(expr: &mut Expr) {
         // o.map(f).is_none()` once `o` is known `Some`): what runs before the
         // answer runs alone, and the side not taken goes. TS refuses the code
         // it knows is unreachable.
-        Expr::If { cond, then, else_ } if constant(cond).is_some() => {
-            let (before, taken) = constant(cond).expect("checked above");
+        Expr::If { cond, then, else_ } if let Some((before, taken)) = constant(cond) => {
             let side = if taken { &**then } else { &**else_ };
             let side = if declares(side) {
                 // The side declares names, which its block keeps apart from
@@ -94,9 +90,7 @@ pub(super) fn unread(expr: &mut Expr) {
             };
             *expr = sequence(before, side);
         }
-        Expr::While { cond, .. } if matches!(constant(cond), Some((_, false))) => {
-            *expr = constant(cond).expect("checked above").0;
-        }
+        Expr::While { cond, .. } if let Some((before, false)) = constant(cond) => *expr = before,
         // `x = x` does nothing (what a decided `x = if c { y } else { x }`
         // leaves); lint refuses it.
         Expr::Assign { name, value } if printed_as(value) == Some(&*name) => *expr = Expr::Lit(Lit::Unit),
@@ -140,11 +134,13 @@ pub(super) fn unread(expr: &mut Expr) {
         // A name read only to decide its own `x = x || r` (the flow decided
         // its other reads away): `if (!x) x = r;`, the same writes, which
         // lint does not take for a name never used.
-        Expr::Let { name, then, .. } if !read_outside_own_writes(then, name) && guards_itself(then, name) => {
+        Expr::Let { name, then, .. } if !read_past(then, name, &|_| false) && guards_itself(then, name) => {
             let name = name.clone();
             gate_own_writes(then, &name);
         }
-        Expr::Let { name, value, then, .. } if !read_past_writes(then, name) => {
+        // A write kept only for its effects (`flag = !flag`, whose other
+        // reads the flow decided away) reads `name` only to write it.
+        Expr::Let { name, value, then, .. } if !read_past(then, name, &|v| mentions(&effects(v.clone()), name)) => {
             let then = unassigned((**then).clone(), name);
             *expr = sequence(effects((**value).clone()), then);
         }
@@ -260,15 +256,16 @@ pub(super) fn effects(expr: Expr) -> Expr {
     }
 }
 
-/// Whether `name` is read in `expr` outside the values written to it.
-fn read_outside_own_writes(expr: &Expr, name: &Name) -> bool {
+/// Whether `name` is read in `expr`, where a write of it reads it as
+/// `write` says of the value written.
+fn read_past(expr: &Expr, name: &Name, write: &dyn Fn(&Expr) -> bool) -> bool {
     match expr {
-        Expr::Assign { name: n, .. } if n == name => false,
+        Expr::Assign { name: n, value } if n == name => write(value),
         Expr::Var(n) => n == name,
         Expr::Call { callee: purecrate_ir::Callee::Local(n), args } => {
-            n == name || args.iter().any(|a| read_outside_own_writes(a, name))
+            n == name || args.iter().any(|a| read_past(a, name, write))
         }
-        other => other.children().into_iter().any(|c| read_outside_own_writes(c, name)),
+        other => other.children().into_iter().any(|c| read_past(c, name, write)),
     }
 }
 
@@ -301,20 +298,6 @@ fn gate_own_writes(expr: &mut Expr, name: &Name) {
                 *expr = Expr::If { cond: Box::new(cond), then: Box::new(write), else_: Box::new(Expr::Lit(Lit::Unit)) };
             }
         }
-    }
-}
-
-/// Whether `name` is read in `expr` other than by a write of it that is
-/// kept only for its effects: `flag = !flag`, whose other reads the flow
-/// decided away, reads it only to write it.
-fn read_past_writes(expr: &Expr, name: &Name) -> bool {
-    match expr {
-        Expr::Assign { name: n, value } if n == name => mentions(&effects((**value).clone()), name),
-        Expr::Var(n) => n == name,
-        Expr::Call { callee: purecrate_ir::Callee::Local(n), args } => {
-            n == name || args.iter().any(|a| read_past_writes(a, name))
-        }
-        other => other.children().into_iter().any(|c| read_past_writes(c, name)),
     }
 }
 
@@ -499,11 +482,7 @@ pub(super) fn rebuilt(expr: &mut Expr) {
     if !is_place(scrutinee) {
         return;
     }
-    let mut root = &**scrutinee;
-    while let Expr::Field { base, .. } = root {
-        root = base;
-    }
-    let Expr::Var(root) = root.clone() else { return };
+    let Some(root) = root_var(scrutinee).cloned() else { return };
     // Not under a guard, which may read a name the arm then drops.
     for arm in arms.iter_mut().filter(|a| a.guard.is_none()) {
         let Pattern::Variant { ty, variant, bind } = &mut arm.pattern else { continue };
@@ -625,6 +604,13 @@ pub(super) fn same_variant(expr: &mut Expr) {
     *arms = merged;
 }
 
+/// `arm` with each name its pattern binds that neither its body nor its
+/// guard reads made `_`: TS refuses an unread `const`.
+pub(super) fn unbind_unread(arm: &mut Arm) {
+    let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
+    arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
+}
+
 /// `pattern` with each name `read` says is unread made `_`.
 pub(super) fn unbind(mut pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pattern {
     fn go(p: &mut Pattern, read: &dyn Fn(&Name) -> bool) {
@@ -712,11 +698,7 @@ fn built_test(expr: &mut Expr) {
         }
         built = then;
     }
-    let some = match constructed_case(built).as_ref().map(Name::as_str) {
-        Some(SOME) => true,
-        Some(NONE) => false,
-        _ => return,
-    };
+    let Some(some) = constructed_case(built).as_ref().and_then(is_some_answer) else { return };
     if effectless(built) {
         *expr = Expr::Lit(Lit::Bool(some == (*callee == Callee::OptionIsSome)));
     }

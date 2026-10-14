@@ -175,11 +175,7 @@ fn test(scrutinee: &Expr, pattern: &Pattern) -> Option<Expr> {
 /// where the body does not reassign the variable the place starts from (TS
 /// keeps the narrowing only then).
 fn read_in(arm: &Arm, scrutinee: &Expr) -> Option<Expr> {
-    let mut root = scrutinee;
-    while let Expr::Field { base, .. } = root {
-        root = base;
-    }
-    let Expr::Var(var) = root else { return None };
+    let var = root_var(scrutinee)?;
     if touches(&arm.body, var) {
         // Read only by a closure (nothing writes or binds the place again):
         // the payload is bound once, where the case is known, as a `const`.

@@ -42,11 +42,8 @@ pub(super) fn let_else(
             let Some((exit, keep)) = exit_arms(arms) else { return false };
             // The payload is read from the place where it is used: not where
             // an arm assigns or rebinds the place first.
-            let mut root = &**scrutinee;
-            while let Expr::Field { base, .. } = root {
-                root = base;
-            }
-            if matches!(root, Expr::Var(var) if touches(&keep.body, var) || touches(&exit.body, var)) {
+            if crate::join::root_var(scrutinee).is_some_and(|var| touches(&keep.body, var) || touches(&exit.body, var))
+            {
                 return false;
             }
             let subject = emit_expr(scrutinee, indent);

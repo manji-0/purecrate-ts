@@ -12,17 +12,14 @@ pub(super) type Known = Vec<(Expr, Vec<Name>)>;
 /// it may take the value, a guard decides, or the payload's pattern is
 /// neither a name nor `_` over a value that cannot do anything.
 pub(super) fn constructed_arm(expr: &Expr) -> Option<Expr> {
-    use purecrate_ir::Callee;
     let Expr::Match { scrutinee, arms } = expr else { return None };
-    let Expr::Call { callee, args } = &**scrutinee else { return None };
-    let (case, payload) = match (callee, args.as_slice()) {
-        (Callee::OptionNone, []) => (NONE, None),
-        (Callee::OptionSome, [e]) => (SOME, Some(e)),
-        (Callee::ResultOk, [e]) => (OK, Some(e)),
-        (Callee::ResultErr, [e]) => (ERR, Some(e)),
+    let case = constructed_case(scrutinee)?;
+    let Expr::Call { args, .. } = &**scrutinee else { return None };
+    let payload = match args.as_slice() {
+        [] if case.as_str() == NONE => None,
+        [e] if case.as_str() != NONE => Some(e),
         _ => return None,
     };
-    let case = Name::new(case);
     for arm in arms {
         if admits(&arm.pattern, &case) {
             if arm.guard.is_some() {
@@ -158,9 +155,7 @@ pub(super) fn aliased(expr: &Expr) -> Option<Expr> {
 /// `Err`, directly or through the `let` it aliases.
 pub(super) fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr> {
     let fails = Name::new(if on == TryOn::Option { NONE } else { ERR });
-    let holds = |p: &Expr| {
-        known.iter().rev().find(|(k, _)| k == p).is_some_and(|(_, vs)| vs.as_slice() == std::slice::from_ref(&fails))
-    };
+    let holds = |p: &Expr| held(known, p).is_some_and(|vs| vs.as_slice() == std::slice::from_ref(&fails));
     if !(holds(place) || aliased(place).is_some_and(|t| holds(&t))) {
         return None;
     }
@@ -183,9 +178,8 @@ pub(super) fn decide(cond: &mut Expr, known: &Known) {
             decide(right, known);
         }
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
-            if known_bool(left, known).is_some() && known_bool(right, known).is_some() =>
+            if let (Some(a), Some(b)) = (known_bool(left, known), known_bool(right, known)) =>
         {
-            let (a, b) = (known_bool(left, known), known_bool(right, known));
             *cond = Expr::Lit(Lit::Bool((a == b) == (*op == BinOp::Eq)));
         }
         c if is_place(c) => {
@@ -233,13 +227,8 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 }
                 return known_bool(&Expr::Match { scrutinee, arms }, known);
             }
-            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
-            let some = match vs.as_slice() {
-                [v] if v.as_str() == SOME => true,
-                [v] if v.as_str() == NONE => false,
-                _ => return None,
-            };
-            Some(some == (*callee == purecrate_ir::Callee::OptionIsSome))
+            let [v] = held(known, p)?.as_slice() else { return None };
+            Some(is_some_answer(v)? == (*callee == purecrate_ir::Callee::OptionIsSome))
         }
         // A `match` of `bool`s (`matches!(o, Some(_) if c)`, printed `o !==
         // null && c`): the value every arm that may run gives, an arm whose
@@ -247,7 +236,7 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
         // Only where nothing in it can panic: folded, it no longer runs.
         Expr::Match { scrutinee, arms } if effectless(expr) => {
             // The cases the scrutinee is known to hold, where it is a place.
-            let held = known.iter().rev().find(|(k, _)| k == &**scrutinee).map(|(_, vs)| vs.clone());
+            let cases_held = held(known, scrutinee);
             let mut value = None;
             for arm in arms {
                 if arm.guard.as_ref().is_some_and(|g| known_bool(g, known) == Some(false)) {
@@ -256,8 +245,7 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 let cases = variants_of(&arm.pattern);
                 // Cases of another kind (an `Option`'s and its payload's
                 // variant) do not rule each other out.
-                if held
-                    .as_ref()
+                if cases_held
                     .is_some_and(|h| !cases.is_empty() && same_kind(h, &cases) && cases.iter().all(|c| !h.contains(c)))
                 {
                     continue;
@@ -289,8 +277,7 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 _ => return None,
             };
             let case = flow::literal_case(l)?;
-            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
-            let [v] = vs.as_slice() else { return None };
+            let [v] = held(known, p)?.as_slice() else { return None };
             if !v.as_str().starts_with("$=") {
                 return None;
             }
@@ -306,14 +293,26 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 _ => None,
             }
         }
-        p if is_place(p) => {
-            let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
-            match vs.as_slice() {
-                [v] if v.as_str() == TRUE => Some(true),
-                [v] if v.as_str() == FALSE => Some(false),
-                _ => None,
-            }
-        }
+        p if is_place(p) => match held(known, p)?.as_slice() {
+            [v] if v.as_str() == TRUE => Some(true),
+            [v] if v.as_str() == FALSE => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The cases `known` says `place` holds, the innermost word on it.
+fn held<'k>(known: &'k Known, place: &Expr) -> Option<&'k Vec<Name>> {
+    known.iter().rev().find(|(k, _)| k == place).map(|(_, vs)| vs)
+}
+
+/// Whether `case` is `Some` (`true`) or `None` (`false`); `None` for any
+/// other case.
+pub(super) fn is_some_answer(case: &Name) -> Option<bool> {
+    match case.as_str() {
+        SOME => Some(true),
+        NONE => Some(false),
         _ => None,
     }
 }
@@ -329,7 +328,7 @@ pub(super) fn tried_case(on: TryOn) -> Name {
 /// knows the answer to (`"Err"` and `"Ok"` have no overlap).
 pub(super) fn taken_arm(expr: &Expr, known: &Known) -> Option<Expr> {
     let Expr::Match { scrutinee, arms } = expr else { return None };
-    let (_, variants) = known.iter().rev().find(|(p, _)| p == &**scrutinee)?;
+    let variants = held(known, scrutinee)?;
     // A place known `Some` is read as its payload once narrowed (`o` for
     // `o.unwrap_or(d)`): a `match` testing the payload (`0..=9 => ..`) is
     // not decided by what is known of the option.

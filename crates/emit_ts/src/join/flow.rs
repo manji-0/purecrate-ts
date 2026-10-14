@@ -177,8 +177,7 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         c if is_place(c) => {
             let mut out = vec![(c.clone(), vec![Name::new(if holds { TRUE } else { FALSE })])];
             if let Expr::Var(n) = c {
-                let aliased = CONDS.with(|t| t.borrow().iter().rev().find(|(m, _)| m == n).map(|(_, e)| e.clone()));
-                if let Some(test) = aliased {
+                if let Some(test) = aliased_cond(n) {
                     out.extend(tests(&test, holds));
                 }
             }
@@ -353,17 +352,10 @@ pub(super) fn folded_arm(body: &Expr) -> bool {
 /// `expr` with each `let` of a place to a name dropped, the name read as
 /// the place: `let $result = r; match $result { .. }` is `match r { .. }`.
 pub(super) fn unbound(expr: &Expr) -> Expr {
-    fn read_as(e: &mut Expr, name: &Name, place: &Expr) {
-        if *e == Expr::Var(name.clone()) {
-            *e = place.clone();
-            return;
-        }
-        e.children_mut().into_iter().for_each(|c| read_as(c, name, place));
-    }
     match expr {
         Expr::Let { name, mutable: false, value, then, .. } if is_place(value) => {
             let mut t = unbound(then);
-            read_as(&mut t, name, value);
+            replace_var(&mut t, name, value);
             t
         }
         e => e.clone(),
@@ -481,6 +473,19 @@ fn built_case(value: &Expr) -> Option<Name> {
     match value {
         Expr::Lit(Lit::Bool(b)) => Some(Name::new(if *b { TRUE } else { FALSE })),
         v => built_option(v),
+    }
+}
+
+/// `s` past `name` bound or set to `value`: what was known of `name` is
+/// forgotten, and it holds what TS narrows it to from `value`
+/// (`built_case`, else `carried`).
+fn bind_known(s: &mut State, name: &Name, value: &Expr) {
+    let carried = carried(value, s);
+    s.forget(name);
+    if let Some(case) = built_case(value) {
+        s.set(Expr::Var(name.clone()), vec![case]);
+    } else if let Some(cases) = carried {
+        s.set(Expr::Var(name.clone()), cases);
     }
 }
 
@@ -693,14 +698,7 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             if let Some(e) = constructed_arm(value) {
                 **value = e;
             }
-            let carried = carried(value, &s);
-            s.forget(&name);
-
-            if let Some(case) = built_case(value) {
-                s.set(Expr::Var(name.clone()), vec![case]);
-            } else if let Some(cases) = carried {
-                s.set(Expr::Var(name.clone()), cases);
-            }
+            bind_known(&mut s, &name, value);
             // TS does not narrow `o` from `Result.ok(a)`, whose type is the
             // whole union: each `match o` is decided on the value itself,
             // its payload read again where the `match` was (only a name
@@ -821,40 +819,16 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
         }
         Expr::For { var, start, end, body, .. } => {
             let s = flow(start, st, cx)?;
-            let mut s = flow(end, s, cx)?;
-            s.forget(var);
-            let var = var.clone();
-            let head = loop_head(s, &[body], cx, |cx, head| flow(&mut (**body).clone(), head, cx));
-            cx.loops.push(Jumps::default());
-            flow(body, head.clone(), cx);
-            let jumps = cx.loops.pop().expect("pushed");
-            join_all(jumps.breaks.into_iter().chain(Some(head))).map(|mut a| {
-                a.forget(&var);
-                a
-            })
+            let s = flow(end, s, cx)?;
+            flow_each(var, body, s, cx)
         }
         Expr::ForEach { var, source, body, .. } => {
-            let mut s = flow(source, st, cx)?;
-            s.forget(var);
-            let var = var.clone();
-            let head = loop_head(s, &[body], cx, |cx, head| flow(&mut (**body).clone(), head, cx));
-            cx.loops.push(Jumps::default());
-            flow(body, head.clone(), cx);
-            let jumps = cx.loops.pop().expect("pushed");
-            join_all(jumps.breaks.into_iter().chain(Some(head))).map(|mut a| {
-                a.forget(&var);
-                a
-            })
+            let s = flow(source, st, cx)?;
+            flow_each(var, body, s, cx)
         }
         Expr::Assign { name, value } => {
             let mut s = flow(value, st, cx)?;
-            let carried = carried(value, &s);
-            s.forget(name);
-            if let Some(case) = built_case(value) {
-                s.set(Expr::Var(name.clone()), vec![case]);
-            } else if let Some(cases) = carried {
-                s.set(Expr::Var(name.clone()), cases);
-            }
+            bind_known(&mut s, name, value);
             Some(s)
         }
         Expr::Return(value) => {
@@ -916,20 +890,8 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             if is_some_of_built(expr) {
                 return flow(expr, s, cx);
             }
-            // `is_some()` of a place whose case is known.
-            if let Expr::Call {
-                callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
-                args,
-            } = expr
-            {
-                if let [p] = args.as_slice() {
-                    if let Some(c) = st_case(&s, p) {
-                        let some = c.as_str() == SOME;
-                        *expr = Expr::Lit(Lit::Bool(some == (*callee == purecrate_ir::Callee::OptionIsSome)));
-                    }
-                }
-            }
-            // `is_some()` of what narrowing made `None` or `Some(v)`.
+            // `is_some()` of a place whose case is known, or of what
+            // narrowing made `None` or `Some(v)`.
             if let Expr::Call {
                 callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
                 args,
@@ -937,12 +899,11 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             {
                 if let [arg] = args.as_slice() {
                     let pure = arg.children().iter().all(|c| matches!(c, Expr::Var(_) | Expr::Lit(_)));
-                    let some = match constructed_case(arg).as_ref().map(Name::as_str) {
-                        Some(SOME) => Some(true),
-                        Some(NONE) => Some(false),
-                        _ => None,
+                    let some = match st_case(&s, arg) {
+                        Some(c) => Some(c.as_str() == SOME),
+                        None => constructed_case(arg).as_ref().and_then(is_some_answer).filter(|_| pure),
                     };
-                    if let (Some(some), true) = (some, pure) {
+                    if let Some(some) = some {
                         *expr = Expr::Lit(Lit::Bool(some == (*callee == purecrate_ir::Callee::OptionIsSome)));
                     }
                 }
@@ -1216,16 +1177,10 @@ fn reached_clean(expr: &Expr, name: &Name, reads: &[Name]) -> Result<bool, ()> {
             reached_clean(then, name, reads)
         }
         Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. } | Expr::Closure { .. } => {
-            if !expr.reads(name) {
-                if writes(expr) {
-                    Err(())
-                } else {
-                    Ok(false)
-                }
-            } else if writes(expr) {
+            if writes(expr) {
                 Err(())
             } else {
-                Ok(true)
+                Ok(expr.reads(name))
             }
         }
         Expr::Match { arms, .. }
@@ -1286,6 +1241,21 @@ fn known_payload(place: &Expr, on: TryOn, st: &State) -> Option<Expr> {
     Some(match on {
         TryOn::Option => place.clone(),
         TryOn::Result => Expr::Field { base: Box::new(place.clone()), name: Name::new("value") },
+    })
+}
+
+/// A `for` loop over `var` from `s`, the state its range or source leaves:
+/// the body runs from the loop's head, and what leaves joins the head with
+/// each `break`.
+fn flow_each(var: &Name, body: &mut Expr, mut s: State, cx: &mut Cx) -> Option<State> {
+    s.forget(var);
+    let head = loop_head(s, &[&*body], cx, |cx, head| flow(&mut body.clone(), head, cx));
+    cx.loops.push(Jumps::default());
+    flow(body, head.clone(), cx);
+    let jumps = cx.loops.pop().expect("pushed");
+    join_all(jumps.breaks.into_iter().chain(Some(head))).map(|mut a| {
+        a.forget(var);
+        a
     })
 }
 
@@ -1413,12 +1383,8 @@ fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
         }
     }
-    // Narrowing may have folded every read of a name an arm binds; TS
-    // refuses the unread `const`.
-    for arm in &mut split {
-        let read = |n: &Name| mentions(&arm.body, n) || arm.guard.as_ref().is_some_and(|g| mentions(g, n));
-        arm.pattern = unbind(std::mem::replace(&mut arm.pattern, Pattern::Wildcard), &read);
-    }
+    // Narrowing may have folded every read of a name an arm binds.
+    split.iter_mut().for_each(unbind_unread);
     *arms = split;
     join_all(outs)
 }

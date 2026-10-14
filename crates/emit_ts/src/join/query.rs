@@ -128,9 +128,15 @@ pub(crate) fn declares(expr: &Expr) -> bool {
 }
 
 pub(super) fn root(place: &Expr) -> &Name {
-    match place {
-        Expr::Field { base, .. } => root(base),
-        Expr::Var(n) => n,
-        _ => unreachable!("a place starts from a variable"),
+    root_var(place).expect("a place starts from a variable")
+}
+
+/// The variable `expr` starts from, through its fields; `None` where it
+/// is no place.
+pub(crate) fn root_var(expr: &Expr) -> Option<&Name> {
+    match expr {
+        Expr::Field { base, .. } => root_var(base),
+        Expr::Var(n) => Some(n),
+        _ => None,
     }
 }

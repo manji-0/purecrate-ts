@@ -125,6 +125,29 @@ fn chooses(expr: &Expr) -> bool {
     }
 }
 
+/// `if (c) return v;`, `break;`, or `continue;` as one statement: the test
+/// and the jump, where `then` is one such jump, nothing else happens, and
+/// the test and the value each print on one line.
+fn one_line_guard(sink: Sink, cond: &Expr, then: &Expr, else_: &Expr, indent: usize) -> Option<(String, String)> {
+    if !matches!(sink, Sink::Effect) || *else_ != Expr::Lit(Lit::Unit) {
+        return None;
+    }
+    let jump = match lone_jump(then) {
+        Expr::Return(v) if !v.needs_statements() => {
+            let v = emit_expr(v, indent);
+            if v.contains('\n') {
+                return None;
+            }
+            format!("return {}", crate::tidy::strip_outer(&v))
+        }
+        Expr::Break(None) => format!("break{}", jump_label()),
+        Expr::Continue => format!("continue{}", jump_label()),
+        _ => return None,
+    };
+    let test = emit_expr(cond, indent);
+    (!test.contains('\n')).then_some((test, jump))
+}
+
 /// Whether `return expr;` is one line within the width.
 fn fits_returned(expr: &Expr, indent: usize) -> bool {
     as_expr(expr, indent).is_some_and(|v| {
@@ -253,25 +276,13 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         // A guard: `if (c) return v;` on one line, when both fit on one, and
         // `if (c) break;` / `continue;`.
-        Expr::If { cond, then, else_ }
-            if matches!(sink, Sink::Effect)
-                && **else_ == Expr::Lit(Lit::Unit)
-                && matches!(lone_jump(then), Expr::Return(v) if !v.needs_statements() && !emit_expr(v, indent).contains('\n'))
-                    | matches!(lone_jump(then), Expr::Break(None) | Expr::Continue)
-                && !emit_expr(cond, indent).contains('\n') =>
-        {
-            let jump = match lone_jump(then) {
-                Expr::Return(v) => format!("return {}", crate::tidy::strip_outer(&emit_expr(v, indent))),
-                Expr::Break(_) => format!("break{}", jump_label()),
-                _ => format!("continue{}", jump_label()),
-            };
-            out.push_str(&format!("{pad}if ({}) {jump};\n", crate::tidy::strip_outer(&emit_expr(cond, indent))));
+        Expr::If { cond, then, else_ } if let Some((test, jump)) = one_line_guard(sink, cond, then, else_, indent) => {
+            out.push_str(&format!("{pad}if ({}) {jump};\n", crate::tidy::strip_outer(&test)));
         }
         // `if matches!(f(x), p) ..` (or `!matches!`): the matched value is
         // the first thing the condition evaluates, so it is bound before the
         // `if` and the test reads the binding, not an inline function.
-        Expr::If { cond, then, else_ } if hoistable_test(cond).is_some() => {
-            let (scrutinee, arms, negated) = hoistable_test(cond).expect("checked above");
+        Expr::If { cond, then, else_ } if let Some((scrutinee, arms, negated)) = hoistable_test(cond) => {
             let tmp = match_temp(arms);
             let on_tmp = Expr::Match { scrutinee: Box::new(Expr::Var(Name::new(tmp.clone()))), arms: arms.to_vec() };
             // A test that does not read the value (every arm `true`) still
@@ -421,8 +432,9 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             }
         }
         // A `match` on a call that is one `call ?? d` needs no binding.
-        Expr::Match { .. } if !matches!(sink, Sink::Effect) && coalesced(expr, indent).is_some() => {
-            let value = coalesced(expr, indent).expect("matched above");
+        Expr::Match { .. }
+            if let Some(value) = (!matches!(sink, Sink::Effect)).then(|| coalesced(expr, indent)).flatten() =>
+        {
             sink.finish(&value, &pad, out);
         }
         Expr::Match { scrutinee, arms } => emit_switch(scrutinee, arms, indent, sink, tail, out),
@@ -644,11 +656,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
             let mut inner = String::new();
             let block = matches!(v, Expr::Let { .. } | Expr::Seq { .. }) && {
                 emit_stmts(v, indent + 1, Sink::Assign(name), &mut inner);
-                let own = "  ".repeat(indent + 1);
-                inner.lines().any(|l| {
-                    l.strip_prefix(own.as_str())
-                        .is_some_and(|r| !r.starts_with(' ') && (r.starts_with("const ") || r.starts_with("let ")))
-                })
+                !declared(&inner, &"  ".repeat(indent + 1)).is_empty()
             };
             if block {
                 out.push_str(&format!("{pad}{{\n"));

@@ -85,21 +85,13 @@ pub(crate) fn coalesced_tx(value: &Expr, indent: usize) -> Option<Tx> {
         _ => return None,
     };
     let Tx::Atom(call) = emit_tx(scrutinee, indent) else { return None };
-    if rest.as_ref().is_some_and(|r| mentions_word(&r.print(), &tmp)) {
+    if rest.as_ref().is_some_and(|r| reads_word(&r.print(), &tmp)) {
         return None;
     }
     let call = Tx::atom(crate::tidy::strip_outer(&call));
     Some(match rest {
         Some(rest) => Tx::bin(Op::Coalesce, call, rest),
         None => call,
-    })
-}
-
-/// Whether `text` holds `word` as an identifier of its own.
-fn mentions_word(text: &str, word: &str) -> bool {
-    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
-    text.match_indices(word).any(|(at, _)| {
-        !text[..at].chars().next_back().is_some_and(part) && !text[at + word.len()..].chars().next().is_some_and(part)
     })
 }
 
@@ -126,7 +118,7 @@ pub(super) fn destructured<'e>(t: &Name, mut then: &'e Expr) -> Option<(Vec<Opti
         slots[i] = Some(name);
         then = rest;
     }
-    (slots.iter().filter(|s| s.is_some()).count() >= 2 && !mentions(then, t)).then_some((slots, then))
+    (slots.iter().filter(|s| s.is_some()).count() >= 2 && !reads_or_assigns(then, t)).then_some((slots, then))
 }
 
 /// `matches!(v, p)` or `!matches!(v, p)` on a value that is not a place,
@@ -356,11 +348,7 @@ fn exit_first(a: &purecrate_ir::Arm, b: &purecrate_ir::Arm, scrutinee: &Expr, ta
     if !ends_in_jump(&b.body) || !b.pattern.bindings().is_empty() || ends_in_jump(&a.body) {
         return None;
     }
-    let mut root = scrutinee;
-    while let Expr::Field { base, .. } = root {
-        root = base;
-    }
-    let Expr::Var(var) = root else { return None };
+    let var = crate::join::root_var(scrutinee)?;
     if touches(&a.body, var) || (declares_at_top(&a.body) && !tail) {
         return None;
     }
