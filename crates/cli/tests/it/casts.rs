@@ -3,7 +3,8 @@
 //! `.length` (or a `Map`'s `.size`), a lossless widening, a `for` counter below its bound, a folded
 //! discriminant, a float (an `f32` rounded by `fround` or negated), the crate's own constructor, or a union given back
 //! its declared type. A brand (a newtype or closed struct of the crate) is
-//! cast to only in its constructor. Read over the output of every example
+//! cast to only in its constructor, and a generic newtype's in its arktype
+//! schema. Read over the output of every example
 //! and every test fixture the subset accepts, without a schema and with each
 //! schema library where the crate derives serde.
 
@@ -65,6 +66,16 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("Type") && value.starts_with("wire") {
         return Some("generic arktype parameter's schema");
     }
+    // A generic newtype's arktype morph and its `fromJson` read: TS leaves
+    // `Exclude<Wrap$<T>, ArkErrors>` and `_distill<Wrap$<T>, "out">` open
+    // (`T & {brand}` could be anything); the morph's declared type states
+    // the value its inner schema has read (design/04 §3.4).
+    let generic_domain = target.starts_with("Domain") && target_name.len() < target.len() && target.contains('<');
+    if (target.starts_with("Wire<Domain") && line.trim_start().starts_with("}) as "))
+        || (generic_domain && value.ends_with(".assert(parseJson(text))"))
+    {
+        return Some("generic newtype's arktype value");
+    }
     if NUMERIC.contains(&target_name) && is_number(value) {
         return Some("literal rustc range-checked");
     }
@@ -117,7 +128,11 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
         return Some("float");
     }
     if (value == "value" || value == "fields")
-        && (line.contains("export const unsafeMake") || line.trim_start().starts_with("of: (value"))
+        && (line.contains("export const unsafeMake") || {
+            // `of: (value: ..)`, or a generic newtype's `of: <T>(value: T)`.
+            let t = line.trim_start();
+            t.starts_with("of: (value") || (t.starts_with("of: <") && t.contains(">(value: "))
+        })
     {
         return Some("the crate's constructor");
     }
@@ -165,12 +180,13 @@ fn every_cast_is_of_a_sound_kind() {
     for (name, src) in &inputs {
         let package = support::corpus::generated(name, src);
         // The crate's brands, in any of its files:
-        // `export type X = .. & { readonly "<crate>.X": true }`.
+        // `export type X = .. & { readonly "<crate>.X": true }`, or
+        // `export type X<T> = ..` for a generic one.
         let brands: BTreeSet<String> = package
             .iter()
             .flat_map(|(_, text)| text.lines())
             .filter(|l| l.starts_with("export type ") && l.contains(": true }"))
-            .filter_map(|l| l["export type ".len()..].split(' ').next().map(str::to_string))
+            .filter_map(|l| l["export type ".len()..].split([' ', '<']).next().map(str::to_string))
             .collect();
         for (file, text) in &package {
             files += 1;

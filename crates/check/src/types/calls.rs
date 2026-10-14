@@ -202,15 +202,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                     (typed_args(self, params), ret)
                 }
             },
-            Callee::StructNew(n) => {
-                let params = self
-                    .defs
-                    .structs
-                    .get(n.as_str())
-                    .map(|s| s.fields.iter().map(|f| f.ty.clone()).collect())
-                    .unwrap_or_default();
-                (typed_args(self, params), Some(Ty::Named(n.clone())))
-            }
+            // A newtype's constructor, `Wrap(x)`: built as `Wrap { 0: x }`
+            // is, so a generic one takes its argument from the field.
+            Callee::StructNew(n) => match self.construct(n, None, &Fields::Positional(args.to_vec()), want) {
+                (Fields::Positional(args), t) => (args, t),
+                _ => unreachable!("construct keeps the fields' shape"),
+            },
             Callee::ResultOk | Callee::ResultErr => {
                 let expected = match want.map(|w| self.norm(w)) {
                     Some(Ty::Result { ok, err }) => Some((*ok, *err)),

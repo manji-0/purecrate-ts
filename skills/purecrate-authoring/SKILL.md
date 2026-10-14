@@ -64,7 +64,7 @@ The constraints match a functional style, so lean into it rather than fighting i
 | traits, bounds other than `Clone` / `Copy` / `PartialEq` / `Eq` / `PartialOrd` / `Ord` / `Debug`, `<` or `cmp` on a `T`, `HashMap` / `HashSet` (unspecified order), a `BTreeMap` / `BTreeSet` keyed by anything but `String`, `Rc`/`Cell`/`RefCell`/`Mutex` | type parameters with those bounds (from 0.20.0: `struct Page<T>`, `impl<T: Clone> Page<T>`, `fn first<T: Clone>(xs: &[T]) -> Option<T>`, a `T` moved, cloned, or compared with `==`), concrete types, functions, `Vec`s, recursive enums; `BTreeMap<String, V>` / `BTreeSet<String>`; order by a key of a known type (`max_by_key`) |
 | `static`, `const` inside `impl` | a crate-level `const` (a `const` inside a function body is fine from 0.4.0) |
 | `x as u32` where std widens `x` with `From` | `u32::from(x)` (`as` between integers is for what `From` does not take: narrowing, a sign change, `usize as u64`) |
-| `Option<Option<T>>`, newtype over `Option`/`()`, unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |
+| `Option<Option<T>>`, newtype over `Option`/`()` (a generic one too: `Wrap<Option<u32>>`), unit struct `struct S;` | an enum such as `Patch { Unset, Clear, Set(i32) }`; `struct S {}` |
 | `&mut` anything | take `self`, return the new value |
 
 ## Small things that trip people

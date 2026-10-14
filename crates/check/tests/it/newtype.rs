@@ -18,6 +18,34 @@ fn newtypes_over_null_like_values_are_rejected() {
 }
 
 #[test]
+fn a_generic_newtype_is_built_and_read_at_its_argument() {
+    assert_clean(
+        "pub struct Wrap<T>(pub T);
+         pub fn f(x: u32) -> Wrap<u32> { Wrap(x) }
+         pub fn g(w: Wrap<String>) -> String { w.0 }
+         pub fn h<T>(x: T) -> Wrap<T> { Wrap(x) }",
+    );
+    assert_rejects("pub struct Wrap<T>(pub T); pub fn f(x: u32) -> Wrap<String> { Wrap(x) }", "expected `String`");
+}
+
+#[test]
+fn a_generic_newtype_over_null_like_values_is_rejected() {
+    // In a type: `Wrap<Option<u32>>` would be `(U32 | null) & {brand}`, so
+    // `null` would not be one.
+    assert_rejects(
+        "pub struct Wrap<T>(pub T); pub fn f(w: Wrap<Option<u32>>) -> bool { w.0.is_some() }",
+        "cannot carry a brand",
+    );
+    assert_rejects("pub struct Wrap<T>(pub T); pub fn f(w: Wrap<()>) {}", "cannot carry a brand");
+    // Built: the construction's instantiation is refused as any generic
+    // item's is.
+    assert_rejects(
+        "pub struct Wrap<T>(pub T); pub fn f(x: Option<u8>) -> bool { Wrap(x).0.is_some() }",
+        "takes `Option<u8>` as `T`",
+    );
+}
+
+#[test]
 fn dot_zero_needs_a_newtype() {
     assert_rejects(
         "pub struct S { pub n: i32 } pub fn f(s: S) -> i32 { s.0 }",

@@ -184,7 +184,7 @@ pub(crate) fn emit_struct(krate: &Crate, st: &Struct) -> String {
     let name = st.name.as_str();
     let doc = jsdoc(&st.doc, "");
     if let Some(inner) = st.newtype_inner() {
-        return doc + &emit_newtype(krate, name, inner, st.closed);
+        return doc + &emit_newtype(krate, st, inner);
     }
     let fields = st
         .fields
@@ -243,17 +243,21 @@ fn struct_brand(name: &str) -> (String, String) {
 }
 
 /// A newtype is its inner value at runtime (as in serde's JSON), branded so
-/// that `Id` and the bare inner type do not mix.
-pub(crate) fn emit_newtype(krate: &Crate, name: &str, inner: &Ty, closed: bool) -> String {
+/// that `Id` and the bare inner type do not mix. A generic one is generic
+/// in TS too: `Wrap<T> = T & {...}`, built by `of: <T>(value: T): Wrap<T>`.
+pub(crate) fn emit_newtype(krate: &Crate, st: &Struct, inner: &Ty) -> String {
+    let name = st.name.as_str();
+    let (head, ty) = ctor_head(name, &st.generics, &[inner]);
     let inner = emit_ty(inner);
-    let (declared, branded) = if closed { closed_brand(name) } else { (String::new(), brand(krate, name)) };
-    let mut out = format!("{declared}export type {name} = {inner} & {branded};\n\n");
-    if closed {
-        out.push_str(&closed_ctor_src(name, &format!("value: {inner}"), "value"));
+    let (brand_decl, branded) = if st.closed { closed_brand(name) } else { (String::new(), brand(krate, name)) };
+    let typed = declared(name, &st.generics);
+    let mut out = format!("{brand_decl}export type {typed} = {inner} & {branded};\n\n");
+    if st.closed {
+        out.push_str(&closed_ctor_src(name, (&head, &ty), &format!("value: {inner}"), "value"));
     }
     out.push_str(&format!("export const {name} = {{\n"));
-    if !closed {
-        out.push_str(&format!("  of: (value: {inner}): {name} => value as {name},\n"));
+    if !st.closed {
+        out.push_str(&format!("  of: {head}(value: {inner}): {ty} => value as {ty},\n"));
     }
     out.push_str(&companion_methods(krate, name));
     out
@@ -265,17 +269,21 @@ pub(crate) fn emit_closed_struct(krate: &Crate, st: &Struct, fields: &str) -> St
     let name = st.name.as_str();
     let shape =
         st.fields.iter().map(|f| format!("{}: {}", f.name.as_str(), emit_ty(&f.ty))).collect::<Vec<_>>().join("; ");
-    let (declared, branded) = struct_brand(name);
+    let (brand_decl, branded) = struct_brand(name);
+    let typed = declared(name, &st.generics);
     // A type name after a many-line object type goes on a line of its own,
     // as oxfmt lays out the intersection.
-    let mut out = format!("{declared}export type {name} = Readonly<{{\n{fields}\n}}> &\n  {branded};\n\n");
-    out.push_str(&closed_ctor_src(name, &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
+    let mut out = format!("{brand_decl}export type {typed} = Readonly<{{\n{fields}\n}}> &\n  {branded};\n\n");
+    let head = ctor_head(name, &st.generics, &st.fields.iter().map(|f| &f.ty).collect::<Vec<_>>());
+    out.push_str(&closed_ctor_src(name, (&head.0, &head.1), &format!("fields: Readonly<{{ {shape} }}>"), "fields"));
     out.push_str(&format!("export const {name} = {{\n"));
     out.push_str(&companion_methods(krate, name));
     out
 }
 
-pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
+/// `(head, ty)` is `ctor_head`'s: `("<T>", "Hid<T>")` for a generic type,
+/// `("", "Hid")` for another.
+pub(crate) fn closed_ctor_src(name: &str, (head, ty): (&str, &str), param: &str, arg: &str) -> String {
     format!(
         "/**\n\
          \x20* Makes `{name}` values without a check.\n\
@@ -285,7 +293,7 @@ pub(crate) fn closed_ctor_src(name: &str, param: &str, arg: &str) -> String {
          \x20* `index.ts` does not export it.\n\
          \x20* @internal\n\
          \x20*/\n\
-         export const {ctor} = ({param}): {name} => {arg} as {name};\n\n",
+         export const {ctor} = {head}({param}): {ty} => {arg} as {ty};\n\n",
         ctor = closed_ctor(name)
     )
 }

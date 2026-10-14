@@ -53,9 +53,15 @@ pub enum Links<T> {
     Link(T, Box<Links<T>>),
 }
 
+/// A generic newtype: its content, as for any newtype.
+#[derive(Serialize, Deserialize)]
+pub struct Wrapped<T>(pub T);
+
 #[derive(Serialize, Deserialize)]
 pub struct Holding {
     pub labels: Paged<Label>,
+    pub wrapped: Wrapped<u64>,
+    pub wrapped_labels: Wrapped<Vec<Label>>,
     pub nums: Paged<u64>,
     pub pick: Choice<String, Id>,
     pub other: Choice<String, Id>,

@@ -107,6 +107,22 @@ impl<'a> Cx<'_, 'a> {
                     ),
                     Some(_) => {}
                 }
+                // `Wrap<Option<u32>>`: the brand on `T` would drop `null`,
+                // as on a newtype that wraps it by name.
+                let defs = self.defs;
+                if let Some(s) = defs.structs.get(name.as_str()) {
+                    let binds: Vec<(Name, Ty)> = s.generics.iter().cloned().zip(args.iter().cloned()).collect();
+                    if let Some(inner) = s.newtype_inner().map(|t| t.subst(&binds)).filter(|t| self.is_nullish(t)) {
+                        self.error(
+                            Reason::NewtypeInner,
+                            format!(
+                                "`{}` wraps `{}` here, which is `null` or `undefined` in TS and cannot carry a brand",
+                                crate::types::show(ty),
+                                crate::types::show(&inner)
+                            ),
+                        );
+                    }
+                }
                 args.iter().for_each(|t| self.ty(t));
             }
             Ty::Fn { params, ret } => {

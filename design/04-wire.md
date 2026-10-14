@@ -85,6 +85,7 @@ These follow serde's default behavior. Other sections refer to them by number.
   - Each schema is a morph from `unknown` typed `Wire<T>`, built lazily on first read so recursive and later-declared types resolve. (A `type.module` design hit a `ReferenceError` at import.)
   - A nested read that fails hands its errors to the morph's traversal (`fail`, through `ArkErrors.merge`), so they keep their path.
   - When no variant matches, an object keyed by a variant's name reports that variant's errors (`Confirm.outcome`), anything else one error for the enum.
+  - A generic newtype's morph and its `fromJson` read are cast to their declared type (`as Wire<Wrap$<WT["infer"]>>`, `as Wrap$<WT["infer"]>`): arktype types a morph's output as `Exclude<Wrap$<T>, ArkErrors>` and `assert`'s as `_distill<Wrap$<T>, "out">`, which TS leaves open for `T & {brand}`, as `T` could be anything. The declared type is the value the inner schema has read.
 
 ### 3.5 Verification
 

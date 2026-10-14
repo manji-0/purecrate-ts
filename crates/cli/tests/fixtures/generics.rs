@@ -44,6 +44,16 @@ pub enum Tree<T> {
     Node(Box<Tree<T>>, T, Box<Tree<T>>),
 }
 
+/// A generic newtype: its inner value at runtime, `Tagged<T>` in TS.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tagged<T>(pub T);
+
+impl<T: Clone> Tagged<T> {
+    pub fn get(&self) -> T {
+        self.0.clone()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Report {
     pub counts: Page<u32>,
@@ -94,6 +104,22 @@ fn values<T: Clone>(t: &Tree<T>) -> Vec<T> {
         }
     }
     out
+}
+
+fn tag<T>(x: T) -> Tagged<T> {
+    Tagged(x)
+}
+
+/// A generic newtype built, read through `.0`, and returned at two types.
+pub fn tags(n: u32, s: String) -> (Tagged<u32>, Tagged<String>, u32, usize, bool) {
+    let a = tag(n);
+    let b: Tagged<String> = Tagged(s);
+    let c = Tagged(n / 2);
+    (a.clone(), b.clone(), a.0, b.get().len(), a == c)
+}
+
+pub fn untag(t: Tagged<i32>, u: Tagged<String>) -> (i32, String, Tagged<i32>) {
+    (t.get(), u.0, Tagged(t.0 / 3))
 }
 
 pub fn pages(xs: Vec<u32>, total: u32) -> (usize, Option<u32>, Page<u32>, bool) {

@@ -1,7 +1,8 @@
 //! Type parameters: generic structs, enums, `impl<T>` blocks, and
 //! functions, each instantiated at more than one type, `==` on generic
 //! values, a recursive generic enum through `Box`, struct update on a
-//! generic struct, and a generic struct held by a concrete one.
+//! generic struct, a generic struct held by a concrete one, and a generic
+//! newtype built, read, and returned at two types.
 
 use crate::support;
 
@@ -33,6 +34,14 @@ fn generated_generics_match_rust() {
         }
         for xs in [vec![], vec![5i32], vec![1, 2, 3, 4, 5]] {
             cases.push(case!(generics::grow(xs)));
+        }
+        for n in [0u32, 1, 6, u32::MAX] {
+            for s in ["", "é😀"] {
+                cases.push(case!(generics::tags(n, s.to_string())));
+            }
+        }
+        for t in [0i32, -7, i32::MIN] {
+            cases.push(case!(generics::untag(generics::Tagged(t), generics::Tagged("ab".to_string()))));
         }
         let page = |items: Vec<u32>, total: u32| generics::Page { items, total };
         let names =

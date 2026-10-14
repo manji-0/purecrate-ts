@@ -286,6 +286,8 @@ fn shape_values() -> Vec<(&'static str, String)> {
             "Holding",
             serde_json::to_string(&Holding {
                 labels: Paged { items: vec![label_of("a".into()), label_of("é".into())], total: 2 },
+                wrapped: Wrapped(u64::MAX),
+                wrapped_labels: Wrapped(vec![label_of("w".into())]),
                 nums: Paged { items: vec![0, u64::MAX], total: 9 },
                 pick: Choice::One("x".into()),
                 other: Choice::Two { b: id_of(7), n: 255 },

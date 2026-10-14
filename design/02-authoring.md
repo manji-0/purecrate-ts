@@ -318,7 +318,7 @@ Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (fr
 | `BTreeMap<String, Option<T>>` and of `()` | `get` of a missing key and of that value would both be `null` / `undefined` | an enum value |
 | `Rc` / `Cell` / `RefCell` / `Mutex` | shared or interior mutability; `Mutex` is shared mutable state, which the subset does not have (`[type/mutex]`) | |
 | `Option<Option<T>>` | both `None`s become `null`; serde's default JSON is `null` for both as well, so the server cannot distinguish them either | an enum such as `Patch { Unset, Clear, Set(i32) }` |
-| newtypes over `Option`, `()`, or `!` | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
+| newtypes over `Option`, `()`, or `!`, and a generic newtype at one (`W<Option<u32>>`) | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | enums with no variants | | |
 | unit structs (`struct S;`) | serde writes `struct S;` as `null` and `struct S {}` as `{}`; only the latter is kept | `struct S {}` |
 

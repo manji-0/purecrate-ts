@@ -42,6 +42,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Discriminant | `otpDigitsDiscriminants[d.kind] as U8`, the table a `const` of the file (`const otpDigitsDiscriminants = { Six: 6, .. } satisfies Record<OtpDigits["kind"], number>;`), widened in the same cast (`as Usize`); `({ A: 1 as U8 } as Record<string, U8>)[e.kind] as U8` where `e` is neither a place nor a call, whose `kind` may have widened | the table holds the folded discriminants, each in range ([01 §7.7](./01-equivalence.md#77-const-and-discriminants)), and `satisfies` checks its keys are `E`'s |
 | Float | `(a * b as F64)`, `(Math.fround(x) as F32)`, `((x * -1) as F32)` | every `number` is an `f64`; `fround` gives an `f32`; `-x` prints as `x * -1` (lint refuses `-` on a brand), which flips the sign exactly, so an `f32` stays one |
 | Constructor | `unsafeMakeYen = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
+| Generic newtype's arktype value | `type("unknown").pipe(..) as Wire<DomainWrap<WT["infer"]>>`, `Wrap(wireT).assert(..) as DomainWrap<WT["infer"]>` | the inner schema has read the content; TS leaves arktype's types of the morph's output open for `T & {brand}` ([04 §3.4](./04-wire.md#34-per-library-notes)) |
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
@@ -69,7 +70,7 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `(A, B)` | `readonly [A, B]` |
 | `Box<T>`, `Arc<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads: a single-threaded program with values never mutated observes neither. `Mutex` is refused (`[type/mutex]`) |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |
-| newtype `S(T)` | `T & { readonly "<crate>.S": true }` |
+| newtype `S(T)` | `T & { readonly "<crate>.S": true }`; a generic one `struct W<T>(T)` is `export type W<T> = T & { .. }`, built by `of: <T>(value: T): W<T>` |
 | `enum` | `kind` union + companion |
 
 **`Option`.** Nested `Option` and a newtype over `Option` are refused (`[check/nested-option]`, `[check/newtype-inner]`), because `T | null` cannot tell `None` from `Some(None)` and `null & brand` is `never`. Both show up in PATCH-style domain code (unset vs. clear vs. set); the spelling is a hand-written enum such as `Patch { Unset, Clear, Set(i32) }` ([02 §3.7](./02-authoring.md#37-types)). This is a consequence of the representation, not of Rust semantics. serde's default JSON is `null` for both `None`s of an `Option<Option<T>>`, so a server using the same types cannot distinguish them either unless it uses `serde_with`-style handling; that is why the rejection stays rather than printing only the nested occurrence as `{ kind: "Some", value } | { kind: "None" }`.

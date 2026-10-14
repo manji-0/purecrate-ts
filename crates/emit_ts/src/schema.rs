@@ -288,12 +288,22 @@ fn ark_item(krate: &Crate, item: &Item, generics: &[String]) -> Vec<Chunk> {
             })
             .collect();
         body.extend(ark.shapes.into_iter().map(|(n, value)| Stmt::Const(n, value)));
-        body.push(Stmt::Return(ark.value));
+        let value = if ark_opaque(item) { Js::As(Box::new(ark.value), ty.clone()) } else { ark.value };
+        body.push(Stmt::Return(value));
         let head = generic_head(WireSchema::Arktype, generics, None);
         out.push(Chunk::Text(doc_of(item)));
         out.push(Chunk::decl(true, name, None, arrow(&head, Some(&ty), Body::Block(body))));
     }
     out
+}
+
+/// A generic newtype, whose arktype value TS does not reduce: a morph's
+/// output is `Exclude<Wrap$<T>, ArkErrors>` and `assert` gives
+/// `_distill<Wrap$<T>, "out">`, both left open while `T` (`T & {brand}`)
+/// could be anything. The morph's declared type states the value, which
+/// the inner schema has read, so each is cast to it (design/04 §3.4).
+fn ark_opaque(item: &Item) -> bool {
+    matches!(item, Item::Struct(s) if !s.generics.is_empty() && s.newtype_inner().is_some())
 }
 
 /// The type's `///` comment as JSDoc for its schema, so a hover on the
@@ -335,6 +345,11 @@ fn from_json(schema: WireSchema, wired: &[&Item], chunks: &mut Vec<Chunk>) {
             let read = schema.parse_call(schema_of, text);
             let head = generic_head(schema, &generics, Some("text: string"));
             let ret = crate::scoped(&PARAMS, params_for(schema, &generics), || dom(name));
+            let read = if schema == WireSchema::Arktype && ark_opaque(item) {
+                Js::As(Box::new(read), ret.clone())
+            } else {
+                read
+            };
             (name.to_string(), arrow(&head, Some(&ret), expr_body(read)))
         })
         .collect();
