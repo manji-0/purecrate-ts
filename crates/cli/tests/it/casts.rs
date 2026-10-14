@@ -62,6 +62,17 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     if target.starts_with("never") && value.starts_with("ctx.error(") {
         return Some("arktype's error value");
     }
+    // A generic arktype morph's value: arktype reads a parameter's schema
+    // as `_distill<T, "out">`, which TS does not reduce to `T`; the morph's
+    // declared return type (`Page$<T>`) states the value, which the inner
+    // schemas have read (design/04 §3.3).
+    let t = line.trim_start();
+    if target.starts_with("never") && (t.starts_with("return ") || t.starts_with("if (")) && line.contains("return ") {
+        return Some("generic arktype morph's value");
+    }
+    if target.starts_with("Type<unknown>") && value.starts_with("wire") {
+        return Some("generic arktype parameter's schema");
+    }
     if NUMERIC.contains(&target_name) && is_number(value) {
         return Some("literal rustc range-checked");
     }

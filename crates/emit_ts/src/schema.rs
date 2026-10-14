@@ -266,7 +266,9 @@ fn as_never_in(js: &mut Js) {
             match s {
                 Stmt::Return(v) => {
                     as_never_in(v);
-                    if !matches!(v, Js::As(_, t) if t == "never") {
+                    // `fail(ctx, parsed)` is already `never`.
+                    let fails = matches!(v, Js::Call(f, _) if matches!(&**f, Js::Raw(n) if n == "fail"));
+                    if !fails && !matches!(v, Js::As(_, t) if t == "never") {
                         let inner = std::mem::replace(v, raw(""));
                         *v = Js::As(Box::new(inner), "never".into());
                     }

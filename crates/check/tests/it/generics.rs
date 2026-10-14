@@ -49,9 +49,8 @@ fn an_uninferred_parameter_asks_for_a_type() {
 }
 
 #[test]
-fn a_generic_type_has_no_wire_form_yet() {
-    assert_rejects(
-        "use serde::Serialize;\n#[derive(Serialize)]\npub struct Page<T> { pub items: Vec<T> }",
-        "a wire form for a generic type is not in v0",
-    );
+fn a_generic_type_derives_serde() {
+    // No serde in the test's rustc: the subset's checks alone.
+    let found = crate::common::messages("use serde::{Deserialize, Serialize};\n#[derive(Serialize, Deserialize)]\npub struct Page<T> { pub items: Vec<T> }\n#[derive(Serialize, Deserialize)]\npub struct Users { pub page: Page<String> }");
+    assert!(found.is_empty(), "{found:#?}");
 }
