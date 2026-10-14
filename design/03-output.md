@@ -179,6 +179,10 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
 | `all`, `any`, `position`, `count`, `sum`, `fold` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)` |
 | `.rev()`, `.zip(ys)` right after the source | `Slice.rev(xs)`, `Slice.zip(xs, ys)`, new arrays |
+| `.filter_map(f)`, `.flatten()`, `.flat_map(f)` | `Iter.filterMap(xs, f)` (also `flatten` over `Option`s, `f` the item itself, and `flat_map` with `f` returning an `Option`), `Iter.flatten(xs)` over lists (`flat_map` as `Iter.flatten(Iter.map(xs, f))`): generators, as `Iter.map` |
+| `xs.windows(n)`, `xs.chunks(n)` | `Slice.windows(xs, n)`, `Slice.chunks(xs, n)`: new arrays of the slices, `n` of 0 panicking |
+| a range `(a..b)` / `(a..=b)` before an iterator method, `.rev()`, `.step_by(k)` on it | `Iter.range(a, b)` / `Iter.rangeInclusive(a, b)`, `.rev()`, `.stepBy(k)`: a `Steps` (first item, count, step) walked lazily; `k` of 0 panics; `for (const i of Iter.range(0, n).stepBy(2))` |
+| `v.dedup()`, `v.dedup_by_key(f)` on a local `let mut` | `Slice.dedup(v)`, `Slice.dedupByKey(v, f)`, in place, comparing by `Eq.deep` |
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
 | `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
