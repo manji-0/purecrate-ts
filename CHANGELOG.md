@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.20.1 — 2026-10-15
+
+Five fixes, found while the source was read for code written twice: each place now states its rule once (about 1,000 lines fewer), and where two copies had drifted apart, the fix is the one copy. The output of every example and earlier fixture is byte for byte the same; only the runtime copies in `examples/` change, where two helpers are now one.
 
 ### Fixed
 
