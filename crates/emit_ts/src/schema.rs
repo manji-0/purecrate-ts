@@ -288,10 +288,10 @@ fn as_never_in(js: &mut Js) {
         },
         Js::Call(f, args) => {
             as_never_in(f);
-            args.iter_mut().for_each(|a| as_never_in(a));
+            args.iter_mut().for_each(as_never_in);
         }
         Js::Member(o, _) | Js::As(o, _) | Js::Paren(o) => as_never_in(o),
-        Js::Array(xs) => xs.iter_mut().for_each(|x| as_never_in(x)),
+        Js::Array(xs) => xs.iter_mut().for_each(as_never_in),
         Js::Object(kv) => kv.iter_mut().for_each(|(_, v)| as_never_in(v)),
         Js::Ternary(a, b, c) => {
             as_never_in(a);
