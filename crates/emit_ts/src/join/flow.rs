@@ -79,6 +79,11 @@ thread_local! {
     static CONDS: std::cell::RefCell<Vec<(Name, Expr)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// The test `const name = <test>` aliases, where TS narrows by it.
+pub(super) fn aliased_cond(name: &Name) -> Option<Expr> {
+    CONDS.with(|t| t.borrow().iter().rev().find(|(m, _)| m == name).map(|(_, e)| e.clone()))
+}
+
 #[derive(Default)]
 struct Jumps {
     breaks: Vec<State>,
@@ -203,10 +208,11 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         // `fold` writes one side's literal as an operator: `if c { a } else
         // { false }` is `c && a`, `if c { false } else { b }` is `!c && b`,
         // `if c { a } else { true }` is `!c || a`. One that does not is a
-        // `?:`, which TS does not narrow by, except where its `else` is the
-        // literal (`c && a`, `!c || a`).
+        // `?:`, which TS does not narrow by, except where its `else` is
+        // `false` (`c && a`; `expr::emit_tx` leaves `c ? a : true` a `?:`).
         e @ Expr::If { cond, then, else_ }
-            if (e.needs_statements() && (bool_side(then) || bool_side(else_))) || bool_side(else_) =>
+            if (e.needs_statements() && (bool_side(then) || bool_side(else_)))
+                || **else_ == Expr::Lit(Lit::Bool(false)) =>
         {
             let not = |e: &Expr| Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(e.clone()) };
             let (op, left, right) = match (&**then, &**else_) {
@@ -264,14 +270,19 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
         // g, None => false }`, the guard in the arm): holding, `p` is in an
         // arm that may give `true`; where that is one arm, its case, and its
         // value holds too. TS reads it printed as `p !== null && g`.
-        Expr::Match { scrutinee, arms } if is_place(scrutinee) => {
+        // On a scrutinee that is no place (`matches!(r.ok(), Some(_) if c)`,
+        // bound to a `const` first), only what the arm's value decides.
+        Expr::Match { scrutinee, arms } => {
             // The arms that may give the value tested for (`true` holding).
             // An `A | B` side prints as `p.kind === "A" || p.kind === "B"`.
             let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(!holds))).collect();
             let [arm] = may.as_slice() else { return Vec::new() };
             let cases = variants_of(&arm.pattern);
-            let mut out: Vec<(Expr, Vec<Name>)> =
-                if cases.is_empty() { Vec::new() } else { vec![((**scrutinee).clone(), cases)] };
+            let mut out: Vec<(Expr, Vec<Name>)> = if cases.is_empty() || !is_place(scrutinee) {
+                Vec::new()
+            } else {
+                vec![((**scrutinee).clone(), cases)]
+            };
             if holds {
                 out.extend(arm.guard.iter().flat_map(|g| tests(g, true)));
             } else if arm.guard.is_some() {
@@ -286,9 +297,55 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
                 let some = holds == (*callee == Callee::OptionIsSome);
                 vec![(p.clone(), vec![Name::new(if some { SOME } else { NONE })])]
             }
+            // `r.ok().is_some()`: the `match` that builds the option, read
+            // as the test of which arm gives `Some` (TS has `r.kind ===
+            // "Ok"`).
+            [built] => match unbound(built) {
+                Expr::Match { scrutinee, arms }
+                    if arms.iter().all(|a| {
+                        matches!(a.body, Expr::Call { callee: Callee::OptionSome | Callee::OptionNone, .. })
+                    }) =>
+                {
+                    let is_some = *callee == Callee::OptionIsSome;
+                    let arms = arms
+                        .iter()
+                        .map(|a| Arm {
+                            body: Expr::Lit(Lit::Bool(
+                                matches!(a.body, Expr::Call { callee: Callee::OptionSome, .. }) == is_some,
+                            )),
+                            ..a.clone()
+                        })
+                        .collect();
+                    tests(&Expr::Match { scrutinee, arms }, holds)
+                }
+                _ => Vec::new(),
+            },
             _ => Vec::new(),
         },
+        // `let $result = r; match $result { .. }`, as `check` binds a
+        // receiver: the test on `r`, as the TS reads it.
+        Expr::Let { mutable: false, value, .. } if is_place(value) => tests(&unbound(cond), holds),
         _ => Vec::new(),
+    }
+}
+
+/// `expr` with each `let` of a place to a name dropped, the name read as
+/// the place: `let $result = r; match $result { .. }` is `match r { .. }`.
+pub(super) fn unbound(expr: &Expr) -> Expr {
+    fn read_as(e: &mut Expr, name: &Name, place: &Expr) {
+        if *e == Expr::Var(name.clone()) {
+            *e = place.clone();
+            return;
+        }
+        e.children_mut().into_iter().for_each(|c| read_as(c, name, place));
+    }
+    match expr {
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) => {
+            let mut t = unbound(then);
+            read_as(&mut t, name, value);
+            t
+        }
+        e => e.clone(),
     }
 }
 
@@ -704,6 +761,17 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             }
             let (yes, no) = refine(left, &s);
             let (go, stop) = if and { (yes, no) } else { (no, yes) };
+            // The right side decided by the left (`v && !v`, which TS reads
+            // with `v` narrowed to `true`): `a && false` is `false`, `a ||
+            // true` is `true`.
+            if effectless(left) && effectless(right) {
+                if let Some(r) = go.as_ref().and_then(|g| known_bool(right, &g.0)) {
+                    if r != and {
+                        *expr = Expr::Lit(Lit::Bool(r));
+                        return Some(s);
+                    }
+                }
+            }
             let after_right = match go {
                 Some(g) => flow(right, g, cx),
                 None => {

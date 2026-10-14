@@ -853,3 +853,53 @@ pub fn decided_then_side(a: i32, o: Option<i32>, c: bool) -> i32 {
     }
     h0
 }
+
+/// `matches!` on a value that is no place (`r.ok()`) still decides its
+/// guard: TS has `c` as `true` inside, and refuses `c != !c` there.
+pub fn guard_on_built(r: Result<i32, i32>, c: bool) -> i32 {
+    if matches!(r.ok(), Some(_v) if c) {
+        if c != !c {
+            return 1;
+        }
+    }
+    0
+}
+
+/// `v && !v`: TS reads `!v` with `v` narrowed to `true`, so the body is
+/// `never` to it, and so is `r`, which `v` aliases a test of.
+pub fn contradiction(r: Result<i32, i32>, a: i32) -> i32 {
+    let v: bool = r.ok().is_some();
+    if v && !v {
+        let g = |x: i32| r.ok().unwrap_or(10) + x;
+        return g(a);
+    }
+    a
+}
+
+/// `c` aliases `!c0 || r.is_ok()`, which TS reads again once `r` is known
+/// `Ok`: `if c { return }` always returns, and what follows is `never`.
+pub fn alias_decided_late(a: i32, r: Result<i32, i32>, c0: bool) -> Result<i32, i32> {
+    let c: bool = !c0 || r.ok().is_some();
+    let v = match r {
+        Ok(v) => v,
+        Err(_) => return Err(0),
+    };
+    if v < 3 {
+        if c {
+            return Ok(1);
+        }
+    } else {
+        return Ok(2);
+    }
+    let w = r.map_err(|e| e + a)?;
+    Ok(w)
+}
+
+/// `if a { c } else { true }` prints as a `?:`, which TS does not narrow
+/// by: past the `return`, `o` is still an `Option` to it.
+pub fn true_else_side(o: Option<i32>, c: bool) -> i32 {
+    if if o.is_some() { c } else { o.is_none() } {
+        return 7;
+    }
+    o.unwrap_or(-7)
+}

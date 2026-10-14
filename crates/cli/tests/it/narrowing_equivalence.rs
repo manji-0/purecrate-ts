@@ -172,6 +172,17 @@ fn generated_narrowing_matches_rust() {
             cases.push(case!(narrowing::literal_side_test(-1i32, r)));
             cases.push(case!(narrowing::literal_side_test(1i32, r)));
             cases.push(case!(narrowing::closure_reads_place(5i32, r)));
+            cases.push(case!(narrowing::guard_on_built(r, true)));
+            cases.push(case!(narrowing::guard_on_built(r, false)));
+            cases.push(case!(narrowing::contradiction(r, 3i32)));
+            for a in [0i32, 9] {
+                cases.push(case!(narrowing::alias_decided_late(a, r, true)));
+                cases.push(case!(narrowing::alias_decided_late(a, r, false)));
+            }
+        }
+        for o in [None, Some(3i32)] {
+            cases.push(case!(narrowing::true_else_side(o, true)));
+            cases.push(case!(narrowing::true_else_side(o, false)));
         }
         for o in [None, Some(3i32)] {
             cases.push(case!(narrowing::decided_then_side(100i32, o, true)));

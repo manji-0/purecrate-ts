@@ -345,7 +345,12 @@ impl Body {
             }
             (Ty::Int, Ty::Int, 1) => format!("vec![{v}, {}].iter().rev().fold(0i32, |a, x| a * 3 + x)", g.int(e)),
             (Ty::Int, Ty::Int, 2) => {
-                format!("vec![{v}, {}].iter().zip(vec![{}, {}].iter()).map(|(x, y)| x - y).sum::<i32>()", g.int(e), g.lit(), g.lit())
+                format!(
+                    "vec![{v}, {}].iter().zip(vec![{}, {}].iter()).map(|(x, y)| x - y).sum::<i32>()",
+                    g.int(e),
+                    g.lit(),
+                    g.lit()
+                )
             }
             (Ty::Int, Ty::Opt, 0) => format!("vec![{v}, {}].get({}).copied()", g.int(e), g.rng.below(4)),
             (Ty::Int, Ty::Opt, 1) => format!("vec![{v}, {}].first().copied()", g.int(e)),

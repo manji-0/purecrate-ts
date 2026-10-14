@@ -172,13 +172,21 @@ pub(super) fn failed_try(place: &Expr, on: TryOn, known: &Known) -> Option<Expr>
 }
 
 /// `cond` with each `bool` place a test has decided read as its value,
-/// through `!`, `&&`, and `||`.
+/// through `!`, `&&`, `||`, and `==` / `!=` (TS has a decided `c` as the
+/// type `true`, and refuses `c !== !c` as a comparison of `true` and
+/// `false`).
 pub(super) fn decide(cond: &mut Expr, known: &Known) {
     match cond {
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => decide(expr, known),
         Expr::Binary { op: BinOp::And | BinOp::Or, left, right } => {
             decide(left, known);
             decide(right, known);
+        }
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if known_bool(left, known).is_some() && known_bool(right, known).is_some() =>
+        {
+            let (a, b) = (known_bool(left, known), known_bool(right, known));
+            *cond = Expr::Lit(Lit::Bool((a == b) == (*op == BinOp::Eq)));
         }
         c if is_place(c) => {
             if let Some(b) = known_bool(c, known) {
@@ -195,6 +203,12 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
     match expr {
         Expr::Lit(Lit::Bool(b)) => Some(*b),
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_bool(expr, known).map(|b| !b),
+        // `const c2 = !c || r.kind === "Ok"` where what it tests is known
+        // (`flow::CONDS` holds it only where nothing writes what it reads).
+        Expr::Var(n) if known.iter().all(|(k, _)| k != expr) => {
+            let test = flow::aliased_cond(n)?;
+            known_bool(&test, known)
+        }
         // `o.is_some()` of a place whose case is known.
         Expr::Call {
             callee: callee @ (purecrate_ir::Callee::OptionIsSome | purecrate_ir::Callee::OptionIsNone),
@@ -202,7 +216,19 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
         } => {
             let [p] = args.as_slice() else { return None };
             if !is_place(p) {
-                return None;
+                // `r.ok().is_some()`: which arm of the `match` building the
+                // option runs.
+                let Expr::Match { scrutinee, arms } = flow::unbound(p) else { return None };
+                let is_some = *callee == purecrate_ir::Callee::OptionIsSome;
+                let mut arms = arms;
+                for a in &mut arms {
+                    a.body = match a.body {
+                        Expr::Call { callee: purecrate_ir::Callee::OptionSome, .. } => Expr::Lit(Lit::Bool(is_some)),
+                        Expr::Call { callee: purecrate_ir::Callee::OptionNone, .. } => Expr::Lit(Lit::Bool(!is_some)),
+                        _ => return None,
+                    };
+                }
+                return known_bool(&Expr::Match { scrutinee, arms }, known);
             }
             let (_, vs) = known.iter().rev().find(|(k, _)| k == p)?;
             let some = match vs.as_slice() {
@@ -216,10 +242,16 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
         // null && c`): the value every arm that may run gives, an arm whose
         // guard is decided `false` never running.
         // Only where nothing in it can panic: folded, it no longer runs.
-        Expr::Match { arms, .. } if effectless(expr) => {
+        Expr::Match { scrutinee, arms } if effectless(expr) => {
+            // The cases the scrutinee is known to hold, where it is a place.
+            let held = known.iter().rev().find(|(k, _)| k == &**scrutinee).map(|(_, vs)| vs.clone());
             let mut value = None;
             for arm in arms {
                 if arm.guard.as_ref().is_some_and(|g| known_bool(g, known) == Some(false)) {
+                    continue;
+                }
+                let cases = variants_of(&arm.pattern);
+                if held.as_ref().is_some_and(|h| !cases.is_empty() && cases.iter().all(|c| !h.contains(c))) {
                     continue;
                 }
                 let v = known_bool(&arm.body, known)?;
