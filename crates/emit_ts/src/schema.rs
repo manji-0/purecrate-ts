@@ -485,15 +485,15 @@ fn header(schema: WireSchema) -> String {
     let own: &str = match schema {
         WireSchema::Zod => "\
 import { z } from \"zod\";
-import { adjacentlyTagged, bool, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, optionalField, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-zod\";
+import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, optionalField, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-zod\";
 ",
         WireSchema::Valibot => "\
 import * as v from \"valibot\";
-import { adjacentlyTagged, bool, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-valibot\";
+import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, unitVariant, usize, uuid, uuidError, variant } from \"purecrate-valibot\";
 ",
         WireSchema::Arktype => "\
 import { type } from \"arktype\";
-import { adjacentlyTagged, bool, char, f32, f64, fail, i128, i16, i32, i64, i8, internallyTagged, keyed, memo, nullable, record, sequence, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
+import { adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, fail, i128, i16, i32, i64, i8, internallyTagged, keyed, memo, nullable, record, sequence, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, uuidError, type Wire } from \"purecrate-arktype\";
 ",
     };
     format!("import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{own}")
@@ -978,8 +978,9 @@ fn never(schema: WireSchema) -> Js {
 
 fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
     match ty {
-        // WIRE-TODO(0.19.0): an object read into a `Map`.
-        Ty::Map { .. } | Ty::Set(_) => never(schema),
+        // An object read into a `Map`, an array into a `Set` (the adapters).
+        Ty::Map { value, .. } => call_path("btreeMap", vec![schema_ty(schema, value)]),
+        Ty::Set(_) => raw("btreeSet"),
         Ty::Prim(p) => raw(match p {
             purecrate_ir::Prim::Bool => "bool".to_string(),
             purecrate_ir::Prim::String | purecrate_ir::Prim::Str => "str".into(),
@@ -1174,8 +1175,14 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         call(Js::Paren(Box::new(arrow("()", Some("never"), body))), Vec::new())
     };
     match ty {
-        // WIRE-TODO(0.19.0): an object in key order.
-        Ty::Map { .. } | Ty::Set(_) => throws("BTreeMap"),
+        // An object in key order, as serde_json writes a `BTreeMap`.
+        Ty::Map { value: inner, .. } => {
+            let v = format!("v{depth}");
+            let item = write_json(inner, &v, depth + 1);
+            let param = if reads(&arrow("()", None, expr_body(item.clone())), &v) { v } else { format!("_{v}") };
+            call_path("Json.map", vec![raw(value), arrow(&format!("({param})"), None, expr_body(item))])
+        }
+        Ty::Set(_) => call_path("Json.set", vec![raw(value)]),
         Ty::Prim(p) => match p {
             Prim::Bool => call_path("Json.bool", vec![raw(value)]),
             Prim::String | Prim::Str | Prim::Char | Prim::Uuid => call_path("Json.str", vec![raw(value)]),

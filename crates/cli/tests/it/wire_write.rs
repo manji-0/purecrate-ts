@@ -12,7 +12,7 @@
 
 use crate::support;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::process::Command;
 
@@ -261,6 +261,27 @@ fn shape_values() -> Vec<(&'static str, String)> {
             .unwrap(),
         ),
         ("Ids", serde_json::to_string(&Ids { one: uuid::Uuid::from_u128(1), maybe: None, many: vec![] }).unwrap()),
+        (
+            "Catalog",
+            serde_json::to_string(&Catalog {
+                counts: ["😀", "\u{fffd}", "__proto__", "constructor", "", "a\"\n"]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| (k.to_string(), i as u32))
+                    .collect(),
+                tags: ["z", "😀", "\u{fffd}", "__proto__"].iter().map(|k| k.to_string()).collect(),
+                nested: [("b", vec![label_of("x".into())]), ("a", vec![])]
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+            })
+            .unwrap(),
+        ),
+        (
+            "Catalog",
+            serde_json::to_string(&Catalog { counts: BTreeMap::new(), tags: BTreeSet::new(), nested: BTreeMap::new() })
+                .unwrap(),
+        ),
     ]
 }
 

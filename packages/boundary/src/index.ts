@@ -1524,5 +1524,10 @@ export const Json = {
     return "null";
   },
   array: <T>(xs: ReadonlyArray<T>, write: (x: T) => string): string => `[${xs.map((x) => write(x)).join(",")}]`,
+  /** A `BTreeMap<String, V>`: an object, its keys in Rust's order, each written as a string. */
+  map: <V>(m: ReadonlyMap<string, V>, write: (v: V) => string): string =>
+    `{${BTree.keys(m).map((k) => `${JSON.stringify(k)}:${write(m.get(k) as V)}`).join(",")}}`,
+  /** A `BTreeSet<String>`: an array of its keys in order. */
+  set: (s: ReadonlySet<string>): string => `[${BTree.keys(s).map((k) => JSON.stringify(k)).join(",")}]`,
 } as const;
 // #endregion

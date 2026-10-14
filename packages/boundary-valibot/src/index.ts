@@ -79,6 +79,36 @@ export const variant = <const E extends v.ObjectEntries>(entries: E) =>
 /** serde_json refuses a lone surrogate in a string, which no Rust `String` holds. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 export const str = v.pipe(v.string(), v.check((s) => !LONE_SURROGATE.test(s), "a string without a lone surrogate"));
+
+/**
+ * serde's `BTreeMap<String, V>`: a JSON object read into a `Map`. Every own
+ * key is a key, `__proto__` and `constructor` too (the libraries' records
+ * drop some), and a key with a lone surrogate is refused as serde refuses
+ * it; `JSON.parse` has kept a repeated key's last value, as serde does.
+ */
+export const btreeMap = <T extends v.GenericSchema>(inner: T) =>
+  v.pipe(
+    v.unknown(),
+    v.rawTransform(({ dataset, addIssue, NEVER }): ReadonlyMap<string, v.InferOutput<T>> => {
+      const x = dataset.value;
+      if (typeof x !== "object" || x === null || Array.isArray(x)) {
+        addIssue({ message: "a JSON object" });
+        return NEVER;
+      }
+      const m = new Map<string, v.InferOutput<T>>();
+      for (const k of Object.keys(x)) {
+        const r = v.safeParse(inner, (x as Readonly<Record<string, unknown>>)[k]);
+        if (LONE_SURROGATE.test(k) || !r.success) {
+          addIssue({ message: `key ${JSON.stringify(k)}: ${r.success ? "a lone surrogate" : r.issues[0].message}` });
+          return NEVER;
+        }
+        m.set(k, r.output);
+      }
+      return m;
+    }),
+  );
+/** serde's `BTreeSet<String>`: a JSON array of strings, read into a `Set` (a repeated one kept once). */
+export const btreeSet = v.pipe(v.array(str), v.transform((xs): ReadonlySet<string> => new Set(xs)));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = v.pipe(v.string(), v.check(Char.is, "a single character"), v.transform((s) => s as Char));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

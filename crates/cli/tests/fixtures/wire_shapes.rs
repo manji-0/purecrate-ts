@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::{Deserialize, Serialize};
 
 use uuid::Uuid;
@@ -29,6 +31,14 @@ pub struct Units {
 
 #[derive(Serialize, Deserialize)]
 pub struct Nothing {}
+
+/// A JSON object, keys in Rust's order, and an array of keys.
+#[derive(Serialize, Deserialize)]
+pub struct Catalog {
+    pub counts: BTreeMap<String, u32>,
+    pub tags: BTreeSet<String>,
+    pub nested: BTreeMap<String, Vec<Label>>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Wide {
