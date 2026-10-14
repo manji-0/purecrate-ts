@@ -33,7 +33,7 @@ const digitValue = (c: Char): U32 | null => {
 /** §6.2, on characters already known to be ASCII. */
 const decodeChars = (input: ReadonlyArray<Char>): Result<ReadonlyArray<U32>, PunycodeError> => {
   // The basic code points are those before the last delimiter.
-  const opt = Iter.position([...input].reverse(), (c: Char): boolean => c === DELIMITER);
+  const opt = Iter.position(Slice.rev(input), (c: Char): boolean => c === DELIMITER);
   const lastDelim: Usize | null =
     opt !== null ? Int.usize.sub(Int.usize.sub(input.length as Usize, 1 as Usize), opt) : null;
   const out: Array<U32> = [];

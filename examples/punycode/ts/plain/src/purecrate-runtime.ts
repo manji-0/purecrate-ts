@@ -237,6 +237,12 @@ export const Slice = {
     }
     return xs[i] as T;
   },
+  /** `xs.iter().rev()`: a new array, the items last to first. */
+  rev: <T>(xs: ReadonlyArray<T>): ReadonlyArray<T> => {
+    const out: T[] = [];
+    for (let i = xs.length - 1; i >= 0; i--) out.push(xs[i] as T);
+    return out;
+  },
   /** `v.insert(i, x)` on a local's own array. */
   insert: <T>(xs: T[], i: Usize, x: T): void => {
     if (i > xs.length) throw new Panic(`insertion index (is ${i}) should be <= len (is ${xs.length})`);

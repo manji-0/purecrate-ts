@@ -913,3 +913,12 @@ pub fn mapped_is_none(o: Option<i32>, a: i32) -> i32 {
     }
     o.unwrap_or(-1)
 }
+
+/// A guard that is no place, on a value that is no place: printed as a
+/// function called in place, which TS does not narrow `r` by.
+pub fn complex_guard(r: Result<i32, i32>, n: i32) -> i32 {
+    if matches!(n.checked_rem(-10), Some(_v) if r.ok().is_some()) {
+        return r.map_err(|e| e + 1).ok().unwrap_or(5);
+    }
+    0
+}

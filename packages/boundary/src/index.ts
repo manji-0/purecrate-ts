@@ -1006,6 +1006,14 @@ export const Slice = {
   /** `xs.contains(&x)`, comparing as the derived `eq` does. */
   contains: <T>(xs: ReadonlyArray<T>, x: T): boolean => xs.some((y) => Eq.deep(y, x)),
   // #endregion
+  // #region slice.rev
+  /** `xs.iter().rev()`: a new array, the items last to first. */
+  rev: <T>(xs: ReadonlyArray<T>): ReadonlyArray<T> => {
+    const out: T[] = [];
+    for (let i = xs.length - 1; i >= 0; i--) out.push(xs[i] as T);
+    return out;
+  },
+  // #endregion
   // #region slice.zip
   /** `a.iter().zip(b)`: pairs, as many as the shorter has. */
   zip: <A, B>(a: ReadonlyArray<A>, b: ReadonlyArray<B>): ReadonlyArray<readonly [A, B]> =>

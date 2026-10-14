@@ -167,7 +167,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `for` over a `Vec`, `chars()`, `bytes()`, or `split(c)` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
 | `all`, `any`, `position`, `count`, `sum`, `fold` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)` |
-| `.rev()`, `.zip(ys)` right after the source | `[...xs].reverse()` (`Array.from(s).reverse()` for `chars()`), `Slice.zip(xs, ys)`, new arrays |
+| `.rev()`, `.zip(ys)` right after the source | `Slice.rev(xs)`, `Slice.zip(xs, ys)`, new arrays |
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
 | `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |

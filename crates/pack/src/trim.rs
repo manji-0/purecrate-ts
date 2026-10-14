@@ -432,6 +432,7 @@ mod tests {
             "slice.last",
             "slice.contains",
             "slice.zip",
+            "slice.rev",
             "slice.set",
             "slice.sortBy",
             "slice.sortByKey",

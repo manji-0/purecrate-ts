@@ -799,21 +799,12 @@ fn emit_atom(expr: &Expr, indent: usize) -> String {
                 );
             }
             if matches!(callee, purecrate_ir::Callee::VecGet) {
-                return format!("Slice.get({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));
+                // A literal index reads bare: `Slice.get` takes a `number`.
+                let i = bare(&args[1], indent).unwrap_or_else(|| emit_item(&args[1], indent));
+                return format!("Slice.get({}, {i})", emit_expr(&args[0], indent));
             }
             if matches!(callee, purecrate_ir::Callee::VecRev) {
-                // A string's chars are collected into a new array already.
-                if let Expr::Call {
-                    callee: purecrate_ir::Callee::Collect { over: purecrate_ir::Over::Chars, .. },
-                    args: chars,
-                } = &args[0]
-                {
-                    return format!(
-                        "Array.from({}).reverse()",
-                        iterable(purecrate_ir::Over::Chars, emit_tx(&chars[0], indent))
-                    );
-                }
-                return format!("[...{}].reverse()", receiver(emit_tx(&args[0], indent)));
+                return format!("Slice.rev({})", emit_expr(&args[0], indent));
             }
             if matches!(callee, purecrate_ir::Callee::VecZip) {
                 return format!("Slice.zip({}, {})", emit_expr(&args[0], indent), emit_item(&args[1], indent));

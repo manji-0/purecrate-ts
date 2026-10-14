@@ -728,7 +728,7 @@ pub enum Callee {
     /// derived `eq` does. Prints as `Slice.contains(xs, x)`.
     VecContains,
     /// `xs.iter().rev()` (or of `chars()`, `bytes()`, `split(c)`): a new
-    /// array of the items in reverse. Prints as `[...xs].reverse()`.
+    /// array of the items in reverse. Prints as `Slice.rev(xs)`.
     VecRev,
     /// `a.iter().zip(b)`: a new array of pairs, as long as the shorter.
     /// Prints as `Slice.zip(a, b)`.

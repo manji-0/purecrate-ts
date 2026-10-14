@@ -277,6 +277,17 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
             // An `A | B` side prints as `p.kind === "A" || p.kind === "B"`.
             let may: Vec<&Arm> = arms.iter().filter(|a| a.body != Expr::Lit(Lit::Bool(!holds))).collect();
             let [arm] = may.as_slice() else { return Vec::new() };
+            // Off a place, the printer writes `x !== null && c` only where
+            // the arm's value and guard are operands it prints in place
+            // (a place, or `!` of one); otherwise a function called in
+            // place, which TS does not narrow by.
+            let simple = |e: &Expr| match e {
+                Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => is_place(expr),
+                e => is_place(e) || matches!(e, Expr::Lit(_)),
+            };
+            if !is_place(scrutinee) && !(simple(&arm.body) && arm.guard.as_ref().is_none_or(simple)) {
+                return Vec::new();
+            }
             let cases = variants_of(&arm.pattern);
             let mut out: Vec<(Expr, Vec<Name>)> = if cases.is_empty() || !is_place(scrutinee) {
                 Vec::new()

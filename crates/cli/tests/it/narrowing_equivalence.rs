@@ -175,6 +175,7 @@ fn generated_narrowing_matches_rust() {
             cases.push(case!(narrowing::guard_on_built(r, true)));
             cases.push(case!(narrowing::guard_on_built(r, false)));
             cases.push(case!(narrowing::contradiction(r, 3i32)));
+            cases.push(case!(narrowing::complex_guard(r, 4i32)));
             for a in [0i32, 9] {
                 cases.push(case!(narrowing::alias_decided_late(a, r, true)));
                 cases.push(case!(narrowing::alias_decided_late(a, r, false)));

@@ -60,7 +60,7 @@ const usesX25519 = (k: KexMethod): boolean =>
   k.kind === "Curve25519Sha256";
 
 const firstIs = (list: ReadonlyArray<string>, name: string): boolean => {
-  const opt = Slice.get(list, 0 as Usize);
+  const opt = Slice.get(list, 0);
   return opt !== null && opt === name;
 };
 
