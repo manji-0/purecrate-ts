@@ -247,6 +247,7 @@ Some accepted Rust has no one-to-one TS form. It is rewritten into constructs th
 | [`BTreeMap<String, V>`, `BTreeSet<String>`](#719-btreemapstring-v-and-btreesetstring) | a `Map` / `Set` read in key order | `btree_equivalence.rs` |
 | [type parameters](#720-type-parameters) | TS generics, one copy for every type | `generics_equivalence.rs` |
 | [text cut and built](#721-cutting-and-building-text): `to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, `to_string` | JS's case mapping, `split`, `join`, and `repeat`; `Str.splitStr` / `Str.splitWhitespace` / `Str.lines`; `format!`'s `{}` | `strings_more_equivalence.rs` |
+| [associated consts, paths through modules](#723-associated-consts-and-paths-through-modules) | a companion member holding the folded value; the item alone | `paths_equivalence.rs` |
 
 A closure that is inlined (`map`, the consumers) may not use `?` or `return`, which would leave the enclosing function.
 
@@ -418,6 +419,17 @@ Accepted on a `String` or `&str`: `to_lowercase()` and `to_uppercase()`, `split(
 - **Refused.** The literal separator `""`; `join` on items other than text, or with a `char` separator; `concat`, `splitn`, `rsplit`, `split_terminator`, `char_indices`, and `to_string` on a float.
 
 Tested on texts with final sigma, `ß`, `İ`, ligatures, and letters outside the BMP; separators that are empty, repeated, overlapping, multi-byte, `\n`, and `\r\n`; every White_Space code point beside U+FEFF, U+180E, and U+200B; `\r` and `\n` in each order; `join` over empty lists and empty items; `repeat` 0, 1, and 3 times; and `to_string` at each integer type's bounds (`strings_more_equivalence.rs`); the refusals in `check`'s `strings_more.rs`; and as shapes of the strings generator, each in a `for`, a consumer, and `collect`, seeds 1 to 120.
+
+### 7.23 Associated consts and paths through modules
+
+<!-- derived-from #77-const-and-discriminants -->
+
+- **An associated const** (`impl T { const N: u32 = 3; }`, on a struct, an enum, or a generic type) is folded as a crate const is (§7.7): its type is an integer, a float, `bool`, `char`, or `&str`, its value of literals, consts, discriminants, and operators, which may read another as `Self::N`. The TS holds the value as a member of `T`'s companion, `N: 3 as U32`, cast to the type where the literal is not already (`"x" as string`), since `as const` would give the member the literal's type. `Self::N` in the `impl` (inside a macro's tokens too, `assert!(n <= Self::N, ..)`) and `T::N` anywhere are `T.N`; a crate or local const may read one. rustc folds it before the program runs and rejects one that overflows, so the read cannot panic, and no module load order can show a value before it is set: a companion's methods run only after every file is loaded. A non-`pub` one is not on the companion, as a non-`pub` method is not (§4.1), but `tyN`, exported from `T`'s file and not from `index.ts`. On a generic type the value cannot depend on the parameter (its type is a scalar), so `Page::<u32>::SIZE` and `Self::SIZE` read the one member.
+- **A path through the crate's modules** (`crate::m::f`, `self::m::f`, `super::f`, `super::super::m::T::N`, a child's `m::E::V`) names the item alone, as modules are flattened and names are unique across the crate (design/02 §3.3): it is resolution, nothing runs differently. The prefix is dropped before lowering, from code and from a macro's tokens (`matches!(e, crate::m::E::A)`), as `std::cmp::` is before `Ordering`; a segment after `::` or `.` is not dropped. Privacy is rustc's, which `check` runs on the crate as written: a call to an item another module keeps private is refused as rustc refuses it (`[rustc/E0603]`; `E0624` for an associated const or function).
+
+Refused: an associated const in a pattern, as a crate const is (Rust compares with its value; write a guard), one named like a companion member (a variant, `of`), and a trait's or a trait impl's, as traits are.
+
+Tested against Rust with associated consts of every type (a non-ASCII `&str` and `char`, a negative float, a `u64` past 2^53), a private one read through a method, one reading another and a crate const, a crate const and a local const reading one, one on a generic type, products and sums with them overflowing at the edges, and calls, constructions, `match` arms, and `matches!` through `self::`, `super::`, `super::super::`, and a child module (`paths_equivalence.rs`); `crate::` through `build` on a single file, and privacy as rustc's refusal (`build.rs`); the refusals in `check`'s `assoc_consts.rs`; and as a statement of the statements generator, which reads a seed's module of associated consts, functions, and an enum through `crate::`, `self::`, and the module, seeds 1 to 120.
 
 ## 8. Verification
 

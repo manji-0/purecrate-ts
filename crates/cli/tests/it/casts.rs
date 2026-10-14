@@ -1,7 +1,8 @@
 //! Every `as` the generator prints is one of the kinds design/03 §1.1 lists,
 //! each sound for a reason outside TS: a literal rustc has range-checked, a
 //! `.length` (or a `Map`'s `.size`), a lossless widening, a `for` counter below its bound, a folded
-//! discriminant, a float (an `f32` rounded by `fround` or negated), the crate's own constructor, or a union given back
+//! discriminant, a float (an `f32` rounded by `fround` or negated), a
+//! string or `bool` literal widened to its type, the crate's own constructor, or a union given back
 //! its declared type. A brand (a newtype or closed struct of the crate) is
 //! cast to only in its constructor, and a generic newtype's in its arktype
 //! schema. Read over the output of every example
@@ -81,6 +82,13 @@ fn kind(line: &str, value: &str, target: &str, brands: &BTreeSet<String>) -> Opt
     }
     if target_name == "Char" && value.starts_with(['"', '\'']) {
         return Some("char literal");
+    }
+    // An associated const's companion member, kept from `as const`'s
+    // literal type.
+    if (target_name == "string" && value.starts_with('"'))
+        || (target_name == "boolean" && matches!(value, "true" | "false"))
+    {
+        return Some("literal widened to its type");
     }
     if target.starts_with("Iterable<Char>") {
         return Some("a string's code points are chars");

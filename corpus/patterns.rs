@@ -88,6 +88,14 @@ pub fn q61_struct_method(i: Item) -> Item { i.with_qty(3) }
 impl Item { pub fn with_qty(self, q: u32) -> Item { Item { qty: q, ..self } } }
 pub fn q62_mod_path() -> u32 { inner::f() }
 mod inner { pub fn f() -> u32 { 1 } }
+pub fn q71_self_const() -> u32 { Item3::double() }
+pub struct Item3 {}
+impl Item3 { const BASE: u32 = 2; pub fn double() -> u32 { Self::BASE * 2 } }
+pub fn q72_crate_path() -> u32 { crate::inner::f() + self::outer::g() }
+pub mod outer { pub enum Kind { A, B } pub fn g() -> u32 { super::inner::f() } }
+pub fn q73_variant_path(k: outer::Kind) -> u32 { match k { outer::Kind::A => 1, crate::outer::Kind::B => 2 } }
+pub fn q74_generic_assoc_const(p: Page<u32>) -> bool { p.items.len() >= Page::<u32>::SIZE }
+impl<T> Page<T> { pub const SIZE: usize = 10; }
 pub fn q63_display_err(e: Item) -> String { e.sku.clone() }
 pub fn q64_nested_enum(o: Option<Result<u32, String>>) -> u32 { match o { Some(Ok(n)) => n, _ => 0 } }
 pub fn q65_vec_of_vec(xs: Vec<Vec<u32>>) -> u32 { let mut s = 0; for r in &xs { for x in r { s += x; } } s }

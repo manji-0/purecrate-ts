@@ -995,6 +995,31 @@ impl VisitMut for SelfIsOwner<'_> {
         visit_mut::visit_path_mut(self, path);
     }
 
+    /// A macro's body is parsed only when it is lowered (`matches!(x,
+    /// Self::A)`, `assert!(n < Self::MAX)`), so `Self` is the type's name
+    /// there as a token.
+    fn visit_macro_mut(&mut self, mac: &mut syn::Macro) {
+        fn rename(tokens: proc_macro2::TokenStream, owner: &syn::Ident) -> proc_macro2::TokenStream {
+            use proc_macro2::{Group, TokenTree};
+            tokens
+                .into_iter()
+                .map(|t| match t {
+                    TokenTree::Ident(id) if id == "Self" => {
+                        TokenTree::Ident(syn::Ident::new(&owner.to_string(), id.span()))
+                    }
+                    TokenTree::Group(g) => {
+                        let mut inner = Group::new(g.delimiter(), rename(g.stream(), owner));
+                        inner.set_span(g.span());
+                        TokenTree::Group(inner)
+                    }
+                    other => other,
+                })
+                .collect()
+        }
+        mac.tokens = rename(std::mem::take(&mut mac.tokens), self.0);
+        visit_mut::visit_macro_mut(self, mac);
+    }
+
     fn visit_item_mut(&mut self, _: &mut SynItem) {}
 }
 

@@ -27,6 +27,15 @@ pub mod shapes {
             }
         }
 
+        pub fn is_dot(self) -> bool {
+            matches!(self, Self::Dot)
+        }
+
+        pub fn checked(n: u32) -> u32 {
+            assert!(n <= Self::MAX_SIDE, "side {} past {}", n, Self::MAX_SIDE);
+            n
+        }
+
         pub fn perimeter(self) -> u32 {
             match self {
                 Self::Dot => Self::ORIGIN,
@@ -129,7 +138,11 @@ pub fn kind(s: Shape) -> u32 {
 }
 
 pub fn is_dot(s: Shape) -> bool {
-    matches!(s, shapes::Shape::Dot)
+    matches!(s, shapes::Shape::Dot) && s.is_dot()
+}
+
+pub fn checked_side(n: u32) -> u32 {
+    shapes::Shape::checked(n)
 }
 
 pub fn fits(n: usize) -> bool {

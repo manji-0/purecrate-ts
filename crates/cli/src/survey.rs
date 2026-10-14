@@ -180,7 +180,7 @@ impl Index {
             Ref::Type(t) => self.types.get(t),
             Ref::Fn(f) => self.fns.get(f),
             Ref::Method(t, m) => self.methods.get(&(t.clone(), m.clone())),
-            Ref::Const(c) => self.consts.get(c),
+            Ref::Name(n) => self.consts.get(n).or_else(|| self.fns.get(n)),
             Ref::ReceiverCall(_) => None,
         };
         found.map(Vec::as_slice).unwrap_or(&[])
@@ -277,9 +277,10 @@ enum Ref {
     Type(String),
     Fn(String),
     Method(String, String),
-    /// A name read with no binding: a const if one has it (`T::N` for an
-    /// associated one).
-    Const(String),
+    /// A name read: a const if one has it (`T::N` for an associated one),
+    /// else a function passed by name (`o.is_some_and(f)`). A local of
+    /// the same name only adds an item to the closure.
+    Name(String),
     /// `x.m()`: `m` on whichever type `x` has.
     ReceiverCall(String),
 }
@@ -352,7 +353,7 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             }
         }
         Expr::Construct { ty, .. } => out.push(Ref::Type(ty.as_str().to_string())),
-        Expr::Var(n) => out.push(Ref::Const(n.as_str().to_string())),
+        Expr::Var(n) => out.push(Ref::Name(n.as_str().to_string())),
         Expr::Match { arms, .. } => {
             for arm in arms {
                 pattern_refs(&arm.pattern, out);

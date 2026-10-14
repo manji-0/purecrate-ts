@@ -44,6 +44,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Constructor | `unsafeMakeYen = (value: I64): Yen => value as Yen`, a newtype's `of` | the crate's own constructor, which Rust lets the crate call; a closed type's is not exported |
 | Generic newtype's arktype value | `type("unknown").pipe(..) as Wire<DomainWrap<WT["infer"]>>`, `Wrap(wireT).assert(..) as DomainWrap<WT["infer"]>` | the inner schema has read the content; TS leaves arktype's types of the morph's output open for `T & {brand}` ([04 §3.4](./04-wire.md#34-per-library-notes)) |
 | Declared type | `{ kind: "A" } as Event` | a variant literal given the union type; a place whose type is already the target is not cast ([casts.rs](../crates/cli/tests/it/casts.rs) fails on identity) |
+| Literal widened | `LABEL: "grid·" as string`, `ON: true as boolean`, an associated const's member | the literal is a value of the type; the cast keeps `as const` from giving the member the literal's type, which `===` against another would refuse ([01 §7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules)) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
 A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as oxfmt prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. Since 0.10.0 the printer decides this on a tree of the operators it writes (`emit_ts::tx`), not by reading its printed text back: each operand is parenthesized where its operator binds looser than its parent's or would regroup, a `!` of a comparison turns the comparison round, and a negated `&&` chain is the `||` of each side turned round. A shift amount, a literal `Slice.at` index, and one widened from `u8`/`u16`/`u32` read bare too (`Int.u32.shl(x, 24)`, `Slice.at(parts, 0)`, `Slice.at(alphabet, idx)`): the runtime takes them as plain `number`s. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
@@ -140,6 +141,7 @@ export const Meters = {
 | Rust | TS |
 | --- | --- |
 | `Type::m(x)` | `Type.m(x)` |
+| `Type::N`, `Self::N` (an associated const) | `Type.N`, a companion member holding the folded value (`N: 3 as U32`); a non-`pub` one `typeN`, exported from the type's file only ([01 §7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules)) |
 | `x.m(y)` | `T.m(x, y)`, with `T` resolved from `x`'s inferred type |
 | `Vec::len` | `.length` |
 | `Vec::is_empty` | `.length === 0` |

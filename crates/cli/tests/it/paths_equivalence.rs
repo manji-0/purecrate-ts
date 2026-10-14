@@ -17,6 +17,7 @@ fn generated_paths_match_rust() {
             cases.push(case!(paths::square(n)));
             cases.push(case!(paths::area_of(n)));
             cases.push(case!(paths::doubled(n)));
+            cases.push(case!(paths::checked_side(n)));
         }
         for n in [0u32, 1, u32::MAX - 13_107, u32::MAX - 13_106, u32::MAX] {
             cases.push(case!(paths::bump(n)));

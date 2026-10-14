@@ -54,6 +54,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Lists | `collect()` of any sequence a consumer takes (above), into `Vec<T>` or `Result<Vec<T>, E>` (`c` a `char`; `f` a closure of one parameter without `?` or `return`, or a function name). The target is `collect::<..>()` (where `_` stands for what `f` returns: `collect::<Result<Vec<_>, _>>()`), a typed `let`, or the return type. A `Result` stops at the first `Err`. `s.split_once(p)` with a `char` or a `&str` | a new array: the pieces of `s.split(c)`, `[...xs]`, the array's own `.map(f)` / `.filter(p)` for one stage, else `Array.from` of the lazy stages, or `Iter.tryCollect`; `Str.splitOnce` |
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
+| Associated constants | `const NAME: T = expr;` in an inherent `impl` block (a generic type's too), read as `Self::NAME` there and `T::NAME` anywhere; `T` and `expr` as a crate-level const's; not in a pattern ([01 §7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules)) | a member of the type's companion, `NAME: <folded value>`; a non-`pub` one `tyNAME`, exported from the type's file only |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
 | Loops | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `while let P = e { .. }` (`e` runs before every pass), `loop { .. }`, its value `let x = loop { .. break v; .. };`; `break` (with a value in a `loop`) and `continue` without a label, as statements | `while`, `for (;;)`; a `loop`'s value assigned before each `break`, or returned; a label on a loop only where a jump inside a `switch` leaves it |
 | Owned trees | `Box<T>` (also `Arc<T>`) erased to `T` | self-referential type alias, with a comment |
@@ -149,7 +150,7 @@ Why the rest of the output stays immutable: a local that is pushed to is bound t
 Modules are flattened. Module paths never appear in TS names.
 
 - A crate may be split into inline modules and module files (`mod x;` as `x.rs` or `x/mod.rs`). `#[path]` is not followed.
-- A path through the crate's modules names the item alone: `crate::money::Yen`, `super::Yen`, and `money::Yen` are `Yen`.
+- A path through the crate's modules names the item alone: `crate::money::Yen`, `super::Yen`, `self::money::Yen`, and `money::Yen` are `Yen`, for a function, a type, a const, an associated const (`money::Yen::MAX`), and a variant (`money::Coin::Yen`), inside `matches!` and the other macros too. Rust's privacy is rustc's: a call to an item another module keeps private is refused as rustc refuses it (`[rustc/E0603]`).
 - Which items are exported is in [§3.4](#34-public-surface).
 
 Rules:
@@ -158,7 +159,7 @@ Rules:
 2. Two types or two free functions with the same name are rejected, listing both paths. This includes non-public items reached from the public surface. Nothing is auto-prefixed.
 3. Functions, methods, consts, parameters, and locals print in camelCase: an `_` between a letter or digit and a lowercase letter goes and the letter is raised (`compare_pre_ids` → `comparePreIds`; `_unused`, `type_`, `a_1`, and UPPER_SNAKE consts stay). Fields, types, and variants keep the Rust name: a field is the JSON key serde writes. Names that are Rust keywords or TS reserved words, or that print as one or as a name the package defines (`parse_json` → `parseJson`), are rejected, not renamed; so are two methods of one type that print alike (`get_n`, `getN`).
 4. Methods live in companions (`State.apply`) and do not collide with a free `apply`.
-5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)).
+5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)), but for an associated const, which is in its type's file. An associated const is a companion member, so one named like a variant or `of` is rejected, as such a method is.
 
 #### Reserved by the output
 
@@ -181,6 +182,7 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 - `pub struct` / `enum` / `type` / `fn`.
 - `pub fn` in inherent `impl`s. The receiver becomes the first parameter.
 - `pub const`, exported from `consts.ts`. That file holds every const of the crate, so `MAX_LEN` and `fn max_len` do not collide.
+- `pub const` in an inherent `impl`, as a member of the type's companion (`Grid.LIMIT`); a non-`pub` one is not on the companion, as a non-`pub` method is not.
 
 #### Generated without `export`
 
@@ -192,7 +194,7 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | Item | Instead |
 | --- | --- |
 | `static` | a crate-level `const` |
-| associated consts in `impl` blocks | a crate-level `const` |
+| associated consts of a trait or a trait impl | a const in an inherent `impl`, or a crate-level `const` |
 | trait definitions and trait impls | none, except the three rows below |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
 | `impl Display` writing a fixed text per value | translated: becomes the method `X.toString` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
@@ -352,7 +354,8 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `a == b` on a value holding `ParseIntError` or `uuid::Error` | compare with a `match`; `==` on the crate's types, `Option`, `Result`, `Vec`, and tuples is the derived one (from 0.13.1) |
 | `a & b`, `a \| b`, `a ^ b` on `bool` | `a && b`, `a \|\| b`, `a != b` |
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
-| `static N: u32 = 3;`, `impl T { const N: u32 = 3; }` | a crate-level `const N: u32 = 3;` |
+| `static N: u32 = 3;` | a crate-level `const N: u32 = 3;` |
+| `T::N` (an associated const) in a pattern | a guard, `x if x == T::N` |
 | `x as u64` where std widens | `u64::from(x)`: a widening `From` takes has that one spelling |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's) |
 | `a.cmp(&b)` on floats, tuples, a `Vec` of the crate's types, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |

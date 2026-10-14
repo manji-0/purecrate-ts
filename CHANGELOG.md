@@ -5,12 +5,22 @@
 ### Added
 
 - **`to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, and `to_string`** (design/01 §7.21). Case mapping is JS's `toLowerCase` / `toUpperCase`, which agree with Rust's full Unicode mappings (final sigma, `ß`, `İ`, ligatures) on every code point, Rust 1.98.1 against Node 24.20.0; the result depends on each side's Unicode version. `split(p)` takes a `&str` or `String` separator as well as a `char` or a closure: a non-empty literal prints as JS `split`, anything else through `Str.splitStr`, which splits an empty separator at each char boundary with an empty piece at each end, as Rust does. `split_whitespace()` splits on Rust's White_Space (`Str.splitWhitespace`, not JS `\s`, which holds U+FEFF and lacks U+0085), and `lines()` after each `\n` with one `\r` before it dropped (`Str.lines`); both stand where `split(c)` does: a `for`, a consumer, `collect`, through `map` / `filter`. `xs.join(sep)` on a `Vec` or slice of `String` / `&str` prints its separator always; `s.repeat(n)` is JS `repeat`, its failure past what memory holds not matched. `x.to_string()` is `format!("{}", x)` on what `format!` prints, and the value itself on a string, a `char`, or a `Uuid`, which are already that text.
+- **Associated consts** (design/01 §7.23): `impl T { pub const MAX: u32 = 3; const MIN: u32 = 0; }`, on a struct, an enum, or a generic type, read as `Self::MAX` in the `impl` and `T::MAX` anywhere. Folded with a crate const's rules (one may read another, a crate const, or a discriminant, and a crate or local const may read one), and printed as a member of the type's companion, `MAX: 3 as U32`; a non-`pub` one is not on the companion, as a non-`pub` method is not, but `tyMIN`, exported from the type's file only. `Self::` inside a macro of an `impl` (`matches!(self, Self::A)`, `assert!(n <= Self::MAX, ..)`) names the type too, where it was refused as `[type/self]`. `corpus/patterns.rs`'s `p43_assoc_const` is accepted.
+- **Paths through modules, in every place** (design/02 §3.3): `crate::m::f()`, `self::m::f()`, `super::f()`, and a child's `m::f()` to a function, a type, a const, an associated const, and a variant (`m::E::V`) were read by `build`; they are now inside `matches!`, `assert!`, and the other macros too, and by `survey`, which reported `inner::f()` as an external path. Privacy is rustc's: a call to an item another module keeps private is refused as `[rustc/E0603]`. `corpus/patterns.rs`'s `q62_mod_path` is accepted.
 
 ### Refused
 
 - `s.split("")`, whose empty pieces at each end JS does not give; `s.chars()` is the alternative. `join` on items other than text or with a `char` separator. `to_string` on a float, as `format!` refuses one.
+- An associated const in a pattern (`match x { T::MAX => .. }`), as a crate const is: Rust compares with its value, the IR would bind a name; a guard `x if x == T::MAX` is the way.
+- An associated const named like a companion member, a variant or `of`, as such a method is.
+- An associated const of a trait or a trait impl, as traits are.
 
 Tested against Rust on final sigma, `ß`, `İ`, and ligatures, empty and multi-byte separators, every White_Space code point beside U+FEFF, U+180E, and U+200B, `\r` and `\n` in each order, empty lists and items, and every integer type at its bounds (`strings_more_equivalence.rs`); the refusals in `check`'s `strings_more.rs`; and as shapes of the strings generator, seeds 1 to 120. `corpus/patterns.rs`'s `p04_to_string`, `p16_to_lowercase`, `p46_split_whitespace`, `p47_lines`, `p48_join`, `p49_repeat`, and `q30_split_str` are accepted.
+
+### Fixed
+
+- **`survey` judged a function that reads a crate const as rejected** (`check/undefined-name`), as a const was never lowered with it, nor a function passed by name to `is_some_and` or `map_or`: 44 functions of eight examples (calendar's range checks, all of negotiate and punycode) were reported rejected or blocked that `build` accepts. A const is lowered now and goes with the functions that read it, as a type does (still counted under "not judged"), and so does a function any name reads; every example's functions are accepted.
+- **`test` could not draw a struct of no fields declared with braces.** `pub struct S {}` was built as `S`, which names only `struct S;`; it is `S {}` now, which builds either.
 
 ## 0.20.1 — 2026-10-15
 
