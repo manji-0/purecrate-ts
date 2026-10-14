@@ -5,6 +5,7 @@
 ### Fixed
 
 - **A `#[serde(..)]` refusal was lost to a later key.** Each key reset what the one before it had refused, so `#[serde(deny_unknown_fields, rename_all = "camelCase")]` was accepted though the same keys the other way round were refused, and `rename = "a", rename = "b", tag = "t"` lost its "given twice". The first refusal now stands.
+- **A `pub const` in a private module was exported.** `mod a { pub const X: i32 = 1; }` put `export { X } from "./consts.ts"` in `index.ts`, where a `pub fn` beside it stayed internal. A const follows Rust's public surface now, as the other items do (design/02 §3.4): exported when every module around it is `pub` or a `pub use` names it.
 
 ## 0.20.0 — 2026-10-14
 

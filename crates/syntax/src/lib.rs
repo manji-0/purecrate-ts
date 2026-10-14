@@ -315,10 +315,10 @@ mod tests {
     #[test]
     fn inline_modules_flatten_with_rusts_public_surface() {
         use purecrate_ir::Vis;
-        let src = "mod a {\n    pub fn one() -> i32 { 1 }\n    pub fn two() -> i32 { 2 }\n}\n\
+        let src = "mod a {\n    pub fn one() -> i32 { 1 }\n    pub fn two() -> i32 { 2 }\n    pub const SIX: i32 = 6;\n    pub const SEVEN: i32 = 7;\n}\n\
                    pub mod b {\n    pub fn three() -> i32 { super::a::one() }\n    fn four() -> i32 { 4 }\n}\n\
-                   mod c {\n    pub fn five() -> i32 { 5 }\n}\n\
-                   pub use a::one;\npub use c::*;\n";
+                   mod c {\n    pub fn five() -> i32 { 5 }\n    pub const EIGHT: i32 = 8;\n}\n\
+                   pub use a::one;\npub use a::SEVEN;\npub use c::*;\n";
         let krate = parse_source("m", src).expect("parse");
         let vis = |name: &str| krate.items.iter().find(|i| i.name().as_str() == name).map(|i| i.vis());
         assert_eq!(vis("one"), Some(Vis::Pub), "re-exported by name");
@@ -326,6 +326,9 @@ mod tests {
         assert_eq!(vis("three"), Some(Vis::Pub), "pub module");
         assert_eq!(vis("four"), Some(Vis::Internal));
         assert_eq!(vis("five"), Some(Vis::Pub), "glob re-export");
+        assert_eq!(vis("SIX"), Some(Vis::Internal), "a const in a private module");
+        assert_eq!(vis("SEVEN"), Some(Vis::Pub), "a const re-exported by name");
+        assert_eq!(vis("EIGHT"), Some(Vis::Pub), "a const re-exported by glob");
 
         let err = parse_source("m", "mod a {\n    pub fn one() -> i32 { 1 }\n}\npub use a::one as uno;\n")
             .expect_err("rename");

@@ -426,7 +426,7 @@ fn module_trees_are_flattened() {
     fs::write(
         src.join("lib.rs"),
         "pub mod money;\nmod rules;\n\npub use rules::apply;\n\npub fn total(a: money::Yen, b: crate::money::Yen) -> money::Yen {\n    money::Yen::add(a, b)\n}\n\n\
-         mod inline {\n    pub fn hidden() -> i32 {\n        1\n    }\n}\n\npub fn shown() -> i32 {\n    inline::hidden()\n}\n",
+         mod inline {\n    pub const STEP: i32 = 2;\n\n    pub fn hidden() -> i32 {\n        1\n    }\n}\n\npub fn shown() -> i32 {\n    inline::hidden() + inline::STEP\n}\n",
     )
     .expect("write");
     fs::write(src.join("money.rs"), "pub mod rounding;\n\npub struct Yen(pub i64);\n\nimpl Yen {\n    pub fn add(a: Yen, b: Yen) -> Yen {\n        Yen(a.0 + b.0)\n    }\n}\n").expect("write");
@@ -449,6 +449,8 @@ fn module_trees_are_flattened() {
     for name in ["total", "Yen", "half", "apply", "shown"] {
         assert!(index.contains(&format!("export {{ {name} }}")), "{name} not exported:\n{index}");
     }
+    // A `pub const` in a private module is not exported either.
+    assert!(!index.contains("STEP"), "STEP exported:\n{index}");
     // A helper called from one file is printed in it, unexported.
     for (name, user) in [("helper", "apply"), ("hidden", "shown")] {
         assert!(!index.contains(&format!("export {{ {name} }}")), "{name} exported:\n{index}");
