@@ -227,12 +227,7 @@ fn generic_ark(name: &str, generics: &[String], own: Vec<Chunk>) -> Vec<Chunk> {
     let mut out = Vec::new();
     let mut body: Vec<Stmt> = generics
         .iter()
-        .map(|g| {
-            Stmt::Const(
-                param_value("anyWire", g),
-                Js::As(Box::new(raw(param_value("wire", g))), "Type<unknown>".into()),
-            )
-        })
+        .map(|g| Stmt::Const(param_value("anyWire", g), Js::As(Box::new(raw(param_value("wire", g))), "Type".into())))
         .collect();
     let mut result = None;
     for c in own {
@@ -243,65 +238,14 @@ fn generic_ark(name: &str, generics: &[String], own: Vec<Chunk>) -> Vec<Chunk> {
             Chunk::Decl { name: n, value, .. } => body.push(Stmt::Const(n, value)),
         }
     }
-    // arktype infers what a parameter's schema reads as `_distill<T, "out">`,
-    // which TS does not reduce to `T` inside the function: the morph's own
-    // return type (`Page$<T>`) states it, each value it returns `as never`.
-    let mut result = result.expect("the item's own declaration");
-    as_never_in(&mut result);
+    let result = result.expect("the item's own declaration");
     body.push(Stmt::Return(result));
     let params = generics.iter().map(|g| format!("{}: W{g}", param_value("wire", g))).collect::<Vec<_>>().join(", ");
-    let head = format!(
-        "<{}>({params})",
-        generics.iter().map(|g| format!("W{g} extends Type<any>")).collect::<Vec<_>>().join(", ")
-    );
+    let head =
+        format!("<{}>({params})", generics.iter().map(|g| format!("W{g} extends Type")).collect::<Vec<_>>().join(", "));
     out.insert(0, Chunk::Text("\n".into()));
     out.push(Chunk::decl(true, name, None, arrow(&head, Some(&format!("Wire<{}>", dom(name))), Body::Block(body))));
     out
-}
-
-/// Each value a morph's arrow returns, as `never` (`generic_ark`).
-fn as_never_in(js: &mut Js) {
-    fn stmts(ss: &mut [Stmt]) {
-        for s in ss {
-            match s {
-                Stmt::Return(v) => {
-                    as_never_in(v);
-                    // `fail(ctx, parsed)` is already `never`.
-                    let fails = matches!(v, Js::Call(f, _) if matches!(&**f, Js::Raw(n) if n == "fail"));
-                    if !fails && !matches!(v, Js::As(_, t) if t == "never") {
-                        let inner = std::mem::replace(v, raw(""));
-                        *v = Js::As(Box::new(inner), "never".into());
-                    }
-                }
-                Stmt::If(_, s) => stmts(std::slice::from_mut(&mut **s)),
-                Stmt::IfBlock(_, b) | Stmt::Block(b) => stmts(b),
-                Stmt::Switch(_, cases) => cases.iter_mut().for_each(|(_, b)| stmts(b)),
-                Stmt::Const(_, v) | Stmt::Expr(v) => as_never_in(v),
-            }
-        }
-    }
-    match js {
-        Js::Arrow(a) if a.ret.is_some() => match &mut a.body {
-            Body::Block(b) => stmts(b),
-            Body::Expr(e) => {
-                let inner = std::mem::replace(&mut **e, raw(""));
-                **e = Js::As(Box::new(inner), "never".into());
-            }
-        },
-        Js::Call(f, args) => {
-            as_never_in(f);
-            args.iter_mut().for_each(as_never_in);
-        }
-        Js::Member(o, _) | Js::As(o, _) | Js::Paren(o) => as_never_in(o),
-        Js::Array(xs) => xs.iter_mut().for_each(as_never_in),
-        Js::Object(kv) => kv.iter_mut().for_each(|(_, v)| as_never_in(v)),
-        Js::Ternary(a, b, c) => {
-            as_never_in(a);
-            as_never_in(b);
-            as_never_in(c);
-        }
-        Js::Arrow(_) | Js::Raw(_) | Js::Str(_) => {}
-    }
 }
 
 /// The type's `///` comment as JSDoc for its schema, so a hover on the
@@ -363,7 +307,7 @@ fn from_json(schema: WireSchema, wired: &[&Item], chunks: &mut Vec<Chunk>) {
                 let params =
                     generics.iter().map(|g| format!("{}: {}", param_value("wire", g), param_ty(g))).collect::<Vec<_>>();
                 let heads = if schema == WireSchema::Arktype {
-                    generics.iter().map(|g| format!("W{g} extends Type<any>")).collect::<Vec<_>>().join(", ")
+                    generics.iter().map(|g| format!("W{g} extends Type")).collect::<Vec<_>>().join(", ")
                 } else {
                     generics.join(", ")
                 };
@@ -1175,7 +1119,7 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
         Ty::App { name, args } => call_path(name.as_str(), args.iter().map(|t| schema_ty(schema, t)).collect()),
         // arktype validates a definition at the type level, which an
         // unresolved `WT` does not pass: inside the function it reads the
-        // schema as a `Type<unknown>` (`generic_ark`).
+        // schema as a `Type` (of `unknown`, `generic_ark`).
         Ty::Param(p) if schema == WireSchema::Arktype => raw(param_value("anyWire", p.as_str())),
         Ty::Param(p) => raw(param_value("wire", p.as_str())),
         // An object read into a `Map`, an array into a `Set` (the adapters).

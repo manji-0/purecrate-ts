@@ -4,6 +4,24 @@ use super::*;
 use crate::tx::{CondStyle, Op, Tx};
 
 /// `indent` is the nesting level of the line the arrow starts on.
+/// How many times `ty` names the type parameter `p`.
+fn count_param(ty: &Ty, p: &Name) -> usize {
+    usize::from(matches!(ty, Ty::Param(q) if q == p))
+        + ty.children().into_iter().map(|t| count_param(t, p)).sum::<usize>()
+}
+
+/// Whether a type written in `body` (a `let`'s, a closure's) names `p`.
+fn body_names_param(body: &Expr, p: &Name) -> bool {
+    body.any(|e| match e {
+        Expr::Let { ty: Some(t), .. } => count_param(t, p) > 0,
+        Expr::Closure { params, ret, .. } => {
+            params.iter().any(|c| c.ty.as_ref().is_some_and(|t| count_param(t, p) > 0))
+                || ret.as_ref().is_some_and(|t| count_param(t, p) > 0)
+        }
+        _ => false,
+    })
+}
+
 pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     let checked = checked_strings(f);
     let f = &checked;
@@ -27,14 +45,38 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         f.params.iter().map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty))).collect::<Vec<_>>().join(", ");
     let mut pushed = BTreeSet::new();
     f.body.walk(|e| pushed.extend(e.grown().map(|n| n.as_str().to_string())));
-    // `<T>(x: T): T => ..`: a generic function's type parameters.
-    let generics = if f.generics.is_empty() {
+    // `<T>(x: T): T => ..`: a generic function's type parameters. One its
+    // signature names once and its body never is `unknown` there, as lint
+    // asks (`len(self: Page<unknown>)`): nothing relates it to another type.
+    let once: Vec<(Name, Ty)> = f
+        .generics
+        .iter()
+        .filter(|g| {
+            let named = |t: &Ty| count_param(t, g);
+            let uses: usize = f.params.iter().map(|p| named(&p.ty)).sum::<usize>() + named(&f.ret);
+            uses == 1 && !body_names_param(&f.body, g)
+        })
+        .map(|g| (g.clone(), Ty::Named(Name::new("unknown"))))
+        .collect();
+    let kept: Vec<&Name> = f.generics.iter().filter(|g| !once.iter().any(|(o, _)| o == *g)).collect();
+    let params = if once.is_empty() {
+        params
+    } else {
+        f.params
+            .iter()
+            .map(|p| format!("{}: {}", printed(&p.name), emit_ty(&p.ty.subst(&once))))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let generics = if kept.is_empty() {
         String::new()
     } else {
-        format!("<{}>", f.generics.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
+        format!("<{}>", kept.iter().map(|g| g.as_str()).collect::<Vec<_>>().join(", "))
     };
     let body = crate::scoped(&crate::PUSHED, pushed, || {
-        crate::scoped(&crate::TESTED, tested(&f.body), || arrow(&params, &emit_ty(&f.ret), &f.body, indent))
+        crate::scoped(&crate::TESTED, tested(&f.body), || {
+            arrow(&params, &emit_ty(&f.ret.subst(&once)), &f.body, indent)
+        })
     });
     format!("{generics}{body}")
 }
