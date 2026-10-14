@@ -2,7 +2,7 @@
 
 ## 0.18.0 — 2026-10-14
 
-`Option`'s and `Result`'s combinators, `get`, `first`, `last`, and `contains` on a `Vec`, `fold`, `rev` and `zip` on a sequence, and `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect` with Rust's messages; eleven examples use them. The statements generator's new forms found four places, each also in 0.17.0, where narrowing differed from TS's, fixed here. The distance to the ideal is 78%.
+`Option`'s and `Result`'s combinators, `get`, `first`, `last`, and `contains` on a `Vec`, `fold`, `rev` and `zip` on a sequence, and `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect` with Rust's messages; eleven examples use them. The statements generator's new forms found four places, each also in 0.17.0, where narrowing differed from TS's, fixed here. Every generator agrees with Rust on seeds 1 to 120, and all but one of the 960 runs type-check (below). The distance to the ideal is 78%.
 
 ### Added
 
@@ -19,6 +19,10 @@ Tested against Rust with arguments that overflow on the side Rust evaluates them
 - **A name after a spread was not seen by the runtime's trim** (`[...Str.bytes(s)]`), so a package's copy could leave out what it called; `s.bytes().rev()` prints one.
 
 Output tsc refused where narrowing differed from TS's, values unchanged, each also in 0.17.0: `matches!` on a value that is no place (`r.ok()`) did not decide its guard, so a comparison TS had as `true !== false` was printed; `v && !v` was not folded where TS narrows `!v` by `v`; a `const` aliasing a test of a place (`!c || r.ok().is_some()`) was not read again once the place was known, so code TS has as `never` was printed; and `if a { c } else { true }` was taken as `!a || c`, which the printer leaves a `?:` TS does not narrow by (`narrowing.rs`: `guard_on_built`, `contradiction`, `alias_decided_late`, `true_else_side`). A panic narrows neither TS nor the generator's flow: `Panic.raise` is a property with no written type, which TS does not read as ending control flow.
+
+### Known
+
+- **Statements generator seed 119 does not type-check**, values unchanged; it is the same in 0.17.0. A `while` test that needs statements prints as a function called in place, and where that function returns a name the loop narrows (`opt ?? v4`), tsc cannot infer its return type (TS7024). Rare in written code; the fix, binding the test's statements at the top of a `for (;;)`, needs the printer to lift a binding out of an operand.
 
 ### Examples
 
