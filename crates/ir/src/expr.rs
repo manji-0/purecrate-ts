@@ -1575,7 +1575,11 @@ impl Expr {
             | Expr::Break
             | Expr::Continue
             | Expr::Seq { .. } => true,
-            Expr::If { then, else_, .. } => [then, else_].into_iter().any(|b| b.needs_statements() || b.lifts()),
+            // A side that leaves the function from inside a value (`map_err(f)?`
+            // is a `match` that returns by now, not a `Try`) is no `?:` side.
+            Expr::If { then, else_, .. } => {
+                [then, else_].into_iter().any(|b| b.needs_statements() || b.lifts() || b.exits())
+            }
             Expr::Ignored { expr, .. } | Expr::At { expr, .. } => expr.needs_statements(),
             _ => false,
         }

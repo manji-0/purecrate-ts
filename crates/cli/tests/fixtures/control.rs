@@ -238,3 +238,11 @@ pub fn refutable_if_let(x: Option<i32>, r: Result<i32, i32>) -> i32 {
     let b: i32 = if let Err(-1) = r { 10 } else { 20 };
     a + b
 }
+
+/// `map_err(f)?` inside an operand of an `if` side: the side returns from
+/// the function, so it is statements, not a `?:` side whose inline
+/// function the `return` would leave instead (through 0.16.0).
+pub fn side_map_err(a: i32, r: Result<i32, i32>) -> Result<i32, i32> {
+    let v: i32 = if a == 1 { a } else { r.map_err(|e| e + 1)? | 3 };
+    Ok(v)
+}
