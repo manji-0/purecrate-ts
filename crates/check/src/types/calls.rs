@@ -576,33 +576,22 @@ impl<'d, 'a> Typer<'d, 'a> {
         want: Option<&Ty>,
     ) -> (Fields, Option<Ty>) {
         let params = self.defs.type_params(ty.as_str()).unwrap_or_default();
-        if params.is_empty() {
-            return (self.construct_fields(ty.as_str(), variant, fields), Some(Ty::Named(ty.clone())));
-        }
         let mut binds = Vec::new();
         if let Some(w) = want {
             self.unify(
                 &Ty::App { name: ty.clone(), args: params.iter().map(|p| Ty::Param(p.clone())).collect() },
                 w,
-                &params,
+                params,
                 &mut binds,
             );
         }
         let declared = self.defs.fields_of(ty.as_str(), variant);
-        let typed_field = |me: &mut Self, decl: Option<&Ty>, x: &Expr, binds: &mut Vec<(Name, Ty)>| -> Expr {
-            let hint = decl.filter(|d| !Self::open(d, &params, binds)).map(|d| d.subst(binds));
-            let (e, t) = me.expr(x, hint.as_ref());
-            if let (None, Some(t), Some(d)) = (&hint, &t, decl) {
-                me.unify(d, t, &params, binds);
-            }
-            e
-        };
         let fields = match fields {
             Fields::Unit => Fields::Unit,
             Fields::Positional(xs) => Fields::Positional(
                 xs.iter()
                     .enumerate()
-                    .map(|(i, x)| typed_field(self, declared.get(i).map(|(_, t)| *t), x, &mut binds))
+                    .map(|(i, x)| self.typed_against(declared.get(i).map(|(_, t)| *t), x, params, &mut binds))
                     .collect(),
             ),
             Fields::Named(pairs) => Fields::Named(
@@ -610,7 +599,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     .iter()
                     .map(|(n, x)| {
                         let decl = declared.iter().find(|(d, _)| *d == Some(n)).map(|(_, t)| *t);
-                        (n.clone(), typed_field(self, decl, x, &mut binds))
+                        (n.clone(), self.typed_against(decl, x, params, &mut binds))
                     })
                     .collect(),
             ),
@@ -629,26 +618,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         if !self.instance_ok(&binds, &format!("`{}`", ty.as_str())) {
             return (fields, None);
         }
-        (fields, Some(self.applied_ty(ty, &params, &binds)))
-    }
-
-    pub(super) fn construct_fields(&mut self, ty: &str, variant: Option<&str>, fields: &Fields) -> Fields {
-        let declared = self.defs.fields_of(ty, variant);
-        match fields {
-            Fields::Unit => Fields::Unit,
-            Fields::Positional(xs) => Fields::Positional(
-                xs.iter().enumerate().map(|(i, x)| self.expr(x, declared.get(i).map(|(_, t)| *t)).0).collect(),
-            ),
-            Fields::Named(pairs) => Fields::Named(
-                pairs
-                    .iter()
-                    .map(|(n, x)| {
-                        let want = declared.iter().find(|(d, _)| *d == Some(n)).map(|(_, t)| *t);
-                        (n.clone(), self.expr(x, want).0)
-                    })
-                    .collect(),
-            ),
-        }
+        (fields, Some(self.applied_ty(ty, params, &binds)))
     }
 }
 

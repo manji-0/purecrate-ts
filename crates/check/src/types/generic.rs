@@ -65,12 +65,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut typed = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let hint = decl.get(i).filter(|d| !Self::open(d, params, &binds)).map(|d| d.subst(&binds));
-            let (e, t) = self.expr(a, hint.as_ref());
-            if let (None, Some(t), Some(d)) = (&hint, &t, decl.get(i)) {
-                self.unify(d, t, params, &mut binds);
-            }
-            typed.push(e);
+            typed.push(self.typed_against(decl.get(i), a, params, &mut binds));
         }
         if let Some(p) = params.iter().find(|p| Self::open(ret, std::slice::from_ref(p), &binds)) {
             self.error(
@@ -83,6 +78,24 @@ impl<'d, 'a> Typer<'d, 'a> {
             return (typed, None);
         }
         (typed, Some(ret.subst(&binds)))
+    }
+
+    /// `x` typed against its declared type `decl` once what is known of
+    /// `params` is put in; where `decl` still names an unbound parameter,
+    /// what `x` turns out to be binds it.
+    pub(super) fn typed_against(
+        &mut self,
+        decl: Option<&Ty>,
+        x: &Expr,
+        params: &[Name],
+        binds: &mut Vec<(Name, Ty)>,
+    ) -> Expr {
+        let hint = decl.filter(|d| !Self::open(d, params, binds)).map(|d| d.subst(binds));
+        let (e, t) = self.expr(x, hint.as_ref());
+        if let (None, Some(t), Some(d)) = (&hint, &t, decl) {
+            self.unify(d, t, params, binds);
+        }
+        e
     }
 
     /// Whether the types bound to a generic item's parameters make no type
