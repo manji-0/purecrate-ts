@@ -329,6 +329,13 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
             if !is_place(scrutinee) && !(simple(&arm.body) && arm.guard.as_ref().is_none_or(simple)) {
                 return Vec::new();
             }
+            // On a place too, where an arm's value is no expression
+            // (`matches!(o, Some(_) if matches!(-1, 0..=9))`, whose guard is
+            // a `match` on a value that is no place): the whole `match` is
+            // then that function.
+            if is_place(scrutinee) && !arms.iter().all(|a| in_place(&a.body) && a.guard.as_ref().is_none_or(in_place)) {
+                return Vec::new();
+            }
             let cases = variants_of(&arm.pattern);
             let mut out: Vec<(Expr, Vec<Name>)> = if cases.is_empty() || !is_place(scrutinee) {
                 Vec::new()

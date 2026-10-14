@@ -953,3 +953,14 @@ pub fn alias_of_assigned(b: i32, o: Option<i32>, c: bool) -> i32 {
     let v: bool = matches!(a, Some(_) if c);
     if v { a.unwrap_or(10) } else { 0 }
 }
+
+/// A guard that is a `match` on a value that is no place, with a range:
+/// the whole `matches!` is a function called in place, which TS does not
+/// narrow `o` by, so `o.unwrap_or(-7)` in the body stays a test.
+pub fn guard_of_no_place(o: Option<i32>, n: i32) -> i32 {
+    let mut h: i32 = 0;
+    if matches!(o, Some(_v) if matches!(n.wrapping_sub(1), 0..=9 | 100)) {
+        h = h.wrapping_mul(31).wrapping_add(o.unwrap_or(-7));
+    }
+    h
+}

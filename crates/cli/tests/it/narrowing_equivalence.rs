@@ -185,6 +185,9 @@ fn generated_narrowing_matches_rust() {
             cases.push(case!(narrowing::true_else_side(o, true)));
             cases.push(case!(narrowing::true_else_side(o, false)));
             cases.push(case!(narrowing::mapped_is_none(o, i32::MIN)));
+            for n in [0i32, 5, 101, i32::MIN] {
+                cases.push(case!(narrowing::guard_of_no_place(o, n)));
+            }
             for b in [-1i32, 1] {
                 cases.push(case!(narrowing::alias_of_assigned(b, o, true)));
                 cases.push(case!(narrowing::alias_of_assigned(b, o, false)));
