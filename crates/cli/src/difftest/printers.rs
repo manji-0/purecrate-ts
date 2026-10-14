@@ -3,7 +3,7 @@
 //! (design/01 §8). `test` uses it, and the differential tests include this
 //! file by path, so both print alike.
 
-use purecrate_ir::{Crate, Field, Item, Prim, Ty, VariantFields, NEWTYPE_FIELD};
+use purecrate_ir::{Crate, Field, Item, Name, Prim, Ty, VariantFields, NEWTYPE_FIELD};
 
 /// What every driver starts with: the package, a printer per primitive and
 /// per wrapper, and `run`, which prints a result or `panic(message)`.
@@ -48,6 +48,13 @@ const run = (f, print) => {
 /// A JS function that prints a value of `ty` as `Show` does in Rust. `None`
 /// for a type no value of which is printed (a closure, `!`).
 pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
+    printer(krate, &[], ty)
+}
+
+/// `ts_printer` inside the printer of a type with type parameters
+/// `params`, each printed by the printer that one was given.
+fn printer(krate: &Crate, params: &[Name], ty: &Ty) -> Option<String> {
+    let each = |ts: &[Ty]| ts.iter().map(|t| printer(krate, params, t)).collect::<Option<Vec<_>>>();
     Some(match ty {
         Ty::Prim(p) => match p {
             Prim::Bool => "String".into(),
@@ -60,26 +67,20 @@ pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
             Prim::Unit => "unit".into(),
             _ => "int".into(),
         },
-        Ty::Option(inner) => format!("opt({})", ts_printer(krate, inner)?),
-        Ty::Result { ok, err } => format!("res({}, {})", ts_printer(krate, ok)?, ts_printer(krate, err)?),
-        Ty::Vec(inner) => format!("vec({})", ts_printer(krate, inner)?),
-        Ty::Map { value, .. } => format!("map({})", ts_printer(krate, value)?),
+        Ty::Option(inner) => format!("opt({})", printer(krate, params, inner)?),
+        Ty::Result { ok, err } => format!("res({}, {})", printer(krate, params, ok)?, printer(krate, params, err)?),
+        Ty::Vec(inner) => format!("vec({})", printer(krate, params, inner)?),
+        Ty::Map { value, .. } => format!("map({})", printer(krate, params, value)?),
         Ty::Set(_) => "set".into(),
         // Inside a generic type's printer, the printer it was given; a
         // generic function is tested at `i32`.
-        Ty::Param(p) if PRINT_PARAMS.with(|s| s.borrow().contains(p)) => format!("p${}", p.as_str()),
+        Ty::Param(p) if params.contains(p) => format!("p${}", p.as_str()),
         Ty::Param(_) => "int".into(),
-        Ty::App { name, args } => format!(
-            "((x) => show${}(x, {}))",
-            name.as_str(),
-            args.iter().map(|t| ts_printer(krate, t)).collect::<Option<Vec<_>>>()?.join(", ")
-        ),
-        Ty::Tuple(elems) => {
-            format!("tup([{}])", elems.iter().map(|t| ts_printer(krate, t)).collect::<Option<Vec<_>>>()?.join(", "))
-        }
-        Ty::Ignored { inner, .. } => ts_printer(krate, inner)?,
+        Ty::App { name, args } => format!("((x) => show${}(x, {}))", name.as_str(), each(args)?.join(", ")),
+        Ty::Tuple(elems) => format!("tup([{}])", each(elems)?.join(", ")),
+        Ty::Ignored { inner, .. } => printer(krate, params, inner)?,
         Ty::Named(n) => match krate.items.iter().find(|i| i.name() == n) {
-            Some(Item::Alias(al)) => ts_printer(krate, &al.ty)?,
+            Some(Item::Alias(al)) => printer(krate, params, &al.ty)?,
             // Wrapped: the printer may be declared further down.
             Some(Item::Struct(_) | Item::Enum(_)) => format!("((x) => show${}(x))", n.as_str()),
             _ => return None,
@@ -88,34 +89,28 @@ pub fn ts_printer(krate: &Crate, ty: &Ty) -> Option<String> {
     })
 }
 
-thread_local! {
-    /// The type parameters of the type whose printer is being written.
-    static PRINT_PARAMS: std::cell::RefCell<Vec<purecrate_ir::Name>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
 /// `show$T` for every struct and enum: the TS shape of the value (design/03
 /// §2) printed as the Rust side prints it; a generic one takes a printer per
 /// type parameter.
 pub fn ts_printers(krate: &Crate) -> String {
     let mut out = String::new();
     for item in &krate.items {
-        let generics = match item {
-            Item::Struct(s) => s.generics.clone(),
-            Item::Enum(e) => e.generics.clone(),
-            _ => Vec::new(),
+        let generics: &[Name] = match item {
+            Item::Struct(s) => &s.generics,
+            Item::Enum(e) => &e.generics,
+            _ => &[],
         };
         // `show$Page = (v, p$T) => ..`: a printer per type parameter.
         let extra: String = generics.iter().map(|g| format!(", p${}", g.as_str())).collect();
-        PRINT_PARAMS.with(|s| *s.borrow_mut() = generics.clone());
         match item {
             Item::Struct(st) => {
                 let name = st.name.as_str();
                 let body = match st.fields.as_slice() {
                     [] => format!("{name:?}"),
                     [f] if f.name.as_str() == NEWTYPE_FIELD => {
-                        format!("`{name}(${{({})(v)}})`", printer_or_fail(krate, &f.ty))
+                        format!("`{name}(${{({})(v)}})`", printer_or_fail(krate, generics, &f.ty))
                     }
-                    fields => format!("`{name} {{ {} }}`", ts_fields(krate, fields, "v")),
+                    fields => format!("`{name} {{ {} }}`", ts_fields(krate, generics, fields, "v")),
                 };
                 out.push_str(&format!("const show${name} = (v{extra}) => {body};\n"));
             }
@@ -133,13 +128,13 @@ pub fn ts_printers(krate: &Crate) -> String {
                                 .map(|(i, t)| {
                                     let field =
                                         if tys.len() == 1 { "v.value".to_string() } else { format!("v.content[{i}]") };
-                                    format!("${{({})({field})}}", printer_or_fail(krate, t))
+                                    format!("${{({})({field})}}", printer_or_fail(krate, generics, t))
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),
                         VariantFields::Struct(fields) => {
-                            format!("`{name}::{var} {{ {} }}`", ts_fields(krate, fields, "v"))
+                            format!("`{name}::{var} {{ {} }}`", ts_fields(krate, generics, fields, "v"))
                         }
                     };
                     arms.push_str(&format!("    case \"{var}\": return {text};\n"));
@@ -150,17 +145,16 @@ pub fn ts_printers(krate: &Crate) -> String {
             }
             Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
         }
-        PRINT_PARAMS.with(|s| s.borrow_mut().clear());
     }
     out
 }
 
-fn ts_fields(krate: &Crate, fields: &[Field], value: &str) -> String {
+fn ts_fields(krate: &Crate, params: &[Name], fields: &[Field], value: &str) -> String {
     fields
         .iter()
         .map(|f| {
             let n = f.name.as_str();
-            format!("{n}: ${{({})({value}.{n})}}", printer_or_fail(krate, &f.ty))
+            format!("{n}: ${{({})({value}.{n})}}", printer_or_fail(krate, params, &f.ty))
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -168,6 +162,6 @@ fn ts_fields(krate: &Crate, fields: &[Field], value: &str) -> String {
 
 /// A field's printer. A field holds no closure, so this prints one that
 /// says so rather than fail the whole driver.
-fn printer_or_fail(krate: &Crate, ty: &Ty) -> String {
-    ts_printer(krate, ty).unwrap_or_else(|| "(() => \"unprintable\")".into())
+fn printer_or_fail(krate: &Crate, params: &[Name], ty: &Ty) -> String {
+    printer(krate, params, ty).unwrap_or_else(|| "(() => \"unprintable\")".into())
 }
