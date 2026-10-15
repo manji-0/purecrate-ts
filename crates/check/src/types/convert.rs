@@ -6,13 +6,13 @@ use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
     /// The `From` member of the crate type `to` that takes `source`.
-    fn from_member_of(&self, to: &Name, source: &Ty) -> Option<&'a Fn> {
-        self.defs.from_members(to.as_str()).find(|(_, s)| self.same(s, source)).map(|(f, _)| f)
+    fn conversion_of(&self, to: &Name, source: &Ty) -> Option<&'a Fn> {
+        self.defs.conversions_into(to.as_str()).find(|(_, s)| self.same(s, source)).map(|(f, _)| f)
     }
 
     /// The sources `to` has a `From` member for, sorted by member name.
-    fn from_sources(&self, to: &Name) -> Vec<(&'a Fn, &'a Ty)> {
-        let mut all: Vec<_> = self.defs.from_members(to.as_str()).collect();
+    fn sorted_conversions(&self, to: &Name) -> Vec<(&'a Fn, &'a Ty)> {
+        let mut all: Vec<_> = self.defs.conversions_into(to.as_str()).collect();
         all.sort_by(|a, b| a.0.name.as_str().cmp(b.0.name.as_str()));
         all
     }
@@ -59,7 +59,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             );
             return failed(self, typed);
         };
-        let sources = self.from_sources(&x);
+        let sources = self.sorted_conversions(&x);
         let (arg, at) = match typed {
             Some(t) => t,
             None => {
@@ -71,7 +71,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
         };
         let Some(at) = at else { return (arg, None) };
-        let Some(f) = self.from_member_of(&x, &at) else {
+        let Some(f) = self.conversion_of(&x, &at) else {
             let known: Vec<String> = sources.iter().map(|(_, s)| format!("`{}`", show(s))).collect();
             let has = if known.is_empty() { "none".to_string() } else { known.join(", ") };
             self.error(
@@ -89,9 +89,16 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// Err(e) => return Err(X.fromErr(e)) }`, as `map_err(..)?` is, so the
     /// conversion runs only on `Err`, after `r`. `None` when there is no
     /// such `impl`.
-    pub(super) fn from_try(&mut self, recv: Expr, ok: &Ty, err: &Ty, ret_err: &Ty, want: Option<&Ty>) -> Option<Typed> {
+    pub(super) fn converting_try(
+        &mut self,
+        recv: Expr,
+        ok: &Ty,
+        err: &Ty,
+        ret_err: &Ty,
+        want: Option<&Ty>,
+    ) -> Option<Typed> {
         let x = self.crate_type(ret_err)?;
-        let f = self.from_member_of(&x, err)?;
+        let f = self.conversion_of(&x, err)?;
         let e = self.fresh_name("error");
         let r = self.fresh_name("result");
         let value = self.fresh_name("value");

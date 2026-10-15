@@ -115,7 +115,7 @@ impl<'a> Defs<'a> {
     }
 
     /// The members `impl From<S> for ty` gives `ty`, each with its `S`.
-    pub fn from_members(&self, ty: &str) -> impl Iterator<Item = (&'a Fn, &'a Ty)> + '_ {
+    pub fn conversions_into(&self, ty: &str) -> impl Iterator<Item = (&'a Fn, &'a Ty)> + '_ {
         let ty = ty.to_string();
         self.methods
             .iter()

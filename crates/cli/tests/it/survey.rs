@@ -77,7 +77,8 @@ fn each_public_item_gets_a_verdict() {
         assert!(it.contains("\"status\":\"blocked\"") && it.contains(by) && it.contains(cause), "{it}");
     }
     assert!(item(&json, "describe").contains("\"owner\":\"Shape\""));
-    assert!(json.contains("\"not_judged\":{\"trait impl\":1}"), "{json}");
+    // `impl Default for Shape` is the member `Shape.default`, as `try_from` is.
+    assert!(json.contains("\"not_judged\":{}"), "{json}");
 }
 
 #[test]

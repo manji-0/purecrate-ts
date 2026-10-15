@@ -15,7 +15,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     /// Rust's `?` also converts the error with `From`: where the error type
     /// is not the function's, its `impl From` member is called on `Err`
-    /// (`from_try`); without one the types must match.
+    /// (`converting_try`); without one the types must match.
     pub(super) fn try_(&mut self, inner: &Expr, want: Option<&Ty>) -> Typed {
         if let Some(typed) = self.map_err_try(inner, want) {
             return typed;
@@ -25,7 +25,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         let (on, t) = match (it.map(|t| self.norm(&t)), &ret) {
             (Some(Ty::Result { ok, err }), Ty::Result { err: ret_err, .. }) => {
                 if !self.same(&err, ret_err) {
-                    if let Some(typed) = self.from_try(inner.clone(), &ok, &err, ret_err, want) {
+                    if let Some(typed) = self.converting_try(inner.clone(), &ok, &err, ret_err, want) {
                         return typed;
                     }
                     self.error(

@@ -463,7 +463,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
                 Some(f) => self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc),
                 // `X::from(s)`: one of `X`'s `From` members, by `s`'s type.
-                None if name.as_str() == "from" && self.defs.from_members(ty.as_str()).next().is_some() => {
+                None if name.as_str() == "from" && self.defs.conversions_into(ty.as_str()).next().is_some() => {
                     self.arity(&format!("`{}::from`", ty.as_str()), 1, argc)
                 }
                 None if name.as_str() == "from" && self.defs.is_type(ty.as_str()) => self.error_about(
