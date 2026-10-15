@@ -58,6 +58,13 @@ fn generated_evaluation_order_matches_rust() {
                 cases.push(case!(order_of_eval::twice_named(r, 5i32, c)));
             }
         }
+        for r in [Ok(1i32), Err(2i32), Err(i32::MAX)] {
+            for c in [false, true] {
+                for n in [0i32, 4, 7, i32::MAX, 1_431_655_766] {
+                    cases.push(case!(order_of_eval::returned_mapped(c, r, n)));
+                }
+            }
+        }
         for i in [0usize, 1, 5] {
             for none in [false, true] {
                 cases.push(case!(order_of_eval::try_after_index(vec![10i32, 20], i, 3i32, none)));

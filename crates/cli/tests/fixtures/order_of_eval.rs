@@ -203,3 +203,33 @@ pub fn twice_named(r: Result<i32, i32>, b: i32, c: bool) -> Option<i32> {
     };
     y
 }
+
+fn halved(n: i32) -> Result<i32, i32> {
+    if n % 2 == 0 {
+        Ok(n / 2)
+    } else {
+        Err(n)
+    }
+}
+
+/// Returned `match`es on a mapped `Result`, hoisted in front of the
+/// `return` in Rust's order, each named and typed as a `let` of one is
+/// (`const mapped: Result<I32, I32>`), not a bare `const value2`.
+pub fn returned_mapped(c: bool, r: Result<i32, i32>, n: i32) -> i32 {
+    if c {
+        return match r.map_err(|e| e + 1) {
+            Ok(v) => v,
+            Err(_) => 5,
+        };
+    }
+    if n > 0 {
+        return match halved(n).map_err(|e| e.wrapping_mul(3)) {
+            Ok(v) => v,
+            Err(e) => e,
+        } + match halved(n + 1).map(|v| v + 1) {
+            Ok(v) => v,
+            Err(_) => 0,
+        };
+    }
+    -1
+}

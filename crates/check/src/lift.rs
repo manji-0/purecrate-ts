@@ -337,12 +337,34 @@ impl Lifter {
     fn operand(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
         let block = matches!(expr, Expr::Let { .. } | Expr::Match { .. } | Expr::If { .. });
         if block && (expr.exits() || holds_statements(&expr)) {
+            // Made bindings ending in one that is its own value (`let $result
+            // = r; let $mapped: Result<..> = ..; $mapped`, which typing makes
+            // so TS knows both sides of a `Result`) go before the statement
+            // as they are, named and typed, as they print where they are not
+            // hoisted.
+            if made_chain(&expr) {
+                return self.hoist_chain(expr, out);
+            }
             let name = self.fresh(&expr, "Value");
             let value = self.stmt(expr);
             out.push((name.clone(), value, None, None));
             return Expr::Var(name);
         }
         self.extract_into(expr, out)
+    }
+
+    /// Each binding of a `made_chain` in front of the statement, renamed
+    /// apart from every other binding there; the last one's name in place.
+    fn hoist_chain(&mut self, expr: Expr, out: &mut Hoisted) -> Expr {
+        let Expr::Let { name, ty, value, then, .. } = expr else { unreachable!("`made_chain` is a `let`") };
+        let value = self.stmt(*value);
+        let fresh = self.fresh_like(&name);
+        let then = renamed(*then, &name, &fresh);
+        out.push((fresh.clone(), value, None, ty));
+        match then {
+            Expr::Var(n) if n == fresh => Expr::Var(n),
+            then => self.hoist_chain(then, out),
+        }
     }
 
     /// `extract` of a scrutinee, which may itself be a block that leaves the
@@ -525,6 +547,18 @@ fn pure(expr: &Expr) -> bool {
 /// Whether `expr` is a block whose value comes after statements: a `let`
 /// of a value that is not a name or a literal, a `;`, an assignment, or a
 /// loop, itself or in a side of its `if` / `match`.
+/// `let $a = ..; .. let $z: T = ..; $z`: bindings `check` made, none
+/// mutable, the last typed and the block's value.
+fn made_chain(expr: &Expr) -> bool {
+    match expr {
+        Expr::Let { name, mutable: false, ty, then, .. } if name.as_str().starts_with('$') => match &**then {
+            Expr::Var(n) => n == name && ty.is_some(),
+            then => made_chain(then),
+        },
+        _ => false,
+    }
+}
+
 fn holds_statements(expr: &Expr) -> bool {
     match expr {
         Expr::Let { value, then, .. } => !value.is_inlinable() || holds_statements(then),

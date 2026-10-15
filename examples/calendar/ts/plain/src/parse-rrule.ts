@@ -113,8 +113,8 @@ const allDigits = (s: string): boolean =>
 /** A positive integer written as 1*DIGIT (no sign). */
 const parsePositive = (s: string): U32 | null => {
   if (!allDigits(s)) return null;
-  const value2 = Int.u32.parse(s);
-  const vOption = value2.kind === "Ok" ? value2.value : null;
+  const parse = Int.u32.parse(s);
+  const vOption = parse.kind === "Ok" ? parse.value : null;
   if (vOption === null) return null;
   const v = vOption;
   if (v === 0) return null;
