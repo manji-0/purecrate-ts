@@ -124,7 +124,10 @@ fn keyed_names(krate: &Crate) -> std::collections::HashMap<String, (Ty, bool)> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Struct(s) => s.newtype_inner().map(|t| (s.name.as_str().to_string(), (t.clone(), true))),
+            // A `#[serde(try_from = "T")]` newtype is read as `T` (design/04 §5).
+            Item::Struct(s) => s
+                .newtype_inner()
+                .map(|t| (s.name.as_str().to_string(), (s.wire_from.clone().unwrap_or_else(|| t.clone()), true))),
             Item::Alias(a) => Some((a.name.as_str().to_string(), (a.ty.clone(), false))),
             _ => None,
         })
