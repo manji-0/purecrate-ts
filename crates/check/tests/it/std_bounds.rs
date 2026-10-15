@@ -35,7 +35,7 @@ fn an_instantiation_without_the_member_is_refused() {
         "`f64` is not passed as the dictionary of a `Display` bound in v0",
     );
     assert_rejects(
-        "use std::fmt;\npub struct W(pub String);\nimpl fmt::Display for W { fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str(&self.0) } }\npub fn show<T: fmt::Display>(x: T) -> String { x.to_string() }\npub fn f(w: W) -> String { show(w) }",
+        "use std::fmt;\npub struct W(pub String);\nimpl fmt::Display for W { fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { if self.0.is_empty() { f.write_str(\"-\") } else { f.write_str(\"+\") } } }\npub fn show<T: fmt::Display>(x: T) -> String { x.to_string() }\npub fn f(w: W) -> String { show(w) }",
         "has none translated",
     );
     assert_rejects(

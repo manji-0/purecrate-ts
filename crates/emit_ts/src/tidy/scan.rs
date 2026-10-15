@@ -298,7 +298,23 @@ pub(crate) fn plainly_number(s: &str) -> bool {
     if let Some((inner, _)) = split_cast(s) {
         return split_cast(inner).is_none();
     }
-    matches!(top_prec(s), PREC_MUL | PREC_ADD) || (s.starts_with("globalThis.Math.") && top_prec(s) == PREC_ATOMIC)
+    matches!(top_prec(s), PREC_MUL | PREC_ADD)
+        || (s.starts_with("globalThis.Math.") && top_prec(s) == PREC_ATOMIC)
+        || (s.starts_with("globalThis.Number.") && !s.contains('('))
+}
+
+/// Whether TS types `s` as a plain `bigint`, as printed: an assertion of
+/// what asserts nothing (`7n as U64`), a bigint literal, or a
+/// `globalThis.BigInt(..)` call.
+pub(crate) fn plainly_bigint(s: &str) -> bool {
+    let s = strip_outer(s);
+    if let Some((inner, _)) = split_cast(s) {
+        return split_cast(inner).is_none();
+    }
+    let literal = s
+        .strip_suffix('n')
+        .is_some_and(|d| !d.is_empty() && d.trim_start_matches('-').bytes().all(|b| b.is_ascii_digit()));
+    literal || (s.starts_with("globalThis.BigInt(") && top_prec(s) == PREC_ATOMIC)
 }
 
 /// The test and the sides of a choice printed on one line, `t ? a : b`,

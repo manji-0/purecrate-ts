@@ -54,7 +54,7 @@ pub(crate) fn emit_branches(branches: &[Branch], indent: usize, sink: Sink, tail
         Some((last, _)) if last.test.is_some() => None,
         Some((last, _)) if matches!(sink, Sink::Return) => Some(last),
         Some((last, rest))
-            if last.prelude.is_empty()
+            if (last.prelude.is_empty() || rest.iter().all(|b| ends_in_jump(b.body)))
                 && rest.iter().all(|b| ends_in_jump(b.body) || jumps_as_printed(b.body, indent, sink)) =>
         {
             Some(last)

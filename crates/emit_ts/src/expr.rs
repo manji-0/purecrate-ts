@@ -774,7 +774,7 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
                     crate::tidy::uncast(&uncast_default(&x.print())),
                     to.ts_name()
                 ),
-                (true, true) => format!("({} as bigint as {})", cast_operand(x), to.ts_name()),
+                (true, true) => as_plain_as(cast_operand(x), "bigint", to.ts_name()),
                 _ => as_number_as(cast_operand(x), to.ts_name()),
             }
         }
@@ -1823,23 +1823,39 @@ pub(crate) fn if_test(test: &str, pad: &str) -> String {
 /// is itself an assertion (`fround(..) as F32`, `7 as U8`) of what is a
 /// plain `number`, that one, which lint takes as unneeded, gives way.
 fn as_number_as(x: String, to: &str) -> String {
+    as_plain_as(x, "number", to)
+}
+
+/// `(x as number as T)` or, between 64- and 128-bit integers, `(x as
+/// bigint as T)`, as `as_number_as` gives way: where a side of a choice is
+/// already the plain `number` (`bigint`), the choice is one, and the
+/// assertion through it asserts nothing, which lint refuses.
+fn as_plain_as(x: String, base: &str, to: &str) -> String {
+    let plainly = |s: &str| {
+        if base == "bigint" {
+            crate::tidy::plainly_bigint(s)
+        } else {
+            crate::tidy::plainly_number(s)
+        }
+    };
     match crate::tidy::split_cast(&x) {
-        Some((_, "number")) => format!("({x} as {to})"),
+        Some((_, b)) if b == base => format!("({x} as {to})"),
         Some((inner, _)) if crate::tidy::split_cast(inner).is_none() => format!("({inner} as {to})"),
-        // A choice: what its sides assert gives way to the `number`.
+        // A choice: what its sides assert gives way to the plain type.
         _ if crate::tidy::top_prec(&x) == crate::tidy::PREC_TERNARY || x.starts_with('(') => {
-            // Every side already a plain `number` (asserted, or a sum): the
-            // `as number` asserts nothing, which lint refuses.
+            // A side already the plain type (asserted, a sum, a `Math`
+            // result): the choice is that type, and the assertion through
+            // it asserts nothing, which lint refuses.
             let sides = crate::tidy::choice(crate::tidy::strip_outer(&x));
-            if sides.is_some_and(|(_, a, b)| crate::tidy::plainly_number(a) && crate::tidy::plainly_number(b)) {
+            if sides.is_some_and(|(_, a, b)| plainly(a) || plainly(b)) {
                 return format!("(({}) as {to})", crate::tidy::uncast(&x));
             }
             let plain = crate::tidy::uncast(&x);
             let plain =
                 if crate::tidy::top_prec(&plain) < crate::tidy::PREC_UNARY { format!("({plain})") } else { plain };
-            format!("({plain} as number as {to})")
+            format!("({plain} as {base} as {to})")
         }
-        _ => format!("({x} as number as {to})"),
+        _ => format!("({x} as {base} as {to})"),
     }
 }
 
