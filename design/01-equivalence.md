@@ -496,7 +496,7 @@ A trait is a record of functions over a type, and a type's companion is already 
 <!-- constrained-by #719-btreemapstring-v-and-btreesetstring -->
 <!-- constrained-by #725-traits -->
 
-Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+Planned for 0.23.0 (decided 2026-10-15); not implemented.
 
 §7.19's `BTreeMap<K, V>` and `BTreeSet<K>` take more key types: every integer type, `char`, `bool`, `Uuid`, and a newtype or closed type of the crate whose content is one of those or a `String` (`BTreeMap<UserId, Order>`, where `struct UserId(u64)` derives `Ord`). Each is a JS primitive at run time (a `number`, a `bigint`, a `string`, a `boolean`; a newtype or closed type is its content branded, §4 and §7.20), and a JS `Map` and `Set` find a primitive key by its value (SameValueZero: `1n` finds `1n`), so the TS type stays `Map<K, V>` / `Set<K>`. Every read in order sorts the keys by the key type's `cmp` (§7.10 for the std types, the content's for a newtype, whose derived `Ord` is its content's), as §7.19 sorts strings by code point: `BTree.keysBy(m, cmp)` and the like, the comparator chosen where the type is known. JS's default `sort()` compares text, so `10` before `9` and `-1` after `-2` would be its order; the tests hold keys `9` and `10`, negative keys, and `bigint` keys past 2^53.
 
@@ -508,7 +508,7 @@ Planned for 0.23.0 (draft, 2026-10-15); not implemented.
 <!-- constrained-by #714-growing-and-editing-a-vec -->
 <!-- constrained-by #724-slice-patterns -->
 
-Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+Planned for 0.23.0 (decided 2026-10-15); not implemented.
 
 `[T; N]`, `N` an integer literal or a crate `const`, is a TS `ReadonlyArray<T>` of length `N`, as a `Vec<T>` is an array: a parameter, a result, a field, a variant's payload, a `const` (`const TABLE: [u8; 16] = [..]`, the tables domain code keeps), and a local. A TS tuple type (`readonly [T, T, T, T]`) would spell the length but not past a few elements, so the length is checked instead: a `pub` function checks each array argument's length on entry, as it checks strings for lone surrogates (§6), inside every value it walks for that check (a struct's array field, a `Vec<[u8; 4]>`, an `Option<[T; N]>`), and throws as that check does, naming the parameter.
 
@@ -523,7 +523,7 @@ Planned for 0.23.0 (draft, 2026-10-15); not implemented.
 
 <!-- constrained-by #722-iterator-adaptors-and-ranges -->
 
-Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+Planned for 0.23.0 (decided 2026-10-15); not implemented.
 
 Four more stages of §7.13's sequences, each a generator as `Iter.map` is: `take(n)` gives the first `n` items and asks the stages before it for no more, so a panic in a `map` on a later item does not come (Rust's `Take` stops pulling); `skip(n)` pulls and drops the first `n`, running the stages before it on each, as Rust's does; `take_while(p)` gives items while `p` holds and stops at the first that fails, which it has pulled (the stages before ran on it) and drops; `skip_while(p)` drops items while `p` holds, then gives the rest without calling `p` again. `n` is a `usize`, evaluated when the method is called, after its receiver. On a range (§7.22) `take` and `skip` keep the range's arithmetic form. The laziness is tested, not assumed: `[1, 2, 0].iter().map(|x| 6 / x).take(2).sum()` is 9 in Rust, where a `take` that pulls one item more panics; `take_while` must pull the first failing item (a panic on it comes), and `skip_while` must not call `p` after its first miss.
 
