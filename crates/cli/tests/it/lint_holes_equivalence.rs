@@ -97,5 +97,17 @@ fn lint_holes_match_rust() {
             cases.push(case!(lint_holes::unread_collect(vec![px(3), px(200)], k)));
             cases.push(case!(lint_holes::unread_collect(vec![px(3)], k)));
         }
+        for s in ["", "aé日😀", "00000000-0000-0000-0000-000000000000"] {
+            cases.push(case!(lint_holes::char_after_return(s.to_string())));
+            for u in [uuid::Uuid::nil(), uuid::Uuid::max()] {
+                cases.push(case!(lint_holes::uuid_after_return(u, s.to_string())));
+            }
+        }
+        for (a, b) in [(1u8, 2u8), (2, 1), (3, 3)] {
+            cases.push(case!(lint_holes::ord_after_return_u8(a, b, 1, 2)));
+        }
+        for t in [0, u32::MAX] {
+            cases.push(case!(lint_holes::tally_after_return(lint_holes::Tally(t))));
+        }
     });
 }

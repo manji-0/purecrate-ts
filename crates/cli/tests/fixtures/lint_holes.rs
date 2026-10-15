@@ -314,3 +314,57 @@ pub fn plain_side(x: f32, z: f32, b: bool) -> f64 {
 pub fn widened_twice(h: u32, k: u128) -> u128 {
     k.wrapping_add(u128::from(u64::from(h)))
 }
+
+// A value read only in code a decided `return` drops: the import is of
+// the type alone (`consistent-type-imports`), a runtime type's (`Char`,
+// `Uuid`, `Ord`) or a crate type's.
+
+pub fn char_after_return(s: String) -> u32 {
+    let n = s.chars().count() as u32;
+    if 7i32 != 3i32 {
+        return n;
+    }
+    let m: Vec<char> = s.chars().collect();
+    let mut acc: u32 = 0;
+    for x in &m {
+        acc = acc.wrapping_add(u32::from(*x));
+    }
+    acc
+}
+
+pub fn uuid_after_return(u: uuid::Uuid, s: String) -> bool {
+    if 7i32 != 3i32 {
+        return s.is_empty();
+    }
+    match uuid::Uuid::parse_str(&s) {
+        Ok(v) => v == u,
+        Err(_) => false,
+    }
+}
+
+pub fn ord_after_return<T: Ord>(a: T, b: T, x: i32, y: i32) -> bool {
+    if 7i32 != 3i32 {
+        return a < b;
+    }
+    x.cmp(&y) == std::cmp::Ordering::Less
+}
+
+pub fn ord_after_return_u8(a: u8, b: u8, x: i32, y: i32) -> bool {
+    ord_after_return(a, b, x, y)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tally(pub u32);
+
+impl Tally {
+    pub fn one() -> Tally {
+        Tally(1)
+    }
+}
+
+pub fn tally_after_return(t: Tally) -> u32 {
+    if 7i32 != 3i32 {
+        return t.0;
+    }
+    Tally::one().0
+}

@@ -10,19 +10,15 @@ use std::collections::BTreeSet;
 pub fn prune_unused(src: &str) -> String {
     let code = src.lines().filter(|l| !l.starts_with("import ")).collect::<Vec<_>>().join("\n");
     let used = code_idents(&code);
-    // The runtime's `Result` is a value (`Result.ok`) and a type. Where the
-    // printed code no longer builds one (a fold took `Result.ok` away), it
-    // is a type only, and lint wants `type Result`.
-    // As a type it is always `Result<..>`; any other reference is a value.
-    let word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-    let result_value = code.match_indices("Result").any(|(i, _)| {
-        let before = code[..i].chars().next_back();
-        let after = code[i + "Result".len()..].chars().next();
-        !word(before) && before != Some('.') && !word(after) && after != Some('<')
-    });
+    // A name that is a value and a type (the runtime's `Result`, `Char`,
+    // `Uuid`, and `Ord`, a crate type and its companion) may be read only
+    // as a type where the printed code no longer reads the value (a fold
+    // took `Result.ok`, or the code after a decided `return`, away); lint
+    // wants `type X` then.
+    let values = value_reads(&code);
     let mut out = String::with_capacity(src.len());
     for line in src.split_inclusive('\n') {
-        match prune_line(line.trim_end_matches('\n'), &used, result_value) {
+        match prune_line(line.trim_end_matches('\n'), &used, &values) {
             Some(kept) if kept == line.trim_end_matches('\n') => out.push_str(line),
             Some(kept) => {
                 out.push_str(&kept);
@@ -104,7 +100,7 @@ fn organize(src: &str) -> String {
 
 /// `None` drops the line. Lines that are not a named import are returned
 /// unchanged.
-fn prune_line(line: &str, used: &BTreeSet<String>, result_value: bool) -> Option<String> {
+fn prune_line(line: &str, used: &BTreeSet<String>, values: &BTreeSet<String>) -> Option<String> {
     let Some(rest) = line.strip_prefix("import ") else {
         return Some(line.to_string());
     };
@@ -118,17 +114,31 @@ fn prune_line(line: &str, used: &BTreeSet<String>, result_value: bool) -> Option
     if !rest[..open].trim().is_empty() {
         return Some(line.to_string());
     }
-    let kept: Vec<&str> = rest[open + 1..close]
+    let from = &rest[close + 1..];
+    // A value import that may also be a type: a name that is not a const's
+    // (`consts.ts`), a function's (lowercase), or an internal one (`$`).
+    let dual = |name: &str| {
+        name.starts_with(|c: char| c.is_ascii_uppercase())
+            && !name.contains('$')
+            && !from.contains(&format!("\"./{}.ts\"", purecrate_ir::CONSTS_STEM))
+    };
+    let kept: Vec<String> = rest[open + 1..close]
         .split(',')
         .map(str::trim)
         .filter(|spec| !spec.is_empty())
         .filter(|spec| used.contains(local_name(spec)))
-        .map(|spec| if spec == "Result" && !result_value && !type_only { "type Result" } else { spec })
+        .map(|spec| {
+            let name = local_name(spec);
+            if !type_only && !spec.starts_with("type ") && dual(name) && !values.contains(name) {
+                format!("type {spec}")
+            } else {
+                spec.to_string()
+            }
+        })
         .collect();
     if kept.is_empty() {
         return None;
     }
-    let from = &rest[close + 1..];
     let kw = if type_only { "import type" } else { "import" };
     Some(format!("{kw} {{ {} }}{from}", kept.join(", ")))
 }
@@ -137,6 +147,57 @@ fn prune_line(line: &str, used: &BTreeSet<String>, result_value: bool) -> Option
 fn local_name(spec: &str) -> &str {
     let spec = spec.strip_prefix("type ").unwrap_or(spec);
     spec.rsplit(" as ").next().unwrap_or(spec).trim()
+}
+
+/// The names `code` reads as values: each identifier not after a `.`
+/// whose place is not one only a type takes. A place that may be either is
+/// a value's, so an import is made `type` only where every read of it is a
+/// type's.
+fn value_reads(code: &str) -> BTreeSet<String> {
+    let (idents, _, contexts) = scan(code);
+    idents
+        .into_iter()
+        .zip(contexts)
+        .filter(|((start, end, after_dot), context)| !after_dot && !type_place(code, *start, *end, *context))
+        .map(|((start, end, _), _)| code[start..end].to_string())
+        .collect()
+}
+
+/// The identifier at `start..end` stands where only a type goes, as the
+/// printer writes one: after `as`, `satisfies`, `readonly`, `extends`,
+/// `keyof`, or `is`; in a union or an intersection; a generic's argument
+/// (`Iterable<Char>`, `Map<Char, U8>`, `Result<..>`) or a tuple type's
+/// element (`readonly [Char, Char]`); after an annotation's `:` (no space
+/// before it, as a ternary's has; not an object literal's value, `{ k: v }`).
+/// Read by its member (`Char.code`), called, passed (`pair(i, Item)`), or
+/// anywhere else, it is a value.
+fn type_place(code: &str, start: usize, end: usize, context: Option<char>) -> bool {
+    let next = code[end..].trim_start();
+    if next.starts_with('.') {
+        return false;
+    }
+    if code[end..].starts_with('<') {
+        return true;
+    }
+    let before = code[..start].trim_end();
+    let word_at = before.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$').len();
+    match &before[word_at..] {
+        "as" | "satisfies" | "readonly" | "extends" | "keyof" | "is" => return true,
+        "" => {}
+        _ => return false,
+    }
+    match before.chars().next_back() {
+        Some('|') => !before.ends_with("||"),
+        Some('&') => !before.ends_with("&&"),
+        Some('<' | ',') => matches!(context, Some('<' | 'T')),
+        Some('[') => context == Some('T'),
+        Some(':') => {
+            let spaced = before[..before.len() - 1].ends_with(char::is_whitespace);
+            let field_value = context == Some('{') && (next.starts_with(',') || next.starts_with('}'));
+            !spaced && !field_value
+        }
+        _ => false,
+    }
 }
 
 /// Identifiers in TS source, outside comments and string literals, and not
@@ -165,8 +226,10 @@ pub(crate) fn brace_spans(src: &str) -> Vec<(usize, usize)> {
     scan(src).1
 }
 
-/// Identifier spans (`ident_spans`) and brace spans (`brace_spans`).
-type Spans = (Vec<(usize, usize, bool)>, Vec<(usize, usize)>);
+/// Identifier spans (`ident_spans`), brace spans (`brace_spans`), and
+/// each identifier's innermost open bracket: `(`, `[`, `{`, `<` for a
+/// generic's arguments, and `T` for a tuple type's (`readonly [`).
+type Spans = (Vec<(usize, usize, bool)>, Vec<(usize, usize)>, Vec<Option<char>>);
 
 fn scan(src: &str) -> Spans {
     let chars: Vec<char> = src.chars().collect();
@@ -186,6 +249,19 @@ fn scan(src: &str) -> Spans {
     let mut depth = 0usize;
     let mut i = 0;
     let mut after_dot = false;
+    // The open brackets, for `contexts`.
+    let mut brackets: Vec<char> = Vec::new();
+    let mut contexts = Vec::new();
+    let word = |c: Option<&char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$');
+    // Closes the innermost `open`, and any generic `<` misread inside it.
+    let close = |brackets: &mut Vec<char>, open: char| {
+        while brackets.last() == Some(&'<') {
+            brackets.pop();
+        }
+        if brackets.last() == Some(&open) || (open == '[' && brackets.last() == Some(&'T')) {
+            brackets.pop();
+        }
+    };
     while i < chars.len() {
         let c = chars[i];
         match c {
@@ -225,8 +301,10 @@ fn scan(src: &str) -> Spans {
             '{' => {
                 depth += 1;
                 open.push((offsets[i], head.take()));
+                brackets.push('{');
             }
             '(' => {
+                brackets.push('(');
                 parens.push((offsets[i], after_for));
                 after_for = false;
                 head = None;
@@ -234,6 +312,7 @@ fn scan(src: &str) -> Spans {
                 continue;
             }
             ')' => {
+                close(&mut brackets, '(');
                 if let Some((start, true)) = parens.pop() {
                     head = Some(start);
                 }
@@ -246,6 +325,7 @@ fn scan(src: &str) -> Spans {
                 continue;
             }
             '}' => {
+                close(&mut brackets, '{');
                 depth = depth.saturating_sub(1);
                 if let Some((start, for_head)) = open.pop() {
                     blocks.push((start, offsets[i + 1]));
@@ -260,10 +340,28 @@ fn scan(src: &str) -> Spans {
                     i += 1;
                 }
                 out.push((offsets[start], offsets[i.min(chars.len())], after_dot));
+                contexts.push(brackets.last().copied());
                 after_for = !after_dot && chars[start..i].iter().collect::<String>() == "for";
                 head = None;
                 after_dot = false;
                 continue;
+            }
+            '[' => {
+                let mut b = i;
+                while b > 0 && chars[b - 1].is_whitespace() {
+                    b -= 1;
+                }
+                let tuple = chars[..b].ends_with(&['r', 'e', 'a', 'd', 'o', 'n', 'l', 'y']);
+                brackets.push(if tuple { 'T' } else { '[' });
+            }
+            ']' => close(&mut brackets, '['),
+            // A generic's `<` follows its name with no space; a comparison's
+            // has spaces.
+            '<' if i > 0 && word(chars.get(i - 1)) && chars.get(i + 1).is_some_and(|c| !c.is_whitespace()) => {
+                brackets.push('<');
+            }
+            '>' if brackets.last() == Some(&'<') && i > 0 && chars[i - 1] != '=' => {
+                brackets.pop();
             }
             // A spread (`...x`) reads a binding.
             '.' if chars.get(i + 1) == Some(&'.') && chars.get(i + 2) == Some(&'.') => {
@@ -286,7 +384,7 @@ fn scan(src: &str) -> Spans {
         after_for = false;
         i += 1;
     }
-    (out, blocks)
+    (out, blocks, contexts)
 }
 
 /// From inside a template literal's text, to just after the `${` that opens
@@ -861,6 +959,49 @@ mod tests {
         // A fold took every `Result.ok` away; `xResult.kind` is a local.
         let src = "import { Result, type I32 } from \"purecrate\";\n\nconst f = (r: Result<I32, I32>): I32 => { const xResult = r; return xResult.kind === \"Ok\" ? xResult.value : 0; };\n";
         assert!(prune_unused(src).starts_with("import type { I32, Result }"), "{}", prune_unused(src));
+    }
+
+    #[test]
+    fn a_name_read_only_as_a_type_is_a_type_import() {
+        let types_only = [
+            "const n = Iter.count(s as Iterable<Char>);",
+            "const f = (c: Char): Char => c;",
+            "let m: ReadonlyMap<U8, Char> = new Map();",
+            "const p = (x: readonly [Char, Char]): boolean => x[0] === x[1];",
+            "const o = (x: null | Char): boolean => x === null;",
+            "const k = \"a\" as Char;",
+            "const r = (r: Result<I32, I32>): I32 => (r.kind === \"Ok\" ? r.value : 0);",
+            "const s = (x?: Char): I32 => 0;",
+        ];
+        for code in types_only {
+            let src = format!("import {{ Char, Result, Int }} from \"purecrate\";\n\n{code} Int.x;\n");
+            let out = prune_unused(&src);
+            assert!(!out.contains("{ Char") && !out.contains(" Char,") && !out.contains(", Result,"), "{code}\n{out}");
+        }
+        let values = [
+            "const c = Char.code(x);",
+            "const p = pair(i, Char, Coin);",
+            "const p = Named.label(Char, self);",
+            "const v = c ? x : Char;",
+            "const v = { k: Char, j: 1 };",
+            "const v = x instanceof Char;",
+            "const v = (): unknown => Char;",
+            "const v = [x, Char];",
+            "return Char;",
+        ];
+        for code in values {
+            let src = format!("import {{ Char }} from \"purecrate\";\n\nconst t = (x: Char): I32 => 0; {code}\n");
+            assert!(prune_unused(&src).starts_with("import { Char }"), "{code}\n{}", prune_unused(&src));
+        }
+        // An alias, a crate type, and a const, which is never a type.
+        let src = "import { Yen as DomainYen } from \"./yen.ts\";\n\
+            import { P } from \"./p.ts\";\n\
+            import { K } from \"./consts.ts\";\n\
+            \n\
+            const f = (y: DomainYen, p: P): boolean => p < K;\n";
+        let out = prune_unused(src);
+        assert!(out.contains("import type { Yen as DomainYen }"), "{out}");
+        assert!(out.contains("import type { P }") && out.contains("import { K }"), "{out}");
     }
 
     #[test]
