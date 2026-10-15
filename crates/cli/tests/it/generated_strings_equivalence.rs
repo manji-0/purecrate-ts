@@ -16,8 +16,11 @@
 //! into `map` and `collect`, and into `count`; `join`, `repeat`, and
 //! `to_string`. From 0.22.0: a struct and an enum per seed with `impl
 //! Display` made of writes (arguments that panic, specs, `?` and `Ok(())`,
-//! a `let`, the struct printed inside the enum), printed by `format!` and
-//! `to_string`. Inputs hold every Unicode White_Space code point, the
+//! a `let`, the struct printed inside the enum, `write_str` of a literal or
+//! a computed text, a bare arm, an arm block with a `let`, the `match`
+//! followed by a write), and an enum with §7.11's fixed text in one of its
+//! shapes, printed by `format!` and `to_string`, and each once by
+//! `x<seed>_types`. Inputs hold every Unicode White_Space code point, the
 //! near misses U+FEFF, U+180E, and U+200B, cased letters inside and outside
 //! ASCII (final sigma, `ß`, `İ`, `ﬁ`), `\r`, `\n`, and `\r\n`, characters
 //! of every UTF-8 width, the code points around the surrogate gap, and
@@ -178,13 +181,28 @@ impl G {
         format!("write!(f, \"{template}\"{args})")
     }
 
+    /// One write that holds no crate type: a `write!`, or a third of the
+    /// time `f.write_str` of one of `texts` (each a `&str`, a literal or
+    /// computed).
+    fn plain_write(&mut self, values: &[(&str, bool)], texts: &[&str]) -> String {
+        if self.rng.below(3) == 0 {
+            format!("f.write_str({})", self.rng.pick(texts))
+        } else {
+            self.write(values, &[])
+        }
+    }
+
     /// One to three writes joined with `?`, the last bare or followed by
-    /// `Ok(())`, after an optional `let` the writes may capture.
-    fn writes(&mut self, values: &[(&str, bool)], shown: &[&str], indent: &str) -> String {
+    /// `Ok(())`; `shown` go in the last, which is a `write!`.
+    fn writes(&mut self, values: &[(&str, bool)], texts: &[&str], shown: &[&str], indent: &str) -> String {
         let mut out = String::new();
         let n = 1 + self.rng.below(3);
         for i in 0..n {
-            let w = if i + 1 == n { self.write(values, shown) } else { self.write(values, &[]) };
+            let w = if i + 1 == n && !shown.is_empty() {
+                self.write(values, shown)
+            } else {
+                self.plain_write(values, texts)
+            };
             if i + 1 < n {
                 writeln!(out, "{indent}{w}?;").expect("write");
             } else if self.rng.below(2) == 0 {
@@ -198,8 +216,12 @@ impl G {
 
     /// `D<seed>` and `E<seed>`, each with a `Display` made of writes: of a
     /// `String`, a `usize`, and a `char` field and values computed from them
-    /// that may panic (`n - 1` at 0, a slice off a char boundary), and in
-    /// `E` a `D` printed through its own `Display`.
+    /// that may panic (`n - 1` at 0, a slice off a char boundary), as
+    /// `write!` arguments or `f.write_str` texts (a field, a `String` built,
+    /// a `let` the writes capture, a literal), and in `E` a `D` printed
+    /// through its own `Display`, an arm that is one bare write or a block
+    /// with a `let`, and the `match` itself one write followed by another.
+    /// `Fixed<seed>` has §7.11's text fixed per value, in each of its shapes.
     fn display_types(&mut self) -> String {
         let s = self.seed;
         const D_VALUES: &[(&str, bool)] = &[
@@ -215,30 +237,56 @@ impl G {
             ("self.w.is_empty()", false),
             ("k", true),
         ];
-        let lead = "        let k = self.w.chars().count() * 2;\n";
-        let d_body = format!("{lead}{}", self.writes(D_VALUES, &[], "        "));
-        let a = self.writes(&[("d.n", true), ("d.c", false)], &["d"], "                ");
-        let b = self.writes(&[("n", true), ("w", false), ("w.len() - n", true)], &[], "                ");
+        const D_TEXTS: &[&str] =
+            &["&self.w", "self.w.trim()", "&self.w[1..]", "&self.w.to_uppercase()", "&t", "\"é\"", "\"`${x}` {}\""];
+        let lead = "        let k = self.w.chars().count() * 2;\n        let t = format!(\"{}/{k}\", self.c);\n";
+        let d_body = format!("{lead}{}", self.writes(D_VALUES, D_TEXTS, &[], "        "));
+        let a = self.writes(&[("d.n", true), ("d.c", false)], &["&d.w", "\"<\""], &["d"], "                ");
+        let mut b_values = vec![("n", true), ("w", false), ("w.len() - n", true)];
+        let b_texts = &["w", "w.trim()", "&w[1..]", "\"-\""];
+        let b = match self.rng.below(3) {
+            0 => format!("{},", self.plain_write(&b_values, b_texts)),
+            1 => {
+                b_values.push(("m", true));
+                let writes = self.writes(&b_values, b_texts, &[], "                ");
+                format!("{{\n                let m = w.len() + n;\n{writes}            }}")
+            }
+            _ => format!("{{\n{}            }}", self.writes(&b_values, b_texts, &[], "                ")),
+        };
         let c = self.rng.pick(&["f.write_str(\"c\")", "Ok(())", "f.write_str(\"`${é}`\")"]);
+        let after = self.rng.pick(&["", "?;\n        f.write_str(\"!\")", "?;\n        Ok(())"]);
+        let fixed = match self.rng.below(4) {
+            0 => format!("f.write_str(match self {{\n            Fixed{s}::X => \"x\",\n            Fixed{s}::Y => \"y {{}} é\",\n        }})"),
+            1 => format!(
+                "match self {{\n            Fixed{s}::X => write!(f, \"x {{{{b}}}}\"),\n            Fixed{s}::Y => f.write_str(\"`${{y}}`\"),\n        }}"
+            ),
+            2 => format!(
+                "let t = match self {{\n            Fixed{s}::X => \"\",\n            Fixed{s}::Y => \"😀\",\n        }};\n        f.write_str(t)"
+            ),
+            _ => "write!(f, \"fixed {{}}\")".to_string(),
+        };
         format!(
             "pub struct D{s} {{\n    pub w: String,\n    pub n: usize,\n    pub c: char,\n}}\n\n\
              impl std::fmt::Display for D{s} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n{d_body}    }}\n}}\n\n\
              pub enum E{s} {{\n    A(D{s}),\n    B {{ n: usize, w: String }},\n    C,\n}}\n\n\
              impl std::fmt::Display for E{s} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        match self {{\n            \
-             E{s}::A(d) => {{\n{a}            }}\n            E{s}::B {{ n, w }} => {{\n{b}            }}\n            E{s}::C => {c},\n        }}\n    }}\n}}\n\n"
+             E{s}::A(d) => {{\n{a}            }}\n            E{s}::B {{ n, w }} => {b}\n            E{s}::C => {c},\n        }}{after}\n    }}\n}}\n\n\
+             pub enum Fixed{s} {{\n    X,\n    Y,\n}}\n\n\
+             impl std::fmt::Display for Fixed{s} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        {fixed}\n    }}\n}}\n\n"
         )
     }
 
-    /// A `D<seed>` or `E<seed>` printed by `format!` (alone, or after a
-    /// value computed first) or `to_string`.
+    /// A `D<seed>`, `E<seed>`, or `Fixed<seed>` printed by `format!` (alone, or
+    /// after a value computed first) or `to_string`.
     fn shown(&mut self, d: u32) -> String {
         let s = self.seed;
         let dv = format!("D{s} {{ w: {}, n: {}, c: {} }}", self.owned(d), self.size(d), self.ch());
-        let value = match self.rng.below(4) {
+        let value = match self.rng.below(5) {
             0 => dv,
             1 => format!("E{s}::A({dv})"),
             2 => format!("E{s}::B {{ n: {}, w: String::from({}) }}", self.size(d), self.text(d)),
-            _ => format!("E{s}::C"),
+            3 => format!("E{s}::C"),
+            _ => format!("Fixed{s}::{}", self.rng.pick(&["X", "Y"])),
         };
         match self.rng.below(3) {
             0 => format!("{value}.to_string()"),
@@ -898,6 +946,18 @@ fn generated_strings_match_rust() {
         let mut g = G { rng: Rng::new(seed ^ 0x5717), next: 0, scope: Vec::new(), seed };
         let mut types = G { rng: Rng::new(seed ^ 0xd15), next: 0, scope: Vec::new(), seed };
         source.push_str(&types.display_types());
+        // Every type and variant printed once, so none of the `fmt`s can
+        // be skipped unseen.
+        let name = format!("x{seed}_types");
+        writeln!(
+            source,
+            "pub fn {name}({PARAMS}) -> String {{\n    let d = D{seed} {{ w: String::from(s), n, c }};\n    \
+             let a = E{seed}::A(D{seed} {{ w: String::from(t), n: n + 1, c }});\n    \
+             let b = E{seed}::B {{ n, w: String::from(t) }};\n    let e = E{seed}::C;\n    \
+             let x = Fixed{seed}::X;\n    let y = Fixed{seed}::Y;\n    format!(\"{{d}}|{{a}}|{{b}}|{{e}}|{{x}}|{{y}}\")\n}}\n"
+        )
+        .expect("write");
+        fns.push(name);
         for i in 0..count {
             let ty = g.rng.pick(&[T::Usize, T::Bool, T::OptUsize, T::String, T::String, T::VecString, T::VecUsize]);
             g.next = 0;
