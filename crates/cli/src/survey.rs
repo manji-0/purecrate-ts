@@ -149,19 +149,34 @@ struct Index {
     methods: HashMap<(String, String), Vec<usize>>,
     /// By the path an `Expr::Var` reads: `N`, or `T::N`.
     consts: HashMap<String, Vec<usize>>,
+    /// By type: the members a call reaches without naming them, `default`
+    /// and each `impl From`'s (`?`, `into()`, `Default::default()`).
+    implicit: HashMap<String, Vec<usize>>,
 }
 
 impl Index {
     fn new(units: &[Unit]) -> Self {
-        let mut index =
-            Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new(), consts: HashMap::new() };
+        let mut index = Index {
+            types: HashMap::new(),
+            fns: HashMap::new(),
+            methods: HashMap::new(),
+            consts: HashMap::new(),
+            implicit: HashMap::new(),
+        };
         for (i, u) in units.iter().enumerate() {
             match &u.kind {
                 UnitKind::Struct | UnitKind::Enum | UnitKind::Alias => {
                     index.types.entry(u.name.clone()).or_default().push(i)
                 }
                 UnitKind::Fn => index.fns.entry(u.name.clone()).or_default().push(i),
-                UnitKind::Method { owner } => index.methods.entry((owner.clone(), u.name.clone())).or_default().push(i),
+                UnitKind::Method { owner } => {
+                    if let Ok(Item::Fn(f)) = &u.lowered {
+                        if f.from_source().is_some() || f.name.as_str() == "default" {
+                            index.implicit.entry(owner.clone()).or_default().push(i);
+                        }
+                    }
+                    index.methods.entry((owner.clone(), u.name.clone())).or_default().push(i)
+                }
                 UnitKind::Const { owner } => {
                     let path = match owner {
                         Some(owner) => purecrate_ir::assoc_path(owner, &u.name),
@@ -180,6 +195,7 @@ impl Index {
             Ref::Type(t) => self.types.get(t),
             Ref::Fn(f) => self.fns.get(f),
             Ref::Method(t, m) => self.methods.get(&(t.clone(), m.clone())),
+            Ref::Implicit(t) => self.implicit.get(t),
             Ref::Name(n) => self.consts.get(n).or_else(|| self.fns.get(n)),
             Ref::ReceiverCall(_) => None,
         };
@@ -206,6 +222,7 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
         if let UnitKind::Struct | UnitKind::Enum = &units[i].kind {
             if types.insert(units[i].name.clone()) {
                 refs.extend(receiver_calls.iter().map(|m| Ref::Method(units[i].name.clone(), m.clone())));
+                refs.push(Ref::Implicit(units[i].name.clone()));
             }
         }
         if let UnitKind::Method { owner } | UnitKind::Const { owner: Some(owner) } = &units[i].kind {
@@ -283,6 +300,9 @@ enum Ref {
     Name(String),
     /// `x.m()`: `m` on whichever type `x` has.
     ReceiverCall(String),
+    /// The members of a type a call reaches without naming them
+    /// (`Index::implicit`).
+    Implicit(String),
 }
 
 fn references(item: &Item) -> Vec<Ref> {

@@ -119,3 +119,14 @@ pub fn q67_iter_sum_u64(xs: &[u64]) -> u64 { xs.iter().sum() }
 pub fn q68_div_round(a: i64, b: i64) -> i64 { (a + b / 2) / b }
 pub fn q69_i128(a: i128) -> i128 { a * 2 }
 pub fn q70_str_cmp(a: &str, b: &str) -> bool { a < b }
+#[derive(Debug, PartialEq)]
+pub enum AppErr { Parse, Low(u8) }
+impl From<std::num::ParseIntError> for AppErr { fn from(_e: std::num::ParseIntError) -> Self { AppErr::Parse } }
+impl From<u8> for AppErr { fn from(n: u8) -> Self { AppErr::Low(n) } }
+pub fn f01_try_converts(s: &str) -> Result<u32, AppErr> { let n = s.parse::<u32>()?; Ok(n) }
+pub fn f02_into(n: u8) -> AppErr { n.into() }
+pub fn f03_from_call(n: u8) -> AppErr { AppErr::from(n) }
+#[derive(Default)]
+pub struct Opts { pub n: u32, pub name: String, pub tags: Vec<String> }
+pub fn d01_default_update(n: u32) -> Opts { Opts { n, ..Default::default() } }
+pub fn d02_default_call() -> Opts { Opts::default() }

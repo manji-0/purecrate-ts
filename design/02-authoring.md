@@ -32,7 +32,9 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Expected failure | `Result` / `Option`, `?`, early `return`; `if let P = e` and `let P = e else { .. };` on any pattern a `match` arm may be that can fail (`Some(x)`, `E::V { a, .. }`, `0..=9`), not a struct pattern | values, not throws; `let`-`else` as a guard (`if (s.kind !== "V") return ..;`) |
 | Optional values | `o.is_some()`, `is_none()`; `unwrap_or(d)`, `ok_or(e)`, `or(o)`, `map_or(d, f)` (the value argument evaluated first, as in Rust); `map(f)`, `and_then(f)`, `filter(p)`, `is_some_and(p)`, `is_none_or(p)`, `unwrap_or_else(f)`, `ok_or_else(f)`, `or_else(f)`, `map_or_else(d, f)` (the function run only on its side; a closure without `?` or `return`, a function name, or a one-field tuple variant); on a `Result` `ok`, `err`, `is_ok`, `is_err`, `is_ok_and`, `is_err_and`, `unwrap_or`, `unwrap_or_else`, `map`, `map_err`, `map_or`, `and_then`, `or_else` ([01 §7.1](./01-equivalence.md#71-option-and-result-methods)) | the `match` std writes, the receiver bound once |
 | Panics | `panic!(..)` and `unreachable!(..)` with no message or `format!`'s; `assert!(c)` (the condition names, literals, operators, calls, fields, indexing) and `assert!(c, "..", args)`; `o.unwrap()` and `o.expect(m)` on an `Option` ([01 §7.17](./01-equivalence.md#717-panics)) | `Panic.raise(m)` with Rust's message; `assert!` an `if` |
-| Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?` | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result` |
+| Results | `r.ok()`, `r.map(f)`, `r.map_err(f)` (`f` as for `Option::map`); `r.map_err(f)?`; from 0.22.0 `r?` where the function's error type has `impl From` for `r`'s | the `match` std writes; `map_err(..)?` returns `Err(f(e))` without building the mapped `Result`, and a converting `?` returns `Err(X.fromS(e))` |
+| Conversions | from 0.22.0, `impl From<S> for X` with only `fn from(s: S) -> Self`, `X` a struct or enum of the crate, `S` a named type (a crate type, `ParseIntError`, `uuid::Error`, an integer, a float, `bool`, `char`, `String`, `Uuid`), several per `X`; `X::from(s)`, and `From::from(s)` / `s.into()` where the target type is known ([01 §7.25](./01-equivalence.md#725-traits)) | the companion member `X.fromS` named after `S` (`fromParseIntError`, `fromU32`), and calls of it |
+| Defaults | from 0.22.0, `#[derive(Default)]` on a struct whose fields' types have a default, or on an enum with a `#[default]` unit variant; `impl Default for X` with only `fn default() -> Self`; `X::default()`, `Default::default()` where the type is known, `S { a, ..Default::default() }` | the companion member `X.default`; each field's default in its type's form (`0n as I64`, `""`, `[]`, `null`) |
 | Integers from text | `s.parse::<T>()` (or a `let` of `Result<T, ParseIntError>`), `T` an integer type: an optional `+`, `-` when signed, ASCII digits, in range. `ParseIntError` (`std::num::ParseIntError`) carries nothing | `Int.<t>.parse(s)` |
 | Transition | `fn step(state, event) -> Result<State, Error>`; `&self` and `&T` are read as values | functions that never mutate arguments |
 | Local update | `let mut`, assignment and `+=` on locals; `v.push(x)`, `v.insert(i, x)`, `v.remove(i)`, and `v[i] = x` on a local `let mut v: Vec<T>` (`Vec::new()`, `vec![..]`, or any `Vec`, copied when bound unless new) | new values; the grown local is an `Array<T>`, `v.push(x)` ([§3.1](#31-state-is-a-value-sequences-are-rebuilt)) |
@@ -198,6 +200,9 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | associated consts of a trait or a trait impl | a const in an inherent `impl`, or a crate-level `const` |
 | trait definitions and trait impls | none, except the three rows below |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
+| `impl From<S> for X` | translated (from 0.22.0): becomes the member `X.fromS`, named after `S`. It must have `fn from` only, `X` must be the crate's, and `S` a named type without type arguments |
+| `impl Default for X`, `#[derive(Default)]` | translated (from 0.22.0): becomes the method `X.default`. Not on a type with type parameters |
+| `impl Into<X> for S` | none: write `impl From<S> for X`, which gives `s.into()` too |
 | `impl Display` writing a fixed text per value | translated: becomes the method `X.toString` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
 | any other `impl Display`, `impl std::error::Error` | skipped |
 
@@ -374,6 +379,8 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `static N: u32 = 3;` | a crate-level `const N: u32 = 3;` |
 | `T::N` (an associated const) in a pattern | a guard, `x if x == T::N` |
 | `x as u64` where std widens | `u64::from(x)`: a widening `From` takes has that one spelling |
+| `impl From<&str>`, `From<(A, B)>`, `From<Option<T>>`, `From<Vec<u8>>`, `impl<T> From<T>`; `T: Into<X>` / `T: From<S>` bounds | a source that is a named type (`String`, a struct of the parts), one `impl` per source; take `X` and convert at the call |
+| `#[derive(Default)]` with a `Uuid` field, or a field of a crate type without `Default` | `impl Default for X` with the value written out |
 | `Uuid::parse_str(s).is_ok()`, `Uuid::new_v4()` | `matches!(Uuid::parse_str(s), Ok(_))`; take new IDs as parameters (generation is the caller's) |
 | `a.cmp(&b)` on floats, tuples, a `Vec` of the crate's types, or the crate's types; `impl Ord` | compare the parts and chain them with `then` / `then_with` |
 | labelled `break` or `continue` | a flag the outer loop tests, or a function with early `return` |

@@ -187,6 +187,12 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
         SynItem::Fn(f) => {
             one(cx, UnitKind::Fn, f.sig.ident.to_string(), public(&f.vis), LineCol::of(f.sig.ident.span()))
         }
+        SynItem::Struct(s) if derives_default(&s.attrs) => {
+            with_default(cx, item, all_causes, UnitKind::Struct, s.ident.to_string(), public(&s.vis), file)
+        }
+        SynItem::Enum(e) if derives_default(&e.attrs) => {
+            with_default(cx, item, all_causes, UnitKind::Enum, e.ident.to_string(), public(&e.vis), file)
+        }
         SynItem::Struct(s) => {
             one(cx, UnitKind::Struct, s.ident.to_string(), public(&s.vis), LineCol::of(s.ident.span()))
         }
@@ -228,6 +234,22 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                 lowered,
             )]
         }
+        // `impl From<S>` and `impl Default` are a member of the type's
+        // companion (`fromS`, `default`), as `try_from` is.
+        SynItem::Impl(imp) if is_member_impl(imp) => {
+            let lowered = lower_one(cx, item.clone(), all_causes, "method");
+            let name = match &lowered.0 {
+                Ok(it) => it.name().as_str().to_string(),
+                Err(_) => imp.trait_.as_ref().map(|(_, p, _)| path_text(p)).unwrap_or_default().to_lowercase(),
+            };
+            vec![unit(
+                UnitKind::Method { owner: self_name(&imp.self_ty) },
+                name,
+                false,
+                LineCol::of(imp.span()),
+                lowered,
+            )]
+        }
         other => {
             let what = match other {
                 SynItem::Impl(_) => "trait impl",
@@ -258,6 +280,60 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
 
 fn is_try_from_impl(imp: &syn::ItemImpl) -> bool {
     imp.trait_.as_ref().and_then(|(_, p, _)| p.segments.last()).is_some_and(|s| s.ident == "TryFrom")
+}
+
+fn is_member_impl(imp: &syn::ItemImpl) -> bool {
+    imp.trait_
+        .as_ref()
+        .and_then(|(_, p, _)| p.segments.last())
+        .is_some_and(|s| s.ident == "From" || s.ident == "Default")
+}
+
+fn derives_default(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().filter(|a| a.path().is_ident("derive")).any(|a| {
+        a.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
+            .is_ok_and(|paths| paths.iter().any(|p| p.segments.last().is_some_and(|s| s.ident == "Default")))
+    })
+}
+
+/// A struct or enum with `#[derive(Default)]`: the type's unit, and one
+/// for the method `default` the derive writes, not counted as public, as
+/// the trait impl is not a function in Rust.
+fn with_default(
+    cx: &mut Cx,
+    item: &SynItem,
+    all_causes: bool,
+    kind: UnitKind,
+    name: String,
+    public: bool,
+    file: usize,
+) -> Vec<Unit> {
+    let ident = item::item_ident(item).expect("a struct or an enum");
+    let at = LineCol::of(ident.span());
+    let run = |cx: &mut Cx| item::lower_item(cx, item.clone());
+    let (lowered, causes) = if all_causes { cx.recovering(run) } else { (run(cx), Vec::new()) };
+    let (ty, default) = match lowered {
+        Ok(mut items) if items.len() == 2 => {
+            let (default, default_at) = items.pop().expect("two items");
+            (Ok(items.remove(0).0), Some((Ok(default), default_at)))
+        }
+        Ok(mut items) if items.len() == 1 => (Ok(items.remove(0).0), None),
+        Ok(_) => (Err(ParseError::new(Reason::UnsupportedItem, "expected one item")), None),
+        Err(e) => (Err(e.clone()), Some((Err(e), at))),
+    };
+    let mut units = vec![Unit { file, at, kind, name: name.clone(), public, lowered: ty, causes: causes.clone() }];
+    if let Some((lowered, at)) = default {
+        units.push(Unit {
+            file,
+            at,
+            kind: UnitKind::Method { owner: name },
+            name: "default".to_string(),
+            public: false,
+            lowered,
+            causes,
+        });
+    }
+    units
 }
 
 fn self_name(ty: &syn::Type) -> String {

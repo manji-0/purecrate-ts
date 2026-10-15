@@ -11,6 +11,9 @@
 //! types sums one, mixed into `h0`. These draw from a second generator, so
 //! each seed's other statements are the ones it drew before.
 //!
+//! From 0.22.0 each seed also has an error enum with two `impl From` and a
+//! function chaining `?` over both sources (`conversions`), its own draws.
+//!
 //! Every loop is bounded: a range's ends are taken `% 4` and `% 6`, and a
 //! `while` counts a local nothing else writes up to a bound under 5, first
 //! in its body, so `continue` cannot skip it. Overflow, division by zero,
@@ -807,8 +810,43 @@ fn modules(seed: u64) -> String {
     )
 }
 
+/// From 0.22.0, per seed: an error enum with two `impl From` (from `i32`
+/// and from a crate type, the conversion overflowing now and then), and a
+/// function that chains `?` over both sources in a drawn order, inline or
+/// as statements, beside a `?` whose types match and a conversion spelled
+/// `Fe::from`, `From::from`, or `into()`. The public function reads the
+/// result back as an `i32`. Its draws are its own, so the other functions
+/// are the ones each seed drew before.
+fn conversions(seed: u64, fns: &mut Vec<(String, Ty)>) -> String {
+    let mut rng = Rng::new(seed ^ 0x0220);
+    let s = seed;
+    let k = 1 + rng.below(1000) as i32;
+    let m = 2 + rng.below(5) as i32;
+    let low = rng.pick(&["n.wrapping_mul(3)", "n * 2", "n - 7", "n"]);
+    let spelled = rng.pick(&[format!("Fe{s}::from(b)"), "From::from(b)".to_string(), "b.into()".to_string()]);
+    let chain = match rng.below(4) {
+        0 => format!("let x = r?;\n    let y = low{s}(a.wrapping_add(x))?;\n    Ok(x ^ y)"),
+        1 => format!("let y = low{s}(a)?;\n    let x = r?;\n    Ok(x.wrapping_sub(y))"),
+        2 => format!("Ok(low{s}(a)?.wrapping_add(r?))"),
+        _ => format!("let z = same{s}(b)?;\n    Ok(low{s}(z)? ^ r?)"),
+    };
+    let name = format!("t{s}_from");
+    fns.push((name.clone(), Ty::Int));
+    format!(
+        "#[derive(Debug, Clone, PartialEq)]\npub enum Fe{s} {{\n    Low(i32),\n    Neg(i32),\n    Gone,\n}}\n\n\
+         pub struct Lo{s} {{\n    pub v: i32,\n}}\n\n\
+         impl From<i32> for Fe{s} {{\n    fn from(n: i32) -> Self {{\n        Fe{s}::Low({low})\n    }}\n}}\n\n\
+         impl From<Lo{s}> for Fe{s} {{\n    fn from(l: Lo{s}) -> Self {{\n        if l.v < 0 {{\n            Fe{s}::Neg(l.v - {k})\n        }} else {{\n            Fe{s}::Gone\n        }}\n    }}\n}}\n\n\
+         fn low{s}(x: i32) -> Result<i32, Lo{s}> {{\n    if x % {m} == 0 {{\n        Err(Lo{s} {{ v: x }})\n    }} else {{\n        Ok(x / 2)\n    }}\n}}\n\n\
+         fn same{s}(x: i32) -> Result<i32, Fe{s}> {{\n    if x == {k} {{\n        Err(Fe{s}::Gone)\n    }} else {{\n        Ok(x)\n    }}\n}}\n\n\
+         fn chain{s}(a: i32, b: i32, r: Result<i32, i32>, c: bool) -> Result<i32, Fe{s}> {{\n    if c && b < 0 {{\n        return Err({spelled});\n    }}\n    {chain}\n}}\n\n\
+         pub fn {name}({PARAMS}) -> i32 {{\n    match chain{s}(a, b, r, c) {{\n        Ok(v) => v,\n        Err(Fe{s}::Low(n)) => n ^ 1,\n        Err(Fe{s}::Neg(n)) => n ^ 2,\n        Err(Fe{s}::Gone) => 3,\n    }}\n}}\n\n"
+    )
+}
+
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
     source.push_str(&modules(seed));
+    source.push_str(&conversions(seed, fns));
     let mut body = Body {
         g: Gen::new(seed ^ 0x5717),
         seed,

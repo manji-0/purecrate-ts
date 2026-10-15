@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`impl From<S> for X` and `?` across error types** (design/01 §7.25). `X` a struct or enum of the crate, `S` a named type (a crate type, `ParseIntError`, `uuid::Error`, an integer, a float, `bool`, `char`, `String`, `Uuid`), `fn from` only: the companion member `fromS`, named after the source (`AppError.fromParseIntError`, `fromU32`, `fromMyError`), so a type takes several. `X::from(s)`, `From::from(s)` and `s.into()` where the target type is known call it, and so does `?` on a `Result<_, S>` in a function returning `Result<_, X>`: `if (r.kind === "Err") return Result.err(X.fromS(r.error));`, the `match` `map_err(..)?` prints, so the conversion runs only on `Err`, after the operand. A `?` whose error types match prints as before.
+- **`#[derive(Default)]` and `impl Default`** (design/01 §7.25): the companion member `default: (): X`, called by `X::default()`, `Default::default()` where the type is known, and `S { a, ..Default::default() }`, whose fields run before `default()` as in Rust. Each derived field is its type's default in its TS form (`0 as U8`, `0n as I64` for the 64- and 128-bit integers, `0.0 as F64`, `false`, `"\u0000" as Char`, `""`, `[]`, `new Map()`, `new Set()`, `null`, a tuple of defaults, `Y.default()`); an enum's is its `#[default]` unit variant.
+- `survey` judges an `impl From` and an `impl Default`, and the `default` a derive writes, as members of the type (not counted as public functions), and a function that reaches one through `?`, `into()`, or `Default::default()` reaches its member.
+
+### Changed
+
+- `?` on an error type that is not the function's and has no `impl From` into it keeps its `[check/try-conversion]` refusal; the message now names the `impl From<S>` that would take it.
+
+### Refused
+
+- A source with no name of its own: generic (`impl<T> From<T>`), a reference (`From<&str>`), a tuple, an `Option`, or a type with arguments (`From<Vec<u8>>`); an `impl From` or `impl Default` with another member, or on a type outside the crate (`impl From<X> for String`); two sources whose members collide (`From<char>` and a crate type `Char`), or a member that meets an inherent method (`from_bool`). `impl Into` written by hand (`impl From` gives `into()`), and `T: Into<X>` / `T: From<..>` bounds.
+- `.into()` or `From::from` into a std type (`let n: u64 = x.into()`, `u64::from(x)` is the widening), or where the target type is not known.
+- `#[derive(Default)]` where a field's type has no default (`Uuid`, a crate type without `Default`), on a type with type parameters (its `default` needs `T: Default`), and on an enum without a `#[default]` unit variant; `Default::default()` where its type is not known.
+
+Tested against Rust with `?` over three sources in one function and two in one expression, a conversion that overflows only on `Err`, `map_err(..)?` beside a converting `?`, each spelling of the call, non-ASCII `String` sources, an `i64` source at its bounds, every integer width's default, a hand-written `default` that panics behind a field that panics first, and seeds 1 to 120 of the statements generator with an error enum of two `impl From` and a chain of `?` over both (`from_equivalence.rs`, `default_equivalence.rs`).
+
 ## 0.21.0 — 2026-10-15
 
 The notation domain code commonly writes and v0 made longer: text cut and built (`to_lowercase`, `split` on a `&str`, `lines`, `join`, `repeat`, `to_string`), the adaptors `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, and `step_by` with ranges as sequences, an accumulator's literal typed by its first use, associated consts and paths through modules, and slice patterns. `survey corpus/patterns.rs` accepts 91 of 99 functions, 47 of 72 before; the distance to the ideal is 90% (design/07 §2.5). Every generator agrees with Rust on seeds 1 to 120; all but statements seed 119 (0.18.0's known one) type-check.
