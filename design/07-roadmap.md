@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: current (2026-10-15, 0.21.0)
+Status: current (2026-10-15, 0.22.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
@@ -179,7 +179,7 @@ Besides the capabilities in §2.1:
 
 - **The type/function file-name collision** (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
-### 2.5 Distance to the ideal (2026-10-13, 0.21.0 2026-10-15)
+### 2.5 Distance to the ideal (2026-10-13, 0.22.0 2026-10-15)
 
 <!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
 
@@ -205,15 +205,15 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | `to_lowercase`, `split(&str)`, `lines`, `join`, `repeat` | 2 | 1 | accepted from 0.21.0 (0.4 before: `[expr/method-call]`), with `split_whitespace` and `to_string`; the literal `split("")` is refused |
 | Numbers to text (`format!`, `to_string`) | 3 | 0.9 | accepted from 0.16.0 (0.2 before: digits built by hand; idsmith 82 `format!`, 37 `to_string`); `to_string` is `format!("{n}")`, floats stay out |
 | Keyed collections (`HashMap`, `BTreeMap`, sets) | 3 | 0.6 | `BTreeMap<String, V>` / `BTreeSet<String>` accepted from 0.19.0 (0.2 before: a `Vec` of pairs searched in order); `HashMap` is written `BTreeMap`, another spelling; other key types stay `[type/disallowed]` |
-| Generic types and functions (`Page<T>`) | 2 | 0.9 | accepted from 0.20.0, on the wire too (0.2 before: one copy per type; 16 functions and 21 types in the corpus outside idsmith); a `T` is not ordered |
+| Generic types and functions (`Page<T>`) | 2 | 1 | accepted from 0.20.0, on the wire too (0.2 before: one copy per type; 16 functions and 21 types in the corpus outside idsmith); a `T: Ord` ordered, a `T: Display` printed from 0.22.0 (0.9 before) |
 | Fixed-size arrays and tables | 2 | 0.5 | `[type/array]`: a `Vec` or a `match` |
 | Associated consts, calls through module paths | 2 | 1 | accepted from 0.21.0 (0.5 before: `[check/undefined-fn]`, `[expr/external-path]`); an associated const in a pattern takes a guard |
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow; 78% with 0.18.0's std methods; 81% with 0.19.0's keyed collections; 83% with 0.20.0's type parameters; 90% with 0.21.0's notation** (the plan said 75%, 79%, 83%, and 86%: keys other than `String` wait for a use, and a `T` is not ordered). `survey corpus/patterns.rs` accepts 91 of its 99 functions with 0.21.0, 47 of 72 before it; the eight left are `HashMap`, a set of integers, an array, a trait method, `&mut self`, `&` on a `usize`, `{:.2}` on a float, and `partition`. Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]` then, accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, 0.9 now; traits with `Display`, after type parameters, 0.3; each weight 2) gives 61% as measured and 88% now; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow; 78% with 0.18.0's std methods; 81% with 0.19.0's keyed collections; 83% with 0.20.0's type parameters; 90% with 0.21.0's notation; 91% with 0.22.0's traits** (the plan said 75%, 79%, 83%, and 86%: keys other than `String` wait for a use, and a `T` is not ordered). `survey corpus/patterns.rs` accepts 92 of its first 99 functions with 0.22.0 (91 with 0.21.0, 47 of 72 before it), and all 26 shapes 0.22.0 added (125 in all, 118 accepted); the seven left are `HashMap`, a set of integers, an array, `&mut self`, `&` on a `usize`, `{:.2}` on a float, and `partition`. Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]` then, accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, 0.9 now; traits with `Display`, after type parameters, 0.3, and 0.8 from 0.22.0: user traits, `Display`, `Ord`, `Default`, and `From` are in, `dyn`, associated types, and generic traits other than `From` out; each weight 2) gives 61% as measured and 90% now; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** The whole plan in §3 is done: `format!` on integers, the control flow, the std on `Option` / `Result` / `Vec`, keyed collections, and type parameters, to 83% (86% planned); 0.21.0 took the largest notation left (text cut and built, the adaptors and ranges, associated consts and module paths, slice patterns), to 90%. What is left is mostly traits (§5), which `Display`, `PartialOrd` on a `T`, and the corpus's trait method wait for.
+**What moves it.** The whole plan in §3 is done: `format!` on integers, the control flow, the std on `Option` / `Result` / `Vec`, keyed collections, and type parameters, to 83% (86% planned); 0.21.0 took the largest notation left (text cut and built, the adaptors and ranges, associated consts and module paths, slice patterns), to 90%; 0.22.0 took traits (user traits with a dictionary per bound, `Display` with arguments, `Ord`, `Default`, `From`), to 91% and 90% counting the shapes no document had decided. What is left is spread thin: keys other than `String`, fixed-size arrays, `Display` of a float, `partition` and the other adaptors of §4, and `dyn Trait`, which needs values that carry their type.
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
@@ -231,7 +231,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 4. ~~**0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`**~~ Done ([01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring), [04 §3.3](./04-wire.md#33-reading-rules)). A `Map` / `Set` read in key order by code point; `get`, `contains_key`, `len`, `is_empty`, `clone`, `iter` / `keys` / `values`, `for`, `collect`, `==`, and `insert` / `remove` on a local; a JSON object (a set an array) on the wire, every own key a key. Out: keys other than `String`, `HashMap` / `HashSet`, `entry`, `range`, `cmp`.
 5. ~~**0.20.0, type parameters**~~ Done ([01 §7.20](./01-equivalence.md#720-type-parameters)). On structs, enums, inherent `impl` blocks, and functions, emitted as TS generics, the type arguments inferred at each call and construction; the bounds `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Debug`. On the wire, a generic type's schema is a function of its parameters' schemas. Out: ordering a `T` (no comparator for an unknown type), a turbofish, traits.
 6. ~~**0.21.0, notation**~~ Done (2026-10-15, by decision after the plan above: the rows of §2.5 with the most weight left): [01 §7.21](./01-equivalence.md#721-cutting-and-building-text) `to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, `to_string`; [§7.22](./01-equivalence.md#722-iterator-adaptors-and-ranges) `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, `step_by`, a range as a sequence, an accumulator's literal typed by its first use; [§7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules) associated consts and paths through modules; [§7.24](./01-equivalence.md#724-slice-patterns) slice patterns.
-7. **0.22.0, traits** (decided 2026-10-15): [01 §7.25](./01-equivalence.md#725-traits). User traits, `impl Tr for X` on the crate's types, static calls on a known type, and a dictionary parameter per bound (`total(items, Item)`); `Display` with arguments, so `format!` and `to_string` print the crate's types; derived and hand-written `Ord` / `PartialOrd`, so the crate's types and a `T: Ord` are ordered; `Default`; `From`, so `?` converts an error. Out: `dyn`, associated types, generic traits other than `From`, `impl` on a type outside the crate, `FromStr`. Changes 0.20.0's output: a `T: Ord` gains a dictionary parameter (§9).
+7. ~~**0.22.0, traits**~~ Done (2026-10-15, by decision): [01 §7.25](./01-equivalence.md#725-traits). User traits, `impl Tr for X` on the crate's types, static calls on a known type, and a dictionary parameter per bound (`total(items, Item)`); `Display` with arguments, so `format!` and `to_string` print the crate's types; derived and hand-written `Ord` / `PartialOrd`, so the crate's types and a `T: Ord` are ordered; `Default`; `From`, so `?` converts an error. Out: `dyn`, associated types, generic traits other than `From`, `impl` on a type outside the crate, `FromStr`. Changes 0.20.0's output: a `T: Ord` gains a dictionary parameter (§9).
 
 | Candidate | Evidence | Note |
 | --- | --- | --- |
@@ -253,7 +253,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; traits, drafted for 0.22.0 ([01 §7.25](./01-equivalence.md#725-traits)); the adaptors `take`, `skip`, `take_while`, `skip_while`, `peekable`, and `partition`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; the adaptors `take`, `skip`, `take_while`, `skip_while`, `peekable`, and `partition`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
 
 ## 5. v1: when type expressiveness runs out
 
@@ -261,7 +261,7 @@ Planned by decision (2026-10-14, §3), no longer waiting for an example.
 
 - ~~**`BTreeMap<String, V>` and `BTreeSet<String>`**~~ (done in 0.19.0, §3) as `ReadonlyMap<string, V>` / `ReadonlySet<string>`, iterated in Rust's key order (bytes of UTF-8, which is code-point order: `Ord.cmpStr`, not JS's UTF-16 sort). `new`, `get`, `contains_key`, `len`, `is_empty`, iteration, and `insert` / `remove` on a local `let mut`, as a `Vec`'s; on the wire a JSON object. `HashMap` and `HashSet` stay refused: their iteration order is unspecified in Rust itself, so an order-dependent function has no one result to match. Keys of other types wait for a use.
 - ~~**Type parameters**~~ (done in 0.20.0, §3) on structs, enums, and functions, emitted as TS generics (no monomorphization), with the bounds `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`, which the structural output already honors. No other bounds, `where` beyond these, or associated types. Wire schemas for a generic type are functions of the parameter's schema.
-- **Traits** (planned for 0.22.0, §3): a trait is the type of a companion, an `impl` its members, and a bound one more parameter passing the companion, resolved where the types are known ([01 §7.25](./01-equivalence.md#725-traits)). `dyn Trait` stays out: a value carries no tag naming its type.
+- ~~**Traits**~~ (done in 0.22.0, §3): a trait is the type of a companion, an `impl` its members, and a bound one more parameter passing the companion, resolved where the types are known ([01 §7.25](./01-equivalence.md#725-traits)). `dyn Trait` stays out: a value carries no tag naming its type.
 
 ## 6. Not doing
 
