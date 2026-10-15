@@ -107,17 +107,17 @@ pub fn rust_lines(program: &str) -> Vec<String> {
 pub fn check_cases(crate_name: &str, seeds: &[u64], source: &str, cases: &[Case]) {
     let label = format!("{crate_name} (seeds {seeds:?}; PURECRATE_GEN_SEED reruns one)");
     // A sweep (`PURECRATE_GEN_SEED`) may ask for the values alone with
-    // `PURECRATE_GEN_TYPES=report`: what tsc refuses is printed, and node
-    // still runs. The seeds every run checks always type-check.
+    // `PURECRATE_GEN_TYPES=report`: what tsc or oxlint refuses is printed,
+    // and node still runs. The seeds every run checks always pass both.
     let report = std::env::var_os("PURECRATE_GEN_SEED").is_some()
         && std::env::var("PURECRATE_GEN_TYPES").is_ok_and(|v| v == "report");
     let run = || {
         if report {
             if !super::assert_values_equivalent(crate_name, source, cases) {
-                eprintln!("{label}: values agree; tsc refuses the package");
+                eprintln!("{label}: values agree; tsc or oxlint refuses the package");
             }
         } else {
-            super::assert_equivalent(crate_name, source, cases);
+            super::assert_generated_equivalent(crate_name, source, cases);
         }
     };
     if let Err(e) = std::panic::catch_unwind(run) {

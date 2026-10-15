@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the generated equivalence tests over a range of seeds, one process per
 # seed and generator, in parallel, and reports per generator how many seeds
-# agree with Rust and type-check, agree but are refused by tsc, or fail.
+# agree with Rust and pass tsc and oxlint, agree but are refused by either, or
+# fail.
 #
 #   scripts/gen-sweep.sh [-s FROM-TO] [-j JOBS] [-g GEN[,GEN..]] [-o DIR] [-k]
 #
@@ -11,10 +12,11 @@
 #       widths, text, floats, collections, strings
 #   -o  where the logs go (default: a temporary directory, printed)
 #   -k  keep going on a refusal: exit 0 when every value agrees, even where
-#       tsc refuses (by default, a refusal fails the sweep as a mismatch does)
+#       tsc or oxlint refuses (by default, a refusal fails the sweep as a
+#       mismatch does)
 #
 # Each run sets PURECRATE_GEN_SEED and PURECRATE_GEN_TYPES=report, so the
-# values are compared even where tsc refuses the package; its log is
+# values are compared even where tsc or oxlint refuses the package; its log is
 # <dir>/<generator>-<seed>.log. Rerun one with the line the summary prints,
 # and reduce it with scripts/gen-reduce.py. Seeds 1 to 120 of all five
 # generators take about 25 minutes with 6 runs at a time on an M-series Mac.
@@ -82,7 +84,7 @@ one() {
   t=$(test_of "$g")
   if (cd "$root/crates/cli" && PURECRATE_GEN_SEED=$s PURECRATE_GEN_TYPES=report \
       "$out/it" --exact "$t" --nocapture) > "$log" 2>&1; then
-    if grep -q 'tsc refuses the package' "$log"; then echo "$g $s types"; else echo "$g $s ok"; fi
+    if grep -q 'oxlint refuses the package' "$log"; then echo "$g $s types"; else echo "$g $s ok"; fi
   else
     echo "$g $s FAIL"
   fi
@@ -108,7 +110,7 @@ if [ -n "$problems" ]; then
   echo "gen-sweep: seeds to look at (first lines of each log):"
   while read -r g s st; do
     echo "== $g seed $s: $st"
-    grep -m3 -E 'rust .* / ts|error TS|rejected|message:|SyntaxError|panicked' "$out/$g-$s.log" | cut -c1-200 || true
+    grep -m3 -E 'rust .* / ts|error TS|error [a-z]+\(|rejected|message:|SyntaxError|panicked' "$out/$g-$s.log" | cut -c1-200 || true
     echo "   rerun: (cd crates/cli && PURECRATE_GEN_SEED=$s PURECRATE_GEN_TYPES=report $out/it --exact $(test_of "$g") --nocapture)"
     echo "   reduce: scripts/gen-reduce.py $g $s"
   done <<<"$problems"

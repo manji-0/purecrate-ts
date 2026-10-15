@@ -61,7 +61,7 @@ fn generated_guards_match_rust() {
 /// Random states, events, and values through the guarded decision trees.
 #[test]
 fn random_guards_match_rust() {
-    support::equivalence("guards_random", guards::SOURCE, |cases| {
+    support::equivalence("guards", guards::SOURCE, |cases| {
         use guards::{Event, Rate, State};
         let mut rng = support::Rng::new(0x0006_a2d5);
         for _ in 0..500 {

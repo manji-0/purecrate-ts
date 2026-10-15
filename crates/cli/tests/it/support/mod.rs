@@ -4,7 +4,10 @@
 //! with the same message. Values compare whole, as canonical text derived
 //! from the IR on both sides (`Show`, `purecrate_canon::fixture!`). The
 //! package must also pass `tsc` with its own strict tsconfig first: node
-//! only strips types, so a type error would otherwise go unnoticed.
+//! only strips types, so a type error would otherwise go unnoticed. And it
+//! must pass the type-aware oxlint `scripts/verify.sh` runs over the
+//! fixtures' output (`linted`), so a shape the lint refuses fails here, not
+//! only there.
 //! Needs `node` and `npx` on PATH; `PURECRATE_SKIP_NODE=1` skips.
 
 use std::fs;
@@ -278,18 +281,57 @@ fn types_checked(dir: &std::path::Path) -> bool {
 
 /// Accepts `source`, generates its package, and checks every case agrees.
 pub fn assert_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
-    equivalent(crate_name, source, cases, true);
+    equivalent(crate_name, source, cases, true, Lint::Fixture);
 }
 
-/// As `assert_equivalent`, with what tsc refuses printed instead of
-/// failing, so the values are still compared; whether tsc accepted the
-/// package. Only for sweeps over generated seeds.
-pub fn assert_values_equivalent(crate_name: &str, source: &str, cases: &[Case]) -> bool {
-    equivalent(crate_name, source, cases, false)
+/// As `assert_equivalent`, for a crate a generator wrote (`Lint::Generated`).
+pub fn assert_generated_equivalent(crate_name: &str, source: &str, cases: &[Case]) {
+    equivalent(crate_name, source, cases, true, Lint::Generated);
 }
+
+/// As `assert_generated_equivalent`, with what tsc and oxlint refuse
+/// printed instead of failing, so the values are still compared; whether
+/// both accepted the package. Only for sweeps over generated seeds.
+pub fn assert_values_equivalent(crate_name: &str, source: &str, cases: &[Case]) -> bool {
+    equivalent(crate_name, source, cases, false, Lint::Generated)
+}
+
+/// Which lint the package must pass.
+#[derive(Clone, Copy, PartialEq)]
+enum Lint {
+    /// `scripts/verify.sh`'s over a fixture's output.
+    Fixture,
+    /// The same, less the rules a generated crate's source breaks by
+    /// construction (`GENERATED_SOURCE_RULES`).
+    Generated,
+}
+
+/// Rules a generator's random source breaks itself, so its output does
+/// too: comparisons and conditions of constants (`1 < 2`, `x * 0`, a
+/// `while` on a value the body does not change), and statements whose
+/// value is unused or that assign a local to itself. The output keeps what
+/// the source wrote, as it does for a fixture (`scripts/fixtures.oxlintrc.json`).
+const GENERATED_SOURCE_RULES: &[&str] = &[
+    "oxc/const-comparisons",
+    "oxc/erasing-op",
+    "eslint/no-constant-binary-expression",
+    "eslint/no-constant-condition",
+    "eslint/no-unmodified-loop-condition",
+    "eslint/no-unused-expressions",
+    "eslint/no-unused-vars",
+    "eslint/no-self-assign",
+    "typescript/no-unnecessary-condition",
+    // Not the source's: the output of the default seeds breaks these where
+    // no fixture does, and they are open (0.22.0): a `let x;` assigned
+    // later keeps the name of an outer `x` it shadows (statements), and an
+    // integer literal in a conditional compared by `Ord.tuple` keeps its
+    // `as I32` (patterns).
+    "eslint/no-shadow",
+    "typescript/no-unnecessary-type-assertion",
+];
 
 #[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]
-fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bool) -> bool {
+fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bool, lint: Lint) -> bool {
     assert!(cfg!(debug_assertions), "the Rust baseline needs overflow checks; run without --release");
     if std::env::var_os("PURECRATE_SKIP_NODE").is_some() {
         eprintln!("PURECRATE_SKIP_NODE set: skipping TS equivalence");
@@ -297,14 +339,20 @@ fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bo
     }
     let krate = parse_source(crate_name, source).unwrap_or_else(|e| panic!("parse {crate_name}: {e}"));
     let typed = accept(&krate).unwrap_or_else(|d| panic!("{crate_name} rejected: {d:#?}"));
-    let dir = scratch(&format!("{crate_name}-eq"));
+    // The package in a directory named for its crate, as verify.sh lays
+    // out the fixtures it lints.
+    let root = scratch(&format!("{crate_name}-eq"));
+    let dir = root.join(crate_name);
     write_package(&dir, &assemble(&typed));
+    // Before the driver, which is not output.
+    let lint_ok = linted(&root, lint);
     fs::write(dir.join("driver.ts"), driver(&krate, cases)).expect("write driver");
     let types_ok = if types_required {
         typecheck(&dir);
+        assert!(lint_ok, "oxlint rejects the generated package in {}", dir.display());
         true
     } else {
-        types_checked(&dir)
+        types_checked(&dir) && lint_ok
     };
 
     let output = Command::new("node")
@@ -323,7 +371,54 @@ fn equivalent(crate_name: &str, source: &str, cases: &[Case], types_required: bo
         .filter(|(c, got)| c.rust != **got)
         .map(|(c, got)| format!("{}: rust {} / ts {got}", c.call, c.rust))
         .collect();
-    fs::remove_dir_all(&dir).ok();
+    fs::remove_dir_all(&root).ok();
     assert!(mismatches.is_empty(), "mismatches:\n{}", mismatches.join("\n"));
     types_ok
+}
+
+/// Whether the package under `root` passes what `scripts/verify.sh` runs
+/// over each fixture's output: oxlint, type-aware, with the examples'
+/// configuration less what a fixture writes on purpose
+/// (`scripts/fixtures.oxlintrc.json`, whose overrides name a file by its
+/// crate's directory), run from `examples/`, where `oxlint-tsgolint` is
+/// installed. What it refuses is printed.
+fn linted(root: &std::path::Path, lint: Lint) -> bool {
+    let examples = repo().join("examples");
+    let oxlint = examples.join("node_modules/.bin/oxlint");
+    assert!(oxlint.exists(), "no {} (run `npm ci` in examples/)", oxlint.display());
+    let config = fs::read_to_string(examples.join(".oxlintrc.json")).expect("read examples/.oxlintrc.json");
+    let config: String = config.lines().filter(|l| !l.contains("\"$schema\"")).map(|l| format!("{l}\n")).collect();
+    fs::write(root.join("examples.oxlintrc.json"), config).expect("write lint config");
+    fs::copy(repo().join("scripts/fixtures.oxlintrc.json"), root.join("fixtures.oxlintrc.json"))
+        .expect("copy lint config");
+    let config = match lint {
+        Lint::Fixture => root.join("fixtures.oxlintrc.json"),
+        Lint::Generated => {
+            // `extends` does not carry `ignorePatterns`.
+            let off: Vec<String> = GENERATED_SOURCE_RULES.iter().map(|r| format!("\"{r}\": \"off\"")).collect();
+            let config = format!(
+                "{{\n  \"extends\": [\"./fixtures.oxlintrc.json\"],\n  \"ignorePatterns\": [\"**/node_modules/**\", \"**/purecrate-runtime.ts\"],\n  \"rules\": {{ {} }}\n}}\n",
+                off.join(", ")
+            );
+            let path = root.join("generated.oxlintrc.json");
+            fs::write(&path, config).expect("write lint config");
+            path
+        }
+    };
+    let output = Command::new(&oxlint)
+        .args(["--type-aware", "--deny-warnings", "-c"])
+        .arg(&config)
+        .arg(root)
+        .current_dir(&examples)
+        .output()
+        .expect("run oxlint");
+    if !output.status.success() {
+        eprintln!(
+            "oxlint rejects the generated package in {}:\n{}{}",
+            root.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    output.status.success()
 }
