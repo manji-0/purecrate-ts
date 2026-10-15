@@ -88,6 +88,7 @@ mod slice_patterns_equivalence;
 mod slicing_equivalence;
 mod sort_pick_equivalence;
 mod ssh_equivalence;
+mod std_bounds_equivalence;
 mod std_methods_equivalence;
 mod std_more_equivalence;
 mod str_methods_equivalence;

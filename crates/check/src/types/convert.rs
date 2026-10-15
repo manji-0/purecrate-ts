@@ -156,6 +156,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Ty::Named(n) if self.defs.methods.contains_key(&(n.as_str(), "default")) => {
                 Some(call(Callee::Method { ty: n, name: Name::new("default") }))
             }
+            // A generic one's takes its parameters' dictionaries.
+            Ty::App { name: n, .. } if self.defs.methods.contains_key(&(n.as_str(), "default")) => {
+                return self.call(&Callee::Method { ty: n, name: Name::new("default") }, &[], want);
+            }
             // A `T: Default`: its dictionary's `default()`.
             Ty::Param(p) if self.dicts.iter().any(|(of, tr, _)| *of == p && self.defs.extends(tr.as_str(), "Default")) => {
                 return self.bound_call(&p, &Name::new("default"), &[], want);

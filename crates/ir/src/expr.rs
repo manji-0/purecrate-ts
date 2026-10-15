@@ -688,17 +688,17 @@ pub enum Callee {
     /// does not order (design/01 §7.25): the comparator on `a`, then `b`,
     /// each evaluated once. Prints as `Ord.cmpList(a, b, by)` for a `Vec`,
     /// else as `Ord.option(by)(a, b)` or `Ord.tuple(..)(a, b)`. A crate
-    /// type's own `cmp` is a `Method` call. The dictionaries `by` reads
-    /// (`Cmp::dicts`) follow `a` and `b`.
+    /// type's own `cmp` is a `Method` call. The arguments `by` takes
+    /// (`Cmp::args`) follow `a` and `b`.
     OrdCmpBy(Cmp),
     /// A comparator as a value, where a runtime function takes one
     /// (`Slice.sortBy(v, Item.cmp)`, `Iter.maxBy(xs, Ord.option(Ord.cmp))`).
-    /// Takes the dictionaries it reads (`Cmp::dicts`), and nothing else.
+    /// Takes the arguments it reads (`Cmp::args`), and nothing else.
     OrdBy(Cmp),
     /// `a.max(b)`, `a.min(b)`, or `x.clamp(lo, hi)` by `by`, as std's `Ord`
     /// methods choose: `max` the second of equals, `min` the first, `clamp`
     /// panicking where `lo > hi`. The arguments in Rust's order, then the
-    /// dictionaries `by` reads; prints as `Ord.max(a, b, by)` and so on.
+    /// ones `by` takes (`Cmp::args`); prints as `Ord.max(a, b, by)` and so on.
     OrdPick {
         pick: Pick,
         by: Cmp,
@@ -1199,30 +1199,36 @@ pub enum Cmp {
     /// A value of the type parameter it names, by the `cmp` of its `Ord`
     /// (or `PartialOrd`) dictionary: `ordT.cmp`. The dictionary is an
     /// argument of the call that holds the comparator, after its operands,
-    /// one per `Dict` in the order `dicts` walks them, so every pass sees it
-    /// read.
+    /// one per `Dict` or `Fn` in the order `args` walks them, so every pass
+    /// sees it read.
     Dict(Name),
+    /// A generic crate type with `Ord` (`Page<u32>`), whose `cmp` takes its
+    /// parameters' dictionaries: the comparator is an argument as a
+    /// `Dict`'s dictionary is, a closure,
+    /// `(a: Page<U32>, b: Page<U32>): Ordering => Page.cmp(a, b, ordU32)`.
+    Fn(Ty),
 }
 
 impl Cmp {
-    /// Each crate type whose `cmp` this comparator calls.
+    /// Each crate type whose `cmp` this comparator calls by name (a `Fn`'s
+    /// call is in its argument).
     pub fn types(&self) -> Vec<&Name> {
         match self {
-            Cmp::Num | Cmp::Text | Cmp::Dict(_) => Vec::new(),
+            Cmp::Num | Cmp::Text | Cmp::Dict(_) | Cmp::Fn(_) => Vec::new(),
             Cmp::Type(n) => vec![n],
             Cmp::Option(c) | Cmp::Vec(c) => c.types(),
             Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::types).collect(),
         }
     }
 
-    /// Each type parameter whose dictionary this comparator reads, in the
-    /// order its call takes the dictionaries.
-    pub fn dicts(&self) -> Vec<&Name> {
+    /// Each `Dict` and `Fn` in this comparator, in the order its call
+    /// takes their arguments.
+    pub fn args(&self) -> Vec<&Cmp> {
         match self {
             Cmp::Num | Cmp::Text | Cmp::Type(_) => Vec::new(),
-            Cmp::Dict(p) => vec![p],
-            Cmp::Option(c) | Cmp::Vec(c) => c.dicts(),
-            Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::dicts).collect(),
+            Cmp::Dict(_) | Cmp::Fn(_) => vec![self],
+            Cmp::Option(c) | Cmp::Vec(c) => c.args(),
+            Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::args).collect(),
         }
     }
 }

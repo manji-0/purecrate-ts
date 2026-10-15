@@ -547,12 +547,12 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
     match item {
         SynItem::Enum(e) => {
             let lowered = lower_enum(cx, &e)?;
-            let default = derived_default(&e.attrs, &lowered.name, !lowered.generics.is_empty(), || enum_default(&e))?;
+            let default = derived_default(&e.attrs, &lowered.name, &lowered.generics, || enum_default(&e))?;
             Ok(std::iter::once(Item::Enum(lowered)).chain(default.map(Item::Fn)).collect())
         }
         SynItem::Struct(s) => {
             let lowered = lower_struct(cx, &s)?;
-            let default = derived_default(&s.attrs, &lowered.name, !lowered.generics.is_empty(), || {
+            let default = derived_default(&s.attrs, &lowered.name, &lowered.generics, || {
                 Ok(struct_default(&lowered))
             })?;
             Ok(std::iter::once(Item::Struct(lowered)).chain(default.map(Item::Fn)).collect())
@@ -1295,32 +1295,35 @@ fn lower_default(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
 /// `#[derive(Default)]` as the method `X::default()`, public like the
 /// trait: on a struct each field's `Default::default()`, which the check
 /// reads at the field's type (`Callee::Default`); on an enum its
-/// `#[default]` unit variant. `None` without the derive. A type with type
-/// parameters is refused: its `default` needs `T: Default`.
+/// `#[default]` unit variant. `None` without the derive. On a type with
+/// type parameters it is generic as the derive's `impl<T: Default>` is,
+/// taking a `Default` dictionary per parameter (design/01 §7.25).
 fn derived_default(
     attrs: &[syn::Attribute],
     name: &Name,
-    generic: bool,
+    generics: &[Name],
     body: impl FnOnce() -> Result<purecrate_ir::Expr, ParseError>,
 ) -> Result<Option<Fn>, ParseError> {
     let Some(at) = derive_span(attrs, "Default") else { return Ok(None) };
-    if generic {
-        return Err(ParseError::new(
-            Reason::Generics,
-            format!(
-                "`#[derive(Default)]` on `{}`, which has type parameters, is not in v0: its `default` needs `T: Default`",
-                name.as_str()
-            ),
-        )
-        .or_at(at));
-    }
+    let params = generics
+        .iter()
+        .map(|g| Param {
+            name: purecrate_ir::dict_param("Default", g.as_str()),
+            ty: purecrate_ir::dict_ty(&Name::new("Default"), purecrate_ir::Ty::Param(g.clone())),
+        })
+        .collect();
+    let ret = if generics.is_empty() {
+        purecrate_ir::Ty::Named(name.clone())
+    } else {
+        purecrate_ir::Ty::App { name: name.clone(), args: generics.iter().cloned().map(purecrate_ir::Ty::Param).collect() }
+    };
     Ok(Some(Fn {
-        generics: Vec::new(),
+        generics: generics.to_vec(),
         vis: Vis::Pub,
         name: Name::new("default"),
         owner: Some(name.clone()),
-        params: Vec::new(),
-        ret: purecrate_ir::Ty::Named(name.clone()),
+        params,
+        ret,
         body: body().map_err(|e| e.or_at(at))?,
         doc: None,
         display: false,

@@ -449,7 +449,7 @@ impl Refs {
             }
             Expr::Unreachable => self.never = true,
             Expr::Index { .. } => self.slice = true,
-            Expr::Call { callee, .. } => {
+            Expr::Call { callee, args } => {
                 match callee {
                     Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {
                         self.values.insert(n.as_str().to_string());
@@ -468,7 +468,8 @@ impl Refs {
                     // `Ord.` where a comparator is the runtime's, and each
                     // crate type whose `cmp` it calls.
                     Callee::OrdCmpBy(by) | Callee::OrdBy(by) | Callee::OrdPick { by, .. } => {
-                        self.ord |= !matches!(by, purecrate_ir::Cmp::Type(_) | purecrate_ir::Cmp::Dict(_))
+                        use purecrate_ir::Cmp;
+                        self.ord |= !matches!(by, Cmp::Type(_) | Cmp::Dict(_) | Cmp::Fn(_))
                             || matches!(callee, Callee::OrdPick { .. });
                         self.values.extend(by.types().into_iter().map(|t| t.as_str().to_string()));
                     }
@@ -494,13 +495,13 @@ impl Refs {
                         if matches!(method, purecrate_ir::Consume::Position | purecrate_ir::Consume::Count) {
                             self.nums.insert("Usize".into());
                         }
-                        if matches!(
-                            method,
-                            purecrate_ir::Consume::Max { .. }
-                                | purecrate_ir::Consume::Min { .. }
-                                | purecrate_ir::Consume::MaxByKey { .. }
-                                | purecrate_ir::Consume::MinByKey { .. }
-                        ) {
+                        // `Ord.cmp` where no comparator follows the key.
+                        if matches!(method, purecrate_ir::Consume::Max { .. } | purecrate_ir::Consume::Min { .. })
+                            || matches!(
+                                method,
+                                purecrate_ir::Consume::MaxByKey { .. } | purecrate_ir::Consume::MinByKey { .. }
+                            ) && args.len() < 3
+                        {
                             self.ord = true;
                         }
                     }

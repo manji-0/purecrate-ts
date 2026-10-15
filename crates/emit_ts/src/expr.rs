@@ -646,15 +646,15 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         C::OrdCmp { text } => call(ord_cmp(*text), args, indent),
         C::OrdThen => call("Ord.then", args, indent),
         C::OrdCmpBy(purecrate_ir::Cmp::Vec(by)) => {
-            let by = comparator(by, &mut dicts(&args[2..], indent));
+            let by = comparator(by, &mut args[2..].iter(), indent);
             format!("Ord.cmpList({}, {}, {by})", emit_expr(&args[0], indent), emit_expr(&args[1], indent))
         }
-        C::OrdCmpBy(by) => call(&comparator(by, &mut dicts(&args[2..], indent)), &args[..2], indent),
-        C::OrdBy(by) => comparator(by, &mut dicts(args, indent)),
+        C::OrdCmpBy(by) => call(&comparator(by, &mut args[2..].iter(), indent), &args[..2], indent),
+        C::OrdBy(by) => comparator(by, &mut args.iter(), indent),
         C::OrdPick { pick, by } => {
             let takes = if *pick == purecrate_ir::Pick::Clamp { 3 } else { 2 };
             let all: Vec<String> = args[..takes].iter().map(|a| emit_item(a, indent)).collect();
-            let by = comparator(by, &mut dicts(&args[takes..], indent));
+            let by = comparator(by, &mut args[takes..].iter(), indent);
             format!("Ord.{}({}, {by})", pick.ts_name(), all.join(", "))
         }
         // `{ cmp: Ord.cmp }`: the record of the trait's one member.
@@ -971,26 +971,25 @@ fn ord_cmp(text: bool) -> &'static str {
 }
 
 /// A comparator as a function value (design/01 §7.25): `Ord.cmp`,
-/// `Ord.cmpStr`, a crate type's `X.cmp`, a dictionary's `ordT.cmp` (each
-/// dictionary taken from `dicts` in turn), or one the runtime composes.
-fn comparator(by: &purecrate_ir::Cmp, dicts: &mut dyn Iterator<Item = String>) -> String {
+/// `Ord.cmpStr`, a crate type's `X.cmp`, a dictionary's `ordT.cmp`, a
+/// generic type's closure, or one the runtime composes. Each `Dict`'s
+/// dictionary and `Fn`'s closure is the next of `args`.
+fn comparator<'e>(by: &purecrate_ir::Cmp, args: &mut impl Iterator<Item = &'e Expr>, indent: usize) -> String {
     use purecrate_ir::Cmp;
+    let mut arg = || args.next().expect("an argument per `Cmp::Dict` and `Cmp::Fn`");
     match by {
         Cmp::Num => ord_cmp(false).into(),
         Cmp::Text => ord_cmp(true).into(),
         Cmp::Type(ty) => format!("{}.cmp", ty.as_str()),
-        Cmp::Dict(_) => format!("{}.cmp", dicts.next().expect("a dictionary per `Cmp::Dict`")),
-        Cmp::Option(by) => format!("Ord.option({})", comparator(by, dicts)),
-        Cmp::Vec(by) => format!("Ord.vec({})", comparator(by, dicts)),
+        Cmp::Dict(_) => format!("{}.cmp", recv(arg(), indent)),
+        Cmp::Fn(_) => emit_item(arg(), indent),
+        Cmp::Option(by) => format!("Ord.option({})", comparator(by, args, indent)),
+        Cmp::Vec(by) => format!("Ord.vec({})", comparator(by, args, indent)),
         Cmp::Tuple(bys) => {
-            format!("Ord.tuple({})", bys.iter().map(|by| comparator(by, dicts)).collect::<Vec<_>>().join(", "))
+            let each: Vec<String> = bys.iter().map(|by| comparator(by, args, indent)).collect();
+            format!("Ord.tuple({})", each.join(", "))
         }
     }
-}
-
-/// The dictionaries a comparator reads, printed as objects of `.cmp`.
-fn dicts<'e>(args: &'e [Expr], indent: usize) -> impl Iterator<Item = String> + 'e {
-    args.iter().map(move |a| recv(a, indent))
 }
 
 fn tx_op(op: BinOp) -> Op {
@@ -1038,7 +1037,7 @@ fn typed_table(table: &[(Name, i128)], of: &Name, big: bool, subject: &Expr, ind
         let name = temp(&base);
         let (n, num) = if big { ("n", "bigint") } else { ("", "number") };
         let entries: Vec<String> = table.iter().map(|(v, d)| format!("{}: {d}{n}", v.as_str())).collect();
-        let check = format!("satisfies Record<{}[\"kind\"], {num}>;", of.as_str());
+        let check = format!("satisfies Record<{}[\"kind\"], {num}>;", crate::context::any_enum(of.as_str()));
         // One line where it fits, else one variant a line: oxfmt keeps an
         // object opened so, where it would break the `Record<..>` instead.
         let line = format!("const {name} = {{ {} }} {check}", entries.join(", "));

@@ -915,7 +915,7 @@ export const Ord = {
   // #endregion
 } as const;
 
-// #region PartialOrd ord.type
+// #region partialOrd.type ord.type
 /**
  * The dictionary of a `T: PartialOrd` bound (design/01 §7.25): the type's
  * `cmp`, by which `<`, `max`, and `sort` order its values. Its result is
@@ -931,12 +931,12 @@ export type PartialOrd<T> = Readonly<{
 export type Ord<T> = PartialOrd<T>;
 // #endregion
 
-// #region Display
+// #region display.type
 /** The dictionary of a `T: Display` bound: what `format!("{}", x)` prints. */
 export type Display<T> = Readonly<{ toString: (self: T) => string }>;
 // #endregion
 
-// #region Default
+// #region default.type
 /** The dictionary of a `T: Default` bound: `T::default()`. */
 export type Default<T> = Readonly<{ default: () => T }>;
 // #endregion

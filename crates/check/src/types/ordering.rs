@@ -60,7 +60,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             None => norm,
         };
         match &norm {
-            Ty::Named(_) => return None,
+            Ty::Named(_) | Ty::App { .. } => return None,
             Ty::Prim(p) if p.int().is_some() => {}
             Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid | Prim::Bool) => {}
             Ty::Prim(Prim::F32 | Prim::F64) => {
@@ -125,8 +125,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             return failed;
         }
         let (arg, _) = self.expr(arg, Some(rt));
-        let dicts = self.by_dicts(&by);
-        (compare(by, recv, arg, dicts), self.expect(want, Some(Ty::named(ORDERING))))
+        (self.compare(by, recv, arg), self.expect(want, Some(Ty::named(ORDERING))))
     }
 
     /// How `t`'s values compare by `cmp` (`order::comparator`), or what in
@@ -144,15 +143,64 @@ impl<'d, 'a> Typer<'d, 'a> {
         self.dicts.iter().find(|(of, tr, _)| of == p && defs.extends(tr.as_str(), "PartialOrd")).map(|d| d.2.clone())
     }
 
-    /// The dictionaries `by` reads, in order, as its call's arguments.
-    pub(super) fn by_dicts(&self, by: &Cmp) -> Vec<Expr> {
-        by.dicts().into_iter().map(|p| Expr::Var(self.ord_dict(p).expect("`comparator` found it"))).collect()
+    /// The arguments `by` takes (`Cmp::args`), in order: each `Dict`'s
+    /// dictionary, and each `Fn`'s closure calling the generic type's `cmp`
+    /// with its parameters' dictionaries.
+    pub(super) fn by_args(&mut self, by: &Cmp) -> Vec<Expr> {
+        let mut out = Vec::new();
+        for c in by.args() {
+            match c {
+                Cmp::Dict(p) => out.push(Expr::Var(self.ord_dict(p).expect("`comparator` found it"))),
+                Cmp::Fn(t) => {
+                    let (a, b) = (Name::new("a"), Name::new("b"));
+                    let body = self.generic_cmp(t, Expr::Var(a.clone()), Expr::Var(b.clone()));
+                    let params =
+                        [a, b].into_iter().map(|name| ClosureParam { name, ty: Some(t.clone()) }).collect();
+                    out.push(Expr::Closure { params, ret: Some(Ty::named(ORDERING)), body: Box::new(body) });
+                }
+                _ => unreachable!("`Cmp::args` gives `Dict`s and `Fn`s"),
+            }
+        }
+        out
+    }
+
+    /// `S.cmp(a, b, ..)` on two values of the generic crate type `t`
+    /// (`S<u32>`), its parameters' dictionaries after them.
+    fn generic_cmp(&mut self, t: &Ty, a: Expr, b: Expr) -> Expr {
+        let (owner, args) = t.applied().expect("a generic crate type");
+        let f = self.defs.methods[&(owner.as_str(), "cmp")];
+        let binds: Vec<(Name, Ty)> = f.generics.iter().cloned().zip(args.iter().cloned()).collect();
+        let args = self.with_dicts(f, vec![a, b], &binds);
+        Expr::Call { callee: Callee::Method { ty: owner.clone(), name: Name::new("cmp") }, args }
     }
 
     /// A comparator as an argument of a runtime function.
-    pub(super) fn comparator_value(&self, by: Cmp) -> Expr {
-        let args = self.by_dicts(&by);
+    pub(super) fn comparator_value(&mut self, by: Cmp) -> Expr {
+        let args = self.by_args(&by);
         Expr::Call { callee: Callee::OrdBy(by), args }
+    }
+
+    /// `a.cmp(&b)` by `by`: a crate type's own `cmp` (a generic one's with
+    /// its parameters' dictionaries), a dictionary's (`ordT.cmp(a, b)`), and
+    /// the runtime's `Ord.cmp`, `Ord.cmpStr`, and `Ord.cmpList` as before
+    /// for what they order, else `Callee::OrdCmpBy`.
+    pub(super) fn compare(&mut self, by: Cmp, a: Expr, b: Expr) -> Expr {
+        let callee = match by {
+            Cmp::Type(ty) => Callee::Method { ty, name: Name::new("cmp") },
+            Cmp::Fn(t) => return self.generic_cmp(&t, a, b),
+            Cmp::Dict(p) => {
+                let dict = Expr::Var(self.ord_dict(&p).expect("`comparator` found it"));
+                return Expr::Call { callee: Callee::Dict { name: Name::new("cmp") }, args: vec![dict, a, b] };
+            }
+            Cmp::Num => Callee::OrdCmp { text: false },
+            Cmp::Text => Callee::OrdCmp { text: true },
+            Cmp::Vec(by) if matches!(*by, Cmp::Num | Cmp::Text) => Callee::OrdCmpList { text: *by == Cmp::Text },
+            by => {
+                let rest = self.by_args(&by);
+                return Expr::Call { callee: Callee::OrdCmpBy(by), args: [a, b].into_iter().chain(rest).collect() };
+            }
+        };
+        Expr::Call { callee, args: vec![a, b] }
     }
 
     /// Why `t`, which `comparator` found `why` in, has no order: a crate
@@ -212,6 +260,16 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => return None,
         }
         let failed = Some((Expr::Lit(Lit::Unit), None));
+        if let (Pick::Clamp, Ty::Param(p)) = (pick, &norm) {
+            self.error(
+                Reason::MethodCall,
+                format!(
+                    "`.clamp()` on a `{0}` is not in v0: where its bounds cross, std panics with a message that depends on `{0}`'s type (an integer's and a `char`'s name the bounds, another type's does not); clamp a value of a known type, or an `Option<{0}>`, whose `clamp` is std's for every `{0}`",
+                    p.as_str()
+                ),
+            );
+            return failed;
+        }
         let by = match self.comparator(&norm) {
             Ok(by) => by,
             Err(why) => {
@@ -236,7 +294,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut all = vec![recv];
         all.extend(args.iter().map(|a| self.expr(a, Some(rt)).0));
-        all.extend(self.by_dicts(&by));
+        all.extend(self.by_args(&by));
         let e = Expr::Call { callee: Callee::OrdPick { pick, by }, args: all };
         Some((e, self.expect(want, Some(rt.clone()))))
     }
@@ -346,25 +404,6 @@ impl<'d, 'a> Typer<'d, 'a> {
         let (typed, t) = self.scoped(&lets, body, want);
         (wrap_lets(lets, typed), t)
     }
-}
-
-/// `a.cmp(&b)` by `by`, which reads `dicts` (`Typer::by_dicts`): a crate
-/// type's own `cmp`, a dictionary's (`ordT.cmp(a, b)`), and the runtime's
-/// `Ord.cmp`, `Ord.cmpStr`, and `Ord.cmpList` as before for what they
-/// order, else `Callee::OrdCmpBy`.
-pub(super) fn compare(by: Cmp, a: Expr, b: Expr, dicts: Vec<Expr>) -> Expr {
-    let callee = match by {
-        Cmp::Type(ty) => Callee::Method { ty, name: Name::new("cmp") },
-        Cmp::Dict(_) => {
-            let args = dicts.into_iter().chain([a, b]).collect();
-            return Expr::Call { callee: Callee::Dict { name: Name::new("cmp") }, args };
-        }
-        Cmp::Num => Callee::OrdCmp { text: false },
-        Cmp::Text => Callee::OrdCmp { text: true },
-        Cmp::Vec(by) if matches!(*by, Cmp::Num | Cmp::Text) => Callee::OrdCmpList { text: *by == Cmp::Text },
-        by => Callee::OrdCmpBy(by),
-    };
-    Expr::Call { callee, args: [a, b].into_iter().chain(dicts).collect() }
 }
 
 /// `Ordering::<v>`.

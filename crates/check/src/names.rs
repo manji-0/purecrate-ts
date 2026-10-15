@@ -111,6 +111,7 @@ const GENERATED_STEMS: &[&str] =
 pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     files_are_distinct(krate, &mut out);
+    std_names_are_free(krate, &mut out);
     companion_members_are_distinct(krate, &mut out);
     for (i, item) in krate.items.iter().enumerate() {
         identifiers_are_usable(i, item, &mut out);
@@ -173,6 +174,58 @@ fn files_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
                 seen.insert(stem, i);
             }
         }
+    }
+}
+
+/// Once a function takes a std bound's dictionary (design/01 §7.25), the
+/// package names its record's type (`Display<T>`, from the runtime) and the
+/// primitives' dictionaries it passes (`ordI32`, in `consts.ts`): a
+/// top-level item of the crate printed as one would meet it.
+fn std_names_are_free(krate: &Crate, out: &mut Vec<Diagnostic>) {
+    let is_trait = |n: &str| krate.items.iter().any(|i| matches!(i, Item::Trait(t) if t.name.as_str() == n));
+    let mut bounds: Vec<&str> = krate
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Fn(f) => Some(f),
+            _ => None,
+        })
+        .flat_map(|f| f.params.iter())
+        .filter_map(|p| match &p.ty {
+            purecrate_ir::Ty::App { name, .. }
+                if purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str()) && !is_trait(name.as_str()) =>
+            {
+                Some(name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    bounds.sort_unstable();
+    bounds.dedup();
+    if bounds.is_empty() {
+        return;
+    }
+    let types = ["Bool", "Char", "String", "Uuid", "F32", "F64"]
+        .into_iter()
+        .chain(purecrate_ir::IntTy::ALL.into_iter().map(|t| t.ts_name()));
+    let dicts: Vec<String> =
+        types.flat_map(|t| ["ord", "display", "default"].into_iter().map(move |tr| format!("{tr}{t}"))).collect();
+    for (i, item) in krate.items.iter().enumerate().filter(|(_, it)| is_top_level(it)) {
+        let name = item.name().as_str();
+        let printed = match item {
+            Item::Fn(_) | Item::Const(_) => to_camel(name),
+            _ => name.to_string(),
+        };
+        let message = if bounds.contains(&printed.as_str()) {
+            format!(
+                "`{name}` is the type of a `T: {printed}` bound's dictionary in the generated package (design/01 §7.25); rename the crate's `{name}`"
+            )
+        } else if dicts.contains(&printed) {
+            format!("`{name}` is reserved by the generated package for std's dictionaries (design/01 §7.25)")
+        } else {
+            continue;
+        };
+        out.push(Diagnostic::at(i, Reason::ReservedName, message));
     }
 }
 

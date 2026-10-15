@@ -171,7 +171,6 @@ impl<'d, 'a> Typer<'d, 'a> {
                         {
                             match self.comparator(t) {
                                 Ok(by) => {
-                                    let dicts = self.by_dicts(&by);
                                     let (is, kind) = match op {
                                         BinOp::Lt => (true, "Less"),
                                         BinOp::Le => (false, "Greater"),
@@ -179,7 +178,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                                         _ => (false, "Less"),
                                     };
                                     let compared =
-                                        Expr::Field { base: Box::new(compare(by, l, r, dicts)), name: Name::new("kind") };
+                                        Expr::Field { base: Box::new(self.compare(by, l, r)), name: Name::new("kind") };
                                     let e = rebuild(
                                         if is { BinOp::Eq } else { BinOp::Ne },
                                         compared,

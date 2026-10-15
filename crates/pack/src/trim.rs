@@ -99,9 +99,17 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 });
             }
         }
-        // `Ord<T>`, a dictionary's type (design/01 §7.25), is not `Ord.`'s.
-        if source.match_indices("Ord<").any(|(at, _)| starts_word(source, at)) {
-            out.insert("ord.type".to_string());
+        // A std bound's dictionary type (design/01 §7.25): `Ord<T>` is not
+        // `Ord.`'s, nor `Display<T>` a variant named `Display`.
+        for (word, used) in [
+            ("Ord<", "ord.type"),
+            ("PartialOrd<", "partialOrd.type"),
+            ("Display<", "display.type"),
+            ("Default<", "default.type"),
+        ] {
+            if source.match_indices(word).any(|(at, _)| starts_word(source, at)) {
+                out.insert(used.to_string());
+            }
         }
         for (word, used) in [("parseJson", "parseJson"), ("ParseIntError", "parseIntError")] {
             if source.match_indices(word).any(|(at, _)| starts_word(source, at)) {
@@ -532,6 +540,9 @@ mod tests {
             "int.f32",
             "int.f64",
             "ord.type",
+            "partialOrd.type",
+            "display.type",
+            "default.type",
         ]);
         let mut all = all;
         all.extend(IntMethod::ALL.iter().map(|m| format!("m.{}", m.ts_name())));

@@ -39,6 +39,9 @@ thread_local! {
     /// Each enum of the crate and its variants, likewise: a `match`'s `_`
     /// holds the variants no earlier arm took (`join::flow`).
     pub(crate) static ENUMS: RefCell<BTreeMap<String, Vec<Name>>> = const { RefCell::new(BTreeMap::new()) };
+    /// Each enum of the crate with type parameters and how many, likewise:
+    /// its discriminant table names its type with them (`Tree<unknown>`).
+    pub(crate) static ENUM_PARAMS: RefCell<BTreeMap<String, usize>> = const { RefCell::new(BTreeMap::new()) };
     /// The crate's open structs and enums that hold a string, in a field or
     /// in one of theirs (`stringy_names`), likewise: a `pub` function checks
     /// such an argument on entry (`expr::checked_strings`).
@@ -133,6 +136,14 @@ pub(super) fn stringy_names(krate: &Crate) -> BTreeSet<String> {
             return found;
         }
         found = next;
+    }
+}
+
+/// The enum `ty` as a type whatever its parameters: `Tree<unknown>`.
+pub(super) fn any_enum(ty: &str) -> String {
+    match ENUM_PARAMS.with(|e| e.borrow().get(ty).copied()) {
+        Some(n) => format!("{ty}<{}>", vec!["unknown"; n].join(", ")),
+        None => ty.to_string(),
     }
 }
 

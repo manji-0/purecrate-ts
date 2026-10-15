@@ -564,11 +564,11 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
-            Callee::OrdCmpBy(by) => self.arity("`cmp`", 2 + by.dicts().len(), argc),
-            Callee::OrdBy(by) => self.arity("a comparator", by.dicts().len(), argc),
+            Callee::OrdCmpBy(by) => self.arity("`cmp`", 2 + by.args().len(), argc),
+            Callee::OrdBy(by) => self.arity("a comparator", by.args().len(), argc),
             Callee::OrdPick { pick, by } => {
                 let takes = if *pick == purecrate_ir::Pick::Clamp { 3 } else { 2 };
-                self.arity(&format!("`{}`", pick.ts_name()), takes + by.dicts().len(), argc)
+                self.arity(&format!("`{}`", pick.ts_name()), takes + by.args().len(), argc)
             }
             Callee::Consume { method, .. } => {
                 let takes = match method {

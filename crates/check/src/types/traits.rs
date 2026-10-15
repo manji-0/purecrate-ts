@@ -288,6 +288,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 },
             },
             _ => match owner {
+                // A generic type's `default` takes its parameters'
+                // dictionaries: `{ default: (): Bag<I32> => Bag.default(defaultI32) }`.
+                Some(owner) if self.defs.methods.get(&(owner.as_str(), "default")).is_some_and(|f| !f.params.is_empty()) => {
+                    let default = Expr::Call { callee: Callee::Default { field: None }, args: Vec::new() };
+                    let closure = Expr::Closure { params: Vec::new(), ret: Some(t.clone()), body: Box::new(default) };
+                    let (member, _) = self.expr(&closure, None);
+                    Expr::Call { callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() }, args: vec![member] }
+                }
                 Some(owner) if self.defs.methods.contains_key(&(owner.as_str(), "default")) => Expr::Var(owner),
                 Some(owner) => {
                     self.error(

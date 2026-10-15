@@ -58,18 +58,27 @@ pub fn emit(krate: &Crate) -> Package {
 }
 
 fn emit_scoped(krate: &Crate) -> Package {
-    let structs = krate.items.iter().filter_map(|item| match item {
-        Item::Struct(st) => Some(st.name.as_str().to_string()),
-        _ => None,
-    });
     let enums = krate.items.iter().filter_map(|item| match item {
         Item::Enum(e) => Some((e.name.as_str().to_string(), e.variants.iter().map(|v| v.name.clone()).collect())),
+        _ => None,
+    });
+    let params = krate.items.iter().filter_map(|item| match item {
+        Item::Enum(e) if !e.generics.is_empty() => Some((e.name.as_str().to_string(), e.generics.len())),
+        _ => None,
+    });
+    let params: BTreeMap<String, usize> = params.collect();
+    scoped(&ENUM_PARAMS, params, || emit_enums(krate, enums.collect()))
+}
+
+fn emit_enums(krate: &Crate, enums: BTreeMap<String, Vec<Name>>) -> Package {
+    let structs = krate.items.iter().filter_map(|item| match item {
+        Item::Struct(st) => Some(st.name.as_str().to_string()),
         _ => None,
     });
     scoped(&CLOSED_FIELDS, closed_fields(krate), || {
         scoped(&PRIVATE, private_methods(krate), || {
             scoped(&STRUCTS, structs.collect(), || {
-                scoped(&ENUMS, enums.collect(), || {
+                scoped(&ENUMS, enums, || {
                     scoped(&STRINGY, stringy_names(krate), || {
                         scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
                             with_internal_names(krate, || emit_package(krate))

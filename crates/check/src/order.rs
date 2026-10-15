@@ -27,12 +27,12 @@ pub fn derive(krate: &Crate) -> (Crate, Vec<usize>, Vec<Diagnostic>) {
     let mut found = Vec::new();
     let mut candidates: BTreeSet<&str> = BTreeSet::new();
     for (i, item) in krate.items.iter().enumerate() {
-        let (name, order, generic) = match item {
-            Item::Struct(s) => (&s.name, s.order, !s.generics.is_empty()),
-            Item::Enum(e) => (&e.name, e.order, !e.generics.is_empty()),
+        let (name, order) = match item {
+            Item::Struct(s) => (&s.name, s.order),
+            Item::Enum(e) => (&e.name, e.order),
             _ => continue,
         };
-        if order != Order::Total || generic {
+        if order != Order::Total {
             continue;
         }
         if defs.methods.contains_key(&(name.as_str(), "cmp")) {
@@ -77,22 +77,33 @@ pub fn derive(krate: &Crate) -> (Crate, Vec<usize>, Vec<Diagnostic>) {
         let made = match item {
             Item::Struct(s) if candidates.contains(s.name.as_str()) => {
                 let cmps = s.fields.iter().map(|f| field_cmp(field(SELF, &f.name), field(OTHER, &f.name))).collect();
-                Some((s.name.clone(), s.vis, chain(cmps)))
+                Some((s.name.clone(), s.vis, &s.generics, chain(cmps)))
             }
             // None where a discriminant does not fold, reported on the enum.
             Item::Enum(e) if candidates.contains(e.name.as_str()) => {
-                enum_cmp(&defs, e).map(|body| (e.name.clone(), e.vis, body))
+                enum_cmp(&defs, e).map(|body| (e.name.clone(), e.vis, &e.generics, body))
             }
             _ => None,
         };
-        let Some((name, vis, body)) = made else { continue };
-        let ty = Ty::Named(name.clone());
+        let Some((name, vis, generics, body)) = made else { continue };
+        // A generic type's is the derive's `impl<T: Ord> Ord for S<T>`: it
+        // takes an `Ord` dictionary per parameter, after `other`.
+        let ty = if generics.is_empty() {
+            Ty::Named(name.clone())
+        } else {
+            Ty::App { name: name.clone(), args: generics.iter().cloned().map(Ty::Param).collect() }
+        };
+        let mut params = vec![Param { name: Name::new(SELF), ty: ty.clone() }, Param { name: Name::new(OTHER), ty }];
+        params.extend(generics.iter().map(|g| Param {
+            name: purecrate_ir::dict_param("Ord", g.as_str()),
+            ty: purecrate_ir::dict_ty(&Name::new("Ord"), Ty::Param(g.clone())),
+        }));
         items.push(Item::Fn(Fn {
             vis: Vis::Pub,
             name: Name::new("cmp"),
             owner: Some(name),
-            generics: Vec::new(),
-            params: vec![Param { name: Name::new(SELF), ty: ty.clone() }, Param { name: Name::new(OTHER), ty }],
+            generics: generics.clone(),
+            params,
             ret: Ty::named(ORDERING),
             body,
             doc: None,
@@ -141,8 +152,8 @@ fn written(defs: &Defs<'_>, name: &str) -> bool {
 /// has run: a derived one, or one the crate writes.
 pub fn has_cmp(defs: &Defs<'_>, name: &str) -> bool {
     let order = match (defs.structs.get(name), defs.enums.get(name)) {
-        (Some(s), _) if s.generics.is_empty() => s.order,
-        (_, Some(e)) if e.generics.is_empty() && !e.std => e.order,
+        (Some(s), _) => s.order,
+        (_, Some(e)) if !e.std => e.order,
         _ => return false,
     };
     order != Order::Partial && defs.methods.contains_key(&(name, "cmp"))
@@ -158,16 +169,13 @@ pub fn why_unordered(defs: &Defs<'_>, name: &str) -> String {
 /// recursive type would reach again.
 fn why_in(defs: &Defs<'_>, name: &str, seen: &mut Vec<String>) -> String {
     seen.push(name.to_string());
-    let (order, generic) = match (defs.structs.get(name), defs.enums.get(name)) {
-        (Some(s), _) => (s.order, !s.generics.is_empty()),
+    let order = match (defs.structs.get(name), defs.enums.get(name)) {
+        (Some(s), _) => s.order,
         (_, Some(e)) if e.std => return "std's `Ordering` is not ordered in v0".into(),
-        (_, Some(e)) => (e.order, !e.generics.is_empty()),
+        (_, Some(e)) => e.order,
         _ => return format!("`{name}` is not a struct or enum of the crate"),
     };
     match order {
-        _ if generic => format!(
-            "`{name}` has type parameters, and its `Ord` compares their values, whose `cmp` v0 does not pass yet; order by a key of a known type (`max_by_key`)"
-        ),
         Order::Total if !std_ordering_free(defs) => format!(
             "`{name}`'s derived `cmp` gives `std::cmp::Ordering`, which the crate's own `Ordering` hides; rename the crate's type"
         ),
@@ -210,7 +218,7 @@ fn field_unordered(
         }
     }
     fields.into_iter().find_map(|(field, ty)| {
-        comparator_in(defs, ty, ordered, &|_| false, seen).err().map(|why| format!("its field {field} holds {why}"))
+        comparator_in(defs, ty, ordered, &|_| true, seen).err().map(|why| format!("its field {field} holds {why}"))
     })
 }
 
@@ -248,6 +256,11 @@ fn comparator_in(
         Ty::Vec(inner) => Ok(Cmp::Vec(Box::new(each(inner)?))),
         Ty::Tuple(ts) if !ts.is_empty() => Ok(Cmp::Tuple(ts.iter().map(&mut each).collect::<Result<_, _>>()?)),
         Ty::Named(n) if ordered(n.as_str()) => Ok(Cmp::Type(n.clone())),
+        // A generic one's `cmp` takes its arguments' dictionaries.
+        Ty::App { name, args } if ordered(name.as_str()) => {
+            args.iter().try_for_each(|a| each(a).map(drop))?;
+            Ok(Cmp::Fn(t.clone()))
+        }
         Ty::Named(n) if seen.iter().any(|s| s == n.as_str()) => Err(format!("`{}`, which is not ordered", n.as_str())),
         Ty::Named(n) => Err(format!("`{}`, which is not ordered: {}", n.as_str(), why_in(defs, n.as_str(), seen))),
         Ty::Param(p) if param(p) => Ok(Cmp::Dict(p.clone())),
