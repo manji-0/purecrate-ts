@@ -107,10 +107,13 @@ fn replace(e: &mut Expr, found: &mut BTreeMap<String, (Name, Ty)>) {
     }
 }
 
-/// `krate` with `void d;` first in each free function whose dictionary
-/// parameter `d` is read only as the same argument of its own recursive
-/// calls (`count(xs, n - 1, ordT)`): oxlint's `only-used-in-recursion`
-/// would ask to drop it, and the bound fixes the signature (design/07 §9).
+/// `krate` with `void d;` first in each function printed as a binding of
+/// its own (a free function, and a method that is not `pub`, `xName`)
+/// whose dictionary parameter `d` is read only as the same argument of its
+/// own recursive calls (`count(xs, n - 1, ordT)`): oxlint's
+/// `only-used-in-recursion` would ask to drop it, and the bound fixes the
+/// signature (design/07 §9). A `pub` method is a member of its companion,
+/// which the rule does not follow.
 pub fn read_forwarded(mut krate: Crate) -> Crate {
     let traits: Vec<String> = krate
         .items
@@ -123,7 +126,7 @@ pub fn read_forwarded(mut krate: Crate) -> Crate {
         .collect();
     for item in &mut krate.items {
         let Item::Fn(f) = item else { continue };
-        if f.owner.is_some() {
+        if f.owner.is_some() && f.vis == Vis::Pub {
             continue;
         }
         let forwarded: Vec<Name> = f
@@ -149,10 +152,19 @@ fn only_forwarded(f: &Fn, index: usize, name: &Name) -> bool {
     let (mut reads, mut forwarded) = (0, 0);
     f.body.walk(|e| match e {
         Expr::Var(n) if n == name => reads += 1,
-        Expr::Call { callee: Callee::Fn(g), args } if *g == f.name => {
+        Expr::Call { callee, args } if itself(f, callee) => {
             forwarded += usize::from(matches!(args.get(index), Some(Expr::Var(n)) if n == name));
         }
         _ => {}
     });
     reads > 0 && reads == forwarded
+}
+
+/// Whether `callee` is `f` itself: its name, or its owner's method.
+fn itself(f: &Fn, callee: &Callee) -> bool {
+    match (callee, &f.owner) {
+        (Callee::Fn(g), None) => *g == f.name,
+        (Callee::Method { ty, name }, Some(owner)) => ty == owner && *name == f.name,
+        _ => false,
+    }
 }

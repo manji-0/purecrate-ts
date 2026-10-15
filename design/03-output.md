@@ -333,7 +333,7 @@ export const total = <T>(xs: ReadonlyArray<T>, pricedT: Priced<T>): I64 =>
 | `format!("<{}>", x)`, `x.to_string()`, `T::default()` on a `T` | `` `<${displayT.toString(x)}>` ``, `displayT.toString(x)`, `defaultT.default()` |
 | a std bound instantiated at a primitive | the crate's const for it, in `consts.ts`, exported, one per (trait, type) the crate's calls pass: `export const ordI32: Ord<I32> = { cmp: Ord.cmp };`, `ordString` (`Ord.cmpStr`; `&str`'s too), `` displayU8: Display<U8> = { toString: (self: U8): string => `${self}` } ``, `displayChar` (the value itself), `defaultI64: Default<I64> = { default: (): I64 => 0n as I64 }`. A `PartialOrd` bound takes the `Ord` const |
 | a std bound instantiated at a crate type, a `Vec`, a tuple, a generic type | the companion (`largest(xs, Level)`); `{ cmp: Ord.vec(Ord.cmp) }`, `{ cmp: Ord.tuple(Ord.cmp, Ord.cmpStr) }`; `{ cmp: (a: S<U32>, b: S<U32>): Ordering => S.cmp(a, b, ordU32) }`, `{ default: (): S<U32> => S.default(defaultU32) }`, built where passed |
-| a dictionary only passed on to the function's own recursive call | `void ordT;` first in its body, so oxlint's `only-used-in-recursion` does not ask to drop a parameter the signature needs |
+| a dictionary only passed on to the function's own recursive call (a free function, or a method that is not `pub`, printed as `xName`) | `void ordT;` first in its body, so oxlint's `only-used-in-recursion` does not ask to drop a parameter the signature needs |
 | `fn f(x: impl Tr)` | `<Impl1>(x: Impl1, trImpl1: Tr<Impl1>)`: an anonymous type parameter, `Impl1`, `Impl2`, .. in the order written |
 | `x.m(y)`, `T::m(y)`, `T::N` with `x: T` | `trT.m(x, y)`, `trT.m(y)`, `trT.N`: through the first of `T`'s bounds whose trait (or a supertrait of it) has `m` |
 | `i.m()`, `Item::m(&i)`, `Tr::m(&i)` with `i: Item` | `Item.m(i)`, as an inherent method; `Item::N` is `Item.N` |
@@ -419,7 +419,7 @@ What callers of a successfully generated package must observe.
 - Import flat names from the package root.
 - Variants can be built with `Cmd.Move(a, b)` or as literals.
 - A public function's parameter may be renamed (`inc$1`). Calls are positional, so nothing changes.
-- A function or method with a crate trait's bound takes the dictionary after its other arguments: the companion of the type it is called at, `total(items, Item)` ([§3.6](#36-traits)). A std bound's takes the companion too, or for a primitive the const the package exports (`largest(xs, ordI32)`), or a record (`{ cmp: Ord.cmp }`) where the package exports none. Every TS object fits a record whose members it has, so tsc stops a wrong one only by its members' types.
+- A function or method with a crate trait's bound takes the dictionary after its other arguments: the companion of the type it is called at, `total(items, Item)` ([§3.6](#36-traits)). A std bound's takes the companion too, or for a primitive the const the package exports (`largest(xs, ordI32)`), or a record of the caller's own (`{ cmp: (a, b) => .. }`) where the package exports none. Every TS object fits a record whose members it has, so tsc stops a wrong one only by its members' types.
 
 ### 5.2 Failure
 

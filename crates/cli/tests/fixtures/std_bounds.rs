@@ -168,6 +168,20 @@ impl<T: Ord + Clone> Shelf<T> {
     pub fn top(&self) -> Option<T> {
         largest(&self.items)
     }
+
+    /// Not `pub`, so a binding of its own: forwards its dictionary only to
+    /// itself.
+    fn len_after(&self, n: u32) -> usize {
+        if n == 0 {
+            self.items.len()
+        } else {
+            self.len_after(n - 1)
+        }
+    }
+
+    pub fn sized(&self) -> (usize, Option<T>) {
+        (self.len_after(2), self.top())
+    }
 }
 
 pub fn show<T: fmt::Display>(x: &T) -> String {
@@ -258,8 +272,8 @@ pub fn counted(xs: Vec<Level>, n: u32) -> (usize, usize) {
     (count_down(&xs, n), rank_of(&xs, &Level::Mid, 0))
 }
 
-pub fn shelf_top(items: Vec<i64>) -> Option<i64> {
-    Shelf { items }.top()
+pub fn shelf_top(items: Vec<i64>) -> (usize, Option<i64>) {
+    Shelf { items }.sized()
 }
 
 pub fn shown(n: i32, b: bool, c: char, s: String, m: Money) -> (String, String, String, String, String) {
