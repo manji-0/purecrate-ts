@@ -158,7 +158,7 @@ export const Meters = {
 | `xs.join(sep)`, `s.repeat(n)` | `xs.join(sep)`, the separator always written; `s.repeat(n)` |
 | `x.to_string()` | what `format!("{}", x)` prints (`` `${n}` ``); a string, a `char`, or a `Uuid` as itself; a crate type with a translated `Display` as `X.toString(x)` |
 | `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
-| `impl Display for X` | the member `toString: (self: X): string` of `X`'s companion: one write as a template literal (`` `(${self.x}, ${Int.i32.add(self.y, 1 as I32)})` ``), several as templates joined with `+`, a `match self` as a `switch`, a field of a crate type as `${Money.toString(self.price)}`; `{}` on `x: X` in any `format!` as `${X.toString(x)}` ([01 §7.25](./01-equivalence.md#725-traits)) |
+| `impl Display for X` | the member `toString: (self: X): string` of `X`'s companion: its writes as one template literal (`` `(${self.x}, ${Int.i32.add(self.y, 1 as I32)})` ``), a `match self` as a `switch`, a field of a crate type as `${Money.toString(self.price)}`; `{}` on `x: X` in any `format!` as `${X.toString(x)}`, and alone as `X.toString(x)` ([01 §7.25](./01-equivalence.md#725-traits)) |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
 

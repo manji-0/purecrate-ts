@@ -80,7 +80,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             after_shown |= shown[*index];
         }
         // Rust aligns a number right and the rest left, unless told.
-        let pieces = pieces
+        let pieces: Vec<FmtPiece> = pieces
             .iter()
             .map(|p| match p {
                 FmtPiece::Arg { index, spec } if spec.width.is_some() && spec.align.is_none() && !spec.zero => {
@@ -91,6 +91,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 other => other.clone(),
             })
             .collect();
+        // `format!("{}", x)` on a crate type is its text, not a template.
+        if let ([FmtPiece::Arg { spec, .. }], [true]) = (pieces.as_slice(), shown.as_slice()) {
+            if spec.is_plain() {
+                let text = typed.into_iter().next().expect("one argument");
+                return (text, self.expect(want, Some(Ty::Prim(Prim::String))));
+            }
+        }
         let e = Expr::Call { callee: Callee::Format(pieces), args: typed };
         (e, self.expect(want, Some(Ty::Prim(Prim::String))))
     }
@@ -132,6 +139,52 @@ impl Typer<'_, '_> {
     /// `impl Display`.
     pub(super) fn has_display(&self, owner: &Name) -> bool {
         self.defs.methods.get(&(owner.as_str(), "to_string")).is_some_and(|f| f.display)
+    }
+}
+
+/// `a` with `b` after it (`StrConcat`), as one template where both are a
+/// `format!` or a literal: a `fmt`'s writes, which run their arguments and
+/// `fmt`s in the order the joined template places them, each write's
+/// checked on its own above. Anything else stays `a + b`.
+pub(super) fn joined(a: Expr, b: Expr) -> Expr {
+    fn literal(e: &Expr) -> Option<&str> {
+        match e {
+            Expr::Call { callee: Callee::StringFrom, args } => match args.as_slice() {
+                [Expr::Lit(Lit::Str(t))] => Some(t),
+                _ => None,
+            },
+            Expr::Lit(Lit::Str(t)) => Some(t),
+            _ => None,
+        }
+    }
+    fn template(e: Expr) -> (Vec<FmtPiece>, Vec<Expr>) {
+        if let Some(t) = literal(&e) {
+            return (vec![FmtPiece::Text(t.to_string())], Vec::new());
+        }
+        match e {
+            Expr::Call { callee: Callee::Format(pieces), args } => (pieces, args),
+            _ => unreachable!("a text, tested by the caller"),
+        }
+    }
+    let text = |e: &Expr| literal(e).is_some() || matches!(e, Expr::Call { callee: Callee::Format(_), .. });
+    if !text(&a) || !text(&b) {
+        return Expr::Call { callee: Callee::StrConcat, args: vec![a, b] };
+    }
+    let ((mut pieces, mut args), (more, rest)) = (template(a), template(b));
+    let offset = args.len();
+    for p in more {
+        match (pieces.last_mut(), p) {
+            (Some(FmtPiece::Text(t)), FmtPiece::Text(u)) => t.push_str(&u),
+            (_, FmtPiece::Arg { index, spec }) => pieces.push(FmtPiece::Arg { index: index + offset, spec }),
+            (_, text) => pieces.push(text),
+        }
+    }
+    args.extend(rest);
+    pieces.retain(|p| !matches!(p, FmtPiece::Text(t) if t.is_empty()));
+    match pieces.as_slice() {
+        [] => Expr::Call { callee: Callee::StringFrom, args: vec![Expr::Lit(Lit::Str(String::new()))] },
+        [FmtPiece::Text(t)] => Expr::Call { callee: Callee::StringFrom, args: vec![Expr::Lit(Lit::Str(t.clone()))] },
+        _ => Expr::Call { callee: Callee::Format(pieces), args },
     }
 }
 

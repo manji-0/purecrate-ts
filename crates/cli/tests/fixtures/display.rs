@@ -126,7 +126,7 @@ impl fmt::Display for Token {
                 write!(f, "{upper:>6}")?;
                 Ok(())
             }
-            Token::Pair(a, b) => write!(f, "{1}{0}{s}", a, b, s = '\u{301}'),
+            Token::Pair(a, b) => write!(f, "{1}{0}{s}\u{301}", a, b, s = a),
             Token::Sep => f.write_str("`${sep}` \\ é"),
             Token::Blank => Ok(()),
         }

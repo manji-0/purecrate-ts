@@ -14,6 +14,9 @@
 //! `to_lowercase` / `to_uppercase`, `split` with a `&str` (a literal, or a
 //! parameter that may be empty), `split_whitespace`, and `lines` in a `for`,
 //! into `map` and `collect`, and into `count`; `join`, `repeat`, and
+//! `to_string`. From 0.22.0: a struct and an enum per seed with `impl
+//! Display` made of writes (arguments that panic, specs, `?` and `Ok(())`,
+//! a `let`, the struct printed inside the enum), printed by `format!` and
 //! `to_string`. Inputs hold every Unicode White_Space code point, the
 //! near misses U+FEFF, U+180E, and U+200B, cased letters inside and outside
 //! ASCII (final sigma, `ß`, `İ`, `ﬁ`), `\r`, `\n`, and `\r\n`, characters

@@ -318,7 +318,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit)))
             }
             // Written only by `method_call` and `collect`, typed.
-            Callee::StrConcat | Callee::StrFromChars => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::String))),
+            // `syntax` writes one between the writes of a `fmt` (design/01
+            // §7.25): two texts `format!` makes are one template.
+            Callee::StrConcat => {
+                let string = Ty::Prim(Prim::String);
+                let mut typed = typed_args(self, Vec::new()).into_iter();
+                let (Some(a), Some(b), None) = (typed.next(), typed.next(), typed.next()) else {
+                    unreachable!("`String::push` takes 2 arguments (`check::resolve`)")
+                };
+                return (format::joined(a, b), self.expect(want, Some(string)));
+            }
+            Callee::StrFromChars => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::String))),
             Callee::VecRev | Callee::VecZip => {
                 let (args, tys) = self.typed_all(args);
                 let mut items = tys.iter().map(|t| self.vec_item(t));
