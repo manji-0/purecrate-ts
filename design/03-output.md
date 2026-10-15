@@ -1,6 +1,6 @@
 # Generated TypeScript
 
-Status: current (2026-10-15, 0.23.0)
+Status: current (2026-10-16, 0.23.0)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -14,14 +14,14 @@ The output follows the domain layer of [kamae-ts](https://github.com/iwasa-kosui
 | `type`, never `interface` | no declaration merging |
 | `Readonly<{…}>`, `ReadonlyArray`, `readonly [..]` | no reassignment through types |
 | Same-named companion | `export type T` + `export const T = { … } as const` |
-| Trait impls as companion members | from 0.22.0, `impl From<S> for X` is `X.fromS` named after `S` (`fromParseIntError: (e: ParseIntError): AppError => ..`), and `X::from(s)`, `s.into()`, and a converting `?` call it (`if (r.kind === "Err") return Result.err(AppError.fromU8(r.error));`); `#[derive(Default)]` and `impl Default` are `X.default: (): X`, each derived field in its type's form (`n: 0n as I64`, `name: ""`, `tags: []`, `mode: Mode.default()`), and `..Default::default()` is `{ ...defaultValue, a }` after the fields ([01 §7.25](./01-equivalence.md#725-traits)) |
+| Trait impls as companion members | an `impl` of a crate trait or of a translated std trait (`From`, `TryFrom`, `Default`, `Display`, `Ord`) puts its members on the type's companion (`X.fromU8`, `X.tryFrom`, `X.default`, `X.toString`, `X.cmp`), and a bound is one more parameter carrying such a record ([§3.2](#32-structs-methods-newtypes), [§3.6](#36-traits), [01 §7.25](./01-equivalence.md#725-traits)) |
 | Function properties, `export const f = (…) =>` | no classes, no method syntax, no `this`, no `export function` |
 | One concept per file | `state.ts`, `event.ts`, `step.ts`; `index.ts` only re-exports. A function the package does not export, whose callers all sit in one other file, is printed in that file, unexported, after a blank line: a helper of a helper follows it (`Crate::homes`). Why: a 5-line `is-digit.ts` sent a reader of its one caller to another file; where a helper lands depends only on the source, never on how many files there are, and files stay flat, as the modules are ([02 §3.3](./02-authoring.md#33-names-are-unique-across-the-crate)) |
-| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing, and `panic!`, `assert!`, `unwrap`, through `Panic.raise`) throw |
+| Expected failure is `Result` | only `assertNever` (a plain `Error`) and `Panic` (overflow, division by zero, indexing, `panic!`, `assert!`, `unwrap` through `Panic.raise`, and the entry checks of a `pub` function, `Str.wellFormed` and `Slice.lengths`, [§5.2](#52-failure)) throw |
 | Time and IDs are arguments | the domain never generates them |
 | `return` ends a branch | where a value is returned, a branch that returns is an `if` the next one follows, not an `else` (`if (s === "") return ..;` then the rest); a branch of one `return` sits on its `if`'s line. A function name passed as a function (`.map(f)`, `Iter.all(xs, f)`) is `f`, not an arrow around it |
 | Lines up to 100 columns | `build` and `check --out` run oxfmt over every generated file (`crates/cli/src/oxfmt.rs`: 0.71.0, width 100, whatever `.oxfmtrc.json` the project has), so its breaks are oxfmt's; the copied runtime and adapters are hand-written and left alone. Without oxfmt they stop and write nothing. What oxfmt keeps as it finds it, the printer decides: an object, array, or argument list written one item a line stays open (a struct literal's fields, a discriminant table too long for its line, a call given a function called at once); blank lines between paragraphs; parentheses, which follow operator precedence (`emit_ts::tx`); a comment's place. An `import` of one name and a template literal stay on their line, as oxfmt leaves them |
-| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md)) |
+| Functions, methods, parameters, locals in camelCase | `compare_pre_ids` → `comparePreIds`, `Yen::try_from` → `Yen.tryFrom`; constructor parameters too (`lastError`). Fields, types, variants, and UPPER_SNAKE consts keep the Rust name (a field is the JSON key) ([02 §3.3](./02-authoring.md#33-names-are-unique-across-the-crate)) |
 | Lint and format | every example's output, the wire module included, passes oxlint, type-aware, with `examples/.oxlintrc.json`: the correctness, suspicious, and perf categories plus `consistent-type-imports`, `no-import-type-side-effects`, `no-unnecessary-type-assertion`, `no-else-return`, `no-lonely-if`, and the like, less `no-unsafe-type-assertion` (a brand is a cast; [casts.rs](../crates/cli/tests/it/casts.rs) admits each kind); each test fixture's output passes it too, less what [`scripts/fixtures.oxlintrc.json`](../scripts/fixtures.oxlintrc.json) lists as written on purpose. Every generated file is laid out by oxfmt as `build` writes it, the wire module's included (built as a syntax tree and printed with oxfmt's model first, `emit_ts::doc`); `scripts/verify.sh` runs `oxfmt --check` over the examples' and the fixtures' output, so a second run must change nothing, and checks that `oxfmt.rs` names the version `examples/package.json` installs. The differential tests and the generators lay out what they run the same way |
 | `///` comments are JSDoc | on the type, each struct field, each variant's constructor, each function and method, `const`, and alias; an editor shows the Rust documentation on hover. A comment on an `impl` block has nowhere to go; one on `impl Display` documents `toString` |
 | A body reads in paragraphs | statements of one line run on; a statement over several lines (a block, or `let x: T;` and the `if` or `switch` that assigns it) has a blank line before and after it, except next to the one-line `const` its first line reads (`const m = next(cmd);` `switch (m.kind) {`) and before a `break;` or `continue;`; a `//` comment has a blank line before it. None at a block's start or end, nor between `switch` cases. Counted before oxfmt breaks a line, and kept by it (`emit_ts::paragraph`) |
@@ -48,7 +48,7 @@ A brand exists only in types, so TS lets any `as` make a number an `I32` or a st
 | Literal widened | `LABEL: "grid·" as string`, `ON: true as boolean`, an associated const's member | the literal is a value of the type; the cast keeps `as const` from giving the member the literal's type, which `===` against another would refuse ([01 §7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules)) |
 | Not a cast to a brand | `as const`, `import { A as A$ }`, arktype's `ctx.error(..) as never` | — |
 
-A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as oxfmt prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. Since 0.10.0 the printer decides this on a tree of the operators it writes (`emit_ts::tx`), not by reading its printed text back: each operand is parenthesized where its operator binds looser than its parent's or would regroup, a `!` of a comparison turns the comparison round, and a negated `&&` chain is the `||` of each side turned round. A shift amount, a literal `Slice.at` index, and one widened from `u8`/`u16`/`u32` read bare too (`Int.u32.shl(x, 24)`, `Slice.at(parts, 0)`, `Slice.at(alphabet, idx)`): the runtime takes them as plain `number`s. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
+A cast is parenthesized only where an operator beside it would take it apart (`a + (1 as I32)`) and, as oxfmt prints it, in a branch of `?:` (`apart ? p : (0n as I64)`); as an argument, an element, a field value, or a `const`'s value it stands bare (`Int.i32.add(n, 1 as I32)`, `Six: 6 as U8`), and so does an arrow passed as an argument (`Iter.all(xs, (b: U8): boolean => ..)`). A test that `is_empty`, `is_some`, or a `match` prints (`s.length === 0`, `k.kind === "A"`) is parenthesized by precedence like any comparison. The printer decides this on a tree of the operators it writes (`emit_ts::tx`), not by reading its printed text back: each operand is parenthesized where its operator binds looser than its parent's or would regroup, a `!` of a comparison turns the comparison round, and a negated `&&` chain is the `||` of each side turned round. A shift amount, a literal `Slice.at` index, and one widened from `u8`/`u16`/`u32` read bare too (`Int.u32.shl(x, 24)`, `Slice.at(parts, 0)`, `Slice.at(alphabet, idx)`): the runtime takes them as plain `number`s. A comparison reads a literal or a length without its brand (`n === 1`, `parts.length < 2`, `b >= 48 && b <= 57`): `===` and `<` compare the values, which a brand does not change. JS `split` takes the separator as a plain string (`s.split(".")`).
 
 A caller's own code can write `5 as I32` all the same; no type stops it. Values from outside belong in `Int.i32.of`, the wire schemas, or the crate's functions, and a lint such as oxlint's `typescript/consistent-type-assertions` with `assertionStyle: "never"` (the generated directory left out) keeps the rest of the code from casting.
 
@@ -59,17 +59,20 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `bool` | `boolean` |
 | `i8`–`i32`, `u8`–`u32` | branded `number` (`I32` …) |
 | `f32`, `f64` | `F32`, `F64` (distinct brands) |
-| `i64`, `u64` | branded `bigint` (`I64`, `U64`) |
+| `i64`, `u64`, `i128`, `u128` | branded `bigint` (`I64`, `U64`, `I128`, `U128`) |
 | `usize` | `Usize`, checked 0..2^53−1 |
 | `String`, `&str` | `string` |
 | `char` | `Char`, a branded one-code-point `string` |
+| `uuid::Uuid`, `uuid::Error` | `Uuid`, a branded canonical lowercase `string`; `UuidError`, a brand with no content |
+| `ParseIntError` | `ParseIntError`, a brand with no content |
+| `std::cmp::Ordering` | `Ordering`, a fieldless enum the package declares in `ordering.ts` where the crate names it |
 | `()` | `undefined` |
 | `Option<T>` | `T \| null` |
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
 | `[T; N]` (from 0.23.0) | `ReadonlyArray<T>`; a `pub` function checks its length on entry, `Slice.lengths(x, shape, "x")` with the shape of where the parameter holds arrays (`4`, `{ at: { tag: 2 } }`, `{ each: 4 }`, `{ kinds: { V: { value: 2 } } }`), and panics naming the parameter; a local that `a[i] = x` writes is an `Array<T>` ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)) |
 | `struct Page<T>`, `fn f<T>(x: T)` | `export type Page<T> = Readonly<{ .. }>`; `<T>(x: T): T => ..` on a function, a companion's `of`, and each method; a variant or `of` that holds no `T` gives `Page<never>`, which any `Page<T>` takes (its fields are read only) |
-| `BTreeMap<String, V>`, `BTreeSet<String>` | `ReadonlyMap<string, V>`, `ReadonlySet<string>`; a local that `insert` / `remove` writes is a `Map` / `Set`. Read in key order through `BTree.keys` / `entries` / `values`, sorted by code point |
+| `BTreeMap<String, V>`, `BTreeSet<String>` | `ReadonlyMap<string, V>`, `ReadonlySet<string>`; a local that `insert` / `remove` writes is a `Map` / `Set`. `get` is `BTree.get`; read in key order through `BTree.keys` / `entries` / `values`, sorted by code point |
 | `BTreeMap<K, V>`, `BTreeSet<K>`, `K` an integer, `char`, `bool`, `Uuid`, or a newtype of one or of `String` | `ReadonlyMap<K, V>`, `ReadonlySet<K>` (`Map` / `Set` for a local it writes). `get` / `insert` / `remove` are `BTree.lookup` / `put` (a set's `include`) / `take`; read in key order through `BTree.keysBy` / `entriesBy` / `valuesBy` with the key type's comparator, `Ord.cmp` or `Ord.cmpStr` (`BTree.keysBy(m, Ord.cmp)`); `toJson` writes a map through `BTree.mapJson` |
 | `(A, B)` | `readonly [A, B]` |
 | `Box<T>`, `Arc<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads: a single-threaded program with values never mutated observes neither. `Mutex` is refused (`[type/mutex]`) |
@@ -102,7 +105,7 @@ export const Cmd = {
 } as const;
 ```
 
-A one-field tuple variant is `{ kind: "Add"; value: I32 }`, read as `event.value`; its constructor's parameter is `value`. Two or more fields are `content`, read as `event.content[0]`, with parameters `_0`, `_1`. The JSON is serde's either way (`{"Add": 1}`, `{"Move": [1, 2]}`). Until 0.8.0 one field was also `content: [T]`.
+A one-field tuple variant is `{ kind: "Add"; value: I32 }`, read as `event.value`; its constructor's parameter is `value`. Two or more fields are `content`, read as `event.content[0]`, with parameters `_0`, `_1`. The JSON is serde's either way (`{"Add": 1}`, `{"Move": [1, 2]}`).
 
 A partial union (`type Cancellable = Waiting | EnRoute`) is emitted only from an explicit Rust `type` alias.
 
@@ -160,6 +163,9 @@ export const Meters = {
 | `xs.join(sep)`, `s.repeat(n)` | `xs.join(sep)`, the separator always written; `s.repeat(n)` |
 | `x.to_string()` | what `format!("{}", x)` prints (`` `${n}` ``); a string, a `char`, or a `Uuid` as itself; a crate type with a translated `Display` as `X.toString(x)` |
 | `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
+| `impl From<S> for X` | the member `fromS` named after `S` (`fromParseIntError: (e: ParseIntError): AppError => ..`); `X::from(s)`, `s.into()`, and a converting `?` call it (`if (r.kind === "Err") return Result.err(AppError.fromU8(r.error));`) ([01 §7.25](./01-equivalence.md#725-traits)) |
+| `impl TryFrom<T> for X` | the member `tryFrom`, printed as any method (`tryFrom: (v: U32): Result<Y, string>`) |
+| `#[derive(Default)]`, `impl Default for X` | the member `default: (): X`, each derived field in its type's form (`n: 0n as I64`, `name: ""`, `tags: []`, `mode: Mode.default()`); `S { a, ..Default::default() }` is `{ ...defaultValue, a }` after the fields |
 | `impl Display for X` | the member `toString: (self: X): string` of `X`'s companion: its writes as one template literal (`` `(${self.x}, ${Int.i32.add(self.y, 1 as I32)})` ``), a `match self` as a `switch`, a field of a crate type as `${Money.toString(self.price)}`; `{}` on `x: X` in any `format!` as `${X.toString(x)}`, and alone as `X.toString(x)` ([01 §7.25](./01-equivalence.md#725-traits)) |
 | `#[derive(PartialOrd, Ord)]` on `X` | the companion member `cmp: (self: X, other: X): Ordering`: `const ord = Ord.cmp(self.a, other.a); if (ord.kind !== "Equal") return ord;` field by field; an enum's `Ord.cmp(xDiscriminants[self.kind] as U32, ..)` first, then a `switch` on the variant; `impl Ord`'s `cmp` prints as any method ([01 §7.25](./01-equivalence.md#725-traits)) |
 | `#[derive(PartialOrd, Ord)]` on `S<T>` | `cmp: <T>(self: S<T>, other: S<T>, ordT: Ord<T>): Ordering`, a field of type `T` by `ordT.cmp`; `a < b` on `S<u32>` is `S.cmp(a, b, ordU32).kind === "Less"`, a comparator over it `(a: S<U32>, b: S<U32>): Ordering => S.cmp(a, b, ordU32)`; a generic enum's discriminant table checked against `S<unknown>["kind"]` |
@@ -169,7 +175,7 @@ export const Meters = {
 | `a.max(b)`, `a.min(b)`, `x.clamp(lo, hi)` on those | `Ord.max(a, b, X.cmp)`, `Ord.min(..)`, `Ord.clamp(x, lo, hi, X.cmp)` |
 | `v.sort()`, `xs.iter().max()`, `sort_by_key` / `max_by_key` with such a key | `Slice.sortBy(v, X.cmp)`, `Iter.maxBy(xs, X.cmp)`, `Slice.sortByKey(v, f, X.cmp)` / `Iter.maxByKey(xs, f, X.cmp)` |
 
-Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
+A method call resolves to the crate's own inherent methods, a trait's methods (on the type's companion or through a bound's dictionary, [§3.6](#36-traits)), or the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec`, slice, array, `Option`, `Result`, `BTreeMap` / `BTreeSet`, `Ordering`, integer, float, `str`, and `char` methods [02 §2](./02-authoring.md#2-what-can-be-written) lists. Any other is refused.
 
 ### 3.3 Control flow
 
@@ -179,18 +185,33 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `if let` | `kind` test with narrowing |
 | `let V(x) = e else { return .. };` | the guard `if (e.kind !== "V") return ..;`, then the payload read where TS has narrowed it; on `Some`/`Ok`/`Err` as `let x = match` below |
 | `match` / `if let` on `Option` | branch on `=== null` |
-| `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
+| `match` on a tuple | nested `switch`es, one element at a time ([3.3.1](#331-tuple-match)) |
 | `match` on a slice (`[x, .., y]`, `[x, rest @ ..]`) | an `if` chain on `xs.length` (shortest first; lengths running the same code share one test, `xs.length <= 1`), then the elements as tuple elements, read where they sit: `Slice.at(xs, 0)`, `Slice.at(xs, xs.length - 1)`; `rest` as `Slice.range(xs, 1, xs.length - 1)`, a new array ([01 §7.24](./01-equivalence.md#724-slice-patterns)) |
 | `match` on an array, `let [a, .., b] = arr;` | no length test: the elements as tuple elements, `Slice.at(a, i)`; `let` an irrefutable one-arm `match` ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)) |
-| `[x; N]`; `[a, b]` | `Slice.repeat(x, N)` (`x` once); the array literal |
 | a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
 | guarded arms | the tuple `match` tree with an `if` on each guard ([3.3.2](#332-guards-and-option-methods)) |
+| a `match` statement the flow decides to one arm that declares names | the arm as a block of its own, `{ const e = o; .. }`, so a later `let` of one of its names hides nothing |
+| `match` (or `matches!`) on a place inside an expression, each arm an expression | `?:` on each arm's test, `\|\|` / `&&` where arms are `true` / `false`, bindings read from the place: `(o !== null ? o : 0)`, `(k.kind === "A")`. A `matches!` of literals alone on a value that is not a place is `["00", "01"].includes(e)`, which reads `e` once; any other `match` on such a value, an inline function that evaluates it once; in an `if` condition, where it is evaluated first, a `const` before the `if` instead |
+| a `match` on a place whose arms are all `true` / `false` | the test, `return (b >= 48 && b <= 57);`, not a `switch` |
+| `?` on `Result` | `if (r.kind === "Err") return r;` |
+| `?` on `Option` | `if (r === null) return null;` |
+| `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`, or on a `Result`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`, `if (r.kind === "Err") return Result.err(f(r.error));`), a call matched this way bound first (`const result = Email.parse(raw);`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
+| `let (a, b) = v` where `v` is not a place | `const [a, b] = v`, annotated only where an element may be an object literal |
 | `unwrap_or`, `ok_or`, `map`, `and_then`, `filter`, `map_or`, `unwrap_or_else`, … | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
 | `panic!`, `unreachable!`, `assert!`, `o.unwrap()`, `o.expect(m)` | `Panic.raise("..")` (a template literal for a formatted message); `assert!` as `if (!c) Panic.raise(..)`; `unwrap` as `o ?? Panic.raise(..)` |
+| `S { a: 1, ..s }` | `({ ...s, a: 1 })` |
+| `t.0` on a tuple | `t[0]` |
+| `[x; N]`; `[a, b]` | `Slice.repeat(x, N)` (`x` once); the array literal |
 | `xs.get(i)`, `first()`, `last()`, `contains(&x)` | `Slice.get(xs, i)`, `Slice.get(xs, 0)`, `Slice.last(xs)`, `Slice.contains(xs, x)` |
+| `v.dedup()`, `v.dedup_by_key(f)` on a local `let mut` | `Slice.dedup(v)`, `Slice.dedupByKey(v, f)`, in place, comparing by `Eq.deep` |
+| `while` | `while` |
+| `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
+| `for i in a..=b`, `(a..b).rev()` | `i <= end`; `for (let i = (b - 1) as T; i >= a; i = (i - 1) as T)` |
 | `for` over a `Vec`, `chars()`, `bytes()`, `split(p)`, `split_whitespace()`, or `lines()` | `for..of` |
 | `for (i, x) in ...enumerate()` | `for..of` with a `usize` counter declared before it and advanced at the top of each pass |
-| `all`, `any`, `position`, `count`, `sum`, `fold` on `chars()`, `bytes()`, `iter()` | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)` |
+| a loop whose body is left with nothing (what it built is unread) | `for (const _ of xs);`, which oxfmt keeps and lint takes (an empty `{}` oxfmt lays out on two lines) |
+| a loop that a `break` or `continue` inside a `switch` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
+| `all`, `any`, `position`, `count`, `sum`, `fold`, `find`, `max` / `min`, `max_by_key` / `min_by_key`, `max_by` / `min_by` on a sequence ([02 §2](./02-authoring.md#2-what-can-be-written), Scalar consumers) | `Iter.position(Str.bytes(s), (b: U8): boolean => ..)`: the runtime's loop, stopping where std stops, the closure as an arrow; `sum` as `Iter.sum(xs, Int.i32.add, 0)`, `fold` as `Iter.fold(xs, init, (acc, x) => ..)`, `find` as `Iter.find(xs, p)`, `max()` as `Iter.maxBy(xs, Ord.cmp)`, `max_by_key(f)` as `Iter.maxByKey(xs, f, Ord.cmp)` |
 | `.rev()`, `.zip(ys)` right after the source | `Slice.rev(xs)`, `Slice.zip(xs, ys)`, new arrays |
 | `.filter_map(f)`, `.flatten()`, `.flat_map(f)` | `Iter.filterMap(xs, f)` (also `flatten` over `Option`s, `f` the item itself, and `flat_map` with `f` returning an `Option`), `Iter.flatten(xs)` over lists (`flat_map` as `Iter.flatten(Iter.map(xs, f))`): generators, as `Iter.map` |
 | `.take(n)`, `.skip(n)`, `.take_while(p)`, `.skip_while(p)` | `Iter.take(xs, n)`, `Iter.skip(xs, n)`, `Iter.takeWhile(xs, p)`, `Iter.skipWhile(xs, p)`: generators, as `Iter.map`; `take` asks for no item past the `n`th, `take_while` pulls the item it refuses, `skip_while` calls `p` on none after it |
@@ -198,22 +219,7 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `xs.windows(n)`, `xs.chunks(n)` | `Slice.windows(xs, n)`, `Slice.chunks(xs, n)`: new arrays of the slices, `n` of 0 panicking |
 | a range `(a..b)` / `(a..=b)` before an iterator method, `.rev()`, `.step_by(k)` on it | `Iter.range(a, b)` / `Iter.rangeInclusive(a, b)`, `.rev()`, `.stepBy(k)`: a `Steps` (first item, count, step) walked lazily; `k` of 0 panics; `for (const i of Iter.range(0, n).stepBy(2))` |
 | `.take(n)`, `.skip(n)` on a range | `Iter.rangeTake(r, n)`, `Iter.rangeSkip(r, n)`: a new `Steps`, so `.rev()` and `.stepBy(k)` may follow (`Iter.rangeTake(Iter.range(0, n), k).rev().stepBy(2)`) |
-| `v.dedup()`, `v.dedup_by_key(f)` on a local `let mut` | `Slice.dedup(v)`, `Slice.dedupByKey(v, f)`, in place, comparing by `Eq.deep` |
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
-| `while` | `while` |
-| `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
-| a loop whose body is left with nothing (what it built is unread) | `for (const _ of xs);`, which oxfmt keeps and lint takes (an empty `{}` oxfmt lays out on two lines) |
-| a `match` statement the flow decides to one arm that declares names | the arm as a block of its own, `{ const e = o; .. }`, so a later `let` of one of its names hides nothing |
-| `for i in a..=b`, `(a..b).rev()` | `i <= end`; `for (let i = (b - 1) as T; i >= a; i = (i - 1) as T)` |
-| `t.0` on a tuple | `t[0]` |
-| a loop that a `break` or `continue` inside a `switch` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |
-| `?` on `Result` | `if (r.kind === "Err") return r;` |
-| `?` on `Option` | `if (r === null) return null;` |
-| `match` / `if` used as a value | `let x: T;` plus an assignment per arm; where one side returns (`let x = match o { Some(v) => v, None => return e }`, or on a `Result`), the exit first and then `const x = o` with the payload read in place (`if (o === null) return e;`, `if (r.kind === "Err") return Result.err(f(r.error));`), a call matched this way bound first (`const result = Email.parse(raw);`); a `match` on a call whose arms are expressions, the call bound first and one `?:` on it |
-| `let (a, b) = v` where `v` is not a place | `const [a, b] = v`, annotated only where an element may be an object literal |
-| `match` (or `matches!`) on a place inside an expression, each arm an expression | `?:` on each arm's test, `||` / `&&` where arms are `true` / `false`, bindings read from the place: `(o !== null ? o : 0)`, `(k.kind === "A")`. A `matches!` of literals alone on a value that is not a place is `["00", "01"].includes(e)`, which reads `e` once; any other `match` on such a value, an inline function that evaluates it once; in an `if` condition, where it is evaluated first, a `const` before the `if` instead |
-| a `match` on a place whose arms are all `true` / `false` | the test, `return (b >= 48 && b <= 57);`, not a `switch` |
-| `S { a: 1, ..s }` | `({ ...s, a: 1 })` |
 
 #### 3.3.1 Tuple match
 
@@ -257,7 +263,7 @@ A loop that a `break` or `continue` inside a `switch` leaves gets a label: a `ma
 #### 3.3.5 Renaming
 
 - Bindings are numbered (`x2`, counting the first as one) only when the name is already live in the same JS scope (a prior `let` in the function body, a parameter, or an import). Match arms, `if`/`else` blocks, and loop bodies reuse the Rust name; adding an arm does not renumber the others.
-- A name the generator makes is printed plain (`emit_ts::plain`): while the code is built it starts with `$`, which no Rust identifier has, and last it takes its plain spelling unless an identifier read or declared in the innermost block holding its uses has it, or another made name of an overlapping block took it; then the next number (`result2`). So it never captures or hides a source name. Until 0.8.0 the `$` was printed (`$v_major`, `$m_3_$t`, `x$1`).
+- A name the generator makes is printed plain (`emit_ts::plain`): while the code is built it starts with `$`, which no Rust identifier has, and last it takes its plain spelling unless an identifier read or declared in the innermost block holding its uses has it, or another made name of an overlapping block took it; then the next number (`result2`). So it never captures or hides a source name.
 - A local with the same name as an item is renamed, because a TS `const` shadows an import across the whole block: a type or `const` always, a function only where a function of the same file calls or reads it, since only then does the file import it (a parameter `total` keeps its name where nothing in its file calls `total`; `let total = total(&lines)` is `total2`); a function the package does not export always, so that a name read after renaming is the helper when it is a helper's.
 
 ### 3.4 Closures
@@ -360,8 +366,10 @@ export const total = <T>(xs: ReadonlyArray<T>, pricedT: Priced<T>): I64 =>
     purecrate-runtime.ts  the runtime, copied in (§4.4), with `Result` and
                       `assertNever`; each file imports what it uses from it
     <concept>.ts      one per public concept, kebab-case
-    consts.ts         every `const` of the crate, folded to its value
+    consts.ts         every `const` of the crate, folded to its value, and
+                      the primitives' std-bound dictionaries (§3.6)
     purecrate-wire.ts only with --schema
+    purecrate-<lib>.ts  the schema adapter, copied in, only with --schema
 ```
 
 - Each file starts with `/* generated by purecrate-ts. do not edit. */`.
@@ -383,7 +391,7 @@ Imports are those the printed code mentions.
 
 A test TS has already decided by narrowing is folded, not printed, since TS refuses it (`"Err"` and `"Ok"` have no overlap, `null ?? d`, unreachable code): a `match` on a place inside an arm that matched it, or after a `?` or a `map_err(f)?` on it; a `match` on `None`, `Some(e)`, `Ok(e)`, or `Err(e)`, also through a `let`; `is_some()` of one; two literals compared. Each holds only while nothing writes the place (`let mut o` assigned in an arm or after). The bindings and `let`s that folding leaves unread go as above (`emit_ts::join`, `crates/cli/tests/fixtures/narrowing.rs`).
 
-`Result.ok(v)` is `Result<T, never>` and `Result.err(e)` is `Result<never, E>` where nothing names the other type parameter (the runtime's defaults, since 0.10.0), so a `?:` of the two, or of one and a `Result`, is the `Result` it reads as.
+`Result.ok(v)` is `Result<T, never>` and `Result.err(e)` is `Result<never, E>` where nothing names the other type parameter (the runtime's defaults), so a `?:` of the two, or of one and a `Result`, is the `Result` it reads as.
 
 ### 4.3 `package.json` and build
 
@@ -408,9 +416,9 @@ The build rewrites `.ts` imports to `.js`. Consumers need no TS loader and can r
 
 **What.** The runtime (`packages/boundary`) is copied in as `src/purecrate-runtime.ts`. With `--schema`, the adapter is copied in as `src/purecrate-<lib>.ts`. Both are copied at the generator's revision. The schema library is the only `peerDependencies` entry.
 
-**Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files use it, and leaves the markers out (`crates/pack/src/trim.rs`). A use is a member read through a namespace (`Int.<ty>.<op>`, down to each operator and method; `Str.<member>`, `Json`) or an identifier read in code (`Result`, `I32`, `Char`, `Uuid`); a std bound's record type where the code applies it (`Ord<T>`, `Display<T>`). What the kept copy reads in turn is kept too, until it reads nothing new (`trim::trim_closed`): `Int.i32.add` keeps `small`, which keeps `panic` and `I32`. An `Int` width is kept when the code reads it or the index exports its brand; `Panic` and `assertNever` always are. A namespace whose members are all trimmed is dropped (`export const Iter = {}` is not kept), and so is all of what the index exports to callers. The index re-exports `Result` and each of `I8`…`F64` only when the public surface holds that type, `Int` when it holds one of these, `Char` when it holds a `char`, `Uuid` when it holds a `Uuid`, and `parseJson` with `--schema` (`trim::exported`). Why: the runtime's `Int` is one object, so a bundler cannot drop the widths and methods a package does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. Two packages re-exported from one barrel then only share the names both surfaces actually use. payment's copy is 4.5 KB of the runtime's 36 KB, counter's 3.2 KB.
+**Only what the package uses.** The runtime marks its parts with region and needs comments; `pack` keeps a part when the package's other files use it, and leaves the markers out (`crates/pack/src/trim.rs`). A use is a member read through a namespace (`Int.<ty>.<op>`, down to each operator and method; `Str.`, `Slice.`, `Eq.`, `Ord.`, `Iter.`, and `BTree.` by member; `Char`, `Uuid`, and `Json` whole) or an identifier read in code (`Result`, `I32`, `ParseIntError`, `parseJson`); a std bound's record type where the code applies it (`Ord<T>`, `Display<T>`). What the kept copy reads in turn is kept too, until it reads nothing new (`trim::trim_closed`): `Int.i32.add` keeps `small`, which keeps `panic` and `I32`. An `Int` width is kept when the code reads it or the index exports its brand; `Panic` and `assertNever` always are. A namespace whose members are all trimmed is dropped (`export const Iter = {}` is not kept), and so is all of what the index exports to callers. The index always re-exports `Panic` and `assertNever`; `Result` and each of `I8`…`F64` only when the public surface holds that type, `Int` when it holds one of these, `Char` when it holds a `char`, `Uuid` and `UuidError` when it holds either, `ParseIntError` when it holds one, and `parseJson` with `--schema` (`emit_ts::index`, `trim::exported`). Why: the runtime's `Int` is one object, so a bundler cannot drop the widths and methods a package does not use, and a caller that loads `src/` or `dist/` directly gets no bundler at all. Two packages re-exported from one barrel then only share the names both surfaces actually use. payment's copy is 6.3 KB of the runtime's 87 KB, counter's 3.8 KB.
 
-**Brands.** The runtime's brands are keyed by string, `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), and so are a crate's open newtypes, by the crate's name and the type (`{ readonly "invoice.Id": true }`): packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error. A closed type is branded by a declaration its file makes and does not export (a newtype by a `unique symbol` key, a struct by a class with a `private` member, which a spread does not copy), so a literal or a spread outside the package cannot be one (a string key can be written out); two copies of the package do not exchange closed values.
+**Brands.** The runtime's brands are keyed by string, `purecrate.` and the type (`{ readonly "purecrate.I32": true }`), and so are a crate's open newtypes, by the crate's name and the type (`{ readonly "invoice.Id": true }`): packages that each carry a copy of the runtime exchange values, and so do two copies of one crate's package, as two installed versions would be; the key reads in a hover or a type error. A closed type's brand is a declaration its own file does not export ([§3.2](#32-structs-methods-newtypes)), so two copies of the package do not exchange closed values.
 
 **Why.** It removes the version skew between generator and runtime. Nothing has to be installed that is not on npm. A peer-installed runtime, the earlier design, had no place in a project that commits generated code, as vendoring into Oxide's console showed ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 
@@ -427,14 +435,14 @@ What callers of a successfully generated package must observe.
 - `State.bump(state)`, not `state.bump()`.
 - Import flat names from the package root.
 - Variants can be built with `Cmd.Move(a, b)` or as literals.
-- A public function's parameter may be renamed (`inc$1`). Calls are positional, so nothing changes.
-- A function or method with a crate trait's bound takes the dictionary after its other arguments: the companion of the type it is called at, `total(items, Item)` ([§3.6](#36-traits)). A std bound's takes the companion too, or for a primitive the const the package exports (`largest(xs, ordI32)`), or a record of the caller's own (`{ cmp: (a, b) => .. }`) where the package exports none. Every TS object fits a record whose members it has, so tsc stops a wrong one only by its members' types.
+- A public function's parameter may be renamed (`inc2`, [§3.3.5](#335-renaming)). Calls are positional, so nothing changes.
+- A function or method with a bound takes one dictionary per bound after its other arguments ([§3.6](#36-traits)). For a crate trait, or a std bound at a crate type, it is the companion of the type it is called at, `total(items, Item)`. For a std bound at a primitive it is the const `consts.ts` exports (`largest(xs, ordI32)`), which the package has only for the (trait, type) pairs its own calls pass; elsewhere the caller writes the record (`{ cmp: (a, b) => .. }`, returning `{ kind: "Less" }` and the others). The record types (`Ord<T>`, `Display<T>`) are not re-exported. Every TS object fits a record whose members it has, so tsc stops a wrong one only by its members' types.
 
 ### 5.2 Failure
 
 - Expected failure is a value: `Result` or `null`.
 - `undefined` means `()`, not absence.
-- An array argument of the wrong length (`[T; N]`, anywhere in the value) throws `Panic` on entry to a `pub` function, naming the parameter, as a string holding a lone surrogate does: neither is a Rust value (from 0.23.0, [01 §7.27](./01-equivalence.md#727-fixed-size-arrays)).
+- A `pub` function checks its arguments on entry and throws `Panic` on what is not a Rust value: a string holding a lone surrogate (`Str.wellFormed`, [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)), and, from 0.23.0, an array of the wrong length where the type says `[T; N]` (`Slice.lengths`, whose message names the parameter, [01 §7.27](./01-equivalence.md#727-fixed-size-arrays)). Both look anywhere in the value: a field, a variant's payload, an element, an `Option`, a tuple, a map's key or value. A closed type's contents were checked by its own `pub` functions and are not walked.
 - Overflow, division by zero, out-of-range shifts, and out-of-bounds indexing throw `Panic` (a subclass of `Error`). `message` is Rust's panic text, so `e.message` still matches a debug build. `instanceof Panic` works across copies of the runtime (`Symbol.for("purecrate.Panic")`). `assertNever` still throws a plain `Error` (`"unexpected variant"`): that is a generator bug, not a domain panic.
 
 ### 5.3 Numbers
@@ -443,11 +451,11 @@ What callers of a successfully generated package must observe.
 | --- | --- | --- |
 | `i8`–`i32`, `u8`–`u32`, `usize` | `I32` etc. | Bring values in with `Int.i32.of`. Raw `number` arithmetic results cannot be passed back; use `Int.i32.div` etc. |
 | `f32`, `f64` | `F32`, `F64` | `Int.f32.of` / `Int.f64.of` |
-| `i64`, `u64` | branded `bigint` | Do not mix with `number`. Read serde_json text with `parseJson`, not `JSON.parse` |
+| `i64`, `u64`, `i128`, `u128` | branded `bigint` | Do not mix with `number`. Read serde_json text with `parseJson`, not `JSON.parse` |
 
 ### 5.4 Strings
 
-`===` matches Rust equality. JS `.length` and `[i]` are UTF-16 units, not Rust byte lengths; the output never emits them.
+`===` matches Rust equality. JS `.length` and `[i]` on a string are UTF-16 units, not Rust byte lengths; the output never emits them on a string.
 
 ### 5.5 Closed types
 
