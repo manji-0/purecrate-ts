@@ -383,7 +383,63 @@ pub const DICT_SELF: &str = "dict";
 /// The std traits whose bound carries a dictionary, as every crate trait's
 /// does (design/01 §7.25). `Clone`, `Copy`, `PartialEq`, `Eq`, and `Debug`
 /// stay structural, with none.
-pub const STD_DICT_TRAITS: &[&str] = &[];
+pub const STD_DICT_TRAITS: &[&str] = &["Ord", "PartialOrd", "Display", "Default"];
+
+/// A std trait of `STD_DICT_TRAITS` as the record its dictionary is
+/// (design/01 §7.25), its type exported by the runtime (`Ord<T>`):
+/// `PartialOrd` and `Ord` are `{ cmp }` (the second a subtrait of the first,
+/// so an `Ord` dictionary serves a `PartialOrd` bound), `Display` is
+/// `{ toString }` (its method `to_string`, camelCase as any), and `Default`
+/// is `{ default }`. `None` for any other name.
+pub fn std_trait(name: &str) -> Option<Trait> {
+    let this = || Ty::Param(Name::new(SELF));
+    let receiver = || Param { name: Name::new("self"), ty: this() };
+    let method = |name: &str, params: Vec<Param>, ret: Ty| TraitMethod {
+        name: Name::new(name),
+        params,
+        ret,
+        default: false,
+        doc: None,
+    };
+    let cmp = || method("cmp", vec![receiver(), Param { name: Name::new("other"), ty: this() }], Ty::named(ORDERING));
+    let (supertraits, methods) = match name {
+        "PartialOrd" => (Vec::new(), vec![cmp()]),
+        "Ord" => (vec![Name::new("PartialOrd")], Vec::new()),
+        "Display" => (Vec::new(), vec![method("to_string", vec![receiver()], Ty::Prim(Prim::String))]),
+        "Default" => (Vec::new(), vec![method("default", Vec::new(), this())]),
+        _ => return None,
+    };
+    Some(Trait {
+        vis: Vis::Pub,
+        name: Name::new(name),
+        supertraits,
+        methods,
+        consts: Vec::new(),
+        impls: Vec::new(),
+        doc: None,
+    })
+}
+
+/// The name of the dictionary of the std trait `trait_` for the primitive
+/// `of` (design/01 §7.25): `ordI32`, `displayString` (`&str`'s too),
+/// `defaultBool`. A `PartialOrd` bound takes the `Ord` one, the same record.
+/// `None` for a type that has no such const (a `Vec`, a tuple, a crate type).
+pub fn std_dict_name(trait_: &str, of: &Ty) -> Option<String> {
+    let Ty::Prim(p) = of else { return None };
+    let ty = match p {
+        Prim::Bool => "Bool",
+        Prim::Char => "Char",
+        Prim::String | Prim::Str => "String",
+        Prim::Uuid => "Uuid",
+        p => match (p.int(), p.float()) {
+            (Some(t), _) => t.ts_name(),
+            (_, Some(t)) => t.ts_name(),
+            _ => return None,
+        },
+    };
+    let trait_ = if trait_ == "PartialOrd" { "Ord" } else { trait_ };
+    Some(format!("{}{ty}", crate::lower_first(trait_)))
+}
 
 /// The parameter carrying the dictionary of `trait_` for the type parameter
 /// `param`: `pricedT`, after the function's other parameters.

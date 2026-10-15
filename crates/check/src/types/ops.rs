@@ -166,9 +166,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                         }
                         // By the comparator `cmp` is (design/01 §7.25): `<`
                         // is `Less`, `<=` not `Greater`, and so on.
-                        Ty::Named(_) | Ty::App { .. } | Ty::Option(_) | Ty::Vec(_) | Ty::Tuple(_) if ordered => {
+                        Ty::Named(_) | Ty::App { .. } | Ty::Option(_) | Ty::Vec(_) | Ty::Tuple(_) | Ty::Param(_)
+                            if ordered =>
+                        {
                             match self.comparator(t) {
                                 Ok(by) => {
+                                    let dicts = self.by_dicts(&by);
                                     let (is, kind) = match op {
                                         BinOp::Lt => (true, "Less"),
                                         BinOp::Le => (false, "Greater"),
@@ -176,7 +179,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                                         _ => (false, "Less"),
                                     };
                                     let compared =
-                                        Expr::Field { base: Box::new(compare(by, l, r)), name: Name::new("kind") };
+                                        Expr::Field { base: Box::new(compare(by, l, r, dicts)), name: Name::new("kind") };
                                     let e = rebuild(
                                         if is { BinOp::Eq } else { BinOp::Ne },
                                         compared,
@@ -202,10 +205,6 @@ impl<'d, 'a> Typer<'d, 'a> {
                                 "it holds a value JS cannot compare as Rust does (`ParseIntError`, `uuid::Error`, a function); compare the parts with a `match`".into()
                             }
                             Ty::Prim(Prim::Bool) => "use `a.cmp(&b)`, which orders `false` first".into(),
-                            Ty::Param(p) => format!(
-                                "a `{}` is not compared in v0, whatever its bound: the output does not know its type; compare a key of a known type (`max_by_key`), or take a closure that orders",
-                                p.as_str()
-                            ),
                             Ty::Named(n) => format!(
                                 "use `matches!(x, {}::Variant)`, a `match`, or compare the parts and chain them with `then`",
                                 n.as_str()

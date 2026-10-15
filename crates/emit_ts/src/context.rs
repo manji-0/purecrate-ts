@@ -80,6 +80,12 @@ pub(super) fn is_trait(name: &str) -> bool {
     TRAITS.with(|c| c.borrow().contains(name))
 }
 
+/// Whether `name` is a std trait whose record the runtime exports
+/// (`Ord<T>`), not hidden by a trait of the crate.
+pub(super) fn is_std_trait(name: &str) -> bool {
+    purecrate_ir::STD_DICT_TRAITS.contains(&name) && !is_trait(name)
+}
+
 pub(super) fn is_struct(name: &str) -> bool {
     STRUCTS.with(|c| c.borrow().contains(name))
 }

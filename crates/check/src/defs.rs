@@ -2,6 +2,14 @@ use std::collections::HashMap;
 
 use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Name, Struct, Trait, TraitMethod, Ty, Variant, VariantFields};
 
+/// A std trait of `STD_DICT_TRAITS` as its record (`purecrate_ir::std_trait`).
+fn std_trait(name: &str) -> Option<&'static Trait> {
+    static STD: std::sync::LazyLock<Vec<Trait>> = std::sync::LazyLock::new(|| {
+        purecrate_ir::STD_DICT_TRAITS.iter().filter_map(|n| purecrate_ir::std_trait(n)).collect()
+    });
+    STD.iter().find(|t| t.name.as_str() == name)
+}
+
 /// Where `Defs::expand` looks through `Box` and the other erased wrappers.
 #[derive(Clone, Copy)]
 pub enum Peel {
@@ -94,6 +102,12 @@ impl<'a> Defs<'a> {
         }
     }
 
+    /// Whether the bound `name` is std's (`STD_DICT_TRAITS`), not hidden by
+    /// a trait of the crate.
+    pub fn is_std_trait(&self, name: &str) -> bool {
+        !self.traits.contains_key(name) && std_trait(name).is_some()
+    }
+
     /// The parameters a call writes: `f`'s, less its dictionaries.
     pub fn written_params<'f>(&self, f: &'f Fn) -> Vec<&'f purecrate_ir::Param> {
         f.params.iter().filter(|p| self.dict_of(&p.ty).is_none()).collect()
@@ -104,7 +118,7 @@ impl<'a> Defs<'a> {
         let mut out: Vec<&'a Trait> = Vec::new();
         let mut todo = vec![trait_.to_string()];
         while let Some(name) = todo.pop() {
-            let Some(t) = self.traits.get(name.as_str()).copied() else { continue };
+            let Some(t) = self.traits.get(name.as_str()).copied().or_else(|| std_trait(&name)) else { continue };
             if out.iter().any(|o| o.name == t.name) {
                 continue;
             }

@@ -69,7 +69,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Some(Ok(text)) => Consume::Min { text },
                 // `Iter.maxBy(xs, by)`, as `max_by` with the comparator.
                 Some(Err(by)) => {
-                    call_args.push(comparator_value(by));
+                    call_args.push(self.comparator_value(by));
                     if name == "max" {
                         Consume::MaxBy
                     } else {
@@ -116,7 +116,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                             Some(Ok(text)) => text,
                             // The comparator follows the key.
                             Some(Err(by)) => {
-                                call_args.push(comparator_value(by));
+                                call_args.push(self.comparator_value(by));
                                 false
                             }
                             None => return Some(failed),

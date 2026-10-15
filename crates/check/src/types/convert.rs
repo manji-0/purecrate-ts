@@ -156,6 +156,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Ty::Named(n) if self.defs.methods.contains_key(&(n.as_str(), "default")) => {
                 Some(call(Callee::Method { ty: n, name: Name::new("default") }))
             }
+            // A `T: Default`: its dictionary's `default()`.
+            Ty::Param(p) if self.dicts.iter().any(|(of, tr, _)| *of == p && self.defs.extends(tr.as_str(), "Default")) => {
+                return self.bound_call(&p, &Name::new("default"), &[], want);
+            }
             _ => None,
         };
         let Some(value) = value else {
@@ -166,7 +170,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             self.error(
                 Reason::TypeMismatch,
                 format!(
-                    "{what} has no default in v0; the defaults are those of the integers, floats, `bool`, `char`, `String`, `Vec`, `BTreeMap`, `BTreeSet`, `Option`, tuples of them, and the crate's types with `#[derive(Default)]` or `impl Default` (write the value, or `impl Default` by hand)"
+                    "{what} has no default in v0; the defaults are those of the integers, floats, `bool`, `char`, `String`, `Vec`, `BTreeMap`, `BTreeSet`, `Option`, tuples of them, and the crate's types with `#[derive(Default)]` or `impl Default`, and a type parameter with a `Default` bound (write the value, or `impl Default` by hand)"
                 ),
             );
             return failed;

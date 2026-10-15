@@ -99,6 +99,10 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
                 });
             }
         }
+        // `Ord<T>`, a dictionary's type (design/01 §7.25), is not `Ord.`'s.
+        if source.match_indices("Ord<").any(|(at, _)| starts_word(source, at)) {
+            out.insert("ord.type".to_string());
+        }
         for (word, used) in [("parseJson", "parseJson"), ("ParseIntError", "parseIntError")] {
             if source.match_indices(word).any(|(at, _)| starts_word(source, at)) {
                 out.insert(used.to_string());
@@ -527,6 +531,7 @@ mod tests {
             "int.usize",
             "int.f32",
             "int.f64",
+            "ord.type",
         ]);
         let mut all = all;
         all.extend(IntMethod::ALL.iter().map(|m| format!("m.{}", m.ts_name())));

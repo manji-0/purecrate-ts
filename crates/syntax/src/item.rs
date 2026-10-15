@@ -1650,10 +1650,10 @@ impl VisitMut for SelfIsOwner<'_> {
     fn visit_item_mut(&mut self, _: &mut SynItem) {}
 }
 
-/// The traits a type parameter may be bounded by: what the structural output
-/// honors (`Clone` is the value, `==` is `Eq.deep`), and `PartialOrd` /
-/// `Ord` / `Debug`, accepted but not usable on a `T` (design/01 §7.20).
-const BOUNDS: &[&str] = &["Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Debug"];
+/// The traits a type parameter may be bounded by without a dictionary: what
+/// the structural output honors (`Clone` is the value, `==` is `Eq.deep`),
+/// and `Debug`, accepted but not usable on a `T` (design/01 §7.20).
+const BOUNDS: &[&str] = &["Clone", "Copy", "PartialEq", "Eq", "Debug"];
 
 /// Where type parameters are declared: a struct's or enum's may not have
 /// a bound that carries a dictionary (design/01 §7.25); an `impl`'s and a
@@ -1668,6 +1668,31 @@ pub(crate) enum Bounded {
 /// `STD_DICT_TRAITS`.
 fn carries_dict(cx: &Cx, name: &str) -> bool {
     cx.is_trait(name) || purecrate_ir::STD_DICT_TRAITS.contains(&name)
+}
+
+/// The std trait of `STD_DICT_TRAITS` a bound names (design/01 §7.25):
+/// `Ord`, `PartialOrd`, `Display`, or `Default`, alone where the crate has
+/// no trait of that name, or by its path (`std::cmp::Ord`, `fmt::Display`,
+/// `std::default::Default`).
+fn std_dict_bound(cx: &Cx, path: &syn::Path) -> Option<String> {
+    let last = path.segments.last()?;
+    let name = last.ident.to_string();
+    if !purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str()) || !last.arguments.is_none() {
+        return None;
+    }
+    let module = match name.as_str() {
+        "Display" => "fmt",
+        "Default" => "default",
+        _ => "cmp",
+    };
+    let prefix: Vec<String> = path.segments.iter().rev().skip(1).map(|s| s.ident.to_string()).collect();
+    let std_path = match prefix.as_slice() {
+        [] => path.leading_colon.is_none() && !cx.is_trait(&name),
+        [m] => m == module,
+        [m, root] => m == module && (root == "std" || root == "core"),
+        _ => false,
+    };
+    std_path.then_some(name)
 }
 
 /// Type parameters, and each (parameter, trait) whose bound carries a
@@ -1685,6 +1710,17 @@ pub(crate) fn type_params(cx: &Cx, generics: &syn::Generics, at: Bounded) -> Res
                 syn::TypeParamBound::Trait(t)
                     if matches!(t.modifier, syn::TraitBoundModifier::None)
                         && t.path.get_ident().is_some_and(|i| BOUNDS.contains(&i.to_string().as_str())) => {}
+                // A std bound is the parameter's: a struct's or enum's
+                // carries nothing, as in 0.20.0.
+                syn::TypeParamBound::Trait(t)
+                    if matches!(t.modifier, syn::TraitBoundModifier::None)
+                        && at == Bounded::Type
+                        && std_dict_bound(cx, &t.path).is_some() => {}
+                syn::TypeParamBound::Trait(t)
+                    if matches!(t.modifier, syn::TraitBoundModifier::None) && std_dict_bound(cx, &t.path).is_some() =>
+                {
+                    dicts.push((param.clone(), Name::new(std_dict_bound(cx, &t.path).expect("checked by the guard"))));
+                }
                 syn::TypeParamBound::Trait(t)
                     if matches!(t.modifier, syn::TraitBoundModifier::None)
                         && t.path.get_ident().is_some_and(|i| carries_dict(cx, &i.to_string())) =>
@@ -1716,7 +1752,7 @@ pub(crate) fn type_params(cx: &Cx, generics: &syn::Generics, at: Bounded) -> Res
                     return Err(ParseError::new(
                         Reason::Generics,
                         format!(
-                            "the bound {} is not in v0: a type parameter may be bounded by a trait of the crate, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`",
+                            "the bound {} is not in v0: a type parameter may be bounded by a trait of the crate, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display`, `Default`, and `Debug`",
                             snippet(other)
                         ),
                     ))

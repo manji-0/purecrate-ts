@@ -35,7 +35,7 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     let in_dict = |g: &Name| {
         f.params
             .iter()
-            .any(|p| matches!(&p.ty, Ty::App { name, args } if is_trait(name.as_str()) && count_param(&args[0], g) > 0))
+            .any(|p| matches!(&p.ty, Ty::App { name, args } if (is_trait(name.as_str()) || is_std_trait(name.as_str())) && count_param(&args[0], g) > 0))
     };
     let uses = |g: &Name| {
         let named = |t: &Ty| count_param(t, g);
@@ -646,14 +646,27 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         C::OrdCmp { text } => call(ord_cmp(*text), args, indent),
         C::OrdThen => call("Ord.then", args, indent),
         C::OrdCmpBy(purecrate_ir::Cmp::Vec(by)) => {
-            format!("Ord.cmpList({}, {}, {})", emit_expr(&args[0], indent), emit_expr(&args[1], indent), comparator(by))
+            let by = comparator(by, &mut dicts(&args[2..], indent));
+            format!("Ord.cmpList({}, {}, {by})", emit_expr(&args[0], indent), emit_expr(&args[1], indent))
         }
-        C::OrdCmpBy(by) => call(&comparator(by), args, indent),
-        C::OrdBy(by) => comparator(by),
+        C::OrdCmpBy(by) => call(&comparator(by, &mut dicts(&args[2..], indent)), &args[..2], indent),
+        C::OrdBy(by) => comparator(by, &mut dicts(args, indent)),
         C::OrdPick { pick, by } => {
-            let all: Vec<String> = args.iter().map(|a| emit_item(a, indent)).collect();
-            format!("Ord.{}({}, {})", pick.ts_name(), all.join(", "), comparator(by))
+            let takes = if *pick == purecrate_ir::Pick::Clamp { 3 } else { 2 };
+            let all: Vec<String> = args[..takes].iter().map(|a| emit_item(a, indent)).collect();
+            let by = comparator(by, &mut dicts(&args[takes..], indent));
+            format!("Ord.{}({}, {by})", pick.ts_name(), all.join(", "))
         }
+        // `{ cmp: Ord.cmp }`: the record of the trait's one member.
+        C::StdDict { trait_, .. } => {
+            let member = match trait_.as_str() {
+                "Display" => "toString",
+                "Default" => "default",
+                _ => "cmp",
+            };
+            format!("{{ {member}: {} }}", emit_item(&args[0], indent))
+        }
+        C::Read => format!("void {}", emit_item(&args[0], indent)),
         // Variant names are identifiers other than `__proto__` (checked), so
         // an object literal is a plain table.
         C::Discriminant { to, table, of } => match typed_table(table, of, to.is_big(), &args[0], indent) {
@@ -958,17 +971,26 @@ fn ord_cmp(text: bool) -> &'static str {
 }
 
 /// A comparator as a function value (design/01 §7.25): `Ord.cmp`,
-/// `Ord.cmpStr`, a crate type's `X.cmp`, or one the runtime composes.
-fn comparator(by: &purecrate_ir::Cmp) -> String {
+/// `Ord.cmpStr`, a crate type's `X.cmp`, a dictionary's `ordT.cmp` (each
+/// dictionary taken from `dicts` in turn), or one the runtime composes.
+fn comparator(by: &purecrate_ir::Cmp, dicts: &mut dyn Iterator<Item = String>) -> String {
     use purecrate_ir::Cmp;
     match by {
         Cmp::Num => ord_cmp(false).into(),
         Cmp::Text => ord_cmp(true).into(),
         Cmp::Type(ty) => format!("{}.cmp", ty.as_str()),
-        Cmp::Option(by) => format!("Ord.option({})", comparator(by)),
-        Cmp::Vec(by) => format!("Ord.vec({})", comparator(by)),
-        Cmp::Tuple(bys) => format!("Ord.tuple({})", bys.iter().map(comparator).collect::<Vec<_>>().join(", ")),
+        Cmp::Dict(_) => format!("{}.cmp", dicts.next().expect("a dictionary per `Cmp::Dict`")),
+        Cmp::Option(by) => format!("Ord.option({})", comparator(by, dicts)),
+        Cmp::Vec(by) => format!("Ord.vec({})", comparator(by, dicts)),
+        Cmp::Tuple(bys) => {
+            format!("Ord.tuple({})", bys.iter().map(|by| comparator(by, dicts)).collect::<Vec<_>>().join(", "))
+        }
     }
+}
+
+/// The dictionaries a comparator reads, printed as objects of `.cmp`.
+fn dicts<'e>(args: &'e [Expr], indent: usize) -> impl Iterator<Item = String> + 'e {
+    args.iter().map(move |a| recv(a, indent))
 }
 
 fn tx_op(op: BinOp) -> Op {

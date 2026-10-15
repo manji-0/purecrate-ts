@@ -217,6 +217,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return self.trait_call(ty, name, args, want)
             }
             Callee::Dict { name } => return self.retyped_dict_call(name, args, want),
+            // Written only where a dictionary is passed, typed.
+            Callee::StdDict { trait_, of } => (args.to_vec(), Some(purecrate_ir::dict_ty(trait_, of.clone()))),
+            Callee::Read => (args.to_vec(), Some(Ty::Prim(Prim::Unit))),
             Callee::Fn(_) | Callee::Method { .. } => match self.callee_fn(callee) {
                 Some((f, what)) if !f.generics.is_empty() => {
                     let params: Vec<Ty> = self.defs.written_params(f).into_iter().map(|p| p.ty.clone()).collect();
@@ -508,7 +511,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed_args(self, Vec::new()), Some(Ty::named(purecrate_ir::ORDERING)))
             }
             // Written only by `comparator_value` and `pick`, typed.
-            Callee::OrdBy(_) => (Vec::new(), None),
+            Callee::OrdBy(_) => (self.typed_all(args).0, None),
             Callee::OrdPick { .. } => {
                 let (args, tys) = self.typed_all(args);
                 (args, tys.into_iter().flatten().next())

@@ -15,6 +15,29 @@ impl<'d, 'a> Typer<'d, 'a> {
         let mut shown = vec![false; args.len()];
         for (i, t) in tys.iter().enumerate() {
             let Some(t) = t else { continue };
+            // A `T: Display`: its dictionary's `toString`, where the
+            // template places it, as a crate type's own.
+            if let Ty::Param(p) = t {
+                if let Some(dict) = self.display_dict(p) {
+                    let padded = pieces
+                        .iter()
+                        .any(|piece| matches!(piece, FmtPiece::Arg { index, spec } if *index == i && !spec.is_plain()));
+                    if padded {
+                        self.error(
+                            Reason::Macro,
+                            format!(
+                                "a width, alignment, or fill on a `{}` is not in v0: Rust pads it only where its type's `fmt` calls `f.pad`, which the output cannot know; pad its text: `format!(\"{{:>8}}\", x.to_string())`",
+                                p.as_str()
+                            ),
+                        );
+                    }
+                    let arg = std::mem::replace(&mut typed[i], Expr::Lit(Lit::Unit));
+                    let callee = Callee::Dict { name: Name::new("to_string") };
+                    typed[i] = Expr::Call { callee, args: vec![Expr::Var(dict), arg] };
+                    shown[i] = true;
+                    continue;
+                }
+            }
             if let Some(owner) = self.crate_type(t) {
                 if !self.has_display(&owner) {
                     self.error(Reason::TypeMismatch, no_display("format!", &owner));
@@ -132,6 +155,13 @@ impl Typer<'_, '_> {
     pub(super) fn crate_type(&self, t: &Ty) -> Option<Name> {
         let (n, _) = t.applied()?;
         (self.defs.structs.contains_key(n.as_str()) || self.defs.enums.contains_key(n.as_str())).then(|| n.clone())
+    }
+
+    /// The dictionary in scope of the type parameter `p`'s `Display`
+    /// bound.
+    pub(super) fn display_dict(&self, p: &Name) -> Option<Name> {
+        let defs = self.defs;
+        self.dicts.iter().find(|(of, tr, _)| of == p && defs.extends(tr.as_str(), "Display")).map(|d| d.2.clone())
     }
 
     /// Whether the crate type `owner` has a `to_string` read from its

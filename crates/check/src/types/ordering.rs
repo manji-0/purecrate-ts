@@ -36,6 +36,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return failed();
             }
             Ty::Option(_) | Ty::Tuple(_) => return Some(self.cmp_by(recv, rt, &norm, args, want)),
+            // Through its `Ord` dictionary (design/01 §7.25).
+            Ty::Param(_) if self.comparator(&norm).is_ok() => return Some(self.cmp_by(recv, rt, &norm, args, want)),
             Ty::Vec(t) if !matches!(self.norm(t), Ty::Prim(_)) => {
                 return Some(self.cmp_by(recv, rt, &norm, args, want))
             }
@@ -123,13 +125,34 @@ impl<'d, 'a> Typer<'d, 'a> {
             return failed;
         }
         let (arg, _) = self.expr(arg, Some(rt));
-        (compare(by, recv, arg), self.expect(want, Some(Ty::named(ORDERING))))
+        let dicts = self.by_dicts(&by);
+        (compare(by, recv, arg, dicts), self.expect(want, Some(Ty::named(ORDERING))))
     }
 
     /// How `t`'s values compare by `cmp` (`order::comparator`), or what in
-    /// it has no order.
+    /// it has no order: a type parameter by its `Ord` (or `PartialOrd`)
+    /// dictionary, where one is in scope.
     pub(super) fn comparator(&self, t: &Ty) -> Result<Cmp, String> {
-        crate::order::comparator(self.defs, t, &|n| crate::order::has_cmp(self.defs, n))
+        let ordered = |n: &str| crate::order::has_cmp(self.defs, n);
+        crate::order::comparator(self.defs, t, &ordered, &|p| self.ord_dict(p).is_some())
+    }
+
+    /// The dictionary in scope that orders the type parameter `p`: its
+    /// `Ord` or `PartialOrd` bound's.
+    pub(super) fn ord_dict(&self, p: &Name) -> Option<Name> {
+        let defs = self.defs;
+        self.dicts.iter().find(|(of, tr, _)| of == p && defs.extends(tr.as_str(), "PartialOrd")).map(|d| d.2.clone())
+    }
+
+    /// The dictionaries `by` reads, in order, as its call's arguments.
+    pub(super) fn by_dicts(&self, by: &Cmp) -> Vec<Expr> {
+        by.dicts().into_iter().map(|p| Expr::Var(self.ord_dict(p).expect("`comparator` found it"))).collect()
+    }
+
+    /// A comparator as an argument of a runtime function.
+    pub(super) fn comparator_value(&self, by: Cmp) -> Expr {
+        let args = self.by_dicts(&by);
+        Expr::Call { callee: Callee::OrdBy(by), args }
     }
 
     /// Why `t`, which `comparator` found `why` in, has no order: a crate
@@ -183,6 +206,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return None
             }
             Ty::Named(_) | Ty::App { .. } | Ty::Option(_) | Ty::Vec(_) | Ty::Tuple(_) => {}
+            // Through its `Ord` dictionary; else one of its bounds may have
+            // a method of that name.
+            Ty::Param(_) if self.comparator(&norm).is_ok() => {}
             _ => return None,
         }
         let failed = Some((Expr::Lit(Lit::Unit), None));
@@ -210,6 +236,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         let mut all = vec![recv];
         all.extend(args.iter().map(|a| self.expr(a, Some(rt)).0));
+        all.extend(self.by_dicts(&by));
         let e = Expr::Call { callee: Callee::OrdPick { pick, by }, args: all };
         Some((e, self.expect(want, Some(rt.clone()))))
     }
@@ -321,23 +348,23 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 }
 
-/// `a.cmp(&b)` by `by`: a crate type's own `cmp`, and the runtime's
+/// `a.cmp(&b)` by `by`, which reads `dicts` (`Typer::by_dicts`): a crate
+/// type's own `cmp`, a dictionary's (`ordT.cmp(a, b)`), and the runtime's
 /// `Ord.cmp`, `Ord.cmpStr`, and `Ord.cmpList` as before for what they
 /// order, else `Callee::OrdCmpBy`.
-pub(super) fn compare(by: Cmp, a: Expr, b: Expr) -> Expr {
+pub(super) fn compare(by: Cmp, a: Expr, b: Expr, dicts: Vec<Expr>) -> Expr {
     let callee = match by {
         Cmp::Type(ty) => Callee::Method { ty, name: Name::new("cmp") },
+        Cmp::Dict(_) => {
+            let args = dicts.into_iter().chain([a, b]).collect();
+            return Expr::Call { callee: Callee::Dict { name: Name::new("cmp") }, args };
+        }
         Cmp::Num => Callee::OrdCmp { text: false },
         Cmp::Text => Callee::OrdCmp { text: true },
         Cmp::Vec(by) if matches!(*by, Cmp::Num | Cmp::Text) => Callee::OrdCmpList { text: *by == Cmp::Text },
         by => Callee::OrdCmpBy(by),
     };
-    Expr::Call { callee, args: vec![a, b] }
-}
-
-/// A comparator as an argument of a runtime function.
-pub(super) fn comparator_value(by: Cmp) -> Expr {
-    Expr::Call { callee: Callee::OrdBy(by), args: Vec::new() }
+    Expr::Call { callee, args: [a, b].into_iter().chain(dicts).collect() }
 }
 
 /// `Ordering::<v>`.

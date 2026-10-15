@@ -210,26 +210,33 @@ fn field_unordered(
         }
     }
     fields.into_iter().find_map(|(field, ty)| {
-        comparator_in(defs, ty, ordered, seen).err().map(|why| format!("its field {field} holds {why}"))
+        comparator_in(defs, ty, ordered, &|_| false, seen).err().map(|why| format!("its field {field} holds {why}"))
     })
 }
 
 /// How values of `ty` compare by `cmp`: integers and `bool` by `<`, `char`,
 /// strings, and `Uuid` by code point, a crate type by its `cmp` (`ordered`
-/// says which have one), and `Option`, `Vec`, tuples, and `Box` of those
+/// says which have one), a type parameter by its dictionary's (`param` says
+/// which have one in scope), and `Option`, `Vec`, tuples, and `Box` of those
 /// as std orders them. Else what has no order, for a message.
-pub fn comparator(defs: &Defs<'_>, ty: &Ty, ordered: &dyn std::ops::Fn(&str) -> bool) -> Result<Cmp, String> {
-    comparator_in(defs, ty, ordered, &mut Vec::new())
+pub fn comparator(
+    defs: &Defs<'_>,
+    ty: &Ty,
+    ordered: &dyn std::ops::Fn(&str) -> bool,
+    param: &dyn std::ops::Fn(&Name) -> bool,
+) -> Result<Cmp, String> {
+    comparator_in(defs, ty, ordered, param, &mut Vec::new())
 }
 
 fn comparator_in(
     defs: &Defs<'_>,
     ty: &Ty,
     ordered: &dyn std::ops::Fn(&str) -> bool,
+    param: &dyn std::ops::Fn(&Name) -> bool,
     seen: &mut Vec<String>,
 ) -> Result<Cmp, String> {
     let t = defs.expand(ty, Peel::Every);
-    let mut each = |t: &Ty| comparator_in(defs, t, ordered, seen);
+    let mut each = |t: &Ty| comparator_in(defs, t, ordered, param, seen);
     match t {
         Ty::Prim(Prim::Bool) => Ok(Cmp::Num),
         Ty::Prim(p) if p.int().is_some() => Ok(Cmp::Num),
@@ -243,10 +250,8 @@ fn comparator_in(
         Ty::Named(n) if ordered(n.as_str()) => Ok(Cmp::Type(n.clone())),
         Ty::Named(n) if seen.iter().any(|s| s == n.as_str()) => Err(format!("`{}`, which is not ordered", n.as_str())),
         Ty::Named(n) => Err(format!("`{}`, which is not ordered: {}", n.as_str(), why_in(defs, n.as_str(), seen))),
-        Ty::Param(p) => Err(format!(
-            "`{}`, a type parameter, whose `cmp` v0 does not pass yet; order by a key of a known type (`max_by_key`)",
-            p.as_str()
-        )),
+        Ty::Param(p) if param(p) => Ok(Cmp::Dict(p.clone())),
+        Ty::Param(p) => Err(format!("`{}`, a type parameter without an `Ord` or `PartialOrd` bound here", p.as_str())),
         other => Err(format!(
             "`{}`, which v0 does not order: it orders integers, `bool`, `char`, strings, `Uuid`, the crate's types with `Ord`, and `Option`, `Vec`, and tuples of them",
             show(other)

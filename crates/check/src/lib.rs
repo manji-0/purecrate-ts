@@ -16,6 +16,7 @@ mod reach;
 mod rename;
 mod resolve;
 mod rest;
+mod std_dicts;
 mod traits;
 mod tuple;
 mod types;
@@ -150,7 +151,7 @@ fn accept_all(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                             homes,
                             "helper homes differ after renaming"
                         );
-                        return Ok(done);
+                        return Ok(std_dicts::read_forwarded(std_dicts::hoist(done)));
                     }
                     missing => out = missing,
                 }

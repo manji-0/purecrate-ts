@@ -367,6 +367,9 @@ pub(crate) struct Refs {
     parse_int_error: bool,
     /// Brand type names (`I32`, `F64`) this file mentions.
     nums: BTreeSet<String>,
+    /// The std traits' records (`Ord<T>`, `Display<T>`) a dictionary
+    /// parameter's type names, which the runtime exports.
+    std_traits: BTreeSet<String>,
     types: BTreeSet<String>,
     values: BTreeSet<String>,
     /// Closed structs this file builds through their `$of`.
@@ -378,6 +381,9 @@ pub(crate) struct Refs {
 impl Refs {
     fn ty(&mut self, ty: &Ty) {
         match ty {
+            Ty::App { name: n, .. } if crate::context::is_std_trait(n.as_str()) => {
+                self.std_traits.insert(n.as_str().to_string());
+            }
             Ty::Named(n) | Ty::App { name: n, .. } => {
                 self.types.insert(n.as_str().to_string());
             }
@@ -462,7 +468,8 @@ impl Refs {
                     // `Ord.` where a comparator is the runtime's, and each
                     // crate type whose `cmp` it calls.
                     Callee::OrdCmpBy(by) | Callee::OrdBy(by) | Callee::OrdPick { by, .. } => {
-                        self.ord |= !matches!(by, purecrate_ir::Cmp::Type(_)) || matches!(callee, Callee::OrdPick { .. });
+                        self.ord |= !matches!(by, purecrate_ir::Cmp::Type(_) | purecrate_ir::Cmp::Dict(_))
+                            || matches!(callee, Callee::OrdPick { .. });
                         self.values.extend(by.types().into_iter().map(|t| t.as_str().to_string()));
                     }
                     Callee::Collect { over, .. }
@@ -772,11 +779,20 @@ pub(crate) fn imports_for(krate: &Crate, stem: &str, items: &[&Item]) -> String 
         refs.uuid_error.then_some("UuidError"),
         refs.parse_int_error.then_some("ParseIntError"),
     ];
+    // `Ord` the value is `Ord` the type too.
+    let std_traits = refs.std_traits.iter().map(String::as_str).filter(|t| *t != "Ord" || !refs.ord);
     let runtime: Vec<String> = values
         .into_iter()
         .flatten()
         .map(str::to_string)
-        .chain(types.into_iter().flatten().chain(refs.nums.iter().map(String::as_str)).map(|t| format!("type {t}")))
+        .chain(
+            types
+                .into_iter()
+                .flatten()
+                .chain(std_traits)
+                .chain(refs.nums.iter().map(String::as_str))
+                .map(|t| format!("type {t}")),
+        )
         .collect();
     if !runtime.is_empty() {
         out.push_str(&format!("import {{ {} }} from \"purecrate\";\n", runtime.join(", ")));

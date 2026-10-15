@@ -520,6 +520,22 @@ pub enum Callee {
     Dict {
         name: Name,
     },
+    /// The dictionary of the std trait `trait_` (`Ord`, `PartialOrd`,
+    /// `Display`, `Default`) for `of`, a type outside the crate (design/01
+    /// §7.25): the record of the trait's one member, its one argument (a
+    /// comparator, or a closure), as `{ cmp: Ord.cmp }`. A primitive's is a
+    /// const of the crate (`ordI32`, `check::std_dicts`), the call standing
+    /// for it read by name; an `Ord` of a `Vec` or a tuple is built where it
+    /// is passed.
+    StdDict {
+        trait_: Name,
+        of: Ty,
+    },
+    /// `void d`: a dictionary parameter the body passes on only to its own
+    /// recursive call, read, so a lint that asks to drop a parameter used
+    /// only in recursion (oxlint's `only-used-in-recursion`) leaves the
+    /// signature as the bound makes it. One argument, a `Var`.
+    Read,
     StructNew(Name),
     /// `From::from(s)`, and `s.into()` once typed: the `From` member of the
     /// type the context wants (`Fn::from_source`). `check::accept` rewrites
@@ -672,16 +688,17 @@ pub enum Callee {
     /// does not order (design/01 §7.25): the comparator on `a`, then `b`,
     /// each evaluated once. Prints as `Ord.cmpList(a, b, by)` for a `Vec`,
     /// else as `Ord.option(by)(a, b)` or `Ord.tuple(..)(a, b)`. A crate
-    /// type's own `cmp` is a `Method` call.
+    /// type's own `cmp` is a `Method` call. The dictionaries `by` reads
+    /// (`Cmp::dicts`) follow `a` and `b`.
     OrdCmpBy(Cmp),
     /// A comparator as a value, where a runtime function takes one
     /// (`Slice.sortBy(v, Item.cmp)`, `Iter.maxBy(xs, Ord.option(Ord.cmp))`).
-    /// Takes no argument.
+    /// Takes the dictionaries it reads (`Cmp::dicts`), and nothing else.
     OrdBy(Cmp),
     /// `a.max(b)`, `a.min(b)`, or `x.clamp(lo, hi)` by `by`, as std's `Ord`
     /// methods choose: `max` the second of equals, `min` the first, `clamp`
-    /// panicking where `lo > hi`. The arguments in Rust's order; prints as
-    /// `Ord.max(a, b, by)` and so on.
+    /// panicking where `lo > hi`. The arguments in Rust's order, then the
+    /// dictionaries `by` reads; prints as `Ord.max(a, b, by)` and so on.
     OrdPick {
         pick: Pick,
         by: Cmp,
@@ -1179,16 +1196,33 @@ pub enum Cmp {
     Vec(Box<Cmp>),
     /// Element by element, each by its own: `Ord.tuple(by0, by1, ..)`.
     Tuple(Vec<Cmp>),
+    /// A value of the type parameter it names, by the `cmp` of its `Ord`
+    /// (or `PartialOrd`) dictionary: `ordT.cmp`. The dictionary is an
+    /// argument of the call that holds the comparator, after its operands,
+    /// one per `Dict` in the order `dicts` walks them, so every pass sees it
+    /// read.
+    Dict(Name),
 }
 
 impl Cmp {
     /// Each crate type whose `cmp` this comparator calls.
     pub fn types(&self) -> Vec<&Name> {
         match self {
-            Cmp::Num | Cmp::Text => Vec::new(),
+            Cmp::Num | Cmp::Text | Cmp::Dict(_) => Vec::new(),
             Cmp::Type(n) => vec![n],
             Cmp::Option(c) | Cmp::Vec(c) => c.types(),
             Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::types).collect(),
+        }
+    }
+
+    /// Each type parameter whose dictionary this comparator reads, in the
+    /// order its call takes the dictionaries.
+    pub fn dicts(&self) -> Vec<&Name> {
+        match self {
+            Cmp::Num | Cmp::Text | Cmp::Type(_) => Vec::new(),
+            Cmp::Dict(p) => vec![p],
+            Cmp::Option(c) | Cmp::Vec(c) => c.dicts(),
+            Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::dicts).collect(),
         }
     }
 }

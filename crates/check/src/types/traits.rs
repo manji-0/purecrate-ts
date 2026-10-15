@@ -219,6 +219,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Expr::Lit(Lit::Unit)
                 }
             },
+            t if self.defs.is_std_trait(tr.as_str()) => self.std_dict_arg(tr, &t),
             t => match t.applied() {
                 Some((owner, _)) if self.implements(owner.as_str(), tr.as_str()) => Expr::Var(owner.clone()),
                 _ => {
@@ -228,6 +229,92 @@ impl<'d, 'a> Typer<'d, 'a> {
                     );
                     Expr::Lit(Lit::Unit)
                 }
+            },
+        }
+    }
+
+    /// The dictionary of the std trait `tr` for `t`, a type that is not a
+    /// parameter (design/01 §7.25): a crate type's companion, which holds
+    /// the member (`cmp`, `toString`, `default`) the trait's record asks
+    /// for; a primitive's const of the crate (`ordI32`, made by
+    /// `std_dicts::hoist`); for `Ord`, a `Vec`'s or a tuple's record built
+    /// from its comparator. `t` must have the member: `PartialOrd` at a
+    /// float, a crate type that derives `PartialOrd` alone, or one whose
+    /// `fmt` was skipped is refused.
+    fn std_dict_arg(&mut self, tr: &Name, t: &Ty) -> Expr {
+        let failed = Expr::Lit(Lit::Unit);
+        let owner = self.crate_type(t);
+        match tr.as_str() {
+            "Ord" | "PartialOrd" => match self.comparator(t) {
+                Ok(Cmp::Type(n)) => Expr::Var(n),
+                Ok(by) => {
+                    let arg = self.comparator_value(by);
+                    Expr::Call { callee: Callee::StdDict { trait_: Name::new("Ord"), of: t.clone() }, args: vec![arg] }
+                }
+                Err(why) => {
+                    self.error(
+                        Reason::Comparison,
+                        format!(
+                            "`{}` has no `cmp` to pass as the dictionary of a `{}` bound, which v0 orders by: {}",
+                            show(t),
+                            tr.as_str(),
+                            self.unordered(t, why)
+                        ),
+                    );
+                    failed
+                }
+            },
+            "Display" => match owner {
+                Some(owner) if self.has_display(&owner) => Expr::Var(owner),
+                Some(owner) => {
+                    self.error(Reason::TypeMismatch, super::format::no_display("a `Display` bound", &owner));
+                    failed
+                }
+                None => match crate::std_dicts::member(tr.as_str(), t) {
+                    Some(member) => Expr::Call {
+                        callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() },
+                        args: vec![member],
+                    },
+                    None => {
+                        self.error(
+                            Reason::TraitImpl,
+                            format!(
+                                "`{}` is not passed as the dictionary of a `Display` bound in v0: it passes the integers, `bool`, `char`, strings, `Uuid`, and the crate's types whose `Display` is translated (a float prints differently in JS)",
+                                show(t)
+                            ),
+                        );
+                        failed
+                    }
+                },
+            },
+            _ => match owner {
+                Some(owner) if self.defs.methods.contains_key(&(owner.as_str(), "default")) => Expr::Var(owner),
+                Some(owner) => {
+                    self.error(
+                        Reason::TraitImpl,
+                        format!(
+                            "`{}` has no `default` to pass as the dictionary of a `Default` bound: derive `Default` or write `impl Default`",
+                            owner.as_str()
+                        ),
+                    );
+                    failed
+                }
+                None => match crate::std_dicts::member(tr.as_str(), t) {
+                    Some(member) => Expr::Call {
+                        callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() },
+                        args: vec![member],
+                    },
+                    None => {
+                        self.error(
+                            Reason::TraitImpl,
+                            format!(
+                                "`{}` is not passed as the dictionary of a `Default` bound in v0: it passes the integers, the floats, `bool`, `char`, strings, and the crate's types with `default`",
+                                show(t)
+                            ),
+                        );
+                        failed
+                    }
+                },
             },
         }
     }

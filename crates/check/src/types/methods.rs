@@ -470,7 +470,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (sort, args) = match method {
                     "sort" => match self.ordered_by_any(item, method) {
                         Some(Ok(text)) => (Sort::Natural { text }, vec![recv]),
-                        Some(Err(by)) => (Sort::By, vec![recv, comparator_value(by)]),
+                        Some(Err(by)) => (Sort::By, vec![recv, self.comparator_value(by)]),
                         None => return failed,
                     },
                     "sort_by" => {
@@ -494,7 +494,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                         match self.ordered_by_any(&key, method) {
                             Some(Ok(text)) => (Sort::ByKey { text }, vec![recv, closure]),
                             // The comparator follows the key.
-                            Some(Err(by)) => (Sort::ByKey { text: false }, vec![recv, closure, comparator_value(by)]),
+                            Some(Err(by)) => (Sort::ByKey { text: false }, vec![recv, closure, self.comparator_value(by)]),
                             None => return failed,
                         }
                     }

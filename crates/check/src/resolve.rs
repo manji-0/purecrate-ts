@@ -486,7 +486,7 @@ impl<'a> Cx<'_, 'a> {
             // Through a bound (`T::zero()`), or by the type of the arguments
             // (`Priced::price(&i)`): typing finds the method.
             Callee::Method { ty, .. } if self.generics.contains(ty) || self.defs.traits.contains_key(ty.as_str()) => {}
-            Callee::Dict { .. } => {}
+            Callee::Dict { .. } | Callee::StdDict { .. } | Callee::Read => {}
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
                 Some(f) => {
                     let written = self.defs.written_params(f).len();
@@ -564,11 +564,11 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
-            Callee::OrdCmpBy(_) => self.arity("`cmp`", 2, argc),
-            Callee::OrdBy(_) => self.arity("a comparator", 0, argc),
-            Callee::OrdPick { pick, .. } => {
+            Callee::OrdCmpBy(by) => self.arity("`cmp`", 2 + by.dicts().len(), argc),
+            Callee::OrdBy(by) => self.arity("a comparator", by.dicts().len(), argc),
+            Callee::OrdPick { pick, by } => {
                 let takes = if *pick == purecrate_ir::Pick::Clamp { 3 } else { 2 };
-                self.arity(&format!("`{}`", pick.ts_name()), takes, argc)
+                self.arity(&format!("`{}`", pick.ts_name()), takes + by.dicts().len(), argc)
             }
             Callee::Consume { method, .. } => {
                 let takes = match method {

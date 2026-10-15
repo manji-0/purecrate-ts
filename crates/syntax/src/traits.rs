@@ -383,11 +383,11 @@ pub(crate) fn refuse_impl_return(output: &syn::ReturnType) -> Result<(), ParseEr
     }
 }
 
-/// Bounds that are each a trait named by one identifier, as a crate
-/// trait's, or a lifetime: not `Fn(u32)`.
+/// Bounds that are each a trait named by a path without arguments, as a
+/// crate trait's or `fmt::Display`, or a lifetime: not `Fn(u32)`.
 fn plain_bounds(bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>) -> bool {
     bounds.iter().all(|b| match b {
-        syn::TypeParamBound::Trait(t) => t.path.get_ident().is_some(),
+        syn::TypeParamBound::Trait(t) => t.path.segments.iter().all(|s| s.arguments.is_none()),
         syn::TypeParamBound::Lifetime(_) => true,
         _ => false,
     }) && bounds.iter().any(|b| matches!(b, syn::TypeParamBound::Trait(_)))

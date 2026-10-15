@@ -915,6 +915,32 @@ export const Ord = {
   // #endregion
 } as const;
 
+// #region PartialOrd ord.type
+/**
+ * The dictionary of a `T: PartialOrd` bound (design/01 §7.25): the type's
+ * `cmp`, by which `<`, `max`, and `sort` order its values. Its result is
+ * std's `Ordering`, as the crate's `Ordering` declares it.
+ */
+export type PartialOrd<T> = Readonly<{
+  cmp: (self: T, other: T) => Readonly<{ kind: "Less" }> | Readonly<{ kind: "Equal" }> | Readonly<{ kind: "Greater" }>;
+}>;
+// #endregion
+
+// #region ord.type
+/** The dictionary of a `T: Ord` bound: `PartialOrd`'s, as `Ord` adds no method v0 reads. */
+export type Ord<T> = PartialOrd<T>;
+// #endregion
+
+// #region Display
+/** The dictionary of a `T: Display` bound: what `format!("{}", x)` prints. */
+export type Display<T> = Readonly<{ toString: (self: T) => string }>;
+// #endregion
+
+// #region Default
+/** The dictionary of a `T: Default` bound: `T::default()`. */
+export type Default<T> = Readonly<{ default: () => T }>;
+// #endregion
+
 // #region iter.maxBy iter.minBy iter.maxByKey iter.minByKey
 /**
  * `max_by` and the like: the greatest item by `key` and `cmp` when `max`
