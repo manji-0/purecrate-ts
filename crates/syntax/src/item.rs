@@ -124,7 +124,7 @@ pub struct Cx {
     /// Each `impl Tr for X` of a crate trait, in source order: the trait's
     /// name and the impl.
     pub(crate) trait_impls: Vec<(String, syn::ItemImpl)>,
-    /// The methods of inherent `impl` blocks, by type and name.
+    /// The methods and consts of inherent `impl` blocks, by type and name.
     pub(crate) inherent: HashSet<(String, String)>,
 }
 
@@ -158,6 +158,7 @@ impl Cx {
                             for member in &imp.items {
                                 if let syn::ImplItem::Const(c) = member {
                                     assoc_consts.insert((ty.ident.to_string(), c.ident.to_string()));
+                                    inherent.insert((ty.ident.to_string(), c.ident.to_string()));
                                 }
                                 if let syn::ImplItem::Fn(f) = member {
                                     inherent.insert((ty.ident.to_string(), f.sig.ident.to_string()));

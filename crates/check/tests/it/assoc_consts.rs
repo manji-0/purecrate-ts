@@ -67,10 +67,10 @@ fn an_associated_const_does_not_meet_a_companion_member() {
 }
 
 #[test]
-fn a_trait_s_const_stays_out() {
-    assert_parse_rejects(
-        "pub struct T {}\npub trait Tr { const N: u32; }\npub fn f() -> u32 { 0 }",
-        "unsupported item `pub trait Tr",
+fn a_trait_s_const_is_a_member_of_each_implementor() {
+    // design/01 §7.25: the impl's value, or the trait's default.
+    assert_clean(
+        "pub struct T {}\npub struct U {}\npub trait Tr { const N: u32; const M: u32 = 4; }\nimpl Tr for T { const N: u32 = 1; }\nimpl Tr for U { const N: u32 = 2; const M: u32 = 5; }\npub fn f() -> u32 { T::N + T::M + U::N + U::M }",
     );
     assert_parse_rejects(
         "pub struct T {}\nimpl std::ops::Add for T { type Output = T; fn add(self, o: T) -> T { o } }\nimpl T { const N: u32 = 1; }\npub fn f() -> u32 { T::N }",

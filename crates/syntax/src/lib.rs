@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(reason("pub fn f(x: Mutex<i32>) -> i32 { 0 }"), (Reason::Mutex, Some("Mutex".into())));
         assert_eq!(reason("pub fn f(n: i32) -> i32 { Mutex::new(n); n }").0, Reason::Mutex);
         assert_eq!(reason("pub fn f(n: i32) -> i32 { Box::new(n, n) }").0, Reason::ConstructShape);
-        assert_eq!(reason("pub trait T {}"), (Reason::UnsupportedItem, Some("trait".into())));
+        assert_eq!(reason("pub trait T { type A; }"), (Reason::UnsupportedItem, Some("trait".into())));
         assert_eq!(reason("pub enum Void {}"), (Reason::UnsupportedItem, Some("empty-enum".into())));
         assert_eq!(reason("pub fn f<T: Default>(x: T) -> i32 { 0 }").0, Reason::Generics);
         assert_eq!(reason("pub fn f(x: isize) -> i32 { 0 }"), (Reason::DisallowedType, Some("isize".into())));
@@ -296,6 +296,7 @@ mod tests {
                 Item::Fn(f) => f.doc.clone(),
                 Item::Const(c) => c.doc.clone(),
                 Item::Alias(a) => a.doc.clone(),
+                Item::Trait(t) => t.doc.clone(),
             })
         };
         assert_eq!(doc("S").as_deref(), Some("One line."));

@@ -32,6 +32,7 @@ mod slice_patterns;
 mod statements;
 mod strings;
 mod strings_more;
+mod traits;
 mod tuple_match;
 mod types;
 mod widen;
