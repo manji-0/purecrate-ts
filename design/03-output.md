@@ -159,6 +159,11 @@ export const Meters = {
 | `x.to_string()` | what `format!("{}", x)` prints (`` `${n}` ``); a string, a `char`, or a `Uuid` as itself; a crate type with a translated `Display` as `X.toString(x)` |
 | `format!("INV-{n:05} {s:>8}")` | a template literal, `` `INV-${Str.padZero(n, 5)} ${Str.pad(s, 8, ">")}` ``; an unpadded argument as itself (`${n}`), a `format!` of text alone as the string ([01 §6.8](./01-equivalence.md#68-format)) |
 | `impl Display for X` | the member `toString: (self: X): string` of `X`'s companion: its writes as one template literal (`` `(${self.x}, ${Int.i32.add(self.y, 1 as I32)})` ``), a `match self` as a `switch`, a field of a crate type as `${Money.toString(self.price)}`; `{}` on `x: X` in any `format!` as `${X.toString(x)}`, and alone as `X.toString(x)` ([01 §7.25](./01-equivalence.md#725-traits)) |
+| `#[derive(PartialOrd, Ord)]` on `X` | the companion member `cmp: (self: X, other: X): Ordering`: `const ord = Ord.cmp(self.a, other.a); if (ord.kind !== "Equal") return ord;` field by field; an enum's `Ord.cmp(xDiscriminants[self.kind] as U32, ..)` first, then a `switch` on the variant; `impl Ord`'s `cmp` prints as any method ([01 §7.25](./01-equivalence.md#725-traits)) |
+| `a < b`, `a >= b` on a crate type, an `Option`, a `Vec`, or a tuple | `X.cmp(a, b).kind === "Less"`, `X.cmp(a, b).kind !== "Less"`; `Ord.tuple(Id.cmp, Ord.option(Level.cmp))(a, b).kind ..` |
+| `a.cmp(&b)` on an `Option`, a `Vec`, or a tuple | `Ord.option(X.cmp)(a, b)`, `Ord.cmpList(a, b, X.cmp)`, `Ord.tuple(Ord.cmp, X.cmp)(a, b)`: the runtime's comparators, composed where the body uses them |
+| `a.max(b)`, `a.min(b)`, `x.clamp(lo, hi)` on those | `Ord.max(a, b, X.cmp)`, `Ord.min(..)`, `Ord.clamp(x, lo, hi, X.cmp)` |
+| `v.sort()`, `xs.iter().max()`, `sort_by_key` / `max_by_key` with such a key | `Slice.sortBy(v, X.cmp)`, `Iter.maxBy(xs, X.cmp)`, `Slice.sortByKey(v, f, X.cmp)` / `Iter.maxByKey(xs, f, X.cmp)` |
 
 Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6](./01-equivalence.md#6-strings-char-usize-std-methods)): the `Vec` and `Option` rows above, indexing, and the `str` and `char` methods.
 
