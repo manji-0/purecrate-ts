@@ -101,6 +101,30 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         // The receiver's type with aliases followed, worked out once.
         let nt = rt.as_ref().map(|t| self.norm(t));
+        // An array is read as a slice, and written only by `a[i] = x`
+        // (design/01 §7.27).
+        if let Some(n) = rt.as_ref().and_then(|t| self.array_len(t)) {
+            let why = match name.as_str() {
+                "map" => Some(format!(
+                    "`a.map(f)` on an array is not in v0: build the new array element by element (`[f(a[0]), f(a[1])]`), write it in a loop on a `let mut` copy, or collect a `Vec` with `a.iter().map(f).collect()`"
+                )),
+                "sort" | "sort_by" | "sort_by_key" | "sort_unstable" | "sort_unstable_by" | "sort_unstable_by_key"
+                | "reverse" | "fill" | "swap" | "iter_mut" => Some(format!(
+                    "`.{}()` writes an array in place, which is not in v0: an array is written only by `a[i] = x` on a `let mut` local; sort or edit a `Vec` (`let mut v: Vec<T> = a.iter().copied().collect();`)",
+                    name.as_str()
+                )),
+                "to_vec" => Some(
+                    "`.to_vec()` is not in v0: write `a.iter().copied().collect()` (or `cloned()`) for a `Vec` of an array's elements"
+                        .to_string(),
+                ),
+                _ => None,
+            };
+            if let Some(why) = why {
+                let _ = n;
+                self.out.push(Diagnostic::at(self.item, Reason::MethodCall, why).about(name.as_str()));
+                return (receiver.clone(), None);
+            }
+        }
         if let Some(t @ (Ty::Map { .. } | Ty::Set(_))) = &nt {
             if let Some(typed) = self.tree_method(recv.clone(), t, name.as_str(), args, want) {
                 return typed;
@@ -324,6 +348,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             (Some(_), None) => unreachable!("an owner is found only from a known receiver type"),
             (None, Some(rt)) => {
+                // An array is named as written, its methods a slice's.
+                let written = self.array_len(&rt).map(|_| show(self.defs.expand(&rt, crate::defs::Peel::First)));
                 let rt = self.norm(&rt);
                 let listed = if self.is_ordering(&rt) { Some(ordering_methods()) } else { std_methods(&rt) };
                 let message = match listed {
@@ -346,7 +372,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Some(list) => format!(
                         "`.{}()` on `{}` is not on the std allow-list; allowed: {}",
                         name.as_str(),
-                        show(&rt),
+                        written.unwrap_or_else(|| show(&rt)),
                         list
                     ),
                 };

@@ -4,6 +4,7 @@
 mod common;
 
 mod adaptors;
+mod arrays;
 mod assoc_consts;
 mod bits;
 mod box_erase;

@@ -77,6 +77,18 @@ pub struct Catalog {
     pub nested: BTreeMap<String, Vec<Label>>,
 }
 
+/// Arrays: a JSON array of exactly `N` elements, as serde reads one, up to
+/// the 32 serde implements (design/01 §7.27).
+#[derive(Serialize, Deserialize)]
+pub struct Blocks {
+    pub key: [u8; 4],
+    pub grid: [[i16; 2]; 2],
+    pub names: Option<[String; 2]>,
+    pub rows: Vec<[u64; 1]>,
+    pub full: [u8; 32],
+    pub none: [bool; 0],
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Wide {
     pub a: i128,

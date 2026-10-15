@@ -218,3 +218,74 @@ pub fn square(i: usize) -> u32 {
 pub fn magic() -> [u8; 3] {
     *b"abc"
 }
+
+/// A tuple of arrays, matched element by element.
+pub fn pair_code(a: [u8; 2], b: [u8; 2]) -> u32 {
+    match (a, b) {
+        ([0, x], [y, 0]) => u32::from(x) + u32::from(y),
+        ([x, _], [_, y]) => u32::from(x) * u32::from(y),
+    }
+}
+
+/// A local bound to a literal is rustc's array, matched by its length.
+pub fn local_literal(x: u8) -> u8 {
+    let bytes = [x, 2, 3, 4];
+    let [a, .., d] = bytes;
+    a.wrapping_add(d)
+}
+
+/// Built in a loop and read whole inside it, where it is written after.
+pub fn running(b: [u8; 3]) -> Vec<[u8; 3]> {
+    let mut a = [0u8; 3];
+    let mut seen: Vec<[u8; 3]> = Vec::new();
+    for i in 0..b.len() {
+        a[i] = b[i];
+        seen.push(a);
+    }
+    seen
+}
+
+pub fn stages(b: [u32; 4]) -> (Vec<u32>, u32, Option<u32>, usize) {
+    let rev: Vec<u32> = b.iter().rev().copied().collect();
+    let mut pairs = 0u32;
+    for (i, x) in b.iter().enumerate() {
+        pairs += x * (i as u32);
+    }
+    let windows = b.windows(2).filter(|w| w[0] < w[1]).count();
+    (rev, pairs, b.iter().copied().max(), windows)
+}
+
+pub fn zipped(a: [u8; 3], b: [u8; 2]) -> Vec<(u8, u8)> {
+    a.iter().copied().zip(b.iter().copied()).collect()
+}
+
+/// Ordered element by element: a `Vec` of arrays sorts as Rust's does.
+pub fn sorted(rows: Vec<[u8; 2]>) -> Vec<[u8; 2]> {
+    let mut v = rows;
+    v.sort();
+    v
+}
+
+fn largest(xs: &[u32]) -> u32 {
+    let mut m = 0;
+    for x in xs {
+        if *x > m {
+            m = *x;
+        }
+    }
+    m
+}
+
+/// An array where a slice goes.
+pub fn through_slice(b: [u32; 3]) -> u32 {
+    largest(&b) + largest(&b[1..])
+}
+
+pub fn words(w: [String; 2]) -> String {
+    let [a, b] = w;
+    format!("{b}-{a}")
+}
+
+pub fn blocks(x: [u8; 2]) -> [[u8; 2]; 3] {
+    [x; 3]
+}

@@ -63,6 +63,25 @@ fn derive_fields(krate: &Crate, out: &mut Vec<Diagnostic>) {
             ),
             _ => continue,
         };
+        // serde implements its traits for arrays of up to 32 elements
+        // (design/01 §7.27); the stand-in rustc sees has no such limit.
+        if serde.ser || serde.de {
+            if let Some(n) = tys.iter().chain(read.as_slice()).find_map(|t| long_array(krate, t, 0)) {
+                let derive = if serde.ser { "Serialize" } else { "Deserialize" };
+                out.push(
+                    Diagnostic::at(
+                        i,
+                        Reason::SerdeDerive,
+                        format!(
+                            "`{}` derives `{derive}` but holds an array of {n} elements; serde implements it for arrays of up to 32, so hold a `Vec`",
+                            item.name().as_str()
+                        ),
+                    )
+                    .about(item.name().as_str()),
+                );
+                continue;
+            }
+        }
         let written = names(krate, &tys);
         let read = read.map_or_else(|| written.clone(), |t| names(krate, &[t]));
         let missing = [(serde.ser, "Serialize", &written), (serde.de, "Deserialize", &read)]
@@ -87,6 +106,20 @@ fn derive_fields(krate: &Crate, out: &mut Vec<Diagnostic>) {
         if let Some(message) = missing {
             out.push(Diagnostic::at(i, Reason::SerdeDerive, message).about(item.name().as_str()));
         }
+    }
+}
+
+/// The length of an array of more than 32 elements `ty` holds, looking
+/// through aliases (to a fixed depth) but not into other structs and enums,
+/// which are checked on their own.
+fn long_array(krate: &Crate, ty: &Ty, depth: usize) -> Option<usize> {
+    match ty {
+        Ty::Array { len, .. } if *len > 32 => Some(*len),
+        Ty::Named(n) if depth < 32 => krate.items.iter().find_map(|i| match i {
+            Item::Alias(a) if a.name == *n => long_array(krate, &a.ty, depth + 1),
+            _ => None,
+        }),
+        t => t.children().into_iter().find_map(|c| long_array(krate, c, depth)),
     }
 }
 

@@ -282,6 +282,19 @@ fn shape_values() -> Vec<(&'static str, String)> {
             serde_json::to_string(&Catalog { counts: BTreeMap::new(), tags: BTreeSet::new(), nested: BTreeMap::new() })
                 .unwrap(),
         ),
+        ("Blocks", serde_json::to_string(&blocks()).unwrap()),
+        (
+            "Blocks",
+            serde_json::to_string(&Blocks {
+                key: [0; 4],
+                grid: [[0; 2]; 2],
+                names: Some(["😀".into(), "\"\n".into()]),
+                rows: vec![[u64::MAX], [0]],
+                full: [255; 32],
+                none: [],
+            })
+            .unwrap(),
+        ),
         (
             "Holding",
             serde_json::to_string(&Holding {
@@ -297,6 +310,78 @@ fn shape_values() -> Vec<(&'static str, String)> {
             .unwrap(),
         ),
     ]
+}
+
+fn blocks() -> shapes::Blocks {
+    shapes::Blocks {
+        key: [1, 2, 3, 255],
+        grid: [[i16::MIN, -1], [0, i16::MAX]],
+        names: None,
+        rows: vec![],
+        full: std::array::from_fn(|i| i as u8),
+        none: [],
+    }
+}
+
+/// `shapes::Blocks` with serde's own derive, which the oracle reads with:
+/// `fixture!` writes only `Serialize`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BlocksOracle {
+    key: [u8; 4],
+    grid: [[i16; 2]; 2],
+    names: Option<[String; 2]>,
+    rows: Vec<[u64; 1]>,
+    full: [u8; 32],
+    none: [bool; 0],
+}
+
+/// Every library's schema reads an array from exactly the JSON serde reads
+/// one from: an array of `N` elements, not one more or fewer, nested too.
+#[test]
+fn arrays_read_at_their_length() {
+    let good = serde_json::to_string(&blocks()).unwrap();
+    let mut texts = vec![
+        good.clone(),
+        good.replace("[1,2,3,255]", "[1,2,3]"),
+        good.replace("[1,2,3,255]", "[1,2,3,255,0]"),
+        good.replace("[1,2,3,255]", "[]"),
+        good.replace("[1,2,3,255]", "{\"0\":1,\"1\":2,\"2\":3,\"3\":4}"),
+        good.replace("[[-32768,-1],[0,32767]]", "[[-32768,-1]]"),
+        good.replace("[[-32768,-1],[0,32767]]", "[[-32768,-1],[0]]"),
+        good.replace("[[-32768,-1],[0,32767]]", "[[-32768,-1],[0,32767],[1,1]]"),
+        good.replace("\"names\":null", "\"names\":[\"a\"]"),
+        good.replace("\"names\":null", "\"names\":[\"a\",\"b\"]"),
+        good.replace("\"rows\":[]", "\"rows\":[[1],[]]"),
+        good.replace("\"rows\":[]", "\"rows\":[[1],[2]]"),
+        good.replace("\"none\":[]", "\"none\":[true]"),
+        good.replace(",31]", "]"),
+        good.replace(",31]", ",31,32]"),
+    ];
+    texts.dedup();
+    let mut rows = Vec::new();
+    for text in &texts {
+        let want = match serde_json::from_str::<BlocksOracle>(text) {
+            Ok(b) => serde_json::to_string(&b).unwrap(),
+            Err(_) => "Err".to_string(),
+        };
+        rows.push(format!("[{},{}]", js(text), js(&want)));
+    }
+    let accepted = rows.iter().filter(|r| !r.ends_with("\"Err\"]")).count();
+    assert_eq!(accepted, 3, "{rows:#?}");
+    let rows = rows.join(",");
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        let script = format!(
+            "import * as w from \"./src/purecrate-wire.ts\";\n\
+             const out = [];\n\
+             for (const [text, want] of [{rows}]) {{\n\
+               let got;\n\
+               try {{ got = w.toJson.Blocks(w.fromJson.Blocks(text)); }} catch {{ got = \"Err\"; }}\n\
+               if (got !== want) out.push(`${{text}}: want ${{want}} got ${{got}}`);\n\
+             }}\n\
+             console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n"
+        );
+        assert_ok(run_node_with(schema, "arrays", shapes::SOURCE, &script));
+    }
 }
 
 #[test]

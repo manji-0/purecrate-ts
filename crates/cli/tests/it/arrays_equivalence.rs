@@ -102,6 +102,33 @@ fn generated_arrays_match_rust() {
     });
 }
 
+#[test]
+fn generated_array_stages_match_rust() {
+    support::equivalence("arrays_more", arrays::SOURCE, |cases| {
+        for a in [0u8, 1, 200, 255] {
+            for b in [0u8, 3, 255] {
+                cases.push(case!(arrays::pair_code([a, b], [b, a])));
+                cases.push(case!(arrays::pair_code([0, a], [b, 0])));
+                cases.push(case!(arrays::local_literal(a)));
+                cases.push(case!(arrays::running([a, b, 7])));
+                cases.push(case!(arrays::zipped([a, b, 1], [b, a])));
+                cases.push(case!(arrays::blocks([a, b])));
+            }
+        }
+        for b in [[0u32, 0, 0, 0], [1, 2, 3, 4], [4, 3, 2, 1], [u32::MAX, 1, 0, 2], [1, u32::MAX, 0, 0]] {
+            cases.push(case!(arrays::stages(b)));
+        }
+        for b in [[0u32, 0, 0], [3, 1, 2], [u32::MAX, u32::MAX, 1]] {
+            cases.push(case!(arrays::through_slice(b)));
+        }
+        cases.push(case!(arrays::sorted(vec![[2, 1], [1, 9], [1, 2], [255, 0], [1, 2]])));
+        cases.push(case!(arrays::sorted(Vec::<[u8; 2]>::new())));
+        for (a, b) in [("", "é"), ("😀", "x"), ("a\u{301}", "\u{ffff}")] {
+            cases.push(case!(arrays::words([a.to_string(), b.to_string()])));
+        }
+    });
+}
+
 const SOURCE: &str = r#"
 use std::collections::BTreeMap;
 
