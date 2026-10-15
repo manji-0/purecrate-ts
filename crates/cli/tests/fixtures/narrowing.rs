@@ -964,3 +964,23 @@ pub fn guard_of_no_place(o: Option<i32>, n: i32) -> i32 {
     }
     h
 }
+
+/// Statements seed 119: a `let`-`else` that narrows the name it binds,
+/// then `r.ok().unwrap_or(v)` in an inner loop's condition. Printed as a
+/// function called in place, its type rested on `v`'s narrowing, which
+/// rested on the loop's condition (TS7024); it is a choice on `r`.
+pub fn let_else_in_loop(o: Option<i32>, r: Result<i32, i32>, c: bool, n: i32) -> i32 {
+    let mut k: i32 = 0;
+    let mut i: i32 = 0;
+    while i < 3 {
+        i += 1;
+        let Some(v) = (if c { o } else { None }) else {
+            return -1;
+        };
+        while k < n % 5 && v != r.ok().unwrap_or(v) {
+            k += 1;
+        }
+        k += r.err().unwrap_or(v) % 3;
+    }
+    k
+}

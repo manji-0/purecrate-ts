@@ -203,5 +203,13 @@ fn generated_narrowing_matches_rust() {
             cases.push(case!(narrowing::uncalled_closure(1i32, 2i32, o, true)));
             cases.push(case!(narrowing::uncalled_closure(1i32, i32::MAX, o, false)));
         }
+        for o in [None, Some(3i32), Some(-4)] {
+            for r in [Ok(3i32), Ok(8), Err(-5)] {
+                for n in [0i32, 4, -9] {
+                    cases.push(case!(narrowing::let_else_in_loop(o, r, true, n)));
+                }
+                cases.push(case!(narrowing::let_else_in_loop(o, r, false, 4)));
+            }
+        }
     });
 }

@@ -798,6 +798,74 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         Some(self.expr(&fused, want))
     }
+
+    /// `r.ok().unwrap_or(d)` (or `r.err().unwrap_or(d)`) as one
+    /// `match r { Ok(x) => x, Err(_) => d }`, with no `Option` in between,
+    /// where `d` is a name or a literal: it has no effect, so running it
+    /// only on the other side keeps Rust's behavior. The `match` prints as a
+    /// choice where the `Option` and its `??` printed as a function called
+    /// in place, whose type TS may not settle (TS7024) where it reads a name
+    /// a loop's condition narrows.
+    pub(super) fn ok_unwrap_or(
+        &mut self,
+        receiver: &Expr,
+        name: &str,
+        args: &[Expr],
+        want: Option<&Ty>,
+    ) -> Option<Typed> {
+        let [default] = args else { return None };
+        if name != "unwrap_or" || !default.is_inlinable() {
+            return None;
+        }
+        let Expr::MethodCall { receiver: result, name: side, args: side_args } = receiver.unpositioned() else {
+            return None;
+        };
+        if !side_args.is_empty() || !matches!(side.as_str(), "ok" | "err") {
+            return None;
+        }
+        // Only on a `Result` whose side is no `Option`: an `Option<Option<_>>`
+        // is refused by `ok()` itself. The receiver is typed once and bound
+        // to a fresh name, as `result_method` binds it.
+        let before = self.out.len();
+        let (typed, ty) = self.expr(result, None);
+        let rt = ty.map(|t| self.norm(&t));
+        let kept = match &rt {
+            Some(Ty::Result { ok, .. }) if side.as_str() == "ok" => self.norm(ok),
+            Some(Ty::Result { err, .. }) => self.norm(err),
+            _ => Ty::Never,
+        };
+        if matches!(kept, Ty::Never | Ty::Option(_)) {
+            self.out.truncate(before);
+            return None;
+        }
+        // A receiver already bound to an annotated name (`map_err(f)`'s)
+        // is matched through that name.
+        let (r, rt, typed) = match typed {
+            Expr::Let { name, mutable: false, ty: Some(ty), value, then }
+                if matches!(&*then, Expr::Var(n) if *n == name) =>
+            {
+                (name, Some(ty), *value)
+            }
+            typed => (self.fresh_name("result"), rt, typed),
+        };
+        let x = self.fresh_name("value");
+        let (kept, other) = (Pattern::Var(x.clone()), Pattern::Wildcard);
+        let (on_ok, on_err) = if side.as_str() == "ok" {
+            ((kept, Expr::Var(x)), (other, default.clone()))
+        } else {
+            ((other, default.clone()), (kept, Expr::Var(x)))
+        };
+        let fused = Expr::Match {
+            scrutinee: Box::new(Expr::Var(r.clone())),
+            arms: vec![
+                Arm { guard: None, pattern: Pattern::ResultOk(Box::new(on_ok.0)), body: on_ok.1 },
+                Arm { guard: None, pattern: Pattern::ResultErr(Box::new(on_err.0)), body: on_err.1 },
+            ],
+        };
+        let lets = vec![(r, rt, typed)];
+        let (body, t) = self.scoped(&lets, &fused, want);
+        Some((super::wrap_lets(lets, body), t))
+    }
 }
 
 /// `zip` on a range, or with one: a range is computed, not an array.

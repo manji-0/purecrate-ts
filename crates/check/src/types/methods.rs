@@ -34,6 +34,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         if let Some(typed) = self.map_unwrap_or(receiver, name.as_str(), args, want) {
             return typed;
         }
+        if let Some(typed) = self.ok_unwrap_or(receiver, name.as_str(), args, want) {
+            return typed;
+        }
         let before = self.out.len();
         let (recv, rt) = self.expr(receiver, None);
         // A method no consumer takes, on an iterator chain
