@@ -20,6 +20,7 @@ use crate::defs::{Defs, Peel};
 
 mod access;
 mod calls;
+mod convert;
 mod format;
 mod generic;
 mod iter;
@@ -161,7 +162,16 @@ impl<'d, 'a> Typer<'d, 'a> {
         base: Option<&Expr>,
         want: Option<&Ty>,
     ) -> Typed {
-        let base_typed = base.map(|b| self.expr(b, want));
+        // `..Default::default()` is the struct's own, whatever the context.
+        let own = match base.map(Expr::unpositioned) {
+            Some(Expr::Call { callee: Callee::Default { .. }, .. })
+                if self.defs.generics_of(ty.as_str()) == Some(0) =>
+            {
+                Some(Ty::Named(ty.clone()))
+            }
+            _ => None,
+        };
+        let base_typed = base.map(|b| self.expr(b, own.as_ref().or(want)));
         let hint = base_typed.as_ref().and_then(|(_, t)| t.clone()).or_else(|| want.cloned());
         let (fields, t) = self.construct(ty, variant.map(|v| v.as_str()), fields, hint.as_ref());
         let e = Expr::Construct {

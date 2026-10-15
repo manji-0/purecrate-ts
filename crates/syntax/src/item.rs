@@ -422,7 +422,15 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
                 _ => None,
             })
             .collect(),
-        other => item_ident(other).map(|id| LineCol::of(id.span())).into_iter().collect(),
+        // A derived `default()` follows its type, at the derive.
+        other => item_ident(other)
+            .map(|id| LineCol::of(id.span()))
+            .into_iter()
+            .chain(match other {
+                SynItem::Struct(_) | SynItem::Enum(_) => derive_span(item_attrs(other), "Default").map(LineCol::of),
+                _ => None,
+            })
+            .collect(),
     };
     reject_attrs(
         item_attrs(&item)
@@ -436,8 +444,18 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
 
 fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> {
     match item {
-        SynItem::Enum(e) => Ok(vec![Item::Enum(lower_enum(cx, &e)?)]),
-        SynItem::Struct(s) => Ok(vec![Item::Struct(lower_struct(&s)?)]),
+        SynItem::Enum(e) => {
+            let lowered = lower_enum(cx, &e)?;
+            let default = derived_default(&e.attrs, &lowered.name, !lowered.generics.is_empty(), || enum_default(&e))?;
+            Ok(std::iter::once(Item::Enum(lowered)).chain(default.map(Item::Fn)).collect())
+        }
+        SynItem::Struct(s) => {
+            let lowered = lower_struct(&s)?;
+            let default = derived_default(&s.attrs, &lowered.name, !lowered.generics.is_empty(), || {
+                Ok(struct_default(&lowered))
+            })?;
+            Ok(std::iter::once(Item::Struct(lowered)).chain(default.map(Item::Fn)).collect())
+        }
         SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block, &f.attrs)?)]),
         SynItem::Type(t) => {
             if !has_type_generics(&t.generics) {
@@ -710,11 +728,14 @@ fn lower_param(owner: Option<&purecrate_ir::Ty>, input: &syn::FnArg) -> Result<P
 /// The trait impls v0 takes: `Display` becomes the method `to_string` when
 /// its text is fixed per value (`lower_display`), else it is skipped, as
 /// `Error` is (a server needs them, for serde's `try_from` among others);
-/// `TryFrom<T>` becomes the method `try_from`.
+/// `TryFrom<T>` becomes the method `try_from`; `From<S>` the member
+/// `fromS` (`lower_from`), `Default` the method `default` (design/01 §7.25).
 enum TraitImpl {
     Display,
     Skipped,
     TryFrom,
+    From,
+    Default,
 }
 
 fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
@@ -723,6 +744,13 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
     match idents.as_slice() {
         ["Display"] | ["fmt", "Display"] | ["std" | "core", "fmt", "Display"] => Some(TraitImpl::Display),
         ["Error"] | ["error", "Error"] | ["std" | "core", "error", "Error"] => Some(TraitImpl::Skipped),
+        ["Default"] | ["default", "Default"] | ["std" | "core", "default", "Default"] => Some(TraitImpl::Default),
+        ["From"] | ["convert", "From"] | ["std" | "core", "convert", "From"] => {
+            match &path.segments.last()?.arguments {
+                syn::PathArguments::AngleBracketed(a) if a.args.len() == 1 => Some(TraitImpl::From),
+                _ => None,
+            }
+        }
         ["TryFrom"] | ["convert", "TryFrom"] | ["std" | "core", "convert", "TryFrom"] => {
             match &path.segments.last()?.arguments {
                 syn::PathArguments::AngleBracketed(a) => match a.args.first() {
@@ -893,6 +921,153 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
     Ok(out)
 }
 
+/// `impl From<S> for X { fn from(s: S) -> Self }` as `X`'s public member
+/// named after `S` (`purecrate_ir::from_member`: `fromU32`,
+/// `fromParseIntError`), as a type may implement `From` for several sources.
+/// A source that is a reference, a tuple, an `Option`, or a type with
+/// arguments has no such name and is refused.
+fn lower_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Result<Vec<Item>, ParseError> {
+    let owner = Name::new(owner_ident.to_string());
+    let shape = || ParseError::new(Reason::ImplShape, "`impl From` has only `fn from(s: S) -> Self`");
+    let [syn::ImplItem::Fn(f)] = imp.items.as_slice() else {
+        return Err(shape().or_at(imp.span()));
+    };
+    if f.sig.ident != "from" || f.sig.inputs.len() != 1 {
+        return Err(shape().or_at(f.span()));
+    }
+    reject_attrs(&f.attrs)?;
+    let Some(syn::FnArg::Typed(param)) = f.sig.inputs.first() else {
+        return Err(shape().or_at(f.span()));
+    };
+    let source = lower_type(&param.ty).map_err(|e| e.or_at(param.ty.span()))?;
+    let refused = |why: &str| {
+        Err(ParseError::new(
+            Reason::TraitImpl,
+            format!(
+                "`impl From<{}> for {}`: {why} is not in v0, as the member is named after its source type (`fromU32`, `fromMyError`); convert from a named type",
+                snippet(&*param.ty).trim_matches('`'),
+                owner.as_str()
+            ),
+        )
+        .or_at(param.ty.span()))
+    };
+    let member = match (&*param.ty, &source) {
+        (syn::Type::Reference(_), _) => return refused("a reference source"),
+        (syn::Type::Tuple(_), _) => return refused("a tuple source"),
+        (_, purecrate_ir::Ty::Option(_)) => return refused("an `Option` source"),
+        _ => match purecrate_ir::from_member(&source) {
+            Some(m) => m,
+            None => return refused("a source with type arguments"),
+        },
+    };
+    let mut f = f.clone();
+    f.sig.ident = syn::Ident::new(&member, f.sig.ident.span());
+    SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
+    let public = Visibility::Public(Default::default());
+    let owned = (owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
+    Ok(vec![Item::Fn(lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(f.span()))?)])
+}
+
+/// `impl Default for X { fn default() -> Self }` as `X`'s public method
+/// `default`, which `#[derive(Default)]` writes too (`derived_default`).
+fn lower_default(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Result<Vec<Item>, ParseError> {
+    let shape = || ParseError::new(Reason::ImplShape, "`impl Default` has only `fn default() -> Self`");
+    let [syn::ImplItem::Fn(f)] = imp.items.as_slice() else {
+        return Err(shape().or_at(imp.span()));
+    };
+    if f.sig.ident != "default" || !f.sig.inputs.is_empty() {
+        return Err(shape().or_at(f.span()));
+    }
+    reject_attrs(&f.attrs)?;
+    let mut f = f.clone();
+    SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
+    let owner = Name::new(owner_ident.to_string());
+    let public = Visibility::Public(Default::default());
+    let owned = (owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
+    Ok(vec![Item::Fn(lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(f.span()))?)])
+}
+
+/// `#[derive(Default)]` as the method `X::default()`, public like the
+/// trait: on a struct each field's `Default::default()`, which the check
+/// reads at the field's type (`Callee::Default`); on an enum its
+/// `#[default]` unit variant. `None` without the derive. A type with type
+/// parameters is refused: its `default` needs `T: Default`.
+fn derived_default(
+    attrs: &[syn::Attribute],
+    name: &Name,
+    generic: bool,
+    body: impl FnOnce() -> Result<purecrate_ir::Expr, ParseError>,
+) -> Result<Option<Fn>, ParseError> {
+    let Some(at) = derive_span(attrs, "Default") else { return Ok(None) };
+    if generic {
+        return Err(ParseError::new(
+            Reason::Generics,
+            format!(
+                "`#[derive(Default)]` on `{}`, which has type parameters, is not in v0: its `default` needs `T: Default`",
+                name.as_str()
+            ),
+        )
+        .or_at(at));
+    }
+    Ok(Some(Fn {
+        generics: Vec::new(),
+        vis: Vis::Pub,
+        name: Name::new("default"),
+        owner: Some(name.clone()),
+        params: Vec::new(),
+        ret: purecrate_ir::Ty::Named(name.clone()),
+        body: body().map_err(|e| e.or_at(at))?,
+        doc: None,
+    }))
+}
+
+/// Where `#[derive(..)]` names `which`, by the last path segment.
+fn derive_span(attrs: &[syn::Attribute], which: &str) -> Option<proc_macro2::Span> {
+    attrs.iter().filter(|a| a.path().is_ident("derive")).find_map(|attr| {
+        let paths =
+            attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated).ok()?;
+        paths.iter().find(|p| p.segments.last().is_some_and(|s| s.ident == which)).map(|p| p.span())
+    })
+}
+
+/// A struct's derived `default()`: `X { f: Default::default(), .. }`, or
+/// `X(Default::default())` for a newtype.
+fn struct_default(s: &Struct) -> purecrate_ir::Expr {
+    use purecrate_ir::{Callee, Expr, Fields};
+    let default = |f: &Field| Expr::Call { callee: Callee::Default { field: Some(f.name.clone()) }, args: Vec::new() };
+    match s.fields.as_slice() {
+        [f] if f.name.as_str() == NEWTYPE_FIELD => {
+            Expr::Call { callee: Callee::StructNew(s.name.clone()), args: vec![default(f)] }
+        }
+        fields => Expr::Construct {
+            ty: s.name.clone(),
+            variant: None,
+            fields: Fields::Named(fields.iter().map(|f| (f.name.clone(), default(f))).collect()),
+            base: None,
+        },
+    }
+}
+
+/// An enum's derived `default()`: its `#[default]` variant, which has no
+/// fields.
+fn enum_default(e: &syn::ItemEnum) -> Result<purecrate_ir::Expr, ParseError> {
+    let marked: Vec<&syn::Variant> =
+        e.variants.iter().filter(|v| v.attrs.iter().any(|a| a.path().is_ident("default"))).collect();
+    match marked.as_slice() {
+        [v] if matches!(v.fields, SynFields::Unit) => Ok(purecrate_ir::Expr::Construct {
+            ty: Name::new(e.ident.to_string()),
+            variant: Some(Name::new(v.ident.to_string())),
+            fields: purecrate_ir::Fields::Unit,
+            base: None,
+        }),
+        _ => Err(ParseError::new(
+            Reason::UnsupportedItem,
+            format!("`#[derive(Default)]` on the enum `{}` needs one `#[default]` variant without fields", e.ident),
+        )
+        .detail("default")),
+    }
+}
+
 /// Rewrites the type `Self::Error` to the impl's `type Error`.
 struct SelfError<'a>(&'a syn::Type);
 
@@ -914,15 +1089,27 @@ impl VisitMut for SelfError<'_> {
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
     let kind = match &imp.trait_ {
         None => None,
+        Some((_, path, _)) if path.segments.last().is_some_and(|s| s.ident == "Into") => {
+            return Err(ParseError::new(
+                Reason::TraitImpl,
+                "`impl Into` is not in v0: write `impl From<S> for X`, which gives `s.into()` too (design/01 §7.25)",
+            ))
+        }
         Some((_, path, _)) => Some(trait_impl(path).ok_or_else(|| {
             ParseError::new(
                 Reason::TraitImpl,
-                "trait impls are not in v0, except `Display`, `Error` (skipped) and `TryFrom<T>`",
+                "trait impls are not in v0, except `Display`, `Error` (skipped), `TryFrom<T>`, `From<S>`, and `Default`",
             )
         })?),
     };
     if matches!(kind, Some(TraitImpl::Skipped)) {
         return Ok(Vec::new());
+    }
+    if matches!(kind, Some(TraitImpl::From)) && has_type_generics(&imp.generics) {
+        return Err(ParseError::new(
+            Reason::Generics,
+            "a generic `impl From` (`impl<T> From<T> for X`) is not in v0: each source is a member named after its type; write one `impl From<S>` per source type",
+        ));
     }
     if kind.is_some() && has_type_generics(&imp.generics) {
         return Err(ParseError::new(
@@ -939,8 +1126,27 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             return Err(ParseError::new(Reason::ImplShape, "impl type must be a simple name").or_at(imp.self_ty.span()))
         }
     };
+    if matches!(kind, Some(TraitImpl::From | TraitImpl::Default)) {
+        let owner = owner_ident.to_string();
+        if !(cx.is_struct(&owner) || cx.is_enum(&owner)) {
+            let tr = if matches!(kind, Some(TraitImpl::From)) { "From" } else { "Default" };
+            return Err(ParseError::new(
+                Reason::TraitImpl,
+                format!(
+                    "`impl {tr}` for `{owner}`, a type outside the crate, is not in v0: there is no companion to put it in; implement it on a struct or enum of the crate, or write a method that returns a `{owner}`"
+                ),
+            )
+            .or_at(imp.self_ty.span()));
+        }
+    }
     if matches!(kind, Some(TraitImpl::TryFrom)) {
         return lower_try_from(cx, &imp, &owner_ident);
+    }
+    if matches!(kind, Some(TraitImpl::From)) {
+        return lower_from(cx, &imp, &owner_ident);
+    }
+    if matches!(kind, Some(TraitImpl::Default)) {
+        return lower_default(cx, &imp, &owner_ident);
     }
     if matches!(kind, Some(TraitImpl::Display)) {
         return Ok(lower_display(cx, &imp, &owner_ident).into_iter().collect());
@@ -1037,6 +1243,17 @@ fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
                     if matches!(t.modifier, syn::TraitBoundModifier::None)
                         && t.path.get_ident().is_some_and(|i| BOUNDS.contains(&i.to_string().as_str())) => {}
                 syn::TypeParamBound::Lifetime(_) => {}
+                syn::TypeParamBound::Trait(t)
+                    if t.path.segments.last().is_some_and(|s| s.ident == "Into" || s.ident == "From") =>
+                {
+                    return Err(ParseError::new(
+                        Reason::Generics,
+                        format!(
+                            "the bound {} is not in v0: a conversion is resolved where both types are known; take the target type and convert at the call (`X::from(s)`, `s.into()`)",
+                            snippet(t)
+                        ),
+                    ))
+                }
                 other => {
                     return Err(ParseError::new(
                         Reason::Generics,

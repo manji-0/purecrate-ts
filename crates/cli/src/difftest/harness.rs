@@ -126,7 +126,8 @@ fn rust_name(krate: &Crate, f: &Fn) -> String {
                 "{}{}::{}{}",
                 owner.as_str(),
                 at(outer),
-                f.name.as_str(),
+                // `impl From<S>`'s member `fromS` is `X::from` in Rust.
+                if f.from_source().is_some() { "from" } else { f.name.as_str() },
                 at(f.generics.len() - outer.min(f.generics.len()))
             )
         }
@@ -358,7 +359,7 @@ fn untyped(n: usize) -> Vec<Option<String>> {
 /// (`T::try_from(x)`) cannot be inferred from the call, as the trait is
 /// implemented for several.
 fn annotations(f: &Fn) -> Vec<Option<String>> {
-    let generic = f.owner.is_some() && matches!(f.name.as_str(), "try_from" | "from");
+    let generic = f.owner.is_some() && (matches!(f.name.as_str(), "try_from" | "from") || f.from_source().is_some());
     f.params.iter().map(|p| if generic { rust_ty(&p.ty) } else { None }).collect()
 }
 

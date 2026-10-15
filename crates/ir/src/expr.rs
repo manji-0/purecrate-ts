@@ -515,6 +515,17 @@ pub enum Callee {
         name: Name,
     },
     StructNew(Name),
+    /// `From::from(s)`, and `s.into()` once typed: the `From` member of the
+    /// type the context wants (`Fn::from_source`). `check::accept` rewrites
+    /// it to that `Callee::Method`; emit never sees it.
+    Into,
+    /// `Default::default()`: the default of the type the context wants.
+    /// `field` names the field of a `#[derive(Default)]` it stands for, for
+    /// the message when the field's type has none. `check::accept` rewrites
+    /// it to the value; emit never sees it.
+    Default {
+        field: Option<Name>,
+    },
     ResultOk,
     ResultErr,
     OptionSome,

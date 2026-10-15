@@ -73,7 +73,7 @@ fn a_trait_s_const_stays_out() {
         "unsupported item `pub trait Tr",
     );
     assert_parse_rejects(
-        "pub struct T {}\nimpl Default for T { fn default() -> Self { T {} } }\nimpl T { const N: u32 = 1; }\npub fn f() -> u32 { T::N }",
+        "pub struct T {}\nimpl std::ops::Add for T { type Output = T; fn add(self, o: T) -> T { o } }\nimpl T { const N: u32 = 1; }\npub fn f() -> u32 { T::N }",
         "trait impls are not in v0",
     );
 }

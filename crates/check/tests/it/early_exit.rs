@@ -29,7 +29,10 @@ fn try_that_may_not_run_is_rejected() {
 
 #[test]
 fn try_needs_a_matching_return_type() {
-    assert_rejects(&with_half("pub fn f(n: i32) -> Result<i32, bool> { Ok(half(n)?) }"), "v0 has no `From` conversion");
+    assert_rejects(
+        &with_half("pub fn f(n: i32) -> Result<i32, bool> { Ok(half(n)?) }"),
+        "the error types must match, or `bool` must have an `impl From<i32>`",
+    );
     assert_rejects("pub fn f(a: Option<i32>) -> i32 { a? }", "`?` on `Option<i32>` in a function returning `i32`");
     assert_rejects("pub fn f(a: i32) -> Option<i32> { Some(a?) }", "`?` needs a `Result` or `Option`");
 }

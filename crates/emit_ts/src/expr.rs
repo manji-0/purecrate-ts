@@ -603,6 +603,7 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         C::Method { ty, name } => call(&format!("{}.{}", ty.as_str(), name.as_str()), args, indent),
         C::StructNew(n) if is_closed(n.as_str()) => call(&closed_ctor(n.as_str()), args, indent),
         C::StructNew(n) => call(&format!("{}.of", n.as_str()), args, indent),
+        C::Into | C::Default { .. } => unreachable!("`check::accept` rewrites `{callee:?}`"),
         C::ResultOk => call("Result.ok", args, indent),
         C::ResultErr => call("Result.err", args, indent),
         C::OptionNone => "null".into(),

@@ -1,6 +1,6 @@
 use crate::expr::Expr;
-use crate::name::Name;
-use crate::ty::Ty;
+use crate::name::{upper_first, Name};
+use crate::ty::{Prim, Ty};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Vis {
@@ -251,6 +251,45 @@ pub struct Fn {
     pub body: Expr,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
+}
+
+impl Fn {
+    /// The source type `S` when this is the member `impl From<S> for X`
+    /// gives `X`'s companion (`from_member`): one parameter of a type the
+    /// member is named after, returning `X`. rustc refuses an `X::from(s)`
+    /// or a `?` that no `impl` takes, so an inherent method spelled the same
+    /// way is never called in its place.
+    pub fn from_source(&self) -> Option<&Ty> {
+        let owner = self.owner.as_ref()?;
+        let [p] = self.params.as_slice() else { return None };
+        let returns_owner = matches!(&self.ret, Ty::Named(n) if n == owner);
+        (returns_owner && from_member(&p.ty).as_deref() == Some(self.name.as_str())).then_some(&p.ty)
+    }
+}
+
+/// The companion member `impl From<S> for X` gives `X`, named after `S` in
+/// camel case (design/01 §7.25): `fromU32`, `fromString`,
+/// `fromParseIntError`, `fromUuidError` (`uuid::Error`), `fromMyError`.
+/// `None` for a source with no such name: an `Option`, a tuple, a reference
+/// (`&str`), `()`, or a type with arguments (`Vec<u8>`).
+pub fn from_member(source: &Ty) -> Option<String> {
+    let name = match source {
+        Ty::Prim(Prim::Str | Prim::Unit) => return None,
+        Ty::Prim(Prim::Bool) => "Bool".to_string(),
+        Ty::Prim(Prim::Char) => "Char".to_string(),
+        Ty::Prim(Prim::String) => "String".to_string(),
+        Ty::Prim(Prim::Uuid) => "Uuid".to_string(),
+        Ty::Prim(Prim::UuidError) => "UuidError".to_string(),
+        Ty::Prim(Prim::ParseIntError) => "ParseIntError".to_string(),
+        Ty::Prim(p) => match (p.int(), p.float()) {
+            (Some(t), _) => t.ts_name().to_string(),
+            (_, Some(t)) => t.ts_name().to_string(),
+            _ => return None,
+        },
+        Ty::Named(n) => upper_first(n.as_str()),
+        _ => return None,
+    };
+    Some(format!("from{name}"))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

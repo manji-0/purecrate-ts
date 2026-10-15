@@ -462,6 +462,26 @@ impl<'a> Cx<'_, 'a> {
             },
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
                 Some(f) => self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc),
+                // `X::from(s)`: one of `X`'s `From` members, by `s`'s type.
+                None if name.as_str() == "from" && self.defs.from_members(ty.as_str()).next().is_some() => {
+                    self.arity(&format!("`{}::from`", ty.as_str()), 1, argc)
+                }
+                None if name.as_str() == "from" && self.defs.is_type(ty.as_str()) => self.error_about(
+                    Reason::UndefinedFn,
+                    &format!("{}.from", ty.as_str()),
+                    format!(
+                        "`{0}::from` needs an `impl From<S> for {0}`, which gives `{0}` the member `fromS`",
+                        ty.as_str()
+                    ),
+                ),
+                None if name.as_str() == "default" && self.defs.is_type(ty.as_str()) => self.error_about(
+                    Reason::UndefinedFn,
+                    &format!("{}.default", ty.as_str()),
+                    format!(
+                        "`{0}::default` needs `#[derive(Default)]` on `{0}` or an `impl Default for {0}`",
+                        ty.as_str()
+                    ),
+                ),
                 None => self.error_about(
                     Reason::UndefinedFn,
                     &format!("{}.{}", ty.as_str(), name.as_str()),
@@ -476,6 +496,8 @@ impl<'a> Cx<'_, 'a> {
                     format!("struct `{}` is not defined in this crate", n.as_str()),
                 ),
             },
+            Callee::Into => self.arity("`From::from`", 1, argc),
+            Callee::Default { .. } => self.arity("`Default::default`", 0, argc),
             Callee::ResultOk => self.arity("`Ok`", 1, argc),
             Callee::ResultErr => self.arity("`Err`", 1, argc),
             Callee::OptionSome => self.arity("`Some`", 1, argc),

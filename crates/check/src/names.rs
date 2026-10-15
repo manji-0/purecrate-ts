@@ -213,7 +213,16 @@ fn companion_members_are_distinct(krate: &Crate, out: &mut Vec<Diagnostic>) {
             ));
         } else if let Some(&first) = seen.get(&(owner, printed.clone())) {
             let other = krate.items[first].name().as_str();
-            let message = if other == rust {
+            let source = |item: &Item| match item {
+                Item::Fn(f) => f.from_source().map(|s| format!("`impl From<{}>`", crate::types::show(s))),
+                _ => None,
+            };
+            let message = if let (Some(a), Some(b)) = (source(&krate.items[first]), source(item)) {
+                format!("{a} and {b} for `{owner}` would both be the member `{owner}.{name}` in TS; convert from one of them")
+            } else if let Some(s) = source(&krate.items[first]).or_else(|| source(item)) {
+                let method = if source(item).is_some() { other } else { rust };
+                format!("{what} `{owner}.{method}` and the member of {s} for `{owner}` would both be `{owner}.{name}` in TS")
+            } else if other == rust {
                 format!("{what} `{owner}.{rust}` is defined more than once")
             } else if what == "method" && matches!(krate.items[first], Item::Fn(_)) {
                 format!("methods `{owner}.{other}` and `{owner}.{rust}` would both be `{owner}.{name}` in TS")

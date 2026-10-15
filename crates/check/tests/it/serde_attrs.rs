@@ -60,10 +60,10 @@ fn other_serde_attributes_and_traits_are_rejected() {
     assert!(err.message.contains("`#[serde(default)]` changes the JSON"), "{}", err.message);
     let err = purecrate_syntax::parse_source(
         "c",
-        "pub struct S(i32);\nimpl From<i32> for S { fn from(n: i32) -> Self { S(n) } }",
+        "pub struct S(i32);\nimpl std::ops::Neg for S { type Output = S; fn neg(self) -> S { self } }",
     )
-    .expect_err("From");
-    assert!(err.message.contains("except `Display`, `Error` (skipped) and `TryFrom<T>`"), "{}", err.message);
+    .expect_err("Neg");
+    assert!(err.message.contains("trait impls are not in v0, except `Display`"), "{}", err.message);
 }
 
 #[test]

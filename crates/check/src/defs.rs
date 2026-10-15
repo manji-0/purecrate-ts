@@ -114,6 +114,15 @@ impl<'a> Defs<'a> {
         t
     }
 
+    /// The members `impl From<S> for ty` gives `ty`, each with its `S`.
+    pub fn from_members(&self, ty: &str) -> impl Iterator<Item = (&'a Fn, &'a Ty)> + '_ {
+        let ty = ty.to_string();
+        self.methods
+            .iter()
+            .filter(move |((owner, _), _)| *owner == ty)
+            .filter_map(|(_, f)| f.from_source().map(|s| (*f, s)))
+    }
+
     pub fn is_type(&self, name: &str) -> bool {
         self.structs.contains_key(name) || self.enums.contains_key(name) || self.aliases.contains_key(name)
     }

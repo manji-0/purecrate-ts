@@ -80,6 +80,10 @@ impl<'d, 'a> Typer<'d, 'a> {
         recv: Expr,
         rt: Option<Ty>,
     ) -> Typed {
+        // `s.into()`: the `From` member of the type the context wants.
+        if name.as_str() == "into" && args.is_empty() {
+            return self.convert("`.into()`", None, receiver, Some((recv, rt)), want);
+        }
         // The receiver's type with aliases followed, worked out once.
         let nt = rt.as_ref().map(|t| self.norm(t));
         if let Some(t @ (Ty::Map { .. } | Ty::Set(_))) = &nt {

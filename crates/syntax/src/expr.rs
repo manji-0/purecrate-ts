@@ -1034,6 +1034,11 @@ fn std_callee(segs: &[String]) -> Option<Callee> {
         ["String", "new"] => Callee::StringNew,
         ["char", "from"] => Callee::CharFromU8,
         ["char", "from_u32"] => Callee::CharFromU32,
+        // Of the type the context wants (design/01 §7.25).
+        ["From", "from"] | ["convert", "From", "from"] | ["std" | "core", "convert", "From", "from"] => Callee::Into,
+        ["Default", "default"]
+        | ["default", "Default", "default"]
+        | ["std" | "core", "default", "Default", "default"] => Callee::Default { field: None },
         _ => {
             return uuid_fn(segs)
                 .or_else(|| int_from(segs).map(|to| Callee::IntFrom { from: None, to }))
