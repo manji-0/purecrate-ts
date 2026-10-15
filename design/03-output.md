@@ -69,6 +69,7 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
 | `struct Page<T>`, `fn f<T>(x: T)` | `export type Page<T> = Readonly<{ .. }>`; `<T>(x: T): T => ..` on a function, a companion's `of`, and each method; a variant or `of` that holds no `T` gives `Page<never>`, which any `Page<T>` takes (its fields are read only) |
 | `BTreeMap<String, V>`, `BTreeSet<String>` | `ReadonlyMap<string, V>`, `ReadonlySet<string>`; a local that `insert` / `remove` writes is a `Map` / `Set`. Read in key order through `BTree.keys` / `entries` / `values`, sorted by code point |
+| `BTreeMap<K, V>`, `BTreeSet<K>`, `K` an integer, `char`, `bool`, `Uuid`, or a newtype of one or of `String` | `ReadonlyMap<K, V>`, `ReadonlySet<K>` (`Map` / `Set` for a local it writes). `get` / `insert` / `remove` are `BTree.lookup` / `put` (a set's `include`) / `take`; read in key order through `BTree.keysBy` / `entriesBy` / `valuesBy` with the key type's comparator, `Ord.cmp` or `Ord.cmpStr` (`BTree.keysBy(m, Ord.cmp)`); `toJson` writes a map through `BTree.mapJson` |
 | `(A, B)` | `readonly [A, B]` |
 | `Box<T>`, `Arc<T>` | `T`, the type marked `/* Box */ T`; `Box::new(x)` is `x`. `Box` is heap indirection for a recursive type, `Arc` shared ownership across threads: a single-threaded program with values never mutated observes neither. `Mutex` is refused (`[type/mutex]`) |
 | `struct S { a: T }` | `Readonly<{ a: T }>` + companion; branded if closed |

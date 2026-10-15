@@ -422,7 +422,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             return (Expr::Lit(Lit::Unit), None);
         };
         // The keys `resolve` takes in a written type (design/01 §7.26).
-        let key_ok = |t: &Ty| matches!(t, Ty::Map { key, .. } | Ty::Set(key) if crate::keys::key(self.defs, key).is_ok());
+        let key_ok =
+            |t: &Ty| matches!(t, Ty::Map { key, .. } | Ty::Set(key) if crate::keys::key(self.defs, key).is_ok());
         if !key_ok(&got) {
             self.error(
                 Reason::TypeMismatch,

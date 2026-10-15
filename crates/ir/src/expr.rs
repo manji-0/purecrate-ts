@@ -1130,7 +1130,13 @@ impl TreeOp {
     pub fn writes(self) -> bool {
         matches!(
             self,
-            TreeOp::Insert | TreeOp::Add | TreeOp::RemoveKey | TreeOp::Delete | TreeOp::Put | TreeOp::Include | TreeOp::Take
+            TreeOp::Insert
+                | TreeOp::Add
+                | TreeOp::RemoveKey
+                | TreeOp::Delete
+                | TreeOp::Put
+                | TreeOp::Include
+                | TreeOp::Take
         )
     }
 

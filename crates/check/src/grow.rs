@@ -68,9 +68,9 @@ enum Kind {
 
 fn kind(write: &Expr) -> Kind {
     match write {
-        Expr::Call { callee: Callee::Tree(TreeOp::Insert | TreeOp::RemoveKey | TreeOp::Put | TreeOp::Take), .. } => {
-            Kind::Map
-        }
+        Expr::Call {
+            callee: Callee::Tree(TreeOp::Insert | TreeOp::RemoveKey | TreeOp::Put | TreeOp::Take), ..
+        } => Kind::Map,
         Expr::Call { callee: Callee::Tree(_), .. } => Kind::Set,
         _ => Kind::Array,
     }

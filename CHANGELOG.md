@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`BTreeMap<K, V>` and `BTreeSet<K>` keyed by every integer type, `char`, `bool`, `Uuid`, and a newtype or closed type of the crate over one of those or `String` that derives `Ord`** (design/01 §7.26), through an alias too. Each is a JS primitive that `Map` finds by value, so the TS type is `ReadonlyMap<K, V>` / `ReadonlySet<K>`. Every read in order sorts by the key type's `cmp`, where JS's `sort()` would put `10` before `9` and `-1` after `-2`: `BTree.keysBy(m, Ord.cmp)`, `BTree.entriesBy`, and `BTree.valuesBy`, with `Ord.cmpStr` for a `char` or a `Uuid`, a newtype by its content's. `get`, `insert`, and `remove` print `BTree.lookup`, `BTree.put` (a set's `BTree.include`), and `BTree.take`; `contains_key`, `len`, `is_empty`, `clone`, `collect` from pairs or keys, `for`, and `==` work as for a `String` key, which prints as before. Eight new regions of the runtime, in `BTree`.
+- **The wire for those keys** (design/04 §3.3), as serde_json 1.0.145 reads and writes them: a map is an object keyed by each key's text, in key order (`BTree.mapJson`), a set an array of its keys' values. The adapters' new `btreeMapOf`, `btreeSetOf`, `intKey`, and `boolKey` read an integer key by JSON's integer grammar and its type's range (`"-0"` into an `i128` alone, as `0`), a `bool` key as exactly `true` or `false`, a `char` and a `Uuid` key by their own schemas (a `Uuid` in any case, to the canonical form), and a newtype key by its schema; a key given twice keeps the later value. Each zod, valibot, and arktype adapter grows by these four, so a package with a schema copies a longer adapter.
+- `corpus/patterns.rs`: `p06_btreeset` is accepted, and `p06b_count_by_key` and `p06c_newtype_key` are added, both accepted. The collections generator builds maps and sets keyed by `i8`, `i64`, `u128`, `char`, and a newtype of `u64` from literals and reads them in key order; seeds 1 to 120 agree with Rust.
+
+### Changed
+
+- `BTreeMap` / `BTreeSet` keys are judged by `check`, which knows the crate's types, where parsing refused every key but `String`: a refused key is `[type/disallowed]` and says why ("the key Pos is a struct with named fields, an object in TS").
+
+### Refused
+
+- A `BTreeMap` / `BTreeSet` key that is an object in TS (an enum, a struct with named fields, a tuple, an `Option`, a `Vec`, a newtype of one, a generic type, a type parameter), since a JS `Map` compares it by identity; a float key (no `Ord`); a newtype key whose `Ord` is written by hand or missing, as the output sorts it by its content; and a `&str` key.
+
 ## 0.22.0 — 2026-10-15
 
 Traits (design/01 §7.25), taken by decision as 0.16.0–0.21.0 were: the crate's own traits, whose `impl`s become members of the implementing type's companion and whose bounds pass that companion as a dictionary, resolved where the types are known; `impl Display` with arguments, so `format!` and `to_string` print the crate's types; `PartialOrd` and `Ord`, derived and written, so the crate's types, their `Option`s, `Vec`s, and tuples, and a `T: Ord` are ordered; `Default`; and `From`, so `?` converts an error. `dyn Trait`, associated types, and generic traits other than `From` stay out. A function that wrote `T: Ord` or `T: PartialOrd`, inert in 0.20.0, now takes a dictionary (*Changed*). Turning on in every equivalence test the type-aware lint `verify.sh` runs found output it refused, fixed here (*Fixed*). The distance to the ideal (design/07 §2.5) is 91%; `survey corpus/patterns.rs` accepts 118 of 125.

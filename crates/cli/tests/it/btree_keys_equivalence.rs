@@ -43,14 +43,8 @@ fn generated_btree_keys_match_rust() {
         for pairs in &small {
             cases.push(case!(keys::total(&map(pairs))));
         }
-        let big = map(&[
-            (u64::MAX, 1u8),
-            (9_007_199_254_740_993, 2),
-            (9_007_199_254_740_992, 3),
-            (10, 4),
-            (9, 5),
-            (0, 6),
-        ]);
+        let big =
+            map(&[(u64::MAX, 1u8), (9_007_199_254_740_993, 2), (9_007_199_254_740_992, 3), (10, 4), (9, 5), (0, 6)]);
         cases.push(case!(keys::joined(&big)));
         cases.push(case!(keys::joined(&BTreeMap::<u64, u8>::new())));
         let wide = map(&[(i128::MAX, 1u128), (i128::MIN, u128::MAX), (-1, 2), (10, 3), (9, 4)]);

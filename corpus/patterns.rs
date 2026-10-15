@@ -2,7 +2,7 @@
 //! `purecrate-ts survey corpus/patterns.rs` (design/07 §2.5). Not a
 //! metric to chase: each shape is judged by what it costs to write.
 use std::collections::HashMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Shape { Circle { r: i32 }, Square(i32), Empty }
@@ -12,6 +12,9 @@ pub struct Item { pub sku: String, pub qty: u32, pub price: i64 }
 
 pub struct Page<T> { pub items: Vec<T> }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UserId(pub u64);
+
 pub trait Priced { fn price(&self) -> i64; }
 
 pub fn p01_if_let_variant(s: Shape) -> i32 { if let Shape::Square(n) = s { n } else { 0 } }
@@ -20,6 +23,8 @@ pub fn p03_format_int(n: u32) -> String { format!("INV-{}", n) }
 pub fn p04_to_string(n: u32) -> String { n.to_string() }
 pub fn p05_hashmap(xs: Vec<Item>) -> HashMap<String, u32> { let mut m = HashMap::new(); for x in xs { m.insert(x.sku, x.qty); } m }
 pub fn p06_btreeset(xs: Vec<u32>) -> BTreeSet<u32> { xs.into_iter().collect() }
+pub fn p06b_count_by_key(xs: Vec<u32>) -> BTreeMap<u32, usize> { let mut m: BTreeMap<u32, usize> = BTreeMap::new(); for x in xs { let n = m.get(&x).copied().unwrap_or(0); m.insert(x, n + 1); } m }
+pub fn p06c_newtype_key(m: &BTreeMap<UserId, i64>, id: UserId) -> Option<i64> { m.get(&id).copied() }
 pub fn p07_generic<T: Clone>(x: T) -> T { x }
 pub fn p08_array(b: [u8; 4]) -> u8 { b[0] }
 pub fn p11_rev(xs: Vec<u32>) -> Vec<u32> { xs.into_iter().rev().collect() }

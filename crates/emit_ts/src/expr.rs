@@ -1254,9 +1254,7 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
                         purecrate_ir::TreeOp::Entries | purecrate_ir::TreeOp::Keys | purecrate_ir::TreeOp::Values
                     )
                     | Callee::Tree(
-                        purecrate_ir::TreeOp::EntriesBy
-                            | purecrate_ir::TreeOp::KeysBy
-                            | purecrate_ir::TreeOp::ValuesBy
+                        purecrate_ir::TreeOp::EntriesBy | purecrate_ir::TreeOp::KeysBy | purecrate_ir::TreeOp::ValuesBy
                     ),
                 ..
             }

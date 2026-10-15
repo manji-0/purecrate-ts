@@ -12,7 +12,10 @@
 //! `filter_map`, `flat_map`, `flatten`, `windows`, `chunks` (sizes of 0
 //! among them), and ranges stepped by `step_by` either side of `rev` feed
 //! the consumers, added into `acc`; these draw from a second generator, so
-//! each seed's other statements are the ones it drew before. `==` / `!=` compare `Vec`s, `Option`s, tuples, the struct,
+//! each seed's other statements are the ones it drew before. From 0.23.0,
+//! maps and sets keyed by integers, `char`s, and a newtype of `u64` are
+//! built from literals and read in key order (a third generator, likewise).
+//! `==` / `!=` compare `Vec`s, `Option`s, tuples, the struct,
 //! and the enum, with `NaN` and `-0.0` in float fields. Inputs hold empty
 //! vectors, duplicates, `i32::MIN` / `MAX`, strings ordered differently by
 //! code point and by UTF-16 unit, and indices past the end.
@@ -50,6 +53,9 @@ pub enum E {
     C { s: String, v: Vec<i32> },
     D(f64),
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Id(pub u64);
 ";
 
 /// `Show` for the crate's types, as `purecrate_canon` prints them.
@@ -149,6 +155,9 @@ struct G {
     rng: Rng,
     /// What draws the 0.21.0 shapes, apart from `rng`.
     extra: Rng,
+    /// What draws the 0.23.0 maps and sets with keys other than `String`,
+    /// apart from both.
+    keyed: Rng,
     scope: Vec<Var>,
     next: usize,
     out: String,
@@ -770,6 +779,11 @@ impl G {
     /// from `extra`, as `rng` in turn.
     fn stmt(&mut self, depth: u32) {
         self.drawn(depth);
+        if self.keyed.below(5) == 0 {
+            std::mem::swap(&mut self.rng, &mut self.keyed);
+            self.keyed_stmt();
+            std::mem::swap(&mut self.rng, &mut self.keyed);
+        }
         let which = self.extra.below(8);
         if which > 1 {
             return;
@@ -1053,6 +1067,104 @@ impl G {
         }
     }
 
+    /// A `BTreeMap` or `BTreeSet` keyed by an integer (`9` and `10`,
+    /// negatives, `bigint`s past 2^53, each type's bounds), a `char`
+    /// outside the BMP, or a newtype of `u64` (design/01 §7.26), built from
+    /// literals in any order and read in key order into `acc`, where JS's
+    /// `sort()` would give another order and so another result.
+    fn keyed_stmt(&mut self) {
+        let m = self.fresh("m");
+        let x = self.fresh("x");
+        let n = 1 + self.rng.below(6);
+        match self.rng.below(4) {
+            0 => {
+                let (ty, lits): (&str, &[&str]) = match self.rng.below(3) {
+                    0 => (
+                        "i64",
+                        &[
+                            "9i64",
+                            "10i64",
+                            "-1i64",
+                            "-2i64",
+                            "0i64",
+                            "9007199254740993i64",
+                            "(-9007199254740993i64)",
+                            "9223372036854775807i64",
+                            "(-9223372036854775808i64)",
+                        ],
+                    ),
+                    1 => (
+                        "u128",
+                        &[
+                            "0u128",
+                            "9u128",
+                            "10u128",
+                            "9007199254740993u128",
+                            "18446744073709551616u128",
+                            "170141183460469231731687303715884105727u128",
+                        ],
+                    ),
+                    _ => ("i8", &["9i8", "10i8", "-1i8", "-2i8", "0i8", "127i8", "(-128i8)"]),
+                };
+                let keys = (0..n).map(|_| self.rng.pick(lits)).collect::<Vec<_>>().join(", ");
+                let ints = (0..n).map(|_| self.int_lit()).collect::<Vec<_>>().join(", ");
+                let (a, b) = (self.rng.pick(lits), self.rng.pick(lits));
+                self.line(&format!("let mut {m}: BTreeMap<{ty}, i32> = BTreeMap::new();"));
+                self.line(&format!("for ({x}, n) in vec![{keys}].iter().zip(vec![{ints}].iter()) {{"));
+                self.line(&format!("    if let Some(o) = {m}.insert(*{x}, *n) {{"));
+                self.line("        acc = acc.wrapping_add(o);");
+                self.line("    }");
+                self.line("}");
+                self.line(&format!("if let Some(o) = {m}.remove(&{a}) {{"));
+                self.line("    acc = acc.wrapping_sub(o);");
+                self.line("}");
+                self.line(&format!("for ({x}, n) in &{m} {{"));
+                // `as` narrows; an `i8` widens by `from`.
+                let low = if ty == "i8" { format!("i32::from(*{x} % 100)") } else { format!("(*{x} % 100) as i32") };
+                self.line(&format!("    acc = acc.wrapping_mul(31).wrapping_add(*n).wrapping_add({low});"));
+                self.line("}");
+                self.line(&format!("flag = flag != {m}.contains_key(&{b});"));
+            }
+            1 => {
+                let ints = (0..n).map(|_| self.int_lit()).collect::<Vec<_>>().join(", ");
+                let (a, b) = (self.int_lit(), self.int_lit());
+                self.line(&format!("let mut {m}: BTreeSet<i32> = vec![{ints}].into_iter().collect();"));
+                self.line(&format!("flag = {m}.insert({a}) != flag;"));
+                self.line(&format!("if {m}.remove(&{b}) {{"));
+                self.line("    acc = acc.wrapping_add(1);");
+                self.line("}");
+                self.line(&format!("for {x} in &{m} {{"));
+                self.line(&format!("    acc = acc.wrapping_mul(7).wrapping_add(*{x});"));
+                self.line("}");
+            }
+            2 => {
+                let lits =
+                    ["9u64", "10u64", "0u64", "9007199254740993u64", "9007199254740992u64", "18446744073709551615u64"];
+                let keys = (0..n).map(|_| self.rng.pick(&lits)).collect::<Vec<_>>().join(", ");
+                let a = self.rng.pick(&lits);
+                self.line(&format!(
+                    "let {m}: BTreeMap<Id, usize> = vec![{keys}].iter().map(|n| (Id(*n), (*n % 7) as usize)).collect();"
+                ));
+                self.line(&format!("acc = acc.wrapping_add({m}.get(&Id({a})).copied().unwrap_or(9) as i32);"));
+                self.line(&format!(
+                    "acc = {m}.keys().fold(acc, |t, key| t.wrapping_mul(3).wrapping_add((key.0 % 1000) as i32));"
+                ));
+                self.line(&format!("acc = acc.wrapping_add({m}.values().map(|n| *n as i32).sum::<i32>());"));
+            }
+            _ => {
+                let chars = ["a", "b", "\\u{e9}", "\\u{fffd}", "\\u{ff61}", "\\u{1f600}", "\\u{10ffff}", "\\u{10000}"];
+                let text = (0..n).map(|_| self.rng.pick(&chars)).collect::<String>();
+                let (a, c) = (self.rng.pick(&chars), self.rng.pick(&chars));
+                // Where a `char` stands in key order: by code point.
+                self.line(&format!("let {m}: BTreeSet<char> = \"{text}\".chars().collect();"));
+                self.line(&format!(
+                    "acc = acc.wrapping_mul(5).wrapping_add({m}.iter().position(|{x}| *{x} == '{a}').map_or(-1, |n| n as i32));"
+                ));
+                self.line(&format!("flag = flag != {m}.contains(&'{c}');"));
+            }
+        }
+    }
+
     /// The function's result: a value of its return type, with `clone`
     /// of every local so nothing is moved before it is read again.
     fn tail(&mut self, d: u32) -> String {
@@ -1071,6 +1183,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<String>)
     let mut g = G {
         rng: Rng::new(seed ^ 0xc011),
         extra: Rng::new(seed ^ 0x0221),
+        keyed: Rng::new(seed ^ 0x0230),
         scope: Vec::new(),
         next: 0,
         out: String::new(),

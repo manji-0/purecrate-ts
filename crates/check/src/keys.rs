@@ -22,13 +22,13 @@ pub enum Key {
 /// sentence that names the map or set.
 pub fn key(defs: &Defs<'_>, ty: &Ty) -> Result<Key, String> {
     let t = defs.expand(ty, Peel::Every);
-    match prim(&t) {
+    match prim(t) {
         Some(Ok(k)) => return Ok(k),
         Some(Err(why)) => return Err(why),
         None => {}
     }
     let object = "a JS `Map` compares an object key by identity, so `get` with an equal but distinct value would miss where Rust's `BTreeMap` finds it; key by an integer, `char`, `bool`, `Uuid`, `String`, or a newtype of one";
-    match &t {
+    match t {
         Ty::Named(n) => {
             if defs.enums.contains_key(n.as_str()) {
                 return Err(format!("the key `{}` is an enum, an object in TS (`{{ kind }}`): {object}", n.as_str()));
@@ -42,7 +42,7 @@ pub fn key(defs: &Defs<'_>, ty: &Ty) -> Result<Key, String> {
                     n.as_str()
                 ));
             };
-            let content = match prim(&defs.expand(inner, Peel::Every)) {
+            let content = match prim(defs.expand(inner, Peel::Every)) {
                 Some(Ok(Key::String)) => Key::By(Cmp::Text),
                 Some(Ok(k)) => k,
                 _ => {
@@ -66,10 +66,9 @@ pub fn key(defs: &Defs<'_>, ty: &Ty) -> Result<Key, String> {
                 )),
             }
         }
-        Ty::Param(p) => Err(format!(
-            "the key is the type parameter `{}`, which may be an object in TS: {object}",
-            p.as_str()
-        )),
+        Ty::Param(p) => {
+            Err(format!("the key is the type parameter `{}`, which may be an object in TS: {object}", p.as_str()))
+        }
         Ty::App { name, .. } => Err(format!(
             "the key `{}` is a generic type, which v0 does not take as a key; key by a newtype without type parameters",
             name.as_str()

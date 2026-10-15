@@ -683,9 +683,8 @@ fn keyed_maps_read_and_write_what_serde_json_does() {
     rich.letters.extend([('"', 1), ('\\', 2), ('😀', 3), ('\u{fffd}', 4), ('\u{2028}', 5), ('\0', 6)]);
     rich.ids.extend([(uuid::Uuid::max(), 1), (uuid::Uuid::nil(), 2), (uuid::Uuid::from_u128(9), 3)]);
     rich.users.extend([(keyed::UserId(10), "a".to_string()), (keyed::UserId(9), "é\n".to_string())]);
-    rich.codes.extend(
-        [("b", 1), ("😀", 2), ("\u{fffd}", 3), ("", 4), ("\"q\"", 5)].map(|(k, v)| (keyed::Code(k.into()), v)),
-    );
+    rich.codes
+        .extend([("b", 1), ("😀", 2), ("\u{fffd}", 3), ("", 4), ("\"q\"", 5)].map(|(k, v)| (keyed::Code(k.into()), v)));
     rich.tags.extend([10, 9, u32::MAX, 0]);
     rich.chars.extend(['😀', '\u{fffd}', 'a']);
     rich.members.extend([keyed::UserId(u64::MAX), keyed::UserId(9), keyed::UserId(10)]);
@@ -695,7 +694,8 @@ fn keyed_maps_read_and_write_what_serde_json_does() {
         vec![serde_json::to_string(&rich).unwrap(), serde_json::to_string(&keyed::Keyed::default()).unwrap()];
     let map = |k: &str| format!("{{{}:1}}", serde_json::to_string(k).unwrap());
     let ints = [
-        "0", "1", "-1", "01", "+1", " 1", "1 ", "", "-0", "1e2", "1.0", "00", "-01", "0x1", "1_0", "１", "-", "--1", "1-",
+        "0", "1", "-1", "01", "+1", " 1", "1 ", "", "-0", "1e2", "1.0", "00", "-01", "0x1", "1_0", "１", "-", "--1",
+        "1-",
     ];
     for (field, extra) in [
         ("small", &["127", "-128", "128", "-129"][..]),
