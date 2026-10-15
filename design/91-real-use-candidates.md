@@ -38,7 +38,7 @@ Four sites were cut out of their repositories unchanged, run through `survey`, r
 | Windmill MCP scope | 0/8 | listing policy only | 186 → 237 (1.3×; 35 lines emulate Unicode `trim`) | 0 / 20,000 | 1,282 / 20,000, a Rust bug (byte length used as a `char` index) | building `String`s from parts; returning `string[]` |
 | Windmill pipeline parser | 0/15 | 6 of ~20 keywords | ~100 → 242 for the part; whole ≥ 2.5× estimated | 0 / 20,000 (part) | retry `+2` and overflow, U+0085/U+FEFF | string construction, `BTreeMap`, growable `Vec`, iterators, `while`/`break`, guards |
 
-The pipeline parser, the strongest case on paper (a hand port kept in line by a shared fixture corpus), is the furthest from the subset: it builds strings and growing collections throughout, which [07 §6](./07-roadmap.md#6-not-doing) excludes, and its frontend already loads sibling parsers as WASM.
+The pipeline parser, the strongest case on paper (a hand port kept in line by a shared fixture corpus), is the furthest from the subset: it builds strings and growing collections throughout, which [07 §6](./07-roadmap.md#6-not-doing) excluded then, and its frontend already loads sibling parsers as WASM. Later releases took every item in its *Missing* column (a growable `Vec` in 0.9.0, `String` building in 0.12.0, `BTreeMap` in 0.19.0; 07 §6 now excludes only edits outside a local); the parser has not been rewritten again.
 
 ## 3. Decision
 
@@ -58,6 +58,8 @@ Capabilities, in the order they would have shortened the rewrites:
 4. Bitwise operators on integers, `u64` included — Stoat's flag sets (a 25-line bit loop instead), after oidc.
 5. `const`, and enum discriminants read without `as` — Stoat's 18 permission bits became functions.
 
+Items 2 to 5 shipped in 0.1.0 ([CHANGELOG 0.1.0](../CHANGELOG.md#rationale-the-first-release)).
+
 Defects found on the way:
 
 - A non-`pub` method (`McpScopeConfig::any`) appears on the exported companion object, so TS callers can reach what Rust callers cannot. Confirmed as a hole in closed types (a private method returning the type builds it unchecked) and fixed the same day ([01 §4](./01-equivalence.md#4-closed-types)).
@@ -71,7 +73,7 @@ Defects found on the way:
 
 2026-09-30, on local branches of omicron (`c925805`) and console (`14ec752`); nothing is proposed upstream yet. Proposing it is the one exception to the no-outreach decision (2026-10-13, [06 §5.2](./06-strategy.md#52-one-real-use)).
 
-**omicron.** A new crate, `name-rules`, holds `check_name(&str) -> Result<(), NameError>` (89 lines at first, written to the subset with `for c in s.chars()`, the UUID forms checked by hand; 66 once `uuid::Uuid` was supported and the check became `matches!(Uuid::parse_str(value), Ok(_))`); `Name::try_from` calls it and turns the error into the same message with `Display` (38 lines became 2). The crate's `ts/` is `build --bundle-runtime` output. Its test runs the previous implementation, with the real `uuid::Uuid::parse_str`, against `check_name` on about 120,000 inputs: same result and message on all. `omicron-common` still compiles.
+**omicron.** A new crate, `name-rules`, holds `check_name(&str) -> Result<(), NameError>` (89 lines at first, written to the subset with `for c in s.chars()`, the UUID forms checked by hand; 66 once `uuid::Uuid` was supported and the check became `matches!(Uuid::parse_str(value), Ok(_))`); `Name::try_from` calls it and turns the error into the same message with `Display` (38 lines became 2). The crate's `ts/` is `build --bundle-runtime` output (the flag is gone: every package now carries its runtime). Its test runs the previous implementation, with the real `uuid::Uuid::parse_str`, against `check_name` on about 120,000 inputs: same result and message on all. `omicron-common` still compiles.
 
 **console.** `tools/generate_api_client.sh` also fetches `name-rules/ts/src/*` at the pinned omicron commit into `app/api/__generated__/name-rules/`, adding the MPL header except to the bundled runtime. `validateName` calls `check_name` and maps each `NameError` to the console's wording with an exhaustive `match`: the rule is gone from the console, the wording stays (15 lines before, 16 after). `tsc`, `oxlint`, `oxfmt --check`, and the unit tests pass (the 4 failures are webkit browser specs that fail the same without the change).
 

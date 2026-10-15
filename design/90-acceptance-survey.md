@@ -195,7 +195,7 @@ For the 126 functions excluding idsmith, the top reasons became spread out.
 ### 6.3 Next candidates (observations on the plan for TODO 30 onward)
 
 - **Closures (TODO 31) have the largest effect.** Accepting closures moves idsmith's 339 cases on to the std iterator method barrier (TODO 33). Acceptance only moves once both are in place.
-- **`&mut self` is a shape common to DDD and event-sourcing aggregates** (`fn apply(&mut self, event)`). It is only 11 cases as a first reason, but spans 5 entries. Rewriting it as a function that takes `self` and returns a new value is likely to map it while preserving meaning. Not yet planned. To be considered as a candidate after the current TODOs.
+- **`&mut self` is a shape common to DDD and event-sourcing aggregates** (`fn apply(&mut self, event)`). It is only 11 cases as a first reason, but spans 5 entries. Rewriting it as a function that takes `self` and returns a new value is likely to map it while preserving meaning. Not yet planned. To be considered as a candidate after the current TODOs. (Decided 2026-10-13: not doing, [07 §6](./07-roadmap.md#6-not-doing).)
 - Loops, `const` inside functions, bitwise operations, and `char` are each concentrated in 1-2 entries. Low general priority.
 
 ### 6.4 After TODO 31 (local closures)
@@ -301,3 +301,5 @@ For reference only, as §7. Same corpus and commits, `purecrate-ts` 0.15.0; `cor
 Nearly all of the gain is idsmith's 182 `validate` functions: a length test and a character check such as `raw.chars().all(|c| c.is_ascii_digit())`, which consumers over `chars()` (taken since 0.3.0) accept. Its formatters next to them still stop at `format!`. Outside idsmith, 5 of 126 functions are accepted, as before. idsmith's first reasons are now `&mut` (305, its RNG), `format!` (75), other std methods (95: `iter` adaptors, `to_string`, `to_uppercase`), and paths into other modules (51 + 31). Elsewhere: `async` (29), paths into other modules and associated consts (24), generics (16), patterns (15, slice and others), and `&mut self` (12).
 
 The conclusions of §0 hold outside idsmith: existing code is still not the target.
+
+The corpus has not been re-measured since. Of the reasons above, `format!` (0.16.0), the adaptors and `to_string` (0.21.0), paths into other modules and associated consts (0.21.0), generics (0.20.0), and slice patterns (0.21.0) were taken later, by decision from [07 §2.5](./07-roadmap.md#25-distance-to-the-ideal), which tracks common shapes in `corpus/patterns.rs` instead; `&mut` and `async` stay out ([07 §6](./07-roadmap.md#6-not-doing)).

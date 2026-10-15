@@ -1,11 +1,11 @@
 # Roadmap
 
-Status: current (2026-10-15, 0.23.0)
+Status: current (2026-10-16, 0.23.0)
 
 <!-- constrained-by ./02-authoring.md -->
 <!-- constrained-by ./06-strategy.md#4-success-and-withdrawal-criteria -->
 
-What comes next and why. §1 is the rule, §2 the evidence it runs on, §3 the candidates it currently yields, §4–§7 what is specified, deferred, refused, or open, and §8 what each release added.
+What comes next and why. §1 is the rule, §2 the evidence it runs on, §3 the candidates it yields and the plan taken by decision, §4 what is refused for now, §5 the v1 types (all taken), §6 what is ruled out, §7 open questions, §8 how releases are recorded, and §9 what the generated API keeps stable.
 
 ## 1. How additions are chosen
 
@@ -108,7 +108,7 @@ signup is counted by hand, as its test has no idiomatic module; ssh is not measu
 
 Two things the script counts differently from how they read: the idiomatic `impl PartialOrd` / `impl Ord` (15 lines) are logic filed under types, and the accessors exist only on the closed side. Adjusted for both, the restructured draft was 176 / 90 (2.0×) and the rewrite with `Ordering` is 147 / 90 (1.6×), as estimated before it was built.
 
-**With `collect` and `split_once` (0.7.0).** The script counts 138 / 75 (1.84×, printed 1.8×). Identifier lists are `split('.').map(f).collect()`, and `Version::parse` uses `split_once` as `Some((x, y))`; the cons-list parsers are gone. Adjusted the same way as the `Ordering` row — drop the 19 accessor lines, and count the 15 lines of `impl Ord` as logic — that is 119 / 90 (1.3×). `.map(PreId::Numeric)` is still not a function name (§3). `str::parse` stays out (§6): Rust accepts a leading `+`, and the threshold does not need it.
+**With `collect` and `split_once` (0.7.0).** The script counts 138 / 75 (1.84×, printed 1.8×). Identifier lists are `split('.').map(f).collect()`, and `Version::parse` uses `split_once` as `Some((x, y))`; the cons-list parsers are gone. Adjusted the same way as the `Ordering` row — drop the 19 accessor lines, and count the 15 lines of `impl Ord` as logic — that is 119 / 90 (1.3×). `.map(PreId::Numeric)` is still not a function name: a tuple variant passed to `map` is refused, so it is `.map(|n| PreId::Numeric(n))`. `str::parse` was out then (Rust accepts a leading `+`, and the threshold did not need it); it is in since, into integers only ([01 §6.7](./01-equivalence.md#67-strparse-into-an-integer)).
 
 **oidc by section.** Written by an agent that read only the authoring skill, to find what the skill leaves out. As written:
 
@@ -132,7 +132,7 @@ The first gap was the scanners: iterator adaptors over tokens and bytes, written
 | `totp_step` | 3 | 6 | `bool::then` |
 | `OtpDigits` helpers | 9 | 6 | a `match` for the count (the constrained side reads the discriminant) |
 
-`find` stays out (§4); `filter` is in since 0.9.0. The others each save a few lines in one function, so none is a candidate on this evidence alone.
+Since this was measured, `filter` (0.9.0), `find` (0.13.1), `let`-`else` (0.17.0), and `str::parse` into an integer have come in; `bool::then` and `from_be_bytes` have not. Each saves a few lines in one function, so none was a candidate on this evidence alone.
 
 ### 2.3 Semantic cross-checks
 
@@ -179,7 +179,7 @@ Besides the capabilities in §2.1:
 
 - **The type/function file-name collision** (§3.3 rule 5 of [02](./02-authoring.md#33-names-are-unique-across-the-crate)) has been hit four times: three driver helpers named after the type they build, and `fn group` returning a `Group` in invoice itself. The rule stays; the diagnostic names both items.
 
-### 2.5 Distance to the ideal (2026-10-13, 0.23.0 2026-10-15)
+### 2.5 Distance to the ideal
 
 <!-- constrained-by ./02-authoring.md#1-what-constraint-costs -->
 
@@ -211,63 +211,98 @@ An estimate, not a criterion. The ideal is 02 §1's goal read widely: the shapes
 | Dates (on epoch integers) | 2 | 0.5 | arithmetic accepted; the calendar by hand (examples/calendar) |
 | Recursion depth (game rules) | 1 | 0.6 | JS's stack |
 
-**About 60% when measured (2026-10-13); 67% with 0.16.0's `format!`; 73% with 0.17.0's control flow; 78% with 0.18.0's std methods; 81% with 0.19.0's keyed collections; 83% with 0.20.0's type parameters; 90% with 0.21.0's notation; 91% with 0.22.0's traits; 94% with 0.23.0's keys, arrays, and adaptors** (the plan said 75%, 79%, 83%, and 86%: keys other than `String` wait for a use, and a `T` is not ordered). `survey corpus/patterns.rs` accepts 95 of its first 99 functions with 0.23.0 (92 with 0.22.0, 91 with 0.21.0, 47 of 72 before it), and every shape added since (138 in all, 134 accepted); the four left are `HashMap`, `&mut self`, `&` on a `usize`, and `{:.2}` on a float. Weighted, these rows gave 63% (62% unweighted; merging the first five rows into one gives 55%, so the figure is good to about a tenth). Counting the two shapes no document had decided on when this was measured (`panic!` / `assert!` / `unwrap`, refused as `[expr/macro]` and `[expr/method-call]` then, accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, 0.9 now; traits with `Display`, after type parameters, 0.3, and 0.8 from 0.22.0: user traits, `Display`, `Ord`, `Default`, and `From` are in, `dyn`, associated types, and generic traits other than `From` out; each weight 2) gives 61% as measured and 93% now; counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0) gives 59%. Those are a lasting cost of writing within the constraints, not distance still to go.
+**Now (0.23.0): 94%** (93.9% weighted, 92% unweighted). `survey corpus/patterns.rs` accepts 134 of its 138 functions; the four left are `HashMap`, `&mut self`, `&` on a `usize`, and `{:.2}` on a float. Merging the first five rows into one gives 92%, so the figure moves little with how the rows are cut. Two shapes no document had decided on when this was first measured are not in the table: `panic!` / `assert!` / `unwrap` (0.9: accepted from 0.18.0 but for `Result::unwrap` and `assert_eq!`, whose messages print a value with `{:?}`) and traits with `Display` (0.8: user traits, `Display`, `Ord`, `Default`, and `From` from 0.22.0; `dyn`, associated types, and generic traits other than `From` out), each weight 2; with them, 93% (93.2%). Counting also what §6 leaves out on purpose (`&mut self` written as `self` → `Self`, 0.7; decimals as integers in the smallest unit, 0.5; serde's `default`, `skip*`, `flatten`, `untagged`, 0; each weight 2) gives 88%. Those three are a lasting cost of writing within the constraints, not distance still to go.
 
-**What moves it.** The whole plan in §3 is done: `format!` on integers, the control flow, the std on `Option` / `Result` / `Vec`, keyed collections, and type parameters, to 83% (86% planned); 0.21.0 took the largest notation left (text cut and built, the adaptors and ranges, associated consts and module paths, slice patterns), to 90%; 0.22.0 took traits (user traits with a dictionary per bound, `Display` with arguments, `Ord`, `Default`, `From`), to 91% and 90% counting the shapes no document had decided. 0.23.0 took keys other than `String`, fixed-size arrays, and `take` / `skip` / `take_while` / `skip_while` / `partition`, to 94% (93% with the undecided shapes). What is left is spread thin: dates by hand, `Display` and `{:.2}` of a float, crate-type keys, `dyn Trait` (each needs values that carry their type), and recursion depth; and what §6 leaves out on purpose.
+**What is left** is spread thin: dates by hand, `Display` and `{:.2}` of a float, `HashMap` (written `BTreeMap`), crate-type keys (a JS `Map` compares objects by identity), `dyn Trait` (a value carries no tag naming its type), and recursion depth; and what §6 leaves out on purpose. None of these is planned; each waits for §1 (§3).
+
+**History.** First measured on 2026-10-13 with 0.15.0, when `corpus/patterns.rs` held 72 functions. Each release since was taken by decision from this table (§3):
+
+| Release | Distance | With the undecided shapes | `survey corpus/patterns.rs` | What moved it |
+| --- | --- | --- | --- | --- |
+| 0.15.0 (measured) | 63% (62% unweighted; 55% with the first five rows merged) | 61% (59% with §6's shapes) | — | — |
+| 0.16.0 | 67% | — | — | `format!` on integers |
+| 0.17.0 | 73% (planned 75%) | — | — | control flow on patterns and ranges |
+| 0.18.0 | 78% (planned 79%) | — | — | std on `Option`, `Result`, and `Vec`; panics |
+| 0.19.0 | 81% (planned 83%) | — | — | `BTreeMap<String, V>`, `BTreeSet<String>`; keys other than `String` waited for a use |
+| 0.20.0 | 83% (planned 86%) | — | 47 of 72 | type parameters; a `T` was not ordered |
+| 0.21.0 | 90% | — | 91 of 99 (27 shapes added) | text cut and built, adaptors and ranges, associated consts and module paths, slice patterns |
+| 0.22.0 | 91% | 90% | 92 of 99 | traits: user traits, `Display`, `Ord`, `Default`, `From` |
+| 0.23.0 | 94% | 93% | 95 of 99; 134 of 138 with every shape added since | keys other than `String`, fixed-size arrays, `take` / `skip` / `take_while` / `skip_while` / `partition` |
 
 **Outside the language.** Equivalence, the wire, and real use are measured by [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria): the internal criteria hold, two withdrawal conditions are not met, and real use is open with a deadline (2027-04-13).
 
 ## 3. Candidates
 
 <!-- derived-from #2-evidence-from-examples -->
+<!-- constrained-by #1-how-additions-are-chosen -->
 
-What the evidence currently points at, strongest first. The five examples of 2026-10-11 met §1 for every row struck through, taken together in 0.13.1 by decision. None of the rest is scheduled until §1 is met: an example that cannot be written, or stays over 2×, without it; the rows such an example raises come first. `split_once`, a `Vec` collected once from `s.split(c)`, and `Some((a, b))` were the rest of semver's parsing gap; they are in ([CHANGELOG 0.7.0](../CHANGELOG.md#rationale-lists-from-text)), with patterns nested in a case.
+**Next steps.** The plan below is done, so §1 governs again: nothing is scheduled until an example cannot be written without a capability, or stays over 2× for want of one that helps code in general; such an example's capabilities go first, then holes and domain fixes as they are found. No example names one today. Two are over 2× (§2.2), and neither raises anything: jsonpatch's excess is its parser, which the reference leaves to serde_json, and `&mut` into a nested value, which §6 rules out; payment's is the checked constructor its reference does not have ([06 §4.3](./06-strategy.md#43-status)). The open rows below, §4, and what §2.5 leaves are what a new example is likely to name.
 
-**Plan (2026-10-14, by decision).** §2.5 found the distance to the ideal in shapes common to domain code rather than in any one example, so the following are taken without waiting for §1, as 0.9.0 and 0.13.1 were, in this order. Each comes with a fixture, a shape in the statements generator, and `purecrate-ts test` over every example.
-
-1. ~~**0.16.0, `format!`.**~~ Done ([01 §6.8](./01-equivalence.md#68-format)). `{}` on integers, `&str`, `String`, `char`, and `Uuid`, with a width (`{:5}`, `{:<5}`, `{:>5}`) and zero padding on integers (`{:05}`), whose text Rust and TS agree on; named and positional arguments, `{{` / `}}`. Out: floats (`Display` of a float is a large surface), `{:x}` and the other radixes (a negative signed value prints its two's complement in Rust), `{:?}`, and the crate's own types (no `Display`). `.to_string()` stays refused, `format!("{}", n)` its one spelling.
-2. ~~**0.17.0, control flow.**~~ Done ([01 §7.16](./01-equivalence.md#716-control-flow-on-patterns-and-ranges)). `if let` and `let`-`else` on any pattern that can fail (a `let`-`else` on a variant prints as a guard), `loop` with `break` and a value, `while let`, `for` over `a..=b` and over `(a..b).rev()` / `(a..=b).rev()`, and a tuple's `.N`. Out: labels, a struct pattern in `if let` or `let`-`else`, `rev` on an iterator (with `zip` in 0.18.0). The statements generator's new forms found three miscompiles released through 0.16.0, fixed with it (CHANGELOG 0.17.0).
-3. ~~**0.18.0, std on `Option`, `Result`, and `Vec`.**~~ Done ([01 §7.1](./01-equivalence.md#71-option-and-result-methods), [§7.17](./01-equivalence.md#717-panics), [§7.18](./01-equivalence.md#718-reading-a-vec-get-first-last-contains)). `and_then`, `unwrap_or_else`, `ok_or_else`, `or`, `or_else`, `filter`, `map_or`, `map_or_else`, `is_some_and`, `is_none_or` on `Option`, their counterparts on `Result`; `get`, `first`, `last`, `contains` on a `Vec`; `fold`, and `rev` and `zip` right after a sequence's source; `panic!`, `unreachable!`, `assert!`, and `Option::unwrap` / `expect`, each with Rust's message. Out: `Result::unwrap` / `expect` and `assert_eq!` / `assert_ne!`, whose messages print a value with `{:?}`; `rev` or `zip` after a `map` or `filter`; `step_by`, `flat_map`, `filter_map`. The statements generator's new forms found four places where flow narrowed otherwise than TS, each also in 0.17.0, fixed with it (CHANGELOG 0.18.0).
-4. ~~**0.19.0, `BTreeMap<String, V>` and `BTreeSet<String>`**~~ Done ([01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring), [04 §3.3](./04-wire.md#33-reading-rules)). A `Map` / `Set` read in key order by code point; `get`, `contains_key`, `len`, `is_empty`, `clone`, `iter` / `keys` / `values`, `for`, `collect`, `==`, and `insert` / `remove` on a local; a JSON object (a set an array) on the wire, every own key a key. Out: keys other than `String`, `HashMap` / `HashSet`, `entry`, `range`, `cmp`.
-5. ~~**0.20.0, type parameters**~~ Done ([01 §7.20](./01-equivalence.md#720-type-parameters)). On structs, enums, inherent `impl` blocks, and functions, emitted as TS generics, the type arguments inferred at each call and construction; the bounds `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Debug`. On the wire, a generic type's schema is a function of its parameters' schemas. Out: ordering a `T` (no comparator for an unknown type), a turbofish, traits.
-6. ~~**0.21.0, notation**~~ Done (2026-10-15, by decision after the plan above: the rows of §2.5 with the most weight left): [01 §7.21](./01-equivalence.md#721-cutting-and-building-text) `to_lowercase` / `to_uppercase`, `split` on a `&str`, `split_whitespace`, `lines`, `join`, `repeat`, `to_string`; [§7.22](./01-equivalence.md#722-iterator-adaptors-and-ranges) `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, `step_by`, a range as a sequence, an accumulator's literal typed by its first use; [§7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules) associated consts and paths through modules; [§7.24](./01-equivalence.md#724-slice-patterns) slice patterns.
-7. ~~**0.22.0, traits**~~ Done (2026-10-15, by decision): [01 §7.25](./01-equivalence.md#725-traits). User traits, `impl Tr for X` on the crate's types, static calls on a known type, and a dictionary parameter per bound (`total(items, Item)`); `Display` with arguments, so `format!` and `to_string` print the crate's types; derived and hand-written `Ord` / `PartialOrd`, so the crate's types and a `T: Ord` are ordered; `Default`; `From`, so `?` converts an error. Out: `dyn`, associated types, generic traits other than `From`, `impl` on a type outside the crate, `FromStr`. Changes 0.20.0's output: a `T: Ord` gains a dictionary parameter (§9).
-8. ~~**0.23.0, the rows left with the most weight**~~ Done (decided 2026-10-15: arrays as `ReadonlyArray<T>` with the length checked on entry; seed 119's change to fixture output accepted): keys other than `String` ([01 §7.26](./01-equivalence.md#726-keys-other-than-string): integers, `char`, `bool`, `Uuid`, and newtypes of them, whose run-time value a JS `Map` finds by value), fixed-size arrays ([§7.27](./01-equivalence.md#727-fixed-size-arrays)), and `take`, `skip`, `take_while`, `skip_while`, `partition` ([§7.28](./01-equivalence.md#728-take-skip-take_while-skip_while-and-partition)); and statements seed 119, known since 0.18.0, by printing `r.ok().unwrap_or(d)` as a ternary where it is an IIFE, which changes that shape's output (fixtures only: no example writes it). 91% to 94%. Out: crate-type and tuple keys (a JS `Map` compares objects by identity), `HashMap`.
-
-| Candidate | Evidence | Note |
+| Open candidate | Evidence | Note |
 | --- | --- | --- |
-| ~~`format!` on integers, strings, `char`, and `Uuid`~~ | semver (2.3×): the decimal digits of a `u64` built by hand; idsmith (82 `format!`); Windmill | done in 0.16.0: semver 2.3× → 2.0×, jsonpatch 4.1× → 4.0× |
-| A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | — |
-| ~~`v.remove(i)` and `v[i] = x` on a local `let mut` `Vec`, as `push` and `insert` are~~ | jsonpatch: four copy loops in the patch layer (3.5×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
-| ~~Float methods and conversions~~ | geo: four hand-written replacements (2.2×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
-| ~~`u128` and byte-string literals~~ | ulid: 128 bits as two `u64`s; an alphabet as `match` arms | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)), with `i128` |
-| ~~`==` on the crate's enums and structs that derive `PartialEq`~~ | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)) |
-| ~~String trimming and search, sorting, and picking an item~~ | negotiate: a byte-by-byte list scanner, insertion sorts (2.6×) | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); tuple sort keys and `Reverse` stay out |
-| ~~Growing a `Vec` in a function body, and `map` / `filter` / `collect` over a `Vec`~~ | taken on 2026-10-04 without §1 being met: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of growing lists only as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough. A local `let mut v: Vec<T>` is pushed to, every other array stays unwritten (02 §3.1) | done in 0.9.0 |
-| ~~Paths through modules (`crate::m::f`, `super::T`)~~ | — | done in 0.21.0: resolution only, as names are unique after flattening |
-| ~~Narrowing `as` between integers~~ | ulid: two 32-arm alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk to a `u8` | done in 0.13.1 ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)); a widening `From` takes keeps `T::from(x)` as its one spelling |
-| Type parameters and string-keyed maps | §2.5 | 0.19.0 and 0.20.0 in the plan above; §5 |
-| ~~Associated consts (`impl T { const N: u32 = 3; }`), as members of the type's companion~~ | specified with local `const` in 0.4.0 | done in 0.21.0 |
+| A local closure's parameter type inferred from its later calls | oidc needed `\|error: ErrorCode\|` (0.4.0 rewrites) | still `[check/needs-annotation]` |
+| A tuple variant or a path as `map`'s function (`.map(PreId::Numeric)`) | semver (§2.2) | written `\|n\| PreId::Numeric(n)` |
 | crates.io and Windows binaries | — | when a user asks; since 0.3.0 the dependencies are crates.io requirements, vendored by source replacement |
+
+**The plan (2026-10-14 and 2026-10-15, by decision).** §2.5 found the distance to the ideal in shapes common to domain code rather than in any one example, so these were taken without waiting for §1, as 0.9.0 and 0.13.1 were, in this order. Each came with a fixture, a shape in the statements generator, and `purecrate-ts test` over every example; the specification is in the section linked, and what each release found and fixed is in its CHANGELOG entry.
+
+| # | Release | Taken | Specified in | Left out then (taken later) |
+| --- | --- | --- | --- | --- |
+| 1 | 0.16.0 | `format!`: `{}` on integers, `&str`, `String`, `char`, and `Uuid`; a width, alignment, and zero padding on integers; named and positional arguments, `{{` / `}}` | [01 §6.8](./01-equivalence.md#68-format) | floats, `{:x}` and the other radixes, `{:?}`; `.to_string()` (0.21.0); the crate's own types (`Display`, 0.22.0) |
+| 2 | 0.17.0 | `if let` and `let`-`else` on any refutable pattern, `loop` with `break` and a value, `while let`, `for` over `a..=b` and a reversed range, a tuple's `.N` | [01 §7.16](./01-equivalence.md#716-control-flow-on-patterns-and-ranges) | labels; a struct pattern in `if let` or `let`-`else` (accepted since); `rev` on an iterator (0.18.0) |
+| 3 | 0.18.0 | the std on `Option`, `Result`, and `Vec` (`and_then`, `unwrap_or_else`, `ok_or_else`, `or_else`, `filter`, `map_or`, `is_some_and`, `is_none_or`, ..; `get`, `first`, `last`, `contains`); `fold`, and `rev` / `zip` right after a sequence's source; `panic!`, `unreachable!`, `assert!`, `Option::unwrap` / `expect` | [01 §7.1](./01-equivalence.md#71-option-and-result-methods), [§7.17](./01-equivalence.md#717-panics), [§7.18](./01-equivalence.md#718-reading-a-vec-get-first-last-contains) | `Result::unwrap` / `expect`, `assert_eq!` / `assert_ne!` (their messages print `{:?}`); `rev` or `zip` after a stage; `step_by`, `flat_map`, `filter_map` (0.21.0) |
+| 4 | 0.19.0 | `BTreeMap<String, V>` and `BTreeSet<String>`, read in key order; on the wire a JSON object (a set an array) | [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring), [04 §3.3](./04-wire.md#33-reading-rules) | keys other than `String` (0.23.0); `HashMap` / `HashSet` (§5); `entry`, `range`, `cmp` |
+| 5 | 0.20.0 | type parameters on structs, enums, inherent `impl`s, and functions, as TS generics, with structural bounds; generic wire schemas | [01 §7.20](./01-equivalence.md#720-type-parameters) | ordering a `T` (0.22.0), a turbofish, traits (0.22.0) |
+| 6 | 0.21.0 | notation: text cut and built (`to_lowercase`, `split` on a `&str`, `lines`, `join`, `repeat`, `to_string`); `filter_map`, `flat_map`, `flatten`, `windows`, `chunks`, `dedup`, `step_by`, a range as a sequence; associated consts and paths through modules; slice patterns | [01 §7.21](./01-equivalence.md#721-cutting-and-building-text)–[§7.24](./01-equivalence.md#724-slice-patterns) | `peekable`, `scan`, `map_while` (§4) |
+| 7 | 0.22.0 | traits: user traits with a dictionary parameter per bound; `Display` with arguments; derived and hand-written `Ord` / `PartialOrd`; `Default`; `From`, so `?` converts an error. Changed 0.20.0's output: a `T: Ord` gains a dictionary (§9) | [01 §7.25](./01-equivalence.md#725-traits) | `dyn`, associated types, generic traits other than `From`, `impl` on a type outside the crate, `FromStr` |
+| 8 | 0.23.0 | keys of integers, `char`, `bool`, `Uuid`, and newtypes of them; fixed-size arrays as `ReadonlyArray<T>` with the length checked on entry; `take`, `skip`, `take_while`, `skip_while`, `partition`; statements seed 119, by printing `r.ok().unwrap_or(d)` as one choice (fixtures only change) | [01 §7.26](./01-equivalence.md#726-keys-other-than-string)–[§7.28](./01-equivalence.md#728-take-skip-take_while-skip_while-and-partition) | crate-type and tuple keys (a JS `Map` compares objects by identity), `HashMap` |
+
+**Taken earlier, from the examples** (each met §1, or was taken by decision where noted):
+
+| Candidate | Evidence | Taken |
+| --- | --- | --- |
+| Growing a `Vec` in a function body; `map` / `filter` / `collect` over a `Vec` | by decision on 2026-10-04: no example stayed over the threshold, but order's cons list, invoice's sums, and the cost of lists as recursive enums (O(n) access, recursion depth, TS callers who expect arrays) were judged enough | 0.9.0 |
+| `split_once`, a `Vec` collected from `s.split(c)`, `Some((a, b))`, patterns nested in a case | semver's parsing | 0.7.0 ([CHANGELOG 0.7.0](../CHANGELOG.md#rationale-lists-from-text)) |
+| `v.remove(i)` and `v[i] = x` on a local `let mut` `Vec` | jsonpatch: four copy loops in the patch layer (3.5×) | 0.13.1 |
+| Float methods and conversions | geo: four hand-written replacements (2.2×) | 0.13.1 |
+| `u128` (and `i128`) and byte-string literals | ulid: 128 bits as two `u64`s; an alphabet as `match` arms | 0.13.1 |
+| `==` on the crate's types that derive `PartialEq` | jsonpatch's `json_eq`; oidc and order wrote `eq` methods | 0.13.1 |
+| String trimming and search, sorting, picking an item | negotiate: a byte-by-byte list scanner, insertion sorts (2.6×) | 0.13.1; tuple sort keys and `Reverse` stay out |
+| Narrowing `as` between integers | ulid's alphabet `match`es and bytes built bit by bit (3.4×); geo's 6-bit chunk | 0.13.1; a widening `From` takes keeps `T::from(x)` as its one spelling |
+| `format!` on integers, strings, `char`, and `Uuid` | semver (2.3×), idsmith (82 `format!`), Windmill | 0.16.0 (plan item 1): semver 2.3× → 2.0× |
+| Paths through modules; associated consts | specified with local `const` in 0.4.0 | 0.21.0 (plan item 6) |
+
+The five examples of 2026-10-11 met §1 for the 0.13.1 rows together, taken in one release by decision ([CHANGELOG 0.13.1](../CHANGELOG.md#rationale-what-the-five-examples-asked-for)).
 
 **1.0** needs every withdrawal criterion of [06 §4](./06-strategy.md#4-success-and-withdrawal-criteria) answered. The generated API's compatibility within a minor series is [§9](#9-generated-api-stability). The real-use criterion stays open until the tool is adopted unprompted; Oxide `Name` remains local evidence ([91 §5](./91-real-use-candidates.md#5-oxide-name-done-locally)).
 
-## 4. Specified but not yet implemented
+## 4. Refused for now
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; the adaptors `peekable`, `scan`, and `map_while`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+<!-- constrained-by #1-how-additions-are-chosen -->
+
+Refused by `check`, each with a spelling that does the same ([02 §4](./02-authoring.md#4-rewrites)), and not ruled out: unlike §6, each can be added the way the plan's rows were, when §1 asks for it. None is specified yet.
+
+- `chars()` as a value (`let it = s.chars();`): it is read in a `for`, through stages into a consumer, or `collect`ed.
+- The Unicode-table `char` methods (`is_alphabetic`, `is_whitespace`, `char::to_uppercase`, ..; [01 §6.5](./01-equivalence.md#65-other-methods)); `str::to_lowercase` / `to_uppercase` are in.
+- `isize`.
+- Labelled `break` and `continue`.
+- The adaptors `peekable`, `scan`, `map_while`, and `by_ref`; `take` and its kin as values ([01 §7.28](./01-equivalence.md#728-take-skip-take_while-skip_while-and-partition)).
+- `static` (a crate-level `const` instead).
+- `FromStr` on the crate's types, `Iterator` implemented on one, `Hash`, and the operator traits ([01 §7.25](./01-equivalence.md#725-traits)).
+- The std beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) and §7 list (`bool::then`, `from_be_bytes`, `Option::xor`, ..).
 
 ## 5. v1: when type expressiveness runs out
 
-Planned by decision (2026-10-14, §3), no longer waiting for an example.
+All three were taken by decision in the plan (§3), without waiting for an example; their specifications are in 01.
 
-- ~~**`BTreeMap<String, V>` and `BTreeSet<String>`**~~ (done in 0.19.0, §3) as `ReadonlyMap<string, V>` / `ReadonlySet<string>`, iterated in Rust's key order (bytes of UTF-8, which is code-point order: `Ord.cmpStr`, not JS's UTF-16 sort). `new`, `get`, `contains_key`, `len`, `is_empty`, iteration, and `insert` / `remove` on a local `let mut`, as a `Vec`'s; on the wire a JSON object. `HashMap` and `HashSet` stay refused: their iteration order is unspecified in Rust itself, so an order-dependent function has no one result to match. Keys of other types wait for a use.
-- ~~**Type parameters**~~ (done in 0.20.0, §3) on structs, enums, and functions, emitted as TS generics (no monomorphization), with the bounds `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`, which the structural output already honors. No other bounds, `where` beyond these, or associated types. Wire schemas for a generic type are functions of the parameter's schema.
-- ~~**Traits**~~ (done in 0.22.0, §3): a trait is the type of a companion, an `impl` its members, and a bound one more parameter passing the companion, resolved where the types are known ([01 §7.25](./01-equivalence.md#725-traits)). `dyn Trait` stays out: a value carries no tag naming its type.
+- **`BTreeMap` and `BTreeSet`** (0.19.0, keys other than `String` 0.23.0; [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring), [§7.26](./01-equivalence.md#726-keys-other-than-string)) as `ReadonlyMap<K, V>` / `ReadonlySet<K>`, read in Rust's key order; on the wire a JSON object (a set an array). `HashMap` and `HashSet` stay refused: their iteration order is unspecified in Rust itself, so an order-dependent function has no one result to match; `BTreeMap` is their spelling. A key that is an object in TS (a crate enum, struct, or tuple) stays refused, as a JS `Map` compares it by identity.
+- **Type parameters** (0.20.0; [01 §7.20](./01-equivalence.md#720-type-parameters)) on structs, enums, inherent `impl`s, and functions, emitted as TS generics (no monomorphization). Wire schemas for a generic type are functions of the parameters' schemas.
+- **Traits** (0.22.0; [01 §7.25](./01-equivalence.md#725-traits)): a trait is the type of a companion, an `impl` its members, and a bound one more parameter passing the companion (or a std dictionary), resolved where the types are known. `dyn Trait` stays out: a value carries no tag naming its type.
 
 ## 6. Not doing
 
 - Allow-lists aimed at passing existing crates.
-- Mutating a `Vec` other than a local's `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`: through a field, an element's array, a parameter, or `pop` / `truncate` / `extend` / `sort_unstable`.
+- Mutating a collection other than a `let mut` local's own edits (a `Vec`'s `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`; an array's `a[i] = x`; a map's or set's `insert` / `remove`): through a field, an element's array, a parameter, or `pop` / `truncate` / `extend` / `sort_unstable`, or an array sorted or filled in place.
 - Decimals; event logs inside state.
 - A schema-library dependency in the core runtime.
 - serde's `untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, and `transparent`: refused with their location; the reasons are in [04 §4](./04-wire.md#4-out-of-scope).
@@ -288,7 +323,7 @@ Planned by decision (2026-10-14, §3), no longer waiting for an example.
 <!-- derived-from #2-evidence-from-examples -->
 <!-- constrained-by #1-how-additions-are-chosen -->
 
-Per release, why, what, and the test that verifies each item are in [CHANGELOG.md](../CHANGELOG.md), under each version's "Rationale" heading, beside the user-facing list. Decided with 0.1.0 ([06 §5.2](./06-strategy.md#52-one-real-use)):
+Per release, why, what, and the test that verifies each item are in [CHANGELOG.md](../CHANGELOG.md), under each version's heading: its opening paragraph, a "Rationale" subsection where it has one (to 0.14.0), and the user-facing list. Decided with 0.1.0 ([06 §5.2](./06-strategy.md#52-one-real-use)):
 
 - Later releases take language capabilities first, in the order the examples' measured gaps give.
 - Adoption is left to happen on its own, with no outreach and no requests to adopt. One exception was added on 2026-10-13: proposing the Oxide `Name` change upstream, with a deadline of 2027-04-13 for the real-use criterion ([06 §5.2](./06-strategy.md#52-one-real-use)).
@@ -300,10 +335,11 @@ Users commit the generated output and check it with `check --out` in CI, so a ch
 
 | Stable | Examples |
 | --- | --- |
-| Public export names | functions, types, companions, `toJson` / `fromJson` keys |
+| Public export names | functions, types, companions and their members (methods, consts, `cmp`, `default`, `toString`, `fromS`), traits' record types and companions, `toJson` / `fromJson` keys |
 | Type shapes | `kind` unions, field names, brand keys, `Option` as `T \| null`, `Result` as `{ kind, value \| error }` |
 | Wire format | serde's default JSON, and the adapter that reads it |
-| Runtime API | `Int`, `Result`, `Panic`, `Str`, `Slice`, `Ord`, `Iter`, `parseJson` — names, signatures, panic messages |
+| Dictionaries | where a dictionary parameter goes (after a function's other parameters, one per bounded parameter and bound, in the order written; [01 §7.25](./01-equivalence.md#725-traits)), and the names of the std dictionaries a crate exports for primitives (`ordI32`, `displayU8`, `defaultString`) |
+| Runtime API | `Int`, `Result`, `Panic`, `Str`, `Char`, `Uuid`, `Slice`, `Ord`, `Eq`, `Iter`, `BTree`, `parseJson`, and the record types `Ord<T>`, `PartialOrd<T>`, `Display<T>`, `Default<T>` — names, signatures, panic messages |
 
 The following may change in a **patch** (formatting of generated files included). Callers must not depend on them:
 
