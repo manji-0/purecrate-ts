@@ -10,6 +10,10 @@
 //! the integer patterns (`[a, .., 0..=9]`), `if let [p, rest @ ..]`, and
 //! `matches!` on a slice.
 //!
+//! And from a third, generic functions over `T: Ord`, `T: PartialOrd`,
+//! `T: Display`, and `T: Default`, called at `i32`, `bool`, a tuple, and
+//! the crate's types, which pass their dictionaries (design/01 §7.25).
+//!
 //! The audit of 0.9.1 found a guard reading a name its closure hid, in a
 //! struct pattern no fixture spelled; this looks for that class.
 //!
@@ -23,14 +27,21 @@ use crate::support::generated::{compare_rows, fn_count, seeds, Args, SEEDS};
 use crate::support::{Js, Rng};
 
 /// The crate's types, the same in every seed.
-const TYPES: &str = "#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+const TYPES: &str = "#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Acc {
     pub total: i32,
     pub last: Option<i32>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl std::fmt::Display for Acc {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, \"acc {}\", self.total)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum State {
+    #[default]
     Idle,
     Count(i32),
     Pair(i32, bool),
@@ -44,6 +55,34 @@ pub enum Event {
     Add(i32),
     Set(Option<i32>),
     Close { force: bool },
+}
+";
+
+/// The generic functions `generic_function` calls, the same in every seed:
+/// each orders, prints, or makes a `T` through its bound's dictionary.
+const GENERICS: &str = "
+fn g_max<T: Ord + Copy>(a: T, b: T) -> T {
+    if a < b { b } else { a }
+}
+
+fn g_cmp<T: Ord>(a: &T, b: &T) -> std::cmp::Ordering {
+    a.cmp(b)
+}
+
+fn g_top<T: Ord + Clone>(xs: &[T]) -> Option<T> {
+    xs.iter().max().cloned()
+}
+
+fn g_rank<T>(a: T, b: T, c: T) -> i32 where T: PartialOrd {
+    if a < b { 1 } else if a <= c { 2 } else { 3 }
+}
+
+fn g_show<T: std::fmt::Display>(x: T) -> String {
+    format!(\"<{}>\", x)
+}
+
+fn g_zero<T: Default>() -> T {
+    T::default()
 }
 ";
 
@@ -373,6 +412,69 @@ impl Pats {
         }
     }
 
+    /// A function that calls the generic functions of `GENERICS` at a
+    /// primitive or a crate type, each passing its dictionary. Drawn from a
+    /// generator of its own, as `order_function` is.
+    fn generic_function(&mut self, ret: Ret) -> String {
+        let op = self.g.rng.pick(&["<", "<=", ">", ">="]);
+        let int_or = |p: &mut Self, value: String| match ret {
+            Ret::Step => format!("Ok({value})"),
+            Ret::Int => {
+                let (x, y) = (p.g.int(1), p.g.int(1));
+                format!("if {value} == s {{ {x} }} else {{ {y} }}")
+            }
+        };
+        match self.g.rng.below(8) {
+            0 => {
+                let (n, m) = (self.g.int(1), self.g.int(1));
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if g_max(a, {n}) {op} {m} {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            1 => {
+                let t = self.state(1);
+                format!("    let m = g_max(s, {t});\n    {}", int_or(self, "m".into()))
+            }
+            2 => {
+                let ev = self.event(1);
+                let (x, y, z) = (self.body(ret), self.body(ret), self.body(ret));
+                format!(
+                    "    match g_cmp(&e, &({ev})) {{\n        std::cmp::Ordering::Less => {x},\n        std::cmp::Ordering::Equal => {y},\n        std::cmp::Ordering::Greater => {z},\n    }}"
+                )
+            }
+            3 => {
+                let n = self.g.int(1);
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    let m = g_top(xs).unwrap_or({n});\n    if m {op} a {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            4 => {
+                let shown = match self.g.rng.below(3) {
+                    0 => format!("g_show({})", self.g.int(1)),
+                    1 => format!("g_show({})", self.g.boolean(1)),
+                    _ => format!("g_show(Acc {{ total: {}, last: None }})", self.g.int(1)),
+                };
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if {shown} {op} g_show(a) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            5 => {
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!(
+                    "    let z: i32 = g_zero();\n    let t: State = g_zero();\n    if t == s || z {op} a {{\n        {x}\n    }} else {{\n        {y}\n    }}"
+                )
+            }
+            6 => {
+                let (n, k) = (self.g.int(1), self.g.boolean(1));
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if g_max((a, c), ({n}, {k})) == (a, c) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            _ => {
+                let (ev, fv) = (self.event(1), self.event(1));
+                let r = self.g.rng.pick(&["1", "2", "3"]);
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if g_rank(e, {ev}, {fv}) == {r} {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+        }
+    }
+
     fn function(&mut self, ret: Ret) -> String {
         match self.g.rng.below(6) {
             0 => format!("    match s {{\n{}    }}", self.arms(ret, true, |p| p.state_pat())),
@@ -470,6 +572,7 @@ fn generated_patterns_match_rust() {
     let seeds = seeds(SEEDS);
     let count = fn_count(40);
     let mut source = String::from(TYPES);
+    source.push_str(GENERICS);
     let mut fns = Vec::new();
     for &seed in &seeds {
         let mut p = Pats { g: Gen::new(seed ^ 0x9a77), bound: Vec::new() };
@@ -505,6 +608,18 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.order_function(ret);
             let name = format!("p{seed}_o{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        let mut p = Pats { g: Gen::new(seed ^ 0x9e7e), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.generic_function(ret);
+            let name = format!("p{seed}_g{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

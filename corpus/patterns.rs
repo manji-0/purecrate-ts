@@ -155,3 +155,12 @@ pub fn o04_derived_clamp(v: Ver, lo: Ver, hi: Ver) -> Ver { v.clamp(lo, hi) }
 pub fn o05_tuple_cmp(a: (u32, String), b: (u32, String)) -> std::cmp::Ordering { a.cmp(&b) }
 pub fn o06_impl_ord(a: Prio, b: Prio) -> bool { a > b }
 pub fn o07_sort_by_derived_key(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by_key(|i| (i.qty, i.sku.clone())); xs }
+pub fn b01_largest<T: Ord + Clone>(xs: &[T]) -> Option<T> { xs.iter().max().cloned() }
+pub fn b02_largest_ver(xs: Vec<Ver>) -> Option<Ver> { b01_largest(&xs) }
+pub fn b03_show<T: std::fmt::Display>(x: T) -> String { format!("[{x}]") }
+pub fn b04_show_money(m: Money, n: u32) -> (String, String) { (b03_show(m), b03_show(n)) }
+pub fn b05_or_default<T: Default>(o: Option<T>) -> T { match o { Some(x) => x, None => T::default() } }
+pub fn b06_less<T: PartialOrd>(a: &T, b: &T) -> bool { a < b }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct Ranked<T> { pub rank: u8, pub value: T }
+pub fn b07_generic_derive(a: Ranked<String>, b: Ranked<String>) -> bool { let d: Ranked<u8> = Ranked::default(); a < b && d.rank == 0 }
