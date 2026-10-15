@@ -494,7 +494,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                         match self.ordered_by_any(&key, method) {
                             Some(Ok(text)) => (Sort::ByKey { text }, vec![recv, closure]),
                             // The comparator follows the key.
-                            Some(Err(by)) => (Sort::ByKey { text: false }, vec![recv, closure, self.comparator_value(by)]),
+                            Some(Err(by)) => {
+                                (Sort::ByKey { text: false }, vec![recv, closure, self.comparator_value(by)])
+                            }
                             None => return failed,
                         }
                     }

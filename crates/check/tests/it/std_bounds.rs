@@ -46,10 +46,7 @@ fn an_instantiation_without_the_member_is_refused() {
 
 #[test]
 fn uses_a_dictionary_cannot_carry_are_refused() {
-    assert_rejects(
-        "pub fn f<T: Ord>(x: T, lo: T, hi: T) -> T { x.clamp(lo, hi) }",
-        "`.clamp()` on a `T` is not in v0",
-    );
+    assert_rejects("pub fn f<T: Ord>(x: T, lo: T, hi: T) -> T { x.clamp(lo, hi) }", "`.clamp()` on a `T` is not in v0");
     assert_rejects(
         "pub fn f<T: std::fmt::Display>(x: T) -> String { format!(\"{:>8}\", x) }",
         "a width, alignment, or fill on a `T` is not in v0",

@@ -464,7 +464,9 @@ impl Pats {
             6 => {
                 let (n, k) = (self.g.int(1), self.g.boolean(1));
                 let (x, y) = (self.body(ret), self.body(ret));
-                format!("    if g_max((a, c), ({n}, {k})) == (a, c) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+                format!(
+                    "    if g_max((a, c), ({n}, {k})) == (a, c) {{\n        {x}\n    }} else {{\n        {y}\n    }}"
+                )
             }
             _ => {
                 let (ev, fv) = (self.event(1), self.event(1));

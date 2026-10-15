@@ -161,7 +161,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return self.call(&Callee::Method { ty: n, name: Name::new("default") }, &[], want);
             }
             // A `T: Default`: its dictionary's `default()`.
-            Ty::Param(p) if self.dicts.iter().any(|(of, tr, _)| *of == p && self.defs.extends(tr.as_str(), "Default")) => {
+            Ty::Param(p)
+                if self.dicts.iter().any(|(of, tr, _)| *of == p && self.defs.extends(tr.as_str(), "Default")) =>
+            {
                 return self.bound_call(&p, &Name::new("default"), &[], want);
             }
             _ => None,

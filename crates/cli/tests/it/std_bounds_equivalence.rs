@@ -56,7 +56,8 @@ fn std_bounds_match_rust() {
                 cases.push(case!(std_bounds::wide(xs.clone(), x, lo, hi)));
             }
         }
-        let texts: Vec<String> = ["", "a", "B", "é", "\u{e000}", "😀", "ab", "a"].iter().map(|s| s.to_string()).collect();
+        let texts: Vec<String> =
+            ["", "a", "B", "é", "\u{e000}", "😀", "ab", "a"].iter().map(|s| s.to_string()).collect();
         cases.push(case!(std_bounds::texts(Vec::<String>::new(), String::new(), String::new())));
         for a in &texts {
             for b in ["", "é", "😀", "a"] {
@@ -76,7 +77,12 @@ fn std_bounds_match_rust() {
         cases.push(case!(std_bounds::levels(Vec::<Level>::new(), Level::High, Level::Low)));
         // Two of one key are equal: which one comes back shows std's rule.
         cases.push(case!(std_bounds::tagged_ones(Vec::<Tagged>::new())));
-        cases.push(case!(std_bounds::tagged_ones(vec![tagged(1, "a"), tagged(2, "b"), tagged(2, "c"), tagged(1, "d")])));
+        cases.push(case!(std_bounds::tagged_ones(vec![
+            tagged(1, "a"),
+            tagged(2, "b"),
+            tagged(2, "c"),
+            tagged(1, "d")
+        ])));
         cases.push(case!(std_bounds::tagged_ones(vec![tagged(0, "é"), tagged(0, "😀"), tagged(0, "")])));
         cases.push(case!(std_bounds::bumped_ones(vec![Bumped(1), Bumped(254)])));
         cases.push(case!(std_bounds::bumped_ones(vec![Bumped(1), Bumped(255)])));
@@ -115,7 +121,12 @@ fn std_bounds_match_rust() {
                 cases.push(case!(std_bounds::holders(a.clone(), b)));
             }
         }
-        cases.push(case!(std_bounds::keyed(vec![("b".to_string(), 1), ("é".to_string(), 2), ("é".to_string(), 3), ("a".to_string(), 4)])));
+        cases.push(case!(std_bounds::keyed(vec![
+            ("b".to_string(), 1),
+            ("é".to_string(), 2),
+            ("é".to_string(), 3),
+            ("a".to_string(), 4)
+        ])));
         cases.push(case!(std_bounds::keyed(Vec::<(String, u8)>::new())));
         for xs in [vec![], vec![Level::Low, Level::High, Level::Mid]] {
             for n in [0u32, 3] {

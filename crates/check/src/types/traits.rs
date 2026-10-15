@@ -271,10 +271,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                     failed
                 }
                 None => match crate::std_dicts::member(tr.as_str(), t) {
-                    Some(member) => Expr::Call {
-                        callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() },
-                        args: vec![member],
-                    },
+                    Some(member) => {
+                        Expr::Call { callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() }, args: vec![member] }
+                    }
                     None => {
                         self.error(
                             Reason::TraitImpl,
@@ -290,7 +289,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             _ => match owner {
                 // A generic type's `default` takes its parameters'
                 // dictionaries: `{ default: (): Bag<I32> => Bag.default(defaultI32) }`.
-                Some(owner) if self.defs.methods.get(&(owner.as_str(), "default")).is_some_and(|f| !f.params.is_empty()) => {
+                Some(owner)
+                    if self.defs.methods.get(&(owner.as_str(), "default")).is_some_and(|f| !f.params.is_empty()) =>
+                {
                     let default = Expr::Call { callee: Callee::Default { field: None }, args: Vec::new() };
                     let closure = Expr::Closure { params: Vec::new(), ret: Some(t.clone()), body: Box::new(default) };
                     let (member, _) = self.expr(&closure, None);
@@ -308,10 +309,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                     failed
                 }
                 None => match crate::std_dicts::member(tr.as_str(), t) {
-                    Some(member) => Expr::Call {
-                        callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() },
-                        args: vec![member],
-                    },
+                    Some(member) => {
+                        Expr::Call { callee: Callee::StdDict { trait_: tr.clone(), of: t.clone() }, args: vec![member] }
+                    }
                     None => {
                         self.error(
                             Reason::TraitImpl,

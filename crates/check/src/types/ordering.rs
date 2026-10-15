@@ -154,8 +154,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Cmp::Fn(t) => {
                     let (a, b) = (Name::new("a"), Name::new("b"));
                     let body = self.generic_cmp(t, Expr::Var(a.clone()), Expr::Var(b.clone()));
-                    let params =
-                        [a, b].into_iter().map(|name| ClosureParam { name, ty: Some(t.clone()) }).collect();
+                    let params = [a, b].into_iter().map(|name| ClosureParam { name, ty: Some(t.clone()) }).collect();
                     out.push(Expr::Closure { params, ret: Some(Ty::named(ORDERING)), body: Box::new(body) });
                 }
                 _ => unreachable!("`Cmp::args` gives `Dict`s and `Fn`s"),

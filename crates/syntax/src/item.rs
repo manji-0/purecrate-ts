@@ -552,9 +552,7 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
         }
         SynItem::Struct(s) => {
             let lowered = lower_struct(cx, &s)?;
-            let default = derived_default(&s.attrs, &lowered.name, &lowered.generics, || {
-                Ok(struct_default(&lowered))
-            })?;
+            let default = derived_default(&s.attrs, &lowered.name, &lowered.generics, || Ok(struct_default(&lowered)))?;
             Ok(std::iter::once(Item::Struct(lowered)).chain(default.map(Item::Fn)).collect())
         }
         SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block, &f.attrs)?)]),
@@ -1315,7 +1313,10 @@ fn derived_default(
     let ret = if generics.is_empty() {
         purecrate_ir::Ty::Named(name.clone())
     } else {
-        purecrate_ir::Ty::App { name: name.clone(), args: generics.iter().cloned().map(purecrate_ir::Ty::Param).collect() }
+        purecrate_ir::Ty::App {
+            name: name.clone(),
+            args: generics.iter().cloned().map(purecrate_ir::Ty::Param).collect(),
+        }
     };
     Ok(Some(Fn {
         generics: generics.to_vec(),

@@ -258,13 +258,15 @@ fn implementors(krate: &Crate, traits: &[&Name]) -> Vec<Ty> {
             _ => None,
         })
         .filter(|(name, n)| {
-            traits.iter().all(|t| {
-                if is_std(krate, t) {
-                    has(name, std_member(t), *n > 0)
-                } else {
-                    impls(t).contains(name)
-                }
-            })
+            traits.iter().all(
+                |t| {
+                    if is_std(krate, t) {
+                        has(name, std_member(t), *n > 0)
+                    } else {
+                        impls(t).contains(name)
+                    }
+                },
+            )
         })
         .map(|(name, n)| match n {
             0 => Ty::Named(name.clone()),
