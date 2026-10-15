@@ -497,7 +497,7 @@ A trait is a record of functions over a type, and a type's companion is already 
 <!-- constrained-by #719-btreemapstring-v-and-btreesetstring -->
 <!-- constrained-by #725-traits -->
 
-Planned for 0.23.0 (decided 2026-10-15); not implemented.
+Accepted from 0.23.0 (decided 2026-10-15).
 
 §7.19's `BTreeMap<K, V>` and `BTreeSet<K>` take more key types: every integer type, `char`, `bool`, `Uuid`, and a newtype or closed type of the crate whose content is one of those or a `String` and whose `Ord` is derived (`BTreeMap<UserId, Order>`, where `struct UserId(u64)` derives `Ord`), through an alias too. Each is a JS primitive at run time (a `number`, a `bigint`, a `string`, a `boolean`; a newtype or closed type is its content branded, §4 and §7.20), and a JS `Map` and `Set` find a primitive key by its value (SameValueZero: `1n` finds `1n`), so the TS type is `ReadonlyMap<K, V>` / `ReadonlySet<K>` (`Map` / `Set` for a local it writes), as for a `String` key.
 
@@ -513,7 +513,7 @@ Tested with keys `9` and `10`, negative keys, `i64` and `u64` keys past 2^53 and
 <!-- constrained-by #714-growing-and-editing-a-vec -->
 <!-- constrained-by #724-slice-patterns -->
 
-Planned for 0.23.0 (decided 2026-10-15); not implemented.
+Accepted from 0.23.0 (decided 2026-10-15).
 
 `[T; N]`, `N` an integer literal, a crate `const`, or arithmetic of those (folded as rustc folds it), is a TS `ReadonlyArray<T>` of length `N`, as a `Vec<T>` is an array: a parameter, a result, a field, a variant's payload, a `const` (`const TABLE: [u8; 16] = [..]`, the tables domain code keeps), and a local. A TS tuple type (`readonly [T, T, T, T]`) would spell the length but not past a few elements, so the length is checked instead: a `pub` function checks each argument that holds an array on entry, after its strings (§6), with `Slice.lengths(x, shape, "x")`. The shape, printed from the parameter's type, says where the arrays are and how long each is (`4`; `{ at: { tag: 2, body: { each: 4 } } }` for a struct's fields; `kinds` for a variant's; `each` for a `Vec`'s elements or a map's values; a recursive type a named entry of a table passed after it), and the walk passes `null` (`None`). A wrong length, or a non-array where an array goes, throws a `Panic` naming the parameter (`` `b` holds an array of length 3 where one of length 4 goes ``). A private helper is not checked again, a closed type's arrays came through its own `pub` functions, and a type that holds no array is not walked.
 
@@ -530,7 +530,7 @@ Tested with arrays as parameters, results, struct fields (a `Vec` and an `Option
 
 <!-- constrained-by #722-iterator-adaptors-and-ranges -->
 
-Planned for 0.23.0 (decided 2026-10-15); not implemented.
+Accepted from 0.23.0 (decided 2026-10-15).
 
 Four more stages of §7.13's sequences, anywhere among its stages, each a generator as `Iter.map` is, so a `for` walks them too: `take(n)` (`Iter.take`) gives the first `n` items and asks the stages before it for no more, so a panic in a `map` on a later item does not come (Rust's `Take` stops pulling once it has given the `n`th, and pulls nothing for 0); `skip(n)` (`Iter.skip`) pulls and drops the first `n`, running the stages before it on each, as Rust's does; `take_while(p)` (`Iter.takeWhile`) gives items while `p` holds and stops at the first that fails, which it has pulled (the stages before ran on it) and drops; `skip_while(p)` (`Iter.skipWhile`) drops items while `p` holds, then gives the rest without calling `p` again. `p` takes `&T` and reads the item, as `filter`'s does. `n` is a `usize`, evaluated when the method is called, after its receiver (`xs[a..].iter().take(n - 1)` panics on the slice first). On a range (§7.22) `take` and `skip` keep the range's arithmetic form (`Iter.rangeTake(r, n)`, `Iter.rangeSkip(r, n)`, a new `Steps`: the count cut to `n`, or the first item moved `n` steps on, which is one of the range's, so exact), and `rev` and `step_by` compose with them in the order written, as rustc takes them (`(0..n).take(k).rev().step_by(2)`); on a list's items, `rev` and `zip` after them stay refused, as after any stage. A `for` whose body is left with nothing walks a cut sequence with `Iter.count`, so its stages still run.
 
