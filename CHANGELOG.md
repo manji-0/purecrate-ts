@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.22.0 — 2026-10-15
+
+Traits (design/01 §7.25), taken by decision as 0.16.0–0.21.0 were: the crate's own traits, whose `impl`s become members of the implementing type's companion and whose bounds pass that companion as a dictionary, resolved where the types are known; `impl Display` with arguments, so `format!` and `to_string` print the crate's types; `PartialOrd` and `Ord`, derived and written, so the crate's types, their `Option`s, `Vec`s, and tuples, and a `T: Ord` are ordered; `Default`; and `From`, so `?` converts an error. `dyn Trait`, associated types, and generic traits other than `From` stay out. A function that wrote `T: Ord` or `T: PartialOrd`, inert in 0.20.0, now takes a dictionary (*Changed*). Turning on in every equivalence test the type-aware lint `verify.sh` runs found output it refused, fixed here (*Fixed*). The distance to the ideal (design/07 §2.5) is 91%; `survey corpus/patterns.rs` accepts 118 of 125.
 
 ### Added
 
@@ -23,6 +25,7 @@
 
 ### Changed
 
+- **A function that writes `T: Ord` or `T: PartialOrd` takes a dictionary** (design/01 §7.25; a minor change to the stable surface, design/07 §9). 0.20.0 accepted the bound and ordered nothing through it; now it is one more parameter after the others, and a TS caller passes the type's record: `pub fn top<T: Ord + Clone>(xs: &[T]) -> Option<T>` was `top: <T>(xs: ReadonlyArray<T>): T | null` and is `top: <T>(xs: ReadonlyArray<T>, ordT: Ord<T>): T | null`, called as `top(xs, ordI32)` (the crate's const, where its own calls pass one), `top(xs, Level)` (a crate type's companion), or `top(xs, { cmp: Ord.cmp })`. No example or fixture wrote either bound; their output is unchanged. On a struct's or an enum's own parameters the bound carries nothing, as before.
 - `Ord.tuple(..)`'s comparator takes both tuples as one type parameter, `<A extends ReadonlyArray<unknown>>(a: A, b: A)`, where it took `ReadonlyArray<unknown>`: an element's brand (`[e, 1 as U8]`, `o !== null ? (2147483647 as I32) : a`) is then the type's, which type-aware oxlint's `no-unnecessary-type-assertion` refused as a cast nothing needed.
 - A `match` statement the flow decides to one arm (`match o.ok_or(e) { .. }` past `o?`) that declares names prints that arm as a block of its own, where it printed its statements in the enclosing block, so a later `let` of one of its names hid it (oxlint's `no-shadow`).
 - A loop whose body is left with nothing (what it built goes unread, and it only walks a source that may panic) prints as `for (const _ of xs);`: oxfmt lays an empty body out as `{` and `}` on two lines, which oxlint's `empty-brace-spaces` refuses.
@@ -30,11 +33,8 @@
 - A widening through `number` or `bigint` asserts it only where the value is not one already: `globalThis.BigInt(h) as U128` for `u128::from(u64::from(h))` (was `.. as U64 as bigint as U128`), and `(b ? z : globalThis.Number.POSITIVE_INFINITY) as F64` for an `f32` choice with a plain side (was `.. as number as F64`), which lint's `no-unnecessary-type-assertion` refused once the generators enforced it.
 - After branches that each jump, the last one's statements follow them without `else` though it reads the narrowed value first (`if (x.kind !== "Circle") continue; const r = x.value;`), as lint's `no-else-return` asks.
 - The equivalence tests of the generators enforce `no-shadow` and `no-unnecessary-type-assertion` again (`GENERATED_SOURCE_RULES`).
-
-- **A function that writes `T: Ord` or `T: PartialOrd` takes a dictionary** (design/01 §7.25; a minor change to the stable surface, design/07 §9). 0.20.0 accepted the bound and ordered nothing through it; now it is one more parameter after the others, and a TS caller passes the type's record: `pub fn top<T: Ord + Clone>(xs: &[T]) -> Option<T>` was `top: <T>(xs: ReadonlyArray<T>): T | null` and is `top: <T>(xs: ReadonlyArray<T>, ordT: Ord<T>): T | null`, called as `top(xs, ordI32)` (the crate's const, where its own calls pass one), `top(xs, Level)` (a crate type's companion), or `top(xs, { cmp: Ord.cmp })`. No example or fixture wrote either bound; their output is unchanged. On a struct's or an enum's own parameters the bound carries nothing, as before.
 - `Display`, `Default`, and `PartialOrd` name the runtime's record types where a function takes such a bound, and `ordI32`, `displayString`, `defaultU8`, and the like a primitive's dictionary: a crate item printed as one of these beside such a bound is refused (`[check/reserved-name]`).
 - `Ord<T>` / `PartialOrd<T>` give their `cmp` std's `Ordering` structurally, as the runtime's `Ord.cmp` does, so a crate type's companion, whose `cmp` gives the crate's `Ordering`, is one.
-
 - `?` on an error type that is not the function's and has no `impl From` into it keeps its `[check/try-conversion]` refusal; the message now names the `impl From<S>` that would take it.
 - A crate whose types derive `Ord` prints more: each such type's companion gains `cmp`, used or not, and the package gains std's `Ordering` (`ordering.ts`, exported where a public type derives `Ord`), as a crate that names `Ordering` has. No example derives `Ord`; their output is unchanged.
 - A type parameter a generic function or method names only in its result prints as `never` there (`zero: (): Bag<never>`, which any `Bag<T>` takes), where it was `unknown`, which tsc refused once the value went to a `Bag<u32>`; and one it does not name at all (an `impl<U>`'s, in a method that does not mention `U`) is left out, where tsc refused it as unused. No example or fixture had either.

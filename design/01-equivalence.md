@@ -1,6 +1,6 @@
 # Equivalence
 
-Status: current (2026-10-15, 0.21.0)
+Status: current (2026-10-15, 0.22.0)
 
 <!-- derived-from ./00-overview.md#1-claim -->
 
