@@ -334,6 +334,8 @@ fn collisions(cx: &Cx, def: &syn::ItemTrait, imp: &syn::ItemImpl, owner: &Name) 
             Some(format!("the variant `{o}::{member}`"))
         } else if cx.inherent.iter().any(|(t, m)| t == o && to_camel(m) == member) {
             Some(format!("a method or const of an inherent `impl {o}`"))
+        } else if let Some(what) = cx.std_members.get(&(o.to_string(), member.clone())) {
+            Some(what.clone())
         } else {
             cx.trait_impls
                 .iter()

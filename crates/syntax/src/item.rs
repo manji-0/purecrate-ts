@@ -126,6 +126,10 @@ pub struct Cx {
     pub(crate) trait_impls: Vec<(String, syn::ItemImpl)>,
     /// The methods and consts of inherent `impl` blocks, by type and name.
     pub(crate) inherent: HashSet<(String, String)>,
+    /// The companion members a std trait gives a type, by type and TS
+    /// name, with what gives each: `cmp` (`Ord`, `PartialOrd`), `default`,
+    /// `toString` (`Display`), `tryFrom`, and each `impl From`'s `fromS`.
+    pub(crate) std_members: HashMap<(String, String), String>,
 }
 
 /// A struct pattern `S { f: p, .. }` lowered as a binding of `name`, its
@@ -150,7 +154,9 @@ impl Cx {
         let mut traits = HashMap::new();
         let mut trait_impls = Vec::new();
         let mut inherent = HashSet::new();
+        let mut std_members = HashMap::new();
         for item in items {
+            std_members_of(item, &mut std_members);
             match item {
                 SynItem::Impl(imp) if imp.trait_.is_none() => {
                     if let syn::Type::Path(p) = &*imp.self_ty {
@@ -214,6 +220,7 @@ impl Cx {
             traits,
             trait_impls,
             inherent,
+            std_members,
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
@@ -864,6 +871,53 @@ enum TraitImpl {
     Default,
     Ord,
     PartialOrd,
+}
+
+/// The companion members `item` gives a type through a std trait, derived
+/// or written, into `out` (`Cx::std_members`).
+fn std_members_of(item: &SynItem, out: &mut HashMap<(String, String), String>) {
+    let mut add = |ty: &str, member: &str, what: String| {
+        out.entry((ty.to_string(), member.to_string())).or_insert(what);
+    };
+    let derived = |attrs: &[syn::Attribute], ty: &syn::Ident, add: &mut dyn FnMut(&str, &str, String)| {
+        for d in derives(attrs) {
+            match d.as_str() {
+                "Ord" | "PartialOrd" => add(&ty.to_string(), "cmp", format!("the `cmp` that `#[derive({d})]` gives")),
+                "Default" => add(&ty.to_string(), "default", "the `default` that `#[derive(Default)]` gives".into()),
+                _ => {}
+            }
+        }
+    };
+    match item {
+        SynItem::Struct(s) => derived(&s.attrs, &s.ident, &mut add),
+        SynItem::Enum(e) => derived(&e.attrs, &e.ident, &mut add),
+        SynItem::Impl(imp) => {
+            let (Some((_, path, _)), Some(ty)) = (&imp.trait_, crate::traits::impl_owner(imp)) else { return };
+            let name = path_text(path);
+            let member = match trait_impl(path) {
+                Some(TraitImpl::Display) => "toString".to_string(),
+                Some(TraitImpl::TryFrom) => "tryFrom".to_string(),
+                Some(TraitImpl::Default) => "default".to_string(),
+                Some(TraitImpl::Ord | TraitImpl::PartialOrd) => "cmp".to_string(),
+                Some(TraitImpl::From) => {
+                    let source = match &path.segments.last().map(|s| &s.arguments) {
+                        Some(syn::PathArguments::AngleBracketed(a)) => match a.args.first() {
+                            Some(syn::GenericArgument::Type(t)) => lower_type(t).ok(),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    match source.as_ref().and_then(purecrate_ir::from_member) {
+                        Some(m) => m,
+                        None => return,
+                    }
+                }
+                Some(TraitImpl::Skipped) | None => return,
+            };
+            add(&ty, &member, format!("the `{member}` that `impl {name}` gives"));
+        }
+        _ => {}
+    }
 }
 
 fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {

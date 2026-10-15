@@ -83,6 +83,25 @@ fn a_name_the_companion_holds_is_refused() {
 }
 
 #[test]
+fn a_name_a_std_trait_puts_on_the_companion_is_refused() {
+    let derived = "use std::cmp::Ordering;\npub trait Tr { fn cmp(&self, o: &Self) -> Ordering { Ordering::Equal } }\n\
+         #[derive(PartialEq, Eq, PartialOrd, Ord)]\npub struct S { pub n: u8 }\nimpl Tr for S {}";
+    assert_parse_rejects(derived, "the `cmp` that `#[derive(PartialOrd)]` gives");
+    assert_parse_rejects(
+        "pub trait Tr { fn default() -> Self; }\n#[derive(Default)]\npub struct S { pub n: u8 }\nimpl Tr for S { fn default() -> Self { S { n: 1 } } }",
+        "the `default` that `#[derive(Default)]` gives",
+    );
+    assert_parse_rejects(
+        "pub trait Tr { fn from_u8(n: u8) -> Self; }\npub struct S { pub n: u8 }\nimpl From<u8> for S { fn from(n: u8) -> Self { S { n } } }\nimpl Tr for S { fn from_u8(n: u8) -> Self { S { n } } }",
+        "the `fromU8` that `impl From` gives",
+    );
+    assert_parse_rejects(
+        "use std::fmt;\npub trait Tr { fn to_string(&self) -> String; }\npub struct S { pub n: u8 }\nimpl fmt::Display for S { fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, \"s\") } }\nimpl Tr for S { fn to_string(&self) -> String { String::new() } }",
+        "the `toString` that `impl fmt::Display` gives",
+    );
+}
+
+#[test]
 fn no_value_is_dispatched_on() {
     assert_parse_rejects(&with("pub fn f(x: &dyn Priced) -> i64 { x.price() }"), "a trait object `dyn Priced`");
     assert_parse_rejects(&with("pub fn f(x: Box<dyn Priced>) -> i64 { x.price() }"), "a trait object `dyn Priced`");
