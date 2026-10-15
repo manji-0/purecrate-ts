@@ -59,6 +59,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Constants | `const NAME: T = expr;` at crate level, `T` an integer, float, `bool`, `char`, or `&str`; `expr` of literals, other consts, `E::A as T`, and integer operators | one `consts.ts`: `export const NAME: T = <folded value>` |
 | Local constants | `const NAME: T = expr;` inside a function body or block, visible in the whole block; not in a pattern | a `const` at the top of the block |
 | Associated constants | `const NAME: T = expr;` in an inherent `impl` block (a generic type's too), read as `Self::NAME` there and `T::NAME` anywhere; `T` and `expr` as a crate-level const's; not in a pattern ([01 §7.23](./01-equivalence.md#723-associated-consts-and-paths-through-modules)) | a member of the type's companion, `NAME: <folded value>`; a non-`pub` one `tyNAME`, exported from the type's file only |
+| Traits | `trait Tr: Base { const N: T; fn m(&self) -> R; fn d(&self) -> R { .. } fn zero() -> Self; }` (a default body, a const's default, a supertrait of the crate); `impl Tr for X` on a struct or enum of the crate, a generic one too (`impl<U: Clone> Tr for Bag<U>`); a bound `T: Tr` (or `where T: Tr`) on a function or an inherent `impl<T: Tr>`, and `impl Tr` as a parameter's type; `x.m()`, `X::m(&x)`, `Tr::m(&x)`, `T::m(..)`, `T::N` ([01 §7.25](./01-equivalence.md#725-traits)) | `export type Tr<Self> = Readonly<{ .. }>` with a companion of the default bodies, each taking the dictionary first; the `impl`'s members on `X`'s companion, a default not written `m: (self: X): R => Tr.m(X, self)`; one parameter `trT: Tr<T>` per bound after the others, `trT.m(x)`; a call passes the companion, `f(xs, Item)` |
 | Flags | discriminants on a fieldless enum (`A = 1 << 3`, implicit ones counting on), `#[repr(u64)]` and the other integer reprs; `e as T` where `T` holds every discriminant | a table indexed by `kind`; `E::A as T` is the literal |
 | Loops | `while cond { .. }` (`cond` runs before every pass, `?` in it included), `while let P = e { .. }` (`e` runs before every pass), `loop { .. }`, its value `let x = loop { .. break v; .. };`; `break` (with a value in a `loop`) and `continue` without a label, as statements | `while`, `for (;;)`; a `loop`'s value assigned before each `break`, or returned; a label on a loop only where a jump inside a `switch` leaves it |
 | Owned trees | `Box<T>` (also `Arc<T>`) erased to `T` | self-referential type alias, with a comment |
@@ -163,7 +164,7 @@ Rules:
 2. Two types or two free functions with the same name are rejected, listing both paths. This includes non-public items reached from the public surface. Nothing is auto-prefixed.
 3. Functions, methods, consts, parameters, and locals print in camelCase: an `_` between a letter or digit and a lowercase letter goes and the letter is raised (`compare_pre_ids` → `comparePreIds`; `_unused`, `type_`, `a_1`, and UPPER_SNAKE consts stay). Fields, types, and variants keep the Rust name: a field is the JSON key serde writes. Names that are Rust keywords or TS reserved words, or that print as one or as a name the package defines (`parse_json` → `parseJson`), are rejected, not renamed; so are two methods of one type that print alike (`get_n`, `getN`).
 4. Methods live in companions (`State.apply`) and do not collide with a free `apply`.
-5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)), but for an associated const, which is in its type's file. An associated const is a companion member, so one named like a variant or `of` is rejected, as such a method is.
+5. Each concept gets its own kebab-case file, so a type `Command` and a function `command` collide on `command.ts` and are rejected. Consts are the exception: they all go into `consts.ts` ([§3.4](#34-public-surface)), but for an associated const, which is in its type's file. An associated const is a companion member, so one named like a variant or `of` is rejected, as such a method is. So is each member `impl Tr for X` puts on `X`'s companion (the trait's methods and consts, defaults included): one named like an inherent method or const of `X`, a variant, `of`, or a member of another trait `X` implements is rejected, as Rust resolves those by its own rules and the companion has one namespace.
 
 #### Reserved by the output
 
@@ -198,8 +199,7 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | Item | Instead |
 | --- | --- |
 | `static` | a crate-level `const` |
-| associated consts of a trait or a trait impl | a const in an inherent `impl`, or a crate-level `const` |
-| trait definitions and trait impls | none, except the rows below |
+| impls of std traits | none, except the rows below; the crate's own traits and their impls are translated ([01 §7.25](./01-equivalence.md#725-traits)) |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
 | `impl From<S> for X` | translated (from 0.22.0): becomes the member `X.fromS`, named after `S`. It must have `fn from` only, `X` must be the crate's, and `S` a named type without type arguments |
 | `impl Default for X`, `#[derive(Default)]` | translated (from 0.22.0): becomes the method `X.default`. Not on a type with type parameters |
@@ -335,7 +335,7 @@ Byte string literals (`b"pm_"`) are a `&[u8]`, in an expression or as a crate-le
 
 #### Type constructors
 
-Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (from 0.19.0, [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring)), and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match`, a tuple pattern, or `.0`) and slices `&[T]` (read like a `Vec`). From 0.20.0 a struct, an enum, an `impl` block, and a function may have type parameters bounded by `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug` ([01 §7.20](./01-equivalence.md#720-type-parameters)): a `T` may be moved, cloned, compared with `==`, and put in a `Vec`, an `Option`, or a struct, not ordered; a generic type deriving serde has a schema of its parameters' schemas. There are no traits.
+Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (from 0.19.0, [01 §7.19](./01-equivalence.md#719-btreemapstring-v-and-btreesetstring)), and the erased `Box` / `Arc` are type constructors, besides tuples `(A, B)` (read with `match`, a tuple pattern, or `.0`) and slices `&[T]` (read like a `Vec`). From 0.20.0 a struct, an enum, an `impl` block, and a function may have type parameters bounded by `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug` ([01 §7.20](./01-equivalence.md#720-type-parameters)): a `T` may be moved, cloned, compared with `==`, and put in a `Vec`, an `Option`, or a struct, not ordered; a generic type deriving serde has a schema of its parameters' schemas. From 0.22.0 a function's or an `impl`'s type parameter may also be bounded by a trait of the crate, which the output passes as one more parameter, a record of the trait's functions for the type ([01 §7.25](./01-equivalence.md#725-traits)); a struct's or an enum's may not. A value has no tag naming its type, so `dyn Tr` and `impl Tr` in return position are refused: every call on a trait is resolved where the types are known.
 
 #### Rejected types
 
@@ -381,6 +381,12 @@ No external crate but `serde` and `uuid` is allowed. Of `uuid`, only `Uuid` and 
 | `x & 1` on `usize` | `u32` or `u64` for bit fields; `%` and `/` for lengths |
 | `static N: u32 = 3;` | a crate-level `const N: u32 = 3;` |
 | `T::N` (an associated const) in a pattern | a guard, `x if x == T::N` |
+| `Box<dyn Tr>`, `&dyn Tr`, `-> impl Tr` | a type parameter `T: Tr` (or `impl Tr` as a parameter's type); return the type itself, or an enum of the cases |
+| `impl Tr for u32`, `impl Tr for Vec<X>`, a blanket `impl<T: Base> Tr for T` | a struct of the crate that wraps the value, with its `impl`; an `impl` on each type of the crate |
+| `impl<T: Tr> Tr for Page<T>`, `struct S<T: Tr>` | the bound on the functions or the inherent `impl` that call `Tr`'s methods |
+| `<Item as Priced>::price(&i)` | `Item::price(&i)` or `i.price()` |
+| a trait's associated type, its type parameters (`trait Conv<T>`), a generic method in it, `where Self: Sized` | a type parameter of the functions that use the trait; one trait per type it converts from |
+| a trait with no member (`trait Marker {}`) | a method that says what the marker means (`fn is_audited(&self) -> bool`) |
 | `x as u64` where std widens | `u64::from(x)`: a widening `From` takes has that one spelling |
 | `impl From<&str>`, `From<(A, B)>`, `From<Option<T>>`, `From<Vec<u8>>`, `impl<T> From<T>`; `T: Into<X>` / `T: From<S>` bounds | a source that is a named type (`String`, a struct of the parts), one `impl` per source; take `X` and convert at the call |
 | `#[derive(Default)]` with a `Uuid` field, or a field of a crate type without `Default` | `impl Default for X` with the value written out |

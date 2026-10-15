@@ -276,6 +276,61 @@ export const step = (state: State, event: Event): State => {
 
 The committed golden is [examples/counter/ts/plain](../examples/counter/ts/plain/src). Every example keeps its output beside its source: `examples/<name>/ts/plain` without a schema and, for an example that derives serde ([04 §3.2](./04-wire.md#32-serde-in-the-input)), `examples/<name>/ts/<lib>` with each schema library (`scripts/examples.sh` regenerates them all).
 
+### 3.6 Traits
+
+<!-- derived-from ./01-equivalence.md#725-traits -->
+
+A trait is the type of a record of functions over `Self`; an `impl` puts its members on the implementing type's companion, which is then that record; a bound is one more parameter carrying it (a dictionary). Nothing dispatches at run time ([01 §7.25](./01-equivalence.md#725-traits)).
+
+```rust
+pub trait Priced { const RATE: i64 = 2; fn price(&self) -> i64; fn doubled(&self) -> i64 { self.price() * Self::RATE } }
+pub trait Named: Priced { fn name(&self) -> String; }
+pub struct Item { pub price: i64 }
+impl Priced for Item { fn price(&self) -> i64 { self.price } }
+pub fn total<T: Priced>(xs: &[T]) -> i64 { xs.iter().map(|x| x.doubled()).sum() }
+```
+
+```ts
+export type Priced<Self> = Readonly<{
+  RATE: I64;
+  price: (self: Self) => I64;
+  doubled: (self: Self) => I64;
+}>;
+
+export const Priced = {
+  doubled: <Self>(dict: Priced<Self>, self: Self): I64 => Int.i64.mul(dict.price(self), dict.RATE),
+} as const;
+
+export type Named<Self> = Priced<Self> & Readonly<{ name: (self: Self) => string }>;
+
+export const Item = {
+  of: (price: I64): Item => ({ price }),
+  RATE: 2n as I64,
+  price: (self: Item): I64 => self.price,
+  doubled: (self: Item): I64 => Priced.doubled(Item, self),
+} as const;
+
+export const total = <T>(xs: ReadonlyArray<T>, pricedT: Priced<T>): I64 =>
+  Iter.sum(
+    Iter.map(xs, (x: T): I64 => pricedT.doubled(x)),
+    Int.i64.add,
+    0n as I64,
+  );
+```
+
+| Rust | TS |
+| --- | --- |
+| `trait Tr { .. }` | `export type Tr<Self> = Readonly<{ .. }>` in the trait's own file: a member per method (`(self: Self, ..) => R`, `() => Self` for one without a receiver) and per const (`N: U32`), camelCase as methods are; `export const Tr = { .. } as const` beside it, holding the default bodies (empty, `{}`, without one) |
+| `trait Tr: A + B` | `A<Self> & B<Self> & Readonly<{ .. }>`: one dictionary serves every bound |
+| a default body | `m: <Self>(dict: Tr<Self>, self: Self, ..): R`, the dictionary first; `self.m2()` and `Self::m2()` in it are `dict.m2(self)` and `dict.m2()`, `Self::N` is `dict.N` |
+| `impl Tr for X` | members of `X`'s companion, public whatever the method's own visibility, as the trait's are: each method written, each const (the trait's default where the `impl` writes none), and for each default not written `m: (self: X): R => Tr.m(X, self)`, after the companion's other members. The member names its own companion, which TS allows because every member has an explicit return type |
+| `impl<U: Clone> Tr for Bag<U>` | the same members, generic as an inherent method of `Bag` is (`price: (self: Bag<unknown>): I64`) |
+| `fn f<T: Tr>(x: T)`, `impl<T: Tr> S<T> { fn m(&self) }` | `<T>(x: T, trT: Tr<T>)`: one parameter per (type parameter, bound that carries a dictionary), named after the trait and the parameter, after the others, each parameter's in the order its bounds are written, the `impl`'s before the method's. `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug` carry none |
+| `fn f(x: impl Tr)` | `<Impl1>(x: Impl1, trImpl1: Tr<Impl1>)`: an anonymous type parameter, `Impl1`, `Impl2`, .. in the order written |
+| `x.m(y)`, `T::m(y)`, `T::N` with `x: T` | `trT.m(x, y)`, `trT.m(y)`, `trT.N`: through the first of `T`'s bounds whose trait (or a supertrait of it) has `m` |
+| `i.m()`, `Item::m(&i)`, `Tr::m(&i)` with `i: Item` | `Item.m(i)`, as an inherent method; `Item::N` is `Item.N` |
+| a call of `f` at `Item`, at `Page<u32>`, at `U` | `f(x, Item)`, `f(x, Page)`: the companion of the type; `f(x, trU)`: the caller's own dictionary, or one of a trait that has `Tr` among its supertraits (`namedU`) |
+
 ## 4. Package
 
 ### 4.1 Layout
@@ -356,6 +411,7 @@ What callers of a successfully generated package must observe.
 - Import flat names from the package root.
 - Variants can be built with `Cmd.Move(a, b)` or as literals.
 - A public function's parameter may be renamed (`inc$1`). Calls are positional, so nothing changes.
+- A function or method with a crate trait's bound takes the dictionary after its other arguments: the companion of the type it is called at, `total(items, Item)` ([§3.6](#36-traits)). Every TS object fits a record whose members it has, so tsc stops a wrong one only by its members' types.
 
 ### 5.2 Failure
 
