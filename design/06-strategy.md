@@ -98,7 +98,7 @@ Expected users: small to mid-sized teams with a Rust backend and a TS frontend (
 
 Types holds for every example and fixture. The seeded generators hold it too: every generated function of seeds 1 to 120 of the five generators of 0.10.3 type-checks ([CHANGELOG 0.10.3](../CHANGELOG.md#rationale-the-rest-of-what-tsc-refused); 60 of the bodies did before narrowing followed TS's control flow, [0.10.2](../CHANGELOG.md#rationale-narrowing-as-ts-does-it)); with 0.19.0 every generator's did but statements seed 119 ([CHANGELOG 0.19.0](../CHANGELOG.md#0190--2026-10-14)), which 0.23.0 fixed ([CHANGELOG 0.23.0](../CHANGELOG.md#0230--2026-10-15)). There are eight generators now (`scripts/gen-sweep.sh`).
 
-Not a criterion: [07 §2.5](./07-roadmap.md#25-distance-to-the-ideal-2026-10-13-0230-2026-10-15) estimates the distance to the ideal subset, 94% with 0.23.0 (93% counting the shapes no document had decided, 88% counting what [07 §6](./07-roadmap.md#6-not-doing) leaves out on purpose). It orders the work; it neither proves nor withdraws the approach.
+Not a criterion: [07 §2.5](./07-roadmap.md#25-distance-to-the-ideal) estimates the distance to the ideal subset, 94% with 0.23.0 (93% counting the shapes no document had decided, 88% counting what [07 §6](./07-roadmap.md#6-not-doing) leaves out on purpose). It orders the work; it neither proves nor withdraws the approach.
 
 ### 4.2 External criteria
 

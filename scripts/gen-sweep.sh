@@ -18,8 +18,8 @@
 # Each run sets PURECRATE_GEN_SEED and PURECRATE_GEN_TYPES=report, so the
 # values are compared even where tsc or oxlint refuses the package; its log is
 # <dir>/<generator>-<seed>.log. Rerun one with the line the summary prints,
-# and reduce it with scripts/gen-reduce.py. Seeds 1 to 120 of all five
-# generators take about 25 minutes with 6 runs at a time on an M-series Mac.
+# and reduce it with scripts/gen-reduce.py. Seeds 1 to 120 of all eight
+# generators are 960 runs.
 # Run it when changing what the printer or the fold produces
 # (crates/emit_ts, crates/check, crates/syntax), and before a release.
 set -euo pipefail

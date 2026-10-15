@@ -111,10 +111,10 @@ The tests of each crate are one binary (`crates/*/tests/it`, one module per file
 
 ### Generated sweeps
 
-Five tests generate functions from seeds instead of spelling them (`crates/cli/tests/it/generated_*_equivalence.rs`: expressions, function bodies, transitions over a crate's types, integer widths, and text), run them through Rust and the generated TS, and compare every value; the package must also pass `tsc`. `cargo test` runs seeds 1 to 8 of each. Seeds 1 to 120 of all five are run locally, not in CI (one crate of 120 seeds takes 14 GB and 40 minutes for one generator; one process per seed takes about 25 minutes for all five on an M-series Mac):
+Eight tests generate functions from seeds instead of spelling them (`crates/cli/tests/it/generated_equivalence.rs` for expressions, `generated_*_equivalence.rs` for statements, patterns, integer widths, text, floats, collections, and strings), run them through Rust and the generated TS, and compare every value; the package must also pass `tsc` and the type-aware lint. `cargo test` runs seeds 1 to 8 of each. Seeds 1 to 120 of all eight are run locally, not in CI, one process per seed:
 
 ```sh
-./scripts/gen-sweep.sh                    # seeds 1-120, all five generators
+./scripts/gen-sweep.sh                    # seeds 1-120, all eight generators
 ./scripts/gen-sweep.sh -s 1-30 -g statements,patterns -j 8
 ```
 

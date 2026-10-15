@@ -3,8 +3,7 @@
 # replaces crates.io with vendor/, so every build is offline.
 #
 # `cargo vendor` copies every package in the lock file for every platform:
-# uuid's wasm32 dependencies and serde_core's never-built serde_derive pin
-# pull in about twenty crates nothing here compiles. Those are cut down to
+# uuid's wasm32 dependencies pull in crates nothing here compiles. Those are cut down to
 # their manifest, which is all cargo reads of a package it does not build.
 # The crates that are built lose their tests, benches, and examples. Each
 # `.cargo-checksum.json` keeps the package checksum (checked against
