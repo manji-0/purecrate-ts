@@ -149,6 +149,14 @@ fn default_shapes_outside_the_subset_are_refused() {
         "pub struct W {}\nimpl Default for Vec<W> { fn default() -> Self { Vec::new() } }",
         "`impl Default` for `Vec`, a type outside the crate, is not in v0",
     );
+    assert_parse_rejects(
+        "pub struct P<T> { pub t: T }\nimpl Default for P<u32> { fn default() -> Self { P { t: 0 } } }",
+        "`impl Default` for `P<u32>`, a type with type parameters, is not in v0",
+    );
+    assert_parse_rejects(
+        "pub struct P<T> { pub t: T }\nimpl From<u8> for P<u8> { fn from(t: u8) -> Self { P { t } } }",
+        "`impl From` for `P<u8>`, a type with type parameters, is not in v0",
+    );
     assert_rejects(
         "pub fn f() -> u8 { let _n = Default::default(); 0 }",
         "the type of `Default::default()` is not known here",

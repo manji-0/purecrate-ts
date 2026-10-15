@@ -1138,6 +1138,19 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             )
             .or_at(imp.self_ty.span()));
         }
+        // `impl Default for Page<u32>`: one instantiation of a generic type,
+        // whose companion member is shared by all of them.
+        if matches!(owner_ty, purecrate_ir::Ty::App { .. }) {
+            let tr = if matches!(kind, Some(TraitImpl::From)) { "From" } else { "Default" };
+            return Err(ParseError::new(
+                Reason::Generics,
+                format!(
+                    "`impl {tr}` for `{}`, a type with type parameters, is not in v0: its companion member would serve every instantiation; write a function that returns this one",
+                    snippet(&*imp.self_ty).trim_matches('`')
+                ),
+            )
+            .or_at(imp.self_ty.span()));
+        }
     }
     if matches!(kind, Some(TraitImpl::TryFrom)) {
         return lower_try_from(cx, &imp, &owner_ident);
