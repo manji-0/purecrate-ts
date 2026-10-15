@@ -160,6 +160,8 @@ struct Index {
     /// By type: the members a call reaches without naming them, `default`
     /// and each `impl From`'s (`?`, `into()`, `Default::default()`).
     implicit: HashMap<String, Vec<usize>>,
+    /// The crate's traits, whose default bodies a method call may reach.
+    traits: Vec<String>,
 }
 
 impl Index {
@@ -170,10 +172,15 @@ impl Index {
             methods: HashMap::new(),
             consts: HashMap::new(),
             implicit: HashMap::new(),
+            traits: Vec::new(),
         };
         for (i, u) in units.iter().enumerate() {
             match &u.kind {
-                UnitKind::Struct | UnitKind::Enum | UnitKind::Alias | UnitKind::Trait => {
+                UnitKind::Trait => {
+                    index.traits.push(u.name.clone());
+                    index.types.entry(u.name.clone()).or_default().push(i)
+                }
+                UnitKind::Struct | UnitKind::Enum | UnitKind::Alias => {
                     index.types.entry(u.name.clone()).or_default().push(i)
                 }
                 UnitKind::Fn => index.fns.entry(u.name.clone()).or_default().push(i),
@@ -247,6 +254,9 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                 Ref::ReceiverCall(m) => {
                     if receiver_calls.insert(m.clone()) {
                         refs.extend(types.iter().map(|t| Ref::Method(t.clone(), m.clone())));
+                        // Or a trait's default body, which a type that does
+                        // not write the method calls (design/01 §7.25).
+                        refs.extend(index.traits.iter().map(|t| Ref::Method(t.clone(), m.clone())));
                     }
                 }
                 other => refs.push(other),

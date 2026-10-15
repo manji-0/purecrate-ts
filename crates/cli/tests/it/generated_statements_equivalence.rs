@@ -14,6 +14,12 @@
 //! From 0.22.0 each seed also has an error enum with two `impl From` and a
 //! function chaining `?` over both sources (`conversions`), its own draws.
 //!
+//! From 0.22.0 each seed also declares a trait with a default method, a
+//! struct and an enum implementing it (the enum overriding the default in
+//! some seeds), and a generic function over it (`traits`), which a
+//! statement calls at both types, mixed into `h0`. Its draws are a third
+//! generator's, for the same reason.
+//!
 //! Every loop is bounded: a range's ends are taken `% 4` and `% 6`, and a
 //! `while` counts a local nothing else writes up to a bound under 5, first
 //! in its body, so `continue` cannot skip it. Overflow, division by zero,
@@ -68,6 +74,8 @@ struct Body {
     indent: usize,
     /// What draws the 0.21.0 shapes, apart from `g`'s generator.
     extra: Rng,
+    /// What draws the 0.22.0 trait calls, apart from the others.
+    traits_rng: Rng,
 }
 
 /// Names a binding may take besides `v<n>`: ones the translator makes up
@@ -140,6 +148,32 @@ impl Body {
         if self.extra.below(10) == 0 {
             self.accumulate();
         }
+        if self.traits_rng.below(8) == 0 {
+            self.trait_call();
+        }
+    }
+
+    /// `traits`'s generic function called at its struct and at its enum,
+    /// on `i32`s in scope or literals, mixed into `h0`.
+    fn trait_call(&mut self) {
+        let s = self.seed;
+        let scope = &self.g.scope;
+        let ints: Vec<String> = (scope.iter().enumerate())
+            .filter(|(i, (n, t, _))| *t == Ty::Int && !scope[i + 1..].iter().any(|(m, _, _)| m == n))
+            .map(|(_, (v, _, _))| v.clone())
+            .collect();
+        let r = &mut self.traits_rng;
+        let mut int = || match r.below(ints.len() as u64 + 2) as usize {
+            i if i < ints.len() => ints[i].clone(),
+            i if i == ints.len() => {
+                format!("{}i32", r.pick(&[0i64, 1, -1, 7, 2_147_483_647, -2_147_483_648]))
+            }
+            _ => format!("{}i32", r.below(201) as i64 - 100),
+        };
+        let (a, b, c, d) = (int(), int(), int(), int());
+        self.line(&format!(
+            "h0 = h0.wrapping_mul(31).wrapping_add(tsum{s}(&vec![Ta{s} {{ n: {a} }}, Ta{s} {{ n: {b} }}], {c}) ^ tsum{s}(&vec![Tb{s}::P({d}), Tb{s}::Q], {c}));"
+        ));
     }
 
     /// `let mut s = <unsuffixed>;` summing a stepped range, the start typed
@@ -844,9 +878,36 @@ fn conversions(seed: u64, fns: &mut Vec<(String, Ty)>) -> String {
     )
 }
 
+/// A trait per seed for `Body::trait_call` (design/01 §7.25): a method and
+/// a default that calls it through the dictionary, a struct that takes the
+/// default, an enum that overrides it in some seeds, and a function over
+/// any implementor. `+` and `-` overflow at the edges of `i32`.
+fn traits(seed: u64) -> String {
+    let mut rng = crate::support::Rng::new(seed ^ 0x7a17);
+    let a = rng.below(201) as i32 - 100;
+    let b = rng.below(7) as i32 - 3;
+    let c = rng.below(2001) as i32 - 1000;
+    let d = rng.below(201) as i32 - 100;
+    let s = seed;
+    let own = if rng.below(2) == 0 {
+        format!("\n\n    fn w(&self, k: i32) -> i32 {{\n        self.v() + k\n    }}")
+    } else {
+        String::new()
+    };
+    format!(
+        "pub trait Tr{s} {{\n    fn v(&self) -> i32;\n\n    fn w(&self, k: i32) -> i32 {{\n        self.v().wrapping_mul(k) - {c}\n    }}\n}}\n\n\
+         pub struct Ta{s} {{\n    pub n: i32,\n}}\n\n\
+         impl Tr{s} for Ta{s} {{\n    fn v(&self) -> i32 {{\n        self.n + {a}\n    }}\n}}\n\n\
+         pub enum Tb{s} {{\n    P(i32),\n    Q,\n}}\n\n\
+         impl Tr{s} for Tb{s} {{\n    fn v(&self) -> i32 {{\n        match self {{\n            Tb{s}::P(n) => n.wrapping_mul({b}),\n            Tb{s}::Q => {d},\n        }}\n    }}{own}\n}}\n\n\
+         pub fn tsum{s}<T: Tr{s}>(xs: &[T], k: i32) -> i32 {{\n    let mut t = 0i32;\n    for x in xs {{\n        t = t.wrapping_add(x.w(k));\n    }}\n    t\n}}\n\n"
+    )
+}
+
 fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String, Ty)>) {
     source.push_str(&modules(seed));
     source.push_str(&conversions(seed, fns));
+    source.push_str(&traits(seed));
     let mut body = Body {
         g: Gen::new(seed ^ 0x5717),
         seed,
@@ -855,6 +916,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
         out: String::new(),
         indent: 1,
         extra: Rng::new(seed ^ 0x0221),
+        traits_rng: Rng::new(seed ^ 0x0222),
     };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);

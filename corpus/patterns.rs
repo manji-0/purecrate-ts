@@ -38,6 +38,12 @@ pub fn p23c_slice_ends(xs: &[u32]) -> u32 { match xs { [first, .., last] => firs
 pub fn p23d_slice_let_else(xs: Vec<u32>) -> u32 { let [a, b, ..] = xs.as_slice() else { return 0 }; a + b }
 pub fn p24_trait_impl_call(i: &Item) -> i64 { i.price() }
 impl Priced for Item { fn price(&self) -> i64 { self.price } }
+pub trait Weighed { fn grams(&self) -> u32; fn kilos(&self) -> u32 { self.grams() / 1000 } }
+impl Weighed for Item { fn grams(&self) -> u32 { self.qty } }
+pub fn p24b_trait_default(i: &Item) -> u32 { i.kilos() }
+pub fn p24c_trait_bound<T: Weighed>(xs: &[T]) -> u32 { xs.iter().map(|x| x.kilos()).sum() }
+pub fn p24d_impl_trait_arg(x: impl Weighed) -> u32 { x.grams() }
+pub fn p24e_trait_path(i: &Item) -> i64 { Priced::price(i) + Item::price(i) }
 pub fn p25_mut_self(it: &mut Item) { it.qty += 1; }
 pub fn p26_usize_bits(n: usize) -> usize { n & 1 }
 pub fn p27_tuple_field(t: (u32, u32)) -> u32 { t.0 }
