@@ -198,3 +198,101 @@ pub fn bags(fee: i64, n: u8) -> i64 {
 pub fn mixed(i: Item, n: i64) -> i64 {
     pair(&Coin::Big(n), &i) + pair(&i, &Coin::Small) + any_price(i) + known(Item::zero(), Coin::zero())
 }
+
+/// Consts of every kind of type, a function without a receiver whose
+/// result is not `Self`, and a `String` taken through the dictionary.
+pub trait Tagged {
+    const TAG: &'static str = "t";
+    const MARK: char = 'é';
+    const ON: bool = true;
+
+    fn weight(&self) -> u32;
+
+    fn kind() -> String {
+        "plain".to_string()
+    }
+
+    fn tagged(&self, s: String) -> String {
+        let w = self.weight();
+        format!("{s}{}{w}", Self::TAG)
+    }
+}
+
+/// Only its supertraits' members.
+pub trait Weighed: Tagged + Named {}
+
+/// Closed: its field is private, so a value comes from `new`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Secret {
+    weight: u32,
+}
+
+impl Secret {
+    pub fn new(weight: u32) -> Option<Secret> {
+        if weight < 1000 {
+            Some(Secret { weight })
+        } else {
+            None
+        }
+    }
+}
+
+impl Tagged for Secret {
+    const TAG: &'static str = "秘";
+    const MARK: char = '😀';
+    const ON: bool = false;
+
+    fn weight(&self) -> u32 {
+        self.weight * 3
+    }
+
+    fn kind() -> String {
+        "secret".to_string()
+    }
+}
+
+impl Priced for Secret {
+    fn price(&self) -> i64 {
+        i64::from(self.weight)
+    }
+
+    fn zero() -> Self {
+        Secret { weight: 0 }
+    }
+}
+
+impl Named for Secret {
+    fn name(&self) -> String {
+        format!("s{}", self.weight)
+    }
+}
+
+impl Weighed for Secret {}
+
+impl<U: Clone> Tagged for Bag<U> {
+    fn weight(&self) -> u32 {
+        self.items.len() as u32 + 1
+    }
+}
+
+pub fn tags<T: Tagged>(x: &T, s: String) -> String {
+    let tag = T::TAG;
+    let mark = T::MARK;
+    let on = T::ON;
+    let kind = T::kind();
+    let t = x.tagged(s);
+    format!("{tag}{mark}{on}{kind}{t}")
+}
+
+pub fn heavy<T: Weighed>(x: &T, s: String) -> String {
+    let n = x.name();
+    let w = x.weight();
+    format!("{n}:{w}:{}", tags(x, s))
+}
+
+pub fn secrets(w: u32, s: String) -> String {
+    match Secret::new(w) {
+        Some(sec) => format!("{} {}", heavy(&sec, s.clone()), tags(&Bag { items: vec![sec], fee: 1 }, s)),
+        None => tags(&Bag { items: vec![w], fee: 0 }, s),
+    }
+}

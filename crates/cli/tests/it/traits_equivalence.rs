@@ -4,7 +4,9 @@
 //! a generic implementor, an inherent `impl<T: Priced>` method, two bounds
 //! on one parameter and two bounded parameters, `impl Tr` as a parameter's
 //! type, every call on a known type, an empty list, non-ASCII text from a
-//! trait method, and `i64` overflow inside a default body and an impl.
+//! trait method, `i64` overflow inside a default body and an impl, consts
+//! of `&str`, `char`, and `bool`, a closed implementor, a trait of
+//! supertraits only, and `u32` overflow in a closed type's method.
 
 use crate::support;
 
@@ -36,6 +38,11 @@ fn generated_traits_match_rust() {
         }
         for (i, n) in [(item("ab", 2), 3i64), (item("€", -7), 0), (item("q", 1), i64::MAX / 2)] {
             cases.push(case!(traits::mixed(i, n)));
+        }
+        for w in [0u32, 7, 999, 1000, u32::MAX] {
+            for s in ["", "é😀"] {
+                cases.push(case!(traits::secrets(w, s.to_string())));
+            }
         }
     });
 }

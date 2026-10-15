@@ -37,20 +37,23 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
             .iter()
             .any(|p| matches!(&p.ty, Ty::App { name, args } if is_trait(name.as_str()) && count_param(&args[0], g) > 0))
     };
+    let uses = |g: &Name| {
+        let named = |t: &Ty| count_param(t, g);
+        f.params.iter().map(|p| named(&p.ty)).sum::<usize>() + named(&f.ret)
+    };
     let once: Vec<(Name, Ty)> = f
         .generics
         .iter()
         .filter(|g| !in_dict(g))
-        .filter(|g| {
-            let named = |t: &Ty| count_param(t, g);
-            let uses: usize = f.params.iter().map(|p| named(&p.ty)).sum::<usize>() + named(&f.ret);
-            uses == 1 && !body_names_param(&f.body, g)
-        })
+        .filter(|g| uses(g) == 1 && !body_names_param(&f.body, g))
         // In the result alone (`zero: (): Bag<never>`), `never`, which any
         // instantiation takes, as a constructor's unused parameter is.
         .map(|g| (g.clone(), if count_param(&f.ret, g) == 1 { Ty::Never } else { Ty::Named(Name::new("unknown")) }))
         .collect();
-    let kept: Vec<&Name> = f.generics.iter().filter(|g| !once.iter().any(|(o, _)| o == *g)).collect();
+    // One nothing names (an `impl<U>`'s, in a method that does not mention
+    // `U`) is left out.
+    let unnamed = |g: &Name| uses(g) == 0 && !body_names_param(&f.body, g) && !in_dict(g);
+    let kept: Vec<&Name> = f.generics.iter().filter(|g| !once.iter().any(|(o, _)| o == *g) && !unnamed(g)).collect();
     let generics = if kept.is_empty() {
         String::new()
     } else {
