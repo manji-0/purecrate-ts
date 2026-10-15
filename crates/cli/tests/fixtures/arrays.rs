@@ -289,3 +289,30 @@ pub fn words(w: [String; 2]) -> String {
 pub fn blocks(x: [u8; 2]) -> [[u8; 2]; 3] {
     [x; 3]
 }
+
+/// `for x in a` walks a copy: a write in the body shows in no later `x`.
+pub fn walked_copy(b: [u8; 3]) -> Vec<u8> {
+    let mut a = b;
+    let mut out: Vec<u8> = Vec::new();
+    for x in a {
+        a[2] = x;
+        out.push(x);
+    }
+    out.push(a[2]);
+    out
+}
+
+fn first_of<T: Clone>(xs: &[T]) -> Option<T> {
+    xs.first().cloned()
+}
+
+/// An array where a generic slice goes.
+pub fn generic_slice(a: [u8; 3]) -> Option<u8> {
+    first_of(&a)
+}
+
+pub fn mut_let(arr: [u8; 3]) -> u8 {
+    let [mut a, b, _] = arr;
+    a = a.wrapping_add(b);
+    a
+}

@@ -172,6 +172,9 @@ fn copy_reads(body: &mut Expr, n: &Name) {
         /// Each loop's first and last number.
         spans: Vec<(usize, usize)>,
         open: Vec<usize>,
+        /// `for x in a` by value, and its loop: Rust walks a copy, so a
+        /// write in the body must not show in a later `x`.
+        sources: Vec<(usize, usize)>,
     }
     fn scan(e: &Expr, n: &Name, keeps: bool, s: &mut Scan) {
         let looping = matches!(e, Expr::While { .. } | Expr::For { .. } | Expr::ForEach { .. });
@@ -181,6 +184,11 @@ fn copy_reads(body: &mut Expr, n: &Name) {
         }
         let kept = kept_children(e);
         for (i, c) in e.children().into_iter().enumerate() {
+            if i == 0 && matches!(e, Expr::ForEach { .. }) && matches!(c, Expr::Var(v) if v == n) {
+                s.clock += 1;
+                s.sources.push((s.clock, *s.open.last().expect("the loop is open")));
+                continue;
+            }
             scan(c, n, kept.contains(&i), s);
         }
         s.clock += 1;
@@ -204,6 +212,12 @@ fn copy_reads(body: &mut Expr, n: &Name) {
             s.writes.iter().any(|w| w > at || loops.iter().any(|&l| (s.spans[l].0..=s.spans[l].1).contains(w)))
         })
         .map(|(at, _)| *at)
+        .chain(
+            s.sources
+                .iter()
+                .filter(|(_, l)| s.writes.iter().any(|w| (s.spans[*l].0..=s.spans[*l].1).contains(w)))
+                .map(|(at, _)| *at),
+        )
         .collect();
     if copied.is_empty() {
         return;

@@ -14,6 +14,7 @@ fn arrays_are_accepted() {
     assert_clean("pub const B: &[u8; 3] = b\"abc\"; pub fn f(i: usize) -> u8 { B[i] }");
     assert_clean("pub fn f(x: u16) -> [u16; 3] { [x; 3] }");
     assert_clean("pub fn f(b: [u8; 4]) -> u8 { let [a, _, _, d] = b; a + d }");
+    assert_clean("pub fn f(arr: [u8; 3]) -> u8 { let [mut a, b, _] = arr; a = a.wrapping_add(b); a }");
     assert_clean("pub fn f(b: [u8; 2]) -> u8 { match b { [0, x] => x, [x, _] => x } }");
     assert_clean("pub fn f(b: [u8; 4]) -> u8 { match b { [x, ..] => x } }");
     assert_clean("pub fn f(a: [u8; 2], b: [u8; 2]) -> u8 { match (a, b) { ([x, _], [_, y]) => x + y } }");

@@ -113,6 +113,9 @@ fn generated_array_stages_match_rust() {
                 cases.push(case!(arrays::running([a, b, 7])));
                 cases.push(case!(arrays::zipped([a, b, 1], [b, a])));
                 cases.push(case!(arrays::blocks([a, b])));
+                cases.push(case!(arrays::walked_copy([a, b, 9])));
+                cases.push(case!(arrays::generic_slice([a, b, 1])));
+                cases.push(case!(arrays::mut_let([a, b, 1])));
             }
         }
         for b in [[0u32, 0, 0, 0], [1, 2, 3, 4], [4, 3, 2, 1], [u32::MAX, 1, 0, 2], [1, u32::MAX, 0, 0]] {
