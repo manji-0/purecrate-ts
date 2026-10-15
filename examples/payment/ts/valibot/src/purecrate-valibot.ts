@@ -132,6 +132,80 @@ export const btreeMap = <T extends v.GenericSchema>(inner: T) =>
   );
 /** serde's `BTreeSet<String>`: a JSON array of strings, read into a `Set` (a repeated one kept once). */
 export const btreeSet = v.pipe(v.array(str), v.transform((xs): ReadonlySet<string> => new Set(xs)));
+
+/**
+ * The value an integer map key's text stands for, as serde_json 1.0.145
+ * reads it: JSON's integer grammar only (no `+`, leading zero, space,
+ * fraction, or exponent), a `number` where it is safe and a `bigint` past
+ * that, and `-0` as the float the `i128` schema alone reads (as 0).
+ * `undefined` for any other text.
+ */
+const INTEGER_KEY = /^-?(?:0|[1-9]\d*)$/;
+const integerKey = (k: string): number | bigint | JsonFloat | undefined => {
+  if (!INTEGER_KEY.test(k)) return undefined;
+  if (k === "-0") return new JsonFloat(-0, true);
+  const n = BigInt(k);
+  return Number.isSafeInteger(Number(n)) ? Number(n) : n;
+};
+
+/** A map key of an integer type (or a newtype of one): its text read as `integerKey` reads it, then by `inner`, which checks the range. */
+export const intKey = <T extends v.GenericSchema>(inner: T) =>
+  v.pipe(
+    v.string(),
+    v.rawTransform(({ dataset, addIssue, NEVER }) => {
+      const r = v.safeParse(inner, integerKey(dataset.value));
+      if (r.success) return r.output;
+      addIssue({ message: "an integer key in range" });
+      return NEVER;
+    }),
+  ) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
+
+/** A map key of `bool` (or a newtype of one): exactly `true` or `false`, as serde_json reads one. */
+export const boolKey = <T extends v.GenericSchema>(inner: T) =>
+  v.pipe(
+    v.string(),
+    v.rawTransform(({ dataset, addIssue, NEVER }) => {
+      const k = dataset.value;
+      const r = v.safeParse(inner, k === "true" ? true : k === "false" ? false : undefined);
+      if (r.success) return r.output;
+      addIssue({ message: "`true` or `false`" });
+      return NEVER;
+    }),
+  ) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
+
+/**
+ * serde's `BTreeMap<K, V>` for a key other than `String` (design/04 §3.3):
+ * a JSON object, each own key read from its text by `key` (`intKey`,
+ * `boolKey`, or the schema of a `char`, a `Uuid`, or a newtype of a
+ * `String`). Two texts of one key (a `Uuid` in two cases) keep the later
+ * value, as serde's map does.
+ */
+export const btreeMapOf = <K extends v.GenericSchema, T extends v.GenericSchema>(key: K, inner: T) =>
+  v.pipe(
+    v.unknown(),
+    v.rawTransform(({ dataset, addIssue, NEVER }): ReadonlyMap<v.InferOutput<K>, v.InferOutput<T>> => {
+      const x = dataset.value;
+      if (typeof x !== "object" || x === null || Array.isArray(x)) {
+        addIssue({ message: "a JSON object" });
+        return NEVER;
+      }
+      const m = new Map<v.InferOutput<K>, v.InferOutput<T>>();
+      for (const k of Object.keys(x)) {
+        const rk = v.safeParse(key, k);
+        const r = v.safeParse(inner, (x as Readonly<Record<string, unknown>>)[k]);
+        if (!rk.success || !r.success) {
+          const why = rk.success ? r.issues?.[0].message : rk.issues[0].message;
+          addIssue({ message: `key ${JSON.stringify(k)}: ${why ?? ""}` });
+          return NEVER;
+        }
+        m.set(rk.output, r.output);
+      }
+      return m;
+    }),
+  );
+/** serde's `BTreeSet<K>` for a key other than `String`: a JSON array of `key`'s values, read into a `Set` (a repeated one kept once). */
+export const btreeSetOf = <K extends v.GenericSchema>(key: K) =>
+  v.pipe(v.array(key), v.transform((xs): ReadonlySet<v.InferOutput<K>> => new Set(xs)));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = v.pipe(v.string(), v.check(Char.is, "a single character"), v.transform((s) => s as Char));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

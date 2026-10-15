@@ -166,6 +166,65 @@ export const btreeSet: Wire<ReadonlySet<string>> = type("unknown").pipe((x, ctx)
   const parsed = str.array()(x);
   return parsed instanceof type.errors ? fail(ctx, parsed) : new Set(parsed);
 });
+
+/**
+ * The value an integer map key's text stands for, as serde_json 1.0.145
+ * reads it: JSON's integer grammar only (no `+`, leading zero, space,
+ * fraction, or exponent), a `number` where it is safe and a `bigint` past
+ * that, and `-0` as the float the `i128` schema alone reads (as 0).
+ * `undefined` for any other text.
+ */
+const INTEGER_KEY = /^-?(?:0|[1-9]\d*)$/;
+const integerKey = (k: string): number | bigint | JsonFloat | undefined => {
+  if (!INTEGER_KEY.test(k)) return undefined;
+  if (k === "-0") return new JsonFloat(-0, true);
+  const n = BigInt(k);
+  return Number.isSafeInteger(Number(n)) ? Number(n) : n;
+};
+
+/** A map key of an integer type (or a newtype of one): its text read as `integerKey` reads it, then by `inner`, which checks the range. */
+export const intKey = <T extends Type<any>>(inner: T) =>
+  type("string").pipe((k, ctx): T["infer"] => {
+    const parsed = inner(integerKey(k));
+    return parsed instanceof type.errors ? (ctx.error("an integer key in range") as never) : parsed;
+  });
+
+/** A map key of `bool` (or a newtype of one): exactly `true` or `false`, as serde_json reads one. */
+export const boolKey = <T extends Type<any>>(inner: T) =>
+  type("string").pipe((k, ctx): T["infer"] => {
+    const parsed = inner(k === "true" ? true : k === "false" ? false : undefined);
+    return parsed instanceof type.errors ? (ctx.error("`true` or `false`") as never) : parsed;
+  });
+
+/**
+ * serde's `BTreeMap<K, V>` for a key other than `String` (design/04 §3.3):
+ * a JSON object, each own key read from its text by `key` (`intKey`,
+ * `boolKey`, or the schema of a `char`, a `Uuid`, or a newtype of a
+ * `String`). Two texts of one key (a `Uuid` in two cases) keep the later
+ * value, as serde's map does.
+ */
+export const btreeMapOf = <K extends Type<any>, T extends Type<any>>(
+  key: K,
+  inner: T,
+): Wire<ReadonlyMap<K["infer"], T["infer"]>> =>
+  type("unknown").pipe((x, ctx): ReadonlyMap<K["infer"], T["infer"]> => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return ctx.error("a JSON object") as never;
+    const m = new Map<K["infer"], T["infer"]>();
+    for (const k of Object.keys(x)) {
+      const parsedKey = key(k);
+      if (parsedKey instanceof type.errors) return fail(ctx, parsedKey);
+      const parsed = inner((x as Readonly<Record<string, unknown>>)[k]);
+      if (parsed instanceof type.errors) return fail(ctx, parsed);
+      m.set(parsedKey, parsed);
+    }
+    return m;
+  });
+/** serde's `BTreeSet<K>` for a key other than `String`: a JSON array of `key`'s values, read into a `Set` (a repeated one kept once). */
+export const btreeSetOf = <K extends Type<any>>(key: K): Wire<ReadonlySet<K["infer"]>> =>
+  type("unknown").pipe((x, ctx): ReadonlySet<K["infer"]> => {
+    const parsed = key.array()(x);
+    return parsed instanceof type.errors ? fail(ctx, parsed) : new Set(parsed as ReadonlyArray<K["infer"]>);
+  });
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char = type("string").pipe((s, ctx): Char => (Char.is(s) ? s : (ctx.error("a single character") as never)));
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */
