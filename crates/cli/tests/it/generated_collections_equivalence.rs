@@ -1179,12 +1179,12 @@ impl G {
             _ => {
                 let chars = ["a", "b", "\\u{e9}", "\\u{fffd}", "\\u{ff61}", "\\u{1f600}", "\\u{10ffff}", "\\u{10000}"];
                 let text = (0..n).map(|_| self.rng.pick(&chars)).collect::<String>();
-                let (a, c) = (self.rng.pick(&chars), self.rng.pick(&chars));
-                // Where a `char` stands in key order: by code point.
+                let c = self.rng.pick(&chars);
+                // Each `char` in key order, by code point.
                 self.line(&format!("let {m}: BTreeSet<char> = \"{text}\".chars().collect();"));
-                self.line(&format!(
-                    "acc = acc.wrapping_mul(5).wrapping_add({m}.iter().position(|{x}| *{x} == '{a}').map_or(-1, |n| n as i32));"
-                ));
+                self.line(&format!("for {x} in &{m} {{"));
+                self.line(&format!("    acc = acc.wrapping_mul(5).wrapping_add(u32::from(*{x}) as i32);"));
+                self.line("}");
                 self.line(&format!("flag = flag != {m}.contains(&'{c}');"));
             }
         }
