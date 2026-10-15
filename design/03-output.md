@@ -67,6 +67,7 @@ A caller's own code can write `5 as I32` all the same; no type stops it. Values 
 | `Option<T>` | `T \| null` |
 | `Result<T, E>` | `Readonly<{ kind: "Ok"; value: T }> \| Readonly<{ kind: "Err"; error: E }>` |
 | `Vec<T>`, `&[T]` | `ReadonlyArray<T>` |
+| `[T; N]` (from 0.23.0) | `ReadonlyArray<T>`; a `pub` function checks its length on entry, `Slice.lengths(x, shape, "x")` with the shape of where the parameter holds arrays (`4`, `{ at: { tag: 2 } }`, `{ each: 4 }`, `{ kinds: { V: { value: 2 } } }`), and panics naming the parameter; a local that `a[i] = x` writes is an `Array<T>` ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)) |
 | `struct Page<T>`, `fn f<T>(x: T)` | `export type Page<T> = Readonly<{ .. }>`; `<T>(x: T): T => ..` on a function, a companion's `of`, and each method; a variant or `of` that holds no `T` gives `Page<never>`, which any `Page<T>` takes (its fields are read only) |
 | `BTreeMap<String, V>`, `BTreeSet<String>` | `ReadonlyMap<string, V>`, `ReadonlySet<string>`; a local that `insert` / `remove` writes is a `Map` / `Set`. Read in key order through `BTree.keys` / `entries` / `values`, sorted by code point |
 | `BTreeMap<K, V>`, `BTreeSet<K>`, `K` an integer, `char`, `bool`, `Uuid`, or a newtype of one or of `String` | `ReadonlyMap<K, V>`, `ReadonlySet<K>` (`Map` / `Set` for a local it writes). `get` / `insert` / `remove` are `BTree.lookup` / `put` (a set's `include`) / `take`; read in key order through `BTree.keysBy` / `entriesBy` / `valuesBy` with the key type's comparator, `Ord.cmp` or `Ord.cmpStr` (`BTree.keysBy(m, Ord.cmp)`); `toJson` writes a map through `BTree.mapJson` |
@@ -180,6 +181,8 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `match` / `if let` on `Option` | branch on `=== null` |
 | `match` on a tuple | nested `match`es, one element at a time ([3.3.1](#331-tuple-match)) |
 | `match` on a slice (`[x, .., y]`, `[x, rest @ ..]`) | an `if` chain on `xs.length` (shortest first; lengths running the same code share one test, `xs.length <= 1`), then the elements as tuple elements, read where they sit: `Slice.at(xs, 0)`, `Slice.at(xs, xs.length - 1)`; `rest` as `Slice.range(xs, 1, xs.length - 1)`, a new array ([01 §7.24](./01-equivalence.md#724-slice-patterns)) |
+| `match` on an array, `let [a, .., b] = arr;` | no length test: the elements as tuple elements, `Slice.at(a, i)`; `let` an irrefutable one-arm `match` ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)) |
+| `[x; N]`; `[a, b]` | `Slice.repeat(x, N)` (`x` once); the array literal |
 | a tuple pattern in `let`, a closure parameter, or a `for` variable | a one-arm tuple `match`: one `const` per element |
 | guarded arms | the tuple `match` tree with an `if` on each guard ([3.3.2](#332-guards-and-option-methods)) |
 | `unwrap_or`, `ok_or`, `map`, `and_then`, `filter`, `map_or`, `unwrap_or_else`, … | the `match` std writes ([3.3.2](#332-guards-and-option-methods)) |
@@ -431,6 +434,7 @@ What callers of a successfully generated package must observe.
 
 - Expected failure is a value: `Result` or `null`.
 - `undefined` means `()`, not absence.
+- An array argument of the wrong length (`[T; N]`, anywhere in the value) throws `Panic` on entry to a `pub` function, naming the parameter, as a string holding a lone surrogate does: neither is a Rust value (from 0.23.0, [01 §7.27](./01-equivalence.md#727-fixed-size-arrays)).
 - Overflow, division by zero, out-of-range shifts, and out-of-bounds indexing throw `Panic` (a subclass of `Error`). `message` is Rust's panic text, so `e.message` still matches a debug build. `instanceof Panic` works across copies of the runtime (`Symbol.for("purecrate.Panic")`). `assertNever` still throws a plain `Error` (`"unexpected variant"`): that is a generator bug, not a domain panic.
 
 ### 5.3 Numbers

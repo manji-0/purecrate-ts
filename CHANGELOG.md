@@ -10,6 +10,12 @@
 - **`take(n)`, `skip(n)`, `take_while(p)`, and `skip_while(p)`** as stages of a sequence (design/01 §7.28), anywhere among its stages and in a `for`: `Iter.take`, `Iter.skip`, `Iter.takeWhile`, `Iter.skipWhile`, generators as lazy as Rust's adaptors. `take` asks for no item past the `n`th, so `[1, 2, 0].iter().map(|x| 6 / x).take(2).sum()` is 9, not a panic; `skip` pulls the items it drops, running the stages before it on them; `take_while` pulls the item it refuses; `skip_while` calls its predicate on no item after its first refusal. `n` is a `usize`, evaluated after the receiver. On a range they keep it a range (`Iter.rangeTake(r, n)`, `Iter.rangeSkip(r, n)`, a new `Steps`), so `(0..n).take(k).rev().step_by(2)` composes as written.
 - **`partition(p)`** into `(Vec<T>, Vec<T>)` (design/01 §7.28): `Iter.partition(xs, p)`, the items `p` takes, then the others, each in order. Its type is written out, a typed `let` or the function's result. `corpus/patterns.rs`'s `p59_partition` is accepted, and the corpus gains `i08_take_skip` .. `i12_range_skip`, all accepted.
 - The collections generator draws `take`, `skip`, `take_while`, and `skip_while` after a `map` that may panic, `take` and `skip` on ranges either side of `rev` and `step_by`, and `partition` after a `take`.
+- **Fixed-size arrays `[T; N]`** (design/01 §7.27), `N` an integer literal, a crate `const`, or arithmetic of those: a `ReadonlyArray<T>` as a parameter, a result, a field, a variant's payload, a crate `const` (`const HEX: [char; 16] = [..]`, each element folded; a byte string for a `&[u8; N]`), and a local. Built by `[a, b]` and `[x; N]` (`Slice.repeat(x, N)`, `x` once); read as a slice is: `a[i]` with Rust's panic past the end, `len`, `iter`, `for`, every sequence and consumer, `get`, `first`, `last`, `contains`, `&a[..]`, `as_slice()`, an array where a `&[T]` goes, `iter().copied().collect()`, `==`, and `cmp` / `<` lexicographic where the elements have a `cmp` (a `Vec` of arrays sorts too). `[a, b]` is an array where no type is wanted, as rustc types it, and a slice where a `&[T]` is; `vec![a, b]` stays a `Vec`.
+- **The length of every array a `pub` function takes is checked on entry**, wherever in the argument it is (a field, a variant's payload, an element, an `Option`, a tuple, a map's value, a recursive type): `Slice.lengths(x, shape, "x")` panics with `` `x` holds an array of length 3 where one of length 4 goes ``, after the lone-surrogate check, as a TS caller may pass any length.
+- **Slice patterns on an array cover its one length**: `let [a, b, c, d] = bytes;` is irrefutable, a `match` on a `[u8; 2]` needs no `[]` arm, and the decision tree tests no length. `check` asks for the one arm missing (`match on an array of 2 elements is missing [_, _]`); a slice match's coverage is now checked where its type is known.
+- **`a[i] = x` on a `let mut` local array** of its own, as on a `Vec`. An array is `Copy`, so a written local read whole into a value that outlives the read, where a write may come after, is copied (`[...a]`).
+- **Arrays on the wire**: a JSON array of exactly `N` (zod `.length(N)`, valibot `v.length(N)`, arktype `.exactlyLength(N)`), written as a `Vec`; round-tripped against serde_json and read at every wrong length as serde_json refuses it.
+- The patterns generator draws arrays: a literal or `[x; N]` of drawn expressions, indexed in range and past it, matched by slice patterns of its one length, destructured by `let`, written on a `let mut` copy.
 
 ### Changed
 
@@ -20,6 +26,11 @@
 
 - A `BTreeMap` / `BTreeSet` key that is an object in TS (an enum, a struct with named fields, a tuple, an `Option`, a `Vec`, a newtype of one, a generic type, a type parameter), since a JS `Map` compares it by identity; a float key (no `Ord`); a newtype key whose `Ord` is written by hand or missing, as the output sorts it by its content; and a `&str` key.
 - `take`, `skip`, `take_while`, and `skip_while` as values (`let it = xs.iter().take(2);`), with a message naming where they are read; `peekable`, `scan`, `map_while`, and `by_ref`; `partition` into anything but two `Vec`s, without a written type (`[check/needs-annotation]`), or with a turbofish; `rev` or `zip` after a cut on a list's items, as after any stage.
+- `a.map(f)` on an array (build it element by element, or collect a `Vec`); `sort`, `sort_by`, `sort_by_key`, `sort_unstable*`, `reverse`, `fill`, `swap`, and `iter_mut`, which write an array in place; `to_vec` (`a.iter().copied().collect()`).
+- A const generic length, and a length of anything but literals and crate consts (`[u8; n]`).
+- An array of `Option` or `()`, whose elements would be `null` / `undefined`, as such a type argument is.
+- An array of more than 32 elements in a type that derives `Serialize` or `Deserialize`: serde implements its traits for arrays up to 32.
+- A `let` of a slice pattern with a type annotation (annotate the value).
 
 ## 0.22.0 — 2026-10-15
 

@@ -25,6 +25,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Guards | `p if c =>` on any arm, a binding arm (`n if n > 3`) included, and in `matches!`; a guarded arm does not count toward exhaustiveness | a decision tree: each value tested once, the guard at its arm's leaf |
 | Transition tables | `match (state, event)`: tuple arms whose elements are `_`, a binding, or an arm pattern | nested `switch`es, one per element, each listing every case + `assertNever` |
 | Slice patterns | `[]`, `[x]`, `[x, .., y]`, `[x, rest @ ..]`, `[rest @ .., x]` on a `&[T]`, `xs.as_slice()`, `&xs[..]`, or `*xs`, in `match`, a tuple arm, `if let`, `let`-`else`, `while let`, and `matches!`, with guards; elements any arm pattern ([§3.5](#slice-matches), [01 §7.24](./01-equivalence.md#724-slice-patterns)) | an `if` chain on `xs.length`, then `Slice.at(xs, i)`; `rest` a new array, `Slice.range(xs, i, xs.length - j)` |
+| Fixed-size arrays | from 0.23.0, `[T; N]` (`N` a literal or a crate `const`) as a parameter, result, field, variant payload, crate `const` (`const HEX: [char; 16] = [..]`), or local; built by `[a, b]` and `[x; N]`; read as a slice (`a[i]`, `len`, `iter`, `for`, `get`, `contains`, `&a[..]`, `as_slice`, `==`, `cmp`); slice patterns exhaustive by the one length (`let [a, b] = pair;`); `a[i] = x` on a `let mut` local ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)) | `ReadonlyArray<T>`, its length checked on entry by `Slice.lengths`; `Slice.repeat(x, N)`; no length test in a `match`; a whole read of a written local copied (`[...a]`) where a write may follow |
 | Character classes | `b'@'` (a `u8`); integer literals and ranges in `match` and `matches!` (`matches!(b, b'0'..=b'9' \| b'_')`) | the number, with the character it wrote before it (`/* '@' */ 64`); an `if` chain tried in order |
 | Characters | `char`, `'a'`; literals and ranges in `match` / `matches!`; `==`, `<`; `u32::from(c)`, `char::from(b)`, `char::from_u32(n)`; ASCII methods (`is_ascii_digit`, `to_digit(10)`, …) | `Char` (branded `string`); ordering and ranges through `Char.code` |
 | Ordering | `use std::cmp::Ordering;`; `a.cmp(&b)` on integers, `char`, `bool`, strings, `Uuid`, and `Vec`s of these (element by element, then the shorter first); `<` `<=` `>` `>=` on strings (code points); `Ordering::Less` in patterns, `==`, `is_lt()` and the other predicates, `reverse()`, `then(o)`, `then_with(\|\| ..)` | a fieldless enum; `cmp` as `Ord.cmp`, or `Ord.cmpStr` (by code point) on `char`, strings, and `Uuid`, and `Ord.cmpList(a, b, Ord.cmp)` on `Vec`s; `then` as `Ord.then` |
@@ -128,7 +129,7 @@ pub enum Lines { Empty, Cons(Line, Box<Lines>) }
 - Rejected: `vec![x; n]`, `Vec::from`, `to_vec`, `extend`, `pop`, `truncate`, `sort_unstable`, and the other mutating methods.
 
 Why the rest of the output stays immutable: a local that is pushed to is bound to an array of its own. `Vec::new()`, `vec![..]`, `.clone()`, and `.collect()` make a new array; any other value (a parameter, a field, what a function returns) is copied when bound (`let v: T[] = [...xs]`), since in TS the caller may still hold it. So the arrays in states, fields, and parameters are never written, and `clone` of anything but a `Vec` is the value itself ([01 §7.14](./01-equivalence.md#714-growing-and-editing-a-vec)).
-- `[a, b]` is an array, which rustc does not accept as a `Vec`. `[T; N]` types are rejected.
+- `[a, b]` is an array `[T; N]` (from 0.23.0), which rustc does not accept as a `Vec`; where a `&[T]` is wanted it is the slice. An array is read as a slice is and written only by `a[i] = x` on a `let mut` local, as a `Vec` is; `a.map(f)`, `sort` and the other in-place writes, `iter_mut`, and `to_vec` are refused (`a.iter().copied().collect()` gives a `Vec`). An array is `Copy`, so a written local read whole where a write may follow is copied ([01 §7.27](./01-equivalence.md#727-fixed-size-arrays)).
 - A sequence that grows or shrinks with the state is a `Vec` the function builds, or a recursive enum (above).
 
 #### Shared and interior mutability
@@ -349,6 +350,9 @@ Only `Option`, `Result`, `Vec`, `BTreeMap<String, V>` and `BTreeSet<String>` (fr
 | `Rc` / `Cell` / `RefCell` / `Mutex` | shared or interior mutability; `Mutex` is shared mutable state, which the subset does not have (`[type/mutex]`) | |
 | `Option<Option<T>>` | both `None`s become `null`; serde's default JSON is `null` for both as well, so the server cannot distinguish them either | an enum such as `Patch { Unset, Clear, Set(i32) }` |
 | newtypes over `Option`, `()`, or `!`, and a generic newtype at one (`W<Option<u32>>`) | `null & brand` is `never` | an enum such as `Patch { Unset, Clear, Set(i32) }` |
+| `[Option<T>; N]`, `[(); N]` | the elements would be `null` / `undefined`, as an `Option` type argument would | a `Vec`, or an enum with a variant for the empty slot |
+| `[T; N]` with a const generic `N`, or a length that is not a literal or a crate `const` | the length is checked on entry and on the wire, so it is known when the crate is checked | a `Vec` |
+| `[T; N]` with `N` above 32 in a type that derives serde | serde implements its traits for arrays of up to 32 elements | a `Vec` |
 | enums with no variants | | |
 | unit structs (`struct S;`) | serde writes `struct S;` as `null` and `struct S {}` as `{}`; only the latter is kept | `struct S {}` |
 
