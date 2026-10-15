@@ -98,6 +98,17 @@ pub(crate) fn lower_trait(cx: &mut Cx, t: &syn::ItemTrait) -> Result<Vec<Item>, 
             }
         }
     }
+    if t.items.is_empty() && supertraits.is_empty() {
+        return Err(refuse(
+            Reason::UnsupportedItem,
+            format!(
+                "the trait `{}` has no methods or consts, which is not in v0: its dictionary would hold nothing (design/01 §7.25)",
+                name.as_str()
+            ),
+            t.ident.span(),
+        )
+        .detail("trait"));
+    }
     let self_name = Name::new(SELF);
     let _scope = ParamScope::enter(std::slice::from_ref(&self_name));
     let self_ty = Ty::Param(self_name.clone());
@@ -109,6 +120,16 @@ pub(crate) fn lower_trait(cx: &mut Cx, t: &syn::ItemTrait) -> Result<Vec<Item>, 
             syn::TraitItem::Fn(f) => {
                 reject_attrs(&f.attrs)?;
                 let sig = &f.sig;
+                let qualifier = [
+                    sig.asyncness.map(|t| ("async", t.span)),
+                    sig.unsafety.map(|t| ("unsafe", t.span)),
+                    sig.abi.as_ref().map(|a| ("extern abi", a.span())),
+                ];
+                if let Some((what, span)) = qualifier.into_iter().flatten().next() {
+                    return Err(
+                        refuse(Reason::FnQualifier, format!("{what} is not allowed in v0"), span).detail(what)
+                    );
+                }
                 if sig.generics.params.iter().any(|p| !matches!(p, syn::GenericParam::Lifetime(_))) {
                     return Err(refuse(
                         Reason::Generics,

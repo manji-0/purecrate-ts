@@ -33,6 +33,8 @@ fn a_trait_is_over_self_alone() {
     assert_parse_rejects("pub trait T { fn f(&self) -> u8 where Self: Sized; }", "on a trait method is not in v0");
     assert_parse_rejects("pub trait T { fn f(&mut self); }", "`&mut self` is not in v0");
     assert_parse_rejects("pub trait T: Clone { fn f(&self) -> u8; }", "the supertrait `Clone` is not in v0");
+    assert_parse_rejects("pub trait Marked {}", "the trait `Marked` has no methods or consts");
+    assert_parse_rejects("pub trait T { unsafe fn f(&self) -> u8; }", "unsafe is not allowed in v0");
 }
 
 #[test]

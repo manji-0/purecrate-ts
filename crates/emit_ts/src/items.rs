@@ -382,11 +382,11 @@ pub(crate) fn emit_trait(krate: &Crate, t: &purecrate_ir::Trait) -> String {
     let head = format!("export type {name}<{self_}> = ");
     let one = members.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>().join("; ");
     let own = if members.is_empty() { None } else { Some(format!("Readonly<{{ {one} }}>")) };
-    let parts: Vec<String> = supers.iter().cloned().chain(own.clone()).collect();
-    let parts = if parts.is_empty() { vec!["Readonly<Record<string, never>>".to_string()] } else { parts };
+    // Never empty: `syntax` refuses a trait with no members and no supertrait.
+    let parts: Vec<String> = supers.iter().cloned().chain(own).collect();
     let line = format!("{head}{};", parts.join(" & "));
     let mut out = jsdoc(&t.doc, "");
-    if line.len() <= crate::WIDTH && members.iter().all(|(_, d)| d.is_none()) {
+    if members.is_empty() || (line.len() <= crate::WIDTH && members.iter().all(|(_, d)| d.is_none())) {
         out.push_str(&line);
     } else {
         let mut record = String::from("Readonly<{\n");
