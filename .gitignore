@@ -1,6 +1,6 @@
 target/
 .worktrees/
 corpus/src/
-node_modules/
+node_modules
 dist/
 .direnv/
