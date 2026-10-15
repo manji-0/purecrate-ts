@@ -98,8 +98,8 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return (text, self.expect(want, Some(Ty::Prim(Prim::String))));
             }
         }
-        let e = Expr::Call { callee: Callee::Format(pieces), args: typed };
-        (e, self.expect(want, Some(Ty::Prim(Prim::String))))
+        let strings = tys.iter().map(|t| matches!(t, Some(t) if is_string(t))).collect();
+        (reduced(pieces, typed, strings), self.expect(want, Some(Ty::Prim(Prim::String))))
     }
 
     /// `x.to_string()` on a primitive `t`: what `format!("{}", x)` prints,
@@ -123,8 +123,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             return None;
         }
         let pieces = vec![FmtPiece::Arg { index: 0, spec: FmtSpec::default() }];
-        let e = Expr::Call { callee: Callee::Format(pieces), args: vec![recv] };
-        Some((e, self.expect(want, string)))
+        Some((reduced(pieces, vec![recv], vec![false]), self.expect(want, string)))
     }
 }
 
@@ -157,35 +156,104 @@ pub(super) fn joined(a: Expr, b: Expr) -> Expr {
             _ => None,
         }
     }
+    // A string `reduced` left as itself (`String::from` of it) is placed
+    // in the template again.
     fn template(e: Expr) -> (Vec<FmtPiece>, Vec<Expr>) {
         if let Some(t) = literal(&e) {
             return (vec![FmtPiece::Text(t.to_string())], Vec::new());
         }
         match e {
             Expr::Call { callee: Callee::Format(pieces), args } => (pieces, args),
+            e @ Expr::Call { callee: Callee::StringFrom, .. } => {
+                (vec![FmtPiece::Arg { index: 0, spec: FmtSpec::default() }], vec![e])
+            }
             _ => unreachable!("a text, tested by the caller"),
         }
     }
-    let text = |e: &Expr| literal(e).is_some() || matches!(e, Expr::Call { callee: Callee::Format(_), .. });
-    if !text(&a) || !text(&b) {
+    let text = |e: &Expr| matches!(e, Expr::Call { callee: Callee::Format(_) | Callee::StringFrom, .. });
+    if !(literal(&a).is_some() || text(&a)) || !(literal(&b).is_some() || text(&b)) {
         return Expr::Call { callee: Callee::StrConcat, args: vec![a, b] };
     }
     let ((mut pieces, mut args), (more, rest)) = (template(a), template(b));
     let offset = args.len();
-    for p in more {
-        match (pieces.last_mut(), p) {
-            (Some(FmtPiece::Text(t)), FmtPiece::Text(u)) => t.push_str(&u),
-            (_, FmtPiece::Arg { index, spec }) => pieces.push(FmtPiece::Arg { index: index + offset, spec }),
-            (_, text) => pieces.push(text),
+    pieces.extend(more.into_iter().map(|p| match p {
+        FmtPiece::Arg { index, spec } => FmtPiece::Arg { index: index + offset, spec },
+        text => text,
+    }));
+    args.extend(rest);
+    let strings = args.iter().map(|a| matches!(a, Expr::Call { callee: Callee::StringFrom, .. })).collect();
+    reduced(pieces, args, strings)
+}
+
+/// A `format!` as a template the type-aware lint accepts
+/// (`no-unnecessary-template-expression`, design/01 §6.8): a literal placed
+/// without a spec is text, which leaves its argument unused (a literal runs
+/// nothing, so the order stays Rust's); text alone is that string; and a
+/// string placed alone (`strings[i]`: a `String`, `&str`, `char`, or
+/// `Uuid`) is itself, as `String::from` it, which `joined` places again.
+fn reduced(pieces: Vec<FmtPiece>, args: Vec<Expr>, strings: Vec<bool>) -> Expr {
+    fn shown(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Lit(Lit::Str(s)) => Some(s.clone()),
+            Expr::Lit(Lit::Char(c)) => Some(c.to_string()),
+            Expr::Lit(Lit::Bool(b)) => Some(b.to_string()),
+            Expr::Lit(Lit::Int { value, .. }) => Some(value.to_string()),
+            _ => None,
         }
     }
-    args.extend(rest);
-    pieces.retain(|p| !matches!(p, FmtPiece::Text(t) if t.is_empty()));
-    match pieces.as_slice() {
-        [] => Expr::Call { callee: Callee::StringFrom, args: vec![Expr::Lit(Lit::Str(String::new()))] },
-        [FmtPiece::Text(t)] => Expr::Call { callee: Callee::StringFrom, args: vec![Expr::Lit(Lit::Str(t.clone()))] },
-        _ => Expr::Call { callee: Callee::Format(pieces), args },
+    let mut out: Vec<FmtPiece> = Vec::with_capacity(pieces.len());
+    let mut used = vec![false; args.len()];
+    for p in pieces {
+        let p = match p {
+            FmtPiece::Arg { index, spec } if spec.is_plain() => match shown(&args[index]) {
+                Some(t) => FmtPiece::Text(t),
+                None => FmtPiece::Arg { index, spec },
+            },
+            p => p,
+        };
+        match (out.last_mut(), p) {
+            (_, FmtPiece::Text(t)) if t.is_empty() => {}
+            (Some(FmtPiece::Text(t)), FmtPiece::Text(u)) => t.push_str(&u),
+            (_, p) => {
+                if let FmtPiece::Arg { index, .. } = p {
+                    used[index] = true;
+                }
+                out.push(p);
+            }
+        }
     }
+    let mut renumbered = vec![0; args.len()];
+    let mut kept = Vec::with_capacity(args.len());
+    let mut kept_strings = Vec::with_capacity(args.len());
+    for (i, (a, s)) in args.into_iter().zip(strings).enumerate() {
+        if used[i] {
+            renumbered[i] = kept.len();
+            kept.push(a);
+            kept_strings.push(s);
+        }
+    }
+    for p in &mut out {
+        if let FmtPiece::Arg { index, .. } = p {
+            *index = renumbered[*index];
+        }
+    }
+    let text = |t: &str| Expr::Call { callee: Callee::StringFrom, args: vec![Expr::Lit(Lit::Str(t.to_string()))] };
+    match out.as_slice() {
+        [] => text(""),
+        [FmtPiece::Text(t)] => text(t),
+        [FmtPiece::Arg { index, spec }] if spec.is_plain() && kept_strings[*index] => {
+            match kept.pop().expect("the one argument") {
+                e @ Expr::Call { callee: Callee::StringFrom, .. } => e,
+                e => Expr::Call { callee: Callee::StringFrom, args: vec![e] },
+            }
+        }
+        _ => Expr::Call { callee: Callee::Format(out), args: kept },
+    }
+}
+
+/// A type whose `{}` is its own text: a string, a `char`, or a `Uuid`.
+fn is_string(t: &Ty) -> bool {
+    matches!(t, Ty::Prim(Prim::String | Prim::Str | Prim::Char | Prim::Uuid))
 }
 
 /// A read that gives the same value whenever it runs: a local, a literal,

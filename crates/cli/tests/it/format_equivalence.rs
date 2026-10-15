@@ -1,7 +1,8 @@
 //! `format!` matches Rust on every integer width at its edges, `char`s
 //! outside the BMP (a width counts `char`s, not UTF-16 units), each
 //! alignment and fill, zero padding of negative values, escapes, and the
-//! order its arguments panic in.
+//! order its arguments panic in; a literal argument folded into the text,
+//! and a string placed alone.
 
 use uuid::Uuid;
 
@@ -59,6 +60,13 @@ fn format_matches_rust() {
         cases.push(case!(format::only_text()));
         for (n, ok) in [(0, true), (7, false), (123456, true), ((1usize << 53) - 1, false)] {
             cases.push(case!(format::sizes(n, ok)));
+        }
+        for n in [0, 254, 255] {
+            cases.push(case!(format::literals(n)));
+            cases.push(case!(format::constants(n)));
+        }
+        for (s, t, c) in [("", "", 'x'), ("é😀", "`${", '😀'), ("a", "b\u{2028}", '\\')] {
+            cases.push(case!(format::alone(String::from(s), t, c)));
         }
     });
 }

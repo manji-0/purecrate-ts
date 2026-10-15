@@ -68,3 +68,30 @@ pub fn only_text() -> String {
 pub fn sizes(n: usize, ok: bool) -> String {
     format!("[{n:5}|{n:05}|{n:<3}|{ok:6}|{ok:>6}|{ok:^7}]")
 }
+
+// A literal argument is the template's text, escaped as the text around it;
+// a padded one stays an argument. An argument that overflows still runs in
+// Rust's order among them.
+pub fn literals(n: u8) -> String {
+    format!("{}{n}{}|{}|{}|{}|{}|{:>3}|{}|{}", "b", 'c', 5u8, true, -3i64, "`${\\\u{2028}", 'é', n + 1, 0x0fu8)
+}
+
+pub const BASE: u16 = 0x0f;
+
+pub fn constants(n: u8) -> String {
+    let b = b'@';
+    format!("{BASE}-{}-{b}-{}", b'@', n)
+}
+
+// A string placed alone is that string, not a template.
+pub fn alone(s: String, t: &str, c: char) -> String {
+    let a = format!("{}", s);
+    let b = format!("{t}");
+    let d = format!("{}", c);
+    let mut out = a;
+    out.push_str(&b);
+    out.push_str(&d);
+    out.push_str(&format!("{}", "lit"));
+    out.push_str(&7u8.to_string());
+    out
+}
