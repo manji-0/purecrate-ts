@@ -1,6 +1,6 @@
 # Overview
 
-Status: current (2026-10-15, release 0.23.0). Replaces the old `00-foundations.md` as the entry point.
+Status: current (2026-10-16, 0.23.0). Replaces the old `00-foundations.md` as the entry point.
 
 ## 1. Claim
 
@@ -26,10 +26,10 @@ The use cases in focus, and how well they fit today ([06-strategy §3](./06-stra
 
 | Use case | Fit |
 | --- | --- |
-| Workflows and state machines (order lifecycle, approvals, payment status) | High. examples/order, examples/payment, examples/oidc, examples/ssh |
+| Workflows and state machines (order lifecycle, approvals, payment status) | High. examples/order, examples/payment, examples/oidc, examples/ssh, examples/raft |
 | Optimistic UI / offline-first (same transition on client and server) | High |
 | Pricing, fees, tax (integer newtypes in the smallest unit) | High. examples/invoice |
-| Input validation (checked constructors) | Medium. examples/signup, examples/iban |
+| Input validation (checked constructors) | Medium. examples/signup, examples/iban, examples/semver |
 | Turn-based game rules | Medium (recursion depth) |
 
 Non-goals:
@@ -43,10 +43,10 @@ Non-goals:
 ## 3. How it holds together
 
 ```
-Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) ──▶ IR ──▶ TS printer ──▶ npm package
-                              │                                                           │
-                              └── reject with path:line:col + reason, write nothing       └── optional wire schemas
-                                                                                              (zod / valibot / arktype)
+Rust crate ──parse (syn)──▶ IR ──▶ subset check, typing ──▶ rustc (pass/fail) ──▶ TS printer ──▶ npm package
+                                       │                                                          │
+                                       └── reject with path:line:col + reason, write nothing      └── optional wire schemas
+                                                                                                      (zod / valibot / arktype)
 ```
 
 - **Constraints on the author** ([02](./02-authoring.md)) keep the input inside the region where meaning can be preserved.
@@ -57,23 +57,28 @@ Rust crate ──parse (syn)──▶ subset check ──▶ rustc (pass/fail) �
 
 ## 4. What works today
 
+In brief; [02 §2](./02-authoring.md#2-what-can-be-written) lists each form with the TS it becomes, and [01](./01-equivalence.md) where each stops.
+
 | Area | What works |
 | --- | --- |
-| Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`; sequences as `Vec`s a function builds (a local grown by `push`, `collect`) or recursive enums (`Box` erased) |
+| Types | structs, enums (`kind` unions), newtypes (brands), `Option`, `Result`, tuples, `Vec`, fixed-size arrays `[T; N]`, `BTreeMap` / `BTreeSet` keyed by `String`, integers, `char`, `bool`, `Uuid`, or a newtype of one; recursive enums (`Box` erased); type parameters on types, `impl` blocks, and functions |
 | Closed types | structs with private fields keep their invariants (no public `of`) |
-| Patterns and `match` | `?`, `if let`, exhaustive `match` (with `A \| B`, a last `_`, guards, struct patterns, and on tuples); byte literals, integer, `char`, `bool`, range and string literal patterns, `matches!`; tuple patterns in `let`, closure parameters, and `for` |
-| Bindings | local `let mut`, local `const`, local closures over immutable bindings, struct update `S { a, ..base }` |
-| Loops | integer-range `for i in a..b`; `for` over a `Vec` or slice, `s.chars()`, `s.bytes()`, and `s.split(c)`, with `.enumerate()`; `while` with `break` and `continue`; lazy `map` / `filter` and `all` / `any` / `position` / `count` / `sum` / `collect` on them |
-| Numbers | integer arithmetic with debug-build semantics (truncation, overflow and division-by-zero throw); `i64` / `u64` as `bigint`; bitwise operators and shifts; lossless widening via `i64::from(x)`; `min` / `max` / `abs` / `pow` and the checked, saturating, and wrapping forms |
-| Constants | crate-level `const` items folded at check time; enum discriminants read with `as` |
-| `Option` | read with `is_some` / `is_none` / `unwrap_or` / `ok_or` / `map` / `as_ref` / `as_deref`; `clone` |
-| `Vec` | read by index, `len`, slices, and `cmp`; built as `vec![a, b]`, by `collect`, by `clone`, or grown in a function by `push` on a `let mut` local |
-| Strings | `String::from("…")`, string `==` and `<`, `len` / `is_empty` / `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` / `split_once`, `trim*`, `find`, ASCII case, slices at byte positions, contents via `s.as_bytes()` or `chars()`; built with `push` / `push_str`, `collect`, or `format!` over integers, `bool`, `char`, strings, and `Uuid` with widths and padding |
-| `char` | a branded string: literals, ordering by code point, `u32::from` / `char::from` / `char::from_u32`, the ASCII methods |
-| `uuid::Uuid` | a branded canonical string: `parse_str` / `try_parse` exactly as the `uuid` crate, `nil`, `==` and ordering, serde's JSON form |
-| serde | serde-ready crates: the types may derive `Serialize`/`Deserialize` for the server; `rename`, `rename_all`, and internal or adjacent `tag` shape the JSON as serde does; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |
-| Wire schemas | `--schema zod\|valibot\|arktype` reads serde's JSON into domain values, and `toJson` writes them back byte for byte as serde_json does |
+| Traits | user traits with default bodies and consts, `impl Tr for X` on the crate's types, bounds as a dictionary parameter; `PartialEq`, `Ord`, and `Default` derived or written by hand; `Display` and `From` (so `?` converts an error) written by hand |
+| Patterns and `match` | `?`, exhaustive `match` (with `A \| B`, a last `_`, guards, struct patterns, tuples, slice patterns), `if let`, `let`-`else`, `matches!`; byte, integer, `char`, `bool`, range, and string literal patterns; tuple patterns in `let`, closure parameters, and `for` |
+| Bindings | local `let mut`, local and associated `const`, local closures over immutable bindings, struct update `S { a, ..base }`, paths through modules |
+| Loops | `for` over integer ranges (`a..b`, `a..=b`, `rev`, `step_by`), a `Vec`, slice, array, map, or set, and a string's `chars`, `bytes`, `split`, `lines`; `while`, `while let`, `loop` with a value; `break` and `continue` |
+| Sequences | lazy `map`, `filter`, `filter_map`, `flat_map`, `flatten`, `take`, `skip`, `take_while`, `skip_while`, `rev`, `zip`, `enumerate`, `windows`, `chunks`; consumers `all`, `any`, `find`, `position`, `count`, `sum`, `fold`, `max` / `min` and their `_by` / `_by_key` forms, `collect`, `partition` |
+| `Vec` | built by `vec![..]`, `collect`, `clone`, or on a `let mut` local by `push`, `insert`, `remove`, `v[i] = x`, and stable `sort*`; read by index, slices, `len`, `get`, `first`, `last`, `contains`, `==`, `cmp` |
+| Numbers | integer arithmetic with debug-build semantics (overflow and division by zero panic); `i64` to `u128` as `bigint`; bitwise operators and shifts; `T::from` widening and `as` narrowing; `min` / `max` / `abs` / `pow` and the checked, saturating, and wrapping forms; `f32` / `f64` with their rounding methods |
+| `Option`, `Result` | the std combinators (`map`, `and_then`, `unwrap_or_else`, `ok_or`, `filter`, `map_or`, `is_some_and`, ..), `Option::unwrap` / `expect` |
+| Strings | `String::from`, `==` and `<`, `len`, search (`starts_with`, `contains`, `find`, `strip_prefix`, `split_once`, ..), `trim*`, case (ASCII and Unicode), slices at byte positions, `split` on a `char`, a `&str`, or a closure, `split_whitespace`, `lines`, `join`, `repeat`, `parse` into an integer; built with `push` / `push_str`, `collect`, `to_string`, or `format!` with widths and padding over integers, `bool`, `char`, strings, `Uuid`, and the crate's types with `Display` |
+| `char`, `Uuid` | `char` a branded string ordered by code point, with the ASCII methods; `uuid::Uuid` a branded canonical string, `parse_str` / `try_parse` exactly as the `uuid` crate |
+| Panics | `panic!`, `unreachable!`, `assert!` with Rust's messages |
+| serde | the types may derive `Serialize`/`Deserialize` for the server; `rename`, `rename_all`, and internal or adjacent `tag` shape the JSON as serde does; `#[serde(try_from = "T")]` keeps a closed type's invariant on the wire in Rust and TS alike |
+| Wire schemas | `--schema zod\|valibot\|arktype` reads serde's JSON into domain values, and `toJson` writes them back byte for byte as serde_json does ([04](./04-wire.md)) |
 | Checking a crate | `purecrate-ts test` calls every public function in Rust and in the generated TS on the same drawn arguments and names each call that differs ([01 §8.4](./01-equivalence.md#84-a-users-crate-purecrate-ts-test)) |
+
+Not accepted, by design: `&mut`, `HashMap` (write `BTreeMap`), `dyn Trait`, an enum, struct, or tuple as a map key, and the effects of §2's non-goals ([07 §6](./07-roadmap.md#6-not-doing)).
 
 ### 4.1 Examples
 
@@ -110,7 +115,7 @@ Against wasm-bindgen on the same source, the payment transition is 24–93× che
 | [03-output](./03-output.md) | The shape of the generated TS, and what callers must observe |
 | [04-wire](./04-wire.md) | Getting serde JSON into domain values |
 | [05-architecture](./05-architecture.md) | Pipeline, crates, IR, type inference |
-| [06-strategy](./06-strategy.md) | Why this means over alternatives, demand, success and withdrawal criteria |
+| [06-strategy](./06-strategy.md) | Analysis: why this means over alternatives, demand, success and withdrawal criteria and where they stand |
 | [07-roadmap](./07-roadmap.md) | How additions are chosen, evidence from examples, what comes next, open questions |
 | [90-acceptance-survey](./90-acceptance-survey.md) | Archive: measurement of existing crates. Not a metric |
 | [91-real-use-candidates](./91-real-use-candidates.md) | Record: dual Rust/TS implementations found in public projects, their fit to the subset, and the first real-use target |

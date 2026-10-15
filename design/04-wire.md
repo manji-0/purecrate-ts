@@ -1,6 +1,6 @@
 # Wire boundary
 
-Status: current (2026-10-15, 0.23.0)
+Status: current (2026-10-16, 0.23.0)
 
 <!-- constrained-by ./01-equivalence.md -->
 
@@ -8,7 +8,7 @@ Status: current (2026-10-15, 0.23.0)
 
 Shared behavior is useless if the values it consumes still arrive through hand-written conversion: the drift this tool removes from logic would reappear at the edge. On the client, state and events usually come from the Rust server as serde JSON, and that JSON is not the generated value.
 
-- **Shape.** Generated enums use an internal `kind` tag; serde's default is external tagging.
+- **Shape.** Generated enums use an internal `kind` tag; serde's default is external tagging. Maps are JS `Map`s; serde writes a JSON object.
 - **Numbers.** JSON numbers are unbranded; fields are `I32`, `F64`, `I64` (`bigint`). `JSON.parse` rounds integers above 2^53.
 - **Attributes.** `#[serde(rename_all = "camelCase")]` would silently change field names, unless the reader follows it (§3.6).
 
@@ -22,6 +22,7 @@ Shared behavior is useless if the values it consumes still arrive through hand-w
 | `Option<T>` | `T \| null` | `null` or value |
 | `Result<T, E>` | `{ kind: "Ok", value }` | `{"Ok":v}` |
 | `()` | `undefined` | `null` |
+| `BTreeMap<u32, V>` | `ReadonlyMap<U32, V>` | `{"9":v,"10":w}` |
 
 ## 2. Decision: boundary schemas, not type declarations
 
@@ -38,9 +39,9 @@ Of the options considered:
 
 | Part | Where | What |
 | --- | --- | --- |
-| Core runtime `purecrate` | `packages/boundary`, copied into each package as `src/purecrate-runtime.ts` (design/03 §4.4) | The numeric brands and `Int`, `Result`, `Str`, `Char`, `Uuid`, `parseJson`, and `Json` (`object`, `tuple`, `array`, and the scalar writers `toJson` calls). It depends on no schema library |
-| Adapters `purecrate-zod`, `-valibot`, `-arktype` | `packages/boundary-<lib>`, the one passed with `--schema` copied in as `src/purecrate-<lib>.ts` | Thin adapters, one per schema library: the scalar schemas, `nullable`, `unitVariant`, `unitEnum`, and zod's `optionalField`; arktype's also `Wire`, `memo`, `keyed`, `fail` |
-| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's default JSON (no attributes) into the branded domain type, with `fromJson.T(text)` reading the text through `parseJson` and the schema, and `toJson` for each that derives `Serialize`, writing it back (§6); see §3.2 |
+| Core runtime `purecrate` | `packages/boundary`, copied into each package as `src/purecrate-runtime.ts` (design/03 §4.4) | The domain runtime (numeric brands and `Int`, `Result`, `Str`, `Char`, `Uuid`, `Ord`, `BTree`, `Slice`, ..) and the wire's own parts: `parseJson`, `JsonFloat`, `jsonKeys`, `structIssue`, `fromSequence`, `internalTag` / `adjacentTag`, and `Json`, the writers `toJson` calls (`object`, `withTag`, `tuple`, `array`, `map`, `set`, `int`, `bool`, `str`, and the floats), with `BTree.mapJson` for a map whose keys are not `String`s. It depends on no schema library |
+| Adapters `purecrate-zod`, `-valibot`, `-arktype` | `packages/boundary-<lib>`, the one passed with `--schema` copied in as `src/purecrate-<lib>.ts` | Thin adapters, one per schema library: the scalar schemas (`i8` .. `u128`, `usize`, `f32`, `f64`, `bool`, `unit`, `str`, `char`, `uuid`, `uuidError`), `nullable`, `record` (and arktype's `sequence`) for a struct, `variant` / `unitVariant` / `unitEnum` for an enum, `btreeMap` / `btreeSet` / `btreeMapOf` / `btreeSetOf` with `intKey` / `boolKey` for maps and sets, `internallyTagged` / `adjacentlyTagged`; zod's also `optionalField`, arktype's also `Wire`, `memo`, `keyed`, `fail` |
+| Wire module | `src/purecrate-wire.ts`, emitted by `--schema <lib>` | A schema for each public struct and enum that derives `Deserialize`, reading serde's JSON (with the attributes of §3.6 and §5) into the branded domain type; `fromJson.T(text)` for each, reading the text through `parseJson` and the schema; and `toJson.T(x)` for each that derives `Serialize`, writing it back (§6). See §3.2 |
 
 Each adapter's library is a peer dependency of the generated package:
 
@@ -54,31 +55,35 @@ Each adapter's library is a peer dependency of the generated package:
 
 - **Derives pass.** The input's types may derive `Serialize`/`Deserialize` (and `use serde::…`), so the server reads and writes the same types.
 - **Only the derives make a wire form.** A schema reads a type that derives `Deserialize`, and `toJson` writes one that derives `Serialize`; a type with neither has no wire form, as in Rust. Without this, a closed type with no derive (signup's `Email`) got a schema that built it by shape, a value Rust has no way to read from JSON. `--schema` on a crate where no public type derives either is refused.
-- **What the derive needs.** A type that derives one holds only types that derive it too, and no std `Ordering`, which serde gives no form; `check` refuses the rest (`item/serde-derive`), as the real derive does. With `#[serde(try_from = "T")]`, `Deserialize` needs it of `T` instead of the fields.
-- **How `check` handles them.** `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`). The translated code is unaffected, and the real derive is checked by the server's build.
-- **Attributes: a fixed set, the rest refused.** `rename`, `rename_all`, `tag`, and `content` are modeled where serde reads them (§3.6), and `try_from` on a struct (§5). Any other `#[serde(...)]` (`untagged`, `flatten`, `default`, `skip*`, `alias`, `deny_unknown_fields`, `transparent`, a `rename` split by direction, ..) is refused with its location and the list of what is modeled, so a wire format the schemas would not follow is never silently accepted.
-- **Why a stand-in.** Without it, a crate that derives serde fails `check` with `cannot find crate serde`.
+- **What the derive needs.** A type that derives one holds only types that derive it too, no std `Ordering`, which serde gives no form, and no array of more than 32 elements, for which serde implements neither trait; `check` refuses the rest (`item/serde-derive`), as the real derive does. With `#[serde(try_from = "T")]`, `Deserialize` needs it of `T` instead of the fields.
+- **How `check` handles them.** `check` compiles the crate against a stand-in `serde` whose derives expand to nothing (`crates/cli/src/rustc.rs`); without it, a crate that derives serde fails `check` with `cannot find crate serde`. The translated code is unaffected, and the real derive is checked by the server's build.
+- **Attributes: a fixed set, the rest refused.** `rename`, `rename_all`, `tag`, and `content` are modeled where serde reads them (§3.6), and `try_from` on a struct (§5). Any other `#[serde(...)]` (§4) is refused with its location and the list of what is modeled, so a wire format the schemas would not follow is never silently accepted.
 
 ### 3.3 Reading rules
 
-These follow serde's default behavior. Other sections refer to them by number.
+<!-- constrained-by ./01-equivalence.md#726-keys-other-than-string -->
+<!-- constrained-by ./01-equivalence.md#727-fixed-size-arrays -->
 
-1. **Integers and parsing.** Input is an already-parsed value. `i64` / `u64` accept safe-integer numbers and `bigint`, not strings (serde_json refuses `"50"` for an integer); out-of-range values are schema failures, not throws. A rounded `JSON.parse` value always lies outside the safe range and is rejected, so a wrong value is never read. To read JSON text, use `parseJson` (`fromJson.T` does), which reads it as serde_json does where `JSON.parse` would not, from the reviver's source text (Node 21+):
+These follow serde's default behavior, as serde_json 1.0.145 reads and writes it. Other sections refer to them by number.
+
+1. **Integers and parsing.** Input is an already-parsed value. `i64` / `u64` (and `i128` / `u128`) accept safe-integer numbers and `bigint`, not strings (serde_json refuses `"50"` for an integer); out-of-range values are schema failures, not throws. A rounded `JSON.parse` value always lies outside the safe range and is rejected, so a wrong value is never read. To read JSON text, use `parseJson` (`fromJson.T` does), which reads it as serde_json does where `JSON.parse` would not, from the reviver's source text (Node 21+):
    - an integer literal outside ±(2^53−1) becomes a `bigint` with its exact value;
-   - an integral number written as a float (`50.0`, `5e1`, `-0`) becomes a `JsonFloat`, which the `f32` / `f64` schemas read and every integer schema refuses, as serde reads such a number as a float only;
-   - an object that holds a key twice (`JSON.parse` keeps the last), or a key with a lone surrogate, is noted on the object (`jsonKeys`), not refused: serde refuses a field twice and a key it cannot decode only in an object it reads, and reads past both in a field it ignores (`{"value":1,"x":1,"x":2}` is a `Chain`; `{"value":1,"value":2}` is not). The schema that reads the object refuses them (`structIssue`): a struct for a field it has, a variant's wrapper for any key.
-   - each object's keys written with an escape, and its keys' order in the text where `Object.keys` differs (it lists integer-like keys first), are noted the same way, for a map whose keys are not `String`s (other keys, below).
+   - an integral number written as a float (`50.0`, `5e1`, `-0`) becomes a `JsonFloat`, which the `f32` / `f64` schemas read and every integer schema refuses, as serde reads such a number as a float only (`-0` into an `i128` alone, as `0`, as serde_json reads it);
+   - what `JSON.parse` loses about an object's keys is noted on the object (`jsonKeys`), not refused, for the schema that reads it to decide: a key held twice (`JSON.parse` keeps the last), a key with a lone surrogate, the keys written with an escape, and the keys' order in the text where `Object.keys` differs (it lists integer-like keys first). A struct or a variant's wrapper refuses the first two (`structIssue`): a struct for a field it has, a wrapper for any key, as serde refuses a field twice and a key it cannot decode only in an object it reads and reads past both in a field it ignores (`{"value":1,"x":1,"x":2}` is a `Chain`; `{"value":1,"value":2}` is not). A map reads the other two (rule 6).
+
    Without `parseJson` (an already-parsed value), `50.0` cannot be told from `50` and is read as an integer.
 2. **`Option`.** A missing `Option` field and `null` are both `None`.
-   **Generic types.** A generic type's schema is a function of its parameters' schemas (`export const Page = <T>(wireT: z.ZodType<T>): z.ZodType<Page$<T>> => ..`, `Page(User)` where it is used), its writer a function of their writers (`toJson.Page(x, (v) => toJson.User(v))`), and `fromJson.Page(text, User)`. A recursive one is behind `lazy` inside the function. With arktype the parameter is any `Type` (`WT extends Type`, its value `WT["infer"]`, as the adapter's `nullable` takes one); inside, the schema is read as a plain `Type`, which arktype's type-level check of a definition takes where an unresolved `WT` fails it. Round-tripped byte for byte against serde_json in each library (`wire_write.rs`).
-   **`BTreeMap<String, V>` and `BTreeSet<String>`.** A map is a JSON object: every own key, `__proto__` and `constructor` included, is a key (zod's record drops `__proto__`, valibot's `__proto__` and `constructor`, so the adapters' `btreeMap` reads the object itself), a key with a lone surrogate is refused, and a key the text holds twice keeps its last value, as serde's map does (`JSON.parse` has kept it). A set is an array of strings, a repeated one kept once. `toJson` writes a map's keys, and a set's, in Rust's order, by code point, as serde_json writes them; round-tripped byte for byte against serde_json (`wire_write.rs`).
-   **Other keys** ([01 §7.26](./01-equivalence.md#726-keys-other-than-string)). A map keyed by an integer, `char`, `bool`, `Uuid`, or a newtype of one or of `String` is a JSON object whose keys are each key's text, as serde_json 1.0.145 writes it: an integer's digits (`u128` and `i128` too), `true` / `false`, the `char` or `Uuid` itself, a newtype's content's; `toJson` writes them in the key type's order (`BTree.mapJson(m, Ord.cmp, write)`, so `"9"` before `"10"`). The adapters read each key from its text, as serde_json's map-key deserializer does, by `btreeMapOf(key, value)`: an integer key through `intKey(t)`, JSON's integer grammar only (`"01"`, `"+1"`, `" 1"`, `""`, `"1e2"`, `"1.0"` refused), a `number` where it is safe and a `bigint` past that, then `t`'s range; `"-0"` into an `i128` alone, as `0`, as the value `-0` is read; a `bool` key through `boolKey(t)`, exactly `"true"` or `"false"`; a `char`, `Uuid`, or newtype of `String` key by its own schema, so a `Uuid` key in any form `parse_str` takes becomes the canonical form. A newtype key goes through the newtype's schema after its content's, as serde reads a newtype key. Two texts of one key keep the later value in the text, as serde's map does: `btreeMapOf` reads the keys in the order `parseJson` noted (`jsonKeys`), not `Object.keys`'s, which puts integer-like keys first (`"0"` before an earlier `"-0"`). A set of such keys is an array of their JSON values, `btreeSetOf(t)` (`[9,10]`), written in key order. An integer or `bool` key written with an escape (`"\u0031"`, `"1\/"`) is refused: serde_json reads it from the bytes between its quotes, and `parseJson` notes which keys were written with one, which `btreeMapOf` refuses for an `intKey` or `boolKey`; a `char`, `Uuid`, or `String` newtype key with an escape is decoded, as serde_json decodes it. Each text tested, accepted or refused, is read and written back as serde_json does, in each library (`wire_write.rs`).
-   **Arrays `[T; N]`** (from 0.23.0). An array is a JSON array of exactly `N` elements, as serde reads one: zod's `z.array(..).length(N)`, valibot's `v.pipe(v.array(..), v.length(N))`, arktype's `.array().exactlyLength(N)`; one of another length, nested too, is rejected. `toJson` writes it as a `Vec`. serde implements its traits for arrays of up to 32 elements, so `check` refuses a longer one in a type that derives `Serialize` or `Deserialize`, which the real derive refuses. Round-tripped byte for byte against serde_json, and read at every wrong length as serde_json refuses it (`wire_write.rs`).
 3. **`char` and `Uuid`.**
-   - A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"e\u0301"`, and a lone surrogate are rejected, as serde_json rejects them.
+   - A `char` is a string of exactly one Unicode scalar value: `""`, `"ab"`, `"é"`, and a lone surrogate are rejected, as serde_json rejects them.
    - A `Uuid` is read from any string `Uuid::parse_str` accepts and becomes the canonical form; anything else, and a JSON array of bytes (which serde_json never passes to `Uuid`), is rejected. `toJson` writes the canonical form, as serde does.
    - `uuid::Error` has no JSON form in Rust; its schema rejects every value.
-4. **Enum objects and struct fields.** With the default (external) tagging, the object wrapping a variant has exactly one key; extra keys are rejected. Tagged enums read as §3.6 says. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`. A struct (and a struct variant's fields) is a JSON object, or its sequence form: an array of exactly its fields, in order, which serde reads too though serde_json never writes one (`[3,null]` is a `Chain { value: 3, next: None }`; `[3]` and `[3,null,1]` are refused, as serde refuses them, and so is an `Option` field left out of the array). The adapters' `record` (arktype's `sequence`) reads an array of that length as the object; one of another length is refused, where valibot's and arktype's object shapes would read every field as missing. Tested against serde_json on each of these texts.
+4. **Enum objects and struct fields.** With the default (external) tagging, the object wrapping a variant has exactly one key; extra keys are rejected. Tagged enums read as §3.6 says. Unknown fields inside structs are ignored. A unit variant accepts `"Dot"` and `{"Dot":null}`. So `{"Circle":1.5,"Rect":[1,2]}` is rejected, not read as `Circle`. A struct (and a struct variant's fields) is a JSON object, or its sequence form: an array of exactly its fields, in order, which serde reads too though serde_json never writes one (`[3,null]` is a `Chain { value: 3, next: None }`; `[3]` and `[3,null,1]` are refused, as serde refuses them, and so is an `Option` field left out of the array). The adapters' `record` (arktype's `sequence`) reads an array of that length as the object; one of another length is refused, where valibot's and arktype's object shapes would read every field as missing.
+5. **Generic types.** A generic type's schema is a function of its parameters' schemas (`export const Page = <T>(wireT: z.ZodType<T>): z.ZodType<Page$<T>> => ..`, `Page(User)` where it is used), its writer a function of their writers (`toJson.Page(x, (v) => toJson.User(v))`), and `fromJson.Page(text, User)`. A recursive one is behind `lazy` inside the function. With arktype the parameter is any `Type` (`WT extends Type`, its value `WT["infer"]`, as the adapter's `nullable` takes one); inside, the schema is read as a plain `Type`, which arktype's type-level check of a definition takes where an unresolved `WT` fails it.
+6. **`BTreeMap` and `BTreeSet`.** A map is a JSON object whose keys are each key's text; a set is an array of its keys' JSON values. `toJson` writes both in Rust's key order: by code point for `String`, `char`, and `Uuid` keys, by value for integers (`"9"` before `"10"`, `BTree.mapJson(m, Ord.cmp, write)`) and `bool`s.
+   - **`String` keys** (`btreeMap`, `btreeSet`). Every own key of the object is a key, `__proto__` and `constructor` included (zod's record drops `__proto__`, valibot's `__proto__` and `constructor`, so the adapters read the object itself); a key with a lone surrogate is refused. A set is an array of strings.
+   - **Other keys** ([01 §7.26](./01-equivalence.md#726-keys-other-than-string): an integer, `char`, `bool`, `Uuid`, or a newtype of one or of `String`), read by `btreeMapOf(key, value)` and `btreeSetOf(key)` as serde_json's map-key deserializer reads them. An integer key goes through `intKey(t)`: JSON's integer grammar only (`"01"`, `"+1"`, `" 1"`, `""`, `"1e2"`, `"1.0"` refused), a `number` where it is safe and a `bigint` past that, then `t`'s range (`u128` and `i128` too); `"-0"` only into an `i128`, as `0`. A `bool` key goes through `boolKey(t)`, exactly `"true"` or `"false"`. A `char`, `Uuid`, or `String` newtype key is read by its own schema, so a `Uuid` key in any form `parse_str` takes becomes the canonical form; a newtype key goes through the newtype's schema after its content's, as serde reads a newtype key. An integer or `bool` key written with an escape (`"1"`, `"1\/"`) is refused, as serde_json reads it from the bytes between its quotes; a `char`, `Uuid`, or `String` newtype key with an escape is decoded, as serde_json decodes it. A set of such keys is an array of their JSON values (`[9,10]`).
+   - **A key twice.** A later text of one key keeps its value, as serde's map does: `JSON.parse` has kept the last of two equal texts, and `btreeMapOf` reads the keys in the order `parseJson` noted (rule 1), not `Object.keys`'s, so of two texts of one key (`"-0"` and `"0"` into an `i128`, a `Uuid` in two cases) the later in the text wins. A set keeps a repeated key once.
+7. **Arrays `[T; N]`.** A JSON array of exactly `N` elements, as serde reads one: zod's `z.array(..).length(N)`, valibot's `v.pipe(v.array(..), v.length(N))`, arktype's `.array().exactlyLength(N)`; one of another length, nested too, is rejected. `toJson` writes it as a `Vec`. A longer array than serde implements its traits for is refused by `check` (§3.2).
 
 ### 3.4 Per-library notes
 
@@ -92,7 +97,11 @@ These follow serde's default behavior. Other sections refer to them by number.
 
 ### 3.5 Verification
 
-`fixtures/wire_shapes.rs` covers every type form. For all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node against serde-default JSON and malformed inputs (`crates/cli/tests/it/wire.rs`).
+For all three libraries the schemas pass `tsc --strict` on TS 6 and 7 and are run on node:
+
+- `crates/cli/tests/it/wire.rs`: `fixtures/wire_shapes.rs`, which covers every type form, against serde-default JSON and malformed inputs.
+- `crates/cli/tests/it/wire_write.rs`: each rule of §3.3 against the vendored serde_json, every text accepted or refused as serde_json does, and what is read written back byte for byte (§6): integers and floats, struct sequence forms, generic types, maps and sets of every key type (each key text in rule 6, escaped keys of every key type, two texts of one key in either order), and arrays at their length and at every wrong one.
+- `crates/cli/tests/it/wire_attrs.rs`: the attributes of §3.6.
 
 ### 3.6 Names and tags
 
@@ -120,7 +129,10 @@ The attributes a server most often puts on its wire types, modeled as serde_deri
 
 ## 4. Out of scope
 
-Parsing JSON inside transitions; type declarations alone as a ts-rs replacement; semantic checks transcribed into `.refine` (meaning comes only from Rust functions, §5). Of serde's attributes, everything §3.6 and §5 do not list: `untagged` (serde tries each variant in turn and keeps the first that reads, an order the schemas would have to copy exactly), `flatten` (the fields of one struct read from another's object, which serde buffers and the fixed object schemas cannot), `default` and `skip*` (a value made by a Rust function the generated code may not have), `alias`, `deny_unknown_fields`, and `transparent`. Each is refused with its location; a server that needs one keeps a separate wire type and converts in Rust.
+- Parsing JSON inside transitions.
+- Type declarations alone as a ts-rs replacement.
+- Semantic checks transcribed into `.refine`: meaning comes only from Rust functions (§5).
+- Of serde's attributes, everything §3.6 and §5 do not list: `untagged` (serde tries each variant in turn and keeps the first that reads, an order the schemas would have to copy exactly), `flatten` (the fields of one struct read from another's object, which serde buffers and the fixed object schemas cannot), `default` and `skip*` (a value made by a Rust function the generated code may not have), `alias`, `deny_unknown_fields`, `transparent`, and a `rename` split by direction. Each is refused with its location; a server that needs one keeps a separate wire type and converts in Rust.
 
 ## 5. Closed types on the wire
 
@@ -135,7 +147,7 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 
 **Verification.** In `wire_write.rs`, for all three libraries: every schema reads a `PaymentMethodId`, an `Amount`, or an event carrying one exactly when `X::try_from` accepts the value, and gives the same value. The real serde on the same source (the `cargo test` in `bench/payment/wasm`) rejects the same inputs, with the `Display` text in its error.
 
-**Remaining difference.** One difference remains, from [§3.3 rule 1](#33-reading-rules): `i64`/`u64` also read digit strings (`"50"`), which serde_json rejects. With `try_from` the value still passes through the constructor.
+**Remaining difference.** None in what the schemas read from `fromJson.T`. A schema handed an already-parsed value cannot tell `50.0` from `50` ([§3.3 rule 1](#33-reading-rules)); with `try_from` the value still passes through the constructor.
 
 ## 6. Reading and writing text
 
@@ -147,11 +159,14 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 
 | Value | Written as |
 | --- | --- |
-| integers, `i64`/`u64` included | the exact decimal (`bigint` is not rounded) |
+| integers, `i64` to `u128` included | the exact decimal (`bigint` is not rounded) |
 | `f64` / `f32` | ryu's layout: `1.0`, `-0.0`, `0.001`, `1e16`, `1.5e-7`; `f32` with its own shortest digits, ties to even |
 | non-finite floats | `null`, as serde_json writes them; neither side reads `null` back as a float |
-| `String` | `JSON.stringify`, which escapes as serde_json does for well-formed strings |
-| structs, enums, `Option`, `Vec`, tuples, `()`, `Result` | serde's default shapes (§1); struct fields in declaration order |
+| `String`, `char` | `JSON.stringify`, which escapes as serde_json does for well-formed strings |
+| `Uuid` | its canonical form |
+| `BTreeMap`, `BTreeSet` | an object and an array, in Rust's key order (§3.3 rule 6) |
+| `[T; N]` | an array, as a `Vec` |
+| structs, enums, `Option`, `Vec`, tuples, `()`, `Result` | serde's default shapes (§1), or §3.6's; struct fields in declaration order |
 
 **Limits.**
 
@@ -163,7 +178,7 @@ serde's `#[derive(Deserialize)]` builds closed types by shape without calling th
 **Verification.** `crates/cli/tests/it/wire_write.rs` checks against the vendored serde_json, over `Serialize` impls that `purecrate_canon::fixture!` generates with the data-model calls `#[derive(Serialize)]` makes:
 
 - floats: 80,000 pseudo-random bit patterns and boundary values (2,000,000 once, by hand), text equal;
-- shapes: every type form in `wire_shapes.rs`, written by serde_json, read by the schema, and written back, text equal;
+- shapes: every type form in `wire_shapes.rs`, generic types, maps and sets of every key type, and arrays, written by serde_json, read by the schema, and written back, text equal;
 - payment: every state reachable in three events under each capture and confirmation method, times every event: the client's `toJson(step(read(state), read(event)))` equals the server's `serde_json::to_string(&step(state, event))`.
 
 ## 7. Open questions
