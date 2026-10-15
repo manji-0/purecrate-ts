@@ -621,7 +621,13 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             // scope did (`rename` let a later `let` reuse one of them, which
             // would hide or meet it), so `if (true) { .. }`, printed as a
             // block of its own.
-            if matched && !ends_in_match(first) && !matches!(**first, Expr::If { .. }) && declares(first) {
+            // (Nothing following, the block would be lint's lone block.)
+            if matched
+                && !ends_in_match(first)
+                && !matches!(**first, Expr::If { .. })
+                && declares(first)
+                && **then != Expr::Lit(Lit::Unit)
+            {
                 let taken = std::mem::replace(&mut **first, Expr::Lit(Lit::Unit));
                 **first = Expr::If {
                     cond: Box::new(Expr::Lit(Lit::Bool(true))),
