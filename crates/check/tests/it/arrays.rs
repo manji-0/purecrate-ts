@@ -74,10 +74,7 @@ fn lengths_and_elements_outside_v0_are_refused() {
     );
     assert_rejects("pub fn f(a: [Option<u8>; 2]) -> bool { a[0].is_some() }", "an array of `Option<u8>` is not in v0");
     assert_rejects("pub fn f(a: [(); 2]) -> usize { a.len() }", "an array of `()` is not in v0");
-    assert_rejects(
-        "pub const T: [u8; 3] = [1, 2]; pub fn f() -> u8 { T[0] }",
-        "a `[u8; 3]` holds 3 elements, found 2",
-    );
+    assert_rejects("pub const T: [u8; 3] = [1, 2]; pub fn f() -> u8 { T[0] }", "a `[u8; 3]` holds 3 elements, found 2");
     assert_rejects("pub fn f() -> [u8; 3] { [1, 2] }", "expected an array of 3 elements, found one of 2");
 }
 

@@ -10,6 +10,11 @@
 //! the integer patterns (`[a, .., 0..=9]`), `if let [p, rest @ ..]`, and
 //! `matches!` on a slice.
 //!
+//! From another, an array `[i32; N]` built by a literal or by `[x; N]`,
+//! then indexed in and past its end (`arr[xs.len()]`), matched by slice
+//! patterns exhaustive by its one length, destructured by `let`, or
+//! written in place on a `let mut` copy (design/01 §7.27).
+//!
 //! And from a third, generic functions over `T: Ord`, `T: PartialOrd`,
 //! `T: Display`, and `T: Default`, called at `i32`, `bool`, a tuple, and
 //! the crate's types, which pass their dictionaries (design/01 §7.25).
@@ -332,6 +337,115 @@ impl Pats {
         }
     }
 
+    /// A slice pattern over an array of `n` elements, whose elements bind
+    /// `i32`s: every length but `n` is refused by rustc, so only `n`
+    /// elements, or fewer around a `..`.
+    fn array_pat(&mut self, n: usize) -> String {
+        let elems = |k: usize, me: &mut Self| (0..k).map(|_| me.int_pat()).collect::<Vec<_>>();
+        match self.g.rng.below(5) {
+            0 | 1 => format!("[{}]", elems(n, self).join(", ")),
+            // At most `n` elements around the `..`.
+            2 => {
+                let k = self.g.rng.below(n as u64 + 1) as usize;
+                let mut all = elems(k, self);
+                all.push("..".into());
+                all.extend(elems(usize::from(k < n), self));
+                format!("[{}]", all.join(", "))
+            }
+            3 => format!("[{}, ..]", self.int_pat()),
+            _ => format!("[.., {}]", self.int_pat()),
+        }
+    }
+
+    /// An array of `i32`s built from what is in scope, then read: indexed
+    /// in and past its end, matched, destructured, or written in place.
+    /// Drawn from a generator of its own.
+    fn array_function(&mut self, ret: Ret) -> String {
+        let n = 1 + self.g.rng.below(4) as usize;
+        let built = if self.g.rng.below(3) == 0 {
+            format!("[{}; {n}]", self.g.without_try(|g| g.int(1)))
+        } else {
+            let elems: Vec<String> = (0..n).map(|_| self.g.int(1)).collect();
+            format!("[{}]", elems.join(", "))
+        };
+        let wrap = |v: String| match ret {
+            Ret::Int => v,
+            Ret::Step => format!("Ok(State::Count({v}))"),
+        };
+        let mut out = format!(
+            "    let arr: [i32; {n}] = {built};
+"
+        );
+        match self.g.rng.below(5) {
+            // `xs.len()` is 0 to 4: in range for some rows, past the end for
+            // others, where Rust panics; a literal index stays in range.
+            0 => {
+                let k = self.g.rng.below(n as u64);
+                let v = self.g.int(1);
+                writeln!(out, "    {}", wrap(format!("arr[xs.len()] + arr[{k}] - {v}"))).expect("write");
+            }
+            1 => {
+                let arms = self.arms(ret, false, |p| p.array_pat(n));
+                write!(
+                    out,
+                    "    match arr {{
+{arms}    }}"
+                )
+                .expect("write");
+            }
+            2 => {
+                let scope = self.g.scope.len();
+                self.bound.clear();
+                let ends = n > 1 && self.g.rng.below(2) == 0;
+                let names: Vec<String> = (0..if ends { 2 } else { n }).map(|_| self.bind(Ty::Int)).collect();
+                let pat =
+                    if ends { format!("[{}, .., {}]", names[0], names[1]) } else { format!("[{}]", names.join(", ")) };
+                let first = names[0].clone();
+                let v = self.g.int(1);
+                writeln!(
+                    out,
+                    "    let {pat} = arr;
+    {}",
+                    wrap(format!("{first} + {v}"))
+                )
+                .expect("write");
+                self.g.scope.truncate(scope);
+            }
+            3 => {
+                let at = if self.g.rng.below(2) == 0 {
+                    "xs.len()".to_string()
+                } else {
+                    self.g.rng.below(n as u64).to_string()
+                };
+                let v = self.g.int(1);
+                let k = self.g.rng.below(n as u64);
+                writeln!(
+                    out,
+                    "    let mut m = arr;
+    m[{at}] = {v};
+    {}",
+                    wrap(format!("m[{k}] - arr[{k}]"))
+                )
+                .expect("write");
+            }
+            _ => {
+                let test = format!("if let [{}, rest @ ..] = arr", self.small());
+                let then = wrap("rest.len() as i32".into());
+                let else_ = self.body(ret);
+                write!(
+                    out,
+                    "    {test} {{
+        {then}
+    }} else {{
+        {else_}
+    }}"
+                )
+                .expect("write");
+            }
+        }
+        out
+    }
+
     /// An event built from what is in scope.
     fn event(&mut self, d: u32) -> String {
         match self.g.rng.below(5) {
@@ -610,6 +724,18 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.order_function(ret);
             let name = format!("p{seed}_o{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        let mut p = Pats { g: Gen::new(seed ^ 0xa77a), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.array_function(ret);
+            let name = format!("p{seed}_a{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

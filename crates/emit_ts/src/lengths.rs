@@ -26,11 +26,18 @@ thread_local! {
 #[derive(Clone)]
 pub(crate) enum Def {
     /// A struct's fields by key; a newtype's content is the value itself.
-    Struct { generics: Vec<Name>, fields: Vec<(String, Ty)>, newtype: bool },
+    Struct {
+        generics: Vec<Name>,
+        fields: Vec<(String, Ty)>,
+        newtype: bool,
+    },
     /// A closed struct, never walked.
     Closed,
     /// Each variant's fields by key, by `kind`.
-    Enum { generics: Vec<Name>, variants: Vec<(String, Vec<(String, Ty)>)> },
+    Enum {
+        generics: Vec<Name>,
+        variants: Vec<(String, Vec<(String, Ty)>)>,
+    },
     Alias(Ty),
 }
 
@@ -79,7 +86,12 @@ enum Shape {
     Len(usize),
     /// A recursive type's entry in the table.
     Ref(String),
-    Node { len: Option<usize>, each: Option<Box<Shape>>, at: Vec<(String, Shape)>, kinds: Vec<(String, Vec<(String, Shape)>)> },
+    Node {
+        len: Option<usize>,
+        each: Option<Box<Shape>>,
+        at: Vec<(String, Shape)>,
+        kinds: Vec<(String, Vec<(String, Shape)>)>,
+    },
 }
 
 /// The shape of `ty`, and the table of the recursive types it names,

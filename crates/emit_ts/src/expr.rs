@@ -144,7 +144,8 @@ pub(crate) fn checked_strings(f: &Fn) -> Fn {
         for p in f.params.iter().rev() {
             // Its arrays' lengths after its strings (design/01 §7.27).
             if let Some((shape, table)) = crate::lengths::shape(&p.ty) {
-                let check = Expr::Call { callee: Callee::SliceLengths { shape, table }, args: vec![Expr::Var(p.name.clone())] };
+                let check =
+                    Expr::Call { callee: Callee::SliceLengths { shape, table }, args: vec![Expr::Var(p.name.clone())] };
                 body = Expr::Seq { first: Box::new(check), then: Box::new(body) };
             }
             if crate::context::holds_string(&p.ty) {

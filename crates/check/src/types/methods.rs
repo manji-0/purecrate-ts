@@ -103,11 +103,12 @@ impl<'d, 'a> Typer<'d, 'a> {
         let nt = rt.as_ref().map(|t| self.norm(t));
         // An array is read as a slice, and written only by `a[i] = x`
         // (design/01 §7.27).
-        if let Some(n) = rt.as_ref().and_then(|t| self.array_len(t)) {
+        if rt.as_ref().and_then(|t| self.array_len(t)).is_some() {
             let why = match name.as_str() {
-                "map" => Some(format!(
+                "map" => Some(
                     "`a.map(f)` on an array is not in v0: build the new array element by element (`[f(a[0]), f(a[1])]`), write it in a loop on a `let mut` copy, or collect a `Vec` with `a.iter().map(f).collect()`"
-                )),
+                        .to_string(),
+                ),
                 "sort" | "sort_by" | "sort_by_key" | "sort_unstable" | "sort_unstable_by" | "sort_unstable_by_key"
                 | "reverse" | "fill" | "swap" | "iter_mut" => Some(format!(
                     "`.{}()` writes an array in place, which is not in v0: an array is written only by `a[i] = x` on a `let mut` local; sort or edit a `Vec` (`let mut v: Vec<T> = a.iter().copied().collect();`)",
@@ -120,7 +121,6 @@ impl<'d, 'a> Typer<'d, 'a> {
                 _ => None,
             };
             if let Some(why) = why {
-                let _ = n;
                 self.out.push(Diagnostic::at(self.item, Reason::MethodCall, why).about(name.as_str()));
                 return (receiver.clone(), None);
             }

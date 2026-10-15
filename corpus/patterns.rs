@@ -27,6 +27,14 @@ pub fn p06b_count_by_key(xs: Vec<u32>) -> BTreeMap<u32, usize> { let mut m: BTre
 pub fn p06c_newtype_key(m: &BTreeMap<UserId, i64>, id: UserId) -> Option<i64> { m.get(&id).copied() }
 pub fn p07_generic<T: Clone>(x: T) -> T { x }
 pub fn p08_array(b: [u8; 4]) -> u8 { b[0] }
+pub const HEX: [char; 4] = ['0', '1', 'a', 'f'];
+pub fn p08b_array_table(i: usize) -> char { HEX[i % 4] }
+pub fn p08c_array_build(x: u8) -> [u8; 4] { let mut a = [0u8; 4]; a[0] = x; a }
+pub fn p08d_array_let(b: [u8; 4]) -> u32 { let [a, _, _, d] = b; u32::from(a) + u32::from(d) }
+pub fn p08e_array_match(b: [u8; 2]) -> u8 { match b { [0, x] => x, [x, _] => x } }
+pub fn p08f_array_iter(b: &[u32; 3]) -> u32 { b.iter().sum() }
+pub struct Rgb { pub c: [u8; 3] }
+pub fn p08g_array_field(px: Rgb) -> Vec<u8> { px.c.iter().copied().collect() }
 pub fn p11_rev(xs: Vec<u32>) -> Vec<u32> { xs.into_iter().rev().collect() }
 pub fn p12_zip(a: Vec<u32>, b: Vec<u32>) -> u32 { a.iter().zip(b.iter()).map(|(x, y)| x * y).sum() }
 pub fn p15_find(xs: &[Item], sku: &str) -> Option<Item> { xs.iter().find(|i| i.sku == sku).cloned() }

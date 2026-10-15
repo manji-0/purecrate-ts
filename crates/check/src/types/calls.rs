@@ -336,9 +336,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             | Callee::VecPush
             | Callee::VecInsert
             | Callee::StrWellFormed
-            | Callee::SliceLengths { .. } => {
-                (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit)))
-            }
+            | Callee::SliceLengths { .. } => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit))),
             // Written only by `method_call` and `collect`, typed.
             // `syntax` writes one between the writes of a `fmt` (design/01
             // §7.25): two texts `format!` makes are one template.

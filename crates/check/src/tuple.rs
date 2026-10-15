@@ -444,7 +444,11 @@ impl Lowering<'_, '_, '_> {
                         }
                         if let Some(Pattern::Var(r)) = rest.as_deref() {
                             let cut = Callee::SliceRest { front: p, back: s };
-                            row.binds.push((r.clone(), slice_ty.clone(), Expr::Call { callee: cut, args: vec![subject.clone()] }));
+                            row.binds.push((
+                                r.clone(),
+                                slice_ty.clone(),
+                                Expr::Call { callee: cut, args: vec![subject.clone()] },
+                            ));
                         }
                         row.pats.extend(prefix);
                         row.pats.extend(vec![Pattern::Wildcard; len - p - s]);
@@ -462,7 +466,10 @@ impl Lowering<'_, '_, '_> {
             .collect();
         let mut inner = subjects.to_vec();
         inner.extend((0..len).map(|index| {
-            (Expr::Call { callee: Callee::SliceElem { index, from_end: false }, args: vec![subject.clone()] }, item.clone())
+            (
+                Expr::Call { callee: Callee::SliceElem { index, from_end: false }, args: vec![subject.clone()] },
+                item.clone(),
+            )
         }));
         self.compile(&inner, rows)
     }

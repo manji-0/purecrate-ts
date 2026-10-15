@@ -1224,9 +1224,10 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
                     method(method(schema_ty(schema, elem), "array", Vec::new()), "exactlyLength", vec![n])
                 }
                 WireSchema::Zod => method(own("array", vec![schema_ty(schema, elem)]), "length", vec![n]),
-                WireSchema::Valibot => {
-                    call_path("v.pipe", vec![own("array", vec![schema_ty(schema, elem)]), call_path("v.length", vec![n])])
-                }
+                WireSchema::Valibot => call_path(
+                    "v.pipe",
+                    vec![own("array", vec![schema_ty(schema, elem)]), call_path("v.length", vec![n])],
+                ),
             }
         }
         Ty::Tuple(elems) => {
@@ -1437,9 +1438,7 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
         Ty::Option(inner) => {
             ternary(raw(format!("{value} === null")), str_lit("null"), write_json(inner, value, depth))
         }
-        Ty::Vec(inner) | Ty::Array { elem: inner, .. } => {
-            call_path("Json.array", vec![raw(value), each(inner, depth)])
-        }
+        Ty::Vec(inner) | Ty::Array { elem: inner, .. } => call_path("Json.array", vec![raw(value), each(inner, depth)]),
         Ty::Tuple(elems) => {
             let parts = elems.iter().enumerate().map(|(i, t)| write_json(t, &format!("{value}[{i}]"), depth)).collect();
             call_path("Json.tuple", vec![Js::Array(parts)])
