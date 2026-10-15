@@ -886,10 +886,14 @@ export const Ord = {
       Ord.cmpList(a, b, by),
   // #endregion
   // #region ord.tuple
-  /** `cmp` on two tuples: element `i` by `bys[i]`, the first that is not `Equal` deciding. */
+  /**
+   * `cmp` on two tuples: element `i` by `bys[i]`, the first that is not
+   * `Equal` deciding. Both of one type `A`, so an element's brand
+   * (`1 as U8`) is the type's, not a cast the call does not need.
+   */
   tuple:
     (...bys: ReadonlyArray<(a: never, b: never) => Ordering>) =>
-    (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): Ordering => {
+    <A extends ReadonlyArray<unknown>>(a: A, b: A): Ordering => {
       for (let i = 0; i < bys.length; i++) {
         const o = (bys[i] as (x: unknown, y: unknown) => Ordering)(a[i], b[i]);
         if (o.kind !== "Equal") return o;

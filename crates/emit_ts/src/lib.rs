@@ -167,7 +167,41 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
     out.push_str(&body);
     // A companion with nothing in it is `{}`, as oxfmt prints it.
     let out = out.replace(" = {\n} as const;", " = {} as const;");
-    paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out))))
+    let out = paragraph::paragraphs(&destructure::destructure(&plain::plain_names(&imports::prune_unused(&out))));
+    empty_loops(&out)
+}
+
+/// `out` with each loop nothing is left in (its body's statements all
+/// dropped as unread, so a pass only walks the source) as `for (..);`:
+/// oxfmt prints an empty body `{\n}`, which lint's `empty-brace-spaces`
+/// refuses, and keeps no `{}`.
+fn empty_loops(out: &str) -> String {
+    let lines: Vec<&str> = out.split('\n').collect();
+    let mut kept: Vec<String> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let pad = line.len() - line.trim_start().len();
+        // The head may run over several lines (a function called in it):
+        // the loop opens on the last line before this one at its depth.
+        let opener = (0..=i).rev().map(|j| lines[j]).find(|l| {
+            let t = l.trim_start();
+            l.len() - t.len() == pad && !t.starts_with(')') && !t.starts_with("})")
+        });
+        let head = opener.unwrap_or(line).trim_start();
+        let looped = head.starts_with("for (") || head.starts_with("while (");
+        if looped
+            && line.ends_with(") {")
+            && lines.get(i + 1).is_some_and(|next| next.trim() == "}" && next.len() - 1 == pad)
+        {
+            kept.push(format!("{};", &line[..line.len() - 2]));
+            i += 2;
+        } else {
+            kept.push(line.to_string());
+            i += 1;
+        }
+    }
+    kept.join("\n")
 }
 
 /// The width oxfmt lays the generated files out to (`purecrate-ts`'s

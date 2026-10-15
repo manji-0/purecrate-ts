@@ -65,6 +65,7 @@ fn std_bounds_match_rust() {
             }
         }
         grid!(cases, std_bounds::chars; a in ['a', 'é', '😀', '\u{e000}', '\0'], b in ['é', '\u{ffff}', '😀']);
+        grid!(cases, std_bounds::tuple_literals; l in [Level::Low, Level::High], n in [i32::MIN, 0, i32::MAX], o in [None, Some(0)]);
         for xs in [vec![], vec![true, false, true], vec![false]] {
             cases.push(case!(std_bounds::bools(xs.clone())));
         }

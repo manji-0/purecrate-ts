@@ -133,6 +133,11 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn displayed_text(&mut self, recv: Expr, t: &Ty, want: Option<&Ty>) -> Option<Typed> {
         let string = Some(Ty::Prim(Prim::String));
         if matches!(t, Ty::Prim(Prim::String | Prim::Str | Prim::Char | Prim::Uuid)) {
+            // A `char` literal's text is a string literal, not a `Char`.
+            let recv = match recv {
+                Expr::Lit(Lit::Char(c)) => Expr::Lit(Lit::Str(c.to_string())),
+                recv => recv,
+            };
             return Some((recv, self.expect(want, string)));
         }
         if matches!(t, Ty::Prim(p) if p.float().is_some()) {

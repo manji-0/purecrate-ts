@@ -614,7 +614,22 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
             // What follows a statement the state says always leaves is still
             // printed where TS may not know it, and checked: it runs from
             // the state before, and nothing past it is reached.
-            let Some(mut s) = flow(first, st.clone(), cx) else {
+            let matched = ends_in_match(first);
+            let flowed = flow(first, st.clone(), cx);
+            // A `match` statement decided to an arm that declares names:
+            // the arm's block keeps them apart from what follows, as its
+            // scope did (`rename` let a later `let` reuse one of them, which
+            // would hide or meet it), so `if (true) { .. }`, printed as a
+            // block of its own.
+            if matched && !ends_in_match(first) && !matches!(**first, Expr::If { .. }) && declares(first) {
+                let taken = std::mem::replace(&mut **first, Expr::Lit(Lit::Unit));
+                **first = Expr::If {
+                    cond: Box::new(Expr::Lit(Lit::Bool(true))),
+                    then: Box::new(taken),
+                    else_: Box::new(Expr::Lit(Lit::Unit)),
+                };
+            }
+            let Some(mut s) = flowed else {
                 flow(then, st, cx);
                 return None;
             };
@@ -1438,4 +1453,13 @@ fn flow_match(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
     split.iter_mut().for_each(unbind_unread);
     *arms = split;
     join_all(outs)
+}
+
+/// Whether `expr` is a `match`, or a block whose last part is one.
+fn ends_in_match(expr: &Expr) -> bool {
+    match expr {
+        Expr::Match { .. } => true,
+        Expr::Let { then, .. } | Expr::Seq { then, .. } => ends_in_match(then),
+        _ => false,
+    }
 }

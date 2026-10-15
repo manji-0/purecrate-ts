@@ -23,6 +23,12 @@
 
 ### Changed
 
+- `Ord.tuple(..)`'s comparator takes both tuples as one type parameter, `<A extends ReadonlyArray<unknown>>(a: A, b: A)`, where it took `ReadonlyArray<unknown>`: an element's brand (`[e, 1 as U8]`, `o !== null ? (2147483647 as I32) : a`) is then the type's, which type-aware oxlint's `no-unnecessary-type-assertion` refused as a cast nothing needed.
+- A `match` statement the flow decides to one arm (`match o.ok_or(e) { .. }` past `o?`) that declares names prints that arm as a block of its own, where it printed its statements in the enclosing block, so a later `let` of one of its names hid it (oxlint's `no-shadow`).
+- A loop whose body is left with nothing (what it built goes unread, and it only walks a source that may panic) prints as `for (const _ of xs);`: oxfmt lays an empty body out as `{` and `}` on two lines, which oxlint's `empty-brace-spaces` refuses.
+- `'日'.to_string()` is the string literal `"日"`, where it was `"日" as Char` read as a string.
+- The equivalence tests of the generators enforce `no-shadow` and `no-unnecessary-type-assertion` again (`GENERATED_SOURCE_RULES`).
+
 - **A function that writes `T: Ord` or `T: PartialOrd` takes a dictionary** (design/01 §7.25; a minor change to the stable surface, design/07 §9). 0.20.0 accepted the bound and ordered nothing through it; now it is one more parameter after the others, and a TS caller passes the type's record: `pub fn top<T: Ord + Clone>(xs: &[T]) -> Option<T>` was `top: <T>(xs: ReadonlyArray<T>): T | null` and is `top: <T>(xs: ReadonlyArray<T>, ordT: Ord<T>): T | null`, called as `top(xs, ordI32)` (the crate's const, where its own calls pass one), `top(xs, Level)` (a crate type's companion), or `top(xs, { cmp: Ord.cmp })`. No example or fixture wrote either bound; their output is unchanged. On a struct's or an enum's own parameters the bound carries nothing, as before.
 - `Display`, `Default`, and `PartialOrd` name the runtime's record types where a function takes such a bound, and `ordI32`, `displayString`, `defaultU8`, and the like a primitive's dictionary: a crate item printed as one of these beside such a bound is refused (`[check/reserved-name]`).
 - `Ord<T>` / `PartialOrd<T>` give their `cmp` std's `Ordering` structurally, as the runtime's `Ord.cmp` does, so a crate type's companion, whose `cmp` gives the crate's `Ordering`, is one.

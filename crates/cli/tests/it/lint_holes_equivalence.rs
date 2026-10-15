@@ -74,6 +74,17 @@ fn lint_holes_match_rust() {
                 }
             }
         }
+        for (s, k) in [("a b", 0usize), ("ünï cd", 1), ("x", 2), ("", 0)] {
+            cases.push(case!(lint_holes::walked_only(s, "k:v", ':', k)));
+        }
+        for o in [None, Some(-4), Some(2), Some(i32::MIN)] {
+            for c in [true, false] {
+                cases.push(case!(lint_holes::taken_arm_scope(o, c)));
+            }
+        }
+        for c in ['日', 'a'] {
+            cases.push(case!(lint_holes::char_text(c)));
+        }
         let px = |c: u8| lint_holes::Px { c, f: 1.5 };
         cases.push(case!(lint_holes::deep_literal(vec![px(3), px(4), px(3)])));
         for k in [0, i32::MAX] {

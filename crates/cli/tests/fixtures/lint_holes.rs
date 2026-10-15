@@ -4,8 +4,10 @@
 // closure whose parameter is read only by a binding nothing reads, a
 // negated test turned round, an arm that returns once the flow decides its
 // test, an `else` that is one guard, an arm that keeps an assigned name, a
-// `p?` left alone by an unread assignment, which TS narrows `p` by, and a
-// closure parameter read only where the flow decided the code away.
+// `p?` left alone by an unread assignment, which TS narrows `p` by, a
+// closure parameter read only where the flow decided the code away, a loop
+// left only walking what it reads, an arm the flow takes that declares a
+// name a later block declares again, and a `char` literal's `to_string`.
 
 #[allow(unused_variables, unused_assignments)]
 pub fn unread_tests(a: i32, b: i32, c: bool) -> i32 {
@@ -258,4 +260,46 @@ pub fn iife_in_field(a: i32, o: Option<i32>, c: bool) -> Result<Shape, i32> {
 pub fn iife_in_argument(a: i32, o: Option<i32>, c: bool) -> bool {
     let step = |x: i32, y: i32| x.wrapping_mul(3) > y;
     c && step(match o.map(|v| v.wrapping_add(a)) { Some(x) if x > 0 => x, _ => a }, a)
+}
+
+// A loop whose body is left with nothing once what it builds goes unread:
+// it still walks what may panic (`for (..);`, as oxfmt keeps no `{}`).
+
+pub fn walked_only(s: &str, t: &str, c: char, k: usize) -> usize {
+    let _w: String = {
+        let mut w = String::new();
+        for _p in s[k..].split_whitespace() {
+            w.push_str(&(match t.split_once(c) { Some((_, b)) => b, None => t }).to_uppercase());
+            w.push(c);
+        }
+        w
+    };
+    s.len()
+}
+
+// An arm the flow takes (`o` is known `Some` past `o?`) that declares a
+// name a later block declares again: its block keeps the two apart.
+
+pub fn taken_arm_scope(o: Option<i32>, c: bool) -> Option<i32> {
+    let x: i32 = (o?).checked_mul(-1i32)?;
+    match o.ok_or(0i32) {
+        Ok(e) => {
+            let ord = e.wrapping_add(x);
+            if ord > 3 {
+                return Some(ord);
+            }
+        }
+        Err(_) => {}
+    }
+    if c {
+        let ord = x.wrapping_mul(2);
+        return Some(ord);
+    }
+    None
+}
+
+// A `char` literal's `to_string` is the text, read where a string goes.
+
+pub fn char_text(c: char) -> Option<usize> {
+    '日'.to_string().find(c)
 }

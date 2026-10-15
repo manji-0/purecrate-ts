@@ -324,13 +324,6 @@ const GENERATED_SOURCE_RULES: &[&str] = &[
     "eslint/no-unused-vars",
     "eslint/no-self-assign",
     "typescript/no-unnecessary-condition",
-    // Not the source's: the output of the default seeds breaks these where
-    // no fixture does, and they are open (0.22.0): a `let x;` assigned
-    // later keeps the name of an outer `x` it shadows (statements), and an
-    // integer literal in a conditional compared by `Ord.tuple` keeps its
-    // `as I32` (patterns).
-    "eslint/no-shadow",
-    "typescript/no-unnecessary-type-assertion",
 ];
 
 #[allow(clippy::assertions_on_constants, reason = "a guard against running the tests in release")]

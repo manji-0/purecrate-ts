@@ -163,7 +163,7 @@ export const Meters = {
 | `#[derive(PartialOrd, Ord)]` on `S<T>` | `cmp: <T>(self: S<T>, other: S<T>, ordT: Ord<T>): Ordering`, a field of type `T` by `ordT.cmp`; `a < b` on `S<u32>` is `S.cmp(a, b, ordU32).kind === "Less"`, a comparator over it `(a: S<U32>, b: S<U32>): Ordering => S.cmp(a, b, ordU32)`; a generic enum's discriminant table checked against `S<unknown>["kind"]` |
 | `#[derive(Default)]` on `S<T>` | `default: <T>(defaultT: Default<T>): S<T>`, a field of type `T` `defaultT.default()`; `S::<u32>::default()` is `S.default(defaultU32)` |
 | `a < b`, `a >= b` on a crate type, an `Option`, a `Vec`, or a tuple | `X.cmp(a, b).kind === "Less"`, `X.cmp(a, b).kind !== "Less"`; `Ord.tuple(Id.cmp, Ord.option(Level.cmp))(a, b).kind ..` |
-| `a.cmp(&b)` on an `Option`, a `Vec`, or a tuple | `Ord.option(X.cmp)(a, b)`, `Ord.cmpList(a, b, X.cmp)`, `Ord.tuple(Ord.cmp, X.cmp)(a, b)`: the runtime's comparators, composed where the body uses them |
+| `a.cmp(&b)` on an `Option`, a `Vec`, or a tuple | `Ord.option(X.cmp)(a, b)`, `Ord.cmpList(a, b, X.cmp)`, `Ord.tuple(Ord.cmp, X.cmp)(a, b)`: the runtime's comparators, composed where the body uses them; `Ord.tuple`'s takes both tuples as one type `A`, so an element's brand is the type's |
 | `a.max(b)`, `a.min(b)`, `x.clamp(lo, hi)` on those | `Ord.max(a, b, X.cmp)`, `Ord.min(..)`, `Ord.clamp(x, lo, hi, X.cmp)` |
 | `v.sort()`, `xs.iter().max()`, `sort_by_key` / `max_by_key` with such a key | `Slice.sortBy(v, X.cmp)`, `Iter.maxBy(xs, X.cmp)`, `Slice.sortByKey(v, f, X.cmp)` / `Iter.maxByKey(xs, f, X.cmp)` |
 
@@ -195,6 +195,8 @@ Only the crate's own inherent methods resolve, plus the std allow-list ([01 §6]
 | `s.split(c).collect()` / `.map(f).collect()` | `s.split(c)` as the array, `.map(f)` into `Vec<T>`, or `Iter.tryCollect(xs, f)` into `Result<Vec<T>, E>` |
 | `while` | `while` |
 | `loop`, `while let` | `for (;;)`; a `loop`'s value `let x: T;` assigned before each `break`, or returned where the loop ends the function; `while let` tests its pattern first and `break`s |
+| a loop whose body is left with nothing (what it built is unread) | `for (const _ of xs);`, which oxfmt keeps and lint takes (an empty `{}` oxfmt lays out on two lines) |
+| a `match` statement the flow decides to one arm that declares names | the arm as a block of its own, `{ const e = o; .. }`, so a later `let` of one of its names hides nothing |
 | `for i in a..=b`, `(a..b).rev()` | `i <= end`; `for (let i = (b - 1) as T; i >= a; i = (i - 1) as T)` |
 | `t.0` on a tuple | `t[0]` |
 | a loop that a `break` or `continue` inside a `switch` leaves | the loop gets a label ([3.3.3](#333-loop-labels)) |

@@ -130,8 +130,7 @@ pub fn sorted<T: Ord + Clone>(xs: &[T]) -> Vec<T> {
 /// `Option`, tuple, and `Vec` of a `T` order through its dictionary too.
 pub fn wrapped<T: Ord + Clone>(a: &T, b: &T) -> (bool, Ordering, bool) {
     let some = Some(a.clone()) < Some(b.clone());
-    let (one, zero): (u8, u8) = (1, 0);
-    let tuple = (a.clone(), one).cmp(&(b.clone(), zero));
+    let tuple = (a.clone(), 1u8).cmp(&(b.clone(), 0u8));
     let list = vec![a.clone(), b.clone()] > vec![b.clone()];
     (some, tuple, list)
 }
@@ -218,8 +217,14 @@ pub fn texts(xs: Vec<String>, a: String, b: String) -> (Option<String>, (Orderin
     (largest(&xs), compare(&a, &b), sorted(&xs))
 }
 
-pub fn chars(a: char, b: char) -> ((char, char), (bool, Ordering, bool)) {
-    (picks(&a, &b), wrapped(&a, &b))
+pub fn chars(a: char, b: char) -> ((char, char), (bool, Ordering, bool), Ordering) {
+    (picks(&a, &b), wrapped(&a, &b), (a, 1u8).cmp(&(b, 0u8)))
+}
+
+/// A literal in a conditional, compared inside a tuple: its brand is the
+/// tuple's type.
+pub fn tuple_literals(l: Level, n: i32, o: Option<i32>) -> bool {
+    (l, n) < (l, if o.is_some() { 2147483647 } else { n })
 }
 
 pub fn bools(xs: Vec<bool>) -> (Option<bool>, Vec<bool>) {
