@@ -134,10 +134,6 @@ fn a_field_without_a_default_is_refused() {
 #[test]
 fn default_shapes_outside_the_subset_are_refused() {
     assert_parse_rejects(
-        "#[derive(Default)] pub struct P<T> { pub t: T }",
-        "`#[derive(Default)]` on `P`, which has type parameters, is not in v0",
-    );
-    assert_parse_rejects(
         "#[derive(Default)] pub enum M { A, B }",
         "`#[derive(Default)]` on the enum `M` needs one `#[default]` variant without fields",
     );

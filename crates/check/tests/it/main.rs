@@ -30,6 +30,7 @@ mod resolve;
 mod serde_attrs;
 mod slice_patterns;
 mod statements;
+mod std_bounds;
 mod strings;
 mod strings_more;
 mod traits;

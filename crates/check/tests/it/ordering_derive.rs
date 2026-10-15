@@ -74,15 +74,15 @@ fn a_field_without_an_order_is_named() {
 }
 
 #[test]
-fn a_generic_type_is_not_ordered_yet() {
+fn a_generic_type_is_ordered_with_its_parameters_dictionaries() {
+    assert_clean(&format!(
+        "{ORD}\npub struct Page<T> {{ pub items: Vec<T> }}\npub fn f(a: Page<u8>, b: Page<u8>) -> bool {{ a < b }}"
+    ));
+    // `<` on a `Page<F>` needs `F: PartialOrd` only, and v0 orders by `cmp`.
     assert_rejects(
-        &format!(
-            "{ORD}\npub struct Page<T> {{ pub items: Vec<T> }}\npub fn f(a: Page<u8>, b: Page<u8>) -> bool {{ a < b }}"
-        ),
-        "`Page` has type parameters, and its `Ord` compares their values",
+        &format!("{ORD}\npub struct Page<T> {{ pub items: Vec<T> }}\n#[derive(PartialEq, PartialOrd)]\npub struct F(pub f64);\npub fn k(a: Page<F>, b: Page<F>) -> bool {{ a < b }}"),
+        "`F` derives `PartialOrd` without `Ord`",
     );
-    // A `T: Ord` bound still orders nothing (design/01 §7.20).
-    assert_rejects("pub fn f<T: Ord>(a: T, b: T) -> bool { a < b }", "a `T` is not compared in v0, whatever its bound");
 }
 
 #[test]

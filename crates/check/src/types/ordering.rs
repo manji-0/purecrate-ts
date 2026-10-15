@@ -207,7 +207,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// type's own reason, else what in it has none.
     pub(super) fn unordered(&self, t: &Ty, why: String) -> String {
         match self.norm(t) {
-            Ty::Named(n) | Ty::App { name: n, .. } => crate::order::why_unordered(self.defs, n.as_str()),
+            Ty::Named(n) | Ty::App { name: n, .. } if !crate::order::has_cmp(self.defs, n.as_str()) => {
+                crate::order::why_unordered(self.defs, n.as_str())
+            }
             _ => format!("it holds {why}"),
         }
     }

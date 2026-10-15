@@ -18,17 +18,16 @@ fn generic_items_are_accepted() {
 
 #[test]
 fn bounds_other_than_the_structural_ones_are_refused() {
-    assert_parse_rejects("pub fn f<T: Default>(x: T) -> T { x }", "the bound `Default` is not in v0");
+    assert_parse_rejects("pub fn f<T: std::hash::Hash>(x: T) -> T { x }", "the bound `std::hash::Hash` is not in v0");
     assert_parse_rejects("pub fn f<T: Into<u32>>(x: T) -> u32 { x.into() }", "is not in v0");
     assert_parse_rejects("pub fn f<const N: usize>() -> usize { N }", "const generics are not in v0");
 }
 
 #[test]
-fn a_type_parameter_is_not_ordered() {
-    assert_rejects(
-        "pub fn max<T: Ord + Clone>(a: &T, b: &T) -> T { if a > b { a.clone() } else { b.clone() } }",
-        "a `T` is not compared in v0, whatever its bound",
-    );
+fn a_type_parameter_is_ordered_through_its_bound() {
+    assert_clean("pub fn max<T: Ord + Clone>(a: &T, b: &T) -> T { if a > b { a.clone() } else { b.clone() } }");
+    // On a struct's parameter a std bound carries nothing, as in 0.20.0.
+    assert_clean("pub struct S<T: Ord + std::fmt::Display> { pub t: T }\npub fn f(s: &S<u8>) -> u8 { s.t }");
 }
 
 #[test]

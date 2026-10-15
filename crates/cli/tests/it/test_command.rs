@@ -126,6 +126,38 @@ fn a_bounded_function_is_called_at_each_implementor() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// A function with std bounds alone (`Ord`, `Display`, `Default`) is
+/// called at `i32`, its dictionaries written by the driver; one with a
+/// crate trait's bound too at each type that has both.
+#[test]
+fn a_std_bound_is_called_at_i32() {
+    if skip() {
+        return;
+    }
+    let dir = support::scratch("test-command-std-bounds");
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "use std::fmt;\n\n\
+         pub trait Named {\n    fn name(&self) -> String;\n}\n\n\
+         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]\npub struct Tag {\n    pub n: u8,\n}\n\n\
+         impl Named for Tag {\n    fn name(&self) -> String {\n        format!(\"tag{}\", self.n)\n    }\n}\n\n\
+         pub fn largest<T: Ord + Clone>(xs: &[T]) -> Option<T> {\n    xs.iter().max().cloned()\n}\n\n\
+         pub fn show<T: fmt::Display>(x: T, n: u8) -> String {\n    format!(\"{x}/{n}\")\n}\n\n\
+         pub fn zero<T: Default>() -> T {\n    T::default()\n}\n\n\
+         pub fn best<T: Named + Ord>(a: T, b: T) -> String {\n    if a < b {\n        b.name()\n    } else {\n        a.name()\n    }\n}\n",
+    )
+    .expect("write");
+    let out = test(&src, &["--cases", "20"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    for name in ["largest<i32>", "show<i32>", "zero<i32>", "best<Tag>"] {
+        assert!(stdout.contains(&format!("ok        {name} (20 cases)")), "{name}:\n{stdout}");
+    }
+    fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn a_crate_that_uses_uuid_is_refused() {
     let out = test(&support::repo().join("examples/raft"), &[]);

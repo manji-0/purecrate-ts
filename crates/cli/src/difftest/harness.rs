@@ -37,7 +37,8 @@ pub struct Call {
     /// The TS function.
     pub ts: String,
     /// The dictionaries the TS call passes after the drawn arguments: the
-    /// companions of the types it is called at (`pkg.Item`).
+    /// companions of the types it is called at (`pkg.Item`), and for a std
+    /// bound at `i32` its record (`std_dict`).
     pub dicts: Vec<String>,
     /// The Rust name in the file that declares it: `next`, `Ulid::parse`.
     pub rust: String,
@@ -109,9 +110,9 @@ pub fn plan<'a>(krate: &'a Crate, spans: &'a [(usize, purecrate_syntax::LineCol)
                 let at = f.generics.iter().map(|g| ty_text(&Ty::Param(g.clone()).subst(&binds))).collect::<Vec<_>>();
                 let companions = dicts
                     .iter()
-                    .map(|of| match of.subst(&binds).applied() {
+                    .map(|(tr, of)| match of.subst(&binds).applied() {
                         Some((owner, _)) => format!("pkg.{}", owner.as_str()),
-                        None => unreachable!("a bound is instantiated at a crate type"),
+                        None => std_dict(tr.as_str()).to_string(),
                     })
                     .collect();
                 (format!("{ts}<{}>", at.join(", ")), companions)
@@ -145,14 +146,32 @@ fn dict_of<'t>(krate: &Crate, ty: &'t Ty) -> Option<(&'t Name, &'t Ty)> {
     }
 }
 
-/// The type each of `f`'s dictionaries is for, in order.
-fn dicts_of(krate: &Crate, f: &Fn) -> Vec<Ty> {
-    f.params.iter().filter_map(|p| dict_of(krate, &p.ty).map(|(_, of)| of.clone())).collect()
+/// The trait and the type each of `f`'s dictionaries is for, in order.
+fn dicts_of(krate: &Crate, f: &Fn) -> Vec<(Name, Ty)> {
+    f.params.iter().filter_map(|p| dict_of(krate, &p.ty).map(|(tr, of)| (tr.clone(), of.clone()))).collect()
+}
+
+/// A std bound's dictionary at `i32`, as the driver's JS writes it: the
+/// record the crate would emit as `ordI32`, `displayI32`, or `defaultI32`,
+/// which it emits only where its own calls pass one.
+fn std_dict(trait_: &str) -> &'static str {
+    match trait_ {
+        "Display" => "{ toString: (x) => String(x) }",
+        "Default" => "{ default: () => 0 }",
+        _ => "{ cmp: (a, b) => ({ kind: a < b ? \"Less\" : a === b ? \"Equal\" : \"Greater\" }) }",
+    }
+}
+
+/// Whether `trait_` is one of std's (`STD_DICT_TRAITS`), not the crate's.
+fn is_std(krate: &Crate, trait_: &Name) -> bool {
+    purecrate_ir::STD_DICT_TRAITS.contains(&trait_.as_str())
+        && !krate.items.iter().any(|i| matches!(i, Item::Trait(t) if t.name == *trait_))
 }
 
 /// The types `f` is called at (design/01 §7.25): a type parameter whose
 /// bounds carry a dictionary at each public struct or enum of the crate
 /// that implements them all and can be drawn (a generic one at `i32`),
+/// at `i32` where they are std's alone (`Ord`, `Display`, `Default`), and
 /// every other one at `i32`, which every bound §7.20 takes holds of. Each
 /// combination once. `Err` when no type implements a parameter's bounds.
 fn instances(krate: &Crate, make: &Makeable<'_>, f: &Fn) -> Result<Vec<Vec<(Name, Ty)>>, String> {
@@ -166,7 +185,7 @@ fn instances(krate: &Crate, make: &Makeable<'_>, f: &Fn) -> Result<Vec<Vec<(Name
                 _ => None,
             })
             .collect();
-        let at: Vec<Ty> = if bounds.is_empty() {
+        let at: Vec<Ty> = if bounds.iter().all(|b| is_std(krate, b)) {
             vec![Ty::i32()]
         } else {
             let found: Vec<Ty> = implementors(krate, &bounds).into_iter().filter(|t| make.can(t)).collect();
@@ -195,7 +214,30 @@ fn instances(krate: &Crate, make: &Makeable<'_>, f: &Fn) -> Result<Vec<Vec<(Name
 
 /// The public structs and enums with an `impl` of each of `traits`, in
 /// declaration order, a generic one at `i32` for each of its parameters.
+/// A std trait's is the member its record asks for (`cmp`, a translated
+/// `to_string`, `default`) on a type without parameters, whose companion
+/// is the record.
 fn implementors(krate: &Crate, traits: &[&Name]) -> Vec<Ty> {
+    let has = |owner: &Name, name: &str, generic: bool| {
+        // A derived `cmp` is made by the check, after this plan's crate.
+        let derived = name == "cmp"
+            && krate.items.iter().any(|i| match i {
+                Item::Struct(s) => s.name == *owner && s.order == purecrate_ir::Order::Total,
+                Item::Enum(e) => e.name == *owner && e.order == purecrate_ir::Order::Total,
+                _ => false,
+            });
+        !generic
+            && (derived
+                || krate.items.iter().any(|i| {
+                    matches!(i, Item::Fn(f) if f.owner.as_ref() == Some(owner) && f.name.as_str() == name
+                        && (name != "to_string" || f.display))
+                }))
+    };
+    let std_member = |t: &Name| match t.as_str() {
+        "Display" => "to_string",
+        "Default" => "default",
+        _ => "cmp",
+    };
     let impls = |name: &Name| -> Vec<&Name> {
         krate
             .items
@@ -215,7 +257,15 @@ fn implementors(krate: &Crate, traits: &[&Name]) -> Vec<Ty> {
             Item::Enum(e) if e.vis == Vis::Pub && !e.std => Some((&e.name, e.generics.len())),
             _ => None,
         })
-        .filter(|(name, _)| traits.iter().all(|t| impls(t).contains(name)))
+        .filter(|(name, n)| {
+            traits.iter().all(|t| {
+                if is_std(krate, t) {
+                    has(name, std_member(t), *n > 0)
+                } else {
+                    impls(t).contains(name)
+                }
+            })
+        })
         .map(|(name, n)| match n {
             0 => Ty::Named(name.clone()),
             n => Ty::App { name: name.clone(), args: vec![Ty::i32(); n] },
