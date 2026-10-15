@@ -1,5 +1,5 @@
 //! `format!`'s arguments: what `{}` prints the same in Rust and TS
-//! (design/01 §6.8).
+//! (design/01 §6.8), and a crate type through its `Display` (§7.25).
 
 use super::*;
 
@@ -12,8 +12,32 @@ impl<'d, 'a> Typer<'d, 'a> {
             typed.push(e);
             tys.push(t.map(|t| self.norm(&t)));
         }
+        let mut shown = vec![false; args.len()];
         for (i, t) in tys.iter().enumerate() {
             let Some(t) = t else { continue };
+            if let Some(owner) = self.crate_type(t) {
+                if !self.has_display(&owner) {
+                    self.error(Reason::TypeMismatch, no_display("format!", &owner));
+                    continue;
+                }
+                let padded = pieces
+                    .iter()
+                    .any(|p| matches!(p, FmtPiece::Arg { index, spec } if *index == i && !spec.is_plain()));
+                if padded {
+                    self.error(
+                        Reason::Macro,
+                        format!(
+                            "a width, alignment, or fill on `{}` is not in v0: Rust pads a value only where its `fmt` calls `f.pad`, which `write!` does not; pad its text: `format!(\"{{:>8}}\", x.to_string())`",
+                            owner.as_str()
+                        ),
+                    );
+                }
+                let arg = std::mem::replace(&mut typed[i], Expr::Lit(Lit::Unit));
+                typed[i] =
+                    Expr::Call { callee: Callee::Method { ty: owner, name: Name::new("to_string") }, args: vec![arg] };
+                shown[i] = true;
+                continue;
+            }
             if !displayed(t) {
                 self.error(
                     Reason::TypeMismatch,
@@ -39,6 +63,21 @@ impl<'d, 'a> Typer<'d, 'a> {
                     self.error(Reason::Macro, "`Uuid` prints without padding in Rust, whatever the width: `{}`".into());
                 }
             }
+        }
+        // Rust evaluates every argument, then runs each `fmt` where the
+        // string places it; the template runs a crate type's `toString` in
+        // place too, so no argument that computes may come after one.
+        let mut after_shown = false;
+        for p in pieces {
+            let FmtPiece::Arg { index, .. } = p else { continue };
+            if after_shown && !is_read(&args[*index]) {
+                self.error(
+                    Reason::Macro,
+                    "`format!` runs a crate type's `Display` after evaluating every argument, the template where it places it: bind each argument after it with `let` first and name it in the string (`{x}`)".to_string(),
+                );
+                break;
+            }
+            after_shown |= shown[*index];
         }
         // Rust aligns a number right and the rest left, unless told.
         let pieces = pieces
@@ -80,6 +119,39 @@ impl<'d, 'a> Typer<'d, 'a> {
         let e = Expr::Call { callee: Callee::Format(pieces), args: vec![recv] };
         Some((e, self.expect(want, string)))
     }
+}
+
+impl Typer<'_, '_> {
+    /// The crate's own struct or enum `t` names.
+    pub(super) fn crate_type(&self, t: &Ty) -> Option<Name> {
+        let (n, _) = t.applied()?;
+        (self.defs.structs.contains_key(n.as_str()) || self.defs.enums.contains_key(n.as_str())).then(|| n.clone())
+    }
+
+    /// Whether the crate type `owner` has a `to_string` read from its
+    /// `impl Display`.
+    pub(super) fn has_display(&self, owner: &Name) -> bool {
+        self.defs.methods.get(&(owner.as_str(), "to_string")).is_some_and(|f| f.display)
+    }
+}
+
+/// A read that gives the same value whenever it runs: a local, a literal,
+/// or a field of one (borrows are erased), as `syntax` reads one.
+fn is_read(e: &Expr) -> bool {
+    match e {
+        Expr::Var(_) | Expr::Lit(_) => true,
+        Expr::Field { base, .. } | Expr::At { expr: base, .. } => is_read(base),
+        _ => false,
+    }
+}
+
+/// Why `what` (`format!`, `.to_string()`) cannot print the crate type
+/// `owner`: no `impl Display` of it was translated.
+pub(super) fn no_display(what: &str, owner: &Name) -> String {
+    format!(
+        "`{what}` prints `{0}` through its `impl Display`, and `{0}` has none translated: v0 reads a `fmt` that is `write!(f, \"..\", args)` on values `format!` prints, `f.write_str(\"..\")`, a `match self` of those, or several joined with `?` and ending in `Ok(())`; a `fmt` of any other shape is skipped",
+        owner.as_str()
+    )
 }
 
 /// What `{}` prints the same in Rust and TS: an integer, `bool`, `char`,

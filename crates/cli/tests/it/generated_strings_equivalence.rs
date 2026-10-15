@@ -128,9 +128,122 @@ struct G {
     next: usize,
     /// Immutable locals and closure or loop parameters, with their types.
     scope: Vec<(String, T)>,
+    /// The seed, which names the seed's struct `D<seed>` and enum
+    /// `E<seed>` with `Display` (`display_types`).
+    seed: u64,
 }
 
+/// Text between the arguments of a `write!`, escapes included.
+const FMT_TEXT: &[&str] = &["", "", "-", " ", "é", "😀", "{{", "}}", "`", "${{x}}", "\\\\", "\u{85}"];
+
 impl G {
+    /// A spec for a value of a primitive type; zero padding on an integer.
+    fn spec(&mut self, int: bool) -> &'static str {
+        match self.rng.below(9) {
+            0 if int => ":05",
+            1 => ":5",
+            2 => ":<4",
+            3 => ":^5",
+            4 => ":>3",
+            5 => ":*^6",
+            6 => ":😀>4",
+            _ => "",
+        }
+    }
+
+    /// One `write!(f, ..)` whose arguments are drawn from `values` (each an
+    /// expression and whether it is an integer), placed once each in the
+    /// order written, each with a drawn spec; `shown` (crate types with
+    /// `Display`, no spec) come last, so no argument that computes runs
+    /// after one.
+    fn write(&mut self, values: &[(&str, bool)], shown: &[&str]) -> String {
+        let mut template = String::new();
+        let mut args = Vec::new();
+        for _ in 0..self.rng.below(3) {
+            template.push_str(self.rng.pick(FMT_TEXT));
+            let (value, int) = self.rng.pick(values);
+            let spec = self.spec(int);
+            write!(template, "{{{spec}}}").expect("write");
+            args.push(value.to_string());
+        }
+        for s in shown {
+            template.push_str(self.rng.pick(FMT_TEXT));
+            write!(template, "{{{s}}}").expect("write");
+        }
+        template.push_str(self.rng.pick(FMT_TEXT));
+        let args: String = args.iter().map(|a| format!(", {a}")).collect();
+        format!("write!(f, \"{template}\"{args})")
+    }
+
+    /// One to three writes joined with `?`, the last bare or followed by
+    /// `Ok(())`, after an optional `let` the writes may capture.
+    fn writes(&mut self, values: &[(&str, bool)], shown: &[&str], indent: &str) -> String {
+        let mut out = String::new();
+        let n = 1 + self.rng.below(3);
+        for i in 0..n {
+            let w = if i + 1 == n { self.write(values, shown) } else { self.write(values, &[]) };
+            if i + 1 < n {
+                writeln!(out, "{indent}{w}?;").expect("write");
+            } else if self.rng.below(2) == 0 {
+                writeln!(out, "{indent}{w}?;\n{indent}Ok(())").expect("write");
+            } else {
+                writeln!(out, "{indent}{w}").expect("write");
+            }
+        }
+        out
+    }
+
+    /// `D<seed>` and `E<seed>`, each with a `Display` made of writes: of a
+    /// `String`, a `usize`, and a `char` field and values computed from them
+    /// that may panic (`n - 1` at 0, a slice off a char boundary), and in
+    /// `E` a `D` printed through its own `Display`.
+    fn display_types(&mut self) -> String {
+        let s = self.seed;
+        const D_VALUES: &[(&str, bool)] = &[
+            ("self.w", false),
+            ("self.w.trim()", false),
+            ("&self.w[1..]", false),
+            ("self.w.to_uppercase()", false),
+            ("self.n", true),
+            ("self.n + self.w.len()", true),
+            ("self.n - 1", true),
+            ("self.c", false),
+            ("self.c.to_ascii_uppercase()", false),
+            ("self.w.is_empty()", false),
+            ("k", true),
+        ];
+        let lead = "        let k = self.w.chars().count() * 2;\n";
+        let d_body = format!("{lead}{}", self.writes(D_VALUES, &[], "        "));
+        let a = self.writes(&[("d.n", true), ("d.c", false)], &["d"], "                ");
+        let b = self.writes(&[("n", true), ("w", false), ("w.len() - n", true)], &[], "                ");
+        let c = self.rng.pick(&["f.write_str(\"c\")", "Ok(())", "f.write_str(\"`${é}`\")"]);
+        format!(
+            "pub struct D{s} {{\n    pub w: String,\n    pub n: usize,\n    pub c: char,\n}}\n\n\
+             impl std::fmt::Display for D{s} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n{d_body}    }}\n}}\n\n\
+             pub enum E{s} {{\n    A(D{s}),\n    B {{ n: usize, w: String }},\n    C,\n}}\n\n\
+             impl std::fmt::Display for E{s} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        match self {{\n            \
+             E{s}::A(d) => {{\n{a}            }}\n            E{s}::B {{ n, w }} => {{\n{b}            }}\n            E{s}::C => {c},\n        }}\n    }}\n}}\n\n"
+        )
+    }
+
+    /// A `D<seed>` or `E<seed>` printed by `format!` (alone, or after a
+    /// value computed first) or `to_string`.
+    fn shown(&mut self, d: u32) -> String {
+        let s = self.seed;
+        let dv = format!("D{s} {{ w: {}, n: {}, c: {} }}", self.owned(d), self.size(d), self.ch());
+        let value = match self.rng.below(4) {
+            0 => dv,
+            1 => format!("E{s}::A({dv})"),
+            2 => format!("E{s}::B {{ n: {}, w: String::from({}) }}", self.size(d), self.text(d)),
+            _ => format!("E{s}::C"),
+        };
+        match self.rng.below(3) {
+            0 => format!("{value}.to_string()"),
+            1 => format!("format!(\"[{{}}]\", {value})"),
+            _ => format!("format!(\"{{}}|{{}}\", {}, {value})", self.size(d)),
+        }
+    }
+
     fn fresh(&mut self, p: &str) -> String {
         self.next += 1;
         format!("{p}{}", self.next)
@@ -404,6 +517,9 @@ impl G {
     fn owned(&mut self, d: u32) -> String {
         if let Some(v) = self.local(T::String) {
             return format!("{v}.clone()");
+        }
+        if d > 0 && self.rng.below(6) == 0 {
+            return self.shown(d - 1);
         }
         match self.rng.below(if d > 0 { 16 } else { 14 }) {
             14 | 15 => self.formatted(d - 1),
@@ -776,7 +892,9 @@ fn generated_strings_match_rust() {
     let mut source = String::new();
     let mut fns = Vec::new();
     for &seed in &seeds {
-        let mut g = G { rng: Rng::new(seed ^ 0x5717), next: 0, scope: Vec::new() };
+        let mut g = G { rng: Rng::new(seed ^ 0x5717), next: 0, scope: Vec::new(), seed };
+        let mut types = G { rng: Rng::new(seed ^ 0xd15), next: 0, scope: Vec::new(), seed };
+        source.push_str(&types.display_types());
         for i in 0..count {
             let ty = g.rng.pick(&[T::Usize, T::Bool, T::OptUsize, T::String, T::String, T::VecString, T::VecUsize]);
             g.next = 0;

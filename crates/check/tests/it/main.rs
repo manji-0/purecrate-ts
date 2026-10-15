@@ -12,6 +12,7 @@ mod closures;
 mod collect;
 mod complete;
 mod consts;
+mod display;
 mod early_exit;
 mod exhaustive;
 mod format;

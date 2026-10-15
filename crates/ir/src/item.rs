@@ -251,6 +251,11 @@ pub struct Fn {
     pub body: Expr,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
+    /// `to_string` read from an `impl Display`'s `fmt` (design/01 §7.25):
+    /// where its body is outside the subset (it prints a float, say), the
+    /// method is dropped and the crate kept, as a `fmt` of another shape is
+    /// skipped, rather than refused.
+    pub display: bool,
 }
 
 impl Fn {

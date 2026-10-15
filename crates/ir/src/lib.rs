@@ -118,6 +118,7 @@ pub fn counter_example() -> Crate {
             ],
         },
         doc: None,
+        display: false,
     });
 
     Crate::new("counter", vec![event, state, step])

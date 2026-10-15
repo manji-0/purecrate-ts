@@ -66,7 +66,40 @@ fn locate(found: &mut [Diagnostic], at: Pos) {
 /// The crate ready to print, or why it is outside the v0 subset.
 /// Numeric code is rewritten so the printed TS keeps Rust's debug-build
 /// semantics; run this once, on parser output.
+///
+/// A `to_string` read from an `impl Display` that does not pass is dropped
+/// rather than refused, as a `fmt` of another shape is skipped (design/01
+/// §7.25), and the rest checked again: one that printed it fails in turn.
+/// Diagnostics index `krate`'s items all the same.
 pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
+    let mut kept: Vec<usize> = (0..krate.items.len()).collect();
+    let mut trial = None;
+    loop {
+        let current = trial.as_ref().unwrap_or(krate);
+        let mut out = match accept_all(current) {
+            Ok(done) => return Ok(done),
+            Err(out) => out,
+        };
+        let failed: std::collections::BTreeSet<usize> = out
+            .iter()
+            .map(|d| d.item)
+            .filter(|i| matches!(current.items.get(*i), Some(Item::Fn(f)) if f.display))
+            .collect();
+        if failed.is_empty() {
+            for d in &mut out {
+                d.item = kept.get(d.item).copied().unwrap_or(d.item);
+                for a in &mut d.also {
+                    *a = kept.get(*a).copied().unwrap_or(*a);
+                }
+            }
+            return Err(out);
+        }
+        kept = kept.iter().enumerate().filter(|(j, _)| !failed.contains(j)).map(|(_, i)| *i).collect();
+        trial = Some(Crate::new(krate.name.as_str(), kept.iter().map(|i| krate.items[*i].clone()).collect()));
+    }
+}
+
+fn accept_all(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let mut out = names::check(krate);
     out.extend(resolve::check(krate));
     out.extend(exhaustive::check(krate));

@@ -130,3 +130,9 @@ pub fn f03_from_call(n: u8) -> AppErr { AppErr::from(n) }
 pub struct Opts { pub n: u32, pub name: String, pub tags: Vec<String> }
 pub fn d01_default_update(n: u32) -> Opts { Opts { n, ..Default::default() } }
 pub fn d02_default_call() -> Opts { Opts::default() }
+pub struct Money { pub cents: i64 }
+impl std::fmt::Display for Money { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}.{:02}", self.cents / 100, self.cents % 100) } }
+impl std::fmt::Display for Shape { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { match self { Shape::Circle { r } => write!(f, "circle {r}"), Shape::Square(n) => { write!(f, "square ")?; write!(f, "{n}")?; Ok(()) } Shape::Empty => f.write_str("empty") } } }
+pub fn d01_display_format(m: Money) -> String { format!("total: {m}") }
+pub fn d02_display_to_string(s: Shape) -> String { s.to_string() }
+pub fn d03_display_nested(s: Shape, m: Money) -> String { format!("{} costs {}", s, m) }

@@ -310,6 +310,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                         "`.partial_cmp()` on `{}` is not in v0: use `cmp` on integers, `char`, `bool`, `String`/`&str`, or `Uuid` (floats are not `Ord`)",
                         show(&rt)
                     ),
+                    None if name.as_str() == "to_string" && self.crate_type(&rt).is_some() => {
+                        format::no_display(".to_string()", &self.crate_type(&rt).expect("checked"))
+                    }
                     None => format!(
                         "`{}` has no method `{}` in the crate's own `impl` blocks",
                         show(&rt),

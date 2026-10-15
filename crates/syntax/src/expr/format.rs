@@ -49,6 +49,23 @@ pub(super) fn lower_format(cx: &Cx, mac: &syn::Macro) -> Result<Expr, ParseError
     lower_template(cx, &template, explicit, "")
 }
 
+/// The text `write!(formatter, "..", args)` writes, as `format!("..", args)`
+/// makes it (design/01 §7.25); `None` for a write to anything else or
+/// whatever `format!` refuses, so the `fmt` holding it is skipped.
+pub(crate) fn lower_write(cx: &Cx, mac: &syn::Macro, formatter: &syn::Ident) -> Option<Expr> {
+    let (target, (template, explicit)) = mac
+        .parse_body_with(|input: syn::parse::ParseStream| {
+            let target: syn::Ident = input.parse()?;
+            input.parse::<syn::Token![,]>()?;
+            Ok((target, parse_format_args(input)?))
+        })
+        .ok()?;
+    if target != *formatter {
+        return None;
+    }
+    lower_template(cx, &template, explicit, "").ok()
+}
+
 /// The `String` a format string and its arguments make, after `prefix`.
 pub(super) fn lower_template(
     cx: &Cx,

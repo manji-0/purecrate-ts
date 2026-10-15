@@ -118,6 +118,10 @@ pub fn survey(
                 *others.entry(*what).or_insert(0) += 1;
                 continue;
             }
+            UnitKind::Display { .. } => {
+                *others.entry("trait impl").or_insert(0) += 1;
+                continue;
+            }
         };
         if !unit.public {
             continue;
@@ -184,7 +188,11 @@ impl Index {
                     };
                     index.consts.entry(path).or_default().push(i)
                 }
-                UnitKind::Other { .. } => {}
+                // Only a translated one: a skipped `fmt` gives no method.
+                UnitKind::Display { owner } if u.lowered.is_ok() => {
+                    index.methods.entry((owner.clone(), "to_string".to_string())).or_default().push(i)
+                }
+                UnitKind::Display { .. } | UnitKind::Other { .. } => {}
             }
         }
         index
@@ -225,7 +233,9 @@ fn judge(krate: &str, units: &[Unit], index: &Index, start: usize) -> Outcome {
                 refs.push(Ref::Implicit(units[i].name.clone()));
             }
         }
-        if let UnitKind::Method { owner } | UnitKind::Const { owner: Some(owner) } = &units[i].kind {
+        if let UnitKind::Method { owner } | UnitKind::Display { owner } | UnitKind::Const { owner: Some(owner) } =
+            &units[i].kind
+        {
             refs.push(Ref::Type(owner.clone()));
         }
         for r in references(item) {
@@ -355,6 +365,9 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
                 out.push(Ref::Method(ty.as_str().to_string(), name.as_str().to_string()));
             }
             Callee::StructNew(ty) => out.push(Ref::Type(ty.as_str().to_string())),
+            // `{}` on a crate type calls its `to_string` (design/01 §7.25),
+            // as `x.to_string()` does on whichever type `x` has.
+            Callee::Format(_) => out.push(Ref::ReceiverCall("to_string".to_string())),
             _ => {}
         },
         Expr::MethodCall { name, args, .. } => {

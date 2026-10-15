@@ -10,6 +10,8 @@ use crate::ty::lower_type;
 
 mod format;
 mod panic;
+
+pub(crate) use format::lower_write;
 mod pattern;
 
 use pattern::*;

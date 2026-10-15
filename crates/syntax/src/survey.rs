@@ -25,6 +25,12 @@ pub enum UnitKind {
     Const {
         owner: Option<String>,
     },
+    /// `impl Display for X`: the method `X::to_string` where its `fmt` is
+    /// translated (design/01 §7.25), which `x.to_string()` and `format!`
+    /// reach; tallied as a trait impl, not judged on its own.
+    Display {
+        owner: String,
+    },
     /// Anything else that may be referenced or may hold code, e.g. `const`,
     /// `trait`, a trait impl. `what` names it for tallying.
     Other {
@@ -250,6 +256,18 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                 lowered,
             )]
         }
+        // A `fmt` of another shape is skipped: no item, so nothing to reach.
+        SynItem::Impl(imp) if is_display_impl(imp) => {
+            let lowered = lower_one(cx, item.clone(), all_causes, "method");
+            let name = format!("{} for {}", trait_text(imp), self_name(&imp.self_ty));
+            vec![unit(
+                UnitKind::Display { owner: self_name(&imp.self_ty) },
+                name,
+                false,
+                LineCol::of(imp.span()),
+                lowered,
+            )]
+        }
         other => {
             let what = match other {
                 SynItem::Impl(_) => "trait impl",
@@ -276,6 +294,14 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
             vec![unit(UnitKind::Other { what }, name, false, LineCol::of(other.span()), lowered)]
         }
     }
+}
+
+fn is_display_impl(imp: &syn::ItemImpl) -> bool {
+    imp.trait_.as_ref().and_then(|(_, p, _)| p.segments.last()).is_some_and(|s| s.ident == "Display")
+}
+
+fn trait_text(imp: &syn::ItemImpl) -> String {
+    imp.trait_.as_ref().map(|(_, p, _)| path_text(p)).unwrap_or_default()
 }
 
 fn is_try_from_impl(imp: &syn::ItemImpl) -> bool {

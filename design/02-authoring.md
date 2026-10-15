@@ -47,7 +47,7 @@ The goal is **no capability loss** for pure transitions with ADTs, exhaustive ma
 | Narrowing | `x as T` between integer types std's `From` does not join, wrapping as Rust's `as` does; into `usize`, a result past 2^53 − 1 panics ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `Int.<t>.cast(x)` |
 | Floats | `f32` / `f64`, their operators, `round` (half away from zero), `floor`, `ceil`, `trunc`, `abs`, `is_nan`, `is_finite`, `is_infinite`, `f64::NAN` / `INFINITY` / `NEG_INFINITY`; `as` to and from integers ([§3.2](#32-numbers-are-sized-integers-and-floats)) | `number`; `Math`'s methods where IEEE fixes them as Rust's, `Int.f64.round` ([01 §5.4](./01-equivalence.md#54-floats)) |
 | Strings | `String::from("…")`; `==` / `!=` between `String` and `&str`; `len` (UTF-8 bytes), `is_empty`, `starts_with` / `ends_with` / `contains` / `strip_prefix` / `strip_suffix` with a `&str`; `split_once` with a `char` or a `&str`; `eq_ignore_ascii_case` with a `&str`; `to_ascii_lowercase` / `to_ascii_uppercase`; `trim` / `trim_start` / `trim_end` (Rust's whitespace) and `trim_matches` with its one-sided forms (a `char`, a closure `|c: char| ..`, or one-sided a `&str`); `find` (a UTF-8 byte offset); `split` with a closure; `to_lowercase` / `to_uppercase` (full Unicode); `repeat(n)`; `join(sep)` on a `Vec` or slice of `String` / `&str`; `x.to_string()` on what `format!("{}", x)` prints; slicing `&s[a..b]`; built by `String::new()` and `push(c)` / `push_str(t)` on a local `let mut`, or by `collect::<String>()` over `char`s, `&s[a..]`, `&s[..b]` at byte positions; string literals in `match` and `matches!` (on `s.as_str()` for a `String`); contents via `s.as_bytes()` indexed as `&[u8]` | literal; `===`; `Str.len(s)`, `startsWith` etc.; `Str.splitOnce(s, p)`; `Str.eqIgnoreAsciiCase(s, t)`; `Str.slice(s, a, b)`; an `if` chain of `===`; `Str.bytes(s)`; `s.toLowerCase()`, `s.repeat(n)`, `xs.join(sep)`, `` `${n}` `` ([01 §7.21](./01-equivalence.md#721-cutting-and-building-text)) |
-| Formatting | `format!` with `{}`, `{x}` (a local captured), `{0}`, `{name}`, a width (`{:5}`), an alignment and fill (`{:<5}`, `{:*^5}`), and zero padding on an integer (`{:05}`), over integers, `bool`, `char`, `String`, `&str`, and `Uuid` (no width on a `Uuid`) | a template literal, `Str.pad` / `Str.padZero` where padded ([01 §6.8](./01-equivalence.md#68-format)) |
+| Formatting | `format!` with `{}`, `{x}` (a local captured), `{0}`, `{name}`, a width (`{:5}`), an alignment and fill (`{:<5}`, `{:*^5}`), and zero padding on an integer (`{:05}`), over integers, `bool`, `char`, `String`, `&str`, `Uuid` (no width on a `Uuid`), and a crate type with a translated `Display` (no width; from 0.22.0) | a template literal, `Str.pad` / `Str.padZero` where padded ([01 §6.8](./01-equivalence.md#68-format)) |
 | Local closures | bound with `let`, capturing only immutable bindings | typed arrow functions |
 | Recursion | named functions calling themselves or each other | plain calls |
 | Integer ranges | `for i in a..b`, `a..=b`, `(a..b).rev()`, `(a..=b).rev()` (same integer type at both ends, evaluated once, start first; `i` immutable; body may use `let mut`, `return`, `?`); `(a..b).step_by(k)` with `.rev()` before it, after it, or both (`k` of 0 panics; no step past the end wraps), in a `for` and as a sequence below ([01 §7.22](./01-equivalence.md#722-iterator-adaptors-and-ranges)) | `for (let i = a, end = b; i < end; …)` (`<=` for `..=`; from `b - 1` down for `rev`); a literal end is read in place (`i < 4`); with `step_by`, `for (const i of Iter.range(a, b).stepBy(k))` |
@@ -198,15 +198,15 @@ Exports need no attribute. An item is exported as in Rust's public surface: `pub
 | --- | --- |
 | `static` | a crate-level `const` |
 | associated consts of a trait or a trait impl | a const in an inherent `impl`, or a crate-level `const` |
-| trait definitions and trait impls | none, except the three rows below |
+| trait definitions and trait impls | none, except the rows below |
 | `impl TryFrom<T> for X` | translated: becomes the method `X.try_from`. It must have `type Error` and `fn try_from` only |
 | `impl From<S> for X` | translated (from 0.22.0): becomes the member `X.fromS`, named after `S`. It must have `fn from` only, `X` must be the crate's, and `S` a named type without type arguments |
 | `impl Default for X`, `#[derive(Default)]` | translated (from 0.22.0): becomes the method `X.default`. Not on a type with type parameters |
 | `impl Into<X> for S` | none: write `impl From<S> for X`, which gives `s.into()` too |
-| `impl Display` writing a fixed text per value | translated: becomes the method `X.toString` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text)): `f.write_str("..")`, `write!(f, "..")` without arguments, or a `match self` of those or of string literals |
-| any other `impl Display`, `impl std::error::Error` | skipped |
+| `impl Display` whose `fmt` is made of writes | translated: becomes the method `X.toString` ([01 §7.11](./01-equivalence.md#711-impl-display-with-a-fixed-text), [§7.25](./01-equivalence.md#725-traits)), which `format!("{}", x)` and `x.to_string()` call: `write!(f, "..", args)` on what `format!` prints (a crate type with a translated `Display` included), `f.write_str("..")`, `Ok(())`, a `match self` of those, or several joined with `?` and ending in `Ok(())`, after any `let`s |
+| any other `impl Display` (an `if`, `f.write_str(&self.0)`, a float printed), `impl std::error::Error` | skipped; `format!` or `to_string` on that type is refused |
 
-Why the others are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and a `Display` that formats arguments has no translation in v0.
+Why the others are skipped: a server needs them (serde's `try_from` requires `Display` on the error), and a crate that compiled with one keeps compiling.
 
 ### 3.5 `match` arms name variants
 
@@ -310,9 +310,9 @@ Output: the same nested `switch`es as a guarded `match`; the field becomes one m
 #### Building a `String`
 
 - A string literal is `&str` and cannot stand where `String` is expected. Write `String::from("a")`.
-- `x.to_string()` is what `format!("{}", x)` prints, on the types `format!` takes (floats refused as there); a string, a `char`, or a `Uuid` prints as itself. `.to_owned()` and `.into()` are rejected, to keep one spelling.
+- `x.to_string()` is what `format!("{}", x)` prints, on the types `format!` takes (floats refused as there); a string, a `char`, or a `Uuid` prints as itself, a crate type with a translated `Display` as `X.toString(x)`. `.to_owned()` and `.into()` are rejected, to keep one spelling.
 - `s.repeat(n)` and `xs.join(sep)` (`xs` of `String` / `&str`, `sep` a `&str`) build one too ([01 §7.21](./01-equivalence.md#721-cutting-and-building-text)).
-- `format!("INV-{n:05}")` builds one from numbers, text, `char`s, `bool`s, and `Uuid`s ([§2](#2-what-can-be-written)). An argument other than a local, a literal, or a field of one is placed once, in the order written; bind it with `let` otherwise. Floats, `{:?}`, `{:x}`, a precision, and the crate's own types are refused.
+- `format!("INV-{n:05}")` builds one from numbers, text, `char`s, `bool`s, and `Uuid`s ([§2](#2-what-can-be-written)). An argument other than a local, a literal, or a field of one is placed once, in the order written; bind it with `let` otherwise. A crate type prints through its `impl Display` where that is translated ([01 §7.25](./01-equivalence.md#725-traits)), without a width, and nothing that computes may be placed after it. Floats, `{:?}`, `{:x}`, a precision, and a crate type whose `Display` was skipped are refused.
 - `s.clone()` or `String::from(&s)` copies a `String`, `o.clone()` an `Option<String>`; `o.as_ref()` and `o.as_deref()` read an `Option` in place. In TS each is the value itself: nothing writes a string.
 
 #### Methods

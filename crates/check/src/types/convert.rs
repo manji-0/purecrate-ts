@@ -18,7 +18,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     }
 
     /// The crate type a conversion goes into: a struct or an enum.
-    fn crate_type(&self, ty: &Ty) -> Option<Name> {
+    fn conversion_target(&self, ty: &Ty) -> Option<Name> {
         match self.norm(ty) {
             Ty::Named(n) if self.defs.structs.contains_key(n.as_str()) || self.defs.enums.contains_key(n.as_str()) => {
                 Some(n)
@@ -49,7 +49,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             );
             return failed(self, typed);
         };
-        let Some(x) = self.crate_type(target) else {
+        let Some(x) = self.conversion_target(target) else {
             self.error(
                 Reason::TypeMismatch,
                 format!(
@@ -97,7 +97,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         ret_err: &Ty,
         want: Option<&Ty>,
     ) -> Option<Typed> {
-        let x = self.crate_type(ret_err)?;
+        let x = self.conversion_target(ret_err)?;
         let f = self.conversion_of(&x, err)?;
         let e = self.fresh_name("error");
         let r = self.fresh_name("result");

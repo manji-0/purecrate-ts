@@ -258,6 +258,15 @@ impl Cx {
         }
     }
 
+    /// Runs `f` failing on the first expression it cannot lower, even in
+    /// recovery: for a body that is skipped, not refused, when it fails.
+    fn strict<T>(&self, f: impl FnOnce() -> T) -> T {
+        let saved = self.recovered.borrow_mut().take();
+        let out = f();
+        *self.recovered.borrow_mut() = saved;
+        out
+    }
+
     /// `recover`, as a result: `Err(e)` when not in recovery.
     pub fn recover_or_fail(&self, e: ParseError) -> Result<(), ParseError> {
         if self.recover(&e) {
@@ -701,6 +710,7 @@ fn lower_fn(
         ret,
         body: lower_block(cx, block)?,
         doc: doc(attrs),
+        display: false,
     })
 }
 
@@ -764,12 +774,16 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
     }
 }
 
-/// `impl Display for X` as the method `X::to_string(&self) -> String`, when
-/// `fmt` writes a text fixed per value: its body `f.write_str(t)`,
-/// `write!(f, "..")` with no `{}`, or a `match self` whose arms are those or
-/// string literals, or `let x = <such a match>; f.write_str(x)`. Any other
-/// `fmt` (formatting arguments, several writes) is skipped as before, so a
-/// crate that compiled keeps compiling.
+/// `impl Display for X` as the method `X::to_string(&self) -> String`
+/// (design/01 §7.25). A `fmt` that writes a text fixed per value keeps
+/// §7.11's form: its body `f.write_str(t)`, `write!(f, "..")` with no `{}`,
+/// or a `match self` whose arms are those or string literals, or `let x =
+/// <such a match>; f.write_str(x)`. Otherwise the body is made of writes
+/// (`written`): `write!(f, "..", args)`, read as `format!` reads it, a
+/// `match self` whose arms are writes, and several joined with `?` and
+/// ending in `Ok(())`, which the text puts end to end. Any other `fmt` is
+/// skipped as before, so a crate that compiled keeps compiling; so is one
+/// `check` cannot type (it prints a float), as `Fn::display` marks.
 fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Option<Item> {
     let f = imp.items.iter().find_map(|i| match i {
         syn::ImplItem::Fn(f) if f.sig.ident == "fmt" => Some(f),
@@ -783,20 +797,29 @@ fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
         syn::FnArg::Receiver(_) => return None,
     };
     let text = match f.block.stmts.as_slice() {
-        [syn::Stmt::Expr(tail, None)] => written_text(tail, &formatter)?,
+        [syn::Stmt::Expr(tail, None)] => written_text(tail, &formatter),
         [syn::Stmt::Local(local), syn::Stmt::Expr(tail, None)] => {
             let (syn::Pat::Ident(bound), Some(init)) = (&local.pat, &local.init) else { return None };
-            match written_arg(tail, &formatter)? {
-                syn::Expr::Path(p) if p.path.is_ident(&bound.ident) => fixed_text(&init.expr)?,
-                _ => return None,
+            match written_arg(tail, &formatter) {
+                Some(syn::Expr::Path(p)) if p.path.is_ident(&bound.ident) => fixed_text(&init.expr),
+                _ => None,
             }
         }
-        _ => return None,
+        _ => None,
     };
-    let mut text = text;
-    SelfIsOwner(owner_ident, None).visit_expr_mut(&mut text);
+    let body = match text {
+        Some(mut text) => {
+            SelfIsOwner(owner_ident, None).visit_expr_mut(&mut text);
+            let body = lower_expr(cx, &text).ok()?;
+            purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![body] }
+        }
+        None => {
+            let mut block = f.block.clone();
+            SelfIsOwner(owner_ident, None).visit_block_mut(&mut block);
+            cx.strict(|| written(cx, &block.stmts, &formatter, &mut 0))?
+        }
+    };
     let owner = Name::new(owner_ident.to_string());
-    let body = lower_expr(cx, &text).ok()?;
     Some(Item::Fn(Fn {
         generics: Vec::new(),
         vis: Vis::Pub,
@@ -804,9 +827,112 @@ fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
         owner: Some(owner.clone()),
         params: vec![Param { name: Name::new("self"), ty: purecrate_ir::Ty::Named(owner) }],
         ret: purecrate_ir::Ty::Prim(purecrate_ir::Prim::String),
-        body: purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![body] },
+        body,
         doc: doc(&imp.attrs),
+        display: true,
     }))
+}
+
+/// The `String` that the statements of a `fmt` body write to `formatter`:
+/// `let`s, then writes, each but the last followed by `?`, the last bare or
+/// followed by `Ok(())`. The texts of several writes are put end to end
+/// (`a + b`), each its own template, so each `fmt` an argument calls runs
+/// after that write's arguments and before the next write's, as in Rust.
+/// `next` numbers the placeholders: the `let`s are lowered as a block whose
+/// value is one, then replaced by the text.
+fn written(cx: &Cx, stmts: &[syn::Stmt], formatter: &syn::Ident, next: &mut usize) -> Option<purecrate_ir::Expr> {
+    let lets = stmts.iter().take_while(|s| matches!(s, syn::Stmt::Local(_))).count();
+    if lets > 0 {
+        let text = written(cx, &stmts[lets..], formatter, next)?;
+        let name = format!("__display_text_{next}");
+        *next += 1;
+        let placeholder = syn::Ident::new(&name, proc_macro2::Span::call_site());
+        let mut block: syn::Block = syn::parse_quote!({ #placeholder });
+        block.stmts.splice(0..0, stmts[..lets].iter().cloned());
+        let mut lowered = lower_block(cx, &block).ok()?;
+        fill_placeholder(&mut lowered, &name, &text);
+        return Some(lowered);
+    }
+    let (last, init) = stmts.split_last()?;
+    let mut parts = Vec::new();
+    for s in init {
+        let syn::Stmt::Expr(syn::Expr::Try(t), Some(_)) = s else { return None };
+        parts.push(written_part(cx, &t.expr, formatter, next)?);
+    }
+    let tail = match last {
+        syn::Stmt::Expr(e, None) => e.clone(),
+        syn::Stmt::Macro(m) if m.semi_token.is_none() => {
+            syn::Expr::Macro(syn::ExprMacro { attrs: m.attrs.clone(), mac: m.mac.clone() })
+        }
+        _ => return None,
+    };
+    if !is_ok_unit(&tail) {
+        parts.push(written_part(cx, &tail, formatter, next)?);
+    }
+    let empty = || purecrate_ir::Expr::Call {
+        callee: purecrate_ir::Callee::StringFrom,
+        args: vec![purecrate_ir::Expr::Lit(purecrate_ir::Lit::Str(String::new()))],
+    };
+    let concat = |a, b| purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StrConcat, args: vec![a, b] };
+    Some(parts.into_iter().reduce(concat).unwrap_or_else(empty))
+}
+
+/// One write: `write!(formatter, "..", args)`, `formatter.write_str("..")`,
+/// `Ok(())` (nothing),
+/// a block of writes, or a `match self` whose arms are writes. The `match`
+/// is lowered with a placeholder for each arm's body, then each placeholder
+/// is replaced by that body's text.
+fn written_part(cx: &Cx, e: &syn::Expr, formatter: &syn::Ident, next: &mut usize) -> Option<purecrate_ir::Expr> {
+    match e {
+        syn::Expr::Macro(m) if m.mac.path.is_ident("write") => crate::expr::lower_write(cx, &m.mac, formatter),
+        syn::Expr::MethodCall(_) => {
+            let text = literal(&written_arg(e, formatter)?)?;
+            let text = lower_expr(cx, &text).ok()?;
+            Some(purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![text] })
+        }
+        syn::Expr::Block(b) if b.label.is_none() => written(cx, &b.block.stmts, formatter, next),
+        // An arm that writes nothing.
+        _ if is_ok_unit(e) => written(cx, &[syn::Stmt::Expr(e.clone(), None)], formatter, next),
+        syn::Expr::Match(m) if is_self(&m.expr) => {
+            let mut m = m.clone();
+            let mut bodies = Vec::new();
+            for arm in &mut m.arms {
+                let name = format!("__display_arm_{next}");
+                *next += 1;
+                bodies.push((name.clone(), written_part(cx, &arm.body, formatter, next)?));
+                let placeholder = syn::Ident::new(&name, arm.body.span());
+                *arm.body = syn::parse_quote!(#placeholder);
+            }
+            let mut lowered = lower_expr(cx, &syn::Expr::Match(m)).ok()?;
+            for (name, body) in &bodies {
+                fill_placeholder(&mut lowered, name, body);
+            }
+            Some(lowered)
+        }
+        _ => None,
+    }
+}
+
+/// Replaces the variable `name` in `e` with `body`.
+fn fill_placeholder(e: &mut purecrate_ir::Expr, name: &str, body: &purecrate_ir::Expr) {
+    if matches!(e, purecrate_ir::Expr::Var(n) if n.as_str() == name) {
+        *e = body.clone();
+        return;
+    }
+    for child in e.children_mut() {
+        fill_placeholder(child, name, body);
+    }
+}
+
+/// `Ok(())`.
+fn is_ok_unit(e: &syn::Expr) -> bool {
+    match e {
+        syn::Expr::Call(c) if c.args.len() == 1 => {
+            matches!(&*c.func, syn::Expr::Path(p) if p.path.is_ident("Ok"))
+                && matches!(&c.args[0], syn::Expr::Tuple(t) if t.elems.is_empty())
+        }
+        _ => false,
+    }
 }
 
 /// The `&str` that `e` writes to `formatter`, when it is fixed per value.
@@ -1018,6 +1144,7 @@ fn derived_default(
         ret: purecrate_ir::Ty::Named(name.clone()),
         body: body().map_err(|e| e.or_at(at))?,
         doc: None,
+        display: false,
     }))
 }
 
