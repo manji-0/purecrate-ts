@@ -82,6 +82,12 @@ fn lint_holes_match_rust() {
                 cases.push(case!(lint_holes::taken_arm_scope(o, c)));
             }
         }
+        for (x, b) in [(f32::INFINITY, true), (1.5f32, true), (1.5, false)] {
+            cases.push(case!(lint_holes::plain_side(x, -0.25, b)));
+        }
+        for (h, k) in [(0u32, 0u128), (u32::MAX, u128::MAX)] {
+            cases.push(case!(lint_holes::widened_twice(h, k)));
+        }
         for c in ['日', 'a'] {
             cases.push(case!(lint_holes::char_text(c)));
         }

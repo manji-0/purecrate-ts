@@ -303,3 +303,14 @@ pub fn taken_arm_scope(o: Option<i32>, c: bool) -> Option<i32> {
 pub fn char_text(c: char) -> Option<usize> {
     '日'.to_string().find(c)
 }
+
+// Widenings through a plain `number` or `bigint` where the value already
+// is one: a choice with a plain side, and a widening of a widening.
+
+pub fn plain_side(x: f32, z: f32, b: bool) -> f64 {
+    f64::from(if b { if x.is_infinite() { z } else { f32::INFINITY } } else { 255.5 })
+}
+
+pub fn widened_twice(h: u32, k: u128) -> u128 {
+    k.wrapping_add(u128::from(u64::from(h)))
+}

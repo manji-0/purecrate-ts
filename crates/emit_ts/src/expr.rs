@@ -1838,6 +1838,8 @@ fn as_plain_as(x: String, base: &str, to: &str) -> String {
             crate::tidy::plainly_number(s)
         }
     };
+    // (Both sides asserted or plain, or one side typed the plain type
+    // itself, which the choice's type then is: `z` or `Infinity`.)
     match crate::tidy::split_cast(&x) {
         Some((_, b)) if b == base => format!("({x} as {to})"),
         Some((inner, _)) if crate::tidy::split_cast(inner).is_none() => format!("({inner} as {to})"),
@@ -1847,7 +1849,8 @@ fn as_plain_as(x: String, base: &str, to: &str) -> String {
             // result): the choice is that type, and the assertion through
             // it asserts nothing, which lint refuses.
             let sides = crate::tidy::choice(crate::tidy::strip_outer(&x));
-            if sides.is_some_and(|(_, a, b)| plainly(a) || plainly(b)) {
+            let bare = |s: &str| crate::tidy::typed_plain(s, base);
+            if sides.is_some_and(|(_, a, b)| (plainly(a) && plainly(b)) || bare(a) || bare(b)) {
                 return format!("(({}) as {to})", crate::tidy::uncast(&x));
             }
             let plain = crate::tidy::uncast(&x);

@@ -303,6 +303,23 @@ pub(crate) fn plainly_number(s: &str) -> bool {
         || (s.starts_with("globalThis.Number.") && !s.contains('('))
 }
 
+/// Whether TS types `s` as the plain `base` itself (`number`, `bigint`),
+/// no brand and no literal: a sum or a product, a `Math` function's
+/// result, a `Number` constant, a `BigInt(..)` call, or a choice with
+/// such a side, which is of that type.
+pub(crate) fn typed_plain(s: &str, base: &str) -> bool {
+    let s = strip_outer(s);
+    if top_prec(s) == PREC_TERNARY {
+        return choice(s).is_some_and(|(_, a, b)| typed_plain(a, base) || typed_plain(b, base));
+    }
+    if base == "bigint" {
+        return s.starts_with("globalThis.BigInt(") && top_prec(s) == PREC_ATOMIC;
+    }
+    matches!(top_prec(s), PREC_MUL | PREC_ADD)
+        || (s.starts_with("globalThis.Math.") && top_prec(s) == PREC_ATOMIC)
+        || (s.starts_with("globalThis.Number.") && !s.contains('('))
+}
+
 /// Whether TS types `s` as a plain `bigint`, as printed: an assertion of
 /// what asserts nothing (`7n as U64`), a bigint literal, or a
 /// `globalThis.BigInt(..)` call.
