@@ -109,3 +109,33 @@ pub fn steps_while_going(limit: u32) -> u32 {
     }
     steps
 }
+
+// A range of two unsuffixed bounds takes the type the variable's first use
+// asks: an index asks a `usize`, as rustc infers it (01 §7.22).
+
+pub fn copied_by_index(b: [u8; 3]) -> u8 {
+    let mut a = [0u8; 3];
+    for i in 0..3 {
+        a[i] = b[i];
+    }
+    a[0].wrapping_add(a[2])
+}
+
+pub fn read_by_index(v: Vec<u8>, s: &[u8]) -> u32 {
+    let mut n: u32 = 0;
+    for i in 0..3 {
+        n = n.wrapping_mul(31).wrapping_add(u32::from(v[i]));
+    }
+    for i in (0..=1).rev() {
+        n = n.wrapping_mul(31).wrapping_add(u32::from(s[i]));
+    }
+    n
+}
+
+pub fn widened_by_use(k: u8) -> u8 {
+    let mut s: u8 = 0;
+    for i in 250..255 {
+        s = s.wrapping_mul(3).wrapping_add(i).wrapping_add(k);
+    }
+    s
+}

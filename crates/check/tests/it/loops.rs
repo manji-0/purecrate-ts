@@ -103,3 +103,23 @@ fn while_let_and_loop_values() {
         "expected `u8`",
     );
 }
+
+#[test]
+fn an_unsuffixed_range_takes_its_first_use_type() {
+    // An index asks a `usize`, as rustc infers it.
+    assert_clean("pub fn f(b: [u8; 3]) -> u8 { let mut a = [0u8; 3]; for i in 0..3 { a[i] = b[i]; } a[0] }");
+    assert_clean("pub fn f(v: Vec<u8>) -> u32 { let mut s: u32 = 0; for i in 0..3 { s += u32::from(v[i]); } s }");
+    assert_clean(
+        "pub fn f(v: &[u8]) -> u32 { let mut s: u32 = 0; for i in (0..=2).rev() { s += u32::from(v[i]); } s }",
+    );
+    assert_clean("pub fn f(n: u8) -> u8 { let mut s: u8 = 0; for i in 0..3 { s = s.wrapping_add(i) ^ n; } s }");
+    // No use asks one (rustc's `i32` default), or the first asks another.
+    assert_rejects(
+        "pub fn f() -> u32 { let mut s: u32 = 0; for _ in 0..3 { s += 1; } s }",
+        "cannot tell the integer type of `3`",
+    );
+    assert_rejects(
+        "pub fn f(v: Vec<u8>) -> u8 { let mut s: u8 = 0; for i in 0..3 { s = s.wrapping_add(i); s = v[i]; } s }",
+        "expected `usize`, found `u8`",
+    );
+}

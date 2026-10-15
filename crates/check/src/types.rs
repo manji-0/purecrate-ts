@@ -406,8 +406,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                 // `0..n`: an unsuffixed start takes the end's type. Only the
                 // typing order changes; the start still runs first.
                 let before = self.out.len();
+                // `0..3`: both bounds unsuffixed take the type the first use
+                // of the variable in the body asks (`v[i]`, a `usize`), as an
+                // unsuffixed `let` does (§7.22).
+                let inferred = match is_bare_int(start) && is_bare_int(end) && self.open.is_empty() {
+                    true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
+                    false => None,
+                };
                 let ((s, st), (e, et)) = if is_bare_int(start) {
-                    let (e, et) = self.expr(end, None);
+                    let (e, et) = self.expr(end, inferred.as_ref());
                     (self.expr(start, et.as_ref()), (e, et))
                 } else {
                     let (s, st) = self.expr(start, None);

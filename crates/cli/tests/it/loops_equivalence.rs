@@ -26,5 +26,14 @@ fn for_ranges_match_rust() {
         for (a, b) in [(10i32, 2i32), (1, 0), (i32::MIN, -1), (10000, 1)] {
             cases.push(case!(loops::bounds_panic(a, b)));
         }
+        for b in [[0u8, 0, 0], [7, 200, 255]] {
+            cases.push(case!(loops::copied_by_index(b)));
+        }
+        for (v, s) in
+            [(vec![1u8, 2, 3], vec![4u8, 5]), (vec![255u8, 0, 9, 1], vec![200u8, 1, 1]), (vec![1u8], vec![1u8, 2])]
+        {
+            cases.push(case!(loops::read_by_index(v.clone(), &s)));
+        }
+        grid!(cases, loops::widened_by_use; k in [0u8, 1, 255]);
     });
 }
