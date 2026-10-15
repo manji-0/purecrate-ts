@@ -164,6 +164,35 @@ impl<'d, 'a> Typer<'d, 'a> {
                                 if op == BinOp::Ne { Expr::Unary { op: UnOp::Not, expr: Box::new(eq) } } else { eq };
                             return (e, self.expect(want, Some(Ty::bool())));
                         }
+                        // By the comparator `cmp` is (design/01 §7.25): `<`
+                        // is `Less`, `<=` not `Greater`, and so on.
+                        Ty::Named(_) | Ty::App { .. } | Ty::Option(_) | Ty::Vec(_) | Ty::Tuple(_) if ordered => {
+                            match self.comparator(t) {
+                                Ok(by) => {
+                                    let (is, kind) = match op {
+                                        BinOp::Lt => (true, "Less"),
+                                        BinOp::Le => (false, "Greater"),
+                                        BinOp::Gt => (true, "Greater"),
+                                        _ => (false, "Less"),
+                                    };
+                                    let compared =
+                                        Expr::Field { base: Box::new(compare(by, l, r)), name: Name::new("kind") };
+                                    let e = rebuild(
+                                        if is { BinOp::Eq } else { BinOp::Ne },
+                                        compared,
+                                        Expr::Lit(Lit::Str(kind.into())),
+                                    );
+                                    return (e, self.expect(want, Some(Ty::bool())));
+                                }
+                                Err(why) => {
+                                    self.error(
+                                        Reason::Comparison,
+                                        format!("ordering on `{}` is not in v0: {}", show(t), self.unordered(t, why)),
+                                    );
+                                    return (rebuild(op, l, r), self.expect(want, Some(Ty::bool())));
+                                }
+                            }
+                        }
                         _ => false,
                     };
                     if !ok {

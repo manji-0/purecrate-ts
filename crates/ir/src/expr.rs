@@ -662,6 +662,24 @@ pub enum Callee {
     /// `o.then(p)`: `p` when `o` is `Equal`, else `o`; both evaluated, `o`
     /// first, as Rust evaluates a call's arguments. Prints as `Ord.then`.
     OrdThen,
+    /// `a.cmp(&b)` on an `Option`, a tuple, or a `Vec` of what `OrdCmp`
+    /// does not order (design/01 §7.25): the comparator on `a`, then `b`,
+    /// each evaluated once. Prints as `Ord.cmpList(a, b, by)` for a `Vec`,
+    /// else as `Ord.option(by)(a, b)` or `Ord.tuple(..)(a, b)`. A crate
+    /// type's own `cmp` is a `Method` call.
+    OrdCmpBy(Cmp),
+    /// A comparator as a value, where a runtime function takes one
+    /// (`Slice.sortBy(v, Item.cmp)`, `Iter.maxBy(xs, Ord.option(Ord.cmp))`).
+    /// Takes no argument.
+    OrdBy(Cmp),
+    /// `a.max(b)`, `a.min(b)`, or `x.clamp(lo, hi)` by `by`, as std's `Ord`
+    /// methods choose: `max` the second of equals, `min` the first, `clamp`
+    /// panicking where `lo > hi`. The arguments in Rust's order; prints as
+    /// `Ord.max(a, b, by)` and so on.
+    OrdPick {
+        pick: Pick,
+        by: Cmp,
+    },
     /// `all`, `any`, `position`, `count`, or `sum` on what `over` walks:
     /// the source, then (but for `count` and `sum`) the predicate, a
     /// closure of one parameter. Prints as `Iter.<method>`.
@@ -1136,6 +1154,55 @@ pub enum Sort {
     By,
     /// `sort_by_key(|x| ..)`: by the key's `cmp`.
     ByKey { text: bool },
+}
+
+/// How values of a type are ordered (design/01 §7.25): the comparator
+/// `Callee::OrdBy` prints. Each is a function of two values giving std's
+/// `Ordering`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Cmp {
+    /// An integer or `bool`: `Ord.cmp`, by JS `<`.
+    Num,
+    /// A `char`, a string, or a `Uuid`: `Ord.cmpStr`, by code point.
+    Text,
+    /// A crate struct or enum with `Ord`: its companion's `cmp`.
+    Type(Name),
+    /// `None` first, then the values: `Ord.option(by)`.
+    Option(Box<Cmp>),
+    /// Element by element, then the shorter first: `Ord.vec(by)`.
+    Vec(Box<Cmp>),
+    /// Element by element, each by its own: `Ord.tuple(by0, by1, ..)`.
+    Tuple(Vec<Cmp>),
+}
+
+impl Cmp {
+    /// Each crate type whose `cmp` this comparator calls.
+    pub fn types(&self) -> Vec<&Name> {
+        match self {
+            Cmp::Num | Cmp::Text => Vec::new(),
+            Cmp::Type(n) => vec![n],
+            Cmp::Option(c) | Cmp::Vec(c) => c.types(),
+            Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::types).collect(),
+        }
+    }
+}
+
+/// Which of std's `Ord` methods `Callee::OrdPick` is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Max,
+    Min,
+    Clamp,
+}
+
+impl Pick {
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Pick::Max => "max",
+            Pick::Min => "min",
+            Pick::Clamp => "clamp",
+        }
+    }
 }
 
 /// What a `for` walks.

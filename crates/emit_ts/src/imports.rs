@@ -459,6 +459,12 @@ impl Refs {
                     }
                     Callee::ResultOk | Callee::ResultErr => self.result_value = true,
                     Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => self.ord = true,
+                    // `Ord.` where a comparator is the runtime's, and each
+                    // crate type whose `cmp` it calls.
+                    Callee::OrdCmpBy(by) | Callee::OrdBy(by) | Callee::OrdPick { by, .. } => {
+                        self.ord |= !matches!(by, purecrate_ir::Cmp::Type(_)) || matches!(callee, Callee::OrdPick { .. });
+                        self.values.extend(by.types().into_iter().map(|t| t.as_str().to_string()));
+                    }
                     Callee::Collect { over, .. }
                     | Callee::IterMap { over }
                     | Callee::IterFilter { over }

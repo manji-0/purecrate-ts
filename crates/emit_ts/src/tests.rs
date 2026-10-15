@@ -125,6 +125,7 @@ fn cmd_crate(body: Expr) -> Crate {
         repr: None,
         std: false,
         serde: purecrate_ir::Serde::default(),
+        order: purecrate_ir::Order::None,
         tagging: purecrate_ir::Tagging::External,
         doc: None,
     });
@@ -281,6 +282,7 @@ fn imports_follow_body_and_nested_types() {
         closed: false,
         wire_from: None,
         serde: purecrate_ir::Serde::default(),
+        order: purecrate_ir::Order::None,
         doc: None,
     }));
     let pkg = emit(&krate);

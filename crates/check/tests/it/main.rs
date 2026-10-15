@@ -24,6 +24,7 @@ mod names;
 mod newtype;
 mod option_result;
 mod ordering;
+mod ordering_derive;
 mod reach;
 mod resolve;
 mod serde_attrs;

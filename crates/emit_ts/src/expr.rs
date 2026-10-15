@@ -630,6 +630,15 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         C::StrCmp => call("Str.cmp", args, indent),
         C::OrdCmp { text } => call(ord_cmp(*text), args, indent),
         C::OrdThen => call("Ord.then", args, indent),
+        C::OrdCmpBy(purecrate_ir::Cmp::Vec(by)) => {
+            format!("Ord.cmpList({}, {}, {})", emit_expr(&args[0], indent), emit_expr(&args[1], indent), comparator(by))
+        }
+        C::OrdCmpBy(by) => call(&comparator(by), args, indent),
+        C::OrdBy(by) => comparator(by),
+        C::OrdPick { pick, by } => {
+            let all: Vec<String> = args.iter().map(|a| emit_item(a, indent)).collect();
+            format!("Ord.{}({}, {})", pick.ts_name(), all.join(", "), comparator(by))
+        }
         // Variant names are identifiers other than `__proto__` (checked), so
         // an object literal is a plain table.
         C::Discriminant { to, table, of } => match typed_table(table, of, to.is_big(), &args[0], indent) {
@@ -674,6 +683,10 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
                     }))
                 ),
                 K::Max { text } | K::Min { text } => format!("Iter.{}({source}, {})", method.ts_name(), ord_cmp(*text)),
+                // A comparator after the key where it is not one of `Ord`'s own.
+                K::MaxByKey { .. } | K::MinByKey { .. } if args.len() == 3 => {
+                    format!("Iter.{}({source}, {}, {})", method.ts_name(), item(1), item(2))
+                }
                 K::MaxByKey { text } | K::MinByKey { text } => {
                     format!("Iter.{}({source}, {}, {})", method.ts_name(), item(1), ord_cmp(*text))
                 }
@@ -698,6 +711,9 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             match sort {
                 purecrate_ir::Sort::Natural { text } => format!("Slice.sortBy({v}, {})", ord_cmp(*text)),
                 purecrate_ir::Sort::By => format!("Slice.sortBy({v}, {})", item(1)),
+                purecrate_ir::Sort::ByKey { .. } if args.len() == 3 => {
+                    format!("Slice.sortByKey({v}, {}, {})", item(1), item(2))
+                }
                 purecrate_ir::Sort::ByKey { text } => format!("Slice.sortByKey({v}, {}, {})", item(1), ord_cmp(*text)),
             }
         }
@@ -923,6 +939,20 @@ fn ord_cmp(text: bool) -> &'static str {
         "Ord.cmpStr"
     } else {
         "Ord.cmp"
+    }
+}
+
+/// A comparator as a function value (design/01 §7.25): `Ord.cmp`,
+/// `Ord.cmpStr`, a crate type's `X.cmp`, or one the runtime composes.
+fn comparator(by: &purecrate_ir::Cmp) -> String {
+    use purecrate_ir::Cmp;
+    match by {
+        Cmp::Num => ord_cmp(false).into(),
+        Cmp::Text => ord_cmp(true).into(),
+        Cmp::Type(ty) => format!("{}.cmp", ty.as_str()),
+        Cmp::Option(by) => format!("Ord.option({})", comparator(by)),
+        Cmp::Vec(by) => format!("Ord.vec({})", comparator(by)),
+        Cmp::Tuple(bys) => format!("Ord.tuple({})", bys.iter().map(comparator).collect::<Vec<_>>().join(", ")),
     }
 }
 

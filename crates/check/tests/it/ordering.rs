@@ -84,19 +84,22 @@ fn cmp_is_refused_where_js_has_no_order_to_follow() {
         "pub fn f(a: i32, b: i32) -> bool { a.partial_cmp(&b).is_some() }",
         "`.partial_cmp()` on `i32` is not in v0",
     );
-    assert_rejects(
-        "pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a.cmp(&b).is_lt() }",
-        "`.cmp()` on `(i32, i32)` is not in v0",
-    );
+    // Tuples, `Option`s, and `Vec`s of what is ordered compare as std's do
+    // (design/01 §7.25), and a crate type by its `cmp`.
+    assert_clean("pub fn f(a: (i32, i32), b: (i32, i32)) -> bool { a.cmp(&b).is_lt() }");
     assert_rejects("pub fn f(a: Vec<f64>, b: Vec<f64>) -> bool { a.cmp(&b).is_lt() }", "floats are not `Ord`");
-    assert_rejects("pub fn f(a: Vec<(u8, u8)>, b: Vec<(u8, u8)>) -> bool { a.cmp(&b).is_lt() }", "not of `(u8, u8)`");
     assert_rejects(
-        "pub fn f(a: Option<u8>, b: Option<u8>) -> bool { a.cmp(&b).is_lt() }",
-        "`.cmp()` on `Option<u8>` is not in v0",
+        "pub fn f(a: Option<(u8, f32)>, b: Option<(u8, f32)>) -> bool { a.cmp(&b).is_lt() }",
+        "floats are not `Ord`",
+    );
+    assert_clean("pub fn f(a: Vec<(u8, u8)>, b: Vec<(u8, u8)>) -> bool { a.cmp(&b).is_lt() }");
+    assert_clean("pub fn f(a: Option<u8>, b: Option<u8>) -> bool { a.cmp(&b).is_lt() }");
+    assert_clean(
+        "#[derive(PartialEq, Eq, PartialOrd, Ord)]\npub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a.cmp(&b).is_lt() }",
     );
     assert_rejects(
-        "#[derive(PartialEq, Eq, PartialOrd, Ord)]\npub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a.cmp(&b).is_lt() }",
-        "`.cmp()` on `V` is not in v0: `Ord` on the crate's own types is not modeled",
+        "#[derive(PartialEq, Eq)]\npub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a.cmp(&b).is_lt() }",
+        "`.cmp()` on `V` is not in v0: `V` has no `Ord`",
     );
     assert_rejects(
         "pub struct V { pub n: u32 }\npub fn f(a: V, b: V) -> bool { a < b }",
@@ -106,8 +109,11 @@ fn cmp_is_refused_where_js_has_no_order_to_follow() {
         "pub fn f(a: bool) -> Option<u8> { a.then(|| 1u8) }",
         "`.then()` on `bool` is not on the std allow-list; allowed: `cmp`",
     );
-    assert_parse_rejects("pub struct V { pub n: u32 }\nimpl PartialOrd for V {}", "trait impls are not in v0");
-    assert_parse_rejects("pub struct V { pub n: u32 }\nimpl Ord for V {}", "trait impls are not in v0");
+    assert_parse_rejects(
+        "pub struct V { pub n: u32 }\nimpl PartialOrd for V {}",
+        "`impl PartialOrd` is taken in v0 only as",
+    );
+    assert_parse_rejects("pub struct V { pub n: u32 }\nimpl Ord for V {}", "`impl Ord` needs `fn cmp");
 }
 
 #[test]

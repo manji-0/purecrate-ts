@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use purecrate_check::accept;
-use purecrate_ir::{Callee, Crate, Expr, Item, Pattern, Reason, Ty, VariantFields, ORDERING};
+use purecrate_ir::{BinOp, Callee, Crate, Expr, Item, Order, Pattern, Reason, Ty, VariantFields, ORDERING};
 use purecrate_syntax::{module_decls, survey_files, LineCol, ParseError, Unit, UnitKind};
 
 pub struct Report {
@@ -325,6 +325,7 @@ fn references(item: &Item) -> Vec<Ref> {
                 ty_refs(from, &mut out);
                 out.push(Ref::Method(s.name.as_str().to_string(), "try_from".to_string()));
             }
+            ordered_refs(s.order, &mut out);
         }
         Item::Enum(e) => {
             for v in &e.variants {
@@ -334,6 +335,7 @@ fn references(item: &Item) -> Vec<Ref> {
                     VariantFields::Struct(fs) => fs.iter().for_each(|f| ty_refs(&f.ty, &mut out)),
                 }
             }
+            ordered_refs(e.order, &mut out);
         }
         Item::Alias(a) => ty_refs(&a.ty, &mut out),
         Item::Fn(f) => {
@@ -347,6 +349,15 @@ fn references(item: &Item) -> Vec<Ref> {
         }
     }
     out
+}
+
+/// A derived `cmp` (design/01 §7.25) calls each field's `cmp`, which may be
+/// an `impl Ord`'s, and gives std's `Ordering`.
+fn ordered_refs(order: Order, out: &mut Vec<Ref>) {
+    if order == Order::Total {
+        out.push(Ref::ReceiverCall("cmp".to_string()));
+        out.push(Ref::Type(ORDERING.to_string()));
+    }
 }
 
 fn ty_refs(ty: &Ty, out: &mut Vec<Ref>) {
@@ -370,8 +381,15 @@ fn expr_refs(expr: &Expr, out: &mut Vec<Ref>) {
             Callee::Format(_) => out.push(Ref::ReceiverCall("to_string".to_string())),
             _ => {}
         },
+        // Ordering a crate type calls its `cmp`, which may be an `impl Ord`'s.
+        Expr::Binary { op: BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, .. } => {
+            out.push(Ref::ReceiverCall("cmp".to_string()));
+        }
         Expr::MethodCall { name, args, .. } => {
             out.push(Ref::ReceiverCall(name.as_str().to_string()));
+            if matches!(name.as_str(), "sort" | "sort_by_key" | "max" | "min" | "clamp" | "max_by_key" | "min_by_key") {
+                out.push(Ref::ReceiverCall("cmp".to_string()));
+            }
             // `cmp` gives std's `Ordering`, which the parser adds as an item.
             if name.as_str() == "cmp" {
                 out.push(Ref::Type(ORDERING.to_string()));

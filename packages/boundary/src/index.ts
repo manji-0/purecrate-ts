@@ -871,6 +871,48 @@ export const Ord = {
   /** `o.then(p)`: `p` when `o` is `Equal`, else `o`. */
   then: (o: Ordering, p: Ordering): Ordering => (o.kind === "Equal" ? p : o),
   // #endregion
+  // #region ord.option
+  /** `cmp` on two `Option`s: `None` first (as `false` before `true`), else the values by `by`. */
+  option:
+    <T>(by: (a: T, b: T) => Ordering) =>
+    (a: T | null, b: T | null): Ordering =>
+      a === null || b === null ? Ord.cmp(a !== null, b !== null) : by(a, b),
+  // #endregion
+  // #region ord.vec
+  /** `cmp` on two `Vec`s or slices, element by element by `by`, then the shorter first. */
+  vec:
+    <T>(by: (a: T, b: T) => Ordering) =>
+    (a: ReadonlyArray<T>, b: ReadonlyArray<T>): Ordering =>
+      Ord.cmpList(a, b, by),
+  // #endregion
+  // #region ord.tuple
+  /** `cmp` on two tuples: element `i` by `bys[i]`, the first that is not `Equal` deciding. */
+  tuple:
+    (...bys: ReadonlyArray<(a: never, b: never) => Ordering>) =>
+    (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): Ordering => {
+      for (let i = 0; i < bys.length; i++) {
+        const o = (bys[i] as (x: unknown, y: unknown) => Ordering)(a[i], b[i]);
+        if (o.kind !== "Equal") return o;
+      }
+      // Two tuples of one type have one length: `Equal`.
+      return Ord.cmp(a.length, b.length);
+    },
+  // #endregion
+  // #region ord.max
+  /** `a.max(b)` by `by`: `b` where they are equal, as std's `Ord::max`. */
+  max: <T>(a: T, b: T, by: (x: T, y: T) => Readonly<{ kind: string }>): T => (by(a, b).kind === "Greater" ? a : b),
+  // #endregion
+  // #region ord.min
+  /** `a.min(b)` by `by`: `a` where they are equal, as std's `Ord::min`. */
+  min: <T>(a: T, b: T, by: (x: T, y: T) => Readonly<{ kind: string }>): T => (by(a, b).kind === "Greater" ? b : a),
+  // #endregion
+  // #region ord.clamp
+  /** `x.clamp(lo, hi)` by `by`, panicking as std's `Ord::clamp` does where `lo > hi`. */
+  clamp: <T>(x: T, lo: T, hi: T, by: (a: T, b: T) => Readonly<{ kind: string }>): T => {
+    if (by(lo, hi).kind === "Greater") throw new Panic("assertion failed: min <= max");
+    return by(x, lo).kind === "Less" ? lo : by(x, hi).kind === "Greater" ? hi : x;
+  },
+  // #endregion
 } as const;
 
 // #region iter.maxBy iter.minBy iter.maxByKey iter.minByKey

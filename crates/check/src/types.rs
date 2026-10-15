@@ -11,9 +11,9 @@
 //! suffix or an annotation instead of guessing.
 
 use purecrate_ir::{
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy, FmtAlign,
-    FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Prim, Reason, SliceOf, Sort,
-    StrMethod, TreeOp, TryOn, Ty, UnOp, VariantBind, VariantFields,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy,
+    FmtAlign, FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Pick, Prim, Reason,
+    SliceOf, Sort, StrMethod, TreeOp, TryOn, Ty, UnOp, VariantBind, VariantFields,
 };
 
 use crate::defs::{Defs, Peel};

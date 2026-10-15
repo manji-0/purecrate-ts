@@ -64,14 +64,20 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Consume::MinBy
                 }
             }
-            "max" | "min" => {
-                let Some(text) = self.ordered_by(&item, name) else { return Some(failed) };
-                if name == "max" {
-                    Consume::Max { text }
-                } else {
-                    Consume::Min { text }
+            "max" | "min" => match self.ordered_by_any(&item, name) {
+                Some(Ok(text)) if name == "max" => Consume::Max { text },
+                Some(Ok(text)) => Consume::Min { text },
+                // `Iter.maxBy(xs, by)`, as `max_by` with the comparator.
+                Some(Err(by)) => {
+                    call_args.push(comparator_value(by));
+                    if name == "max" {
+                        Consume::MaxBy
+                    } else {
+                        Consume::MinBy
+                    }
                 }
-            }
+                None => return Some(failed),
+            },
             _ => {
                 let pred = match args.first() {
                     None => None,
@@ -106,7 +112,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                     "count" => Consume::Count,
                     "max_by_key" | "min_by_key" => {
                         let Some(key) = key else { return Some(failed) };
-                        let Some(text) = self.ordered_by(&key, name) else { return Some(failed) };
+                        let text = match self.ordered_by_any(&key, name) {
+                            Some(Ok(text)) => text,
+                            // The comparator follows the key.
+                            Some(Err(by)) => {
+                                call_args.push(comparator_value(by));
+                                false
+                            }
+                            None => return Some(failed),
+                        };
                         if name == "max_by_key" {
                             Consume::MaxByKey { text }
                         } else {
@@ -192,27 +206,6 @@ impl<'d, 'a> Typer<'d, 'a> {
         let (f, _) = self.expr(&f, None);
         let e = Expr::Call { callee: Callee::Consume { method: Consume::Fold, over }, args: vec![source, init, f] };
         (e, self.expect(want, Some(acc)))
-    }
-
-    /// Whether `t` orders by `cmp` (`Ord.cmp`, `false`) or by code point
-    /// (`Ord.cmpStr`, `true`), as `name` needs; `None` once reported.
-    pub(super) fn ordered_by(&mut self, t: &Ty, name: &str) -> Option<bool> {
-        match self.norm(t) {
-            Ty::Prim(Prim::Bool) => Some(false),
-            Ty::Prim(p) if p.int().is_some() => Some(false),
-            Ty::Prim(Prim::Char | Prim::String | Prim::Str | Prim::Uuid) => Some(true),
-            Ty::Never => None,
-            other => {
-                self.error(
-                    Reason::Comparison,
-                    format!(
-                        "`{name}` orders by `cmp`, which v0 has on integers, `bool`, `char`, strings, and `Uuid`, found `{}`; use the `_by` form with a closure giving an `Ordering`",
-                        show(&other)
-                    ),
-                );
-                None
-            }
-        }
     }
 
     /// What an iterator method takes as its function: a closure of one

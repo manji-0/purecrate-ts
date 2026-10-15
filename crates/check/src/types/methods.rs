@@ -206,6 +206,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                     return typed;
                 }
             }
+            if let Some(typed) = self.pick(recv.clone(), rt, name.as_str(), args, want) {
+                return typed;
+            }
         }
         let text = matches!(nt, Some(Ty::Prim(Prim::String | Prim::Str)));
         if name.as_str() == "parse" && args.is_empty() && text {
@@ -458,10 +461,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                     return failed;
                 }
                 let (sort, args) = match method {
-                    "sort" => {
-                        let Some(text) = self.ordered_by(item, method) else { return failed };
-                        (Sort::Natural { text }, vec![recv])
-                    }
+                    "sort" => match self.ordered_by_any(item, method) {
+                        Some(Ok(text)) => (Sort::Natural { text }, vec![recv]),
+                        Some(Err(by)) => (Sort::By, vec![recv, comparator_value(by)]),
+                        None => return failed,
+                    },
                     "sort_by" => {
                         let ordering = Ty::named(purecrate_ir::ORDERING);
                         let f = Ty::Fn { params: vec![item.clone(), item.clone()], ret: Box::new(ordering) };
@@ -480,8 +484,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                             Some(Ty::Fn { ret, .. }) => *ret,
                             _ => return failed,
                         };
-                        let Some(text) = self.ordered_by(&key, method) else { return failed };
-                        (Sort::ByKey { text }, vec![recv, closure])
+                        match self.ordered_by_any(&key, method) {
+                            Some(Ok(text)) => (Sort::ByKey { text }, vec![recv, closure]),
+                            // The comparator follows the key.
+                            Some(Err(by)) => (Sort::ByKey { text: false }, vec![recv, closure, comparator_value(by)]),
+                            None => return failed,
+                        }
                     }
                 };
                 (Callee::VecSort(sort), args, Ty::Prim(Prim::Unit))

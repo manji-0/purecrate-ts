@@ -10,6 +10,7 @@ mod exhaustive;
 mod grow;
 mod lift;
 mod names;
+mod order;
 mod position;
 mod reach;
 mod rename;
@@ -72,6 +73,27 @@ fn locate(found: &mut [Diagnostic], at: Pos) {
 /// §7.25), and the rest checked again: one that printed it fails in turn.
 /// Diagnostics index `krate`'s items all the same.
 pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
+    // The derived `cmp`s are items past the input's: a diagnostic about one
+    // points at the type that derives it.
+    let (derived, origin, mut found) = order::derive(krate);
+    let at = |i: usize| i.checked_sub(krate.items.len()).map_or(i, |j| origin[j]);
+    match accept_derived(&derived) {
+        Ok(done) if found.is_empty() => Ok(done),
+        Ok(_) => Err(found),
+        Err(more) => {
+            found.extend(more.into_iter().map(|d| Diagnostic {
+                item: at(d.item),
+                also: d.also.iter().map(|&i| at(i)).collect(),
+                ..d
+            }));
+            found.sort_by_key(|d| d.item);
+            Err(found)
+        }
+    }
+}
+
+/// The display loop of `accept` over the crate with its derived `cmp`s.
+fn accept_derived(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     let mut kept: Vec<usize> = (0..krate.items.len()).collect();
     let mut trial = None;
     loop {

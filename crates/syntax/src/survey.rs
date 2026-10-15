@@ -268,6 +268,18 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                 lowered,
             )]
         }
+        // `impl Ord for X` is the method `X::cmp`, which ordering an `X`
+        // calls (design/01 §7.25). Not a public function either.
+        SynItem::Impl(imp) if is_ord_impl(imp) => {
+            let lowered = lower_one(cx, item.clone(), all_causes, "method");
+            vec![unit(
+                UnitKind::Method { owner: self_name(&imp.self_ty) },
+                "cmp".to_string(),
+                false,
+                LineCol::of(imp.span()),
+                lowered,
+            )]
+        }
         other => {
             let what = match other {
                 SynItem::Impl(_) => "trait impl",
@@ -360,6 +372,10 @@ fn with_default(
         });
     }
     units
+}
+
+fn is_ord_impl(imp: &syn::ItemImpl) -> bool {
+    imp.trait_.as_ref().and_then(|(_, p, _)| p.segments.last()).is_some_and(|s| s.ident == "Ord")
 }
 
 fn self_name(ty: &syn::Type) -> String {

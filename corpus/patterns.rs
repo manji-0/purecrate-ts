@@ -136,3 +136,16 @@ impl std::fmt::Display for Shape { fn fmt(&self, f: &mut std::fmt::Formatter<'_>
 pub fn d01_display_format(m: Money) -> String { format!("total: {m}") }
 pub fn d02_display_to_string(s: Shape) -> String { s.to_string() }
 pub fn d03_display_nested(s: Shape, m: Money) -> String { format!("{} costs {}", s, m) }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Ver { pub major: u32, pub minor: u32, pub pre: Option<String> }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Prio { pub n: u8 }
+impl Ord for Prio { fn cmp(&self, other: &Self) -> std::cmp::Ordering { other.n.cmp(&self.n) } }
+impl PartialOrd for Prio { fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) } }
+pub fn o01_derived_lt(a: Ver, b: Ver) -> bool { a < b }
+pub fn o02_derived_sort(xs: Vec<Ver>) -> Vec<Ver> { let mut xs = xs; xs.sort(); xs }
+pub fn o03_derived_iter_max(xs: Vec<Ver>) -> Option<Ver> { xs.into_iter().max() }
+pub fn o04_derived_clamp(v: Ver, lo: Ver, hi: Ver) -> Ver { v.clamp(lo, hi) }
+pub fn o05_tuple_cmp(a: (u32, String), b: (u32, String)) -> std::cmp::Ordering { a.cmp(&b) }
+pub fn o06_impl_ord(a: Prio, b: Prio) -> bool { a > b }
+pub fn o07_sort_by_derived_key(xs: Vec<Item>) -> Vec<Item> { let mut xs = xs; xs.sort_by_key(|i| (i.qty, i.sku.clone())); xs }

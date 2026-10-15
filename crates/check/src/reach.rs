@@ -136,6 +136,13 @@ impl Refs {
                     self.name(ty);
                     self.methods.push((ty.as_str().to_string(), name.as_str().to_string()));
                 }
+                // The `cmp` of each crate type a comparator calls.
+                Callee::OrdCmpBy(by) | Callee::OrdBy(by) | Callee::OrdPick { by, .. } => {
+                    for ty in by.types() {
+                        self.name(ty);
+                        self.methods.push((ty.as_str().to_string(), "cmp".to_string()));
+                    }
+                }
                 _ => {}
             },
             Expr::Construct { ty, .. } => self.name(ty),

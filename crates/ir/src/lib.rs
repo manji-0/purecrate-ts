@@ -11,12 +11,13 @@ mod reason;
 mod ty;
 
 pub use expr::{
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Consume, Expr, Fields, FloatConst, FloatMethod, FmtAlign, FmtPiece,
-    FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp, VariantBind,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Consume, Expr, Fields, FloatConst, FloatMethod, FmtAlign,
+    FmtPiece, FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pick, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp,
+    VariantBind,
 };
 pub use item::{
-    assoc_path, from_member, split_assoc_path, tuple_field, Alias, Const, Enum, Field, Fn, Item, Param, Serde, Struct,
-    Tagging, Variant, VariantFields, Vis, CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
+    assoc_path, from_member, split_assoc_path, tuple_field, Alias, Const, Enum, Field, Fn, Item, Order, Param, Serde,
+    Struct, Tagging, Variant, VariantFields, Vis, CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
 };
 pub use krate::Crate;
 pub use name::{lower_first, to_camel, to_kebab, upper_first, Name};
@@ -55,6 +56,7 @@ pub fn counter_example() -> Crate {
         repr: None,
         std: false,
         serde: item::Serde::default(),
+        order: item::Order::None,
         tagging: Tagging::External,
         doc: None,
     });
@@ -67,6 +69,7 @@ pub fn counter_example() -> Crate {
         closed: false,
         wire_from: None,
         serde: item::Serde::default(),
+        order: item::Order::None,
         doc: None,
     });
 

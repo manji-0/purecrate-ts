@@ -489,8 +489,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (args, t)
             }
             // Written only by `cmp_method` and `ordering_method`, typed.
-            Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen => {
+            Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } | Callee::OrdThen | Callee::OrdCmpBy(_) => {
                 (typed_args(self, Vec::new()), Some(Ty::named(purecrate_ir::ORDERING)))
+            }
+            // Written only by `comparator_value` and `pick`, typed.
+            Callee::OrdBy(_) => (Vec::new(), None),
+            Callee::OrdPick { .. } => {
+                let (args, tys) = self.typed_all(args);
+                (args, tys.into_iter().flatten().next())
             }
             Callee::StrBytes => (typed_args(self, Vec::new()), Some(Ty::Vec(Box::new(Ty::Prim(Prim::U8))))),
             Callee::StrSplit => {

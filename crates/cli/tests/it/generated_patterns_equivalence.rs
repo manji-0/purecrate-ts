@@ -23,13 +23,13 @@ use crate::support::generated::{compare_rows, fn_count, seeds, Args, SEEDS};
 use crate::support::{Js, Rng};
 
 /// The crate's types, the same in every seed.
-const TYPES: &str = "#[derive(Clone, Copy)]
+const TYPES: &str = "#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Acc {
     pub total: i32,
     pub last: Option<i32>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum State {
     Idle,
     Count(i32),
@@ -38,7 +38,7 @@ pub enum State {
     Held(Acc),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Event {
     Tick,
     Add(i32),
@@ -293,6 +293,86 @@ impl Pats {
         }
     }
 
+    /// An event built from what is in scope.
+    fn event(&mut self, d: u32) -> String {
+        match self.g.rng.below(5) {
+            0 => "e".into(),
+            1 => "Event::Tick".into(),
+            2 => format!("Event::Add({})", self.g.int(d)),
+            3 => format!("Event::Set({})", self.g.place(Ty::Opt, d)),
+            _ => format!("Event::Close {{ force: {} }}", self.g.boolean(d)),
+        }
+    }
+
+    /// A function that orders the crate's types by their derived `Ord`
+    /// (design/01 §7.25): `<` .. `>=` on states, and on tuples and `Option`s
+    /// of events, `cmp` in a `match`, `max`, `min`, `clamp` (which panics
+    /// where its bounds cross), `sort`, and the iterator's `max` / `min`.
+    /// Drawn from a generator of its own, so the functions above stay as
+    /// each seed drew them before.
+    fn order_function(&mut self, ret: Ret) -> String {
+        let op = self.g.rng.pick(&["<", "<=", ">", ">="]);
+        let int_or = |p: &mut Self, value: String| match ret {
+            Ret::Step => format!("Ok({value})"),
+            Ret::Int => {
+                let (x, y) = (p.g.int(1), p.g.int(1));
+                format!("if {value} == s {{ {x} }} else {{ {y} }}")
+            }
+        };
+        match self.g.rng.below(8) {
+            0 => {
+                let t = self.state(1);
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if s {op} ({t}) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            1 => {
+                let (ev, n) = (self.event(1), self.g.int(1));
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if (e, a) {op} ({ev}, {n}) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            2 => {
+                let ev = self.event(1);
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if Some(e) {op} (if c {{ Some({ev}) }} else {{ None }}) {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+            3 => {
+                let t = self.state(1);
+                let (x, y, z) = (self.body(ret), self.body(ret), self.body(ret));
+                format!(
+                    "    match s.cmp(&({t})) {{\n        std::cmp::Ordering::Less => {x},\n        std::cmp::Ordering::Equal => {y},\n        std::cmp::Ordering::Greater => {z},\n    }}"
+                )
+            }
+            4 => {
+                let (t, u) = (self.state(1), self.state(1));
+                let picked = match self.g.rng.below(3) {
+                    0 => format!("s.max({t})"),
+                    1 => format!("s.min({t})"),
+                    _ => format!("s.clamp({t}, {u})"),
+                };
+                format!("    let m = {picked};\n    {}", int_or(self, "m".into()))
+            }
+            5 => {
+                let (t, u) = (self.state(1), self.state(1));
+                let at = self.g.rng.below(3);
+                format!("    let mut v = vec![s, {t}, {u}];\n    v.sort();\n    {}", int_or(self, format!("v[{at}]")))
+            }
+            6 => {
+                let (t, u) = (self.state(1), self.state(1));
+                let which = self.g.rng.pick(&["max", "min"]);
+                format!(
+                    "    let v = vec![{t}, s, {u}];\n    let m = v.into_iter().{which}().unwrap_or(State::Idle);\n    {}",
+                    int_or(self, "m".into())
+                )
+            }
+            _ => {
+                let ev = self.event(1);
+                let which = self.g.rng.pick(&["max", "min"]);
+                let (x, y) = (self.body(ret), self.body(ret));
+                format!("    if e.{which}({ev}) == e {{\n        {x}\n    }} else {{\n        {y}\n    }}")
+            }
+        }
+    }
+
     fn function(&mut self, ret: Ret) -> String {
         match self.g.rng.below(6) {
             0 => format!("    match s {{\n{}    }}", self.arms(ret, true, |p| p.state_pat())),
@@ -413,6 +493,18 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.slice_function(ret);
             let name = format!("p{seed}_s{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        let mut p = Pats { g: Gen::new(seed ^ 0x0bde), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.order_function(ret);
+            let name = format!("p{seed}_o{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

@@ -534,6 +534,12 @@ impl<'a> Cx<'_, 'a> {
             Callee::StrCmp => self.arity("`str::cmp`", 2, argc),
             Callee::OrdCmp { .. } | Callee::OrdCmpList { .. } => self.arity("`cmp`", 2, argc),
             Callee::OrdThen => self.arity("`Ordering::then`", 2, argc),
+            Callee::OrdCmpBy(_) => self.arity("`cmp`", 2, argc),
+            Callee::OrdBy(_) => self.arity("a comparator", 0, argc),
+            Callee::OrdPick { pick, .. } => {
+                let takes = if *pick == purecrate_ir::Pick::Clamp { 3 } else { 2 };
+                self.arity(&format!("`{}`", pick.ts_name()), takes, argc)
+            }
             Callee::Consume { method, .. } => {
                 let takes = match method {
                     purecrate_ir::Consume::Count | purecrate_ir::Consume::Sum(_) => 1,

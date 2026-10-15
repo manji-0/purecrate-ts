@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use purecrate_ir::{
-    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Param, Reason, Serde, Struct, Tagging, Variant, VariantFields,
-    Vis, NEWTYPE_FIELD,
+    Alias, Const, Enum, Field, Fn, IntTy, Item, Name, Order, Param, Reason, Serde, Struct, Tagging, Variant,
+    VariantFields, Vis, NEWTYPE_FIELD,
 };
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -101,6 +101,9 @@ pub struct Cx {
     /// The consts of inherent `impl` blocks, by type and name: `T::N` reads
     /// one.
     assoc_consts: HashSet<(String, String)>,
+    /// The structs and enums that derive `PartialOrd`: a hand-written `impl
+    /// Ord` beside one would order `<` and `sort` differently.
+    partial_ord: HashSet<String>,
     /// Names made up while lowering (`$g1`, ... for guarded scrutinees).
     fresh: std::cell::Cell<u32>,
     /// When set (`survey --all-causes`), an expression or block that cannot
@@ -136,6 +139,7 @@ impl Cx {
         let mut variant_owner = HashMap::new();
         let mut variants = HashSet::new();
         let mut assoc_consts = HashSet::new();
+        let mut partial_ord = HashSet::new();
         for item in items {
             match item {
                 SynItem::Impl(imp) if imp.trait_.is_none() => {
@@ -150,6 +154,9 @@ impl Cx {
                     }
                 }
                 SynItem::Enum(e) => {
+                    if derives(&e.attrs).iter().any(|d| d == "PartialOrd") {
+                        partial_ord.insert(e.ident.to_string());
+                    }
                     enums.insert(e.ident.to_string());
                     for v in &e.variants {
                         variant_owner.insert(v.ident.to_string(), e.ident.to_string());
@@ -157,6 +164,9 @@ impl Cx {
                     }
                 }
                 SynItem::Struct(s) => {
+                    if derives(&s.attrs).iter().any(|d| d == "PartialOrd") {
+                        partial_ord.insert(s.ident.to_string());
+                    }
                     structs.insert(s.ident.to_string());
                 }
                 _ => {}
@@ -168,6 +178,7 @@ impl Cx {
             variant_owner,
             variants,
             assoc_consts,
+            partial_ord,
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
@@ -410,6 +421,33 @@ fn serde_derives(attrs: &[syn::Attribute]) -> Serde {
     out
 }
 
+/// The last segments of the paths in `#[derive(...)]`: `Ord`, `serde::Serialize`.
+fn derives(attrs: &[syn::Attribute]) -> Vec<String> {
+    let mut out = Vec::new();
+    for attr in attrs.iter().filter(|a| a.path().is_ident("derive")) {
+        let Ok(paths) =
+            attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
+        else {
+            continue;
+        };
+        out.extend(paths.iter().filter_map(|p| p.segments.last().map(|s| s.ident.to_string())));
+    }
+    out
+}
+
+/// What `#[derive(PartialOrd, Ord)]` says of a type's order (design/01
+/// §7.25): `Ord` gives it a `cmp`, written by `check::accept`.
+fn order_derive(attrs: &[syn::Attribute]) -> Order {
+    let derived = derives(attrs);
+    if derived.iter().any(|d| d == "Ord") {
+        Order::Total
+    } else if derived.iter().any(|d| d == "PartialOrd") {
+        Order::Partial
+    } else {
+        Order::None
+    }
+}
+
 /// `#[cfg(test)]` items are absent from the build the TS mirrors.
 pub fn is_test_only(item: &SynItem) -> bool {
     item_attrs(item)
@@ -594,6 +632,7 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
         repr: enum_repr(&e.attrs)?,
         std: false,
         serde: serde_derives(&e.attrs),
+        order: order_derive(&e.attrs),
         tagging: match (container.tag, container.content) {
             (None, _) => Tagging::External,
             (Some(tag), None) => Tagging::Internal { tag },
@@ -641,6 +680,7 @@ fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
         closed,
         wire_from,
         serde: serde_derives(&s.attrs),
+        order: order_derive(&s.attrs),
         doc: doc(&s.attrs),
     })
 }
@@ -739,13 +779,16 @@ fn lower_param(owner: Option<&purecrate_ir::Ty>, input: &syn::FnArg) -> Result<P
 /// its text is fixed per value (`lower_display`), else it is skipped, as
 /// `Error` is (a server needs them, for serde's `try_from` among others);
 /// `TryFrom<T>` becomes the method `try_from`; `From<S>` the member
-/// `fromS` (`lower_from`), `Default` the method `default` (design/01 §7.25).
+/// `fromS` (`lower_from`), `Default` the method `default`; `Ord` the method
+/// `cmp`, and `PartialOrd`, written as `cmp` gives, nothing (design/01 §7.25).
 enum TraitImpl {
     Display,
     Skipped,
     TryFrom,
     From,
     Default,
+    Ord,
+    PartialOrd,
 }
 
 fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
@@ -761,6 +804,8 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
                 _ => None,
             }
         }
+        ["Ord"] | ["cmp", "Ord"] | ["std" | "core", "cmp", "Ord"] => Some(TraitImpl::Ord),
+        ["PartialOrd"] | ["cmp", "PartialOrd"] | ["std" | "core", "cmp", "PartialOrd"] => Some(TraitImpl::PartialOrd),
         ["TryFrom"] | ["convert", "TryFrom"] | ["std" | "core", "convert", "TryFrom"] => {
             match &path.segments.last()?.arguments {
                 syn::PathArguments::AngleBracketed(a) => match a.args.first() {
@@ -1195,6 +1240,91 @@ fn enum_default(e: &syn::ItemEnum) -> Result<purecrate_ir::Expr, ParseError> {
     }
 }
 
+/// `impl Ord for X` as the method `X::cmp`: `fn cmp` is its one item, as
+/// std's other methods (`max`, `min`, `clamp`) follow from it. Refused
+/// beside a derived `PartialOrd`, which orders `<` field by field whatever
+/// `cmp` says.
+fn lower_ord(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Result<Vec<Item>, ParseError> {
+    if cx.partial_ord.contains(&owner_ident.to_string()) {
+        return Err(ParseError::new(
+            Reason::ImplShape,
+            format!("`{owner_ident}` derives `PartialOrd` and writes `impl Ord`: `<` would compare field by field and `cmp` by hand; write `impl PartialOrd` as `Some(self.cmp(other))`"),
+        ));
+    }
+    let owner = Name::new(owner_ident.to_string());
+    let mut out = Vec::new();
+    for item in &imp.items {
+        match item {
+            syn::ImplItem::Fn(f) if f.sig.ident == "cmp" => {
+                reject_attrs(&f.attrs)?;
+                let mut f = f.clone();
+                SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
+                let public = Visibility::Public(Default::default());
+                let owned = (owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
+                let lowered =
+                    lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(item.span()))?;
+                out.push(Item::Fn(lowered));
+            }
+            other => {
+                return Err(ParseError::new(
+                    Reason::ImplShape,
+                    "`impl Ord` has only `fn cmp` in v0: std's `max`, `min`, and `clamp` follow from it",
+                )
+                .or_at(other.span()))
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(ParseError::new(Reason::ImplShape, "`impl Ord` needs `fn cmp(&self, other: &Self) -> Ordering`"));
+    }
+    Ok(out)
+}
+
+/// `impl PartialOrd for X` whose `partial_cmp` is `Some(self.cmp(other))`,
+/// as clippy asks beside `Ord`: `<` is then `cmp`'s, and the impl adds no
+/// member. Any other body may disagree with `cmp` (one giving `None`
+/// makes every `<` false), so it is refused.
+fn partial_cmp_is_cmp(imp: &syn::ItemImpl) -> Result<(), ParseError> {
+    let refused = || {
+        ParseError::new(
+            Reason::ImplShape,
+            "`impl PartialOrd` is taken in v0 only as `fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }`, beside `Ord`: any other `partial_cmp` may order `<` otherwise than `cmp`",
+        )
+    };
+    let [syn::ImplItem::Fn(f)] = imp.items.as_slice() else { return Err(refused()) };
+    if f.sig.ident != "partial_cmp" {
+        return Err(refused().or_at(f.sig.ident.span()));
+    }
+    let other = match f.sig.inputs.iter().collect::<Vec<_>>().as_slice() {
+        [syn::FnArg::Receiver(r), syn::FnArg::Typed(p)] if r.reference.is_some() && r.mutability.is_none() => {
+            match &*p.pat {
+                syn::Pat::Ident(id) => id.ident.clone(),
+                _ => return Err(refused().or_at(p.span())),
+            }
+        }
+        _ => return Err(refused().or_at(f.sig.span())),
+    };
+    let is_cmp = match f.block.stmts.as_slice() {
+        [syn::Stmt::Expr(syn::Expr::Call(some), None)] => {
+            match (&*some.func, some.args.iter().collect::<Vec<_>>().as_slice()) {
+                (syn::Expr::Path(p), [syn::Expr::MethodCall(c)]) => {
+                    p.path.is_ident("Some")
+                        && c.method == "cmp"
+                        && is_self(&c.receiver)
+                        && matches!(c.args.iter().collect::<Vec<_>>().as_slice(), [syn::Expr::Path(a)] if a.path.is_ident(&other))
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    };
+    if is_cmp {
+        Ok(())
+    } else {
+        Err(refused().or_at(f.block.span()))
+    }
+}
+
 /// Rewrites the type `Self::Error` to the impl's `type Error`.
 struct SelfError<'a>(&'a syn::Type);
 
@@ -1225,7 +1355,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
         Some((_, path, _)) => Some(trait_impl(path).ok_or_else(|| {
             ParseError::new(
                 Reason::TraitImpl,
-                "trait impls are not in v0, except `Display`, `Error` (skipped), `TryFrom<T>`, `From<S>`, and `Default`",
+                "trait impls are not in v0, except `Display`, `Error` (skipped), `TryFrom<T>`, `From<S>`, `Default`, `Ord`, and `PartialOrd`",
             )
         })?),
     };
@@ -1290,6 +1420,12 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
     }
     if matches!(kind, Some(TraitImpl::Display)) {
         return Ok(lower_display(cx, &imp, &owner_ident).into_iter().collect());
+    }
+    if matches!(kind, Some(TraitImpl::Ord)) {
+        return lower_ord(cx, &imp, &owner_ident);
+    }
+    if matches!(kind, Some(TraitImpl::PartialOrd)) {
+        return partial_cmp_is_cmp(&imp).map(|()| Vec::new());
     }
     let owner = Name::new(owner_ident.to_string());
     let mut out = Vec::new();

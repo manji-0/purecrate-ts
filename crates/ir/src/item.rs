@@ -99,6 +99,20 @@ impl Serde {
     }
 }
 
+/// What a struct's or enum's `#[derive(..)]` says of its order (design/01
+/// §7.25). `check::accept` gives a type that derives `Ord` the method `cmp`,
+/// comparing its fields (an enum's variants first) as the derive does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Order {
+    #[default]
+    None,
+    /// `PartialOrd` without `Ord`: ordering the type is refused, as `<` on a
+    /// float is (a type with a float field derives no more).
+    Partial,
+    /// `Ord`, with `PartialOrd` derived or written as `Some(self.cmp(other))`.
+    Total,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Struct {
     pub vis: Vis,
@@ -114,6 +128,7 @@ pub struct Struct {
     /// checked by `impl TryFrom<T> for Self` (design/04 §5).
     pub wire_from: Option<Ty>,
     pub serde: Serde,
+    pub order: Order,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
 }
@@ -144,6 +159,7 @@ pub struct Enum {
     /// `Serialize` nor `Deserialize` for it) and rustc sees std's type.
     pub std: bool,
     pub serde: Serde,
+    pub order: Order,
     pub tagging: Tagging,
     /// The item's `///` comment, without the slashes, as JSDoc in the TS.
     pub doc: Option<String>,
@@ -171,6 +187,7 @@ impl Enum {
             repr: Some(crate::ty::IntTy::I8),
             std: true,
             serde: Serde::default(),
+            order: Order::None,
             tagging: Tagging::External,
             doc: None,
         }

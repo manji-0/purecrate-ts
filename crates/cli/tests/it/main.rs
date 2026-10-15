@@ -66,6 +66,7 @@ mod oidc_equivalence;
 mod option_methods_equivalence;
 mod order_equivalence;
 mod order_of_eval_equivalence;
+mod ordering_derive_equivalence;
 mod ordering_equivalence;
 mod package;
 mod panics_equivalence;
