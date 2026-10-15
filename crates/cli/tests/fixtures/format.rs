@@ -95,3 +95,15 @@ pub fn alone(s: String, t: &str, c: char) -> String {
     out.push_str(&7u8.to_string());
     out
 }
+
+// A `format!` placed once in another is its pieces in place, its arguments
+// still run in Rust's order; a padded one stays an argument. A value padded
+// alone is the padding's text.
+pub fn nested(n: u8, s: &str) -> String {
+    let a = format!("<{}>{}", format!("{}-{s}", n + 1), n.to_string());
+    let b = format!("{}", format!("{n}"));
+    let c = format!("{:>6}|{}", format!("{s}!"), format!("{}", format!("x")));
+    let d = format!("{:*^5}", s);
+    let e = format!("{:03}", n);
+    format!("{a}/{b}/{c}/{d}/{e}")
+}

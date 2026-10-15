@@ -191,13 +191,21 @@ pub(super) fn joined(a: Expr, b: Expr) -> Expr {
 /// nothing, so the order stays Rust's); text alone is that string; and a
 /// string placed alone (`strings[i]`: a `String`, `&str`, `char`, or
 /// `Uuid`) is itself, as `String::from` it, which `joined` places again.
+/// A template placed once without a spec (a `format!` or an integer's
+/// `to_string()` as an argument) is its pieces in its place, which run its
+/// arguments where it ran them.
 fn reduced(pieces: Vec<FmtPiece>, args: Vec<Expr>, strings: Vec<bool>) -> Expr {
+    let (pieces, args, strings) = spliced(pieces, args, strings);
     fn shown(e: &Expr) -> Option<String> {
         match e {
             Expr::Lit(Lit::Str(s)) => Some(s.clone()),
             Expr::Lit(Lit::Char(c)) => Some(c.to_string()),
             Expr::Lit(Lit::Bool(b)) => Some(b.to_string()),
             Expr::Lit(Lit::Int { value, .. }) => Some(value.to_string()),
+            Expr::Call { callee: Callee::StringFrom, args } => match args.as_slice() {
+                [Expr::Lit(Lit::Str(s))] => Some(s.clone()),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -249,6 +257,51 @@ fn reduced(pieces: Vec<FmtPiece>, args: Vec<Expr>, strings: Vec<bool>) -> Expr {
         }
         _ => Expr::Call { callee: Callee::Format(out), args: kept },
     }
+}
+
+/// `reduced`'s templates placed once without a spec, as their pieces; the
+/// arguments renumbered in the order placed, those not placed dropped.
+fn spliced(pieces: Vec<FmtPiece>, args: Vec<Expr>, strings: Vec<bool>) -> (Vec<FmtPiece>, Vec<Expr>, Vec<bool>) {
+    let inline: Vec<bool> = (0..args.len())
+        .map(|i| {
+            let mut uses = pieces.iter().filter(|p| matches!(p, FmtPiece::Arg { index, .. } if *index == i));
+            matches!((uses.next(), uses.next()), (Some(FmtPiece::Arg { spec, .. }), None) if spec.is_plain())
+                && matches!(args[i], Expr::Call { callee: Callee::Format(_), .. })
+        })
+        .collect();
+    let mut args: Vec<Option<Expr>> = args.into_iter().map(Some).collect();
+    let mut slot: Vec<Option<usize>> = vec![None; args.len()];
+    let (mut out, mut kept, mut kept_strings) = (Vec::new(), Vec::new(), Vec::new());
+    for p in pieces {
+        match p {
+            FmtPiece::Arg { index, .. } if inline[index] => {
+                let Some(Expr::Call { callee: Callee::Format(inner), args: inner_args }) = args[index].take() else {
+                    unreachable!("a template, tested above")
+                };
+                let offset = kept.len();
+                kept_strings.extend(inner_args.iter().map(|_| false));
+                kept.extend(inner_args);
+                out.extend(inner.into_iter().map(|q| match q {
+                    FmtPiece::Arg { index, spec } => FmtPiece::Arg { index: index + offset, spec },
+                    text => text,
+                }));
+            }
+            FmtPiece::Arg { index, spec } => {
+                let new = match slot[index] {
+                    Some(n) => n,
+                    None => {
+                        kept.push(args[index].take().expect("placed once"));
+                        kept_strings.push(strings[index]);
+                        slot[index] = Some(kept.len() - 1);
+                        kept.len() - 1
+                    }
+                };
+                out.push(FmtPiece::Arg { index: new, spec });
+            }
+            text => out.push(text),
+        }
+    }
+    (out, kept, kept_strings)
 }
 
 /// A type whose `{}` is its own text: a string, a `char`, or a `Uuid`.

@@ -68,5 +68,8 @@ fn format_matches_rust() {
         for (s, t, c) in [("", "", 'x'), ("é😀", "`${", '😀'), ("a", "b\u{2028}", '\\')] {
             cases.push(case!(format::alone(String::from(s), t, c)));
         }
+        for (n, s) in [(0, ""), (9, "é😀"), (254, "`${x}`"), (255, "ab")] {
+            cases.push(case!(format::nested(n, s)));
+        }
     });
 }

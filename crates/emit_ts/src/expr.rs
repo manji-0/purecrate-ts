@@ -1639,6 +1639,11 @@ fn emit_format(pieces: &[purecrate_ir::FmtPiece], args: &[Expr], indent: usize) 
                         }
                     }
                 };
+                // Padded alone, the padding's string is the text: a
+                // template of it alone is one the lint refuses.
+                if pieces.len() == 1 && spec.width.is_some() {
+                    return value;
+                }
                 out.push_str("${");
                 out.push_str(&value);
                 out.push('}');
