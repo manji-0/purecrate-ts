@@ -103,8 +103,8 @@ impl Iban {
     }
 }
 
-/// Rust only: an `impl Display` that writes a field is not translated
-/// (design/02); in TS an `Iban` is a branded string already.
+/// The electronic form, as `as_str` gives it; in TS an `Iban` is a branded
+/// string already, and `Iban.toString` returns it.
 impl std::fmt::Display for Iban {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)

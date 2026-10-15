@@ -270,7 +270,7 @@ fn is_read(e: &Expr) -> bool {
 /// `owner`: no `impl Display` of it was translated.
 pub(super) fn no_display(what: &str, owner: &Name) -> String {
     format!(
-        "`{what}` prints `{0}` through its `impl Display`, and `{0}` has none translated: v0 reads a `fmt` that is `write!(f, \"..\", args)` on values `format!` prints, `f.write_str(\"..\")`, a `match self` of those, or several joined with `?` and ending in `Ok(())`; a `fmt` of any other shape is skipped",
+        "`{what}` prints `{0}` through its `impl Display`, and `{0}` has none translated: v0 reads a `fmt` that is `write!(f, \"..\", args)` on values `format!` prints, `f.write_str(s)`, a `match self` of those, or several joined with `?` and ending in `Ok(())`; a `fmt` of any other shape is skipped",
         owner.as_str()
     )
 }

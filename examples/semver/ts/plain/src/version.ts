@@ -108,6 +108,7 @@ export const Version = {
 
     return s;
   },
+  toString: (self: Version): string => Version.format(self),
 } as const;
 
 const preIdText = (p: PreId): string => {

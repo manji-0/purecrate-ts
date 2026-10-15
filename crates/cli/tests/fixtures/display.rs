@@ -3,7 +3,7 @@
 // writes, writes joined with `?` and `Ok(())`, and fields of crate types
 // printed through their own `Display` (§7.25), called by `format!` and
 // `to_string`, with arguments that overflow and `fmt`s that panic in Rust's
-// order; and two it skips (a float printed, a `let` in `fmt`), which must
+// order; `write_str` of a computed text; and two it skips (a float printed, a `let` in `fmt`), which must
 // leave the crate accepted.
 
 use std::fmt;
@@ -262,4 +262,71 @@ pub fn show_twice(n: i32) -> String {
 pub fn skipped(r: f64, n: i32) -> f64 {
     let s = Signed { n };
     Rate { r }.r + f64::from(s.n)
+}
+
+// `write_str` of a computed text writes that text: a field, a `String` a
+// method builds, a `&str` a method returns, a slice that panics off a char
+// boundary, and a local, alone or among other writes.
+pub struct Code(pub String);
+
+impl Code {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn shout(&self) -> String {
+        self.0.to_uppercase()
+    }
+}
+
+impl fmt::Display for Code {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+pub struct Loud(pub Code);
+
+impl fmt::Display for Loud {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0.shout())
+    }
+}
+
+pub enum Label {
+    Code(Code),
+    Tail { text: String, n: u8 },
+    Pair(String, String),
+}
+
+impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Label::Code(c) => f.write_str(c.as_str()),
+            Label::Tail { text, n } => {
+                f.write_str("<")?;
+                f.write_str(&text[1..])?;
+                write!(f, ">{}", n + 1)
+            }
+            Label::Pair(a, b) => {
+                let t = format!("{a}+{b}");
+                f.write_str(&t)?;
+                f.write_str(a.trim())?;
+                Ok(())
+            }
+        }
+    }
+}
+
+pub fn show_code(s: String) -> String {
+    let c = Code(s);
+    format!("{}[{c}]", c.to_string())
+}
+
+pub fn show_loud(s: String) -> String {
+    Loud(Code(s)).to_string()
+}
+
+pub fn show_label(l: Label) -> String {
+    format!("{l}")
 }

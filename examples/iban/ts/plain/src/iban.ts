@@ -59,6 +59,11 @@ export const Iban = {
     return Result.ok(unsafeMakeIban(raw));
   },
   asStr: (self: Iban): string => self,
+  /**
+   * The electronic form, as `as_str` gives it; in TS an `Iban` is a branded
+   * string already, and `Iban.toString` returns it.
+   */
+  toString: (self: Iban): string => self,
 } as const;
 
 const isDigit = (b: U8): boolean => b >= /* '0' */ 48 && b <= /* '9' */ 57;

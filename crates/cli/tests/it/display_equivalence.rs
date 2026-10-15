@@ -45,6 +45,15 @@ fn generated_display_matches_rust() {
             cases.push(case!(display::show_twice(n)));
         }
         cases.push(case!(display::skipped(0.5, -2)));
+        for s in ["", "abc", "é😀ß", "`${x}`"] {
+            cases.push(case!(display::show_code(String::from(s))));
+            cases.push(case!(display::show_loud(String::from(s))));
+            cases.push(case!(display::show_label(display::Label::Code(display::Code(String::from(s))))));
+            for n in [0, 254, 255] {
+                cases.push(case!(display::show_label(display::Label::Tail { text: String::from(s), n })));
+            }
+            cases.push(case!(display::show_label(display::Label::Pair(String::from(s), String::from(" é ")))));
+        }
     });
 }
 
@@ -58,6 +67,7 @@ fn display_outside_the_subset_is_skipped() {
     let file = |stem: &str| pkg.files.iter().find(|f| f.stem == stem).expect(stem).source.clone();
     assert!(file("fixed").contains("toString: (self: Fixed): string =>"), "{}", file("fixed"));
     assert!(file("formatted").contains("return `n = ${n}`;"), "{}", file("formatted"));
+    assert!(file("code").contains("toString: (self: Code): string =>"), "{}", file("code"));
     assert!(!file("rate").contains("toString"), "{}", file("rate"));
     assert!(!file("signed").contains("toString"), "{}", file("signed"));
 }

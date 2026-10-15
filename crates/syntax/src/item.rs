@@ -953,8 +953,8 @@ fn trait_impl(path: &syn::Path) -> Option<TraitImpl> {
 /// §7.11's form: its body `f.write_str(t)`, `write!(f, "..")` with no `{}`,
 /// or a `match self` whose arms are those or string literals, or `let x =
 /// <such a match>; f.write_str(x)`. Otherwise the body is made of writes
-/// (`written`): `write!(f, "..", args)`, read as `format!` reads it, a
-/// `match self` whose arms are writes, and several joined with `?` and
+/// (`written`): `write!(f, "..", args)`, read as `format!` reads it,
+/// `f.write_str(x)` of any `&str`, a `match self` whose arms are writes, and several joined with `?` and
 /// ending in `Ok(())`, which the text puts end to end. Any other `fmt` is
 /// skipped as before, so a crate that compiled keeps compiling; so is one
 /// `check` cannot type (it prints a float), as `Fn::display` marks.
@@ -1051,8 +1051,8 @@ fn written(cx: &Cx, stmts: &[syn::Stmt], formatter: &syn::Ident, next: &mut usiz
     Some(parts.into_iter().reduce(concat).unwrap_or_else(empty))
 }
 
-/// One write: `write!(formatter, "..", args)`, `formatter.write_str("..")`,
-/// `Ok(())` (nothing),
+/// One write: `write!(formatter, "..", args)`, `formatter.write_str(x)`
+/// (a computed `x` as `write!(formatter, "{}", x)`), `Ok(())` (nothing),
 /// a block of writes, or a `match self` whose arms are writes. The `match`
 /// is lowered with a placeholder for each arm's body, then each placeholder
 /// is replaced by that body's text.
@@ -1060,9 +1060,14 @@ fn written_part(cx: &Cx, e: &syn::Expr, formatter: &syn::Ident, next: &mut usize
     match e {
         syn::Expr::Macro(m) if m.mac.path.is_ident("write") => crate::expr::lower_write(cx, &m.mac, formatter),
         syn::Expr::MethodCall(_) => {
-            let text = literal(&written_arg(e, formatter)?)?;
-            let text = lower_expr(cx, &text).ok()?;
-            Some(purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![text] })
+            let text = written_arg(e, formatter)?;
+            if literal(&text).is_some() {
+                let text = lower_expr(cx, &text).ok()?;
+                return Some(purecrate_ir::Expr::Call { callee: purecrate_ir::Callee::StringFrom, args: vec![text] });
+            }
+            // A computed text writes as `write!(f, "{}", x)` does.
+            let mac: syn::Macro = syn::parse_quote!(write!(#formatter, "{}", #text));
+            crate::expr::lower_write(cx, &mac, formatter)
         }
         syn::Expr::Block(b) if b.label.is_none() => written(cx, &b.block.stmts, formatter, next),
         // An arm that writes nothing.

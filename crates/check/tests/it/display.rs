@@ -55,6 +55,23 @@ fn display_with_arguments_prints_through_format_and_to_string() {
 }
 
 #[test]
+fn write_str_of_a_computed_text_prints_through_to_string() {
+    assert_clean(
+        "use std::fmt;\n\
+         pub struct Code(String);\n\
+         impl Code { pub fn as_str(&self) -> &str { &self.0 } }\n\
+         impl fmt::Display for Code {\n\
+             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }\n\
+         }\n\
+         pub struct Wrap(Code);\n\
+         impl fmt::Display for Wrap {\n\
+             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(\"<\")?; f.write_str(self.0.as_str())?; f.write_str(\">\") }\n\
+         }\n\
+         pub fn f(c: Code, w: Wrap) -> String { format!(\"{}{c}\", w.to_string()) }",
+    );
+}
+
+#[test]
 fn a_fmt_outside_the_subset_is_skipped() {
     assert_clean(&with(SKIPPED, "pub fn f(r: Rate, s: Sign) -> i32 { let _x = r.r; s.n }"));
 }
