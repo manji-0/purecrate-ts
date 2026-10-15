@@ -469,7 +469,7 @@ Refused: `ref` or `mut` on `rest @ ..`, two `..` in one pattern, `|` of slice pa
 <!-- constrained-by #66-stdcmpordering -->
 <!-- constrained-by #711-impl-display-with-a-fixed-text -->
 
-Planned for 0.22.0 (draft, 2026-10-15); not implemented. The decisions still open are listed at the end.
+Planned for 0.22.0 (decided 2026-10-15: every part below, `Default` and `From` included, and the change to 0.20.0's output); not implemented.
 
 A trait is a record of functions over a type, and a type's companion is already one: `export const Item = { of, price: (self: Item): I64 => .. }`. A trait therefore prints as the type of a record, an `impl` as members of the implementing type's companion, and a bound `T: Tr` as one more parameter carrying the record for `T` (a dictionary). Nothing is looked up at run time: a value carries no tag that names its type (a struct is a plain object), so every call is resolved where the types are known, as a generic type's wire schema is (§7.20).
 
@@ -485,13 +485,13 @@ A trait is a record of functions over a type, and a type's companion is already 
 
 **`Default`.** `#[derive(Default)]` (each field's default: `0`, `false`, `""`, an empty `Vec` or map, `None`, a crate type's `default()`; on an enum the `#[default]` unit variant) and a hand-written `fn default() -> Self` give the companion `default: (): X`, called by `X::default()`, `Default::default()` where the type is known, and `..Default::default()` in a struct literal. `T: Default` carries `{ default }`.
 
-**Not in this section.** `From` / `Into`, and with them `?` converting an error (`calls.rs` refuses a `?` whose error type differs from the function's, as no `From` is translated); `FromStr` (`s.parse::<X>()`, §6.7 parses integers only); `Iterator` implemented on a crate type; `Hash`; operator traits (`Add`, `Index`). Each is a trait the dispatch above can carry, decided separately.
+**`From` and `?`.** `impl From<S> for X`, `X` a crate type and `S` any type a function may take (a crate type, `ParseIntError`, `uuid::Error`, an integer, `String`), with `fn from(s: S) -> Self` only, gives `X`'s companion `fromS: (value: S): X`, named after the source type in camel case (`fromParseIntError`, `fromU32`, `fromString`): a type may implement `From` for several sources, and one member `from` could hold only one. `X::from(s)`, `From::from(s)` and `s.into()` where the target is known, and `?` on a `Result<_, S>` in a function returning `Result<_, X>` call it: `r?` is `match r { Ok(v) => v, Err(e) => return Err(X.fromS(e)) }`, as `map_err(..)?` is (§7.1), where until now a `?` whose error type differs was refused. Refused: a generic source (`impl<T> From<T>`), a source that is an `Option`, a tuple, or a reference, two sources whose names collide, an `impl` on a type outside the crate (`impl From<X> for String`), `impl Into` written by hand, and `T: Into<X>` / `T: From<..>` bounds. `TryFrom` keeps its one member `try_from` (design/02).
+
+**Not in this section.** `FromStr` (`s.parse::<X>()`, §6.7 parses integers only); `Iterator` implemented on a crate type; `Hash`; operator traits (`Add`, `Index`). Each is a trait the dispatch above can carry, decided separately.
 
 **Supersedes on release.** §5.1 ("no trait `impl` is in the subset", for `PartialEq` only, which stays derived: a hand-written `eq` is refused because `Eq.deep` compares a `Vec<X>` or `Option<X>` part by part and would bypass it); §6.6's refusal of `impl Ord` / `PartialOrd` and of `cmp` on the crate's types; §6.8's "no `Display` is translated"; §7.20's "a `T` is not ordered" and "Traits wait"; §7.23's refusal of a trait's associated consts; design/02's "Not translated" rows for traits and its "There are no traits".
 
-**Verification.** A fixture per part (`traits.rs`, `display.rs`, `ordering_derive.rs`, `default.rs`) run against Rust; a trait shape in the statements generator (a trait with a default method, two implementing types, a generic function over it called at both); and `purecrate-ts test`, which calls a generic function with a user trait bound at each crate type that implements all its bounds, rather than at `i32` (§8.4), and says so when none does.
-
-**Open decisions.** (1) Whether `Default` goes in 0.22.0 or waits. (2) Whether `From` for `?` is the next trait after these (it is the most common hand-written trait `impl` in domain code).
+**Verification.** A fixture per part (`traits.rs`, `display.rs`, `ordering_derive.rs`, `default.rs`, `from.rs`) run against Rust; a trait shape in the statements generator (a trait with a default method, two implementing types, a generic function over it called at both); and `purecrate-ts test`, which calls a generic function with a user trait bound at each crate type that implements all its bounds, rather than at `i32` (§8.4), and says so when none does.
 
 ## 8. Verification
 
