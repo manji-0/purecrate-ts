@@ -31,7 +31,7 @@ fn generated_traits_match_rust() {
         for ns in [vec![], vec![0i64], vec![0, 5, -3], vec![i64::MAX - 99], vec![i64::MAX - 100]] {
             cases.push(case!(traits::coins(ns)));
         }
-        for (fee, n) in [(0i64, 0usize), (5, 3), (-1, 4), (i64::MAX, 2), (i64::MAX / 4, 1)] {
+        for (fee, n) in [(0i64, 0u8), (5, 3), (-1, 4), (i64::MAX, 2), (i64::MAX / 4, 1)] {
             cases.push(case!(traits::bags(fee, n)));
         }
         for (i, n) in [(item("ab", 2), 3i64), (item("€", -7), 0), (item("q", 1), i64::MAX / 2)] {

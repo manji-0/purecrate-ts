@@ -86,8 +86,8 @@ impl<'a> Defs<'a> {
     pub fn dict_of<'t>(&self, ty: &'t Ty) -> Option<(&'t Name, &'t Ty)> {
         match ty {
             Ty::App { name, args } if args.len() == 1 => {
-                let named = self.traits.contains_key(name.as_str())
-                    || purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str());
+                let named =
+                    self.traits.contains_key(name.as_str()) || purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str());
                 named.then(|| (name, &args[0]))
             }
             _ => None,

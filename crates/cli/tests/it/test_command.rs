@@ -88,6 +88,44 @@ fn a_disagreement_fails_and_names_the_call() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// A function with a crate trait's bound is called at each public type
+/// that implements it (design/01 §7.25), and one whose bound no type
+/// implements is skipped, saying so.
+#[test]
+fn a_bounded_function_is_called_at_each_implementor() {
+    if skip() {
+        return;
+    }
+    let dir = support::scratch("test-command-traits");
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "pub trait Priced {\n    fn price(&self) -> i64;\n\n    fn doubled(&self) -> i64 {\n        self.price() * 2\n    }\n}\n\n\
+         pub trait Unused {\n    fn never(&self) -> u8;\n}\n\n\
+         pub struct Item {\n    pub price: i64,\n}\n\n\
+         impl Priced for Item {\n    fn price(&self) -> i64 {\n        self.price\n    }\n}\n\n\
+         pub enum Coin {\n    Small,\n    Big(i32),\n}\n\n\
+         impl Priced for Coin {\n    fn price(&self) -> i64 {\n        match self {\n            Coin::Small => 1,\n            Coin::Big(n) => i64::from(*n),\n        }\n    }\n}\n\n\
+         pub fn total<T: Priced>(xs: &[T]) -> i64 {\n    let mut t = 0i64;\n    for x in xs {\n        t += x.doubled();\n    }\n    t\n}\n\n\
+         pub fn lonely<T: Unused>(x: &T) -> u8 {\n    x.never()\n}\n",
+    )
+    .expect("write");
+    let out = test(&src, &["--cases", "20", "--allow-overflow-wrap"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    for name in ["total<Item>", "total<Coin>", "Item.price", "Coin.price"] {
+        assert!(stdout.contains(&format!("ok        {name} (20 cases)")), "{name}:\n{stdout}");
+    }
+    assert!(
+        stdout.contains(
+            "skipped   lonely: no public type of the crate that can be drawn implements `Unused`, the bound of `T`"
+        ),
+        "{stdout}"
+    );
+    fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn a_crate_that_uses_uuid_is_refused() {
     let out = test(&support::repo().join("examples/raft"), &[]);

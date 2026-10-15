@@ -33,7 +33,9 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     // One a dictionary is over is kept, as the dictionary relates it to the
     // trait's (`dict: Priced<Self>`).
     let in_dict = |g: &Name| {
-        f.params.iter().any(|p| matches!(&p.ty, Ty::App { name, args } if is_trait(name.as_str()) && count_param(&args[0], g) > 0))
+        f.params
+            .iter()
+            .any(|p| matches!(&p.ty, Ty::App { name, args } if is_trait(name.as_str()) && count_param(&args[0], g) > 0))
     };
     let once: Vec<(Name, Ty)> = f
         .generics

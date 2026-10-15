@@ -24,14 +24,21 @@
 
 use std::collections::BTreeSet;
 
-use purecrate_ir::{Crate, Enum, Fn, Item, Prim, Struct, Ty, VariantFields, Vis, NEWTYPE_FIELD};
+use purecrate_ir::{Crate, Enum, Fn, Item, Name, Prim, Struct, Ty, VariantFields, Vis, NEWTYPE_FIELD};
 
 use super::derive;
 
 /// A function under test.
 pub struct Call {
-    /// The TS function: `pkg.next`, `pkg.Ulid.parse`.
+    /// What names the call, on both sides: the TS function (`pkg.next`,
+    /// `pkg.Ulid.parse`), and for a function with a bound that carries a
+    /// dictionary the types it is called at (`pkg.total<Item>`).
     pub key: String,
+    /// The TS function.
+    pub ts: String,
+    /// The dictionaries the TS call passes after the drawn arguments: the
+    /// companions of the types it is called at (`pkg.Item`).
+    pub dicts: Vec<String>,
     /// The Rust name in the file that declares it: `next`, `Ulid::parse`.
     pub rust: String,
     /// Each parameter's type where the call needs it spelled.
@@ -66,26 +73,154 @@ pub fn plan<'a>(krate: &'a Crate, spans: &'a [(usize, purecrate_syntax::LineCol)
         if f.vis != Vis::Pub || !owner_is_public(krate, f) {
             continue;
         }
-        let name = rust_name(krate, f);
-        let why = if f.owner.is_none() && f.name.as_str() == "main" {
-            Some("`main` is the crate's entry point".to_string())
-        } else if super::printers::ts_printer(krate, &f.ret).is_none() {
-            Some("its result cannot be printed".to_string())
-        } else {
-            f.params.iter().find(|p| !make.can(&p.ty)).map(|p| format!("no value of `{}` can be drawn", ty_text(&p.ty)))
+        let instances = match instances(krate, &make, f) {
+            Ok(instances) => instances,
+            Err(why) => {
+                let name = match &f.owner {
+                    Some(owner) => format!("{}::{}", owner.as_str(), f.name.as_str()),
+                    None => f.name.as_str().to_string(),
+                };
+                skipped.push(Skipped { name, why });
+                continue;
+            }
         };
-        match why {
-            Some(why) => skipped.push(Skipped { name, why }),
-            None => calls.push(Call {
-                key: ts_key(f),
-                rust: name,
-                types: annotations(f),
-                ret: f.ret.clone(),
-                file: spans[i].0,
-            }),
+        let dicts = dicts_of(krate, f);
+        for binds in instances {
+            let name = rust_name(krate, f, &binds);
+            let written: Vec<&purecrate_ir::Param> =
+                f.params.iter().filter(|p| dict_of(krate, &p.ty).is_none()).collect();
+            let ret = f.ret.subst(&binds);
+            let why = if f.owner.is_none() && f.name.as_str() == "main" {
+                Some("`main` is the crate's entry point".to_string())
+            } else if super::printers::ts_printer(krate, &ret).is_none() {
+                Some("its result cannot be printed".to_string())
+            } else {
+                written
+                    .iter()
+                    .map(|p| p.ty.subst(&binds))
+                    .find(|t| !make.can(t))
+                    .map(|t| format!("no value of `{}` can be drawn", ty_text(&t)))
+            };
+            let ts = ts_key(f);
+            // At the types its bounds are instantiated at, named in the key.
+            let (key, companions) = if dicts.is_empty() {
+                (ts.clone(), Vec::new())
+            } else {
+                let at = f.generics.iter().map(|g| ty_text(&Ty::Param(g.clone()).subst(&binds))).collect::<Vec<_>>();
+                let companions = dicts
+                    .iter()
+                    .map(|of| match of.subst(&binds).applied() {
+                        Some((owner, _)) => format!("pkg.{}", owner.as_str()),
+                        None => unreachable!("a bound is instantiated at a crate type"),
+                    })
+                    .collect();
+                (format!("{ts}<{}>", at.join(", ")), companions)
+            };
+            match why {
+                Some(why) => skipped.push(Skipped { name, why }),
+                None => calls.push(Call {
+                    key,
+                    ts,
+                    dicts: companions,
+                    rust: name,
+                    types: annotations(f, &written, &binds),
+                    ret,
+                    file: spans[i].0,
+                }),
+            }
         }
     }
     Plan { calls, skipped, make }
+}
+
+/// The trait and type of a dictionary parameter's type (`Priced<T>`).
+fn dict_of<'t>(krate: &Crate, ty: &'t Ty) -> Option<(&'t Name, &'t Ty)> {
+    match ty {
+        Ty::App { name, args } if args.len() == 1 => {
+            let named = krate.items.iter().any(|i| matches!(i, Item::Trait(t) if t.name == *name))
+                || purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str());
+            named.then(|| (name, &args[0]))
+        }
+        _ => None,
+    }
+}
+
+/// The type each of `f`'s dictionaries is for, in order.
+fn dicts_of(krate: &Crate, f: &Fn) -> Vec<Ty> {
+    f.params.iter().filter_map(|p| dict_of(krate, &p.ty).map(|(_, of)| of.clone())).collect()
+}
+
+/// The types `f` is called at (design/01 §7.25): a type parameter whose
+/// bounds carry a dictionary at each public struct or enum of the crate
+/// that implements them all and can be drawn (a generic one at `i32`),
+/// every other one at `i32`, which every bound §7.20 takes holds of. Each
+/// combination once. `Err` when no type implements a parameter's bounds.
+fn instances(krate: &Crate, make: &Makeable<'_>, f: &Fn) -> Result<Vec<Vec<(Name, Ty)>>, String> {
+    let mut out: Vec<Vec<(Name, Ty)>> = vec![Vec::new()];
+    for g in &f.generics {
+        let bounds: Vec<&Name> = f
+            .params
+            .iter()
+            .filter_map(|p| match dict_of(krate, &p.ty) {
+                Some((tr, Ty::Param(of))) if of == g => Some(tr),
+                _ => None,
+            })
+            .collect();
+        let at: Vec<Ty> = if bounds.is_empty() {
+            vec![Ty::i32()]
+        } else {
+            let found: Vec<Ty> = implementors(krate, &bounds).into_iter().filter(|t| make.can(t)).collect();
+            if found.is_empty() {
+                let names = bounds.iter().map(|b| format!("`{}`", b.as_str())).collect::<Vec<_>>().join(" and ");
+                return Err(format!(
+                    "no public type of the crate that can be drawn implements {names}, the bound of `{}`",
+                    g.as_str()
+                ));
+            }
+            found
+        };
+        out = out
+            .into_iter()
+            .flat_map(|binds| {
+                at.iter().map(move |t| {
+                    let mut binds = binds.clone();
+                    binds.push((g.clone(), t.clone()));
+                    binds
+                })
+            })
+            .collect();
+    }
+    Ok(out)
+}
+
+/// The public structs and enums with an `impl` of each of `traits`, in
+/// declaration order, a generic one at `i32` for each of its parameters.
+fn implementors(krate: &Crate, traits: &[&Name]) -> Vec<Ty> {
+    let impls = |name: &Name| -> Vec<&Name> {
+        krate
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Trait(t) if t.name == *name => Some(t.impls.iter().map(|imp| imp.owner()).collect::<Vec<_>>()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+    krate
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Struct(s) if s.vis == Vis::Pub => Some((&s.name, s.generics.len())),
+            Item::Enum(e) if e.vis == Vis::Pub && !e.std => Some((&e.name, e.generics.len())),
+            _ => None,
+        })
+        .filter(|(name, _)| traits.iter().all(|t| impls(t).contains(name)))
+        .map(|(name, n)| match n {
+            0 => Ty::Named(name.clone()),
+            n => Ty::App { name: name.clone(), args: vec![Ty::i32(); n] },
+        })
+        .collect()
 }
 
 fn owner_is_public(krate: &Crate, f: &Fn) -> bool {
@@ -105,11 +240,20 @@ fn ts_key(f: &Fn) -> String {
     }
 }
 
-/// The function as the harness calls it: a generic one at `i32` for each
-/// type parameter (`Page::<i32>::len`, `first::<i32>`), which every bound
-/// the subset takes holds of.
-fn rust_name(krate: &Crate, f: &Fn) -> String {
-    let at = |n: usize| if n == 0 { String::new() } else { format!("::<{}>", vec!["i32"; n].join(", ")) };
+/// The function as the harness calls it: a generic one at the types
+/// `binds` gives its parameters (`total::<Item>`), and at `i32` for any
+/// other (`Page::<i32>::len`, `first::<i32>`).
+fn rust_name(krate: &Crate, f: &Fn, binds: &[(Name, Ty)]) -> String {
+    let texts: Vec<String> = f.generics.iter().map(|g| ty_text(&Ty::Param(g.clone()).subst(binds))).collect();
+    // Rust takes no type arguments for a function with `impl Tr` as a
+    // parameter's type: its arguments are typed instead (`annotations`).
+    let at = |from: usize, n: usize| {
+        if n == 0 || f.generics[from..from + n].iter().any(is_impl_param) {
+            String::new()
+        } else {
+            format!("::<{}>", texts[from..from + n].join(", "))
+        }
+    };
     match &f.owner {
         Some(owner) => {
             let outer = krate
@@ -122,17 +266,19 @@ fn rust_name(krate: &Crate, f: &Fn) -> String {
                     _ => 0,
                 })
                 .unwrap_or(0);
-            format!(
-                "{}{}::{}{}",
-                owner.as_str(),
-                at(outer),
-                // `impl From<S>`'s member `fromS` is `X::from` in Rust.
-                if f.from_source().is_some() { "from" } else { f.name.as_str() },
-                at(f.generics.len() - outer.min(f.generics.len()))
-            )
+            let outer = outer.min(f.generics.len());
+            // `impl From<S>`'s member `fromS` is `X::from` in Rust.
+            let name = if f.from_source().is_some() { "from" } else { f.name.as_str() };
+            format!("{}{}::{}{}", owner.as_str(), at(0, outer), name, at(outer, f.generics.len() - outer))
         }
-        None => format!("{}{}", f.name.as_str(), at(f.generics.len())),
+        None => format!("{}{}", f.name.as_str(), at(0, f.generics.len())),
     }
+}
+
+/// A type parameter `syntax` made for `impl Tr` as a parameter's type
+/// (`Impl1`), which Rust gives no name.
+fn is_impl_param(g: &Name) -> bool {
+    g.as_str().strip_prefix("Impl").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn ty_text(ty: &Ty) -> String {
@@ -357,10 +503,21 @@ fn untyped(n: usize) -> Vec<Option<String>> {
 
 /// The parameter types a call needs spelled: a conversion trait's
 /// (`T::try_from(x)`) cannot be inferred from the call, as the trait is
-/// implemented for several.
-fn annotations(f: &Fn) -> Vec<Option<String>> {
+/// implemented for several. `written` are the parameters drawn: all but
+/// the dictionaries.
+/// One of `impl Tr`, which no type argument names, is typed at what
+/// `binds` gives it.
+fn annotations(f: &Fn, written: &[&purecrate_ir::Param], binds: &[(Name, Ty)]) -> Vec<Option<String>> {
     let generic = f.owner.is_some() && (matches!(f.name.as_str(), "try_from" | "from") || f.from_source().is_some());
-    f.params.iter().map(|p| if generic { rust_ty(&p.ty) } else { None }).collect()
+    let anonymous = |t: &Ty| t.any(&|x| matches!(x, Ty::Param(g) if is_impl_param(g)));
+    written
+        .iter()
+        .map(|p| match () {
+            _ if generic => rust_ty(&p.ty),
+            _ if anonymous(&p.ty) => rust_ty(&p.ty.subst(binds)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `ty` as Rust spells it, where the IR has kept enough to: a borrow is
@@ -376,9 +533,10 @@ fn rust_ty(ty: &Ty) -> Option<String> {
         Ty::Tuple(ts) => format!("({},)", ts.iter().map(rust_ty).collect::<Option<Vec<_>>>()?.join(", ")),
         Ty::Named(n) => n.as_str().to_string(),
         Ty::Param(_) => "i32".to_string(),
-        Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::App { .. } | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => {
-            return None
+        Ty::App { name, args } => {
+            format!("{}<{}>", name.as_str(), args.iter().map(rust_ty).collect::<Option<Vec<_>>>()?.join(", "))
         }
+        Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => return None,
     })
 }
 
@@ -456,8 +614,8 @@ fn arb_closed(make: &Makeable<'_>, st: &Struct) -> String {
         .into_iter()
         .filter(|f| f.params.iter().all(|p| make.can(&p.ty)))
         .map(|f| {
-            let (lets, js) = draw(&annotations(f), "                        ");
-            let call = format!("{}({})", rust_name(make.krate, f), args(f.params.len()));
+            let (lets, js) = draw(&annotations(f, &f.params.iter().collect::<Vec<_>>(), &[]), "                        ");
+            let call = format!("{}({})", rust_name(make.krate, f, &[]), args(f.params.len()));
             let ts = ts_key(f);
             let (unwrap, wrap) = match gives(st, &f.ret).expect("a producer") {
                 Gives::Plain => ("Some(__v)", "{}"),

@@ -188,8 +188,8 @@ pub fn coins(ns: Vec<i64>) -> String {
     format!("{} {z} {d}", sum_doubled(&xs))
 }
 
-pub fn bags(fee: i64, n: usize) -> i64 {
-    let items: Vec<usize> = (0..n).collect();
+pub fn bags(fee: i64, n: u8) -> i64 {
+    let items: Vec<u8> = (0..n).collect();
     let b = Bag { items, fee };
     let shelf = Shelf { items: vec![b.clone(), Bag::zero()] };
     b.doubled() + b.scaled(2) + shelf.total() + zero_price(&b) + any_price(b.clone())

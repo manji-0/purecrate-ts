@@ -104,10 +104,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// `Item::m(args)` or `T::m(args)` would be.
     pub(super) fn trait_call(&mut self, tr: &Name, name: &Name, args: &[Expr], want: Option<&Ty>) -> Typed {
         let Some(m) = self.defs.trait_method(tr.as_str(), name.as_str()) else {
-            self.error(
-                Reason::UndefinedFn,
-                format!("trait `{}` has no method `{}`", tr.as_str(), name.as_str()),
-            );
+            self.error(Reason::UndefinedFn, format!("trait `{}` has no method `{}`", tr.as_str(), name.as_str()));
             return (Expr::Lit(Lit::Unit), None);
         };
         let of = if m.has_receiver() {
@@ -117,7 +114,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             self.out.truncate(before);
             t
         } else {
-            m.ret.any(&|t| matches!(t, Ty::Param(s) if s.as_str() == purecrate_ir::SELF)).then(|| want.cloned()).flatten()
+            m.ret
+                .any(&|t| matches!(t, Ty::Param(s) if s.as_str() == purecrate_ir::SELF))
+                .then(|| want.cloned())
+                .flatten()
         };
         match of.map(|t| self.norm(&t)) {
             Some(Ty::Param(p)) => self.bound_call(&p, name, args, want),
@@ -128,10 +128,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Some(Ty::Never) => (Expr::Lit(Lit::Unit), Some(Ty::Never)),
             Some(t) => {
-                self.error(
-                    Reason::TraitImpl,
-                    format!("`{}` has no `impl {}` in the crate", show(&t), tr.as_str()),
-                );
+                self.error(Reason::TraitImpl, format!("`{}` has no `impl {}` in the crate", show(&t), tr.as_str()));
                 (Expr::Lit(Lit::Unit), None)
             }
             None => {
@@ -238,10 +235,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// The crate type `owner` implements `tr` and each of its supertraits,
     /// so its companion holds every member of `tr`'s record.
     fn implements(&self, owner: &str, tr: &str) -> bool {
-        self.defs
-            .trait_and_supers(tr)
-            .iter()
-            .all(|t| t.impls.iter().any(|imp| imp.owner().as_str() == owner))
+        self.defs.trait_and_supers(tr).iter().all(|t| t.impls.iter().any(|imp| imp.owner().as_str() == owner))
     }
 }
 

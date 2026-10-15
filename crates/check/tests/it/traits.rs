@@ -13,7 +13,9 @@ fn with(rest: &str) -> String {
 
 #[test]
 fn traits_impls_and_bounds_are_accepted() {
-    assert_clean(&with("pub fn f(i: &Item) -> i64 { i.price() + Item::price(i) + Priced::price(i) + i.doubled() + Item::RATE }"));
+    assert_clean(&with(
+        "pub fn f(i: &Item) -> i64 { i.price() + Item::price(i) + Priced::price(i) + i.doubled() + Item::RATE }",
+    ));
     assert_clean(&with("pub fn total<T: Priced>(xs: &[T]) -> i64 { let mut t = 0; for x in xs { t += x.doubled(); } t + T::RATE + T::zero().price() }\npub fn f(xs: Vec<Item>) -> i64 { total(&xs) }"));
     assert_clean(&with("pub fn g(x: impl Priced) -> i64 { x.price() }\npub fn f(i: Item) -> i64 { g(i) }"));
     assert_clean(&with("pub trait Named: Priced { fn name(&self) -> String; }\nimpl Named for Item { fn name(&self) -> String { String::new() } }\nfn total<T: Priced>(x: &T) -> i64 { x.price() }\npub fn f<T: Named>(x: &T) -> i64 { total(x) + x.price() }"));
@@ -35,7 +37,10 @@ fn a_trait_is_over_self_alone() {
 
 #[test]
 fn an_impl_is_on_a_type_of_the_crate() {
-    assert_parse_rejects(&with("impl Priced for u32 { fn price(&self) -> i64 { 0 } fn zero() -> Self { 0 } }"), "`impl Priced for u32` is not in v0");
+    assert_parse_rejects(
+        &with("impl Priced for u32 { fn price(&self) -> i64 { 0 } fn zero() -> Self { 0 } }"),
+        "`impl Priced for u32` is not in v0",
+    );
     assert_parse_rejects(
         &with("impl Priced for Vec<Item> { fn price(&self) -> i64 { 0 } fn zero() -> Self { Vec::new() } }"),
         "`impl Priced for Vec<Item>` is not in v0",
@@ -100,5 +105,8 @@ fn a_type_parameter_of_a_type_has_no_crate_trait_bound() {
 
 #[test]
 fn a_bound_names_what_the_body_calls() {
-    assert_rejects(&with("pub fn f<T: Priced>(x: &T) -> i64 { T::nothing() }"), "no bound of `T` here has a method `nothing`");
+    assert_rejects(
+        &with("pub fn f<T: Priced>(x: &T) -> i64 { T::nothing() }"),
+        "no bound of `T` here has a method `nothing`",
+    );
 }

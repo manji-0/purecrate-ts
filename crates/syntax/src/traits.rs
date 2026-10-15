@@ -275,7 +275,8 @@ pub(crate) fn lower_trait_impl(cx: &mut Cx, imp: &syn::ItemImpl, trait_: &syn::I
                 written.push(c.ident.to_string());
                 let mut c = c.clone();
                 SelfIsOwner(&owner_ident, Some(self_ty)).visit_impl_item_const_mut(&mut c);
-                let parts = ConstParts { vis: &public, ident: &c.ident, generics: &c.generics, ty: &c.ty, expr: &c.expr };
+                let parts =
+                    ConstParts { vis: &public, ident: &c.ident, generics: &c.generics, ty: &c.ty, expr: &c.expr };
                 lower_const_parts(cx, Some(owner.clone()), parts, &c.attrs, c.span()).map(Item::Const)
             }),
             _ => Err(ParseError::new(Reason::ImplShape, "only methods and consts in impl blocks in v0")),

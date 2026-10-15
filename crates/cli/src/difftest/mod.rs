@@ -211,7 +211,13 @@ fn driver(krate: &Crate, calls: &[Call], cases: &[Case]) -> String {
     }
     let runs = cases.iter().map(|case| {
         let i = calls.iter().position(|c| c.key == case.key).expect("a case of a planned call");
-        format!("run(() => {}({}), print{i})", case.key, case.args)
+        let call = &calls[i];
+        let args = std::iter::once(case.args.as_str())
+            .filter(|a| !a.is_empty())
+            .chain(call.dicts.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("run(() => {}({args}), print{i})", call.ts)
     });
     printers::driver(krate, &defs, runs, "out.map(esc).join(\"\\n\")")
 }

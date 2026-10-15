@@ -1419,7 +1419,9 @@ impl VisitMut for SelfError<'_> {
 }
 
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
-    if let Some(name) = imp.trait_.as_ref().and_then(|(_, path, _)| path.get_ident()).filter(|n| cx.is_trait(&n.to_string())) {
+    if let Some(name) =
+        imp.trait_.as_ref().and_then(|(_, path, _)| path.get_ident()).filter(|n| cx.is_trait(&n.to_string()))
+    {
         let name = name.clone();
         return crate::traits::lower_trait_impl(cx, &imp, &name);
     }
@@ -1609,14 +1611,14 @@ fn carries_dict(cx: &Cx, name: &str) -> bool {
     cx.is_trait(name) || purecrate_ir::STD_DICT_TRAITS.contains(&name)
 }
 
+/// Type parameters, and each (parameter, trait) whose bound carries a
+/// dictionary.
+pub(crate) type TypeParams = (Vec<Name>, Vec<(Name, Name)>);
+
 /// The type parameters of an item, their bounds checked; lifetimes skipped.
 /// Also each (parameter, trait) whose bound carries a dictionary, each
 /// parameter's in the order written (on the parameter, then in `where`).
-pub(crate) fn type_params(
-    cx: &Cx,
-    generics: &syn::Generics,
-    at: Bounded,
-) -> Result<(Vec<Name>, Vec<(Name, Name)>), ParseError> {
+pub(crate) fn type_params(cx: &Cx, generics: &syn::Generics, at: Bounded) -> Result<TypeParams, ParseError> {
     let mut dicts: Vec<(Name, Name)> = Vec::new();
     let mut bounded = |param: &Name, bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>| {
         for b in bounds {
@@ -1686,7 +1688,8 @@ pub(crate) fn type_params(
     if let Some(w) = &generics.where_clause {
         for pred in &w.predicates {
             match pred {
-                syn::WherePredicate::Type(t) if matches!(&t.bounded_ty, syn::Type::Path(p) if p.path.get_ident().is_some_and(|i| names.iter().any(|n| i == n.as_str()))) => {
+                syn::WherePredicate::Type(t) if matches!(&t.bounded_ty, syn::Type::Path(p) if p.path.get_ident().is_some_and(|i| names.iter().any(|n| i == n.as_str()))) =>
+                {
                     let syn::Type::Path(p) = &t.bounded_ty else { unreachable!("checked by the guard") };
                     let name = Name::new(p.path.get_ident().expect("checked by the guard").to_string());
                     bounded(&name, &t.bounds)?

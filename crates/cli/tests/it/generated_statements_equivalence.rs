@@ -890,7 +890,7 @@ fn traits(seed: u64) -> String {
     let d = rng.below(201) as i32 - 100;
     let s = seed;
     let own = if rng.below(2) == 0 {
-        format!("\n\n    fn w(&self, k: i32) -> i32 {{\n        self.v() + k\n    }}")
+        "\n\n    fn w(&self, k: i32) -> i32 {\n        self.v() + k\n    }".to_string()
     } else {
         String::new()
     };

@@ -375,7 +375,8 @@ pub(crate) fn emit_trait(krate: &Crate, t: &purecrate_ir::Trait) -> String {
             .map(|p| format!("{}: {}", purecrate_ir::to_camel(p.name.as_str()), emit_ty(&p.ty)))
             .collect::<Vec<_>>()
             .join(", ");
-        members.push((format!("{}: ({params}) => {}", purecrate_ir::to_camel(m.name.as_str()), emit_ty(&m.ret)), &m.doc));
+        members
+            .push((format!("{}: ({params}) => {}", purecrate_ir::to_camel(m.name.as_str()), emit_ty(&m.ret)), &m.doc));
     }
     let supers: Vec<String> = t.supertraits.iter().map(|s| format!("{}<{self_}>", s.as_str())).collect();
     let head = format!("export type {name}<{self_}> = ");

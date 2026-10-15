@@ -485,8 +485,7 @@ impl<'a> Cx<'_, 'a> {
             },
             // Through a bound (`T::zero()`), or by the type of the arguments
             // (`Priced::price(&i)`): typing finds the method.
-            Callee::Method { ty, .. }
-                if self.generics.contains(ty) || self.defs.traits.contains_key(ty.as_str()) => {}
+            Callee::Method { ty, .. } if self.generics.contains(ty) || self.defs.traits.contains_key(ty.as_str()) => {}
             Callee::Dict { .. } => {}
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
                 Some(f) => {

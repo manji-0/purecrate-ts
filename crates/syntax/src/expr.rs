@@ -1038,9 +1038,7 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
         }
         // A trait's member: `T::zero()` through a bound, `Priced::price(&i)`
         // by the argument's type (design/01 §7.25).
-        (None, [ty, name])
-            if cx.is_enum(ty) || cx.is_struct(ty) || cx.is_trait(ty) || crate::ty::is_param(ty) =>
-        {
+        (None, [ty, name]) if cx.is_enum(ty) || cx.is_struct(ty) || cx.is_trait(ty) || crate::ty::is_param(ty) => {
             Callee::Method { ty: Name::new(ty.clone()), name: Name::new(name.clone()) }
         }
         _ => return Err(path_error(&segs, format!("unsupported call {}", segs.join("::")))),
