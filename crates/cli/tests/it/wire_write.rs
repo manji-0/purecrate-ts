@@ -611,3 +611,179 @@ fn from_json_reads_the_text_exactly_and_throws_on_bad_input() {
         assert_eq!(out.trim(), "-9223372036854775807 18446744073709551615 threw threw", "{schema:?}");
     }
 }
+
+/// `fixtures/btree_keys.rs`'s `Keyed`, with the real derive: what serde_json
+/// reads and writes for a map whose key is not a `String` (design/01 §7.26).
+mod keyed {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct UserId(pub u64);
+
+    #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Code(pub String);
+
+    #[derive(Serialize, Deserialize, Default)]
+    pub struct Keyed {
+        pub small: BTreeMap<i8, u8>,
+        pub bytes: BTreeMap<u8, u8>,
+        pub wide: BTreeMap<u64, u8>,
+        pub signed: BTreeMap<i64, u8>,
+        pub huge: BTreeMap<u128, u8>,
+        pub least: BTreeMap<i128, u8>,
+        pub count: BTreeMap<usize, u8>,
+        pub flags: BTreeMap<bool, u8>,
+        pub letters: BTreeMap<char, u8>,
+        pub ids: BTreeMap<uuid::Uuid, u8>,
+        pub users: BTreeMap<UserId, String>,
+        pub codes: BTreeMap<Code, u8>,
+        pub tags: BTreeSet<u32>,
+        pub chars: BTreeSet<char>,
+        pub members: BTreeSet<UserId>,
+        pub nested: BTreeMap<i32, BTreeMap<char, Vec<u8>>>,
+    }
+
+    pub const FIELDS: [&str; 16] = [
+        "small", "bytes", "wide", "signed", "huge", "least", "count", "flags", "letters", "ids", "users", "codes",
+        "tags", "chars", "members", "nested",
+    ];
+}
+
+/// `Keyed`'s JSON with every map and set empty but `field`, which is `json`.
+fn keyed_text(field: &str, json: &str) -> String {
+    let parts: Vec<String> = keyed::FIELDS
+        .iter()
+        .map(|f| {
+            let empty = if matches!(*f, "tags" | "chars" | "members") { "[]" } else { "{}" };
+            format!("\"{f}\":{}", if *f == field { json } else { empty })
+        })
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+/// Map keys other than `String` (design/04 §3.3): every text serde_json
+/// 1.0.145 reads for a key of each type is read by each library and
+/// written back as serde_json writes the value it read (a `Uuid` in its
+/// canonical form, `i128`'s `-0` as `0`, a key given twice with its later
+/// value), and every text it refuses is refused.
+#[test]
+fn keyed_maps_read_and_write_what_serde_json_does() {
+    let source = include_str!("../fixtures/btree_keys.rs");
+    let mut rich = keyed::Keyed::default();
+    rich.small.extend([(10, 1), (9, 2), (-1, 3), (-128, 4), (127, 5)]);
+    rich.bytes.extend([(255, 1), (0, 2)]);
+    rich.wide.extend([(u64::MAX, 1), (9_007_199_254_740_993, 2), (10, 3), (9, 4)]);
+    rich.signed.extend([(i64::MIN, 1), (i64::MAX, 2), (-1, 3)]);
+    rich.huge.extend([(u128::MAX, 1), (0, 2), (1 << 64, 3)]);
+    rich.least.extend([(i128::MIN, 1), (i128::MAX, 2), (0, 3), (-10, 4)]);
+    rich.count.extend([(9_007_199_254_740_991, 1), (10, 2), (9, 3)]);
+    rich.flags.extend([(true, 1), (false, 2)]);
+    rich.letters.extend([('"', 1), ('\\', 2), ('😀', 3), ('\u{fffd}', 4), ('\u{2028}', 5), ('\0', 6)]);
+    rich.ids.extend([(uuid::Uuid::max(), 1), (uuid::Uuid::nil(), 2), (uuid::Uuid::from_u128(9), 3)]);
+    rich.users.extend([(keyed::UserId(10), "a".to_string()), (keyed::UserId(9), "é\n".to_string())]);
+    rich.codes.extend(
+        [("b", 1), ("😀", 2), ("\u{fffd}", 3), ("", 4), ("\"q\"", 5)].map(|(k, v)| (keyed::Code(k.into()), v)),
+    );
+    rich.tags.extend([10, 9, u32::MAX, 0]);
+    rich.chars.extend(['😀', '\u{fffd}', 'a']);
+    rich.members.extend([keyed::UserId(u64::MAX), keyed::UserId(9), keyed::UserId(10)]);
+    rich.nested.insert(10, [('b', vec![1]), ('a', vec![])].into_iter().collect());
+    rich.nested.insert(-1, BTreeMap::new());
+    let mut texts =
+        vec![serde_json::to_string(&rich).unwrap(), serde_json::to_string(&keyed::Keyed::default()).unwrap()];
+    let map = |k: &str| format!("{{{}:1}}", serde_json::to_string(k).unwrap());
+    let ints = [
+        "0", "1", "-1", "01", "+1", " 1", "1 ", "", "-0", "1e2", "1.0", "00", "-01", "0x1", "1_0", "１", "-", "--1", "1-",
+    ];
+    for (field, extra) in [
+        ("small", &["127", "-128", "128", "-129"][..]),
+        ("bytes", &["255", "256"]),
+        ("wide", &["9007199254740993", "18446744073709551615", "18446744073709551616"]),
+        ("signed", &["-9223372036854775808", "9223372036854775807", "9223372036854775808"]),
+        ("huge", &["340282366920938463463374607431768211455", "340282366920938463463374607431768211456"]),
+        (
+            "least",
+            &[
+                "-170141183460469231731687303715884105728",
+                "-170141183460469231731687303715884105729",
+                "170141183460469231731687303715884105727",
+            ],
+        ),
+        ("count", &["9007199254740991"]),
+        ("users", &["18446744073709551615"]),
+    ] {
+        for k in ints.iter().chain(extra) {
+            texts.push(keyed_text(field, &map(k)));
+        }
+    }
+    for k in ["true", "false", "True", "1", " true", "true ", "", "null", "0"] {
+        texts.push(keyed_text("flags", &map(k)));
+    }
+    for k in ["a", "ab", "", "😀", "é", "e\u{301}", "\"", "\\", "\u{10ffff}"] {
+        texts.push(keyed_text("letters", &map(k)));
+    }
+    for k in [
+        "6BA7B810-9DAD-11D1-80B4-00C04FD430C8",
+        "6ba7b8109dad11d180b400c04fd430c8",
+        "{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+        "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "x",
+        "",
+    ] {
+        texts.push(keyed_text("ids", &map(k)));
+    }
+    for k in ["a", "", "😀", "10"] {
+        texts.push(keyed_text("codes", &map(k)));
+    }
+    // A key twice, or two texts of one key: the later value, as serde's map.
+    texts.push(keyed_text("bytes", r#"{"1":1,"2":2,"1":3}"#));
+    let (upper, lower) = ("6BA7B810-9DAD-11D1-80B4-00C04FD430C8", "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+    texts.push(keyed_text("ids", &format!(r#"{{"{upper}":1,"{lower}":2}}"#)));
+    texts.push(keyed_text("ids", &format!(r#"{{"{lower}":2,"{upper}":1}}"#)));
+    texts.push(keyed_text("least", r#"{"0":1,"-0":2}"#));
+    // A map's value refused under a good key; a set of each key's values.
+    texts.push(keyed_text("bytes", r#"{"1":256}"#));
+    for json in ["[3,1,3]", "[]", r#"["1"]"#, "[4294967296]", "[-1]", "[1.0]", "{}"] {
+        texts.push(keyed_text("tags", json));
+    }
+    for json in [r#"["b","a","b"]"#, r#"["ab"]"#, "[1]"] {
+        texts.push(keyed_text("chars", json));
+    }
+    for json in ["[2,1,2]", r#"["1"]"#, "[18446744073709551616]"] {
+        texts.push(keyed_text("members", json));
+    }
+    for json in [r#"{"10":{"b":[1],"a":[]},"9":{},"-1":{"😀":[255]}}"#, r#"{"1":{"ab":[]}}"#, r#"{"1":[]}"#] {
+        texts.push(keyed_text("nested", json));
+    }
+    let mut refused = 0;
+    let rows: Vec<String> = texts
+        .iter()
+        .map(|text| {
+            let want = match serde_json::from_str::<keyed::Keyed>(text) {
+                Ok(v) => serde_json::to_string(&v).unwrap(),
+                Err(_) => {
+                    refused += 1;
+                    "refused".to_string()
+                }
+            };
+            format!("[{},{}]", js(text), js(&want))
+        })
+        .collect();
+    assert!(refused > 40 && refused + 40 < texts.len(), "{refused} of {} refused", texts.len());
+    let script = format!(
+        "import * as w from \"./src/purecrate-wire.ts\";\n\
+         const out = [];\n\
+         for (const [text, want] of [{}]) {{\n\
+           let got;\n\
+           try {{ got = w.toJson.Keyed(w.fromJson.Keyed(text)); }} catch {{ got = \"refused\"; }}\n\
+           if (got !== want) out.push(`${{text}}\\n  want ${{want}}\\n  got  ${{got}}`);\n\
+         }}\n\
+         console.log(out.length === 0 ? \"ok\" : out.join(\"\\n\"));\n",
+        rows.join(",")
+    );
+    for schema in [WireSchema::Zod, WireSchema::Valibot, WireSchema::Arktype] {
+        assert_ok(run_node_with(schema, "keyed", source, &script));
+    }
+}

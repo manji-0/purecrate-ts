@@ -71,6 +71,68 @@ export const btreeMap = <T extends z.ZodType>(inner: T) =>
   });
 /** serde's `BTreeSet<String>`: a JSON array of strings, read into a `Set` (a repeated one kept once). */
 export const btreeSet = z.array(str).transform((xs): ReadonlySet<string> => new Set(xs));
+
+/**
+ * The value an integer map key's text stands for, as serde_json 1.0.145
+ * reads it: JSON's integer grammar only (no `+`, leading zero, space,
+ * fraction, or exponent), a `number` where it is safe and a `bigint` past
+ * that, and `-0` as the float the `i128` schema alone reads (as 0).
+ * `undefined` for any other text.
+ */
+const INTEGER_KEY = /^-?(?:0|[1-9]\d*)$/;
+const integerKey = (k: string): number | bigint | JsonFloat | undefined => {
+  if (!INTEGER_KEY.test(k)) return undefined;
+  if (k === "-0") return new JsonFloat(-0, true);
+  const n = BigInt(k);
+  return Number.isSafeInteger(Number(n)) ? Number(n) : n;
+};
+
+/** A map key of an integer type (or a newtype of one): its text read as `integerKey` reads it, then by `inner`, which checks the range. */
+export const intKey = <T extends z.ZodType>(inner: T) =>
+  z.string().transform((k, ctx): z.output<T> => {
+    const r = inner.safeParse(integerKey(k));
+    if (r.success) return r.data;
+    ctx.addIssue({ code: "custom", message: "an integer key in range", input: k });
+    return z.NEVER;
+  });
+
+/** A map key of `bool` (or a newtype of one): exactly `true` or `false`, as serde_json reads one. */
+export const boolKey = <T extends z.ZodType>(inner: T) =>
+  z.string().transform((k, ctx): z.output<T> => {
+    const r = inner.safeParse(k === "true" ? true : k === "false" ? false : undefined);
+    if (r.success) return r.data;
+    ctx.addIssue({ code: "custom", message: "`true` or `false`", input: k });
+    return z.NEVER;
+  });
+
+/**
+ * serde's `BTreeMap<K, V>` for a key other than `String` (design/04 §3.3):
+ * a JSON object, each own key read from its text by `key` (`intKey`,
+ * `boolKey`, or the schema of a `char`, a `Uuid`, or a newtype of a
+ * `String`). Two texts of one key (a `Uuid` in two cases) keep the later
+ * value, as serde's map does.
+ */
+export const btreeMapOf = <K extends z.ZodType, T extends z.ZodType>(key: K, inner: T) =>
+  z.unknown().transform((x, ctx): ReadonlyMap<z.output<K>, z.output<T>> => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) {
+      ctx.addIssue({ code: "custom", message: "a JSON object", input: x });
+      return z.NEVER;
+    }
+    const m = new Map<z.output<K>, z.output<T>>();
+    for (const k of Object.keys(x)) {
+      const rk = key.safeParse(k);
+      const r = inner.safeParse((x as Readonly<Record<string, unknown>>)[k]);
+      if (!rk.success || !r.success) {
+        const why = rk.success ? r.error?.message : rk.error.message;
+        ctx.addIssue({ code: "custom", message: `key ${JSON.stringify(k)}: ${why ?? ""}`, input: x });
+        return z.NEVER;
+      }
+      m.set(rk.data, r.data);
+    }
+    return m;
+  });
+/** serde's `BTreeSet<K>` for a key other than `String`: a JSON array of `key`'s values, read into a `Set` (a repeated one kept once). */
+export const btreeSetOf = <K extends z.ZodType>(key: K) => z.array(key).transform((xs): ReadonlySet<z.output<K>> => new Set(xs));
 /** serde reads a `char` from a string of exactly one scalar value. */
 export const char: Out<Char, string> = z.string().refine(Char.is, "a single character") as unknown as Out<Char, string>;
 /** serde reads a `Uuid` from any string `Uuid::parse_str` accepts; the value is its canonical form. */

@@ -108,7 +108,62 @@ pub fn has_wire(krate: &Crate) -> bool {
 }
 
 pub fn emit_wire(krate: &Crate, schema: WireSchema) -> String {
-    crate::with_internal_names(krate, || emit_wire_in(krate, schema))
+    crate::with_internal_names(krate, || crate::scoped(&KEYED, keyed_names(krate), || emit_wire_in(krate, schema)))
+}
+
+thread_local! {
+    /// What each newtype and alias of the crate being written names, and
+    /// whether it is a newtype: a map key of one is spelled as that type's
+    /// is (`key_kind`).
+    static KEYED: std::cell::RefCell<std::collections::HashMap<String, (Ty, bool)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn keyed_names(krate: &Crate) -> std::collections::HashMap<String, (Ty, bool)> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(s) => s.newtype_inner().map(|t| (s.name.as_str().to_string(), (t.clone(), true))),
+            Item::Alias(a) => Some((a.name.as_str().to_string(), (a.ty.clone(), false))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// How a map key other than a `String` is spelled in JSON (design/01
+/// §7.26, design/04 §3.3): an integer's digits, `true` / `false`, or the
+/// text of a `char` or `Uuid`; a newtype's as its content's, a newtype of
+/// a `String` as text. `None` for a `String` key, read and written as
+/// before.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyKind {
+    Int,
+    Bool,
+    Text,
+}
+
+fn key_kind(key: &Ty) -> Option<KeyKind> {
+    use purecrate_ir::Prim;
+    match key {
+        Ty::Prim(Prim::Bool) => Some(KeyKind::Bool),
+        Ty::Prim(Prim::Char | Prim::Uuid) => Some(KeyKind::Text),
+        Ty::Prim(p) if p.int().is_some() => Some(KeyKind::Int),
+        Ty::Named(n) => {
+            let (inner, newtype) = KEYED.with(|k| k.borrow().get(n.as_str()).cloned())?;
+            match key_kind(&inner) {
+                None if newtype && matches!(inner, Ty::Prim(Prim::String)) => Some(KeyKind::Text),
+                kind => kind,
+            }
+        }
+        Ty::Ignored { inner, .. } => key_kind(inner),
+        _ => None,
+    }
+}
+
+/// The runtime comparator a key of `kind` is ordered by, as `cmp` orders it.
+fn key_cmp(kind: KeyKind) -> Js {
+    raw(if kind == KeyKind::Text { "Ord.cmpStr" } else { "Ord.cmp" })
 }
 
 /// A piece of the wire module: text as it is (imports, comments, blank
@@ -649,9 +704,9 @@ fn wire_imports(krate: &Crate, wired: &[&Item]) -> String {
 /// Every name the wire module may read; `prune_unused` drops the unread
 /// and sorts the rest.
 fn header(schema: WireSchema) -> String {
-    let shared = "adjacentlyTagged, bool, btreeMap, btreeSet, char, f32, f64, i128, i16, i32, i64, i8, \
-                  internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, unit, unitEnum, usize, uuid, \
-                  uuidError";
+    let shared = "adjacentlyTagged, bool, boolKey, btreeMap, btreeMapOf, btreeSet, btreeSetOf, char, f32, f64, \
+                  i128, i16, i32, i64, i8, intKey, internallyTagged, nullable, record, str, u128, u16, u32, u64, u8, \
+                  unit, unitEnum, usize, uuid, uuidError";
     let (library, own) = match schema {
         WireSchema::Zod => ("import { z } from \"zod\";", "optionalField, unitVariant, variant"),
         WireSchema::Valibot => ("import * as v from \"valibot\";", "unitVariant, variant"),
@@ -660,7 +715,7 @@ fn header(schema: WireSchema) -> String {
         }
     };
     format!(
-        "import {{ assertNever, Json, parseJson }} from \"purecrate\";\n{library}\n\
+        "import {{ assertNever, BTree, Json, Ord, parseJson }} from \"purecrate\";\n{library}\n\
          import {{ {shared}, {own} }} from \"{}\";\n",
         schema.package()
     )
@@ -1112,6 +1167,20 @@ fn schema_ty_in(schema: WireSchema, ty: &Ty, struct_field: bool) -> Js {
         // schema as a `Type` (of `unknown`, `ark_item`).
         Ty::Param(p) if schema == WireSchema::Arktype => raw(param_value("anyWire", p.as_str())),
         Ty::Param(p) => raw(param_value("wire", p.as_str())),
+        // Another key read from its text by the key type's schema: an
+        // integer's through JSON's integer grammar (`intKey`), a `bool`'s
+        // as exactly `true` / `false` (`boolKey`), a `char`'s, `Uuid`'s, or
+        // a newtype of a `String`'s as the string it is.
+        Ty::Map { key, value } if key_kind(key).is_some() => {
+            let k = schema_ty(schema, key);
+            let k = match key_kind(key) {
+                Some(KeyKind::Int) => call_path("intKey", vec![k]),
+                Some(KeyKind::Bool) => call_path("boolKey", vec![k]),
+                _ => k,
+            };
+            call_path("btreeMapOf", vec![k, schema_ty(schema, value)])
+        }
+        Ty::Set(key) if key_kind(key).is_some() => call_path("btreeSetOf", vec![schema_ty(schema, key)]),
         // An object read into a `Map`, an array into a `Set` (the adapters).
         Ty::Map { value, .. } => call_path("btreeMap", vec![schema_ty(schema, value)]),
         Ty::Set(_) => raw("btreeSet"),
@@ -1322,6 +1391,16 @@ fn write_json(ty: &Ty, value: &str, depth: usize) -> Js {
             call_path(&format!("toJson.{}", name.as_str()), std::iter::once(raw(value)).chain(writers).collect())
         }
         Ty::Param(p) => call_path(&param_value("write", p.as_str()), vec![raw(value)]),
+        // Another key in its type's order, each as its text (design/01
+        // §7.26); a set's keys as the array of their values.
+        Ty::Map { key, value: inner } if key_kind(key).is_some() => {
+            let cmp = key_cmp(key_kind(key).expect("matched"));
+            call_path("BTree.mapJson", vec![raw(value), cmp, each(inner, depth)])
+        }
+        Ty::Set(key) if key_kind(key).is_some() => {
+            let keys = call_path("BTree.keysBy", vec![raw(value), key_cmp(key_kind(key).expect("matched"))]);
+            call_path("Json.array", vec![keys, each(key, depth)])
+        }
         // An object in key order, as serde_json writes a `BTreeMap`.
         Ty::Map { value: inner, .. } => call_path("Json.map", vec![raw(value), each(inner, depth)]),
         Ty::Set(_) => call_path("Json.set", vec![raw(value)]),

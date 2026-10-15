@@ -7,6 +7,7 @@ mod adaptors;
 mod assoc_consts;
 mod bits;
 mod box_erase;
+mod btree_keys;
 mod chars;
 mod closures;
 mod collect;
