@@ -233,3 +233,19 @@ pub fn returned_mapped(c: bool, r: Result<i32, i32>, n: i32) -> i32 {
     }
     -1
 }
+
+/// The same in a closure, under a function that hoists one too: each its
+/// own name (a closure's hoists are made apart from the function's).
+pub fn mapped_in_closure(r: Result<i32, i32>, a: i32) -> i32 {
+    if let Err(e) = r.map_err(|e| e.wrapping_sub(7)).map(|_| a) {
+        return e;
+    }
+    let f = |s: i32| -> i32 {
+        let xs: Vec<i32> = vec![s, match r.map(|_| a) {
+            Ok(b) => 7i32.wrapping_add(b),
+            Err(_) => s / (s - s),
+        }];
+        xs.iter().sum()
+    };
+    f(a)
+}

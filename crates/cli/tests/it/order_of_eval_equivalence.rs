@@ -64,6 +64,8 @@ fn generated_evaluation_order_matches_rust() {
                     cases.push(case!(order_of_eval::returned_mapped(c, r, n)));
                 }
             }
+            cases.push(case!(order_of_eval::mapped_in_closure(r, 3)));
+            cases.push(case!(order_of_eval::mapped_in_closure(r, i32::MAX)));
         }
         for i in [0usize, 1, 5] {
             for none in [false, true] {

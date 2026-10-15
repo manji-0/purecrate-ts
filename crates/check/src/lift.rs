@@ -11,7 +11,7 @@ pub fn lift(krate: Crate) -> Crate {
         .items
         .into_iter()
         .map(|item| match item {
-            Item::Fn(f) => Item::Fn(Fn { body: lift_body(f.body), ..f }),
+            Item::Fn(f) => Item::Fn(Fn { body: lift_body(f.body, &mut HashSet::new()), ..f }),
             other => other,
         })
         .collect();
@@ -19,16 +19,26 @@ pub fn lift(krate: Crate) -> Crate {
 }
 
 /// A closure body is printed as its own arrow body, where `?` returns from
-/// the closure, so each is lifted on its own, innermost first.
-fn lift_body(mut body: Expr) -> Expr {
-    lift_closures(&mut body);
-    let mut body = Lifter::for_body(&body).stmt(body);
+/// the closure, so each is lifted on its own, innermost first. `around`
+/// holds every name bound around it and made so far: a name made in a
+/// closure meets none of the function's, which would be one name to the
+/// printer, declared twice.
+fn lift_body(mut body: Expr, around: &mut HashSet<String>) -> Expr {
+    around.extend(bound_names(&body));
+    lift_closures(&mut body, around);
+    let mut lifter = Lifter::for_body(&body);
+    lifter.taken.extend(around.iter().cloned());
+    let mut body = lifter.stmt(body);
+    around.extend(lifter.taken);
     let mut taken = bound_names(&body);
     // The guard puts `ok_or`'s argument in a `let` of its own: a `?` in it
     // (`o.ok_or(a / r?)?`) is lifted from there, before the test, as Rust
     // evaluates the argument whether or not the option is `Some`.
     if guard_ok_or(&mut body, &mut taken) {
-        body = Lifter::for_body(&body).stmt(body);
+        let mut lifter = Lifter::for_body(&body);
+        lifter.taken.extend(around.iter().cloned());
+        body = lifter.stmt(body);
+        around.extend(lifter.taken);
     }
     body
 }
@@ -162,13 +172,13 @@ fn has_try(expr: &Expr) -> bool {
     })
 }
 
-fn lift_closures(expr: &mut Expr) {
+fn lift_closures(expr: &mut Expr, around: &mut HashSet<String>) {
     if let Expr::Closure { body, .. } = expr {
         let inner = std::mem::replace(&mut **body, Expr::Unreachable);
-        **body = lift_body(inner);
+        **body = lift_body(inner, around);
         return;
     }
-    expr.children_mut().into_iter().for_each(lift_closures);
+    expr.children_mut().into_iter().for_each(|c| lift_closures(c, around));
 }
 
 /// Every name `body` binds: `let`, loop variables, patterns, and closure
