@@ -491,6 +491,46 @@ A trait is a record of functions over a type, and a type's companion is already 
 
 **Verification.** A fixture per part (`traits.rs`, `display.rs`, `ordering_derive.rs`, `default.rs`, `from.rs`) run against Rust; a trait shape in the statements generator (a trait with a default method, two implementing types, a generic function over it called at both); and `purecrate-ts test`, which calls a generic function with a user trait bound at each crate type that implements all its bounds, rather than at `i32` (§8.4), and says so when none does.
 
+### 7.26 Keys other than `String`
+
+<!-- constrained-by #719-btreemapstring-v-and-btreesetstring -->
+<!-- constrained-by #725-traits -->
+
+Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+
+§7.19's `BTreeMap<K, V>` and `BTreeSet<K>` take more key types: every integer type, `char`, `bool`, `Uuid`, and a newtype or closed type of the crate whose content is one of those or a `String` (`BTreeMap<UserId, Order>`, where `struct UserId(u64)` derives `Ord`). Each is a JS primitive at run time (a `number`, a `bigint`, a `string`, a `boolean`; a newtype is its content branded, §7.20), and a JS `Map` and `Set` find a primitive key by its value (SameValueZero: `1n` finds `1n`), so the TS type stays `Map<K, V>` / `Set<K>`. Every read in order sorts the keys by the key type's `cmp` (§7.10 for the std types, the content's for a newtype, whose derived `Ord` is its content's), as §7.19 sorts strings by code point: `BTree.keysBy(m, cmp)` and the like, the comparator chosen where the type is known.
+
+- **Refused.** A key that is an object at run time: an enum (a fieldless one prints `{ kind }` too), a struct with named fields or more than one, a tuple, an `Option`, a `Vec`, or a newtype of one of those. A JS `Map` compares them by identity, so `get` with an equal but distinct value would miss; Rust's `BTreeMap` finds it. A float key (Rust has no `Ord` on floats). A newtype key whose `Ord` is written by hand (its order is not its content's, and the output sorts by content).
+- **On the wire.** serde_json writes a map's integer and `Uuid` keys as JSON strings (`{"1": ..}`) and reads them back the same way; the schema reads each key as its type's text and refuses one that does not parse to the type, its range included. Which key types serde_json accepts (`bool`, `char`) is checked against serde_json itself, and a key type it refuses is refused on the wire. A set is a JSON array, as now.
+
+### 7.27 Fixed-size arrays
+
+<!-- constrained-by #714-growing-and-editing-a-vec -->
+<!-- constrained-by #724-slice-patterns -->
+
+Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+
+`[T; N]`, `N` an integer literal or a crate `const`, is a TS `ReadonlyArray<T>` of length `N`, as a `Vec<T>` is an array: a parameter, a result, a field, a variant's payload, a `const` (`const TABLE: [u8; 16] = [..]`, the tables domain code keeps), and a local. A TS tuple type (`readonly [T, T, T, T]`) would spell the length but not past a few elements, so the length is checked instead: a `pub` function checks each array argument's length on entry, as it checks strings for lone surrogates (§6), and throws a `TypeError` naming the parameter.
+
+- **Built** by `[a, b, c]` (elements evaluated in order) and `[x; N]` (`x` evaluated once and copied: a `Copy` element, or a `clone`able one cloned, as Rust's requires `Copy` or a `const`), `N` folded at check time.
+- **Read** as a slice is (§7.18, §7.24): `a[i]` panics past the end with Rust's message (`index out of bounds: the len is 4 but the index is 4`), `a.len()` is `N`, `iter()`, `for x in a` / `&a`, every §7.13 / §7.22 sequence, `get`, `first`, `last`, `contains`, `&a[..]` and `a.as_slice()` as a slice, `a.to_vec()` as a `Vec`, `==` (`Eq.deep`), and `cmp` / `<` where the elements have a `cmp` (§7.25, lexicographic as Rust's).
+- **Patterns.** A slice pattern on an array is exhaustive by its one length (`let [a, b, c, d] = bytes;` is irrefutable, a `match` on `[u8; 2]` needs no `[]` arm); rustc checks the input the same way.
+- **Written** only as §7.14's local `Vec` is: `a[i] = x` on a `let mut` local holding an array of its own (a literal, `[x; N]`, or a copy), which no closure reads. `a.map(f)`, `sort` on an array, `iter_mut`, and an array of arrays written in place are refused.
+- **On the wire** a JSON array, as serde writes it, read only at length `N` (serde's derive reads arrays up to 32 elements; a longer one is refused on a type that derives serde, as serde refuses it).
+- **Refused.** `N` from a generic const parameter (`[T; N]` with `const N: usize`), an array of `Option` or `()` where §7.20 refuses them, and `as` between arrays and slices beyond those above.
+
+### 7.28 `take`, `skip`, `take_while`, `skip_while`, and `partition`
+
+<!-- constrained-by #722-iterator-adaptors-and-ranges -->
+
+Planned for 0.23.0 (draft, 2026-10-15); not implemented.
+
+Four more stages of §7.13's sequences, each a generator as `Iter.map` is: `take(n)` gives the first `n` items and asks the stages before it for no more, so a panic in a `map` on a later item does not come (Rust's `Take` stops pulling); `skip(n)` pulls and drops the first `n`, running the stages before it on each, as Rust's does; `take_while(p)` gives items while `p` holds and stops at the first that fails, which it has pulled (the stages before ran on it) and drops; `skip_while(p)` drops items while `p` holds, then gives the rest without calling `p` again. `n` is a `usize`, evaluated when the method is called, after its receiver. On a range (§7.22) `take` and `skip` keep the range's arithmetic form.
+
+`partition(p)` is a consumer: it walks the sequence once and gives `(Vec<T>, Vec<T>)`, the items for which `p` holds first, each `Vec` in the sequence's order. The result's type is written as Rust requires (`let (a, b): (Vec<_>, Vec<_>) = ..`).
+
+Refused: `take` / `skip` as values, `peekable`, `scan`, `map_while`, `by_ref`, and `partition` into anything but two `Vec`s.
+
 ## 8. Verification
 
 | Check | Mechanism |
