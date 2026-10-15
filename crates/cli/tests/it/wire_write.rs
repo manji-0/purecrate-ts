@@ -828,6 +828,42 @@ fn keyed_maps_read_and_write_what_serde_json_does() {
     texts.push(keyed_text("ids", &format!(r#"{{"{upper}":1,"{lower}":2}}"#)));
     texts.push(keyed_text("ids", &format!(r#"{{"{lower}":2,"{upper}":1}}"#)));
     texts.push(keyed_text("least", r#"{"0":1,"-0":2}"#));
+    // In the text's order, though `Object.keys` puts integer-like keys first.
+    texts.push(keyed_text("least", r#"{"-0":2,"0":1}"#));
+    texts.push(keyed_text("least", r#"{"5":1,"-0":7,"0":2,"-0":3}"#));
+    texts.push(keyed_text("ids", &format!(r#"{{"{upper}":1,"{lower}":2,"{upper}":3}}"#)));
+    texts.push(keyed_text("nested", r#"{"-1":{"a":[1]},"10":{}}"#));
+    // A key written with an escape (`~` stands for a backslash): serde_json
+    // reads an integer's or a `bool`'s from the bytes between its quotes and
+    // refuses it, and decodes a `char`'s, a `Uuid`'s, or a `String`'s.
+    let escaped = |json: &str| json.replace('~', "\\");
+    for (field, k) in [
+        ("bytes", "~u0031"),
+        ("bytes", "1~u0030"),
+        ("bytes", "1~/"),
+        ("small", "~u002d1"),
+        ("wide", "~u0031"),
+        ("signed", "~u002d1"),
+        ("huge", "~u0031"),
+        ("least", "~u0030"),
+        ("count", "~u0031"),
+        ("users", "~u0031"),
+        ("flags", "~u0074rue"),
+        ("flags", "tru~u0065"),
+        ("letters", "~u00e9"),
+        ("letters", "~n"),
+        ("letters", "~ud83d~ude00"),
+        ("ids", "~u00366ba7b810-9dad-11d1-80b4-00c04fd430c8"),
+        ("codes", "~u0061"),
+        ("codes", "1~u0030"),
+    ] {
+        texts.push(keyed_text(field, &escaped(&format!(r#"{{"{k}":1}}"#))));
+    }
+    for json in [r#"{"1":1,"~u0031":2}"#, r#"{"~u0031":1,"1":2}"#, r#"{"2":1,"1~u0030":2,"10":3}"#] {
+        texts.push(keyed_text("bytes", &escaped(json)));
+    }
+    texts.push(keyed_text("nested", &escaped(r#"{"1":{"~u0061":[1]}}"#)));
+    texts.push(keyed_text("nested", &escaped(r#"{"~u0031":{"a":[1]}}"#)));
     // A map's value refused under a good key; a set of each key's values.
     texts.push(keyed_text("bytes", r#"{"1":256}"#));
     for json in ["[3,1,3]", "[]", r#"["1"]"#, "[4294967296]", "[-1]", "[1.0]", "{}"] {

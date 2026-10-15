@@ -22,7 +22,7 @@
 // SOFTWARE.
 
 import * as v from "valibot";
-import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, structIssue, type UuidError } from "./purecrate-runtime.ts";
+import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, jsonKeys, structIssue, type UuidError } from "./purecrate-runtime.ts";
 
 const small = <T>(min: number, max: number, of: (n: number) => T) =>
   v.pipe(v.number(), v.integer(), v.minValue(min), v.maxValue(max), v.transform(of));
@@ -148,9 +148,20 @@ const integerKey = (k: string): number | bigint | JsonFloat | undefined => {
   return Number.isSafeInteger(Number(n)) ? Number(n) : n;
 };
 
+/**
+ * The key schemas that read a key from the bytes between its quotes
+ * (`intKey`, `boolKey`): serde_json refuses such a key written with an
+ * escape (`"\u0031"`), which `JSON.parse` has decoded (`jsonKeys`).
+ */
+const RAW_KEYS = new WeakSet<object>();
+const rawKey = <S extends object>(schema: S): S => {
+  RAW_KEYS.add(schema);
+  return schema;
+};
+
 /** A map key of an integer type (or a newtype of one): its text read as `integerKey` reads it, then by `inner`, which checks the range. */
 export const intKey = <T extends v.GenericSchema>(inner: T) =>
-  v.pipe(
+  rawKey(v.pipe(
     v.string(),
     v.rawTransform(({ dataset, addIssue, NEVER }) => {
       const r = v.safeParse(inner, integerKey(dataset.value));
@@ -158,11 +169,11 @@ export const intKey = <T extends v.GenericSchema>(inner: T) =>
       addIssue({ message: "an integer key in range" });
       return NEVER;
     }),
-  ) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
+  )) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
 
 /** A map key of `bool` (or a newtype of one): exactly `true` or `false`, as serde_json reads one. */
 export const boolKey = <T extends v.GenericSchema>(inner: T) =>
-  v.pipe(
+  rawKey(v.pipe(
     v.string(),
     v.rawTransform(({ dataset, addIssue, NEVER }) => {
       const k = dataset.value;
@@ -171,14 +182,16 @@ export const boolKey = <T extends v.GenericSchema>(inner: T) =>
       addIssue({ message: "`true` or `false`" });
       return NEVER;
     }),
-  ) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
+  )) as unknown as v.GenericSchema<string, v.InferOutput<T>>;
 
 /**
  * serde's `BTreeMap<K, V>` for a key other than `String` (design/04 §3.3):
  * a JSON object, each own key read from its text by `key` (`intKey`,
  * `boolKey`, or the schema of a `char`, a `Uuid`, or a newtype of a
- * `String`). Two texts of one key (a `Uuid` in two cases) keep the later
- * value, as serde's map does.
+ * `String`). Keys are read in the text's order, so of two texts of one key
+ * (a `Uuid` in two cases, `i128`'s `-0` and `0`) the later value is kept,
+ * as serde's map keeps it; an integer or `bool` key written with an escape
+ * is refused, as serde_json refuses it.
  */
 export const btreeMapOf = <K extends v.GenericSchema, T extends v.GenericSchema>(key: K, inner: T) =>
   v.pipe(
@@ -190,7 +203,12 @@ export const btreeMapOf = <K extends v.GenericSchema, T extends v.GenericSchema>
         return NEVER;
       }
       const m = new Map<v.InferOutput<K>, v.InferOutput<T>>();
-      for (const k of Object.keys(x)) {
+      const seen = jsonKeys(x);
+      for (const k of seen?.order ?? Object.keys(x)) {
+        if (RAW_KEYS.has(key) && seen?.escaped?.has(k) === true) {
+          addIssue({ message: `key ${JSON.stringify(k)}: written without an escape` });
+          return NEVER;
+        }
         const rk = v.safeParse(key, k);
         const r = v.safeParse(inner, (x as Readonly<Record<string, unknown>>)[k]);
         if (!rk.success || !r.success) {

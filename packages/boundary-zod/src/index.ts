@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, structIssue, type F32, type F64, type I128, type UuidError } from "purecrate";
+import { Char, Int, JsonFloat, Uuid, adjacentTag, fromSequence, internalTag, jsonKeys, structIssue, type F32, type F64, type I128, type UuidError } from "purecrate";
 
 type Out<T, In> = z.ZodType<T, In>;
 
@@ -87,30 +87,47 @@ const integerKey = (k: string): number | bigint | JsonFloat | undefined => {
   return Number.isSafeInteger(Number(n)) ? Number(n) : n;
 };
 
+/**
+ * The key schemas that read a key from the bytes between its quotes
+ * (`intKey`, `boolKey`): serde_json refuses such a key written with an
+ * escape (`"\u0031"`), which `JSON.parse` has decoded (`jsonKeys`).
+ */
+const RAW_KEYS = new WeakSet<object>();
+const rawKey = <S extends object>(schema: S): S => {
+  RAW_KEYS.add(schema);
+  return schema;
+};
+
 /** A map key of an integer type (or a newtype of one): its text read as `integerKey` reads it, then by `inner`, which checks the range. */
 export const intKey = <T extends z.ZodType>(inner: T) =>
-  z.string().transform((k, ctx): z.output<T> => {
-    const r = inner.safeParse(integerKey(k));
-    if (r.success) return r.data;
-    ctx.addIssue({ code: "custom", message: "an integer key in range", input: k });
-    return z.NEVER;
-  });
+  rawKey(
+    z.string().transform((k, ctx): z.output<T> => {
+      const r = inner.safeParse(integerKey(k));
+      if (r.success) return r.data;
+      ctx.addIssue({ code: "custom", message: "an integer key in range", input: k });
+      return z.NEVER;
+    }),
+  );
 
 /** A map key of `bool` (or a newtype of one): exactly `true` or `false`, as serde_json reads one. */
 export const boolKey = <T extends z.ZodType>(inner: T) =>
-  z.string().transform((k, ctx): z.output<T> => {
-    const r = inner.safeParse(k === "true" ? true : k === "false" ? false : undefined);
-    if (r.success) return r.data;
-    ctx.addIssue({ code: "custom", message: "`true` or `false`", input: k });
-    return z.NEVER;
-  });
+  rawKey(
+    z.string().transform((k, ctx): z.output<T> => {
+      const r = inner.safeParse(k === "true" ? true : k === "false" ? false : undefined);
+      if (r.success) return r.data;
+      ctx.addIssue({ code: "custom", message: "`true` or `false`", input: k });
+      return z.NEVER;
+    }),
+  );
 
 /**
  * serde's `BTreeMap<K, V>` for a key other than `String` (design/04 §3.3):
  * a JSON object, each own key read from its text by `key` (`intKey`,
  * `boolKey`, or the schema of a `char`, a `Uuid`, or a newtype of a
- * `String`). Two texts of one key (a `Uuid` in two cases) keep the later
- * value, as serde's map does.
+ * `String`). Keys are read in the text's order, so of two texts of one key
+ * (a `Uuid` in two cases, `i128`'s `-0` and `0`) the later value is kept,
+ * as serde's map keeps it; an integer or `bool` key written with an escape
+ * is refused, as serde_json refuses it.
  */
 export const btreeMapOf = <K extends z.ZodType, T extends z.ZodType>(key: K, inner: T) =>
   z.unknown().transform((x, ctx): ReadonlyMap<z.output<K>, z.output<T>> => {
@@ -119,7 +136,12 @@ export const btreeMapOf = <K extends z.ZodType, T extends z.ZodType>(key: K, inn
       return z.NEVER;
     }
     const m = new Map<z.output<K>, z.output<T>>();
-    for (const k of Object.keys(x)) {
+    const seen = jsonKeys(x);
+    for (const k of seen?.order ?? Object.keys(x)) {
+      if (RAW_KEYS.has(key) && seen?.escaped?.has(k) === true) {
+        ctx.addIssue({ code: "custom", message: `key ${JSON.stringify(k)}: written without an escape`, input: x });
+        return z.NEVER;
+      }
       const rk = key.safeParse(k);
       const r = inner.safeParse((x as Readonly<Record<string, unknown>>)[k]);
       if (!rk.success || !r.success) {

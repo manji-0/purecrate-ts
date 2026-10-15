@@ -355,10 +355,11 @@ export class JsonFloat {
 /**
  * The objects and arrays of valid JSON `text` as a tree that `JSON.parse`'s
  * result can be walked beside: each node's children by key (the last of a
- * key written twice, the one `JSON.parse` keeps) or index, and the keys an
- * object holds twice.
+ * key written twice, the one `JSON.parse` keeps) or index, the keys an
+ * object holds twice, the keys written with an escape (`"\u0031"`), and an
+ * object's keys in the order of their last appearance in the text.
  */
-type Shape = { twice?: Set<string>; kids: Map<string | number, Shape> };
+type Shape = { twice?: Set<string>; escaped?: Set<string>; order: string[]; kids: Map<string | number, Shape> };
 const shapeOf = (text: string): Shape | undefined => {
   // One entry per open bracket: the node, the keys seen in an object (`null`
   // in an array), the key a value goes under, and an array's index.
@@ -377,15 +378,21 @@ const shapeOf = (text: string): Shape | undefined => {
       let j = i + 1;
       while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
       if (atKey && top?.seen) {
-        const key = JSON.parse(text.slice(i, j + 1)) as string;
-        if (top.seen.has(key)) (top.node.twice ??= new Set()).add(key);
+        const written = text.slice(i, j + 1);
+        const key = JSON.parse(written) as string;
+        if (top.seen.has(key)) {
+          (top.node.twice ??= new Set()).add(key);
+          top.node.order.splice(top.node.order.indexOf(key), 1);
+        }
+        if (written.includes("\\")) (top.node.escaped ??= new Set()).add(key);
         top.seen.add(key);
+        top.node.order.push(key);
         top.key = key;
         atKey = false;
       }
       i = j;
     } else if (c === "{" || c === "[") {
-      const node: Shape = { kids: new Map() };
+      const node: Shape = { order: [], kids: new Map() };
       enter(node);
       open.push({ node, seen: c === "{" ? new Set() : null, key: 0 });
       atKey = c === "{";
@@ -399,8 +406,18 @@ const shapeOf = (text: string): Shape | undefined => {
   return root;
 };
 
-/** What `parseJson` saw in an object that `JSON.parse` does not keep. */
-export type JsonKeys = Readonly<{ twice: ReadonlySet<string>; lone: boolean }>;
+/**
+ * What `parseJson` saw in an object that `JSON.parse` does not keep: the
+ * keys written twice, whether one held a lone surrogate, the keys written
+ * with an escape, and, where it differs from `Object.keys` (which puts
+ * integer-like keys first), the keys in the order of their last appearance.
+ */
+export type JsonKeys = Readonly<{
+  twice: ReadonlySet<string>;
+  lone: boolean;
+  escaped?: ReadonlySet<string>;
+  order?: readonly string[];
+}>;
 // A symbol property, not a `WeakMap` entry: arktype runs a morph on a copy
 // of its input, which keeps the property but is not the key of an entry.
 const KEYS: unique symbol = Symbol("purecrate.jsonKeys");
@@ -410,6 +427,13 @@ const KEYS: unique symbol = Symbol("purecrate.jsonKeys");
  * lone surrogate. serde refuses either in an object it reads (a field
  * twice, a key it cannot decode), and reads past both in a value it
  * ignores; so a schema asks for the objects it reads, and only those.
+ *
+ * A map keyed by something other than a `String` asks for the other two
+ * (design/04 §3.3): serde_json reads an integer or `bool` key from the
+ * bytes between its quotes, so it refuses one written with an escape, which
+ * `JSON.parse` has decoded; and its map takes the keys in the text's order,
+ * a later one replacing an earlier one of the same value (`i128`'s `-0`
+ * and `0`, a `Uuid` in two cases).
  */
 export const jsonKeys = (x: object): JsonKeys | undefined => (x as { [KEYS]?: JsonKeys })[KEYS];
 
@@ -425,7 +449,9 @@ const LONE_KEY = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00
  *   `JsonFloat`, which only a float field reads;
  * - an object that holds a key twice (`JSON.parse` keeps the last), or a
  *   key with a lone surrogate, is noted (`jsonKeys`), for the schema that
- *   reads it to refuse as serde does.
+ *   reads it to refuse as serde does; so are an object's keys written with
+ *   an escape, and its keys' order in the text where `Object.keys` differs,
+ *   for a map whose keys are not `String`s.
  *
  * The first two need a runtime that passes the literal's source text to the
  * reviver (Node 21+). Elsewhere a large number stays rounded, and the
@@ -446,8 +472,10 @@ export const parseJson = (text: string): unknown => {
     }
     const keys = Object.keys(v);
     const lone = keys.some((k) => LONE_KEY.test(k));
-    if (shape.twice !== undefined || lone) {
-      Object.defineProperty(v, KEYS, { value: { twice: shape.twice ?? new Set(), lone } satisfies JsonKeys });
+    const order = shape.order.some((k, i) => k !== keys[i]) ? shape.order : undefined;
+    if (shape.twice !== undefined || lone || shape.escaped !== undefined || order !== undefined) {
+      const seen: JsonKeys = { twice: shape.twice ?? new Set(), lone, escaped: shape.escaped, order };
+      Object.defineProperty(v, KEYS, { value: seen });
     }
     for (const k of keys) note((v as Record<string, unknown>)[k], shape.kids.get(k));
   };

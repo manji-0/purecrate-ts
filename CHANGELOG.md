@@ -32,6 +32,10 @@
 - An array of more than 32 elements in a type that derives `Serialize` or `Deserialize`: serde implements its traits for arrays up to 32.
 - A `let` of a slice pattern with a type annotation (annotate the value).
 
+### Fixed
+
+- **A map key read differently from serde_json's on two texts it never writes** (design/01 §7.26, design/04 §3.3). An integer or `bool` key written with an escape (`{"\u0031":1}`, `"1\/"`, `"tru\u0065"`) was read as the text `JSON.parse` decoded; serde_json reads such a key from the bytes between its quotes and refuses it, and so does `btreeMapOf` now (a `char`, `Uuid`, or `String` newtype key with an escape is decoded, as before and as serde_json does). And the keys were read in `Object.keys`'s order, which lists integer-like keys first, so of an `i128` map's `"-0"` and a later `"0"` (one key), or of a `Uuid` written in two cases and the first again, the value kept could be the earlier one; they are read in the text's order now. `parseJson` notes both on each object (`jsonKeys`'s new `escaped` and `order`), a change to its region; §3's gap row for them is gone.
+
 ## 0.22.0 — 2026-10-15
 
 Traits (design/01 §7.25), taken by decision as 0.16.0–0.21.0 were: the crate's own traits, whose `impl`s become members of the implementing type's companion and whose bounds pass that companion as a dictionary, resolved where the types are known; `impl Display` with arguments, so `format!` and `to_string` print the crate's types; `PartialOrd` and `Ord`, derived and written, so the crate's types, their `Option`s, `Vec`s, and tuples, and a `T: Ord` are ordered; `Default`; and `From`, so `?` converts an error. `dyn Trait`, associated types, and generic traits other than `From` stay out. A function that wrote `T: Ord` or `T: PartialOrd`, inert in 0.20.0, now takes a dictionary (*Changed*). Turning on in every equivalence test the type-aware lint `verify.sh` runs found output it refused, fixed here (*Fixed*). The distance to the ideal (design/07 §2.5) is 91%; `survey corpus/patterns.rs` accepts 118 of 125.
