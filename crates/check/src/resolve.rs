@@ -163,7 +163,13 @@ impl<'a> Cx<'_, 'a> {
                     "`Option<Option<_>>` is not in v0: both `None` and `Some(None)` would be `null` in TS".to_string(),
                 );
             }
-            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) => self.ty(t),
+            // A key `Map` finds by value, ordered by its type's `cmp`
+            // (design/01 §7.26).
+            Ty::Set(key) => {
+                self.key(ty, key);
+                self.ty(key);
+            }
+            Ty::Option(t) | Ty::Vec(t) => self.ty(t),
             // `get` gives `Option<&V>`, and a missing key and a `None` or `()`
             // value would both be `null` / `undefined` in TS.
             Ty::Map { value, .. } if self.is_nullish(value) => self.error(
@@ -171,6 +177,7 @@ impl<'a> Cx<'_, 'a> {
                 format!("a `BTreeMap` of `{}` values is not in v0: `get` of a missing key and of that value would be the same in TS", crate::types::show(value)),
             ),
             Ty::Map { key, value } => {
+                self.key(ty, key);
                 self.ty(key);
                 self.ty(value);
             }
@@ -179,6 +186,18 @@ impl<'a> Cx<'_, 'a> {
                 self.ty(err);
             }
             Ty::Tuple(ts) => ts.iter().for_each(|t| self.ty(t)),
+        }
+    }
+
+    /// The key of the map or set `ty` (design/01 §7.26), refused where a
+    /// JS `Map` would not find it by value or the output could not sort it.
+    fn key(&mut self, ty: &Ty, key: &Ty) {
+        if let Err(why) = crate::keys::key(self.defs, key) {
+            self.error_about(
+                Reason::DisallowedType,
+                &crate::types::show(key),
+                format!("`{}` is not in v0: {why}", crate::types::show(ty)),
+            );
         }
     }
 
@@ -610,6 +629,10 @@ impl<'a> Cx<'_, 'a> {
                     T::FromPairs | T::FromKeys => 1,
                     T::Get | T::Has | T::Add | T::RemoveKey | T::Delete => 2,
                     T::Insert => 3,
+                    // The key type's comparator after the map or set.
+                    T::EntriesBy | T::KeysBy | T::ValuesBy => 2,
+                    T::Lookup | T::Include | T::Take => 2,
+                    T::Put => 3,
                 };
                 self.arity("a `BTreeMap` / `BTreeSet` method", n, argc)
             }

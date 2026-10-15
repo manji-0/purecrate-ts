@@ -85,7 +85,11 @@ pub(super) fn effectless(expr: &Expr) -> bool {
                     | purecrate_ir::TreeOp::IsEmpty
                     | purecrate_ir::TreeOp::Entries
                     | purecrate_ir::TreeOp::Keys
-                    | purecrate_ir::TreeOp::Values,
+                    | purecrate_ir::TreeOp::Values
+                    | purecrate_ir::TreeOp::Lookup
+                    | purecrate_ir::TreeOp::EntriesBy
+                    | purecrate_ir::TreeOp::KeysBy
+                    | purecrate_ir::TreeOp::ValuesBy,
                 )
                 | Callee::StringFrom,
             args,

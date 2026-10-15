@@ -550,6 +550,9 @@ impl Refs {
                             T::Get | T::Insert | T::Add | T::RemoveKey | T::Entries | T::Keys | T::Values => {
                                 self.btree = true
                             }
+                            T::Lookup | T::Put | T::Include | T::Take | T::EntriesBy | T::KeysBy | T::ValuesBy => {
+                                self.btree = true
+                            }
                             T::Len => {
                                 self.nums.insert("Usize".into());
                             }

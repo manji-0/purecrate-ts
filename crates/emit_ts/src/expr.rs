@@ -934,6 +934,13 @@ fn runtime_fn(callee: &Callee) -> Option<&'static str> {
         C::Tree(T::Entries) => "BTree.entries",
         C::Tree(T::Keys) => "BTree.keys",
         C::Tree(T::Values) => "BTree.values",
+        C::Tree(T::Lookup) => "BTree.lookup",
+        C::Tree(T::Put) => "BTree.put",
+        C::Tree(T::Include) => "BTree.include",
+        C::Tree(T::Take) => "BTree.take",
+        C::Tree(T::EntriesBy) => "BTree.entriesBy",
+        C::Tree(T::KeysBy) => "BTree.keysBy",
+        C::Tree(T::ValuesBy) => "BTree.valuesBy",
         _ => return None,
     })
 }
@@ -1245,6 +1252,11 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
                     | Callee::VecWindows { .. }
                     | Callee::Tree(
                         purecrate_ir::TreeOp::Entries | purecrate_ir::TreeOp::Keys | purecrate_ir::TreeOp::Values
+                    )
+                    | Callee::Tree(
+                        purecrate_ir::TreeOp::EntriesBy
+                            | purecrate_ir::TreeOp::KeysBy
+                            | purecrate_ir::TreeOp::ValuesBy
                     ),
                 ..
             }
@@ -1569,6 +1581,9 @@ fn emit_tree(op: purecrate_ir::TreeOp, args: &[Expr], indent: usize) -> String {
             format!("new {}({items})", if op == T::FromPairs { "Map" } else { "Set" })
         }
         T::Get | T::Insert | T::Add | T::RemoveKey | T::CloneMap | T::CloneSet | T::Entries | T::Keys | T::Values => {
+            unreachable!("`runtime_fn` names it")
+        }
+        T::Lookup | T::Put | T::Include | T::Take | T::EntriesBy | T::KeysBy | T::ValuesBy => {
             unreachable!("`runtime_fn` names it")
         }
     }

@@ -1234,6 +1234,77 @@ export const BTree = {
   /** `m.values()`: the values in key order. */
   values: <V>(m: ReadonlyMap<string, V>): ReadonlyArray<V> => BTree.keys(m).map((k) => m.get(k) as V),
   // #endregion
+  // #region btree.lookup
+  /**
+   * `m.get(k)` where the key is not a `String` (design/01 §7.26): an
+   * integer, `char`, `bool`, `Uuid`, or a newtype of one, a primitive that
+   * `Map` finds by its value.
+   */
+  lookup: <K, V>(m: ReadonlyMap<K, V>, k: K): V | null => (m.has(k) ? (m.get(k) as V) : null),
+  // #endregion
+  // #region btree.put
+  /** `m.insert(k, v)`, likewise, on a local's own map: the value it replaces, or `null`. */
+  put: <K, V>(m: Map<K, V>, k: K, v: V): V | null => {
+    const old = m.has(k) ? (m.get(k) as V) : null;
+    m.set(k, v);
+    return old;
+  },
+  // #endregion
+  // #region btree.include
+  /** `s.insert(k)`, likewise, on a local's own set: whether `k` was new. */
+  include: <K>(s: Set<K>, k: K): boolean => {
+    const fresh = !s.has(k);
+    s.add(k);
+    return fresh;
+  },
+  // #endregion
+  // #region btree.take
+  /** `m.remove(k)`, likewise, on a local's own map: the value it held, or `null`. */
+  take: <K, V>(m: Map<K, V>, k: K): V | null => {
+    const old = m.has(k) ? (m.get(k) as V) : null;
+    m.delete(k);
+    return old;
+  },
+  // #endregion
+  // #region btree.keysBy btree.entriesBy btree.valuesBy btree.mapJson
+  /**
+   * The keys of a map or a set, in the order of the key type's `cmp` (`by`:
+   * `Ord.cmp`, `Ord.cmpStr`), a new array. JS's `sort()` compares text, so
+   * `10` would come before `9`, and `-1` after `-2`.
+   */
+  keysBy: <K>(
+    c: ReadonlyMap<K, unknown> | ReadonlySet<K>,
+    by: (a: K, b: K) => Readonly<{ kind: string }>,
+  ): ReadonlyArray<K> =>
+    [...c.keys()].sort((a, b) => {
+      const o = by(a, b).kind;
+      return o === "Less" ? -1 : o === "Greater" ? 1 : 0;
+    }),
+  // #endregion
+  // #region btree.entriesBy
+  /** `m.iter()`: the pairs in the order of `by`. */
+  entriesBy: <K, V>(
+    m: ReadonlyMap<K, V>,
+    by: (a: K, b: K) => Readonly<{ kind: string }>,
+  ): ReadonlyArray<readonly [K, V]> => BTree.keysBy(m, by).map((k) => [k, m.get(k) as V] as const),
+  // #endregion
+  // #region btree.valuesBy
+  /** `m.values()`: the values in the order of `by`. */
+  valuesBy: <K, V>(m: ReadonlyMap<K, V>, by: (a: K, b: K) => Readonly<{ kind: string }>): ReadonlyArray<V> =>
+    BTree.keysBy(m, by).map((k) => m.get(k) as V),
+  // #endregion
+  // #region btree.mapJson
+  /**
+   * A `BTreeMap` whose key is not a `String` as serde_json writes it: an
+   * object, its keys in the order of `by`, each the text of the key (an
+   * integer's digits, `true` / `false`, the `char` or `Uuid` itself).
+   */
+  mapJson: <K extends number | bigint | boolean | string, V>(
+    m: ReadonlyMap<K, V>,
+    by: (a: K, b: K) => Readonly<{ kind: string }>,
+    write: (v: V) => string,
+  ): string => `{${BTree.keysBy(m, by).map((k) => `${JSON.stringify(String(k))}:${write(m.get(k) as V)}`).join(",")}}`,
+  // #endregion
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */

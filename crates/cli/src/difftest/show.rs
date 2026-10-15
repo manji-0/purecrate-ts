@@ -117,8 +117,8 @@ impl<T: Show> Show for Vec<T> {
     }
 }
 
-/// `{"a": 1, "b": 2}`, in key order.
-impl<V: Show> Show for std::collections::BTreeMap<String, V> {
+/// `{"a": 1, "b": 2}`, in key order; `{9: 1, 10: 2}` for another key.
+impl<K: Show, V: Show> Show for std::collections::BTreeMap<K, V> {
     fn show(&self) -> String {
         format!(
             "{{{}}}",
@@ -127,7 +127,7 @@ impl<V: Show> Show for std::collections::BTreeMap<String, V> {
     }
 }
 
-impl Show for std::collections::BTreeSet<String> {
+impl<K: Show> Show for std::collections::BTreeSet<K> {
     fn show(&self) -> String {
         format!("{{{}}}", self.iter().map(|k| k.show()).collect::<Vec<_>>().join(", "))
     }

@@ -1073,7 +1073,8 @@ pub enum SliceOf {
 }
 
 /// What `Callee::Tree` does. The first argument is the map or set, where
-/// there is one; a key is a `&str` or `String`.
+/// there is one; a key is a `&str` or `String`, or of the map's key type
+/// for the `keyed` operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeOp {
     /// `BTreeMap::new()`, `BTreeSet::new()`: `new Map()`, `new Set()`.
@@ -1107,12 +1108,61 @@ pub enum TreeOp {
     /// one's value), or of keys into a set.
     FromPairs,
     FromKeys,
+    /// `Get`, `Insert`, `Add`, and `RemoveKey` on a map or set whose key is
+    /// not a `String` (design/01 §7.26): an integer, `char`, `bool`, `Uuid`,
+    /// or a newtype of one, a JS primitive that `Map` finds by its value.
+    /// `BTree.lookup(m, k)`, `BTree.put(m, k, v)`, `BTree.include(s, k)`,
+    /// `BTree.take(m, k)`.
+    Lookup,
+    Put,
+    Include,
+    Take,
+    /// `Entries`, `Keys`, and `Values` where the key is not a `String`: the
+    /// second argument is the key type's comparator (`Callee::OrdBy`), by
+    /// which the keys are sorted. `BTree.entriesBy(m, Ord.cmp)` and so on.
+    EntriesBy,
+    KeysBy,
+    ValuesBy,
 }
 
 impl TreeOp {
     /// Whether it writes its first argument, a local's own map or set.
     pub fn writes(self) -> bool {
-        matches!(self, TreeOp::Insert | TreeOp::Add | TreeOp::RemoveKey | TreeOp::Delete)
+        matches!(
+            self,
+            TreeOp::Insert | TreeOp::Add | TreeOp::RemoveKey | TreeOp::Delete | TreeOp::Put | TreeOp::Include | TreeOp::Take
+        )
+    }
+
+    /// The operation for a key that is not a `String` (design/01 §7.26):
+    /// what reads or writes by key, or in key order, takes its own runtime
+    /// function; the rest are the same.
+    pub fn keyed(self) -> TreeOp {
+        match self {
+            TreeOp::Get => TreeOp::Lookup,
+            TreeOp::Insert => TreeOp::Put,
+            TreeOp::Add => TreeOp::Include,
+            TreeOp::RemoveKey => TreeOp::Take,
+            TreeOp::Entries => TreeOp::EntriesBy,
+            TreeOp::Keys => TreeOp::KeysBy,
+            TreeOp::Values => TreeOp::ValuesBy,
+            other => other,
+        }
+    }
+
+    /// The `String`-key operation `keyed` gives this one from: what it
+    /// gives and is typed as.
+    pub fn unkeyed(self) -> TreeOp {
+        match self {
+            TreeOp::Lookup => TreeOp::Get,
+            TreeOp::Put => TreeOp::Insert,
+            TreeOp::Include => TreeOp::Add,
+            TreeOp::Take => TreeOp::RemoveKey,
+            TreeOp::EntriesBy => TreeOp::Entries,
+            TreeOp::KeysBy => TreeOp::Keys,
+            TreeOp::ValuesBy => TreeOp::Values,
+            other => other,
+        }
     }
 }
 

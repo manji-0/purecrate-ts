@@ -459,7 +459,11 @@ fn is_pure(expr: &Expr) -> bool {
                 | purecrate_ir::TreeOp::IsEmpty
                 | purecrate_ir::TreeOp::Entries
                 | purecrate_ir::TreeOp::Keys
-                | purecrate_ir::TreeOp::Values,
+                | purecrate_ir::TreeOp::Values
+                | purecrate_ir::TreeOp::Lookup
+                | purecrate_ir::TreeOp::EntriesBy
+                | purecrate_ir::TreeOp::KeysBy
+                | purecrate_ir::TreeOp::ValuesBy,
             )
             // No `str` method on the allow-list panics; slicing does, and is
             // `Callee::Slice`, not here.

@@ -1055,13 +1055,13 @@ pub(crate) mod __purecrate {
 
     /// Drawn in any order, as a TS caller may fill one; a key drawn twice
     /// keeps its last value on both sides.
-    impl<V: Arb> Arb for std::collections::BTreeMap<String, V> {
+    impl<K: Arb + Ord, V: Arb> Arb for std::collections::BTreeMap<K, V> {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let n = if r.deep() { 0 } else { r.len(4) };
             let mut m = std::collections::BTreeMap::new();
             let mut js = Vec::new();
             for _ in 0..n {
-                let (k, jk) = r.nest(String::arb)?;
+                let (k, jk) = r.nest(K::arb)?;
                 let (v, jv) = r.nest(V::arb)?;
                 m.insert(k, v);
                 js.push(format!("[{jk}, {jv}]"));
@@ -1070,13 +1070,13 @@ pub(crate) mod __purecrate {
         }
     }
 
-    impl Arb for std::collections::BTreeSet<String> {
+    impl<K: Arb + Ord> Arb for std::collections::BTreeSet<K> {
         fn arb(r: &mut Rng) -> Option<(Self, String)> {
             let n = if r.deep() { 0 } else { r.len(4) };
             let mut s = std::collections::BTreeSet::new();
             let mut js = Vec::new();
             for _ in 0..n {
-                let (k, jk) = r.nest(String::arb)?;
+                let (k, jk) = r.nest(K::arb)?;
                 s.insert(k);
                 js.push(jk);
             }

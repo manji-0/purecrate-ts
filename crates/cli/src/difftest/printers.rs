@@ -33,6 +33,11 @@ const byCp = (a, b) => {
 };
 const map = (f) => (m) => `{${[...m.keys()].sort(byCp).map((k) => `${str(k)}: ${f(m.get(k))}`).join(", ")}}`;
 const set = (s) => `{${[...s].sort(byCp).map(str).join(", ")}}`;
+// Another key (design/01 §7.26): an integer or `bool` by `<`, a `char` or a
+// `Uuid` by code point, each printed by its own printer.
+const byKey = (a, b) => (typeof a === "string" ? byCp(a, b) : a < b ? -1 : a > b ? 1 : 0);
+const mapBy = (fk, f) => (m) => `{${[...m.keys()].sort(byKey).map((k) => `${fk(k)}: ${f(m.get(k))}`).join(", ")}}`;
+const setBy = (fk) => (s) => `{${[...s].sort(byKey).map(fk).join(", ")}}`;
 const tup = (fs) => (xs) => `(${fs.map((f, i) => f(xs[i])).join(", ")})`;
 const run = (f, print) => {
   let r;
@@ -78,8 +83,12 @@ fn printer(krate: &Crate, params: &[Name], ty: &Ty) -> Option<String> {
         Ty::Option(inner) => format!("opt({})", printer(krate, params, inner)?),
         Ty::Result { ok, err } => format!("res({}, {})", printer(krate, params, ok)?, printer(krate, params, err)?),
         Ty::Vec(inner) => format!("vec({})", printer(krate, params, inner)?),
-        Ty::Map { value, .. } => format!("map({})", printer(krate, params, value)?),
-        Ty::Set(_) => "set".into(),
+        Ty::Map { key, value } if **key == Ty::Prim(Prim::String) => format!("map({})", printer(krate, params, value)?),
+        Ty::Set(key) if **key == Ty::Prim(Prim::String) => "set".into(),
+        Ty::Map { key, value } => {
+            format!("mapBy({}, {})", printer(krate, params, key)?, printer(krate, params, value)?)
+        }
+        Ty::Set(key) => format!("setBy({})", printer(krate, params, key)?),
         // Inside a generic type's printer, the printer it was given; a
         // generic function is tested at `i32`.
         Ty::Param(p) if params.contains(p) => format!("p${}", p.as_str()),

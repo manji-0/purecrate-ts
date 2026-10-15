@@ -95,7 +95,7 @@ impl<T: Js> Js for Vec<T> {
 }
 
 /// Built in the order the test gives, which need not be key order.
-impl<V: Js> Js for std::collections::BTreeMap<String, V> {
+impl<K: Js, V: Js> Js for std::collections::BTreeMap<K, V> {
     fn js(&self) -> String {
         format!(
             "new Map([{}])",
@@ -104,7 +104,7 @@ impl<V: Js> Js for std::collections::BTreeMap<String, V> {
     }
 }
 
-impl Js for std::collections::BTreeSet<String> {
+impl<K: Js> Js for std::collections::BTreeSet<K> {
     fn js(&self) -> String {
         format!("new Set([{}])", self.iter().rev().map(|k| k.js()).collect::<Vec<_>>().join(", "))
     }

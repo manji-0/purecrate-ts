@@ -180,13 +180,8 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
             if args.len() != want {
                 return Err(ParseError::new(Reason::TypeArity, format!("`{name}` needs {want} type argument(s)")));
             }
-            if args[0] != Ty::Prim(Prim::String) {
-                return Err(ParseError::new(
-                    Reason::DisallowedType,
-                    format!("`{name}`'s keys are `String` in v0 (design/01 §7.19)"),
-                )
-                .detail(name));
-            }
+            // Which keys are accepted needs the crate's types: `check`
+            // (design/01 §7.26).
             let key = Box::new(args.remove(0));
             Ok(if name == "BTreeMap" { Ty::Map { key, value: Box::new(args.remove(0)) } } else { Ty::Set(key) })
         }

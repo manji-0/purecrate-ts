@@ -1,4 +1,4 @@
-//! `BTreeMap<String, V>` and `BTreeSet<String>` (design/01 §7.19): their
+//! `BTreeMap<K, V>` and `BTreeSet<K>` (design/01 §7.19, §7.26): their
 //! methods, typed into `Callee::Tree`.
 
 use super::*;
@@ -18,6 +18,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// The type of a `Callee::Tree` call whose first argument is of type
     /// `first` (normalized): a new map or set takes `want`'s.
     pub(super) fn tree_ty(&mut self, op: TreeOp, first: Option<Ty>, want: Option<&Ty>) -> Option<Ty> {
+        // A key other than `String` reads through its own runtime
+        // functions, typed as the `String` key's (design/01 §7.26).
+        let op = op.unkeyed();
         match (op, first) {
             (TreeOp::NewMap | TreeOp::NewSet, _) => match want.map(|w| self.norm(w)) {
                 Some(w @ Ty::Map { .. }) if op == TreeOp::NewMap => Some(w),
@@ -52,8 +55,29 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// A map's entries, keys, or values (`op`), or a set's keys, in key
     /// order as a new array, and its type; `ty` is `source`'s, normalized.
     pub(super) fn tree_items(&mut self, op: TreeOp, source: Expr, ty: Ty) -> (Expr, Option<Ty>) {
+        let by = self.key_by(&ty);
         let t = self.tree_ty(op, Some(ty), None);
-        (Expr::Call { callee: Callee::Tree(op), args: vec![source] }, t)
+        match by {
+            // Sorted by the key type's comparator (design/01 §7.26).
+            Some(by) => {
+                let cmp = self.comparator_value(by);
+                (Expr::Call { callee: Callee::Tree(op.keyed()), args: vec![source, cmp] }, t)
+            }
+            None => (Expr::Call { callee: Callee::Tree(op), args: vec![source] }, t),
+        }
+    }
+
+    /// The comparator that orders the keys of `t`, a map or a set, where
+    /// they are not `String`s (design/01 §7.26): `Ord.cmp` or `Ord.cmpStr`,
+    /// a newtype's its content's. A key `resolve` refuses orders as an
+    /// integer, so typing goes on without a second message.
+    pub(super) fn key_by(&self, t: &Ty) -> Option<Cmp> {
+        let (Ty::Map { key, .. } | Ty::Set(key)) = t else { return None };
+        match crate::keys::key(self.defs, key) {
+            Ok(crate::keys::Key::String) => None,
+            Ok(crate::keys::Key::By(by)) => Some(by),
+            Err(_) => Some(Cmp::Num),
+        }
     }
 
     /// `m.get(k)` and the other methods of a typed `BTreeMap` / `BTreeSet`
@@ -92,6 +116,9 @@ impl<'d, 'a> Typer<'d, 'a> {
             );
             return Some((Expr::Lit(Lit::Unit), None));
         }
+        if let Some(by) = self.key_by(rt) {
+            return Some(self.keyed_method(recv, rt, op, by, args, want));
+        }
         let key = Ty::Prim(Prim::Str);
         let mut call_args = vec![recv];
         for (i, a) in args.iter().enumerate() {
@@ -115,5 +142,34 @@ impl<'d, 'a> Typer<'d, 'a> {
         // Typed above, each against what the map or set holds: not again.
         let t = self.tree_ty(op, Some(rt.clone()), want);
         Some((Expr::Call { callee: Callee::Tree(op), args: call_args }, self.expect(want, t)))
+    }
+
+    /// `tree_method`'s `op` on a map or set whose key is not a `String`
+    /// (design/01 §7.26): a key argument of the key type, and `keyed`'s
+    /// runtime function, which takes the key type's comparator `by` where
+    /// it reads in key order.
+    fn keyed_method(&mut self, recv: Expr, rt: &Ty, op: TreeOp, by: Cmp, args: &[Expr], want: Option<&Ty>) -> Typed {
+        let (Ty::Map { key, .. } | Ty::Set(key)) = rt else { unreachable!("`key_by` found a key") };
+        let key = (**key).clone();
+        let mut call_args = vec![recv];
+        for (i, a) in args.iter().enumerate() {
+            let hint = match (op, rt, i) {
+                (TreeOp::Insert, Ty::Map { value, .. }, 1) => (**value).clone(),
+                _ => key.clone(),
+            };
+            let (e, t) = self.expr(a, Some(&hint));
+            if let (Some(t), 0) = (&t, i) {
+                let found = self.norm(t);
+                if found != self.norm(&key) && found != Ty::Never {
+                    self.error(Reason::TypeMismatch, format!("a key is a `{}`, found `{}`", show(&key), show(t)));
+                }
+            }
+            call_args.push(e);
+        }
+        if matches!(op, TreeOp::Entries | TreeOp::Keys | TreeOp::Values) {
+            call_args.push(self.comparator_value(by));
+        }
+        let t = self.tree_ty(op, Some(rt.clone()), want);
+        (Expr::Call { callee: Callee::Tree(op.keyed()), args: call_args }, self.expect(want, t))
     }
 }

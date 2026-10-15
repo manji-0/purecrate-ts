@@ -8,6 +8,7 @@ mod consts;
 mod defs;
 mod exhaustive;
 mod grow;
+mod keys;
 mod lift;
 mod names;
 mod order;
