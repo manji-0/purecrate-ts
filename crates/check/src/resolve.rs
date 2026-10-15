@@ -170,6 +170,16 @@ impl<'a> Cx<'_, 'a> {
                 self.ty(key);
             }
             Ty::Option(t) | Ty::Vec(t) => self.ty(t),
+            // An element that is `null` or `undefined` in TS, as a type
+            // argument is refused (design/01 §7.20, §7.27).
+            Ty::Array { elem, .. } if self.is_nullish(elem) => self.error(
+                Reason::ArrayType,
+                format!(
+                    "an array of `{}` is not in v0: its elements are `null` or `undefined` in TS, as an `Option` type argument would be; use a `Vec`, or an enum with a variant for the empty slot",
+                    crate::types::show(elem)
+                ),
+            ),
+            Ty::Array { elem, .. } => self.ty(elem),
             // `get` gives `Option<&V>`, and a missing key and a `None` or `()`
             // value would both be `null` / `undefined` in TS.
             Ty::Map { value, .. } if self.is_nullish(value) => self.error(
@@ -570,6 +580,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity("`sort`", n, argc)
             }
             Callee::VecSet => self.arity("`v[i] = x`", if argc == 4 { 4 } else { 3 }, argc),
+            Callee::ArrayRepeat { .. } => self.arity("`[x; N]`", 1, argc),
             Callee::VecIsEmpty => self.arity("`Vec::is_empty`", 1, argc),
             Callee::VecGet => self.arity("`Vec::get`", 2, argc),
             Callee::VecLast => self.arity("`Vec::last`", 1, argc),
@@ -640,6 +651,7 @@ impl<'a> Cx<'_, 'a> {
             }
             Callee::StringNew => self.arity("`String::new`", 0, argc),
             Callee::StrWellFormed => self.arity("a string check", 1, argc),
+            Callee::SliceLengths { .. } => self.arity("an array check", 1, argc),
             Callee::StrConcat => self.arity("`String::push`", 2, argc),
             Callee::StrFromChars => self.arity("`collect`", 1, argc),
             Callee::Slice { start, end, .. } => {

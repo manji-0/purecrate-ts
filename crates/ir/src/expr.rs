@@ -618,6 +618,12 @@ pub enum Callee {
     /// the place, so `emit` binds it first where both may panic. Prints as
     /// `Slice.set(v, i, x)`.
     VecSet,
+    /// `[x; N]`: an array of `len` copies of `x`, evaluated once (rustc
+    /// requires `x` be `Copy` or a `const`), design/01 §7.27. The argument
+    /// is `x`. Prints as `Slice.repeat(x, len)`.
+    ArrayRepeat {
+        len: usize,
+    },
     /// `String::new()`: the empty `String`. Prints as `""`.
     StringNew,
     /// A `pub` function's argument that may hold a string, checked on
@@ -626,6 +632,15 @@ pub enum Callee {
     /// (design/01 §6). `emit` writes it, never `check`. Prints as
     /// `Str.wellFormed(x)`.
     StrWellFormed,
+    /// A `pub` function's argument that holds an array `[T; N]`, its
+    /// lengths checked on entry, where the shape (printed) says they are:
+    /// a TS caller may pass an array of any length (design/01 §7.27).
+    /// `emit` writes it, never `check`. Prints as `Slice.lengths(x, shape,
+    /// "x")`, and the table of recursive types after it when there is one.
+    SliceLengths {
+        shape: String,
+        table: Option<String>,
+    },
     /// `a` with `b` (a `char` or a `&str`) after it, a new `String`:
     /// `check::accept` writes `s.push(c)` and `s.push_str(t)` on a local `let
     /// mut s: String` as `s = StrConcat(s, c)`, an assignment like any other

@@ -15,6 +15,68 @@ thread_local! {
     static HOLES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The type parameters in scope (`impl<T>`, then `fn f<U>`).
     static PARAMS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The crate's `const` items, by name, with their values: an array's
+    /// length may name one (`[u8; LEN]`).
+    static CONSTS: std::cell::RefCell<std::collections::HashMap<String, syn::Expr>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Records the crate's `const` items, whose values an array length
+/// (`[T; N]`) may read. Called once per crate, before any type is lowered.
+pub fn scan_consts<'a>(items: impl IntoIterator<Item = &'a syn::Item>) {
+    let found = items
+        .into_iter()
+        .filter_map(|i| match i {
+            syn::Item::Const(c) => Some((c.ident.to_string(), (*c.expr).clone())),
+            _ => None,
+        })
+        .collect();
+    CONSTS.with(|c| *c.borrow_mut() = found);
+}
+
+/// The length of `[T; N]`: an integer literal, a crate `const`, or
+/// arithmetic of those, folded as rustc folds it (design/01 §7.27).
+pub(crate) fn array_len(len: &syn::Expr) -> Result<usize, ParseError> {
+    fn fold(e: &syn::Expr, depth: usize) -> Option<u128> {
+        if depth > 64 {
+            return None;
+        }
+        match e {
+            syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) => i.base10_parse::<u128>().ok(),
+            syn::Expr::Paren(p) => fold(&p.expr, depth),
+            syn::Expr::Group(g) => fold(&g.expr, depth),
+            syn::Expr::Block(b) if b.block.stmts.len() == 1 => match &b.block.stmts[0] {
+                syn::Stmt::Expr(e, None) => fold(e, depth),
+                _ => None,
+            },
+            syn::Expr::Path(p) if p.qself.is_none() => {
+                let name = p.path.get_ident()?.to_string();
+                let value = CONSTS.with(|c| c.borrow().get(&name).cloned())?;
+                fold(&value, depth + 1)
+            }
+            syn::Expr::Binary(b) => {
+                let (l, r) = (fold(&b.left, depth)?, fold(&b.right, depth)?);
+                match b.op {
+                    syn::BinOp::Add(_) => l.checked_add(r),
+                    syn::BinOp::Sub(_) => l.checked_sub(r),
+                    syn::BinOp::Mul(_) => l.checked_mul(r),
+                    syn::BinOp::Div(_) => l.checked_div(r),
+                    syn::BinOp::Rem(_) => l.checked_rem(r),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    fold(len, 0).and_then(|n| usize::try_from(n).ok()).filter(|n| *n <= 9_007_199_254_740_991).ok_or_else(|| {
+        ParseError::new(
+            Reason::ArrayType,
+            format!(
+                "the length of an array is an integer literal or a crate `const` of literals in v0, found `{}`; a const generic `N` is not in v0 (use a `Vec`)",
+                snippet(len)
+            ),
+        )
+    })
 }
 
 /// Type parameters in scope while it lives: a name among them lowers to
@@ -60,7 +122,9 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
             let elems = t.elems.iter().map(lower_type).collect::<Result<Vec<_>, _>>()?;
             Ok(Ty::Tuple(elems))
         }
-        Type::Array(_) | Type::Slice(_) => Err(ParseError::new(Reason::ArrayType, "arrays and slices are not in v0")),
+        // `[T; N]`: a `ReadonlyArray<T>` of `N` elements (design/01 §7.27).
+        Type::Array(a) => Ok(Ty::Array { elem: Box::new(lower_type(&a.elem)?), len: array_len(&a.len)? }),
+        Type::Slice(_) => Err(ParseError::new(Reason::ArrayType, "a bare slice `[T]` is not in v0; borrow it, `&[T]`")),
         // Nothing emitted mutates through a shared reference, so `&T` and `T`
         // are the same TS value. `&[T]` reads a sequence like `&str` reads a string.
         Type::Reference(r) if r.mutability.is_some() => {

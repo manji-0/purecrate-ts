@@ -32,6 +32,12 @@ pub use ty::{FloatTy, IntTy, Prim, Ty, Wrapper};
 pub const TS_GLOBALS: &[&str] =
     &["globalThis", "Array", "Readonly", "ReadonlyArray", "Record", "Map", "Set", "ReadonlyMap", "ReadonlySet"];
 
+/// The method name `syntax` wraps an array literal `[a, b]` in, so that
+/// `check` types it as rustc's `[T; N]` where no type is wanted, and a
+/// `vec![a, b]` (the same `Expr::Array`) as a `Vec`; `check` unwraps it. Not
+/// a Rust identifier, so no source method has it.
+pub const ARRAY_LITERAL: &str = "$array";
+
 /// A property key an object literal treats as the prototype, not a field.
 pub const PROTO_KEY: &str = "__proto__";
 

@@ -82,7 +82,7 @@ fn printer(krate: &Crate, params: &[Name], ty: &Ty) -> Option<String> {
         },
         Ty::Option(inner) => format!("opt({})", printer(krate, params, inner)?),
         Ty::Result { ok, err } => format!("res({}, {})", printer(krate, params, ok)?, printer(krate, params, err)?),
-        Ty::Vec(inner) => format!("vec({})", printer(krate, params, inner)?),
+        Ty::Vec(inner) | Ty::Array { elem: inner, .. } => format!("vec({})", printer(krate, params, inner)?),
         Ty::Map { key, value } if **key == Ty::Prim(Prim::String) => format!("map({})", printer(krate, params, value)?),
         Ty::Set(key) if **key == Ty::Prim(Prim::String) => "set".into(),
         Ty::Map { key, value } => {

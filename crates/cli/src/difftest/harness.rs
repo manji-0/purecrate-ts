@@ -339,6 +339,7 @@ fn ty_text(ty: &Ty) -> String {
         Ty::Option(t) => format!("Option<{}>", ty_text(t)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", ty_text(ok), ty_text(err)),
         Ty::Vec(t) => format!("Vec<{}>", ty_text(t)),
+        Ty::Array { elem, len } => format!("[{}; {len}]", ty_text(elem)),
         Ty::Map { key, value } => format!("BTreeMap<{}, {}>", ty_text(key), ty_text(value)),
         Ty::Set(t) => format!("BTreeSet<{}>", ty_text(t)),
         Ty::App { name, args } => {
@@ -408,6 +409,7 @@ impl<'a> Makeable<'a> {
             Ty::Prim(Prim::Uuid | Prim::UuidError | Prim::ParseIntError) => false,
             Ty::Prim(_) => true,
             Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => self.can(t),
+            Ty::Array { elem, .. } => self.can(elem),
             Ty::Map { key, value } => self.can(key) && self.can(value),
             Ty::Param(_) => true,
             Ty::App { name, args } => self.named.contains(name.as_str()) && args.iter().all(|t| self.can(t)),
@@ -588,6 +590,7 @@ fn rust_ty(ty: &Ty) -> Option<String> {
         Ty::App { name, args } => {
             format!("{}<{}>", name.as_str(), args.iter().map(rust_ty).collect::<Option<Vec<_>>>()?.join(", "))
         }
+        Ty::Array { elem, len } => format!("[{}; {len}]", rust_ty(elem)?),
         Ty::Vec(_) | Ty::Map { .. } | Ty::Set(_) | Ty::Ignored { .. } | Ty::Fn { .. } | Ty::Never => return None,
     })
 }
@@ -1049,6 +1052,21 @@ pub(crate) mod __purecrate {
                 vs.push(v);
                 js.push(j);
             }
+            Some((vs, format!("[{}]", js.join(", "))))
+        }
+    }
+
+    /// Exactly `N` elements, however deep: an array has no shorter form.
+    impl<T: Arb, const N: usize> Arb for [T; N] {
+        fn arb(r: &mut Rng) -> Option<(Self, String)> {
+            let mut vs = Vec::new();
+            let mut js = Vec::new();
+            for _ in 0..N {
+                let (v, j) = r.nest(T::arb)?;
+                vs.push(v);
+                js.push(j);
+            }
+            let vs: [T; N] = vs.try_into().ok()?;
             Some((vs, format!("[{}]", js.join(", "))))
         }
     }

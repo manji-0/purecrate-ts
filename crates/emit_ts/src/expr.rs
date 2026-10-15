@@ -142,6 +142,11 @@ pub(crate) fn checked_strings(f: &Fn) -> Fn {
     let mut body = f.body.clone();
     if f.vis == purecrate_ir::Vis::Pub {
         for p in f.params.iter().rev() {
+            // Its arrays' lengths after its strings (design/01 §7.27).
+            if let Some((shape, table)) = crate::lengths::shape(&p.ty) {
+                let check = Expr::Call { callee: Callee::SliceLengths { shape, table }, args: vec![Expr::Var(p.name.clone())] };
+                body = Expr::Seq { first: Box::new(check), then: Box::new(body) };
+            }
             if crate::context::holds_string(&p.ty) {
                 let check = Expr::Call { callee: Callee::StrWellFormed, args: vec![Expr::Var(p.name.clone())] };
                 body = Expr::Seq { first: Box::new(check), then: Box::new(body) };
@@ -390,7 +395,7 @@ pub(crate) fn emit_ty(ty: &Ty) -> String {
         },
         Ty::Option(inner) => format!("{} | null", emit_ty(inner)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", emit_ty(ok), emit_ty(err)),
-        Ty::Vec(inner) => format!("ReadonlyArray<{}>", emit_ty(inner)),
+        Ty::Vec(inner) | Ty::Array { elem: inner, .. } => format!("ReadonlyArray<{}>", emit_ty(inner)),
         Ty::Map { key, value } => format!("ReadonlyMap<{}, {}>", emit_ty(key), emit_ty(value)),
         Ty::Set(key) => format!("ReadonlySet<{}>", emit_ty(key)),
         Ty::App { name, args } => {
@@ -635,6 +640,12 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("Int.{}.{}({a})", ty.as_str(), op.as_str())
+        }
+        C::ArrayRepeat { len } => format!("Slice.repeat({}, {len})", item(0)),
+        C::SliceLengths { shape, table } => {
+            let x = item(0);
+            let table = table.as_ref().map(|t| format!(", {t}")).unwrap_or_default();
+            format!("Slice.lengths({x}, {shape}, {x:?}{table})")
         }
         C::CharFromU8 => call("Char.fromU8", args, indent),
         C::CharFromU32 => call("Char.fromU32", args, indent),

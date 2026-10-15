@@ -155,6 +155,8 @@ impl Cx {
         let mut trait_impls = Vec::new();
         let mut inherent = HashSet::new();
         let mut std_members = HashMap::new();
+        let items: Vec<&SynItem> = items.into_iter().collect();
+        crate::ty::scan_consts(items.iter().copied());
         for item in items {
             std_members_of(item, &mut std_members);
             match item {

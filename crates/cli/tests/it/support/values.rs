@@ -88,6 +88,12 @@ impl<T: Js> Js for [T] {
     }
 }
 
+impl<T: Js, const N: usize> Js for [T; N] {
+    fn js(&self) -> String {
+        self.as_slice().js()
+    }
+}
+
 impl<T: Js> Js for Vec<T> {
     fn js(&self) -> String {
         self.as_slice().js()

@@ -111,6 +111,12 @@ impl<T: Show> Show for [T] {
     }
 }
 
+impl<T: Show, const N: usize> Show for [T; N] {
+    fn show(&self) -> String {
+        self.as_slice().show()
+    }
+}
+
 impl<T: Show> Show for Vec<T> {
     fn show(&self) -> String {
         self.as_slice().show()

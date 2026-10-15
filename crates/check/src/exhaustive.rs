@@ -80,8 +80,10 @@ fn match_arms(i: usize, arms: &[Arm], enums: &HashMap<&str, &Enum>, out: &mut Ve
     if arms.iter().any(|a| a.pattern.is_tuple_case()) {
         return tuple_arms(i, arms, out);
     }
+    // Checked where the scrutinee's type is known (`slice_match`): an
+    // array's one length is all its arms need cover (design/01 §7.27).
     if arms.iter().any(|a| a.pattern.is_slice_case()) {
-        return slice_arms(i, arms, out);
+        return;
     }
     // An arm testing inside a case covers only part of it, so the cases
     // cannot be counted here. rustc has checked the arms are exhaustive; the
@@ -221,15 +223,31 @@ fn tuple_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// A `match` whose arms are slice patterns, on a slice or, with `len`, an
+/// array of that length: `types` calls it with the scrutinee's type known.
+pub(crate) fn slice_match(i: usize, arms: &[Arm], len: Option<usize>, out: &mut Vec<Diagnostic>) {
+    let free = |a: &Arm| a.guard.is_some() && matches!(a.pattern, Pattern::Wildcard | Pattern::Var(_));
+    let had_free = arms.iter().any(free);
+    let arms: Vec<Arm> = arms.iter().filter(|a| !free(a)).cloned().collect();
+    if had_free && matches!(arms.as_slice(), [Arm { pattern: Pattern::Wildcard, guard: None, .. }]) {
+        return;
+    }
+    if arms.iter().any(|a| a.pattern.is_tuple_case()) || !arms.iter().any(|a| a.pattern.is_slice_case()) {
+        return;
+    }
+    slice_arms(i, &arms, len, out)
+}
+
 /// A `match` on a slice: every arm a slice pattern (or `|` of them), or a
-/// last `_` or name. The lengths are covered as rustc decides it: below
+/// last `_` or name. On an array of `len` elements, that one length is
+/// the only case. Otherwise the lengths are covered as rustc decides it: below
 /// `m`, the longest fixed length plus one or the most elements a `..`
 /// pattern names, if more, each length is a case of its own; from `m` on
 /// all are one case, which only a pattern with `..` takes. A guarded arm
 /// covers nothing. Whether the elements are covered within a length is
 /// left to the decision tree (`tuple`), which refuses a match that leaves
 /// some value out (design/01 §7.24).
-fn slice_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
+fn slice_arms(i: usize, arms: &[Arm], len: Option<usize>, out: &mut Vec<Diagnostic>) {
     let shapes = |p: &Pattern| -> Vec<(usize, bool)> {
         let one = |p: &Pattern| match p {
             Pattern::Slice { prefix, rest, suffix } => Some((prefix.len() + suffix.len(), rest.is_some())),
@@ -280,6 +298,16 @@ fn slice_arms(i: usize, arms: &[Arm], out: &mut Vec<Diagnostic>) {
         }
         format!("`[{}]`", elems.join(", "))
     };
+    if let Some(n) = len {
+        if !takes(n) {
+            out.push(Diagnostic::at(
+                i,
+                Reason::NonExhaustive,
+                format!("match on an array of {n} elements is missing {}; add the arm, or a last `_`", show(n, false)),
+            ));
+        }
+        return;
+    }
     let mut missing: Vec<String> = (0..m).filter(|&len| !takes(len)).map(|len| show(len, false)).collect();
     if !covered.iter().any(|(_, rest)| *rest) {
         missing.push(show(m, true));

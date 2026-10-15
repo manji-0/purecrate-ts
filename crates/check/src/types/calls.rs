@@ -332,7 +332,11 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (typed_args(self, Vec::new()), Some(Ty::bool()))
             }
             // Written only by `method_call` and `syntax`, typed.
-            Callee::VecSort(_) | Callee::VecPush | Callee::VecInsert | Callee::StrWellFormed => {
+            Callee::VecSort(_)
+            | Callee::VecPush
+            | Callee::VecInsert
+            | Callee::StrWellFormed
+            | Callee::SliceLengths { .. } => {
                 (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Unit)))
             }
             // Written only by `method_call` and `collect`, typed.
@@ -421,6 +425,19 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let set = Expr::Call { callee: Callee::VecSet, args: vec![v, at, set_value] };
                 let e = Expr::Let { name, mutable: false, ty, value: Box::new(bound), then: Box::new(set) };
                 return (e, self.expect(want, Some(Ty::Prim(Prim::Unit))));
+            }
+            // `[x; N]`: an array of the element type wanted, or of `x`'s.
+            Callee::ArrayRepeat { len } => {
+                let elem = match want.map(|w| self.norm(w)) {
+                    Some(Ty::Vec(t)) => Some(*t),
+                    _ => None,
+                };
+                if let Some(n) = want.and_then(|w| self.array_len(w)).filter(|n| n != len) {
+                    self.error(Reason::TypeMismatch, format!("expected an array of {n} elements, found one of {len}"));
+                }
+                let (x, xt) = self.expr(&args[0], elem.as_ref());
+                let t = elem.or(xt).map(|t| Ty::Array { elem: Box::new(t), len: *len });
+                (vec![x], t)
             }
             // Written only by `binary`, on strings already typed.
             Callee::StrCmp => {

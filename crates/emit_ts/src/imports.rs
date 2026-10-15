@@ -400,6 +400,7 @@ impl Refs {
             }
             Ty::Option(_)
             | Ty::Vec(_)
+            | Ty::Array { .. }
             | Ty::Map { .. }
             | Ty::Set(_)
             | Ty::Ignored { .. }
@@ -544,7 +545,7 @@ impl Refs {
                     // `Str.splitBy` for a closure; an unused import is pruned.
                     | Callee::StrSplit => self.str = true,
                     Callee::SliceElem { .. } | Callee::SliceRest { .. } => self.slice = true,
-                    Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip | Callee::VecRev => self.slice = true,
+                    Callee::ArrayRepeat { .. } | Callee::SliceLengths { .. } | Callee::VecInsert | Callee::VecRemove | Callee::VecSet | Callee::VecGet | Callee::VecLast | Callee::VecContains | Callee::VecZip | Callee::VecRev => self.slice = true,
                     Callee::Tree(op) => {
                         use purecrate_ir::TreeOp as T;
                         match op {

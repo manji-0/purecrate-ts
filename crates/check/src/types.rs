@@ -61,6 +61,15 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
             }
+            Item::Const(c) if matches!(defs.expand(&c.ty, Peel::Every), Ty::Array { .. }) => {
+                match crate::consts::array(&defs, &c.ty, &c.value) {
+                    Ok(value) => Item::Const(Const { value, ..c.clone() }),
+                    Err(m) => {
+                        out.push(Diagnostic::at(i, Reason::ConstExpr, format!("const `{}`: {m}", c.name.as_str())));
+                        item.clone()
+                    }
+                }
+            }
             Item::Const(c) => match crate::consts::fold(&defs, &c.ty, &c.value) {
                 Ok(lit) => Item::Const(Const { value: Expr::Lit(lit), ..c.clone() }),
                 Err(m) => {
@@ -201,9 +210,22 @@ impl<'d, 'a> Typer<'d, 'a> {
         st.fields.iter().find(|f| f.name == *name).map(|f| f.ty.subst(&binds))
     }
 
-    /// Expands aliases. Alias cycles are cut after a fixed depth.
+    /// Expands aliases. Alias cycles are cut after a fixed depth. An array
+    /// `[T; N]` is read as the slice it derefs to, as every read of one is
+    /// a slice's (design/01 §7.27); `array_len` keeps its length.
     fn norm(&self, ty: &Ty) -> Ty {
-        self.defs.expand(ty, Peel::First).clone()
+        match self.defs.expand(ty, Peel::First) {
+            Ty::Array { elem, .. } => Ty::Vec(elem.clone()),
+            other => other.clone(),
+        }
+    }
+
+    /// The length of an array `[T; N]`, through aliases.
+    fn array_len(&self, ty: &Ty) -> Option<usize> {
+        match self.defs.expand(ty, Peel::First) {
+            Ty::Array { len, .. } => Some(*len),
+            _ => None,
+        }
     }
 
     fn num(&self, ty: &Ty) -> Option<Num> {
@@ -470,6 +492,16 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, want),
             Expr::Call { callee, args } => self.call(callee, args, want),
+            // `[a, b]`: rustc's `[T; 2]`, or the slice a `&[T]` wants.
+            Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => {
+                let (e, t) = self.expr(receiver, want);
+                let slice = want.is_some_and(|w| matches!(self.norm(w), Ty::Vec(_)));
+                let t = match (t, &e) {
+                    (Some(Ty::Vec(elem)), Expr::Array(xs)) if !slice => Some(Ty::Array { elem, len: xs.len() }),
+                    (t, _) => t,
+                };
+                (e, t)
+            }
             Expr::MethodCall { receiver, name, args } => self.method_call(receiver, name, args, want),
             Expr::Closure { params, ret, body } => self.closure(params, ret.as_ref(), body, want),
             Expr::Construct { ty, variant, fields, base } => {
@@ -532,13 +564,24 @@ impl<'d, 'a> Typer<'d, 'a> {
                     Some(Ty::Vec(t)) => Some(*t),
                     _ => None,
                 };
+                let len = want.and_then(|w| self.array_len(w));
+                if let Some(n) = len.filter(|n| *n != xs.len()) {
+                    self.error(
+                        Reason::TypeMismatch,
+                        format!("expected an array of {n} elements, found one of {}", xs.len()),
+                    );
+                }
                 if elem.is_none() {
                     if let Some(first) = xs.iter().find(|x| !needs_context(x)) {
                         elem = self.expr(first, None).1;
                     }
                 }
                 let elems = xs.iter().map(|x| self.expr(x, elem.as_ref()).0).collect();
-                let t = elem.map(|t| Ty::Vec(Box::new(t)));
+                // An array where one is wanted (`[T; N]`), else a `Vec`.
+                let t = match len {
+                    Some(n) => elem.map(|t| Ty::Array { elem: Box::new(t), len: n }),
+                    None => elem.map(|t| Ty::Vec(Box::new(t))),
+                };
                 (Expr::Array(elems), self.expect(want, t))
             }
             Expr::Binary { op, left, right } => self.binary(*op, left, right, want),
@@ -615,6 +658,7 @@ fn needs_context_in(expr: &Expr, open: &dyn std::ops::Fn(&Name) -> bool) -> bool
         Expr::If { then, else_, .. } => needs(then) && needs(else_),
         Expr::Let { then, .. } | Expr::Seq { then, .. } => needs(then),
         Expr::Array(xs) => xs.iter().all(needs),
+        Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => needs(receiver),
         _ => false,
     }
 }
@@ -667,6 +711,7 @@ pub(crate) fn show(ty: &Ty) -> String {
         Ty::Option(t) => format!("Option<{}>", show(t)),
         Ty::Result { ok, err } => format!("Result<{}, {}>", show(ok), show(err)),
         Ty::Vec(t) => format!("Vec<{}>", show(t)),
+        Ty::Array { elem, len } => format!("[{}; {len}]", show(elem)),
         Ty::Map { key, value } => format!("BTreeMap<{}, {}>", show(key), show(value)),
         Ty::Set(t) => format!("BTreeSet<{}>", show(t)),
         Ty::App { name, args } => {

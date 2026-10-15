@@ -1501,7 +1501,64 @@ export const Slice = {
     xs.length = kept;
   },
   // #endregion
+  // #region slice.repeat
+  /** `[x; n]`: `n` slots of the one `x`, evaluated once (design/01 §7.27). */
+  repeat: <T>(x: T, n: number): T[] => Array.from({ length: n }, () => x),
+  // #endregion
+  // #region slice.lengths
+  /**
+   * A `pub` function's argument checked on entry: an array `[T; N]` holds
+   * `N` elements, which a TS caller's array need not, so the call panics
+   * here, wherever in the value the array is (design/01 §7.27). `shape`
+   * says where the arrays are (`Lengths`); `table` holds the shapes of the
+   * recursive types it names.
+   */
+  lengths: (x: unknown, shape: Lengths, name: string, table: Readonly<Record<string, Lengths>> = {}): void => {
+    const visit = (v: unknown, s: Lengths | undefined): void => {
+      if (v === null || s === undefined) return;
+      if (typeof s === "string") {
+        visit(v, table[s]);
+        return;
+      }
+      const len = typeof s === "number" ? s : s.len;
+      if (len !== undefined && (!Array.isArray(v) || v.length !== len)) {
+        const found = Array.isArray(v) ? `an array of length ${v.length}` : "a non-array";
+        Panic.raise(`\`${name}\` holds ${found} where one of length ${len} goes`);
+      }
+      if (typeof s === "number") return;
+      if (s.each !== undefined) {
+        const each = s.each;
+        for (const e of v instanceof Map ? v.values() : (v as Iterable<unknown>)) visit(e, each);
+      }
+      const o = v as Readonly<Record<string, unknown>>;
+      for (const [k, t] of Object.entries(s.at ?? {})) visit(o[k], t);
+      if (s.kinds !== undefined && typeof o["kind"] === "string") {
+        for (const [k, t] of Object.entries(s.kinds[o["kind"]] ?? {})) visit(o[k], t);
+      }
+    };
+    visit(x, shape);
+  },
+  // #endregion
 } as const;
+
+// #region slice.lengths
+/**
+ * Where a value holds arrays `[T; N]`, as `Slice.lengths` reads it: `N`
+ * alone, an array of `N` with nothing inside to check; `len`, an array's
+ * length; `each`, every element (or a map's every value); `at`, a field or
+ * a tuple's element by key; `kinds`, a variant's fields by its `kind`; a
+ * string, a recursive type's entry in the table.
+ */
+type Lengths =
+  | number
+  | string
+  | Readonly<{
+      len?: number;
+      each?: Lengths;
+      at?: Readonly<Record<string, Lengths>>;
+      kinds?: Readonly<Record<string, Readonly<Record<string, Lengths>>>>;
+    }>;
+// #endregion
 
 // #region str.slice
 /**

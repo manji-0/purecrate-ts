@@ -9,6 +9,7 @@ mod index;
 mod items;
 mod join;
 mod js;
+mod lengths;
 mod paragraph;
 mod plain;
 mod schema;
@@ -80,8 +81,10 @@ fn emit_enums(krate: &Crate, enums: BTreeMap<String, Vec<Name>>) -> Package {
             scoped(&STRUCTS, structs.collect(), || {
                 scoped(&ENUMS, enums, || {
                     scoped(&STRINGY, stringy_names(krate), || {
-                        scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
-                            with_internal_names(krate, || emit_package(krate))
+                        lengths::with_defs(krate, || {
+                            scoped(&HOSTED, krate.homes(|item| krate.fns_named(item)), || {
+                                with_internal_names(krate, || emit_package(krate))
+                            })
                         })
                     })
                 })

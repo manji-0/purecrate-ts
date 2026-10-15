@@ -253,7 +253,8 @@ fn comparator_in(
             Err(format!("`{}`: floats are not `Ord` (`NaN` has no place in the order)", show(t)))
         }
         Ty::Option(inner) => Ok(Cmp::Option(Box::new(each(inner)?))),
-        Ty::Vec(inner) => Ok(Cmp::Vec(Box::new(each(inner)?))),
+        // An array orders as its slice does (design/01 §7.27).
+        Ty::Vec(inner) | Ty::Array { elem: inner, .. } => Ok(Cmp::Vec(Box::new(each(inner)?))),
         Ty::Tuple(ts) if !ts.is_empty() => Ok(Cmp::Tuple(ts.iter().map(&mut each).collect::<Result<_, _>>()?)),
         Ty::Named(n) if ordered(n.as_str()) => Ok(Cmp::Type(n.clone())),
         // A generic one's `cmp` takes its arguments' dictionaries.

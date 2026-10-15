@@ -442,14 +442,27 @@ pub(super) fn lower_let_else(cx: &Cx, pat: &Pat, value: &SynExpr, diverge: &SynE
     let other = other_case(&pattern);
     let scrutinee = lower_expr(cx, value)?;
     let else_ = lower_expr(cx, diverge)?;
-    Ok(LetElse { scrutinee, pattern, other, else_, mutable })
+    Ok(LetElse { scrutinee, pattern, other, else_: Some(else_), mutable })
+}
+
+/// `let [a, b] = e; rest`, irrefutable on an array (design/01 §7.27): `match
+/// e { [a, b] => rest }`, one arm, which `check` finds exhaustive by the
+/// array's length and refuses on a slice, as rustc does.
+pub(super) fn lower_let_slice(cx: &Cx, pat: &Pat, value: &SynExpr) -> Result<LetElse, ParseError> {
+    let mut plain = pat.clone();
+    let mut mutable = Vec::new();
+    strip_mut(&mut plain, &mut mutable);
+    let pattern = refutable_pat(cx, &plain, "let")?;
+    let scrutinee = lower_expr(cx, value)?;
+    Ok(LetElse { scrutinee, pattern, other: Pattern::Wildcard, else_: None, mutable })
 }
 
 pub(super) struct LetElse {
     scrutinee: Expr,
     pattern: Pattern,
     other: Pattern,
-    else_: Expr,
+    /// `None` for an irrefutable `let` of an array (`lower_let_slice`).
+    else_: Option<Expr>,
     mutable: Vec<Name>,
 }
 
@@ -461,10 +474,9 @@ impl LetElse {
         if let Pattern::OptionSome(p) | Pattern::ResultOk(p) | Pattern::ResultErr(p) = &self.pattern {
             if let Pattern::Var(x) = &**p {
                 let x = x.clone();
-                let value = Expr::Match {
-                    scrutinee: Box::new(self.scrutinee),
-                    arms: vec![Arm::new(self.pattern.clone(), Expr::Var(x.clone())), Arm::new(self.other, self.else_)],
-                };
+                let mut arms = vec![Arm::new(self.pattern.clone(), Expr::Var(x.clone()))];
+                arms.extend(self.else_.map(|e| Arm::new(self.other, e)));
+                let value = Expr::Match { scrutinee: Box::new(self.scrutinee), arms };
                 let mutable = self.mutable.contains(&x);
                 return Expr::Let { name: x, mutable, ty: None, value: Box::new(value), then: Box::new(rest) };
             }
@@ -476,10 +488,9 @@ impl LetElse {
             value: Box::new(Expr::Var(n.clone())),
             then: Box::new(then),
         });
-        Expr::Match {
-            scrutinee: Box::new(self.scrutinee),
-            arms: vec![Arm::new(self.pattern, rest), Arm::new(self.other, self.else_)],
-        }
+        let mut arms = vec![Arm::new(self.pattern, rest)];
+        arms.extend(self.else_.map(|e| Arm::new(self.other, e)));
+        Expr::Match { scrutinee: Box::new(self.scrutinee), arms }
     }
 }
 

@@ -8,6 +8,7 @@ mod adapters_equivalence;
 mod adaptors_equivalence;
 mod adaptors_more_equivalence;
 mod arith_equivalence;
+mod arrays_equivalence;
 mod ast_equivalence;
 mod bits_equivalence;
 mod bool_patterns_equivalence;

@@ -568,7 +568,7 @@ pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr,
     let inferred = inferred || (!mutable && ty.is_some_and(|t| infers_as(value, t)));
     let grown = crate::PUSHED.with(|p| p.borrow().contains(name));
     let shown = |t: &Ty| match t {
-        Ty::Vec(item) if grown => format!("Array<{}>", emit_ty(item)),
+        Ty::Vec(item) | Ty::Array { elem: item, .. } if grown => format!("Array<{}>", emit_ty(item)),
         Ty::Map { key, value } if grown => format!("Map<{}, {}>", emit_ty(key), emit_ty(value)),
         Ty::Set(key) if grown => format!("Set<{}>", emit_ty(key)),
         t => emit_ty(t),
@@ -688,7 +688,7 @@ fn infers_as(value: &Expr, ty: &Ty) -> bool {
         Expr::Try { .. } => true,
         _ if *ty == Ty::bool() => true,
         v if is_place(v) => match ty {
-            Ty::Prim(_) | Ty::Vec(_) => true,
+            Ty::Prim(_) | Ty::Vec(_) | Ty::Array { .. } => true,
             Ty::Named(n) => crate::is_struct(n.as_str()),
             _ => false,
         },

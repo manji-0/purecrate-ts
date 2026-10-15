@@ -15,6 +15,10 @@ impl<'d, 'a> Typer<'d, 'a> {
                 "the type of the matched value is not known here; bind it first with `let x: T = ..`".to_string(),
             );
         }
+        // An array is matched as a slice of its one length (design/01 §7.27).
+        let len = st.as_ref().and_then(|t| self.array_len(t));
+        let tree_ty = st.as_ref().map(|t| self.defs.expand(t, crate::defs::Peel::First).clone());
+        crate::exhaustive::slice_match(self.item, arms, len, self.out);
         let st = st.map(|t| self.norm(&t));
         let mut result: Option<Ty> = None;
         let arms = arms
@@ -33,13 +37,13 @@ impl<'d, 'a> Typer<'d, 'a> {
         // Typed; now one `match` per element, so TS checks each is exhaustive.
         if let Some(Ty::Tuple(ts)) = &st {
             if arms.iter().any(|a| a.pattern.is_tuple_case()) {
-                let tys = ts.iter().map(|t| self.norm(t)).collect();
+                let tys = ts.iter().map(|t| self.defs.expand(t, crate::defs::Peel::First).clone()).collect();
                 return (self.tree(scrutinee, tys, arms), result);
             }
         }
         // Guards, and arms that test inside a case, are tested in the same
         // decision tree, a single value as a tuple of one.
-        if let Some(t) = st.as_ref().filter(|_| arms.iter().any(|a| a.guard.is_some() || a.pattern.nests())) {
+        if let Some(t) = tree_ty.as_ref().filter(|_| arms.iter().any(|a| a.guard.is_some() || a.pattern.nests())) {
             let arms = arms
                 .into_iter()
                 .map(|a| Arm {
@@ -92,7 +96,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// The normalized item type of a slice pattern's scrutinee, or `None`
     /// after reporting a scrutinee that is not a `Vec` or slice.
     fn slice_item(&mut self, scrutinee: Option<&Ty>) -> Option<Ty> {
-        match scrutinee {
+        match scrutinee.map(|t| self.norm(t)).as_ref() {
             Some(Ty::Vec(t)) => Some(self.norm(t)),
             Some(t) if *t != Ty::Never => {
                 self.error(
@@ -124,8 +128,8 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             // `bind` has reported a scrutinee that is not a slice.
             Pattern::Slice { prefix, rest, suffix } => {
-                let item = match scrutinee {
-                    Some(Ty::Vec(t)) => Some(self.norm(t)),
+                let item = match scrutinee.map(|t| self.norm(t)) {
+                    Some(Ty::Vec(t)) => Some(self.norm(&t)),
                     _ => None,
                 };
                 let mut each = |ps: &[Pattern]| ps.iter().map(|p| self.lit_pattern(p, item.as_ref())).collect();

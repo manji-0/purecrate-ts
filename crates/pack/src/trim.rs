@@ -498,6 +498,8 @@ mod tests {
             "slice.chunks",
             "slice.dedup",
             "slice.dedupByKey",
+            "slice.repeat",
+            "slice.lengths",
             "char",
             "char.is",
             "uuid",

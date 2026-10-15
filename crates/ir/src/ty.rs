@@ -260,6 +260,12 @@ pub enum Ty {
         err: Box<Ty>,
     },
     Vec(Box<Ty>),
+    /// `[T; N]`: a `ReadonlyArray<T>` of exactly `len` elements, read as a
+    /// slice is, its length checked on entry (design/01 §7.27).
+    Array {
+        elem: Box<Ty>,
+        len: usize,
+    },
     /// `BTreeMap<K, V>`; `K` is `String` (design/01 §7.19). A TS `Map`,
     /// iterated in Rust's key order.
     Map {
@@ -294,7 +300,9 @@ impl Ty {
     /// The types written inside this one, in source order.
     pub fn children(&self) -> Vec<&Ty> {
         match self {
-            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } => vec![t],
+            Ty::Option(t) | Ty::Vec(t) | Ty::Set(t) | Ty::Ignored { inner: t, .. } | Ty::Array { elem: t, .. } => {
+                vec![t]
+            }
             Ty::Result { ok, err } | Ty::Map { key: ok, value: err } => vec![ok, err],
             Ty::Tuple(ts) | Ty::App { args: ts, .. } => ts.iter().collect(),
             Ty::Fn { params, ret } => params.iter().chain(std::iter::once(&**ret)).collect(),
@@ -318,6 +326,7 @@ impl Ty {
             Ty::Param(n) => bindings.iter().find(|(p, _)| p == n).map_or_else(|| self.clone(), |(_, t)| t.clone()),
             Ty::Option(t) => Ty::Option(s(t)),
             Ty::Vec(t) => Ty::Vec(s(t)),
+            Ty::Array { elem, len } => Ty::Array { elem: s(elem), len: *len },
             Ty::Set(t) => Ty::Set(s(t)),
             Ty::Result { ok, err } => Ty::Result { ok: s(ok), err: s(err) },
             Ty::Map { key, value } => Ty::Map { key: s(key), value: s(value) },

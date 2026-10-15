@@ -135,10 +135,21 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             let elems = t.elems.iter().map(|e| lower_expr(cx, e)).collect::<Result<Vec<_>, _>>()?;
             Ok(Expr::Tuple(elems))
         }
+        // `[a, b]` is rustc's `[T; 2]`; marked so `check` can tell it from
+        // `vec![a, b]`, the same `Expr::Array` (design/01 §7.27).
         SynExpr::Array(a) => {
             let elems = a.elems.iter().map(|e| lower_expr(cx, e)).collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr::Array(elems))
+            Ok(Expr::MethodCall {
+                receiver: Box::new(Expr::Array(elems)),
+                name: Name::new(purecrate_ir::ARRAY_LITERAL),
+                args: Vec::new(),
+            })
         }
+        // `[x; N]`: `x` once, `N` folded now.
+        SynExpr::Repeat(r) => Ok(Expr::Call {
+            callee: Callee::ArrayRepeat { len: crate::ty::array_len(&r.len)? },
+            args: vec![lower_expr(cx, &r.expr)?],
+        }),
         SynExpr::Return(r) => {
             let inner = match &r.expr {
                 Some(e) => lower_expr(cx, e)?,
@@ -740,6 +751,15 @@ fn lower_local(cx: &Cx, local: &syn::Local) -> Result<Stmt, ParseError> {
             ));
         }
         return Ok(Stmt::LetElse(pattern::lower_let_else(cx, pat, &init.expr, diverge)?));
+    }
+    if let (Pat::Slice(_), Some(init)) = (pat, local.init.as_ref()) {
+        if ty.is_some() {
+            return Err(ParseError::new(
+                Reason::LetPattern,
+                "a `let` of a slice pattern takes no type annotation in v0; annotate the value instead",
+            ));
+        }
+        return Ok(Stmt::LetElse(pattern::lower_let_slice(cx, pat, &init.expr)?));
     }
     if let Some(tuple) = Destructure::of(cx, pat, Reason::LetPattern)? {
         let init = local.init.as_ref().ok_or_else(|| ParseError::new(Reason::LetPattern, "let without initializer"))?;

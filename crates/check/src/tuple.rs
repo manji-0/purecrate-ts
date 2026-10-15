@@ -164,6 +164,7 @@ impl Lowering<'_, '_, '_> {
             Ty::Named(n) if self.defs.enums.contains_key(n.as_str()) => self.enum_column(subjects, col, n, rows),
             Ty::Tuple(elems) => self.tuple_column(subjects, col, elems, rows),
             Ty::Vec(item) => self.slice_column(subjects, col, item, rows),
+            Ty::Array { elem, len } => self.array_column(subjects, col, elem, *len, rows),
             Ty::Option(inner) => {
                 let some = self.name("value");
                 let arms = vec![
@@ -421,6 +422,49 @@ impl Lowering<'_, '_, '_> {
             end = start;
         }
         tree
+    }
+
+    /// An array some row tests with a slice pattern (design/01 §7.27): its
+    /// one length is the only case, so no length is tested; each element a
+    /// pattern names is a column, read where it sits, and `rest @ ..` binds
+    /// the elements between, as on a slice.
+    fn array_column(&mut self, subjects: &[(Expr, Ty)], col: usize, item: &Ty, len: usize, rows: Vec<Row>) -> Expr {
+        let (subject, ty) = subjects[col].clone();
+        let slice_ty = Ty::Vec(Box::new(item.clone()));
+        let item = self.norm(item);
+        let rows: Vec<Row> = rows
+            .into_iter()
+            .filter_map(|mut row| {
+                match std::mem::replace(&mut row.pats[col], Pattern::Wildcard) {
+                    Pattern::Slice { prefix, rest, suffix } => {
+                        let (p, s) = (prefix.len(), suffix.len());
+                        // rustc refuses a pattern of another length.
+                        if (rest.is_none() && p != len) || p + s > len {
+                            return None;
+                        }
+                        if let Some(Pattern::Var(r)) = rest.as_deref() {
+                            let cut = Callee::SliceRest { front: p, back: s };
+                            row.binds.push((r.clone(), slice_ty.clone(), Expr::Call { callee: cut, args: vec![subject.clone()] }));
+                        }
+                        row.pats.extend(prefix);
+                        row.pats.extend(vec![Pattern::Wildcard; len - p - s]);
+                        row.pats.extend(suffix);
+                    }
+                    p => {
+                        if let Pattern::Var(n) = p {
+                            row.binds.push((n, ty.clone(), subject.clone()));
+                        }
+                        row.pats.extend(vec![Pattern::Wildcard; len]);
+                    }
+                }
+                Some(row)
+            })
+            .collect();
+        let mut inner = subjects.to_vec();
+        inner.extend((0..len).map(|index| {
+            (Expr::Call { callee: Callee::SliceElem { index, from_end: false }, args: vec![subject.clone()] }, item.clone())
+        }));
+        self.compile(&inner, rows)
     }
 
     /// `Option` or `Result`: both cases, each binding its payload to a fresh

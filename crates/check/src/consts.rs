@@ -39,6 +39,58 @@ pub fn bytes(value: &Expr) -> Option<Expr> {
     }
 }
 
+/// An array const's value (design/01 §7.27): a literal `[a, b]` or
+/// `[x; N]` whose elements fold as a const of the element type does, or a
+/// byte string of a `[u8; N]`; `N` elements, as the type says.
+pub fn array(defs: &Defs<'_>, ty: &Ty, value: &Expr) -> Result<Expr, String> {
+    let Ty::Array { elem, len } = defs.expand(ty, crate::defs::Peel::Every) else {
+        unreachable!("called on an array const")
+    };
+    let value = value.unpositioned();
+    let element = |x: &Expr| -> Result<Expr, String> {
+        match defs.expand(elem, crate::defs::Peel::Every) {
+            Ty::Array { .. } => array(defs, elem, x),
+            _ => fold(defs, elem, x).map(Expr::Lit),
+        }
+    };
+    let count = |n: usize| -> Result<(), String> {
+        if n == *len {
+            Ok(())
+        } else {
+            Err(format!("a `{}` holds {len} elements, found {n}", crate::types::show(ty)))
+        }
+    };
+    if **elem == Ty::Prim(Prim::U8) {
+        if let Some(b) = bytes(value) {
+            let n = match &b {
+                Expr::Call { args, .. } => match args.first() {
+                    Some(Expr::Lit(Lit::Str(text))) => text.len(),
+                    _ => 0,
+                },
+                Expr::Array(xs) => xs.len(),
+                _ => 0,
+            };
+            count(n)?;
+            return Ok(b);
+        }
+    }
+    match value {
+        Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => {
+            let Expr::Array(xs) = receiver.unpositioned() else { unreachable!("`syntax` wraps an `Expr::Array`") };
+            count(xs.len())?;
+            Ok(Expr::Array(xs.iter().map(element).collect::<Result<_, _>>()?))
+        }
+        Expr::Call { callee: callee @ purecrate_ir::Callee::ArrayRepeat { len: n }, args } => {
+            count(*n)?;
+            Ok(Expr::Call { callee: callee.clone(), args: vec![element(&args[0])?] })
+        }
+        _ => Err(format!(
+            "a `{}` const is a literal `[a, b, ..]`, `[x; N]`, or a byte string `b\"..\"` in v0",
+            crate::types::show(ty)
+        )),
+    }
+}
+
 /// Each variant's discriminant: explicit ones folded, the others one past
 /// the previous (the first `0`), in the `repr` type (`isize` without one).
 pub fn discriminants(defs: &Defs<'_>, e: &Enum) -> Result<Vec<(Name, i128)>, String> {
