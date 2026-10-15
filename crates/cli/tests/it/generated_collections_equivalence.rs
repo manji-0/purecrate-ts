@@ -813,13 +813,38 @@ impl G {
 
     /// An `i32` from the iterator adaptors and ranges: `filter_map`,
     /// `flat_map`, `flatten`, `windows`, `chunks`, and `step_by` with `rev`
-    /// on either side, before a consumer. A size or a step of `i % 3` or `j
-    /// % 3` may be 0, which panics. A closure reads no `let mut` local:
-    /// the `Vec` is copied into a `let` first.
+    /// on either side, before a consumer; from 0.23.0 `take`, `skip`,
+    /// `take_while`, and `skip_while` after a `map` that may panic (on an
+    /// item they pull or not), on ranges either side of `rev` and
+    /// `step_by`, and `partition`. A size or a step of `i % 3` or `j % 3`
+    /// may be 0, which panics. A closure reads no `let mut` local: the
+    /// `Vec` is copied into a `let` first.
     fn adapted(&mut self) -> String {
         let v = self.vec_of(T::VI);
         let n = self.rng.pick(&["i % 3", "j % 3", "1 + j % 3", "2"]);
-        match self.rng.below(9) {
+        match self.rng.below(15) {
+            // `k / x` panics on 0 and on `i32::MIN / -1`: only on an item
+            // `take` pulls.
+            9 => format!("{v}.iter().map(|x| k / x).take({n}).fold(0i32, |a, x| a.wrapping_add(x))"),
+            // `x + k` may overflow on an item `skip` drops, which it pulls.
+            10 => format!("({v}.iter().map(|x| x + k).skip({n}).count() as i32)"),
+            // The first item `take_while` refuses is pulled, `map` and all;
+            // `skip_while` calls its predicate on none after it.
+            11 => format!("{v}.iter().map(|x| 100 / x).take_while(|q| *q > k).fold(1i32, |a, x| a.wrapping_mul(x))"),
+            12 => format!("{v}.iter().copied().skip_while(|x| 50 / x > k).fold(0i32, |a, x| a.wrapping_mul(3).wrapping_add(x))"),
+            13 => format!(
+                "{{ let (a, b): (Vec<i32>, Vec<i32>) = {v}.iter().map(|x| x.wrapping_sub(k)).take(1 + {n}).partition(|x| *x > k); (a.len() as i32).wrapping_mul(7).wrapping_add(b.iter().fold(0i32, |s, x| s.wrapping_add(*x))) }}"
+            ),
+            14 => {
+                let lo = self.int(1);
+                match self.rng.below(3) {
+                    0 => format!(
+                        "{{ let w: Vec<i32> = {v}.clone(); (0..w.len()).skip({n}).take(2).map(|n| w.get(n).copied().unwrap_or(k)).sum::<i32>() }}"
+                    ),
+                    1 => format!("(({lo}) % 4..=9).rev().skip({n}).step_by(2).fold(k, |a, x| a.wrapping_sub(x))"),
+                    _ => format!("(({lo}) % 5..7).take({n}).rev().fold(k, |a, x| a.wrapping_mul(2).wrapping_sub(x))"),
+                }
+            }
             0 => format!("{v}.iter().filter_map(|x| x.checked_mul(k)).sum::<i32>()"),
             1 => {
                 let key = self.key_int("*x");

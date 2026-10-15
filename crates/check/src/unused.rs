@@ -262,7 +262,8 @@ fn strip_assigns(expr: Expr, name: &Name) -> Expr {
 /// may panic stays, in order. `()` when nothing is left.
 /// What a loop with nothing left in its body does: its source's effects,
 /// or, where a stage runs the crate's code on each item (`map`,
-/// `filter_map`, ..), every item walked, as `count()` walks them.
+/// `filter_map`, `take_while`, ..), every item walked, as `count()` walks
+/// them.
 fn drained(source: Expr, over: purecrate_ir::Over) -> Expr {
     match source {
         Expr::Call {
@@ -270,7 +271,8 @@ fn drained(source: Expr, over: purecrate_ir::Over) -> Expr {
                 Callee::IterMap { .. }
                 | Callee::IterFilter { .. }
                 | Callee::IterFilterMap { .. }
-                | Callee::IterFlatten { .. },
+                | Callee::IterFlatten { .. }
+                | Callee::IterCut { .. },
             ..
         } => Expr::Call { callee: Callee::Consume { method: purecrate_ir::Consume::Count, over }, args: vec![source] },
         source => effects(source),

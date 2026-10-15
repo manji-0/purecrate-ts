@@ -91,6 +91,11 @@ pub fn i04_filter_map_chars(s: &str) -> Vec<u32> { s.chars().filter_map(|c| c.to
 pub fn i05_for_windows(xs: &[i64]) -> i64 { let mut m = 0; for w in xs.windows(2) { m = m.max(w[1] - w[0]); } m }
 pub fn i06_chunks(xs: &[u8]) -> usize { xs.chunks(4).filter(|c| c.len() == 4).count() }
 pub fn i07_dedup_by_key(xs: Vec<Item>) -> Vec<Item> { let mut v = xs; v.dedup_by_key(|i| i.qty); v }
+pub fn i08_take_skip(xs: &[Item], page: usize, size: usize) -> Vec<Item> { xs.iter().skip(page * size).take(size).cloned().collect() }
+pub fn i09_take_while(s: &str) -> String { s.chars().take_while(|c| c.is_ascii_digit()).collect() }
+pub fn i10_skip_while(xs: &[u32]) -> u32 { xs.iter().skip_while(|x| **x == 0).sum() }
+pub fn i11_partition_let(xs: &[Item]) -> usize { let (big, _small): (Vec<Item>, Vec<Item>) = xs.iter().cloned().partition(|i| i.qty > 10); big.len() }
+pub fn i12_range_skip(n: u32) -> u32 { (0..n).skip(1).take(3).sum() }
 pub fn i08_rev_step_by(n: u32) -> Vec<u32> { (0..=n).rev().step_by(5).collect() }
 pub fn i09_step_by_rev(n: u8) -> Vec<u8> { (0..n).step_by(5).rev().collect() }
 pub fn i10_range_sum(n: u64) -> u64 { (1..=n).map(|x| x * x).sum() }

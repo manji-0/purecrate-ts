@@ -17,9 +17,9 @@ fn for_refuses_adaptors_and_non_collections() {
         "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().rev() { n += u32::from(*x); } n }",
     );
     let m = parse(
-        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().skip(1) { n += u32::from(*x); } n }",
+        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().peekable() { n += u32::from(*x); } n }",
     );
-    assert!(m.contains("`for` over `.skip()` is not in v0"), "{m}");
+    assert!(m.contains("`for` over `.peekable()` is not in v0"), "{m}");
     let m = parse("pub fn f() -> u32 { let mut n = 0u32; for (i, _) in (0..3u32).rev().enumerate() { n += i; } n }");
     assert!(m.contains("the range's own value is the index"), "{m}");
     assert_clean(

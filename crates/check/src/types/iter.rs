@@ -2,6 +2,7 @@
 //! and the sequences they consume.
 
 use super::*;
+use purecrate_ir::Cut;
 
 impl<'d, 'a> Typer<'d, 'a> {
     /// `all`, `any`, `position`, `count`, and `sum` on `s.chars()`,
@@ -15,7 +16,7 @@ impl<'d, 'a> Typer<'d, 'a> {
     pub(super) fn consume(&mut self, receiver: &Expr, name: &str, args: &[Expr], want: Option<&Ty>) -> Option<Typed> {
         let takes = match name {
             "fold" => 2,
-            "all" | "any" | "position" | "find" | "max_by_key" | "min_by_key" | "max_by" | "min_by" => 1,
+            "all" | "any" | "position" | "find" | "max_by_key" | "min_by_key" | "max_by" | "min_by" | "partition" => 1,
             "count" | "sum" | "max" | "min" => 0,
             _ => return None,
         };
@@ -25,6 +26,9 @@ impl<'d, 'a> Typer<'d, 'a> {
         }
         if args.len() != takes {
             self.error(Reason::ConstructShape, format!("`{name}` takes {takes} argument(s), got {}", args.len()));
+            return Some(failed);
+        }
+        if name == "partition" && !self.partition_target(want) {
             return Some(failed);
         }
         let Some((source, over, item)) = self.sequence(receiver, name) else {
@@ -110,6 +114,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                     "position" => Consume::Position,
                     "find" => Consume::Find,
                     "count" => Consume::Count,
+                    "partition" => Consume::Partition,
                     "max_by_key" | "min_by_key" => {
                         let Some(key) = key else { return Some(failed) };
                         let text = match self.ordered_by_any(&key, name) {
@@ -148,10 +153,44 @@ impl<'d, 'a> Typer<'d, 'a> {
             Consume::Position => Ty::option(Ty::Prim(Prim::Usize)),
             Consume::Count => Ty::Prim(Prim::Usize),
             Consume::Sum(_) => item.clone(),
+            Consume::Partition => Ty::Tuple(vec![Ty::Vec(Box::new(item.clone())), Ty::Vec(Box::new(item.clone()))]),
             _ => Ty::option(item.clone()),
         };
         let e = Expr::Call { callee: Callee::Consume { method, over }, args: call_args };
         Some((e, self.expect(want, Some(ty))))
+    }
+
+    /// Whether `want`, the type `partition`'s result is given, is two
+    /// `Vec`s written out, as rustc needs a type there; reported when not.
+    /// The items' type is checked against it once known.
+    fn partition_target(&mut self, want: Option<&Ty>) -> bool {
+        let Some(want) = want.map(|t| self.norm(t)) else {
+            self.error(
+                Reason::NeedsAnnotation,
+                "`partition` needs its result's type: `let (a, b): (Vec<T>, Vec<T>) = ..` or the function's result type".to_string(),
+            );
+            return false;
+        };
+        let vecs = match &want {
+            Ty::Tuple(two) if two.len() == 2 => two.iter().all(|t| matches!(self.norm(t), Ty::Vec(_))),
+            Ty::Never => return false,
+            _ => false,
+        };
+        if !vecs {
+            self.error(
+                Reason::TypeMismatch,
+                format!("`partition` builds two `Vec`s in v0, `(Vec<T>, Vec<T>)`, not `{}`", show(&want)),
+            );
+            return false;
+        }
+        if super::has_hole(&want) {
+            self.error(
+                Reason::NeedsAnnotation,
+                "`partition`'s result type is written out in v0: name the items' type in place of `_`".to_string(),
+            );
+            return false;
+        }
+        true
     }
 
     /// `fold(init, f)` on a typed sequence: `init` runs once the source is
@@ -472,6 +511,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                 };
                 Some((e, over, item))
             }
+            // A range's first `n` items, or the items after them: still a
+            // range (design/01 §7.28). `n` is evaluated after the range.
+            (cut @ ("take" | "skip"), [n]) if is_range_based(receiver) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let (n, _) = self.expr(n, Some(&Ty::Prim(Prim::Usize)));
+                let e = Expr::Call { callee: Callee::RangeCut { skip: cut == "skip" }, args: vec![source, n] };
+                Some((e, over, item))
+            }
             ("step_by", [_]) => {
                 self.error(
                     Reason::MethodCall,
@@ -535,6 +582,30 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let (callee, out) =
                     if stage == "map" { (Callee::IterMap { over }, ret) } else { (Callee::IterFilter { over }, item) };
                 Some((Expr::Call { callee, args: vec![source, closure] }, Over::Items, out))
+            }
+            // The items cut short by a count, evaluated after the receiver,
+            // or by a predicate on each item, lazily (design/01 §7.28).
+            (cut @ ("take" | "skip"), [n]) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let (n, _) = self.expr(n, Some(&Ty::Prim(Prim::Usize)));
+                let cut = if cut == "take" { Cut::Take } else { Cut::Skip };
+                Some((Expr::Call { callee: Callee::IterCut { cut, over }, args: vec![source, n] }, Over::Items, item))
+            }
+            (stage @ ("take_while" | "skip_while"), [p]) => {
+                let (source, over, item) = self.sequence(receiver, consumer)?;
+                let (param, written, body) = self.one_param_fn(stage, p)?;
+                if !self.param_fits(stage, &written, &item) {
+                    return None;
+                }
+                let closure = Expr::Closure {
+                    params: vec![ClosureParam { name: param, ty: Some(item.clone()) }],
+                    ret: Some(Ty::bool()),
+                    body: Box::new(body),
+                };
+                let (closure, _) = self.expr(&closure, None);
+                let cut = if stage == "take_while" { Cut::TakeWhile } else { Cut::SkipWhile };
+                let e = Expr::Call { callee: Callee::IterCut { cut, over }, args: vec![source, closure] };
+                Some((e, Over::Items, item))
             }
             // `f` returns an `Option` (`filter_map`, `flat_map`) or a `Vec`
             // (`flat_map`): the `Some`s' values, or each `Vec`'s elements.
@@ -841,9 +912,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         // A receiver already bound to an annotated name (`map_err(f)`'s)
         // is matched through that name.
         let (r, rt, typed) = match typed {
-            Expr::Let { name, mutable: false, ty: Some(ty), value, then }
-                if matches!(&*then, Expr::Var(n) if *n == name) =>
-            {
+            Expr::Let { name, mutable: false, ty: Some(ty), value, then } if matches!(&*then, Expr::Var(n) if *n == name) => {
                 (name, Some(ty), *value)
             }
             typed => (self.fresh_name("result"), rt, typed),
@@ -872,15 +941,17 @@ impl<'d, 'a> Typer<'d, 'a> {
 const ZIP_RANGE: &str = "`zip` pairs a `Vec`'s, a slice's, or a string's items in v0, not a range's; index the list with the range's value in a `for`";
 
 /// Whether `expr` is a sequence `TypeCx::sequence` types: a source (with
-/// `rev()`, `zip(..)`, or on a range `step_by(k)` on it), then any `map`,
-/// `filter`, `filter_map`, `flat_map`, `flatten`, `copied`, and `cloned`.
+/// `rev()`, `zip(..)`, or on a range `step_by(k)`, `take(n)`, or `skip(n)`
+/// on it), then any `map`, `filter`, `filter_map`, `flat_map`, `flatten`,
+/// `take`, `skip`, `take_while`, `skip_while`, `copied`, and `cloned`.
 pub(super) fn is_sequence(expr: &Expr) -> bool {
     if is_range(expr) {
         return true;
     }
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
-        ("copied" | "cloned" | "flatten", 0) | ("map" | "filter" | "filter_map" | "flat_map", 1) => {
+        ("copied" | "cloned" | "flatten", 0)
+        | ("map" | "filter" | "filter_map" | "flat_map" | "take" | "skip" | "take_while" | "skip_while", 1) => {
             is_sequence(receiver)
         }
         ("rev", 0) | ("zip" | "step_by", 1) => is_source(receiver),
@@ -892,7 +963,7 @@ pub(super) fn is_sequence(expr: &Expr) -> bool {
 
 /// What an iterator chain may end in (`TypeCx::consume`, `collect`), and the
 /// stages before it.
-pub(super) const CONSUMERS: &str = "`all`, `any`, `position`, `find`, `count`, `sum`, `max`, `min`, `max_by_key`, `min_by_key`, `max_by`, `min_by`, `fold`, and `collect`, after any `map`, `filter`, `filter_map`, `flat_map`, `flatten`, `copied`, `cloned`, `rev`, `zip`, and `step_by`; or a `for` over it";
+pub(super) const CONSUMERS: &str = "`all`, `any`, `position`, `find`, `count`, `sum`, `max`, `min`, `max_by_key`, `min_by_key`, `max_by`, `min_by`, `fold`, `partition`, and `collect`, after any `map`, `filter`, `filter_map`, `flat_map`, `flatten`, `take`, `skip`, `take_while`, `skip_while`, `copied`, `cloned`, `rev`, `zip`, and `step_by`; or a `for` over it";
 
 /// A method that starts a sequence (`is_sequence`).
 pub(super) fn is_source_name(name: &str) -> bool {
@@ -913,7 +984,7 @@ pub(super) fn is_source_name(name: &str) -> bool {
 }
 
 /// A sequence with no stage that runs code: a source, `copied`, `cloned`,
-/// `rev`, `zip`, and `step_by`.
+/// `rev`, `zip`, and `step_by`, and `take` and `skip` on a range.
 fn is_source(expr: &Expr) -> bool {
     if is_range(expr) {
         return true;
@@ -921,6 +992,7 @@ fn is_source(expr: &Expr) -> bool {
     let Expr::MethodCall { receiver, name, args } = expr.unpositioned() else { return false };
     match (name.as_str(), args.len()) {
         ("copied" | "cloned" | "rev", 0) | ("zip" | "step_by", 1) => is_source(receiver),
+        ("take" | "skip", 1) => is_range_based(receiver),
         ("chars" | "bytes" | "iter" | "into_iter" | "keys" | "values" | "split_whitespace" | "lines", 0)
         | ("split" | "windows" | "chunks", 1) => true,
         _ => false,
@@ -932,20 +1004,27 @@ fn is_range(expr: &Expr) -> bool {
     matches!(expr.unpositioned(), Expr::Call { callee: Callee::Range { .. }, .. })
 }
 
-/// A range, then any `rev()` and `step_by(k)`.
+/// A range, then any `rev()`, `step_by(k)`, `take(n)`, and `skip(n)`.
 fn is_range_based(expr: &Expr) -> bool {
     match expr.unpositioned() {
         Expr::MethodCall { receiver, name, args } => {
-            matches!((name.as_str(), args.len()), ("rev", 0) | ("step_by", 1)) && is_range_based(receiver)
+            matches!((name.as_str(), args.len()), ("rev", 0) | ("step_by" | "take" | "skip", 1))
+                && is_range_based(receiver)
         }
         e => is_range(e),
     }
 }
 
-/// Whether a typed sequence is a range's (`Iter.range`, then any `rev` and
-/// `step_by`): computed as it is walked, not an array.
+/// Whether a typed sequence is a range's (`Iter.range`, then any `rev`,
+/// `step_by`, `take`, and `skip`): computed as it is walked, not an array.
 pub(super) fn typed_range(expr: &Expr) -> bool {
-    matches!(expr, Expr::Call { callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep, .. })
+    matches!(
+        expr,
+        Expr::Call {
+            callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep | Callee::RangeCut { .. },
+            ..
+        }
+    )
 }
 
 /// Whether `expr` is `rev()`, `zip(..)`, or `step_by(..)` where a stage that

@@ -301,11 +301,25 @@ fn at(span: proc_macro2::Span, expr: Expr) -> Expr {
 /// Iterator adaptors, named so that `for` over one says so rather than
 /// failing later on the method call.
 const ITERATOR_ADAPTORS: &[&str] =
-    &["enumerate", "rev", "zip", "skip", "take", "peekable", "char_indices", "splitn", "rsplit", "keys", "values"];
+    &["enumerate", "rev", "zip", "peekable", "char_indices", "splitn", "rsplit", "keys", "values"];
 
 /// Iterator adaptors a `for` walks as a sequence `check::accept` types.
-const SEQUENCE_ADAPTORS: &[&str] =
-    &["map", "filter", "filter_map", "flat_map", "flatten", "step_by", "windows", "chunks", "cloned", "copied"];
+const SEQUENCE_ADAPTORS: &[&str] = &[
+    "map",
+    "filter",
+    "filter_map",
+    "flat_map",
+    "flatten",
+    "take",
+    "skip",
+    "take_while",
+    "skip_while",
+    "step_by",
+    "windows",
+    "chunks",
+    "cloned",
+    "copied",
+];
 
 /// `for` over a half-open integer range, a string's `chars()`, `bytes()`,
 /// `split(p)`, `split_whitespace()`, or `lines()`, or a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), unlabelled,
@@ -430,7 +444,7 @@ fn lower_for(cx: &Cx, f: &syn::ExprForLoop) -> Result<Expr, ParseError> {
         }
         SynExpr::MethodCall(m) if ITERATOR_ADAPTORS.contains(&m.method.to_string().as_str()) => {
             return reject(&format!(
-                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, with `.rev()`, `.zip(..)`, `.enumerate()`, `.step_by(k)` on a range, or a stage (`.map(f)`, `.filter(p)`, `.filter_map(f)`, `.flat_map(f)`, `.flatten()`)",
+                "`for` over `.{}()` is not in v0: iterate `a..b`, a `Vec` or slice, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, with `.rev()`, `.zip(..)`, `.enumerate()`, `.step_by(k)` on a range, or a stage (`.map(f)`, `.filter(p)`, `.filter_map(f)`, `.flat_map(f)`, `.flatten()`, `.take(n)`, `.skip(n)`, `.take_while(p)`, `.skip_while(p)`)",
                 m.method
             ))
         }

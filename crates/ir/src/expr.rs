@@ -748,6 +748,17 @@ pub enum Callee {
     IterFlatten {
         over: Over,
     },
+    /// `.take(n)`, `.skip(n)`, `.take_while(p)`, or `.skip_while(p)` on
+    /// what `over` walks: lazy as `IterMap` (design/01 §7.28). The
+    /// arguments are the source, then `n` (a `usize`) or `p` (a closure of
+    /// one parameter). `take` asks the source for no item past the `n`th;
+    /// `take_while` pulls the first item `p` refuses and stops there;
+    /// `skip_while` calls `p` on no item after its first refusal. Prints as
+    /// `Iter.take` and the like.
+    IterCut {
+        cut: Cut,
+        over: Over,
+    },
     /// `xs.windows(n)` (`chunks: false`) or `xs.chunks(n)` on a `Vec` or
     /// slice: a new array of the slices, panicking with Rust's message
     /// when `n` is 0. Prints as `Slice.windows(xs, n)` / `Slice.chunks`.
@@ -775,6 +786,13 @@ pub enum Callee {
     /// the first, panicking when `k` is 0 as Rust's `assert!` does. The
     /// arguments are the range and `k`. Prints as `r.stepBy(k)`.
     RangeStep,
+    /// `.take(n)` (or `.skip(n)` with `skip`) on a `Range` (or on one of
+    /// these): its first `n` items, or the items after them, still computed,
+    /// not collected. The arguments are the range and `n`. Prints as
+    /// `Iter.rangeTake(r, n)` / `Iter.rangeSkip(r, n)`.
+    RangeCut {
+        skip: bool,
+    },
     /// `String::from(s)`. Prints as `s`: JS strings are already owned values.
     StringFrom,
     /// `format!(..)`: `pieces` in order, each a run of text or an argument
@@ -1204,6 +1222,9 @@ pub enum Consume {
     /// `fold(init, f)`: the arguments are the source, `init`, and `f`, a
     /// closure of the accumulator and the item.
     Fold,
+    /// `partition(p)` into `(Vec<T>, Vec<T>)`: the items `p` takes, then
+    /// the others, each in order.
+    Partition,
 }
 
 impl Consume {
@@ -1220,7 +1241,44 @@ impl Consume {
             Consume::MaxByKey { .. } => "maxByKey",
             Consume::MinByKey { .. } => "minByKey",
             Consume::Fold => "fold",
+            Consume::Partition => "partition",
         }
+    }
+}
+
+/// A stage that cuts a sequence short (`Callee::IterCut`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cut {
+    Take,
+    Skip,
+    TakeWhile,
+    SkipWhile,
+}
+
+impl Cut {
+    /// The Rust method's name.
+    pub fn rust_name(self) -> &'static str {
+        match self {
+            Cut::Take => "take",
+            Cut::Skip => "skip",
+            Cut::TakeWhile => "take_while",
+            Cut::SkipWhile => "skip_while",
+        }
+    }
+
+    /// The runtime's name, `Iter.<name>`.
+    pub fn ts_name(self) -> &'static str {
+        match self {
+            Cut::Take => "take",
+            Cut::Skip => "skip",
+            Cut::TakeWhile => "takeWhile",
+            Cut::SkipWhile => "skipWhile",
+        }
+    }
+
+    /// Whether it takes a predicate rather than a count.
+    pub fn by_predicate(self) -> bool {
+        matches!(self, Cut::TakeWhile | Cut::SkipWhile)
     }
 }
 

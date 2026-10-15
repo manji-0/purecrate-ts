@@ -6,6 +6,7 @@ mod support;
 
 mod adapters_equivalence;
 mod adaptors_equivalence;
+mod adaptors_more_equivalence;
 mod arith_equivalence;
 mod ast_equivalence;
 mod bits_equivalence;

@@ -11,7 +11,7 @@ mod reason;
 mod ty;
 
 pub use expr::{
-    Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Consume, Expr, Fields, FloatConst, FloatMethod, FmtAlign,
+    Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Consume, Cut, Expr, Fields, FloatConst, FloatMethod, FmtAlign,
     FmtPiece, FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pick, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp,
     VariantBind,
 };

@@ -25,6 +25,18 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             return (source, self.expect(want, Some(Ty::Vec(Box::new(item)))));
         }
+        // `take`, `skip`, `take_while`, and `skip_while` as a value: a
+        // stage, read where it is written (design/01 §7.28).
+        if matches!(name.as_str(), "take" | "skip" | "take_while" | "skip_while") && iter::is_sequence(&whole) {
+            self.error(
+                Reason::MethodCall,
+                format!(
+                    "`{}` is a stage of a sequence in v0, read where it is written by a consumer (`sum`, `count`, `fold`, `partition`, ..), `collect`, or a `for`; it is not a value",
+                    name.as_str()
+                ),
+            );
+            return (Expr::Lit(Lit::Unit), None);
+        }
         if let Some(typed) = self.consume(receiver, name.as_str(), args, want) {
             return typed;
         }

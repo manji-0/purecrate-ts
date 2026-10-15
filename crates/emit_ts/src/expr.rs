@@ -802,6 +802,12 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             format!("Iter.filterMap({}, {})", iterable(*over, emit_tx(&args[0], indent)), item(1))
         }
         C::IterFlatten { over } => format!("Iter.flatten({})", iterable(*over, emit_tx(&args[0], indent))),
+        // A literal count reads bare: the runtime takes a `number`.
+        C::IterCut { cut, over } => {
+            let source = iterable(*over, emit_tx(&args[0], indent));
+            let second = if cut.by_predicate() { item(1) } else { plain_arg(&args[1], indent) };
+            format!("Iter.{}({source}, {second})", cut.ts_name())
+        }
         // A literal size reads bare: the runtime takes a `number`.
         C::VecWindows { chunks } => {
             let f = if *chunks { "Slice.chunks" } else { "Slice.windows" };
@@ -815,6 +821,10 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         }
         C::RangeRev => format!("{}.rev()", recv(&args[0], indent)),
         C::RangeStep => format!("{}.stepBy({})", recv(&args[0], indent), plain_arg(&args[1], indent)),
+        C::RangeCut { skip } => {
+            let f = if *skip { "Iter.rangeSkip" } else { "Iter.rangeTake" };
+            format!("{f}({}, {})", item(0), plain_arg(&args[1], indent))
+        }
         C::Collect { result, over } => emit_collect(*result, *over, args, indent),
         C::Str(m) => {
             use purecrate_ir::StrMethod as S;
@@ -1211,7 +1221,8 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
                 callee: Callee::IterMap { .. }
                     | Callee::IterFilter { .. }
                     | Callee::IterFilterMap { .. }
-                    | Callee::IterFlatten { .. },
+                    | Callee::IterFlatten { .. }
+                    | Callee::IterCut { .. },
                 ..
             }
         )
@@ -1229,8 +1240,15 @@ fn emit_collect(result: bool, over: purecrate_ir::Over, args: &[Expr], indent: u
     };
     // A range is computed as it is walked, and `split` with a closure is
     // `Str.splitBy`, a generator: neither is an array.
-    let computed =
-        |e: &Expr| matches!(e, Expr::Call { callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep, .. });
+    let computed = |e: &Expr| {
+        matches!(
+            e,
+            Expr::Call {
+                callee: Callee::Range { .. } | Callee::RangeRev | Callee::RangeStep | Callee::RangeCut { .. },
+                ..
+            }
+        )
+    };
     let lazy = |e: &Expr| {
         computed(e)
             || matches!(e, Expr::Call { callee: Callee::StrSplit, args } if matches!(peel_identity(&args[1]), Expr::Closure { .. }))

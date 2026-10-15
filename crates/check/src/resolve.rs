@@ -604,6 +604,7 @@ impl<'a> Cx<'_, 'a> {
                 self.arity("an iterator stage", 2, argc)
             }
             Callee::IterFlatten { .. } => self.arity("`flatten`", 1, argc),
+            Callee::IterCut { cut, .. } => self.arity(&format!("`{}`", cut.rust_name()), 2, argc),
             Callee::VecWindows { .. } => self.arity("`windows`", 2, argc),
             Callee::VecDedup => {
                 if !(1..=2).contains(&argc) {
@@ -613,6 +614,7 @@ impl<'a> Cx<'_, 'a> {
             Callee::Range { .. } => self.arity("a range", 2, argc),
             Callee::RangeRev => self.arity("`rev`", 1, argc),
             Callee::RangeStep => self.arity("`step_by`", 2, argc),
+            Callee::RangeCut { skip } => self.arity(if *skip { "`skip`" } else { "`take`" }, 2, argc),
             Callee::Collect { .. } => {
                 if !(1..=2).contains(&argc) {
                     self.arity("`collect`", 2, argc);

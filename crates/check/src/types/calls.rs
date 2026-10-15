@@ -454,6 +454,17 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let inner = self.vec_item(&tys[0]);
                 (args, self.vec_item(&inner).map(|t| Ty::Vec(Box::new(t))))
             }
+            // Written only by `sequence`, typed: the items, cut short.
+            Callee::IterCut { cut, over } => {
+                let first = self.expr(&args[0], None);
+                let item = first.1.as_ref().and_then(|t| self.walked(*over, t));
+                let second = if cut.by_predicate() {
+                    self.expr(&args[1], None).0
+                } else {
+                    self.expr(&args[1], Some(&Ty::Prim(Prim::Usize))).0
+                };
+                (vec![first.0, second], item.map(|t| Ty::Vec(Box::new(t))))
+            }
             // Written only by `sequence`, typed: the slices.
             Callee::VecWindows { .. } => {
                 let (args, tys) = self.typed_all(args);
@@ -470,7 +481,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 let t = Ty::Prim((*it).into());
                 (typed_args(self, vec![t.clone(), t.clone()]), Some(Ty::Vec(Box::new(t))))
             }
-            Callee::RangeRev | Callee::RangeStep => {
+            Callee::RangeRev | Callee::RangeStep | Callee::RangeCut { .. } => {
                 let first = self.expr(&args[0], None);
                 let mut typed = vec![first.0];
                 if let Some(k) = args.get(1) {
@@ -487,6 +498,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                     purecrate_ir::Consume::Position => Some(Ty::option(Ty::Prim(Prim::Usize))),
                     purecrate_ir::Consume::Count => Some(Ty::Prim(Prim::Usize)),
                     purecrate_ir::Consume::Sum(int) => Some(Ty::Prim(Prim::from(*int))),
+                    purecrate_ir::Consume::Partition => {
+                        item.map(|t| Ty::Tuple(vec![Ty::Vec(Box::new(t.clone())), Ty::Vec(Box::new(t))]))
+                    }
                     _ => item.map(Ty::option),
                 };
                 (args, t)

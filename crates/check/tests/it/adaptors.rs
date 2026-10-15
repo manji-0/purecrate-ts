@@ -80,8 +80,77 @@ fn step_by_steps_a_range() {
     );
     assert_parse_rejects("pub fn f() -> usize { (0u8..).step_by(2).count() }", "ranges are not in v0");
     assert_parse_rejects(
-        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().skip(1) { n += u32::from(*x); } n }",
-        "`for` over `.skip()` is not in v0",
+        "pub fn f(xs: Vec<u8>) -> u32 { let mut n = 0u32; for x in xs.iter().peekable() { n += u32::from(*x); } n }",
+        "`for` over `.peekable()` is not in v0",
+    );
+}
+
+/// `take`, `skip`, `take_while`, `skip_while`, and `partition` (design/01
+/// §7.28): stages and a consumer, read where they are written.
+#[test]
+fn cuts_are_stages_and_partition_a_consumer() {
+    assert_clean("pub fn f(xs: &[i32]) -> i32 { xs.iter().map(|x| 6 / x).take(2).sum() }");
+    assert_clean("pub fn f(xs: &[u8], n: usize) -> Vec<u8> { xs.iter().skip(n).copied().collect() }");
+    assert_clean(
+        "pub fn f(s: &str) -> String { s.chars().skip_while(|c| *c == ' ').take_while(|c| *c != ';').collect() }",
+    );
+    assert_clean(
+        "pub fn f(xs: &[u8], n: usize) -> u32 { let mut s = 0u32; for x in xs.iter().skip(1).take(n) { s += u32::from(*x); } s }",
+    );
+    assert_clean("pub fn f(xs: Vec<i32>) -> (Vec<i32>, Vec<i32>) { xs.into_iter().partition(|x| *x > 0) }");
+    assert_clean(
+        "pub fn f(xs: &[u32]) -> usize { let (a, b): (Vec<u32>, Vec<u32>) = xs.iter().map(|x| x * 2).partition(|x| *x > 3); a.len() + b.len() }",
+    );
+    // On a range: still a range, so `rev` and `step_by` may follow.
+    assert_clean("pub fn f(n: u64, k: usize) -> u64 { (3..n).skip(k).take(4).sum() }");
+    assert_clean("pub fn f(n: i32, k: usize) -> Vec<i32> { (0..n).take(k).rev().step_by(2).collect() }");
+    // The count is a `usize`; the predicate takes the items.
+    assert_rejects("pub fn f(xs: Vec<u8>, n: u8) -> u8 { xs.iter().take(n).sum() }", "expected `usize`, found `u8`");
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> u8 { xs.iter().take_while(|x: &u16| *x > 2).sum() }",
+        "`take_while`'s closure takes `u16`, the items are `u8`",
+    );
+    // Not values.
+    for (src, stage) in [
+        ("pub fn f(xs: Vec<u8>) -> u32 { let it = xs.iter().take(2); it.map(|x| u32::from(*x)).sum() }", "take"),
+        ("pub fn f() -> usize { let it = (0..5u8).skip(2); it.count() }", "skip"),
+        ("pub fn f(xs: Vec<u8>) -> usize { let it = xs.iter().take_while(|x| **x > 1); it.count() }", "take_while"),
+    ] {
+        assert_rejects(src, &format!("`{stage}` is a stage of a sequence in v0"));
+    }
+    // A stage before `rev` on a list's items runs out of Rust's order.
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> u8 { xs.iter().take(2).rev().copied().sum() }",
+        "`rev` comes right after the source in v0",
+    );
+    // `partition` names its result's type, two `Vec`s, written out.
+    assert_rejects(
+        "pub fn f(xs: Vec<i32>) -> usize { let (a, b) = xs.into_iter().partition(|x| *x > 0); a.len() + b.len() }",
+        "`partition` needs its result's type",
+    );
+    assert_rejects(
+        "use std::collections::BTreeSet;\npub fn f(xs: Vec<String>) -> (BTreeSet<String>, BTreeSet<String>) { xs.into_iter().partition(|x| x.len() > 2) }",
+        "`partition` builds two `Vec`s in v0, `(Vec<T>, Vec<T>)`, not `(BTreeSet<String>, BTreeSet<String>)`",
+    );
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> (Vec<u16>, Vec<u16>) { xs.into_iter().partition(|x| *x > 2) }",
+        "expected `(Vec<u16>, Vec<u16>)`, found `(Vec<u8>, Vec<u8>)`",
+    );
+    assert_parse_rejects(
+        "pub fn f(xs: Vec<u8>) -> usize { let (a, b): (Vec<_>, Vec<_>) = xs.into_iter().partition(|x| *x > 2); a.len() + b.len() }",
+        "unsupported type `_`",
+    );
+    // The adaptors §7.28 leaves out.
+    for (src, m) in [
+        ("pub fn f(xs: Vec<u8>) -> usize { xs.iter().peekable().count() }", "peekable"),
+        ("pub fn f(xs: Vec<u8>) -> u32 { xs.iter().scan(0u32, |_s, x| Some(u32::from(*x))).sum() }", "scan"),
+        ("pub fn f(xs: Vec<u8>) -> usize { xs.iter().map_while(|x| x.checked_add(1)).count() }", "map_while"),
+    ] {
+        assert_rejects(src, &format!("`.{m}()` on an iterator is not on the std allow-list"));
+    }
+    assert_rejects(
+        "pub fn f(xs: Vec<u8>) -> usize { let mut it = xs.iter(); it.by_ref().take(2).count() }",
+        "the receiver type of `.by_ref()` is not known here",
     );
 }
 

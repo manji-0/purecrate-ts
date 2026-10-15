@@ -477,7 +477,8 @@ impl Refs {
                     | Callee::IterMap { over }
                     | Callee::IterFilter { over }
                     | Callee::IterFilterMap { over }
-                    | Callee::IterFlatten { over } => {
+                    | Callee::IterFlatten { over }
+                    | Callee::IterCut { over, .. } => {
                         // `Iter.map`, `Iter.filter`, and `Iter.tryCollect`, or
                         // the array's own method.
                         // A `collect` over a closure's `split` maps a generator
@@ -572,7 +573,7 @@ impl Refs {
                     }
                     Callee::DeepEq => self.eq = true,
                     Callee::VecWindows { .. } | Callee::VecDedup => self.slice = true,
-                    Callee::Range { .. } => self.iter = true,
+                    Callee::Range { .. } | Callee::RangeCut { .. } => self.iter = true,
                     Callee::Slice { of, start, .. } => {
                         let of_str = *of == Some(purecrate_ir::SliceOf::Str);
                         self.str |= of_str;

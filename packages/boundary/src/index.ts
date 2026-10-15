@@ -1150,6 +1150,80 @@ export const Iter = {
   /** `a..=b` as a sequence: from `a` up to `b`. */
   rangeInclusive: <T extends number | bigint>(a: T, b: T): Steps<T> => steps(a, b, true),
   // #endregion
+  // #region iter.take
+  /**
+   * `.take(n)`: lazy, the first `n` items; after the `n`th it asks `xs` for
+   * no more, as Rust's `Take` does, so a stage before it never runs on an
+   * item past them.
+   */
+  take: function* <T>(xs: Iterable<T>, n: number): Generator<T, void, undefined> {
+    if (n === 0) return;
+    let i = 0;
+    for (const x of xs) {
+      yield x;
+      if (++i === n) return;
+    }
+  },
+  // #endregion
+  // #region iter.skip
+  /** `.skip(n)`: lazy, the items after the first `n`, which are pulled (each stage before it runs on them) and dropped. */
+  skip: function* <T>(xs: Iterable<T>, n: number): Generator<T, void, undefined> {
+    let i = 0;
+    for (const x of xs) {
+      if (i < n) i++;
+      else yield x;
+    }
+  },
+  // #endregion
+  // #region iter.takeWhile
+  /** `.take_while(p)`: lazy, the items while `p` holds; the first it refuses is pulled, then dropped, and the walk ends. */
+  takeWhile: function* <T>(xs: Iterable<T>, p: (x: T) => boolean): Generator<T, void, undefined> {
+    for (const x of xs) {
+      if (!p(x)) return;
+      yield x;
+    }
+  },
+  // #endregion
+  // #region iter.skipWhile
+  /** `.skip_while(p)`: lazy, the items from the first `p` refuses on; `p` is not called after it. */
+  skipWhile: function* <T>(xs: Iterable<T>, p: (x: T) => boolean): Generator<T, void, undefined> {
+    let taking = false;
+    for (const x of xs) {
+      if (taking || !p(x)) {
+        taking = true;
+        yield x;
+      }
+    }
+  },
+  // #endregion
+  // #region iter.partition
+  /** `partition(p)` into two `Vec`s: the items `p` takes, then the others, each in order. */
+  partition: <T>(xs: Iterable<T>, p: (x: T) => boolean): [ReadonlyArray<T>, ReadonlyArray<T>] => {
+    const yes: T[] = [];
+    const no: T[] = [];
+    for (const x of xs) (p(x) ? yes : no).push(x);
+    return [yes, no];
+  },
+  // #endregion
+  // #region iter.rangeTake
+  /** `.take(n)` on a range: its first `n` items, still a range. */
+  rangeTake: <T extends number | bigint>(r: Steps<T>, n: number): Steps<T> => {
+    const k = unit(r.count, n);
+    return new Steps(r.first, k < r.count ? k : r.count, r.delta);
+  },
+  // #endregion
+  // #region iter.rangeSkip
+  /**
+   * `.skip(n)` on a range: the items after the first `n`, still a range. The
+   * new first item is one of the range's, so it is exact; past the end
+   * nothing is computed.
+   */
+  rangeSkip: <T extends number | bigint>(r: Steps<T>, n: number): Steps<T> => {
+    const k = unit(r.count, n);
+    if (k >= r.count) return new Steps(r.first, unit(r.count, 0), r.delta);
+    return new Steps(plus(r.first, times(unit(r.first, n), r.delta)), plus(r.count, times(k, unit(k, -1))), r.delta);
+  },
+  // #endregion
 } as const;
 
 // #region eq.deep
