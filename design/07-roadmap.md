@@ -253,7 +253,7 @@ What the evidence currently points at, strongest first. The five examples of 202
 
 ## 4. Specified but not yet implemented
 
-`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; the adaptors `take`, `skip`, `take_while`, `skip_while`, `peekable`, and `partition`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
+`chars()` other than as `for c in s.chars()` or before a consumer; the Unicode-table `char` methods; `isize`; labelled `break`/`continue`; traits, drafted for 0.22.0 ([01 §7.25](./01-equivalence.md#725-traits)); the adaptors `take`, `skip`, `take_while`, `skip_while`, `peekable`, and `partition`; the std allow-list beyond what [01 §6](./01-equivalence.md#6-strings-char-usize-std-methods) lists; `static`.
 
 ## 5. v1: when type expressiveness runs out
 
