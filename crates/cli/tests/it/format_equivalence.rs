@@ -44,6 +44,7 @@ fn format_matches_rust() {
         }
         for u in [Uuid::nil(), Uuid::max(), Uuid::from_u128(0x67e5_5044_10b1_426f_9247_bb68_0e5f_e0c8)] {
             cases.push(case!(format::ids(u, "id")));
+            cases.push(case!(format::id_alone(u)));
         }
         for (q, p) in [(0, 0), (3, -250), (u32::MAX, i64::MAX), (2, i64::MAX)] {
             cases.push(case!(format::named(q, p)));

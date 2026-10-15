@@ -307,13 +307,16 @@ enum Lint {
 }
 
 /// Rules a generator's random source breaks itself, so its output does
-/// too: comparisons and conditions of constants (`1 < 2`, `x * 0`, a
-/// `while` on a value the body does not change), and statements whose
+/// too: comparisons and conditions of constants (`1 < 2`, `x * 0`,
+/// `a < b || b < a`, `x < -0.0`, a `while` on a value the body does not
+/// change), and statements whose
 /// value is unused or that assign a local to itself. The output keeps what
 /// the source wrote, as it does for a fixture (`scripts/fixtures.oxlintrc.json`).
 const GENERATED_SOURCE_RULES: &[&str] = &[
     "oxc/const-comparisons",
     "oxc/erasing-op",
+    "oxc/double-comparisons",
+    "eslint/no-compare-neg-zero",
     "eslint/no-constant-binary-expression",
     "eslint/no-constant-condition",
     "eslint/no-unmodified-loop-condition",

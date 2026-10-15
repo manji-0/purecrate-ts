@@ -34,6 +34,10 @@ pub fn ids(u: Uuid, label: &str) -> String {
     format!("{label}:{u}:{}", label)
 }
 
+pub fn id_alone(u: Uuid) -> String {
+    format!("{}", u)
+}
+
 pub fn named(qty: u32, price: i64) -> String {
     format!("{q} x {p} = {total}", q = qty, p = price, total = i64::from(qty) * price)
 }
