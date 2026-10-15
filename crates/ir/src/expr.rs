@@ -514,6 +514,12 @@ pub enum Callee {
         ty: Name,
         name: Name,
     },
+    /// A trait's method called through a dictionary (design/01 §7.25): the
+    /// first argument is the dictionary, the rest the method's. Prints as
+    /// `pricedT.price(x)`.
+    Dict {
+        name: Name,
+    },
     StructNew(Name),
     /// `From::from(s)`, and `s.into()` once typed: the `From` member of the
     /// type the context wants (`Fn::from_source`). `check::accept` rewrites

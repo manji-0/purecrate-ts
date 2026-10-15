@@ -49,6 +49,15 @@ pub struct Package {
 }
 
 pub fn emit(krate: &Crate) -> Package {
+    let traits = krate.items.iter().filter_map(|item| match item {
+        Item::Trait(t) => Some(t.name.as_str().to_string()),
+        _ => None,
+    });
+    let traits: BTreeSet<String> = traits.collect();
+    scoped(&TRAITS, traits, || emit_scoped(krate))
+}
+
+fn emit_scoped(krate: &Crate) -> Package {
     let structs = krate.items.iter().filter_map(|item| match item {
         Item::Struct(st) => Some(st.name.as_str().to_string()),
         _ => None,
@@ -121,6 +130,7 @@ fn emit_file(krate: &Crate, stem: &str, items: &[&Item]) -> String {
         match item {
             Item::Enum(en) => out_.push_str(&emit_enum(krate, en)),
             Item::Struct(st) => out_.push_str(&emit_struct(krate, st)),
+            Item::Trait(t) => out_.push_str(&emit_trait(krate, t)),
             Item::Alias(al) => {
                 out_.push_str(&jsdoc(&al.doc, ""));
                 out_.push_str(&format!("export type {name} = {ty};\n", name = al.name.as_str(), ty = emit_ty(&al.ty)));

@@ -314,6 +314,88 @@ pub fn from_member(source: &Ty) -> Option<String> {
     Some(format!("from{name}"))
 }
 
+/// `trait Tr: Base { .. }` (design/01 §7.25): the type of a record of
+/// functions over `Self`. Its default bodies are `Fn`s owned by the trait,
+/// each taking the dictionary first (`DICT_SELF`); its implementations'
+/// methods are `Fn`s owned by the implementing type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Trait {
+    pub vis: Vis,
+    pub name: Name,
+    /// The crate traits written after `:`, whose members the record holds too.
+    pub supertraits: Vec<Name>,
+    pub methods: Vec<TraitMethod>,
+    pub consts: Vec<TraitConst>,
+    /// Each `impl Tr for X` in the crate, in source order.
+    pub impls: Vec<TraitImpl>,
+    /// The item's `///` comment, without the slashes, as JSDoc in the TS.
+    pub doc: Option<String>,
+}
+
+/// A trait method's signature, `Self` as `Ty::Param(SELF)`: `self` is the
+/// first parameter where it takes one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitMethod {
+    pub name: Name,
+    pub params: Vec<Param>,
+    pub ret: Ty,
+    /// It has a body, printed in the trait's companion.
+    pub default: bool,
+    pub doc: Option<String>,
+}
+
+impl TraitMethod {
+    /// Takes `self` (or `&self`).
+    pub fn has_receiver(&self) -> bool {
+        self.params.first().is_some_and(|p| p.name.as_str() == "self")
+    }
+}
+
+/// `const N: u32;` in a trait, with or without a default.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitConst {
+    pub name: Name,
+    pub ty: Ty,
+    pub doc: Option<String>,
+}
+
+/// `impl<..> Tr for X<..>`: the implementing type as written (its
+/// parameters `Ty::Param`), and the impl's own type parameters.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitImpl {
+    pub ty: Ty,
+    pub generics: Vec<Name>,
+}
+
+impl TraitImpl {
+    /// The implementing struct or enum.
+    pub fn owner(&self) -> &Name {
+        self.ty.applied().map(|(n, _)| n).expect("an impl is on a struct or enum of the crate")
+    }
+}
+
+/// The type parameter a trait's own items are over.
+pub const SELF: &str = "Self";
+
+/// The dictionary parameter of a trait's default body, its first.
+pub const DICT_SELF: &str = "dict";
+
+/// The std traits whose bound carries a dictionary, as every crate trait's
+/// does (design/01 §7.25). `Clone`, `Copy`, `PartialEq`, `Eq`, and `Debug`
+/// stay structural, with none.
+pub const STD_DICT_TRAITS: &[&str] = &[];
+
+/// The parameter carrying the dictionary of `trait_` for the type parameter
+/// `param`: `pricedT`, after the function's other parameters.
+pub fn dict_param(trait_: &str, param: &str) -> Name {
+    Name::new(format!("{}{param}", crate::lower_first(trait_)))
+}
+
+/// The type of a dictionary parameter: `Priced<T>`.
+pub fn dict_ty(trait_: &Name, of: Ty) -> Ty {
+    Ty::App { name: trait_.clone(), args: vec![of] }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     Struct(Struct),
@@ -321,6 +403,7 @@ pub enum Item {
     Alias(Alias),
     Fn(Fn),
     Const(Const),
+    Trait(Trait),
 }
 
 impl Item {
@@ -331,6 +414,7 @@ impl Item {
             Item::Alias(a) => &a.name,
             Item::Fn(f) => &f.name,
             Item::Const(c) => &c.name,
+            Item::Trait(t) => &t.name,
         }
     }
 
@@ -341,6 +425,7 @@ impl Item {
             Item::Alias(a) => a.vis,
             Item::Fn(f) => f.vis,
             Item::Const(c) => c.vis,
+            Item::Trait(t) => t.vis,
         }
     }
 

@@ -399,6 +399,7 @@ impl Renamer {
                 callee: match callee {
                     Callee::Fn(n) => Callee::Fn(camel(&n)),
                     Callee::Method { ty, name } => Callee::Method { ty, name: camel(&name) },
+                    Callee::Dict { name } => Callee::Dict { name: camel(&name) },
                     other => other,
                 },
                 args: self.all(args, cx),

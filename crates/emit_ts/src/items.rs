@@ -358,6 +358,51 @@ fn ctor_assign(field: &str) -> String {
     }
 }
 
+/// A trait (design/01 §7.25): the type of its record over `Self`, each
+/// supertrait's record beside its own members, then its companion, which
+/// holds the default bodies, each taking the dictionary first.
+pub(crate) fn emit_trait(krate: &Crate, t: &purecrate_ir::Trait) -> String {
+    let name = t.name.as_str();
+    let self_ = purecrate_ir::SELF;
+    let mut members: Vec<(String, &Option<String>)> = Vec::new();
+    for c in &t.consts {
+        members.push((format!("{}: {}", c.name.as_str(), emit_ty(&c.ty)), &c.doc));
+    }
+    for m in &t.methods {
+        let params = m
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", purecrate_ir::to_camel(p.name.as_str()), emit_ty(&p.ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        members.push((format!("{}: ({params}) => {}", purecrate_ir::to_camel(m.name.as_str()), emit_ty(&m.ret)), &m.doc));
+    }
+    let supers: Vec<String> = t.supertraits.iter().map(|s| format!("{}<{self_}>", s.as_str())).collect();
+    let head = format!("export type {name}<{self_}> = ");
+    let one = members.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>().join("; ");
+    let own = if members.is_empty() { None } else { Some(format!("Readonly<{{ {one} }}>")) };
+    let parts: Vec<String> = supers.iter().cloned().chain(own.clone()).collect();
+    let parts = if parts.is_empty() { vec!["Readonly<Record<string, never>>".to_string()] } else { parts };
+    let line = format!("{head}{};", parts.join(" & "));
+    let mut out = jsdoc(&t.doc, "");
+    if line.len() <= crate::WIDTH && members.iter().all(|(_, d)| d.is_none()) {
+        out.push_str(&line);
+    } else {
+        let mut record = String::from("Readonly<{\n");
+        for (m, d) in &members {
+            record.push_str(&jsdoc(d, "  "));
+            record.push_str(&format!("  {m};\n"));
+        }
+        record.push_str("}>");
+        let lead: String = supers.iter().map(|s| format!("{s} & ")).collect();
+        out.push_str(&format!("{head}{lead}{record};"));
+    }
+    out.push_str("\n\n");
+    out.push_str(&format!("export const {name} = {{\n"));
+    out.push_str(&companion_methods(krate, name));
+    out
+}
+
 pub(crate) fn emit_free_fn(f: &Fn) -> String {
     jsdoc(&f.doc, "")
         + &format!(

@@ -119,6 +119,13 @@ pub struct Cx {
     /// The lines of the file whose items are being lowered, to find the
     /// `//` lines above an item.
     source: std::cell::RefCell<Vec<String>>,
+    /// The crate's traits, by name (design/01 §7.25).
+    pub(crate) traits: HashMap<String, syn::ItemTrait>,
+    /// Each `impl Tr for X` of a crate trait, in source order: the trait's
+    /// name and the impl.
+    pub(crate) trait_impls: Vec<(String, syn::ItemImpl)>,
+    /// The methods of inherent `impl` blocks, by type and name.
+    pub(crate) inherent: HashSet<(String, String)>,
 }
 
 /// A struct pattern `S { f: p, .. }` lowered as a binding of `name`, its
@@ -140,6 +147,9 @@ impl Cx {
         let mut variants = HashSet::new();
         let mut assoc_consts = HashSet::new();
         let mut partial_ord = HashSet::new();
+        let mut traits = HashMap::new();
+        let mut trait_impls = Vec::new();
+        let mut inherent = HashSet::new();
         for item in items {
             match item {
                 SynItem::Impl(imp) if imp.trait_.is_none() => {
@@ -149,9 +159,20 @@ impl Cx {
                                 if let syn::ImplItem::Const(c) = member {
                                     assoc_consts.insert((ty.ident.to_string(), c.ident.to_string()));
                                 }
+                                if let syn::ImplItem::Fn(f) = member {
+                                    inherent.insert((ty.ident.to_string(), f.sig.ident.to_string()));
+                                }
                             }
                         }
                     }
+                }
+                SynItem::Impl(imp) => {
+                    if let Some(name) = imp.trait_.as_ref().and_then(|(_, path, _)| path.get_ident()) {
+                        trait_impls.push((name.to_string(), imp.clone()));
+                    }
+                }
+                SynItem::Trait(t) => {
+                    traits.insert(t.ident.to_string(), t.clone());
                 }
                 SynItem::Enum(e) => {
                     if derives(&e.attrs).iter().any(|d| d == "PartialOrd") {
@@ -172,6 +193,16 @@ impl Cx {
                 _ => {}
             }
         }
+        // A trait's consts are read through each implementing type
+        // (`Item::N`), declared in the impl or taken from the default.
+        trait_impls.retain(|(name, _)| traits.contains_key(name));
+        for (name, imp) in &trait_impls {
+            if let Some(ty) = crate::traits::impl_owner(imp) {
+                for c in crate::traits::consts_of(&traits[name]) {
+                    assoc_consts.insert((ty.to_string(), c.ident.to_string()));
+                }
+            }
+        }
         Self {
             enums,
             structs,
@@ -179,6 +210,9 @@ impl Cx {
             variants,
             assoc_consts,
             partial_ord,
+            traits,
+            trait_impls,
+            inherent,
             fresh: std::cell::Cell::new(0),
             recovered: std::cell::RefCell::new(None),
             local_consts: std::cell::RefCell::new(Vec::new()),
@@ -242,6 +276,11 @@ impl Cx {
 
     pub fn is_struct(&self, name: &str) -> bool {
         self.structs.contains(name)
+    }
+
+    /// `name` is a trait of the crate.
+    pub fn is_trait(&self, name: &str) -> bool {
+        self.traits.contains_key(name)
     }
 
     pub fn enum_for_variant(&self, variant: &str) -> Option<String> {
@@ -311,7 +350,7 @@ impl Cx {
 
 /// Attributes that would make the emitted TS disagree with the Rust build if
 /// they were dropped. Everything else (`derive`, `doc`, lints) is inert here.
-fn reject_attrs<'a>(attrs: impl IntoIterator<Item = &'a syn::Attribute>) -> Result<(), ParseError> {
+pub(crate) fn reject_attrs<'a>(attrs: impl IntoIterator<Item = &'a syn::Attribute>) -> Result<(), ParseError> {
     for attr in attrs {
         let path = attr.path();
         let (reason, message) = if path.is_ident("serde") {
@@ -365,6 +404,7 @@ fn item_attrs(item: &SynItem) -> &[syn::Attribute] {
         SynItem::Use(u) => &u.attrs,
         SynItem::Mod(m) => &m.attrs,
         SynItem::Const(c) => &c.attrs,
+        SynItem::Trait(t) => &t.attrs,
         _ => &[],
     }
 }
@@ -378,13 +418,14 @@ pub(crate) fn item_ident(item: &SynItem) -> Option<&syn::Ident> {
         SynItem::Fn(f) => Some(&f.sig.ident),
         SynItem::Type(t) => Some(&t.ident),
         SynItem::Const(c) => Some(&c.ident),
+        SynItem::Trait(t) => Some(&t.ident),
         _ => None,
     }
 }
 
 /// The text of `///` and `/** */` comments (`#[doc = "..."]`), one line
 /// each, less the one space after `///`; `None` without any.
-fn doc(attrs: &[syn::Attribute]) -> Option<String> {
+pub(crate) fn doc(attrs: &[syn::Attribute]) -> Option<String> {
     let mut lines = Vec::new();
     for attr in attrs.iter().filter(|a| a.path().is_ident("doc")) {
         let syn::Meta::NameValue(nv) = &attr.meta else { continue };
@@ -486,6 +527,11 @@ pub fn lower_item(cx: &mut Cx, item: SynItem) -> Result<Vec<(Item, LineCol)>, Pa
             .filter(|a| !(matches!(item, SynItem::Struct(_) | SynItem::Enum(_)) && a.path().is_ident("serde"))),
     )?;
     let items = lower_item_node(cx, item).map_err(|e| e.or_at(span))?;
+    // A trait's default bodies, and the consts an impl takes from the
+    // trait's defaults, are at the item.
+    let mut names = names;
+    let at = names.first().copied().unwrap_or(LineCol::of(span));
+    names.resize(items.len().max(names.len()), at);
     Ok(items.into_iter().zip(names).collect())
 }
 
@@ -497,13 +543,14 @@ fn lower_item_node(cx: &mut Cx, item: SynItem) -> Result<Vec<Item>, ParseError> 
             Ok(std::iter::once(Item::Enum(lowered)).chain(default.map(Item::Fn)).collect())
         }
         SynItem::Struct(s) => {
-            let lowered = lower_struct(&s)?;
+            let lowered = lower_struct(cx, &s)?;
             let default = derived_default(&s.attrs, &lowered.name, !lowered.generics.is_empty(), || {
                 Ok(struct_default(&lowered))
             })?;
             Ok(std::iter::once(Item::Struct(lowered)).chain(default.map(Item::Fn)).collect())
         }
         SynItem::Fn(f) => Ok(vec![Item::Fn(lower_fn(cx, None, &f.sig, &f.vis, &f.block, &f.attrs)?)]),
+        SynItem::Trait(t) => crate::traits::lower_trait(cx, &t),
         SynItem::Type(t) => {
             if !has_type_generics(&t.generics) {
                 Ok(vec![Item::Alias(Alias {
@@ -536,15 +583,15 @@ fn lower_const(cx: &Cx, c: &syn::ItemConst) -> Result<Const, ParseError> {
 }
 
 /// What an item `const` and an associated one have in common.
-struct ConstParts<'a> {
-    vis: &'a Visibility,
-    ident: &'a syn::Ident,
-    generics: &'a syn::Generics,
-    ty: &'a syn::Type,
-    expr: &'a syn::Expr,
+pub(crate) struct ConstParts<'a> {
+    pub vis: &'a Visibility,
+    pub ident: &'a syn::Ident,
+    pub generics: &'a syn::Generics,
+    pub ty: &'a syn::Type,
+    pub expr: &'a syn::Expr,
 }
 
-fn lower_const_parts(
+pub(crate) fn lower_const_parts(
     cx: &Cx,
     owner: Option<Name>,
     c: ConstParts<'_>,
@@ -589,7 +636,7 @@ fn enum_repr(attrs: &[syn::Attribute]) -> Result<Option<IntTy>, ParseError> {
 }
 
 fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
-    let generics = type_params(&e.generics)?;
+    let (generics, _) = type_params(cx, &e.generics, Bounded::Type)?;
     let _scope = crate::ty::ParamScope::enter(&generics);
     if e.variants.is_empty() {
         return Err(ParseError::new(
@@ -642,8 +689,8 @@ fn lower_enum(cx: &Cx, e: &syn::ItemEnum) -> Result<Enum, ParseError> {
     })
 }
 
-fn lower_struct(s: &syn::ItemStruct) -> Result<Struct, ParseError> {
-    let generics = type_params(&s.generics)?;
+fn lower_struct(cx: &Cx, s: &syn::ItemStruct) -> Result<Struct, ParseError> {
+    let (generics, _) = type_params(cx, &s.generics, Bounded::Type)?;
     let _scope = crate::ty::ParamScope::enter(&generics);
     let container = serde_attrs(&s.attrs, Place::Struct)?;
     let closed = s.fields.iter().any(|f| lower_vis(&f.vis) != Vis::Pub);
@@ -706,10 +753,28 @@ fn lower_fields(fields: &SynFields, rule: Option<RenameRule>) -> Result<VariantF
     }
 }
 
+/// The type a method is folded onto: its name, its type as `self` has it,
+/// and the `impl`'s type parameters with the bounds that carry a
+/// dictionary (design/01 §7.25).
+pub(crate) struct Owner {
+    pub name: Name,
+    pub ty: purecrate_ir::Ty,
+    pub generics: Vec<Name>,
+    pub bounds: Vec<(Name, Name)>,
+}
+
+impl Owner {
+    pub fn plain(name: Name, ty: purecrate_ir::Ty, generics: Vec<Name>) -> Self {
+        Owner { name, ty, generics, bounds: Vec::new() }
+    }
+}
+
 /// Free function (`owner: None`) or method folded onto `owner`'s companion.
-fn lower_fn(
+/// Each bound that carries a dictionary, the owner's then the function's,
+/// adds one parameter after the others (`pricedT: Priced<T>`).
+pub(crate) fn lower_fn(
     cx: &Cx,
-    owner: Option<(Name, purecrate_ir::Ty, Vec<Name>)>,
+    owner: Option<Owner>,
     sig: &syn::Signature,
     vis: &Visibility,
     block: &syn::Block,
@@ -727,15 +792,24 @@ fn lower_fn(
     if let Some(abi) = &sig.abi {
         return reject("extern abi", abi.span());
     }
-    let own = type_params(&sig.generics).map_err(|e| e.or_at(sig.generics.span()))?;
+    crate::traits::refuse_impl_return(&sig.output)?;
+    // `impl Tr` as a parameter's type: an anonymous type parameter.
+    let sig = &crate::traits::impl_params(cx, sig);
+    let (own, own_bounds) = type_params(cx, &sig.generics, Bounded::Fn).map_err(|e| e.or_at(sig.generics.span()))?;
     let _scope = crate::ty::ParamScope::enter(&own);
-    let (owner, owner_ty, outer) = match owner {
-        Some((name, ty, outer)) => (Some(name), Some(ty), outer),
-        None => (None, None, Vec::new()),
+    let (owner, owner_ty, outer, outer_bounds) = match owner {
+        Some(o) => (Some(o.name), Some(o.ty), o.generics, o.bounds),
+        None => (None, None, Vec::new(), Vec::new()),
     };
     let mut params = Vec::new();
     for input in &sig.inputs {
         params.push(lower_param(owner_ty.as_ref(), input).map_err(|e| e.or_at(input.span()))?);
+    }
+    for (param, trait_) in outer_bounds.iter().chain(&own_bounds) {
+        params.push(Param {
+            name: purecrate_ir::dict_param(trait_.as_str(), param.as_str()),
+            ty: purecrate_ir::dict_ty(trait_, purecrate_ir::Ty::Param(param.clone())),
+        });
     }
     let ret = match &sig.output {
         syn::ReturnType::Default => purecrate_ir::Ty::Prim(purecrate_ir::Prim::Unit),
@@ -754,7 +828,7 @@ fn lower_fn(
     })
 }
 
-fn lower_param(owner: Option<&purecrate_ir::Ty>, input: &syn::FnArg) -> Result<Param, ParseError> {
+pub(crate) fn lower_param(owner: Option<&purecrate_ir::Ty>, input: &syn::FnArg) -> Result<Param, ParseError> {
     match input {
         syn::FnArg::Receiver(r) => match owner {
             Some(_) if r.reference.is_some() && r.mutability.is_some() => Err(ParseError::new(
@@ -1075,7 +1149,7 @@ fn lower_try_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) ->
                 SelfError(&error).visit_impl_item_fn_mut(&mut f);
                 SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
-                let owned = (owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
+                let owned = Owner::plain(owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
                 let lowered =
                     lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
@@ -1135,7 +1209,7 @@ fn lower_from(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Res
     f.sig.ident = syn::Ident::new(&member, f.sig.ident.span());
     SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
     let public = Visibility::Public(Default::default());
-    let owned = (owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
+    let owned = Owner::plain(owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
     Ok(vec![Item::Fn(lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(f.span()))?)])
 }
 
@@ -1154,7 +1228,7 @@ fn lower_default(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
     SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
     let owner = Name::new(owner_ident.to_string());
     let public = Visibility::Public(Default::default());
-    let owned = (owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
+    let owned = Owner::plain(owner.clone(), purecrate_ir::Ty::Named(owner), Vec::new());
     Ok(vec![Item::Fn(lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(f.span()))?)])
 }
 
@@ -1260,7 +1334,7 @@ fn lower_ord(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> Resu
                 let mut f = f.clone();
                 SelfIsOwner(owner_ident, None).visit_impl_item_fn_mut(&mut f);
                 let public = Visibility::Public(Default::default());
-                let owned = (owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
+                let owned = Owner::plain(owner.clone(), purecrate_ir::Ty::Named(owner.clone()), Vec::new());
                 let lowered =
                     lower_fn(cx, Some(owned), &f.sig, &public, &f.block, &f.attrs).map_err(|e| e.or_at(item.span()))?;
                 out.push(Item::Fn(lowered));
@@ -1344,6 +1418,10 @@ impl VisitMut for SelfError<'_> {
 }
 
 fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> {
+    if let Some(name) = imp.trait_.as_ref().and_then(|(_, path, _)| path.get_ident()).filter(|n| cx.is_trait(&n.to_string())) {
+        let name = name.clone();
+        return crate::traits::lower_trait_impl(cx, &imp, &name);
+    }
     let kind = match &imp.trait_ {
         None => None,
         Some((_, path, _)) if path.segments.last().is_some_and(|s| s.ident == "Into") => {
@@ -1355,7 +1433,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
         Some((_, path, _)) => Some(trait_impl(path).ok_or_else(|| {
             ParseError::new(
                 Reason::TraitImpl,
-                "trait impls are not in v0, except `Display`, `Error` (skipped), `TryFrom<T>`, `From<S>`, `Default`, `Ord`, and `PartialOrd`",
+                "trait impls are not in v0, except `Display`, `Error` (skipped), `TryFrom<T>`, `From<S>`, `Default`, `Ord`, and `PartialOrd`, and of the crate's own traits",
             )
         })?),
     };
@@ -1374,7 +1452,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             "a generic trait impl is not in v0; write an inherent `impl<T> S<T>`",
         ));
     }
-    let outer = type_params(&imp.generics)?;
+    let (outer, outer_bounds) = type_params(cx, &imp.generics, Bounded::Fn)?;
     let _scope = crate::ty::ParamScope::enter(&outer);
     let owner_ty = crate::ty::lower_type(&imp.self_ty)?;
     let owner_ident = match &*imp.self_ty {
@@ -1434,7 +1512,12 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
             syn::ImplItem::Fn(f) => reject_attrs(&f.attrs).and_then(|()| {
                 let mut f = f.clone();
                 SelfIsOwner(&owner_ident, Some(&imp.self_ty)).visit_impl_item_fn_mut(&mut f);
-                let owned = (owner.clone(), owner_ty.clone(), outer.clone());
+                let owned = Owner {
+                    name: owner.clone(),
+                    ty: owner_ty.clone(),
+                    generics: outer.clone(),
+                    bounds: outer_bounds.clone(),
+                };
                 lower_fn(cx, Some(owned), &f.sig, &f.vis, &f.block, &f.attrs).map(Item::Fn)
             }),
             // A member of the companion, read as `T::N` (`Self::N` here).
@@ -1455,7 +1538,7 @@ fn lower_impl(cx: &mut Cx, imp: syn::ItemImpl) -> Result<Vec<Item>, ParseError> 
 /// Rewrites `Self` to the impl's type name in types, paths and patterns;
 /// as a type, to the impl's whole type (`Page<T>`) where it is given.
 /// Nested items keep their own `Self`.
-struct SelfIsOwner<'a>(&'a syn::Ident, Option<&'a syn::Type>);
+pub(crate) struct SelfIsOwner<'a>(pub &'a syn::Ident, pub Option<&'a syn::Type>);
 
 impl VisitMut for SelfIsOwner<'_> {
     fn visit_type_mut(&mut self, ty: &mut syn::Type) {
@@ -1510,14 +1593,51 @@ impl VisitMut for SelfIsOwner<'_> {
 /// `Ord` / `Debug`, accepted but not usable on a `T` (design/01 §7.20).
 const BOUNDS: &[&str] = &["Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Debug"];
 
+/// Where type parameters are declared: a struct's or enum's may not have
+/// a bound that carries a dictionary (design/01 §7.25); an `impl`'s and a
+/// function's may.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bounded {
+    Type,
+    Fn,
+}
+
+/// A bound that carries a dictionary: a crate trait, or one of
+/// `STD_DICT_TRAITS`.
+fn carries_dict(cx: &Cx, name: &str) -> bool {
+    cx.is_trait(name) || purecrate_ir::STD_DICT_TRAITS.contains(&name)
+}
+
 /// The type parameters of an item, their bounds checked; lifetimes skipped.
-fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
-    let bounded = |bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>| {
+/// Also each (parameter, trait) whose bound carries a dictionary, each
+/// parameter's in the order written (on the parameter, then in `where`).
+pub(crate) fn type_params(
+    cx: &Cx,
+    generics: &syn::Generics,
+    at: Bounded,
+) -> Result<(Vec<Name>, Vec<(Name, Name)>), ParseError> {
+    let mut dicts: Vec<(Name, Name)> = Vec::new();
+    let mut bounded = |param: &Name, bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>| {
         for b in bounds {
             match b {
                 syn::TypeParamBound::Trait(t)
                     if matches!(t.modifier, syn::TraitBoundModifier::None)
                         && t.path.get_ident().is_some_and(|i| BOUNDS.contains(&i.to_string().as_str())) => {}
+                syn::TypeParamBound::Trait(t)
+                    if matches!(t.modifier, syn::TraitBoundModifier::None)
+                        && t.path.get_ident().is_some_and(|i| carries_dict(cx, &i.to_string())) =>
+                {
+                    let name = t.path.get_ident().expect("checked by the guard").to_string();
+                    if at == Bounded::Type {
+                        return Err(ParseError::new(
+                            Reason::Generics,
+                            format!(
+                                "the bound `{name}` on a struct's or enum's type parameter is not in v0 (design/01 §7.25): put it on the `impl` or the function that calls the trait's methods"
+                            ),
+                        ));
+                    }
+                    dicts.push((param.clone(), Name::new(name)));
+                }
                 syn::TypeParamBound::Lifetime(_) => {}
                 syn::TypeParamBound::Trait(t)
                     if t.path.segments.last().is_some_and(|s| s.ident == "Into" || s.ident == "From") =>
@@ -1534,7 +1654,7 @@ fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
                     return Err(ParseError::new(
                         Reason::Generics,
                         format!(
-                            "the bound {} is not in v0: a type parameter may be bounded by `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`",
+                            "the bound {} is not in v0: a type parameter may be bounded by a trait of the crate, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Debug`",
                             snippet(other)
                         ),
                     ))
@@ -1556,8 +1676,9 @@ fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
                         ParseError::new(Reason::Generics, "a type parameter's default is not in v0").or_at(t.span())
                     );
                 }
-                bounded(&t.bounds)?;
-                names.push(Name::new(t.ident.to_string()));
+                let name = Name::new(t.ident.to_string());
+                bounded(&name, &t.bounds)?;
+                names.push(name);
             }
         }
     }
@@ -1565,7 +1686,9 @@ fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
         for pred in &w.predicates {
             match pred {
                 syn::WherePredicate::Type(t) if matches!(&t.bounded_ty, syn::Type::Path(p) if p.path.get_ident().is_some_and(|i| names.iter().any(|n| i == n.as_str()))) => {
-                    bounded(&t.bounds)?
+                    let syn::Type::Path(p) = &t.bounded_ty else { unreachable!("checked by the guard") };
+                    let name = Name::new(p.path.get_ident().expect("checked by the guard").to_string());
+                    bounded(&name, &t.bounds)?
                 }
                 syn::WherePredicate::Lifetime(_) => {}
                 other => {
@@ -1580,7 +1703,10 @@ fn type_params(generics: &syn::Generics) -> Result<Vec<Name>, ParseError> {
             }
         }
     }
-    Ok(names)
+    // Each parameter's dictionaries in the order the parameters are written.
+    let dicts =
+        names.iter().flat_map(|n| dicts.iter().filter(move |(p, _)| p == n).cloned()).collect::<Vec<(Name, Name)>>();
+    Ok((names, dicts))
 }
 
 /// Lifetimes only relate references, which lower to plain values.
@@ -1588,7 +1714,7 @@ fn has_type_generics(generics: &syn::Generics) -> bool {
     generics.params.iter().any(|p| !matches!(p, syn::GenericParam::Lifetime(_)))
 }
 
-fn lower_vis(vis: &Visibility) -> Vis {
+pub(crate) fn lower_vis(vis: &Visibility) -> Vis {
     match vis {
         Visibility::Public(_) => Vis::Pub,
         _ => Vis::Internal,

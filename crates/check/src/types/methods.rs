@@ -266,9 +266,16 @@ impl<'d, 'a> Typer<'d, 'a> {
                 return self.str_method(m, recv, args, want);
             }
         }
+        // On a value of a type parameter: through its bounds (design/01 §7.25).
+        if let Some(Ty::Param(p)) = &nt {
+            if let Some(typed) = self.bound_method(p, name, recv.clone(), args, want) {
+                return typed;
+            }
+        }
         let owner = nt.as_ref().and_then(|t| match t.applied() {
             Some((n, _)) => {
-                let params = self.defs.methods.get(&(n.as_str(), name.as_str())).map(|f| f.params.len());
+                let f = self.defs.methods.get(&(n.as_str(), name.as_str()));
+                let params = f.map(|f| self.defs.written_params(f).len());
                 params.map(|p| (n.clone(), p))
             }
             None => None,
@@ -513,19 +520,21 @@ impl<'d, 'a> Typer<'d, 'a> {
         args: &[Expr],
         want: Option<&Ty>,
     ) -> Typed {
-        let (param_tys, ret) = sig(f);
+        let param_tys: Vec<Ty> = self.defs.written_params(f).into_iter().map(|p| p.ty.clone()).collect();
         let mut binds = Vec::new();
         if let Some(first) = param_tys.first() {
             self.unify(first, rt, &f.generics, &mut binds);
         }
         let what = format!("`{}.{}`", ty.as_str(), name.as_str());
-        let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
-        let (rest, t) =
-            self.generic_args(&what, &f.generics, binds, param_tys.get(1..).unwrap_or(&[]), args, &ret, want);
-        let e = Expr::Call {
-            callee: Callee::Method { ty, name: name.clone() },
-            args: std::iter::once(recv).chain(rest).collect(),
+        let ret = f.ret.clone();
+        let (rest, t, binds) =
+            self.generic_args_binds(&what, &f.generics, binds, param_tys.get(1..).unwrap_or(&[]), args, &ret, want);
+        let written: Vec<Expr> = std::iter::once(recv).chain(rest).collect();
+        let args = match t {
+            Some(_) if !traits::is_default_body(self.defs, f) => self.with_dicts(f, written, &binds),
+            _ => written,
         };
+        let e = Expr::Call { callee: Callee::Method { ty, name: name.clone() }, args };
         (e, self.expect(want, t))
     }
 

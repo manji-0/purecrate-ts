@@ -30,15 +30,23 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
     // `<T>(x: T): T => ..`: a generic function's type parameters. One its
     // signature names once and its body never is `unknown` there, as lint
     // asks (`len(self: Page<unknown>)`): nothing relates it to another type.
+    // One a dictionary is over is kept, as the dictionary relates it to the
+    // trait's (`dict: Priced<Self>`).
+    let in_dict = |g: &Name| {
+        f.params.iter().any(|p| matches!(&p.ty, Ty::App { name, args } if is_trait(name.as_str()) && count_param(&args[0], g) > 0))
+    };
     let once: Vec<(Name, Ty)> = f
         .generics
         .iter()
+        .filter(|g| !in_dict(g))
         .filter(|g| {
             let named = |t: &Ty| count_param(t, g);
             let uses: usize = f.params.iter().map(|p| named(&p.ty)).sum::<usize>() + named(&f.ret);
             uses == 1 && !body_names_param(&f.body, g)
         })
-        .map(|g| (g.clone(), Ty::Named(Name::new("unknown"))))
+        // In the result alone (`zero: (): Bag<never>`), `never`, which any
+        // instantiation takes, as a constructor's unused parameter is.
+        .map(|g| (g.clone(), if count_param(&f.ret, g) == 1 { Ty::Never } else { Ty::Named(Name::new("unknown")) }))
         .collect();
     let kept: Vec<&Name> = f.generics.iter().filter(|g| !once.iter().any(|(o, _)| o == *g)).collect();
     let generics = if kept.is_empty() {
@@ -601,6 +609,8 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
             call(&private_method(ty.as_str(), name.as_str()), args, indent)
         }
         C::Method { ty, name } => call(&format!("{}.{}", ty.as_str(), name.as_str()), args, indent),
+        // `pricedT.price(x)`: the dictionary, then the method's arguments.
+        C::Dict { name } => call(&format!("{}.{}", recv(&args[0], indent), name.as_str()), &args[1..], indent),
         C::StructNew(n) if is_closed(n.as_str()) => call(&closed_ctor(n.as_str()), args, indent),
         C::StructNew(n) => call(&format!("{}.of", n.as_str()), args, indent),
         C::Into | C::Default { .. } => unreachable!("`check::accept` rewrites `{callee:?}`"),

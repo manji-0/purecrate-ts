@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Name, Struct, Ty, Variant, VariantFields};
+use purecrate_ir::{Alias, Const, Crate, Enum, Fn, Item, Name, Struct, Trait, TraitMethod, Ty, Variant, VariantFields};
 
 /// Where `Defs::expand` looks through `Box` and the other erased wrappers.
 #[derive(Clone, Copy)]
@@ -21,6 +21,8 @@ pub struct Defs<'a> {
     pub methods: HashMap<(&'a str, &'a str), &'a Fn>,
     /// By `Const::path`: `N`, or `T::N` for an associated const.
     pub consts: HashMap<String, &'a Const>,
+    /// The crate's traits (design/01 §7.25).
+    pub traits: HashMap<&'a str, &'a Trait>,
 }
 
 impl<'a> Defs<'a> {
@@ -32,6 +34,7 @@ impl<'a> Defs<'a> {
             free_fns: HashMap::new(),
             methods: HashMap::new(),
             consts: HashMap::new(),
+            traits: HashMap::new(),
         };
         for item in &krate.items {
             match item {
@@ -55,9 +58,75 @@ impl<'a> Defs<'a> {
                         d.free_fns.insert(f.name.as_str(), f);
                     }
                 },
+                Item::Trait(t) => {
+                    d.traits.insert(t.name.as_str(), t);
+                }
+            }
+        }
+        // A default the impl does not write is the type's method too: the
+        // trait's body, its `Self` the type's (`X.m` calls `Tr.m(X, ..)`).
+        let traits: Vec<&'a Trait> = d.traits.values().copied().collect();
+        for t in traits {
+            for imp in &t.impls {
+                for m in t.methods.iter().filter(|m| m.default) {
+                    let key = (imp.owner().as_str(), m.name.as_str());
+                    if !d.methods.contains_key(&key) {
+                        if let Some(f) = d.methods.get(&(t.name.as_str(), m.name.as_str())).copied() {
+                            d.methods.insert(key, f);
+                        }
+                    }
+                }
             }
         }
         d
+    }
+
+    /// The trait and the dictionary's type of a dictionary parameter's
+    /// type, `Priced<T>`: a crate trait's, or one of `STD_DICT_TRAITS`.
+    pub fn dict_of<'t>(&self, ty: &'t Ty) -> Option<(&'t Name, &'t Ty)> {
+        match ty {
+            Ty::App { name, args } if args.len() == 1 => {
+                let named = self.traits.contains_key(name.as_str())
+                    || purecrate_ir::STD_DICT_TRAITS.contains(&name.as_str());
+                named.then(|| (name, &args[0]))
+            }
+            _ => None,
+        }
+    }
+
+    /// The parameters a call writes: `f`'s, less its dictionaries.
+    pub fn written_params<'f>(&self, f: &'f Fn) -> Vec<&'f purecrate_ir::Param> {
+        f.params.iter().filter(|p| self.dict_of(&p.ty).is_none()).collect()
+    }
+
+    /// `trait_` and its supertraits, each once, the trait first.
+    pub fn trait_and_supers(&self, trait_: &str) -> Vec<&'a Trait> {
+        let mut out: Vec<&'a Trait> = Vec::new();
+        let mut todo = vec![trait_.to_string()];
+        while let Some(name) = todo.pop() {
+            let Some(t) = self.traits.get(name.as_str()).copied() else { continue };
+            if out.iter().any(|o| o.name == t.name) {
+                continue;
+            }
+            out.push(t);
+            todo.extend(t.supertraits.iter().rev().map(|s| s.as_str().to_string()));
+        }
+        out
+    }
+
+    /// The method `name` of `trait_` or one of its supertraits.
+    pub fn trait_method(&self, trait_: &str, name: &str) -> Option<&'a TraitMethod> {
+        self.trait_and_supers(trait_).into_iter().find_map(|t| t.methods.iter().find(|m| m.name.as_str() == name))
+    }
+
+    /// The const `name` of `trait_` or one of its supertraits.
+    pub fn trait_const(&self, trait_: &str, name: &str) -> Option<&'a purecrate_ir::TraitConst> {
+        self.trait_and_supers(trait_).into_iter().find_map(|t| t.consts.iter().find(|c| c.name.as_str() == name))
+    }
+
+    /// `sub` is `sup` or has it among its supertraits.
+    pub fn extends(&self, sub: &str, sup: &str) -> bool {
+        self.trait_and_supers(sub).iter().any(|t| t.name.as_str() == sup)
     }
 
     /// How many type parameters a struct or enum has; `None` when `name` is

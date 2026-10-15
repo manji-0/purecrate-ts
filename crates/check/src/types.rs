@@ -13,7 +13,7 @@
 use purecrate_ir::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Const, Consume, Crate, Expr, Fields, FloatMethod, FloatTy,
     FmtAlign, FmtPiece, FmtSpec, Fn, IntMethod, IntOp, IntTy, Item, Lit, Name, Over, Pattern, Pick, Prim, Reason,
-    SliceOf, Sort, StrMethod, TreeOp, TryOn, Ty, UnOp, VariantBind, VariantFields,
+    SliceOf, Sort, StrMethod, TraitMethod, TreeOp, TryOn, Ty, UnOp, VariantBind, VariantFields,
 };
 
 use crate::defs::{Defs, Peel};
@@ -30,6 +30,7 @@ mod option_result;
 mod ordering;
 mod patterns;
 mod prim;
+mod traits;
 mod tree;
 
 use crate::Diagnostic;
@@ -117,6 +118,8 @@ struct Typer<'d, 'a> {
     /// looked for in (`Let`): each one's index in `scopes`, and the first
     /// integer type a use asks of it.
     open: Vec<(usize, Option<Ty>)>,
+    /// The dictionaries the function takes (design/01 §7.25).
+    dicts: Vec<traits::Dict>,
 }
 
 type Typed = (Expr, Option<Ty>);
@@ -135,6 +138,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             fresh: 0,
             loops: Vec::new(),
             open: Vec::new(),
+            dicts: Vec::new(),
         }
     }
 
@@ -144,6 +148,7 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     fn func(mut self, f: &Fn) -> Fn {
         self.ret = f.ret.clone();
+        self.dicts = self.dicts_of(f);
         self.scopes = f.params.iter().map(|p| (p.name.as_str().to_string(), Some(p.ty.clone()))).collect();
         let ret = f.ret.clone();
         let (body, _) = self.expr(&f.body, Some(&ret));
@@ -187,6 +192,9 @@ impl<'d, 'a> Typer<'d, 'a> {
     #[inline(never)]
     fn field_ty(&self, base: &Ty, name: &Name) -> Option<Ty> {
         let base = self.norm(base);
+        if let Some(t) = self.dict_field(&base, name) {
+            return Some(t);
+        }
         let binds = self.bindings_of(&base);
         let (s, _) = base.applied()?;
         let st = self.defs.structs.get(s.as_str())?;
@@ -282,6 +290,15 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (Expr::Ignored { wrapper: *wrapper, expr: Box::new(expr) }, ty)
             }
             Expr::Lit(lit) => self.lit(lit, false, want),
+            Expr::Var(n) if !self.is_local(n.as_str()) && purecrate_ir::split_assoc_path(n.as_str()).is_some() => {
+                match self.bound_const(n.as_str(), want) {
+                    Some(typed) => typed,
+                    None => {
+                        let t = self.defs.consts.get(n.as_str()).map(|c| c.ty.clone());
+                        (expr.clone(), self.expect(want, t))
+                    }
+                }
+            }
             Expr::Var(n) => {
                 if let (Some(slot), Some(w)) = (self.open_slot(n.as_str()), want) {
                     if int_of(&self.norm(w)).is_some() {

@@ -101,6 +101,7 @@ mod struct_patterns_equivalence;
 mod survey;
 mod syntax_safety_equivalence;
 mod test_command;
+mod traits_equivalence;
 mod tuple_match_equivalence;
 mod ulid_equivalence;
 mod unused_equivalence;

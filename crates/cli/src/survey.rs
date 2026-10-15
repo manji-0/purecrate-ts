@@ -122,6 +122,10 @@ pub fn survey(
                 *others.entry("trait impl").or_insert(0) += 1;
                 continue;
             }
+            UnitKind::Trait => {
+                *others.entry("trait").or_insert(0) += 1;
+                continue;
+            }
         };
         if !unit.public {
             continue;
@@ -169,7 +173,7 @@ impl Index {
         };
         for (i, u) in units.iter().enumerate() {
             match &u.kind {
-                UnitKind::Struct | UnitKind::Enum | UnitKind::Alias => {
+                UnitKind::Struct | UnitKind::Enum | UnitKind::Alias | UnitKind::Trait => {
                     index.types.entry(u.name.clone()).or_default().push(i)
                 }
                 UnitKind::Fn => index.fns.entry(u.name.clone()).or_default().push(i),
@@ -347,6 +351,17 @@ fn references(item: &Item) -> Vec<Ref> {
             ty_refs(&c.ty, &mut out);
             expr_refs(&c.value, &mut out);
         }
+        Item::Trait(t) => {
+            t.supertraits.iter().for_each(|s| out.push(Ref::Type(s.as_str().to_string())));
+            for m in &t.methods {
+                m.params.iter().for_each(|p| ty_refs(&p.ty, &mut out));
+                ty_refs(&m.ret, &mut out);
+                if m.default {
+                    out.push(Ref::Method(t.name.as_str().to_string(), m.name.as_str().to_string()));
+                }
+            }
+            t.consts.iter().for_each(|c| ty_refs(&c.ty, &mut out));
+        }
     }
     out
 }
@@ -363,6 +378,11 @@ fn ordered_refs(order: Order, out: &mut Vec<Ref>) {
 fn ty_refs(ty: &Ty, out: &mut Vec<Ref>) {
     match ty {
         Ty::Named(n) => out.push(Ref::Type(n.as_str().to_string())),
+        // A bound's dictionary, `Priced<T>`, needs the trait.
+        Ty::App { name, args } => {
+            out.push(Ref::Type(name.as_str().to_string()));
+            args.iter().for_each(|t| ty_refs(t, out));
+        }
         ty => ty.children().into_iter().for_each(|t| ty_refs(t, out)),
     }
 }

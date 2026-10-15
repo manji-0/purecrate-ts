@@ -636,6 +636,10 @@ impl Refs {
             Expr::Var(n) if is_const(krate, n.as_str()) => {
                 self.values.insert(n.as_str().to_string());
             }
+            // A type's companion as the dictionary a call passes.
+            Expr::Var(n) if is_companion(krate, n.as_str()) => {
+                self.values.insert(n.as_str().to_string());
+            }
             // An associated const, from its type's file.
             Expr::Var(n) => match purecrate_ir::split_assoc_path(n.as_str()) {
                 Some((ty, name)) if private_in(krate, ty, name) => {
@@ -680,6 +684,11 @@ pub(crate) fn is_const(krate: &Crate, name: &str) -> bool {
     krate.items.iter().any(|item| matches!(item, Item::Const(c) if c.owner.is_none() && c.name.as_str() == name))
 }
 
+/// A struct or enum of the crate is named `name`: its companion.
+pub(crate) fn is_companion(krate: &Crate, name: &str) -> bool {
+    krate.items.iter().any(|item| matches!(item, Item::Struct(_) | Item::Enum(_)) && item.name().as_str() == name)
+}
+
 pub(crate) fn is_free_fn(krate: &Crate, name: &str) -> bool {
     krate.items.iter().any(|item| matches!(item, Item::Fn(f) if f.owner.is_none() && f.name.as_str() == name))
 }
@@ -703,6 +712,15 @@ fn refs_of(krate: &Crate, items: &[&Item]) -> Refs {
                 methods_on(krate, en.name.as_str()).into_iter().for_each(|m| refs.fn_sig_and_body(krate, m));
             }
             Item::Alias(al) => refs.ty(&al.ty),
+            Item::Trait(t) => {
+                t.supertraits.iter().for_each(|s| refs.ty(&Ty::Named(s.clone())));
+                for m in &t.methods {
+                    m.params.iter().for_each(|p| refs.ty(&p.ty));
+                    refs.ty(&m.ret);
+                }
+                t.consts.iter().for_each(|c| refs.ty(&c.ty));
+                methods_on(krate, t.name.as_str()).into_iter().for_each(|m| refs.fn_sig_and_body(krate, m));
+            }
             Item::Const(c) => {
                 refs.ty(&c.ty);
                 refs.expr(krate, &c.value);

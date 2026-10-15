@@ -1197,7 +1197,7 @@ fn to_json(krate: &Crate, chunks: &mut Vec<Chunk>) {
                     })
                     .collect(),
             ),
-            Item::Alias(_) | Item::Fn(_) | Item::Const(_) => continue,
+            Item::Alias(_) | Item::Fn(_) | Item::Const(_) | Item::Trait(_) => continue,
         };
         let ty = crate::scoped(&PARAMS, generics.clone(), || dom(name));
         // An empty struct writes `{}` without reading its value.

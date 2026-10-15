@@ -49,8 +49,10 @@ impl<'d, 'a> Typer<'d, 'a> {
     /// parameters `decl` once what is known of `params` is put in, and the
     /// result: `ret` with every parameter bound, from the arguments or from
     /// `want`. `binds` comes in with what the receiver fixed (`impl<T>`).
+    /// Also what each parameter is bound to, for the dictionaries the call
+    /// passes (design/01 §7.25).
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn generic_args(
+    pub(super) fn generic_args_binds(
         &mut self,
         what: &str,
         params: &[Name],
@@ -59,7 +61,7 @@ impl<'d, 'a> Typer<'d, 'a> {
         args: &[Expr],
         ret: &Ty,
         want: Option<&Ty>,
-    ) -> (Vec<Expr>, Option<Ty>) {
+    ) -> (Vec<Expr>, Option<Ty>, Vec<(Name, Ty)>) {
         if let Some(w) = want {
             self.unify(ret, w, params, &mut binds);
         }
@@ -72,12 +74,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 Reason::NeedsAnnotation,
                 format!("the type `{}` of {what} is not known here; annotate the binding it goes to", p.as_str()),
             );
-            return (typed, None);
+            return (typed, None, binds);
         }
         if !self.instance_ok(&binds, what) {
-            return (typed, None);
+            return (typed, None, binds);
         }
-        (typed, Some(ret.subst(&binds)))
+        let t = ret.subst(&binds);
+        (typed, Some(t), binds)
     }
 
     /// `x` typed against its declared type `decl` once what is known of

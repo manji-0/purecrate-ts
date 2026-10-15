@@ -7,6 +7,7 @@ mod modules;
 mod serde_attrs;
 mod std_ordering;
 mod survey;
+mod traits;
 mod ty;
 
 use purecrate_ir::{Crate, Item};

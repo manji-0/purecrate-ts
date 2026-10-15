@@ -208,11 +208,26 @@ impl<'d, 'a> Typer<'d, 'a> {
         };
         let (args, t) = match callee {
             Callee::Local(_) | Callee::Into | Callee::Default { .. } => (typed_args(self, Vec::new()), None),
+            // `T::zero()` through a bound; `Priced::price(&i)` by the type
+            // of `i` (design/01 §7.25).
+            Callee::Method { ty, name } if self.dicts.iter().any(|(of, _, _)| of == ty) => {
+                return self.bound_call(ty, name, args, want)
+            }
+            Callee::Method { ty, name } if self.defs.traits.contains_key(ty.as_str()) => {
+                return self.trait_call(ty, name, args, want)
+            }
+            Callee::Dict { name } => return self.retyped_dict_call(name, args, want),
             Callee::Fn(_) | Callee::Method { .. } => match self.callee_fn(callee) {
                 Some((f, what)) if !f.generics.is_empty() => {
-                    let (params, ret) = sig(f);
-                    let ret = ret.unwrap_or(Ty::Prim(Prim::Unit));
-                    self.generic_args(&what, &f.generics, Vec::new(), &params, args, &ret, want)
+                    let params: Vec<Ty> = self.defs.written_params(f).into_iter().map(|p| p.ty.clone()).collect();
+                    let ret = f.ret.clone();
+                    let (written, t, binds) =
+                        self.generic_args_binds(&what, &f.generics, Vec::new(), &params, args, &ret, want);
+                    let args = match t {
+                        Some(_) if !traits::is_default_body(self.defs, f) => self.with_dicts(f, written, &binds),
+                        _ => written,
+                    };
+                    (args, t)
                 }
                 f => {
                     let (params, ret) = f.map(|(f, _)| sig(f)).unwrap_or_default();

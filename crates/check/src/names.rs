@@ -279,6 +279,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
             }
         }
         Item::Alias(a) => ident("type", &a.name),
+        Item::Trait(t) => ident("type", &t.name),
         Item::Const(c) => ident("const", &c.name),
         Item::Fn(f) => {
             if f.owner.is_none() {
@@ -293,6 +294,7 @@ fn identifiers_are_usable(i: usize, item: &Item, out: &mut Vec<Diagnostic>) {
         Item::Struct(s) => Some(&s.name),
         Item::Enum(e) => Some(&e.name),
         Item::Alias(a) => Some(&a.name),
+        Item::Trait(t) => Some(&t.name),
         Item::Fn(_) | Item::Const(_) => None,
     };
     if let Some(n) = type_name.filter(|n| TS_TYPE_KEYWORDS.contains(&n.as_str())) {

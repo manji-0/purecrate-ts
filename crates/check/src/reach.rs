@@ -43,6 +43,13 @@ fn reachable(krate: &Crate) -> Vec<bool> {
             }
         };
         for (i, item) in krate.items.iter().enumerate() {
+            // A kept type's companion calls the defaults of each trait it
+            // implements.
+            if let Item::Trait(t) = item {
+                if t.impls.iter().any(|imp| top.get(imp.owner().as_str()).is_some_and(|&o| keep[o])) {
+                    mark(i, &mut keep);
+                }
+            }
             let owner_kept = item.owner().and_then(|o| top.get(o.as_str())).is_some_and(|&o| keep[o]);
             if owner_kept && item.vis() == Vis::Pub {
                 mark(i, &mut keep);
@@ -62,6 +69,11 @@ fn reachable(krate: &Crate) -> Vec<bool> {
                     mark(j, &mut keep);
                 }
             }
+            for name in &refs.apps {
+                if let Some(&j) = top.get(name.as_str()).filter(|&&j| matches!(krate.items[j], Item::Trait(_))) {
+                    mark(j, &mut keep);
+                }
+            }
             if let Some(&o) = item.owner().and_then(|o| top.get(o.as_str())) {
                 mark(o, &mut keep);
             }
@@ -76,6 +88,8 @@ fn reachable(krate: &Crate) -> Vec<bool> {
 struct Refs {
     top: Vec<String>,
     methods: Vec<(String, String)>,
+    /// The names of generic types written (`Priced<T>`): a trait's is kept.
+    apps: Vec<String>,
 }
 
 impl Refs {
@@ -109,13 +123,26 @@ impl Refs {
                 self.expr(&f.body);
             }
             Item::Const(c) => self.expr(&c.value),
+            Item::Trait(t) => {
+                t.supertraits.iter().for_each(|s| self.name(s));
+                for m in &t.methods {
+                    m.params.iter().for_each(|p| self.ty(&p.ty));
+                    self.ty(&m.ret);
+                }
+                t.consts.iter().for_each(|c| self.ty(&c.ty));
+            }
         }
     }
 
     fn ty(&mut self, ty: &Ty) {
         match ty {
             Ty::Named(n) => self.name(n),
-            ty => ty.children().into_iter().for_each(|t| self.ty(t)),
+            ty => {
+                if let Ty::App { name, .. } = ty {
+                    self.apps.push(name.as_str().to_string());
+                }
+                ty.children().into_iter().for_each(|t| self.ty(t))
+            }
         }
     }
 

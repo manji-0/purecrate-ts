@@ -12,7 +12,11 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
     let defs = Defs::of(krate);
     let mut out = Vec::new();
     for (i, item) in krate.items.iter().enumerate() {
-        let mut cx = Cx { defs: &defs, item: i, out: &mut out, scopes: Vec::new(), closures: Vec::new() };
+        let generics = match item {
+            Item::Fn(f) => f.generics.clone(),
+            _ => Vec::new(),
+        };
+        let mut cx = Cx { defs: &defs, item: i, out: &mut out, scopes: Vec::new(), closures: Vec::new(), generics };
         match item {
             Item::Struct(s) => {
                 s.fields.iter().for_each(|f| cx.ty(&f.ty));
@@ -53,9 +57,19 @@ pub fn check(krate: &Crate) -> Vec<Diagnostic> {
                 cx.ty(&c.ty);
                 cx.expr(&c.value);
             }
+            Item::Trait(t) => {
+                for m in &t.methods {
+                    m.params.iter().for_each(|p| cx.ty(&p.ty));
+                    cx.ty(&m.ret);
+                }
+                t.consts.iter().for_each(|c| cx.ty(&c.ty));
+            }
             Item::Fn(f) => {
                 if let Some(owner) = &f.owner {
-                    if !defs.structs.contains_key(owner.as_str()) && !defs.enums.contains_key(owner.as_str()) {
+                    let known = defs.structs.contains_key(owner.as_str())
+                        || defs.enums.contains_key(owner.as_str())
+                        || defs.traits.contains_key(owner.as_str());
+                    if !known {
                         cx.error_about(
                             Reason::UndefinedType,
                             owner.as_str(),
@@ -81,6 +95,9 @@ struct Cx<'d, 'a> {
     scopes: Vec<Vec<(String, bool)>>,
     /// `scopes.len()` where each enclosing closure's own bindings start.
     closures: Vec<usize>,
+    /// The function's type parameters: `T::zero()` and `T::N` go through
+    /// a bound (design/01 §7.25).
+    generics: Vec<Name>,
 }
 
 impl<'a> Cx<'_, 'a> {
@@ -103,6 +120,8 @@ impl<'a> Cx<'_, 'a> {
             ),
             Ty::Ignored { inner, .. } => self.ty(inner),
             Ty::Named(_) | Ty::Prim(_) | Ty::Param(_) | Ty::Never => {}
+            // A dictionary parameter's type, `Priced<T>`.
+            Ty::App { args, .. } if self.defs.dict_of(ty).is_some() => args.iter().for_each(|t| self.ty(t)),
             Ty::App { name, args } => {
                 match self.defs.generics_of(name.as_str()) {
                     None => self.error_about(
@@ -216,6 +235,10 @@ impl<'a> Cx<'_, 'a> {
                 crate::locate(&mut self.out[before..], *at);
             }
             Expr::Var(n) if !self.in_scope(n.as_str()) && self.defs.consts.contains_key(n.as_str()) => {}
+            // `T::N`: a const of `T`'s bounds, which typing finds.
+            Expr::Var(n)
+                if purecrate_ir::split_assoc_path(n.as_str())
+                    .is_some_and(|(ty, _)| self.generics.iter().any(|g| g.as_str() == ty)) => {}
             Expr::Var(n) if !self.in_scope(n.as_str()) => {
                 self.error(Reason::UndefinedName, format!("`{}` is not a parameter or local binding", n.as_str()))
             }
@@ -425,7 +448,7 @@ impl<'a> Cx<'_, 'a> {
         match callee {
             Callee::Local(_) => {}
             Callee::Fn(n) => match self.defs.free_fns.get(n.as_str()) {
-                Some(f) => self.arity(&format!("`{}`", n.as_str()), f.params.len(), argc),
+                Some(f) => self.arity(&format!("`{}`", n.as_str()), self.defs.written_params(f).len(), argc),
                 None => {
                     // `f64::NAN`, `u32::MAX`, `f64::from(x)`: std's, not the crate's.
                     let std = n.as_str().split_once("::").is_some_and(|(head, _)| {
@@ -460,8 +483,16 @@ impl<'a> Cx<'_, 'a> {
                     self.error_about(Reason::UndefinedFn, n.as_str(), message)
                 }
             },
+            // Through a bound (`T::zero()`), or by the type of the arguments
+            // (`Priced::price(&i)`): typing finds the method.
+            Callee::Method { ty, .. }
+                if self.generics.contains(ty) || self.defs.traits.contains_key(ty.as_str()) => {}
+            Callee::Dict { .. } => {}
             Callee::Method { ty, name } => match self.defs.methods.get(&(ty.as_str(), name.as_str())) {
-                Some(f) => self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), f.params.len(), argc),
+                Some(f) => {
+                    let written = self.defs.written_params(f).len();
+                    self.arity(&format!("`{}.{}`", ty.as_str(), name.as_str()), written, argc)
+                }
                 // `X::from(s)`: one of `X`'s `From` members, by `s`'s type.
                 None if name.as_str() == "from" && self.defs.conversions_into(ty.as_str()).next().is_some() => {
                     self.arity(&format!("`{}::from`", ty.as_str()), 1, argc)

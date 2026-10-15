@@ -16,8 +16,9 @@ pub use expr::{
     VariantBind,
 };
 pub use item::{
-    assoc_path, from_member, split_assoc_path, tuple_field, Alias, Const, Enum, Field, Fn, Item, Order, Param, Serde,
-    Struct, Tagging, Variant, VariantFields, Vis, CONSTS_STEM, NEWTYPE_FIELD, ORDERING,
+    assoc_path, dict_param, dict_ty, from_member, split_assoc_path, tuple_field, Alias, Const, Enum, Field, Fn, Item,
+    Order, Param, Serde, Struct, Tagging, Trait, TraitConst, TraitImpl, TraitMethod, Variant, VariantFields, Vis,
+    CONSTS_STEM, DICT_SELF, NEWTYPE_FIELD, ORDERING, SELF, STD_DICT_TRAITS,
 };
 pub use krate::Crate;
 pub use name::{lower_first, to_camel, to_kebab, upper_first, Name};

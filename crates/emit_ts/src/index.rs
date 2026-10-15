@@ -14,6 +14,10 @@ fn surface_ty(krate: &Crate, pred: impl std::ops::Fn(&Ty) -> bool) -> bool {
         Item::Alias(a) => a.ty.any(&pred),
         Item::Const(c) => c.ty.any(&pred),
         Item::Fn(f) => f.params.iter().any(|p| p.ty.any(&pred)) || f.ret.any(&pred),
+        Item::Trait(t) => {
+            t.methods.iter().any(|m| m.params.iter().any(|p| p.ty.any(&pred)) || m.ret.any(&pred))
+                || t.consts.iter().any(|c| c.ty.any(&pred))
+        }
     })
 }
 

@@ -169,6 +169,7 @@ fn demote(item: &mut SynItem) {
         SynItem::Fn(f) => &mut f.vis,
         SynItem::Type(t) => &mut t.vis,
         SynItem::Const(c) => &mut c.vis,
+        SynItem::Trait(t) => &mut t.vis,
         _ => return,
     };
     *vis = syn::Visibility::Inherited;

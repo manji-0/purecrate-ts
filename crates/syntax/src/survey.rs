@@ -20,6 +20,9 @@ pub enum UnitKind {
     Struct,
     Enum,
     Alias,
+    /// A trait of the crate (design/01 §7.25): referenced as a type, by a
+    /// bound's dictionary. Not judged on its own.
+    Trait,
     /// A `const`, or an associated one of `owner`'s `impl`. Lowered, as the
     /// functions that read it need it, but not judged on its own.
     Const {
@@ -227,6 +230,54 @@ fn units_of(cx: &mut Cx, file: usize, item: &SynItem, all_causes: bool) -> Vec<U
                 unit(kind, name, is_pub, at, lowered)
             })
             .collect(),
+        // A crate trait (design/01 §7.25): its record, then each default
+        // body as a method of the trait.
+        SynItem::Trait(t) => {
+            let at = LineCol::of(t.ident.span());
+            let name = t.ident.to_string();
+            match item::lower_item(cx, item.clone()) {
+                Ok(lowered) => lowered
+                    .into_iter()
+                    .map(|(lowered, at)| {
+                        let (kind, member) = match &lowered {
+                            Item::Fn(f) => (UnitKind::Method { owner: name.clone() }, f.name.as_str().to_string()),
+                            _ => (UnitKind::Trait, name.clone()),
+                        };
+                        unit(kind, member, false, at, (Ok(lowered), Vec::new()))
+                    })
+                    .collect(),
+                Err(e) => vec![unit(UnitKind::Trait, name, false, at, (Err(e), Vec::new()))],
+            }
+        }
+        // `impl Tr for X` of a crate trait: each member a method (or const)
+        // of `X`, as an inherent one is.
+        SynItem::Impl(imp)
+            if imp.trait_.as_ref().and_then(|(_, p, _)| p.get_ident()).is_some_and(|i| cx.is_trait(&i.to_string())) =>
+        {
+            imp.items
+                .iter()
+                .map(|member| {
+                    let mut single = imp.clone();
+                    single.items = vec![member.clone()];
+                    let owner = self_name(&imp.self_ty);
+                    let (name, at) = match member {
+                        syn::ImplItem::Fn(f) => (f.sig.ident.to_string(), LineCol::of(f.sig.ident.span())),
+                        syn::ImplItem::Const(c) => (c.ident.to_string(), LineCol::of(c.ident.span())),
+                        other => ("?".to_string(), LineCol::of(other.span())),
+                    };
+                    // The consts the impl takes from the trait's defaults
+                    // follow the member: only the member is this unit.
+                    let lowered = item::lower_item(cx, SynItem::Impl(single))
+                        .map(|items| items.into_iter().next().map(|(i, _)| i))
+                        .and_then(|i| i.ok_or_else(|| ParseError::new(Reason::UnsupportedItem, "expected one method")));
+                    let kind = match member {
+                        syn::ImplItem::Const(_) => UnitKind::Const { owner: Some(owner) },
+                        _ => UnitKind::Method { owner },
+                    };
+                    unit(kind, name, false, at, (lowered, Vec::new()))
+                })
+                .collect()
+        }
         // `impl TryFrom<T> for X` is the method `X::try_from`, which
         // `#[serde(try_from = "T")]` on `X` needs. Not counted as a public
         // function, as the trait impl is not one in Rust.

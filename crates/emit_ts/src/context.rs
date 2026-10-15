@@ -31,6 +31,8 @@ thread_local! {
     /// (`expr::emit_struct_update`). The expression printer has no `Crate`;
     /// `emit` sets this for its duration.
     pub(crate) static CLOSED_FIELDS: RefCell<BTreeMap<String, Vec<String>>> = const { RefCell::new(BTreeMap::new()) };
+    /// The crate's traits, likewise: `Priced<T>` is a dictionary's type.
+    pub(crate) static TRAITS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     /// Structs of the crate, likewise: a place of one needs no `as` to
     /// undo a narrowing (`stmt::emit_let`), since a struct is no union.
     pub(crate) static STRUCTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
@@ -72,6 +74,10 @@ thread_local! {
 
 pub(super) fn is_closed(name: &str) -> bool {
     CLOSED_FIELDS.with(|c| c.borrow().contains_key(name))
+}
+
+pub(super) fn is_trait(name: &str) -> bool {
+    TRAITS.with(|c| c.borrow().contains(name))
 }
 
 pub(super) fn is_struct(name: &str) -> bool {

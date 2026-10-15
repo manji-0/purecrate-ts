@@ -38,6 +38,11 @@ impl Drop for ParamScope {
     }
 }
 
+/// `name` is a type parameter in scope (`T`, or a trait's `Self`).
+pub fn is_param(name: &str) -> bool {
+    PARAMS.with(|p| p.borrow().iter().any(|n| n == name))
+}
+
 /// `ty` where `_` may stand for a part the checker fills in
 /// (`collect::<Result<Vec<_>, _>>()`), as `Ty::Named("_")`.
 pub fn lower_type_with_holes(ty: &Type) -> Result<Ty, ParseError> {
@@ -67,6 +72,17 @@ fn lower_type_node(ty: &Type) -> Result<Ty, ParseError> {
         },
         Type::Paren(p) => lower_type(&p.elem),
         Type::Infer(_) if HOLES.with(|h| h.get()) => Ok(Ty::Named(Name::new(HOLE))),
+        // A value carries no tag that names its type, so nothing could pick
+        // the implementation at run time (design/01 §7.25).
+        Type::TraitObject(t) if t.bounds.iter().any(|b| matches!(b, syn::TypeParamBound::Trait(p) if p.path.segments.iter().all(|s| s.arguments.is_empty()))) => {
+            Err(ParseError::new(
+                Reason::FnType,
+                format!(
+                    "a trait object {} is not in v0: a value has no tag to dispatch on; take a type parameter with the bound (`fn f<T: Tr>(x: &T)`) or `impl Tr` as a parameter's type (design/01 §7.25)",
+                    snippet(ty)
+                ),
+            ))
+        }
         Type::BareFn(_) | Type::ImplTrait(_) | Type::TraitObject(_) => {
             Err(ParseError::new(Reason::FnType, format!("function and trait types are not in v0: {}", snippet(ty))))
         }

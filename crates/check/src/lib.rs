@@ -16,6 +16,7 @@ mod reach;
 mod rename;
 mod resolve;
 mod rest;
+mod traits;
 mod tuple;
 mod types;
 mod unused;
@@ -129,7 +130,8 @@ fn accept_all(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     out.extend(wire::check(krate));
     if out.is_empty() {
         match types::elaborate(krate) {
-            Ok(mut typed) => {
+            Ok(typed) => {
+                let mut typed = traits::forward(typed);
                 // Typing rebuilds the bodies without `At`; clones of untyped
                 // subtrees may still hold one.
                 for item in &mut typed.items {

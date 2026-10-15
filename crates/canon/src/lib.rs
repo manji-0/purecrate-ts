@@ -96,7 +96,7 @@ pub fn fixture(input: TokenStream) -> TokenStream {
                 out.push_str(&serialize_enum(en));
                 out.push_str(&js_enum(en));
             }
-            Item::Alias(_) | Item::Fn(_) | Item::Const(_) => {}
+            Item::Alias(_) | Item::Fn(_) | Item::Const(_) | Item::Trait(_) => {}
         }
     }
     out.push_str("}\n");

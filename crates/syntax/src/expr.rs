@@ -41,7 +41,7 @@ fn lower_expr_node(cx: &Cx, expr: &SynExpr) -> Result<Expr, ParseError> {
             ),
         }),
         SynExpr::Lit(l) => Ok(Expr::Lit(lower_lit(&l.lit)?)),
-        SynExpr::Path(p) => lower_path_expr(cx, &p.path),
+        SynExpr::Path(p) => refuse_qself(p).and_then(|()| lower_path_expr(cx, &p.path)),
         // `t.1` of a tuple, or `n.0` of a newtype (`NEWTYPE_FIELD`); the
         // types say which the base is.
         SynExpr::Field(f) => {
@@ -800,6 +800,22 @@ fn compound_op(op: SynBinOp) -> Option<SynBinOp> {
     })
 }
 
+/// `<Item as Priced>::price`: the companion holds one member of each name,
+/// so the plain path names the same function (design/01 §7.25).
+fn refuse_qself(p: &syn::ExprPath) -> Result<(), ParseError> {
+    match &p.qself {
+        Some(_) => Err(ParseError::new(
+            Reason::QualifiedPath,
+            format!(
+                "the qualified path {} is not in v0: call the method on the type (`Item::price(&i)`) or the value (`i.price()`); the companion holds one member of each name (design/01 §7.25)",
+                snippet(p)
+            ),
+        )
+        .detail("qself")),
+        None => Ok(()),
+    }
+}
+
 fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
     let segs = path_idents(path);
     match segs.as_slice() {
@@ -809,8 +825,11 @@ fn lower_path_expr(cx: &Cx, path: &syn::Path) -> Result<Expr, ParseError> {
             "None" => Ok(Expr::Call { callee: Callee::OptionNone, args: vec![] }),
             _ => Ok(Expr::var(one.clone())),
         },
-        // An associated const, read by its path (`Self::N` is `T::N` here).
-        [ty, c] if cx.is_assoc_const(ty, c) => Ok(Expr::var(purecrate_ir::assoc_path(ty, c))),
+        // An associated const, read by its path (`Self::N` is `T::N` here);
+        // through a bound, `T::N` (design/01 §7.25).
+        [ty, c] if cx.is_assoc_const(ty, c) || crate::ty::is_param(ty) => {
+            Ok(Expr::var(purecrate_ir::assoc_path(ty, c)))
+        }
         [ty, var] if cx.is_enum(ty) => Ok(Expr::Construct {
             ty: Name::new(ty.clone()),
             variant: Some(Name::new(var.clone())),
@@ -961,6 +980,7 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
     let SynExpr::Path(p) = func else {
         return Err(ParseError::new(Reason::ExternalPath, "only simple calls in v0"));
     };
+    refuse_qself(p)?;
     let segs = path_idents(&p.path);
     let strs: Vec<&str> = segs.iter().map(String::as_str).collect();
     // Empty, of the type the context gives: `Vec::new()` is `vec![]`. Before
@@ -1016,7 +1036,11 @@ fn lower_call(cx: &Cx, func: &SynExpr, args: Vec<&SynExpr>) -> Result<Expr, Pars
                 base: None,
             })
         }
-        (None, [ty, name]) if cx.is_enum(ty) || cx.is_struct(ty) => {
+        // A trait's member: `T::zero()` through a bound, `Priced::price(&i)`
+        // by the argument's type (design/01 §7.25).
+        (None, [ty, name])
+            if cx.is_enum(ty) || cx.is_struct(ty) || cx.is_trait(ty) || crate::ty::is_param(ty) =>
+        {
             Callee::Method { ty: Name::new(ty.clone()), name: Name::new(name.clone()) }
         }
         _ => return Err(path_error(&segs, format!("unsupported call {}", segs.join("::")))),
