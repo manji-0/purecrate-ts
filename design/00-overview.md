@@ -82,7 +82,7 @@ Not accepted, by design: `&mut`, `HashMap` (write `BTreeMap`), `dyn Trait`, an e
 
 ### 4.1 Examples
 
-Sixteen examples are written within the constraints and differentially tested: two are the author's own, fourteen follow a third-party specification.
+Eighteen examples are written within the constraints and differentially tested: two are the author's own, sixteen follow a third-party specification.
 
 | Example | Source |
 | --- | --- |
@@ -102,6 +102,8 @@ Sixteen examples are written within the constraints and differentially tested: t
 | [ulid](../examples/ulid/src/lib.rs) | third-party specification |
 | [negotiate](../examples/negotiate/src/lib.rs) | third-party specification |
 | [raft](../examples/raft/src/lib.rs) | third-party specification |
+| [flagd](../examples/flagd/src/lib.rs) | third-party specification |
+| [chess](../examples/chess/src/lib.rs) | third-party specification |
 
 Against wasm-bindgen on the same source, the payment transition is 24–93× cheaper per call and about 16× smaller gzipped (measured 2026-10-01) ([bench/payment](../bench/payment/README.md)).
 

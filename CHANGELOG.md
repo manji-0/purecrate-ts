@@ -2,8 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- Two examples, each written from the authoring skill alone (design/07 §2.1, §2.2): **flagd**, flagd's flag evaluation (`fractional` by MurmurHash3, `sem_ver`, a closed rule tree, OpenFeature's reasons and codes, serde on the model), checked against MurmurHash3's vectors and flagd's own test cases; and **chess**, FEN, legal moves, `make_move`, game status, UCI text, and `perft` on a `[Square; 64]` board, checked against the Chess Programming Wiki's perft counts. Neither names an addition under design/07 §1: flagd is 1.5×, chess 1.6×.
+
 ### Fixed
 
+- A list of variants a `for` walks (`for k in [K::A, K::B]`) and a repeat of a variant (`[S::Empty; 64]`, or of a local narrowed to one) printed with nothing to type them, so TS widened `kind` to `string` and tsc refused the `push` or `a[i] = x` after: the list is now a typed local, the repeat annotated. No other output changes. Found by chess.
+- `purecrate-ts test` typed a method named `from` (or `try_from`) that takes `self` as a conversion's argument, by value, and rustc refused the harness. Found by chess (`Move::from`).
+- `build --out` into a directory two or more levels of which did not exist yet (a new example's `ts/plain`) fell back to a relative path for `node_modules/.bin/oxfmt`, which oxfmt's scratch directory could not run. Found by flagd.
+- The authoring skill said `i32::MAX` was accepted (only a crate type's associated const is), that a side of `|` could be `Some(..)` (it is `Some(A | B)`), and named four places for an integer annotation where `check` also asks on a `let` of a `match` of bare literals and on a `for` over an array of them.
 - Four refusal messages named what 0.23.0 had widened: `HashMap` / `HashSet` point to `BTreeMap<K, V>` / `BTreeSet<K>` (any key 01 §7.26 takes), not `String` keys; a method off the list on a `BTreeMap` or `BTreeSet` lists the ones allowed, where it said none were; a const of another type lists byte strings and arrays among the types a const may have; and `collect` off something not a sequence names what it builds and points to 01 §7.13's sources and stages.
 
 ## 0.23.0 — 2026-10-15
