@@ -35,6 +35,10 @@ pub fn p08e_array_match(b: [u8; 2]) -> u8 { match b { [0, x] => x, [x, _] => x }
 pub fn p08f_array_iter(b: &[u32; 3]) -> u32 { b.iter().sum() }
 pub struct Rgb { pub c: [u8; 3] }
 pub fn p08g_array_field(px: Rgb) -> Vec<u8> { px.c.iter().copied().collect() }
+pub const DIRS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+pub fn p08h_const_tuples(r: i8, c: i8) -> usize { let mut n = 0; for (dr, dc) in DIRS { if r + dr >= 0 && c + dc >= 0 { n += 1; } } n }
+pub const SHAPES: [Shape; 2] = [Shape::Empty, Shape::Square(2)];
+pub fn p08i_const_variants(i: usize) -> i32 { match SHAPES[i] { Shape::Square(n) => n, _ => 0 } }
 pub fn p11_rev(xs: Vec<u32>) -> Vec<u32> { xs.into_iter().rev().collect() }
 pub fn p12_zip(a: Vec<u32>, b: Vec<u32>) -> u32 { a.iter().zip(b.iter()).map(|(x, y)| x * y).sum() }
 pub fn p15_find(xs: &[Item], sku: &str) -> Option<Item> { xs.iter().find(|i| i.sku == sku).cloned() }

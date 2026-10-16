@@ -130,3 +130,39 @@ fn signed_minimums_fold() {
     assert_rejects("const Q: i128 = (1 << 127) / (0 - 1);\npub fn f() -> i128 { Q }", "overflow");
     assert_rejects("const Q: usize = 1 << 60;\npub fn f() -> usize { Q }", "where a `usize` const stops in v0");
 }
+
+/// A crate const may be a tuple or one of the crate's enums, alone or in
+/// arrays, each part a const value (design/01 §7.29); a struct, `()`, an
+/// `Option`, std's `Ordering`, a generic enum, and an associated const of
+/// these stay refused.
+#[test]
+fn const_tuples_and_enums() {
+    const E: &str = "#[derive(Clone, Copy, PartialEq)]\npub enum K { A, B(u8, (i8, char)), C { at: (u8, u8) } }\n";
+    assert_clean(&format!(
+        "{E}pub const D: [(i8, i8); 2] = [(1, 0), (0, -1)];\npub const KS: [K; 3] = [K::A, K::B(2, (-1, 'x')), K::C {{ at: S }}];\n\
+         pub const S: (u8, u8) = (4, 0);\npub const F: K = K::A;\npub const G: [[(K, bool); 1]; 2] = [[(F, true)], [(K::A, false); 1]];\n\
+         pub const H: [[(i8, i8); 2]; 2] = [D, D];\n\
+         pub fn f(i: usize) -> i8 {{ let mut t = 0; for (a, b) in D {{ t += a - b; }} for &(a, _) in D.iter() {{ t += a; }} t + D[i].0 + H[i][i].1 }}\n\
+         pub fn g(i: usize) -> bool {{ KS.contains(&F) && KS[i] == G[1][0].0 && S.0 == 4 && matches!(KS[i], K::B(_, _)) }}"
+    ));
+    let refused = |src: &str, why: &str| assert_rejects(&format!("{E}{src}\npub fn f() -> u8 {{ 0 }}"), why);
+    refused("pub struct P { pub x: i32 }\npub const O: [P; 1] = [P { x: 0 }];", "a const of type `P` is not in v0");
+    refused("pub const U: () = ();", "a `()` const is a literal or another const in v0");
+    refused("pub const O: Option<u8> = Some(1);", "a const of type `Option<u8>` is not in v0");
+    refused(
+        "use std::cmp::Ordering;\npub const O: [Ordering; 1] = [Ordering::Less];",
+        "a const of type `Ordering` is not in v0",
+    );
+    refused(
+        "#[derive(Clone, Copy)]\npub enum W<T> { V(T) }\npub const O: W<u8> = W::V(1);",
+        "a const of type `W<u8>` is not in v0",
+    );
+    refused("pub const O: [(u8, u8); 1] = [(1, 300)];", "300 does not fit `u8`");
+    refused("pub const fn first() -> K { K::A }\npub const O: K = first();", "a `K` const is one of its variants");
+    refused("pub const O: (u8, K) = (1, if true { K::A } else { K::A });", "a `K` const is one of its variants");
+    refused(
+        "pub const O: u8 = 1;\npub const P: (u8, u8) = (O, O);\npub const Q: (u8, i8) = P;",
+        "`P` is a `(u8, u8)`, where a `(u8, i8)` is expected",
+    );
+    refused("pub struct T {}\nimpl T { pub const O: (u8, u8) = (1, 2); }", "a const of type `(u8, u8)` is not in v0");
+}

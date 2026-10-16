@@ -61,6 +61,19 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
             }
+            // A crate const may also be a tuple or an enum (design/01 §7.29).
+            Item::Const(c)
+                if c.owner.is_none()
+                    && matches!(defs.expand(&c.ty, Peel::Every), Ty::Array { .. } | Ty::Tuple(_) | Ty::Named(_)) =>
+            {
+                match crate::consts::value(&defs, &c.ty, &c.value) {
+                    Ok(value) => Item::Const(Const { value, ..c.clone() }),
+                    Err(m) => {
+                        out.push(Diagnostic::at(i, Reason::ConstExpr, format!("const `{}`: {m}", c.name.as_str())));
+                        item.clone()
+                    }
+                }
+            }
             Item::Const(c) if matches!(defs.expand(&c.ty, Peel::Every), Ty::Array { .. }) => {
                 match crate::consts::array(&defs, &c.ty, &c.value) {
                     Ok(value) => Item::Const(Const { value, ..c.clone() }),

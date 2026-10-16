@@ -19,6 +19,11 @@
 //! `T: Display`, and `T: Default`, called at `i32`, `bool`, a tuple, and
 //! the crate's types, which pass their dictionaries (design/01 §7.25).
 //!
+//! And from a fourth, functions over the seed's const tables of `(i32,
+//! bool)` tuples, states, and `(State, Event)` pairs: walked by a `for`
+//! that destructures them, indexed and matched, `contains`, `len`, and `==`
+//! (design/01 §7.29).
+//!
 //! The audit of 0.9.1 found a guard reading a name its closure hid, in a
 //! struct pattern no fixture spelled; this looks for that class.
 //!
@@ -446,6 +451,64 @@ impl Pats {
         out
     }
 
+    /// A function that reads the seed's const tables (`const_tables`):
+    /// a `for` destructuring their tuples by value or by reference, an
+    /// element indexed in and past the end and matched, `contains`, `len`,
+    /// and `==` on their variants (design/01 §7.29). Drawn from a
+    /// generator of its own.
+    fn const_function(&mut self, ret: Ret, seed: u64) -> String {
+        let (steps, states, pairs) = (format!("K{seed}_STEPS"), format!("K{seed}_STATES"), format!("K{seed}_PAIRS"));
+        let wrap = |v: String| match ret {
+            Ret::Int => v,
+            Ret::Step => format!("Ok(State::Count({v}))"),
+        };
+        match self.g.rng.below(5) {
+            0 => {
+                let scope = self.g.scope.len();
+                let by_ref = self.g.rng.below(2) == 0;
+                let (x, f) = (self.bind(Ty::Int), self.bind(Ty::Bool));
+                let (test, step) = self.g.without_try(|g| (g.boolean(1), g.int(1)));
+                self.g.scope.truncate(scope);
+                self.bound.clear();
+                let head = if by_ref {
+                    format!("for &({x}, {f}) in {steps}.iter()")
+                } else {
+                    format!("for ({x}, {f}) in {steps}")
+                };
+                let rest = self.g.int(1);
+                format!(
+                    "    let mut t: i32 = 0;\n    {head} {{\n        if {test} {{\n            t += {step};\n        }}\n    }}\n    {}",
+                    wrap(format!("t - {rest}"))
+                )
+            }
+            // `xs.len()` is 0 to 4, past the end of a shorter table.
+            1 => format!("    match {states}[xs.len()] {{\n{}    }}", self.arms(ret, true, |p| p.state_pat())),
+            2 => {
+                let k = self.g.rng.below(3);
+                let arms = self.arms(ret, false, |p| {
+                    let (st, ev) = (p.state_pat(), p.event_pat());
+                    format!("({st}, {ev})")
+                });
+                format!("    match {pairs}[{k}] {{\n{arms}    }}")
+            }
+            3 => {
+                let k = self.g.rng.below(3);
+                let (then, else_) = (self.body(ret), self.body(ret));
+                format!(
+                    "    let (st, ev) = {pairs}[{k}];\n    if {states}.contains(&st) && (ev == e || {states}.len() > xs.len()) {{\n        {then}\n    }} else {{\n        {else_}\n    }}"
+                )
+            }
+            _ => {
+                let then = self.g.without_try(|g| g.int(1));
+                let last = self.body(ret);
+                format!(
+                    "    for (st, ev) in {pairs} {{\n        if st == s || ev == e {{\n            return {};\n        }}\n    }}\n    {last}",
+                    wrap(then)
+                )
+            }
+        }
+    }
+
     /// An event built from what is in scope.
     fn event(&mut self, d: u32) -> String {
         match self.g.rng.below(5) {
@@ -628,6 +691,36 @@ impl Pats {
     }
 }
 
+/// The seed's const tables `const_function` reads: an array of
+/// `(i32, bool)`, one of states, and one of `(State, Event)` pairs, of
+/// literals (design/01 §7.29).
+fn const_tables(seed: u64) -> String {
+    let mut rng = Rng::new(seed ^ 0xc0e5);
+    let int = |rng: &mut Rng| if rng.below(2) == 0 { rng.pick(&[-1, 0, 1, 7]) } else { rng.edgy(32, true) as i32 };
+    let state = |rng: &mut Rng| match rng.below(4) {
+        0 => "State::Idle".to_string(),
+        1 => format!("State::Count({})", int(rng)),
+        2 => format!("State::Pair({}, {})", int(rng), rng.below(2) == 0),
+        _ => format!("State::Rec {{ open: {}, n: {} }}", rng.below(2) == 0, rng.pick(&[0, 3, 7, -2])),
+    };
+    let event = |rng: &mut Rng| match rng.below(3) {
+        0 => "Event::Tick".to_string(),
+        1 => format!("Event::Add({})", rng.pick(&[0, 1, 5, -3])),
+        _ => format!("Event::Close {{ force: {} }}", rng.below(2) == 0),
+    };
+    let n = 1 + rng.below(4) as usize;
+    let steps: Vec<String> = (0..n).map(|_| format!("({}, {})", int(&mut rng), rng.below(2) == 0)).collect();
+    let m = 1 + rng.below(4) as usize;
+    let states: Vec<String> = (0..m).map(|_| state(&mut rng)).collect();
+    let pairs: Vec<String> = (0..3).map(|_| format!("({}, {})", state(&mut rng), event(&mut rng))).collect();
+    format!(
+        "\npub const K{seed}_STEPS: [(i32, bool); {n}] = [{}];\npub const K{seed}_STATES: [State; {m}] = [{}];\npub const K{seed}_PAIRS: [(State, Event); 3] = [{}];\n",
+        steps.join(", "),
+        states.join(", "),
+        pairs.join(", ")
+    )
+}
+
 /// A state and an event to call with: the Rust literal, and the TS one.
 fn state_value(rng: &mut Rng) -> (String, String) {
     let int = |rng: &mut Rng| rng.edgy(32, true) as i32;
@@ -748,6 +841,19 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.generic_function(ret);
             let name = format!("p{seed}_g{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        source.push_str(&const_tables(seed));
+        let mut p = Pats { g: Gen::new(seed ^ 0xc0e5), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.const_function(ret, seed);
+            let name = format!("p{seed}_k{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

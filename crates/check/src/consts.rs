@@ -7,7 +7,7 @@
 //! arithmetic, bitwise, and shift operators, evaluated with rustc's rules
 //! (a checked result for arithmetic, a wrapped one for shifts).
 
-use purecrate_ir::{BinOp, Enum, Expr, IntTy, Lit, Name, Prim, Ty, UnOp, VariantFields};
+use purecrate_ir::{BinOp, Enum, Expr, Fields, IntTy, Lit, Name, Prim, Ty, UnOp, VariantFields};
 
 use crate::defs::Defs;
 
@@ -17,7 +17,15 @@ const MAX_DEPTH: usize = 64;
 
 /// The value of a `const` of type `ty`, as a typed literal.
 pub fn fold(defs: &Defs<'_>, ty: &Ty, value: &Expr) -> Result<Lit, String> {
-    Folder { defs, depth: 0 }.value(ty, value)
+    Folder { defs, depth: 0, wide: false }.value(ty, value)
+}
+
+/// The value of a crate `const` of any type v0 takes (design/01 §7.29): a
+/// scalar folded as `fold` folds it, an array as `array` reads one, and a
+/// tuple or a crate enum's variant part by part, each part a const value
+/// of its type. Another const of the same tuple or enum type is its value.
+pub fn value(defs: &Defs<'_>, ty: &Ty, value: &Expr) -> Result<Expr, String> {
+    Folder { defs, depth: 0, wide: true }.whole(ty, value)
 }
 
 /// A `&[u8]` const's value: a byte string, as `syntax` writes one (the
@@ -43,58 +51,13 @@ pub fn bytes(value: &Expr) -> Option<Expr> {
 /// `[x; N]` whose elements fold as a const of the element type does, or a
 /// byte string of a `[u8; N]`; `N` elements, as the type says.
 pub fn array(defs: &Defs<'_>, ty: &Ty, value: &Expr) -> Result<Expr, String> {
-    let Ty::Array { elem, len } = defs.expand(ty, crate::defs::Peel::Every) else {
-        unreachable!("called on an array const")
-    };
-    let value = value.unpositioned();
-    let element = |x: &Expr| -> Result<Expr, String> {
-        match defs.expand(elem, crate::defs::Peel::Every) {
-            Ty::Array { .. } => array(defs, elem, x),
-            _ => fold(defs, elem, x).map(Expr::Lit),
-        }
-    };
-    let count = |n: usize| -> Result<(), String> {
-        if n == *len {
-            Ok(())
-        } else {
-            Err(format!("a `{}` holds {len} elements, found {n}", crate::types::show(ty)))
-        }
-    };
-    if **elem == Ty::Prim(Prim::U8) {
-        if let Some(b) = bytes(value) {
-            let n = match &b {
-                Expr::Call { args, .. } => match args.first() {
-                    Some(Expr::Lit(Lit::Str(text))) => text.len(),
-                    _ => 0,
-                },
-                Expr::Array(xs) => xs.len(),
-                _ => 0,
-            };
-            count(n)?;
-            return Ok(b);
-        }
-    }
-    match value {
-        Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => {
-            let Expr::Array(xs) = receiver.unpositioned() else { unreachable!("`syntax` wraps an `Expr::Array`") };
-            count(xs.len())?;
-            Ok(Expr::Array(xs.iter().map(element).collect::<Result<_, _>>()?))
-        }
-        Expr::Call { callee: callee @ purecrate_ir::Callee::ArrayRepeat { len: n }, args } => {
-            count(*n)?;
-            Ok(Expr::Call { callee: callee.clone(), args: vec![element(&args[0])?] })
-        }
-        _ => Err(format!(
-            "a `{}` const is a literal `[a, b, ..]`, `[x; N]`, or a byte string `b\"..\"` in v0",
-            crate::types::show(ty)
-        )),
-    }
+    Folder { defs, depth: 0, wide: false }.array(ty, value)
 }
 
 /// Each variant's discriminant: explicit ones folded, the others one past
 /// the previous (the first `0`), in the `repr` type (`isize` without one).
 pub fn discriminants(defs: &Defs<'_>, e: &Enum) -> Result<Vec<(Name, i128)>, String> {
-    Folder { defs, depth: 0 }.discriminants(e)
+    Folder { defs, depth: 0, wide: false }.discriminants(e)
 }
 
 /// Every variant carries no fields, so `as` gives its discriminant.
@@ -113,14 +76,131 @@ fn repr_of(e: &Enum) -> (IntTy, &'static str) {
 struct Folder<'d, 'a> {
     defs: &'d Defs<'a>,
     depth: usize,
+    /// Tuples and the crate's enums are values too: a crate const
+    /// (design/01 §7.29), not an associated one (§7.23).
+    wide: bool,
 }
 
 impl Folder<'_, '_> {
+    /// A const value of any type v0 takes: see `value`.
+    fn whole(&self, ty: &Ty, expr: &Expr) -> Result<Expr, String> {
+        let expr = expr.unpositioned();
+        let t = self.defs.expand(ty, crate::defs::Peel::Every);
+        let parts = |tys: &[Ty], xs: &[Expr], what: &str| -> Result<Vec<Expr>, String> {
+            if tys.len() != xs.len() {
+                return Err(format!("{what} holds {} values, found {}", tys.len(), xs.len()));
+            }
+            tys.iter().zip(xs).map(|(t, x)| self.whole(t, x)).collect()
+        };
+        match (t, expr) {
+            (Ty::Array { .. }, _) => self.array(ty, expr),
+            (_, _) if !self.wide => self.value(ty, expr).map(Expr::Lit),
+            (Ty::Tuple(_) | Ty::Named(_), Expr::Var(n)) => {
+                let (t, v) = self.named(n, ty)?;
+                self.deeper()?.whole(&t, v)
+            }
+            (Ty::Tuple(tys), Expr::Tuple(xs)) if !tys.is_empty() => {
+                Ok(Expr::Tuple(parts(tys, xs, &format!("a `{}`", crate::types::show(ty)))?))
+            }
+            (Ty::Named(n), _) if self.defs.enums.get(n.as_str()).is_some_and(|e| e.generics.is_empty() && !e.std) => {
+                let e = self.defs.enums[n.as_str()];
+                let Expr::Construct { ty: built, variant: Some(variant), fields, base: None } = expr else {
+                    return Err(format!("a `{}` const is one of its variants, `{}::A` or `{}::B(..)`", n.as_str(), n.as_str(), n.as_str()));
+                };
+                if built != n {
+                    return Err(format!("`{}::{}` where a `{}` is expected", built.as_str(), variant.as_str(), n.as_str()));
+                }
+                let v = e
+                    .variants
+                    .iter()
+                    .find(|v| v.name == *variant)
+                    .ok_or_else(|| format!("`{}` has no variant `{}`", n.as_str(), variant.as_str()))?;
+                let what = format!("`{}::{}`", n.as_str(), variant.as_str());
+                let fields = match (&v.fields, fields) {
+                    (VariantFields::Unit, Fields::Unit) => Fields::Unit,
+                    (VariantFields::Tuple(tys), Fields::Positional(xs)) => Fields::Positional(parts(tys, xs, &what)?),
+                    // In the declared order, as the companion builds it;
+                    // rustc has checked that each field is named once.
+                    (VariantFields::Struct(fs), Fields::Named(xs)) if xs.len() == fs.len() => Fields::Named(
+                        fs.iter()
+                            .map(|f| {
+                                let (_, x) = xs
+                                    .iter()
+                                    .find(|(n, _)| *n == f.name)
+                                    .ok_or_else(|| format!("{what} is missing `{}`", f.name.as_str()))?;
+                                Ok((f.name.clone(), self.whole(&f.ty, x)?))
+                            })
+                            .collect::<Result<_, String>>()?,
+                    ),
+                    _ => return Err(format!("{what} is built as it is declared")),
+                };
+                Ok(Expr::Construct { ty: built.clone(), variant: Some(variant.clone()), fields, base: None })
+            }
+            (Ty::Prim(_), _) => self.value(ty, expr).map(Expr::Lit),
+            _ => Err(format!(
+                "a const of type `{}` is not in v0: consts are integers, floats, `bool`, `char`, `&str`, byte strings, the crate's enums, and tuples and arrays of these",
+                crate::types::show(ty)
+            )),
+        }
+    }
+
+    /// An array const's value: see `array`.
+    fn array(&self, ty: &Ty, value: &Expr) -> Result<Expr, String> {
+        let defs = self.defs;
+        let Ty::Array { elem, len } = defs.expand(ty, crate::defs::Peel::Every) else {
+            unreachable!("called on an array const")
+        };
+        let value = value.unpositioned();
+        let element = |x: &Expr| self.whole(elem, x);
+        let count = |n: usize| -> Result<(), String> {
+            if n == *len {
+                Ok(())
+            } else {
+                Err(format!("a `{}` holds {len} elements, found {n}", crate::types::show(ty)))
+            }
+        };
+        if **elem == Ty::Prim(Prim::U8) {
+            if let Some(b) = bytes(value) {
+                let n = match &b {
+                    Expr::Call { args, .. } => match args.first() {
+                        Some(Expr::Lit(Lit::Str(text))) => text.len(),
+                        _ => 0,
+                    },
+                    Expr::Array(xs) => xs.len(),
+                    _ => 0,
+                };
+                count(n)?;
+                return Ok(b);
+            }
+        }
+        match value {
+            Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => {
+                let Expr::Array(xs) = receiver.unpositioned() else { unreachable!("`syntax` wraps an `Expr::Array`") };
+                count(xs.len())?;
+                Ok(Expr::Array(xs.iter().map(element).collect::<Result<_, _>>()?))
+            }
+            Expr::Call { callee: callee @ purecrate_ir::Callee::ArrayRepeat { len: n }, args } => {
+                count(*n)?;
+                Ok(Expr::Call { callee: callee.clone(), args: vec![element(&args[0])?] })
+            }
+            // Another array const of the same type, inside a crate const's
+            // value (`[ROW, [0; 4]]`): its value.
+            Expr::Var(n) if self.wide => {
+                let (t, v) = self.named(n, ty)?;
+                self.deeper()?.array(&t, v)
+            }
+            _ => Err(format!(
+                "a `{}` const is a literal `[a, b, ..]`, `[x; N]`, or a byte string `b\"..\"` in v0",
+                crate::types::show(ty)
+            )),
+        }
+    }
+
     fn deeper(&self) -> Result<Self, String> {
         if self.depth >= MAX_DEPTH {
             return Err("consts refer to each other in a cycle".into());
         }
-        Ok(Folder { defs: self.defs, depth: self.depth + 1 })
+        Ok(Folder { defs: self.defs, depth: self.depth + 1, wide: self.wide })
     }
 
     fn value(&self, ty: &Ty, expr: &Expr) -> Result<Lit, String> {

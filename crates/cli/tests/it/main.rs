@@ -24,6 +24,7 @@ mod closed_equivalence;
 mod closures_equivalence;
 mod collect_equivalence;
 mod comments;
+mod const_values_equivalence;
 mod consumers_equivalence;
 mod control_equivalence;
 mod counter_equivalence;
