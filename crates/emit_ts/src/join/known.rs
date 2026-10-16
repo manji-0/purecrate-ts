@@ -270,6 +270,24 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 (a == b).then_some(a)
             }
         },
+        // `a.kind === b.kind` (an enum's `==`, design/01 §5.1) where narrowing
+        // has kept the two apart, or both to the one variant: TS refuses the
+        // first ("no overlap"), the lint the second (two literal types).
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if let (Some(a), Some(b)) = (kind_of(left), kind_of(right)) =>
+        {
+            let (a, b) = (held(known, a)?, held(known, b)?);
+            // An enum's variants: the other cases' names start with `$`.
+            if a.iter().chain(b).any(|c| c.as_str().starts_with('$')) {
+                return None;
+            }
+            let same = match (a.as_slice(), b.as_slice()) {
+                ([x], [y]) if x == y => true,
+                _ if a.iter().all(|x| !b.contains(x)) => false,
+                _ => return None,
+            };
+            Some(same == (*op == BinOp::Eq))
+        }
         // `t == ","` where `t` is known to be some literal.
         Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } => {
             let (p, l) = match (&**left, &**right) {
@@ -298,6 +316,29 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
             [v] if v.as_str() == FALSE => Some(false),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// `a.kind === b.kind` that `known_bool` left, where one side is narrowed
+/// to one variant: TS narrows the other by it, which `flow::refine` does
+/// not follow (it would need the other side's enum), so a later test of
+/// that side could be one TS refuses. `Eq.deep(a, b)` narrows nothing.
+pub(super) fn kinds_apart(expr: &Expr, known: &Known) -> Option<Expr> {
+    let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr else { return None };
+    let (a, b) = (kind_of(left)?, kind_of(right)?);
+    let one = |p: &Expr| held(known, p).is_some_and(|cs| matches!(cs.as_slice(), [c] if !c.as_str().starts_with('$')));
+    if !one(a) && !one(b) {
+        return None;
+    }
+    let eq = Expr::Call { callee: purecrate_ir::Callee::DeepEq, args: vec![a.clone(), b.clone()] };
+    Some(if *op == BinOp::Eq { eq } else { Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(eq) } })
+}
+
+/// `p` of `p.kind`, `p` a place.
+fn kind_of(e: &Expr) -> Option<&Expr> {
+    match e {
+        Expr::Field { base, name } if name.as_str() == "kind" && is_place(base) => Some(base),
         _ => None,
     }
 }

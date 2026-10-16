@@ -548,6 +548,15 @@ impl Refs {
             }
             Expr::Unreachable => self.never = true,
             Expr::Index { .. } => self.slice = true,
+            // `a.kind === b.kind`, which narrowing may print as `Eq.deep`
+            // (`join::known::kinds_apart`); an unread import is pruned.
+            Expr::Binary { op: BinOp::Eq | BinOp::Ne, left, right }
+                if [left, right]
+                    .iter()
+                    .all(|s| matches!(&***s, Expr::Field { name, .. } if name.as_str() == "kind")) =>
+            {
+                self.eq = true;
+            }
             Expr::Call { callee, args } => {
                 match callee {
                     Callee::Fn(n) if is_free_fn(krate, n.as_str()) => {

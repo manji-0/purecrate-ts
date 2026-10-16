@@ -183,7 +183,7 @@ export const resolve = (
   Str.wellFormed(fallback);
   const flag = BTree.get(flags.flags, key);
   if (flag === null) return failed(fallback, { kind: "FlagNotFound" });
-  if (Eq.deep(flag.state, { kind: "Disabled" }))
+  if (flag.state.kind === "Disabled")
     return { value: fallback, variant: null, reason: { kind: "Disabled" }, error_code: null };
 
   let tuple: readonly [string, Reason];

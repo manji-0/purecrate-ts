@@ -3,7 +3,6 @@
 import {
   assertNever,
   Char,
-  Eq,
   Int,
   Result,
   Slice,
@@ -148,13 +147,10 @@ export const parseFen = (text: string): Result<Position, FenError> => {
     const square: Square = Slice.at(board, s);
     if (square.kind === "Occupied") {
       const p = square.value;
-      if (
-        Eq.deep(p.kind, { kind: "Pawn" }) &&
-        (Int.u8.div(s, 8 as U8) === 0 || Int.u8.div(s, 8 as U8) === 7)
-      )
+      if (p.kind.kind === "Pawn" && (Int.u8.div(s, 8 as U8) === 0 || Int.u8.div(s, 8 as U8) === 7))
         return Result.err({ kind: "PawnOnBackRank" });
 
-      if (Eq.deep(p.kind, { kind: "King" })) {
+      if (p.kind.kind === "King") {
         switch (p.color.kind) {
           case "White":
             whiteKings = Int.u32.add(whiteKings, 1 as U32);

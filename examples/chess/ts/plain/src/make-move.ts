@@ -21,11 +21,11 @@ export const makeMove = (pos: Position, mv: Move): Position => {
   const captured: Square = Slice.at(b, to);
   const [isPawn, isKing] =
     moving.kind === "Occupied"
-      ? [Eq.deep(moving.value.kind, { kind: "Pawn" }), Eq.deep(moving.value.kind, { kind: "King" })]
+      ? [moving.value.kind.kind === "Pawn", moving.value.kind.kind === "King"]
       : [false, false];
   if (
     isPawn &&
-    Eq.deep(captured, { kind: "Empty" }) &&
+    captured.kind === "Empty" &&
     Eq.deep(pos.en_passant, mv.to) &&
     Int.u8.rem(mv.from, 8 as U8) !== Int.u8.rem(mv.to, 8 as U8)
   ) {
@@ -69,7 +69,7 @@ export const makeMove = (pos: Position, mv: Move): Position => {
       ? Int.u8.div(Int.u8.add(mv.from, mv.to), 2 as U8)
       : null;
   const halfmove: U32 =
-    isPawn || !Eq.deep(captured, { kind: "Empty" })
+    isPawn || captured.kind !== "Empty"
       ? (0 as U32)
       : Int.u32.saturatingAdd(pos.halfmove, 1 as U32);
   const fullmove: U32 =

@@ -954,6 +954,8 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                     *expr = Expr::Lit(Lit::Bool((l == r) == (*op == BinOp::Eq)));
                 } else if let Some(b) = known_bool(expr, &s.0) {
                     *expr = Expr::Lit(Lit::Bool(b));
+                } else if let Some(deep) = kinds_apart(expr, &s.0) {
+                    *expr = deep;
                 }
             }
             literal_compare(expr);

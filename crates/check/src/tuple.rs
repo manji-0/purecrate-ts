@@ -97,7 +97,7 @@ pub fn lower(defs: &Defs, scrutinee: Expr, tys: Vec<Ty>, arms: Vec<Arm>, fresh: 
     (wrap(lets, tree), lw.holes)
 }
 
-fn is_place(expr: &Expr) -> bool {
+pub(crate) fn is_place(expr: &Expr) -> bool {
     match expr {
         Expr::Var(_) => true,
         Expr::Field { base, .. } => is_place(base),

@@ -42,7 +42,7 @@ const stepTargets = (
           break;
         case "Occupied": {
           const p = square.value;
-          if (!Eq.deep(p.color, us)) {
+          if (p.color.kind !== us.kind) {
             out.push(s);
           }
           break;
@@ -83,7 +83,7 @@ const slideTargets = (
             break;
           case "Occupied": {
             const p = square.value;
-            if (!Eq.deep(p.color, us)) {
+            if (p.color.kind !== us.kind) {
               out.push(s);
             }
 
@@ -110,14 +110,14 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
   const option = offset(from, [0 as I32, dr]);
   if (option !== null) {
     const one = option;
-    if (Eq.deep(Slice.at(pos.board, one), { kind: "Empty" })) {
+    if (Slice.at(pos.board, one).kind === "Empty") {
       targets.push(one);
 
       if (Int.u8.div(from, 8 as U8) === startRank) {
         const option2 = offset(one, [0 as I32, dr]);
         if (option2 !== null) {
           const two = option2;
-          if (Eq.deep(Slice.at(pos.board, two), { kind: "Empty" })) {
+          if (Slice.at(pos.board, two).kind === "Empty") {
             targets.push(two);
           }
         }
@@ -131,7 +131,9 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
       const s = option2;
       const square: Square = Slice.at(pos.board, s);
       const enemy =
-        square.kind === "Occupied" ? !Eq.deep(square.value.color, us) : Eq.deep(pos.en_passant, s);
+        square.kind === "Occupied"
+          ? square.value.color.kind !== us.kind
+          : Eq.deep(pos.en_passant, s);
       if (enemy) {
         targets.push(s);
       }
@@ -179,8 +181,8 @@ const castlingMoves = (pos: Position): ReadonlyArray<Move> => {
   if (
     kingside &&
     Eq.deep(Slice.at(b, Int.u8.add(base, 7 as U8)), rook) &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 5 as U8)), { kind: "Empty" }) &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 6 as U8)), { kind: "Empty" }) &&
+    Slice.at(b, Int.u8.add(base, 5 as U8)).kind === "Empty" &&
+    Slice.at(b, Int.u8.add(base, 6 as U8)).kind === "Empty" &&
     !attacked(b, Int.u8.add(base, 5 as U8), them) &&
     !attacked(b, Int.u8.add(base, 6 as U8), them)
   ) {
@@ -196,9 +198,9 @@ const castlingMoves = (pos: Position): ReadonlyArray<Move> => {
   if (
     queenside &&
     Eq.deep(Slice.at(b, base), rook) &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 1 as U8)), { kind: "Empty" }) &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 2 as U8)), { kind: "Empty" }) &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 3 as U8)), { kind: "Empty" }) &&
+    Slice.at(b, Int.u8.add(base, 1 as U8)).kind === "Empty" &&
+    Slice.at(b, Int.u8.add(base, 2 as U8)).kind === "Empty" &&
+    Slice.at(b, Int.u8.add(base, 3 as U8)).kind === "Empty" &&
     !attacked(b, Int.u8.add(base, 3 as U8), them) &&
     !attacked(b, Int.u8.add(base, 2 as U8), them)
   ) {
@@ -223,7 +225,7 @@ const pseudoMoves = (pos: Position): ReadonlyArray<Move> => {
     const square: Square = Slice.at(pos.board, from);
     if (square.kind !== "Occupied") continue loop;
     const p = square.value;
-    if (!Eq.deep(p.color, us)) continue loop;
+    if (p.color.kind !== us.kind) continue loop;
 
     let targets: ReadonlyArray<U8>;
     switch (p.kind.kind) {

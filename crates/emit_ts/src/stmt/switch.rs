@@ -123,14 +123,19 @@ pub(super) fn destructured<'e>(t: &Name, mut then: &'e Expr) -> Option<(Vec<Opti
 
 /// `matches!(v, p)` or `!matches!(v, p)` on a value that is not a place,
 /// each arm an expression (a guard's included): the value, the arms, and
-/// whether it is negated.
+/// whether it is negated. Not one test of `kind` (`coalesced_tx`), which
+/// reads the value once in place.
 pub(super) fn hoistable_test(cond: &Expr) -> Option<(&Expr, &[purecrate_ir::Arm], bool)> {
     let (inner, negated) = match peel_identity(cond) {
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => (peel_identity(expr), true),
         other => (other, false),
     };
     match inner {
-        Expr::Match { scrutinee, arms } if !is_place(scrutinee) && arms.iter().all(|a| !a.body.needs_statements()) => {
+        Expr::Match { scrutinee, arms }
+            if !is_place(scrutinee)
+                && arms.iter().all(|a| !a.body.needs_statements())
+                && one_variant_test(arms).is_none() =>
+        {
             Some((scrutinee, arms, negated))
         }
         _ => None,
@@ -398,14 +403,23 @@ fn remainder_arm(arms: &[purecrate_ir::Arm]) -> Option<&purecrate_ir::Arm> {
     found
 }
 
-/// The comparison and the variant where every arm is a unit variant whose
-/// body is `true` or `false`, and one variant alone is `true` (`===`) or
-/// alone is `false` (`!==`).
+/// The comparison and the variant where every arm is one variant whose
+/// fields are all `_` (a unit one, or `V(_)` from an enum's `==`) whose body is `true`
+/// or `false`, and one variant alone is `true` (`===`) or alone is `false`
+/// (`!==`).
 pub(crate) fn one_variant_test(arms: &[purecrate_ir::Arm]) -> Option<(Op, &Name)> {
     let mut yes = Vec::new();
     let mut no = Vec::new();
     for arm in arms {
-        let Pattern::Variant { variant, bind: VariantBind::Unit, .. } = &arm.pattern else { return None };
+        let Pattern::Variant { variant, bind, .. } = &arm.pattern else { return None };
+        let any = match bind {
+            VariantBind::Unit => true,
+            VariantBind::Tuple(ps) => ps.iter().all(|p| *p == Pattern::Wildcard),
+            VariantBind::Struct(fs) => fs.iter().all(|(_, p)| *p == Pattern::Wildcard),
+        };
+        if !any {
+            return None;
+        }
         match (&arm.body, &arm.guard) {
             (Expr::Lit(Lit::Bool(true)), None) => yes.push(variant),
             (Expr::Lit(Lit::Bool(false)), None) => no.push(variant),

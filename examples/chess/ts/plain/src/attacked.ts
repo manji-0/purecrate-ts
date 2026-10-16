@@ -43,10 +43,10 @@ export const attacked = (board: ReadonlyArray<Square>, square: U8, by: Color): b
           case "Occupied": {
             const p = square2.value;
             if (
-              Eq.deep(p.color, by) &&
-              (Eq.deep(p.kind, { kind: "Queen" }) ||
-                (Int.usize.rem(d, 2 as Usize) === 0 && Eq.deep(p.kind, { kind: "Rook" })) ||
-                (Int.usize.rem(d, 2 as Usize) === 1 && Eq.deep(p.kind, { kind: "Bishop" })))
+              p.color.kind === by.kind &&
+              (p.kind.kind === "Queen" ||
+                (Int.usize.rem(d, 2 as Usize) === 0 && p.kind.kind === "Rook") ||
+                (Int.usize.rem(d, 2 as Usize) === 1 && p.kind.kind === "Bishop"))
             )
               return true;
             cur = null;

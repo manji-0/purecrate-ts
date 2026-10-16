@@ -146,6 +146,14 @@ impl<'d, 'a> Typer<'d, 'a> {
                         Ty::Prim(Prim::Bool) => !ordered,
                         // std's derived `PartialEq`: the same variant.
                         Ty::Named(_) if self.is_ordering(t) => !ordered,
+                        // A crate enum's variant, where `kind` alone decides.
+                        Ty::Named(_) | Ty::App { .. }
+                            if !ordered
+                                && self.deep_comparable(t, &mut Vec::new())
+                                && let Some(eq) = self.kind_eq(t, op, &l, &r) =>
+                        {
+                            return (eq, self.expect(want, Some(Ty::bool())));
+                        }
                         // A derived `PartialEq` (rustc refuses `==` without
                         // one), compared part by part.
                         Ty::Named(_)
@@ -276,6 +284,59 @@ impl<'d, 'a> Typer<'d, 'a> {
                 }
             }
         }
+    }
+
+    /// `==` / `!=` on a crate enum of two or more variants where the derived
+    /// `eq` reads the variant alone (design/01 §5.1). Against a unit variant
+    /// written out (`x == K::B`), a `match` on the other side with an arm
+    /// per variant, as `matches!` is: it prints `x.kind === "B"`, and the
+    /// printer folds it where TS has narrowed `x` already. Between two values
+    /// of an enum whose variants are all unit, `a.kind === b.kind`, as
+    /// `Ordering`'s. `None` otherwise: a payload compares through `Eq.deep`.
+    /// One variant is left to `Eq.deep`, where `x.kind === "Only"` would
+    /// compare two literal types (`no-unnecessary-condition`).
+    fn kind_eq(&self, t: &Ty, op: BinOp, l: &Expr, r: &Expr) -> Option<Expr> {
+        let (Ty::Named(n) | Ty::App { name: n, .. }) = self.norm(t) else { return None };
+        let def = self.defs.enums.get(n.as_str()).filter(|e| !e.std && e.variants.len() > 1)?;
+        let unit = |x: &Expr| match x.unpositioned() {
+            Expr::Construct { variant: Some(v), fields: Fields::Unit, base: None, .. }
+                if def.variants.iter().any(|w| w.name == *v && w.fields == VariantFields::Unit) =>
+            {
+                Some(v.clone())
+            }
+            _ => None,
+        };
+        let (other, variant) = match (unit(l), unit(r)) {
+            (Some(_), Some(_)) => return None,
+            (Some(v), None) => (r, v),
+            (None, Some(v)) => (l, v),
+            (None, None) if def.variants.iter().all(|w| w.fields == VariantFields::Unit) => {
+                let kind = |e: &Expr| Expr::Field { base: Box::new(e.clone()), name: Name::new("kind") };
+                return Some(rebuild(op, kind(l), kind(r)));
+            }
+            (None, None) => return None,
+        };
+        let pattern = |w: &purecrate_ir::Variant| Pattern::Variant {
+            ty: n.clone(),
+            variant: w.name.clone(),
+            bind: match &w.fields {
+                VariantFields::Unit => VariantBind::Unit,
+                VariantFields::Tuple(ts) => VariantBind::Tuple(ts.iter().map(|_| Pattern::Wildcard).collect()),
+                VariantFields::Struct(_) => VariantBind::Struct(Vec::new()),
+            },
+        };
+        let hit = |w: &purecrate_ir::Variant| Expr::Lit(Lit::Bool((w.name == variant) == (op == BinOp::Eq)));
+        // A place is matched as `matches!` matches it (its `_` becomes the
+        // other variants); a value that is not one, with an arm per
+        // variant, which prints as one test of the value read once
+        // (`stmt::one_variant_test`), with no temporary.
+        let arms = if crate::tuple::is_place(other.unpositioned()) {
+            let w = def.variants.iter().find(|w| w.name == variant).expect("a variant of the enum");
+            vec![Arm::new(pattern(w), hit(w)), Arm::new(Pattern::Wildcard, Expr::Lit(Lit::Bool(op == BinOp::Ne)))]
+        } else {
+            def.variants.iter().map(|w| Arm::new(pattern(w), hit(w))).collect()
+        };
+        Some(Expr::Match { scrutinee: Box::new(other.clone()), arms })
     }
 
     /// Equality on `t` is the derived one, part by part, and each part's
