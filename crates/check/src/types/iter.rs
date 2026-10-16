@@ -330,7 +330,7 @@ impl<'d, 'a> Typer<'d, 'a> {
             other => (other, None),
         };
         if !is_sequence(pieces) {
-            self.error(Reason::MethodCall, "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`, through any `map(f)` and `filter(p)`, in v0".to_string());
+            self.error(Reason::MethodCall, "`collect` builds a `Vec`, a `String`, a `BTreeMap`, or a `BTreeSet` from a sequence in v0: a source (`xs.iter()`, a range, `s.chars()`, `s.split(p)`, `m.keys()`, and the others design/01 §7.13 lists) through its stages (`map`, `filter`, `filter_map`, `take`, `skip`, …)".to_string());
             return Some(failed);
         }
         let target = want.map(|t| self.norm(t));

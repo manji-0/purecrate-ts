@@ -197,8 +197,8 @@ fn lower_path(path: &syn::Path) -> Result<Ty, ParseError> {
         let hint = match name.as_str() {
             // Rust leaves a hash map's order unspecified, so a function that
             // iterates one has no one result to match (design/07 §5).
-            "HashMap" => "; use `BTreeMap<String, V>`, which iterates in key order",
-            "HashSet" => "; use `BTreeSet<String>`, which iterates in key order",
+            "HashMap" => "; use `BTreeMap<K, V>`, which iterates in key order",
+            "HashSet" => "; use `BTreeSet<K>`, which iterates in key order",
             _ => "",
         };
         return Err(

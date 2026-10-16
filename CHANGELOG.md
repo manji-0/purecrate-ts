@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Four refusal messages named what 0.23.0 had widened: `HashMap` / `HashSet` point to `BTreeMap<K, V>` / `BTreeSet<K>` (any key 01 §7.26 takes), not `String` keys; a method off the list on a `BTreeMap` or `BTreeSet` lists the ones allowed, where it said none were; a const of another type lists byte strings and arrays among the types a const may have; and `collect` off something not a sequence names what it builds and points to 01 §7.13's sources and stages.
+
 ## 0.23.0 — 2026-10-15
 
 The rows of design/07 §2.5 left with the most weight, taken by decision: `BTreeMap` / `BTreeSet` keyed by integers, `char`, `bool`, `Uuid`, and newtypes of them (design/01 §7.26), on the wire as serde_json 1.0.145 reads and writes them; fixed-size arrays `[T; N]` (§7.27) as `ReadonlyArray<T>` with the length checked on entry; and `take`, `skip`, `take_while`, `skip_while`, and `partition` (§7.28), lazy as Rust's. Statements seed 119, refused by tsc since 0.18.0, passes: `r.ok().unwrap_or(d)` prints as one choice (*Changed*), so every generator now passes every seed from 1 to 120. A returned `match` on a mapped `Result` names its temporary, which renames one in examples/calendar (`value2` to `parse`). The distance to the ideal is 94%; `survey corpus/patterns.rs` accepts 134 of 138.

@@ -29,7 +29,7 @@ fn collect_refuses_a_list_that_is_not_read_from_text() {
     // (adapters_equivalence.rs); what is not a sequence is not.
     assert_rejects(
         "pub fn f(o: Option<u8>) -> Vec<u8> { o.map(|x| x + 1).collect() }",
-        "`collect` builds a `Vec` from `xs.iter()`, `s.chars()`, `s.bytes()`, `s.split(p)`, `s.split_whitespace()`, or `s.lines()`",
+        "`collect` builds a `Vec`, a `String`, a `BTreeMap`, or a `BTreeSet` from a sequence",
     );
     assert_clean("pub fn f(xs: Vec<u8>) -> Vec<u8> { xs.into_iter().rev().collect() }");
     assert_rejects(

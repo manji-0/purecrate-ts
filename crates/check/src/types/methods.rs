@@ -749,6 +749,18 @@ fn std_methods(ty: &Ty) -> Option<String> {
             .chain(["clone", "cloned", "copied", "as_ref", "as_deref"])
             .collect(),
         Ty::Result { .. } => option_result::RESULT_METHODS.map(|(n, _)| n).to_vec(),
+        Ty::Map { .. } => vec![
+            "get",
+            "contains_key",
+            "len",
+            "is_empty",
+            "iter",
+            "keys",
+            "values",
+            "clone",
+            "insert and remove (on a `let mut` local)",
+        ],
+        Ty::Set(_) => vec!["contains", "len", "is_empty", "iter", "clone", "insert and remove (on a `let mut` local)"],
         Ty::Prim(p) if p.float().is_some() => FloatMethod::ALL.iter().map(|m| m.name()).collect(),
         Ty::Prim(p) if p.int().is_some() => IntMethod::ALL
             .iter()

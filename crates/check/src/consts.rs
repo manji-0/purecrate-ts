@@ -157,7 +157,7 @@ impl Folder<'_, '_> {
                 },
             },
             _ => Err(format!(
-                "a const of type `{}` is not in v0: consts are integers, floats, `bool`, `char`, or `&str`",
+                "a const of type `{}` is not in v0: consts are integers, floats, `bool`, `char`, `&str`, byte strings, or arrays of these",
                 crate::types::show(ty)
             )),
         }
