@@ -197,10 +197,11 @@ export const BucketBy: v.GenericSchema<unknown, DomainBucketBy> = v.union([
   ),
 ]);
 
-export const SplitWire: v.GenericSchema<unknown, DomainSplitWire> = record({
-  bucket_by: BucketBy,
-  weights: v.array(v.tuple([str, i64])),
-});
+/** `Split` as JSON holds it, read back through `Split::new`. */
+export const SplitWire: v.GenericSchema<unknown, DomainSplitWire> = v.pipe(
+  record({ bucketBy: BucketBy, shares: v.array(v.tuple([str, i64])) }),
+  v.transform((x): DomainSplitWire => ({ bucket_by: x.bucketBy, shares: x.shares })),
+);
 
 export const Split: v.GenericSchema<unknown, DomainSplit> = v.pipe(
   SplitWire,
@@ -513,13 +514,13 @@ export const toJson = {
   },
   Split: (x: DomainSplit): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
       ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   SplitWire: (x: DomainSplitWire): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
-      ["weights", Json.array(x.weights, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
+      ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   Rule: (x: DomainRule): string => {
     switch (x.kind) {

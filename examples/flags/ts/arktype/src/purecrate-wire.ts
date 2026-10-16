@@ -347,14 +347,15 @@ export const Split: Wire<DomainSplit> = type("unknown").pipe((v, ctx): DomainSpl
 
 const splitWireWire = memo(() =>
   type("unknown").pipe(
-    sequence(["bucket_by", "weights"]),
-    type({ bucket_by: BucketBy, weights: type([str, i64]).array() }).narrow(record),
+    sequence(["bucketBy", "shares"]),
+    type({ bucketBy: BucketBy, shares: type([str, i64]).array() }).narrow(record),
   ),
 );
+/** `Split` as JSON holds it, read back through `Split::new`. */
 export const SplitWire: Wire<DomainSplitWire> = type("unknown").pipe((v, ctx): DomainSplitWire => {
   const parsed = splitWireWire()(v);
   if (parsed instanceof type.errors) return fail(ctx, parsed);
-  return { bucket_by: parsed.bucket_by, weights: parsed.weights };
+  return { bucket_by: parsed.bucketBy, shares: parsed.shares };
 });
 
 const ruleVariantArm = memo(() =>
@@ -753,13 +754,13 @@ export const toJson = {
   },
   Split: (x: DomainSplit): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
       ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   SplitWire: (x: DomainSplitWire): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
-      ["weights", Json.array(x.weights, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
+      ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   Rule: (x: DomainRule): string => {
     switch (x.kind) {

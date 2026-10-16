@@ -56,6 +56,6 @@ export const Split = {
   },
   tryFrom: (w: SplitWire): Result<Split, DefinitionError> => {
     Str.wellFormed(w);
-    return Split.new(w.bucket_by, w.weights);
+    return Split.new(w.bucket_by, w.shares);
   },
 } as const;

@@ -3,14 +3,15 @@
 import type { I64 } from "./purecrate-runtime.ts";
 import type { BucketBy } from "./bucket-by.ts";
 
+/** `Split` as JSON holds it, read back through `Split::new`. */
 export type SplitWire = Readonly<{
   bucket_by: BucketBy;
-  weights: ReadonlyArray<readonly [string, I64]>;
+  shares: ReadonlyArray<readonly [string, I64]>;
 }>;
 
 export const SplitWire = {
-  of: (bucketBy: BucketBy, weights: ReadonlyArray<readonly [string, I64]>): SplitWire => ({
+  of: (bucketBy: BucketBy, shares: ReadonlyArray<readonly [string, I64]>): SplitWire => ({
     bucket_by: bucketBy,
-    weights,
+    shares,
   }),
 } as const;

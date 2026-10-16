@@ -135,10 +135,11 @@ export const BucketBy: z.ZodType<DomainBucketBy> = z.union([
   variant({ Cat: z.array(Part) }).transform((x): DomainBucketBy => ({ kind: "Cat", value: x.Cat })),
 ]);
 
+/** `Split` as JSON holds it, read back through `Split::new`. */
 export const SplitWire: z.ZodType<DomainSplitWire> = record({
-  bucket_by: BucketBy,
-  weights: z.array(z.tuple([str, i64])),
-});
+  bucketBy: BucketBy,
+  shares: z.array(z.tuple([str, i64])),
+}).transform((x): DomainSplitWire => ({ bucket_by: x.bucketBy, shares: x.shares }));
 
 export const Split: z.ZodType<DomainSplit> = SplitWire.transform((x, ctx): DomainSplit => {
   const r = DomainSplit.tryFrom(x);
@@ -405,13 +406,13 @@ export const toJson = {
   },
   Split: (x: DomainSplit): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
       ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   SplitWire: (x: DomainSplitWire): string =>
     Json.object([
-      ["bucket_by", toJson.BucketBy(x.bucket_by)],
-      ["weights", Json.array(x.weights, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
+      ["bucketBy", toJson.BucketBy(x.bucket_by)],
+      ["shares", Json.array(x.shares, (v0) => Json.tuple([Json.str(v0[0]), Json.int(v0[1])]))],
     ]),
   Rule: (x: DomainRule): string => {
     switch (x.kind) {

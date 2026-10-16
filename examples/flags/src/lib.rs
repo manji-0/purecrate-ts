@@ -362,16 +362,18 @@ pub enum BucketBy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "SplitWire")]
+#[serde(try_from = "SplitWire", rename_all = "camelCase")]
 pub struct Split {
     bucket_by: BucketBy,
     shares: Vec<(String, u32)>,
 }
 
+/// `Split` as JSON holds it, read back through `Split::new`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SplitWire {
     pub bucket_by: BucketBy,
-    pub weights: Vec<(String, i64)>,
+    pub shares: Vec<(String, i64)>,
 }
 
 impl Split {
@@ -401,7 +403,7 @@ impl Split {
 impl TryFrom<SplitWire> for Split {
     type Error = DefinitionError;
     fn try_from(w: SplitWire) -> Result<Split, DefinitionError> {
-        Split::new(w.bucket_by, w.weights)
+        Split::new(w.bucket_by, w.shares)
     }
 }
 
