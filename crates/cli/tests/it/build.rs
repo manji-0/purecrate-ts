@@ -214,6 +214,29 @@ fn successful_build_replaces_out_and_prunes_unreachable_items() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// An `--out` relative to the working directory, several levels of it not
+/// there yet (a new example's `ts/plain`), finds `node_modules/.bin/oxfmt`
+/// above it as an absolute path, which oxfmt's scratch directory can run.
+#[test]
+fn build_into_a_new_relative_out_finds_oxfmt_above_it() {
+    let dir = scratch("relative-out");
+    let bin = dir.join("node_modules/.bin");
+    fs::create_dir_all(&bin).expect("mkdir bin");
+    std::os::unix::fs::symlink(support::oxfmt(), bin.join("oxfmt")).expect("link oxfmt");
+    let src = support::repo().join("examples/counter");
+    let built = cli()
+        .env_remove("PURECRATE_OXFMT")
+        .current_dir(&dir)
+        .arg("build")
+        .arg(&src)
+        .args(["--out", "ex/ts/plain"])
+        .output()
+        .expect("run purecrate-ts");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(dir.join("ex/ts/plain/src/step.ts").exists());
+    fs::remove_dir_all(&dir).ok();
+}
+
 /// `build` and `check --out` need oxfmt and say so, writing nothing;
 /// `check` alone does not.
 #[test]

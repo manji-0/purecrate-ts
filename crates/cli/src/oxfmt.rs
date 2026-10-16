@@ -26,8 +26,10 @@ pub fn locate(near: &[&Path]) -> Result<PathBuf, String> {
         };
     }
     for dir in near {
-        // An absolute path, so a relative one is searched above too.
-        let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        // An absolute path, so a relative one is searched above too, and
+        // found from the scratch directory oxfmt runs in. `dir` need not
+        // exist yet (`--out ts/plain` on a new example).
+        let dir = fs::canonicalize(dir).or_else(|_| std::path::absolute(dir)).unwrap_or_else(|_| dir.to_path_buf());
         if let Some(found) = dir.ancestors().map(|d| d.join("node_modules/.bin/oxfmt")).find(|p| p.is_file()) {
             return Ok(found);
         }
