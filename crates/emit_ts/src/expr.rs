@@ -1685,11 +1685,30 @@ pub(crate) fn f32_literal(digits: &str) -> String {
 /// set every padded piece's alignment.
 fn emit_format(pieces: &[purecrate_ir::FmtPiece], args: &[Expr], indent: usize) -> String {
     let mut out = String::from("`");
+    // The text alone, while no argument is placed: a template left with
+    // none is a string literal.
+    let mut plain = Some(String::new());
     for piece in pieces {
         match piece {
-            purecrate_ir::FmtPiece::Text(t) => out.push_str(&template_text(t)),
+            purecrate_ir::FmtPiece::Text(t) => {
+                out.push_str(&template_text(t));
+                if let Some(p) = plain.as_mut() {
+                    p.push_str(t);
+                }
+            }
             purecrate_ir::FmtPiece::Arg { index, spec } => {
                 let arg = &args[*index];
+                // A string narrowing has decided (`if l == K::A { "a" } else
+                // { .. }` in `K::A`'s arm) is text, as `check` splices a
+                // literal written there: the lint refuses `${"a"}`.
+                if let (Expr::Lit(Lit::Str(t)), None) = (peel_identity(arg), spec.width) {
+                    out.push_str(&template_text(t));
+                    if let Some(p) = plain.as_mut() {
+                        p.push_str(t);
+                    }
+                    continue;
+                }
+                plain = None;
                 let value =
                     bare(arg, indent).unwrap_or_else(|| crate::tidy::uncast(&emit_item(arg, indent)).to_string());
                 let value = match spec.width {
@@ -1713,6 +1732,9 @@ fn emit_format(pieces: &[purecrate_ir::FmtPiece], args: &[Expr], indent: usize) 
                 out.push('}');
             }
         }
+    }
+    if let Some(p) = plain {
+        return js_string(&p);
     }
     out.push('`');
     out
