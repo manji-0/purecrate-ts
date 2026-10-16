@@ -1,4 +1,4 @@
-//! `examples/flags`, flagd's flag evaluation (open-feature/flagd at
+//! `examples/flagd`, flagd's flag evaluation (open-feature/flagd at
 //! 670c91cdca, core/pkg/evaluator) with OpenFeature's reasons and codes:
 //!
 //! - the published values come out as published: MurmurHash3 x86_32 on
@@ -18,17 +18,14 @@
 //!   trees, contexts, and flags through `resolve`; random weights through
 //!   `Split::new` and `split_variant`; random flags through `Flag::new`;
 //! - the generated package agrees with Rust on a sample of each.
-//!
-//! The file is not `flags_equivalence.rs`: that name is the `const` and
-//! discriminant test's (`fixtures/flags.rs`).
 
 use std::collections::BTreeMap;
 
 use crate::support::{self, Js, Rng};
 
-purecrate_canon::fixture!(mod flags = "../../../examples/flags/src/lib.rs", "fixtures/flags_driver.rs");
+purecrate_canon::fixture!(mod flagd = "../../../examples/flagd/src/lib.rs", "fixtures/flagd_driver.rs");
 
-use flags::{
+use flagd::{
     Attr, BucketBy, CmpOp, Cond, Context, DefinitionError, ErrorCode, Flag, FlagSet, FlagValue, Part, Reason,
     Resolution, Rule, SemVerOp, Split, State,
 };
@@ -40,7 +37,7 @@ mod idiomatic {
     use std::collections::HashMap;
     use std::mem::discriminant;
 
-    pub use super::flags::{CmpOp, DefinitionError, ErrorCode, Reason, SemVerOp, State};
+    pub use super::flagd::{CmpOp, DefinitionError, ErrorCode, Reason, SemVerOp, State};
 
     pub fn murmur3_32(data: &[u8], seed: u32) -> u32 {
         const C1: u32 = 0xcc9e_2d51;
@@ -638,11 +635,11 @@ fn the_published_values_come_out_as_published() {
         ("The quick brown fox jumps over the lazy dog", 0, 0x2e4f_f723),
         ("headerColorrachel@faas.com", 0, 0x6b9f_c846),
     ] {
-        assert_eq!(flags::murmur3_32(text.as_bytes(), seed), want, "{text:?} seed {seed}");
+        assert_eq!(flagd::murmur3_32(text.as_bytes(), seed), want, "{text:?} seed {seed}");
         assert_eq!(idiomatic::murmur3_32(text.as_bytes(), seed), want, "{text:?} seed {seed}");
     }
     for (flags_, key, context, variant, reason) in published() {
-        let got = flags::resolve(&flag_set(&flags_), key, &context, FlagValue::String(s("fallback")));
+        let got = flagd::resolve(&flag_set(&flags_), key, &context, FlagValue::String(s("fallback")));
         assert_eq!(got, resolution(hex(variant), variant, reason), "{key} {context:?}");
     }
     // semver_test.go's operator table (`v` and `V` optional).
@@ -672,7 +669,7 @@ fn the_published_values_come_out_as_published() {
         ("1.2-rc.1", Lt, "1.2.0", false),
         ("99999999999999999999999.0.0", Gt, "99999999999999999999998.0.0", true),
     ] {
-        assert_eq!(flags::sem_ver_matches(a, op, b), want, "{a} {op:?} {b}");
+        assert_eq!(flagd::sem_ver_matches(a, op, b), want, "{a} {op:?} {b}");
     }
     // SemVer 2.0.0 §11: each precedes the next.
     let chain = [
@@ -690,8 +687,8 @@ fn the_published_values_come_out_as_published() {
     ];
     for (i, a) in chain.iter().enumerate() {
         for (j, b) in chain.iter().enumerate() {
-            assert_eq!(flags::sem_ver_matches(a, Lt, b), i < j, "{a} < {b}");
-            assert_eq!(flags::sem_ver_matches(a, Eq, b), i == j, "{a} = {b}");
+            assert_eq!(flagd::sem_ver_matches(a, Lt, b), i < j, "{a} < {b}");
+            assert_eq!(flagd::sem_ver_matches(a, Eq, b), i == j, "{a} = {b}");
         }
     }
     // json.go: STATIC without targeting, DEFAULT on null, GENERAL for an
@@ -712,17 +709,17 @@ fn the_published_values_come_out_as_published() {
     let text = FlagValue::String(s("fb"));
     let err =
         |value: FlagValue, code| Resolution { value, variant: None, reason: Reason::Error, error_code: Some(code) };
-    assert_eq!(flags::resolve(&set, "static", &none, text.clone()), resolution("#FF0000", "red", Reason::Static));
-    assert_eq!(flags::resolve(&set, "null", &none, text.clone()), resolution("#FF0000", "red", Reason::Default));
-    assert_eq!(flags::resolve(&set, "unknown", &none, text.clone()), err(text.clone(), ErrorCode::General));
-    assert_eq!(flags::resolve(&set, "nope", &none, text.clone()), err(text.clone(), ErrorCode::FlagNotFound));
+    assert_eq!(flagd::resolve(&set, "static", &none, text.clone()), resolution("#FF0000", "red", Reason::Static));
+    assert_eq!(flagd::resolve(&set, "null", &none, text.clone()), resolution("#FF0000", "red", Reason::Default));
+    assert_eq!(flagd::resolve(&set, "unknown", &none, text.clone()), err(text.clone(), ErrorCode::General));
+    assert_eq!(flagd::resolve(&set, "nope", &none, text.clone()), err(text.clone(), ErrorCode::FlagNotFound));
     let off = Resolution { value: text.clone(), variant: None, reason: Reason::Disabled, error_code: None };
-    assert_eq!(flags::resolve(&set, "off", &none, text.clone()), off);
-    assert_eq!(flags::resolve(&set, "number", &none, text.clone()), err(text, ErrorCode::TypeMismatch));
-    let float = flags::resolve(&set, "number", &none, FlagValue::Float(0.5));
+    assert_eq!(flagd::resolve(&set, "off", &none, text.clone()), off);
+    assert_eq!(flagd::resolve(&set, "number", &none, text.clone()), err(text, ErrorCode::TypeMismatch));
+    let float = flagd::resolve(&set, "number", &none, FlagValue::Float(0.5));
     assert_eq!(float.value, FlagValue::Float(2.0));
     let int =
-        flags::resolve(&flag_set(&[F { targeting: None, ..float_flag() }]), "float", &none, FlagValue::Integer(0));
+        flagd::resolve(&flag_set(&[F { targeting: None, ..float_flag() }]), "float", &none, FlagValue::Integer(0));
     assert_eq!(int.error_code, Some(ErrorCode::TypeMismatch));
     // Weights: negative ones count as 0, the cap is i32::MAX each and summed.
     let big = |ws: &[(&str, i64)]| Split::new(BucketBy::Default, weights(ws)).map(|_| ());
@@ -732,7 +729,7 @@ fn the_published_values_come_out_as_published() {
     assert_eq!(big(&[("a", i64::from(i32::MAX)), ("b", -5)]), Ok(()));
     assert_eq!(big(&[]), Err(DefinitionError::EmptySplit));
     let zero = Split::new(BucketBy::Default, weights(&[("a", 0), ("b", -1)])).unwrap();
-    assert_eq!(flags::split_variant(&zero, &ctx(Some("u"), &[]), "k"), None);
+    assert_eq!(flagd::split_variant(&zero, &ctx(Some("u"), &[]), "k"), None);
 }
 
 fn float_flag() -> F {
@@ -964,20 +961,20 @@ fn constrained_rust_is_the_idiomatic_rules() {
     for len in 0..=40 {
         for seed in [0, 1, 1234, u32::MAX] {
             let data = bytes(&mut rng, len);
-            assert_eq!(flags::murmur3_32(&data, seed), idiomatic::murmur3_32(&data, seed), "{data:?} {seed}");
+            assert_eq!(flagd::murmur3_32(&data, seed), idiomatic::murmur3_32(&data, seed), "{data:?} {seed}");
         }
     }
     for _ in 0..2000 {
         let len = rng.below(64) as usize;
         let data = bytes(&mut rng, len);
         let seed = rng.next() as u32;
-        assert_eq!(flags::murmur3_32(&data, seed), idiomatic::murmur3_32(&data, seed));
+        assert_eq!(flagd::murmur3_32(&data, seed), idiomatic::murmur3_32(&data, seed));
     }
     use SemVerOp::*;
     for a in VERSIONS {
         for b in VERSIONS {
             for op in [Eq, Ne, Lt, Le, Gt, Ge, Caret, Tilde] {
-                assert_eq!(flags::sem_ver_matches(a, op, b), idiomatic::sem_ver_matches(a, op, b), "{a} {op:?} {b}");
+                assert_eq!(flagd::sem_ver_matches(a, op, b), idiomatic::sem_ver_matches(a, op, b), "{a} {op:?} {b}");
             }
         }
     }
@@ -990,7 +987,7 @@ fn constrained_rust_is_the_idiomatic_rules() {
             for _ in 0..4 {
                 let c = context(&mut rng);
                 let key = rng.pick(&["headerColor", "", "f0"]);
-                assert_eq!(flags::split_variant(&m, &c, key), r.variant(&i_ctx(&c), key), "{by:?} {ws:?} {c:?}");
+                assert_eq!(flagd::split_variant(&m, &c, key), r.variant(&i_ctx(&c), key), "{by:?} {ws:?} {c:?}");
             }
         }
     }
@@ -1006,7 +1003,7 @@ fn constrained_rust_is_the_idiomatic_rules() {
             let c = context(&mut rng);
             let key = rng.pick(&["f0", "f1", "f2", "f3", "nope"]);
             let fb = fallback(&mut rng);
-            let got = flags::resolve(&model, key, &c, fb.clone());
+            let got = flagd::resolve(&model, key, &c, fb.clone());
             let want = idiomatic::resolve(&reference, key, &i_ctx(&c), i_value(&fb));
             assert_eq!(format!("{got:?}"), format!("{want:?}"), "{key} {c:?} {fs:?}");
             *reasons.entry(format!("{:?}/{:?}", got.reason, got.error_code)).or_insert(0) += 1;
@@ -1058,27 +1055,27 @@ fn flags_match_rust() {
         for text in ["", "a", "ab", "abc", "abcd", "abcde", "hello", "Hello, world!", "日本語 \u{1f600}"] {
             let data = text.as_bytes().to_vec();
             for seed in [0u32, 1, 1234, u32::MAX] {
-                cases.push(case!(flags::murmur3_32(data.as_slice(), seed)));
+                cases.push(case!(flagd::murmur3_32(data.as_slice(), seed)));
             }
         }
         for _ in 0..60 {
             let len = rng.below(40) as usize;
             let data = bytes(&mut rng, len);
             let seed = rng.next() as u32;
-            cases.push(case!(flags::murmur3_32(data.as_slice(), seed)));
+            cases.push(case!(flagd::murmur3_32(data.as_slice(), seed)));
         }
         use SemVerOp::*;
         for (i, a) in VERSIONS.iter().enumerate() {
             for (j, b) in VERSIONS.iter().enumerate() {
                 if (i * 7 + j) % 5 == 0 {
                     let op = [Eq, Ne, Lt, Le, Gt, Ge, Caret, Tilde][(i + j) % 8];
-                    cases.push(case!(flags::sem_ver_matches(*a, op, *b)));
+                    cases.push(case!(flagd::sem_ver_matches(*a, op, *b)));
                 }
             }
         }
         for (fs, key, context, _, _) in published() {
             let set = flag_set(&fs);
-            cases.push(case!(flags::resolve(&set, key, &context, FlagValue::String(s("fallback")))));
+            cases.push(case!(flagd::resolve(&set, key, &context, FlagValue::String(s("fallback")))));
         }
         for _ in 0..80 {
             let (by, ws) = (bucket_by(&mut rng), split_weights(&mut rng));
@@ -1086,7 +1083,7 @@ fn flags_match_rust() {
             if let Ok(split) = Split::new(by, ws) {
                 for _ in 0..3 {
                     let c = context(&mut rng);
-                    cases.push(case!(flags::split_variant(&split, &c, "headerColor")));
+                    cases.push(case!(flagd::split_variant(&split, &c, "headerColor")));
                 }
             }
         }
@@ -1099,7 +1096,7 @@ fn flags_match_rust() {
             )]);
             for age in [0.0, -0.0, f64::NAN] {
                 let c = ctx(None, &[("age", Attr::Number(age))]);
-                cases.push(case!(flags::resolve(&set, "headerColor", &c, FlagValue::String(s("fb")))));
+                cases.push(case!(flagd::resolve(&set, "headerColor", &c, FlagValue::String(s("fb")))));
             }
         }
         for _ in 0..80 {
@@ -1113,10 +1110,10 @@ fn flags_match_rust() {
                 let c = context(&mut rng);
                 let key = rng.pick(&["f0", "f1", "f2", "f3", "nope"]);
                 let fb = fallback(&mut rng);
-                cases.push(case!(flags::resolve(&set, key, &c, fb)));
+                cases.push(case!(flagd::resolve(&set, key, &c, fb)));
             }
         }
     });
     assert!((800..3000).contains(&cases.len()), "{} cases", cases.len());
-    support::assert_equivalent("flags", flags::SOURCE, &cases);
+    support::assert_equivalent("flagd", flagd::SOURCE, &cases);
 }

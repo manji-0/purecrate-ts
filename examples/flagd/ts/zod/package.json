@@ -1,5 +1,5 @@
 {
-  "name": "flags",
+  "name": "flagd",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -24,7 +24,7 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "arktype": "^2.1.22"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "typescript": "^6.0.0 || ^7.0.0"
