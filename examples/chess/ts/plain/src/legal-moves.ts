@@ -139,18 +139,17 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
     }
   }
 
-  // Typed: a literal array in the `for` head widens to `{ kind: string }[]` in TS.
-  const promotions: ReadonlyArray<PieceKind> = [
-    { kind: "Queen" },
-    { kind: "Rook" },
-    { kind: "Bishop" },
-    { kind: "Knight" },
-  ];
   const out: Array<Move> = [];
 
   for (const to of targets) {
     if (Int.u8.div(to, 8 as U8) === lastRank) {
-      for (const kind of promotions) {
+      const items: ReadonlyArray<PieceKind> = [
+        { kind: "Queen" },
+        { kind: "Rook" },
+        { kind: "Bishop" },
+        { kind: "Knight" },
+      ];
+      for (const kind of items) {
         out.push(unsafeMakeMove({ from, to, promotion: kind }));
       }
     } else {

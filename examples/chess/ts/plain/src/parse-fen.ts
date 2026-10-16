@@ -47,12 +47,8 @@ const pieceFromChar = (c: Char): Piece | null => {
   return { color, kind };
 };
 
-const blank = (): Square => ({ kind: "Empty" });
-
 const parseBoard = (text: string): Result<ReadonlyArray<Square>, FenError> => {
-  // `[Square::Empty; 64]` widens to `{ kind: string }[]` in TS, annotated
-  // or not, and a typed local narrows to `Empty`; a call keeps `Square`.
-  const board = Slice.repeat(blank(), 64);
+  const board: Array<Square> = Slice.repeat({ kind: "Empty" }, 64);
   let rank = 7 as I32;
   let file = 0 as I32;
 

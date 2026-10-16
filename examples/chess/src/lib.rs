@@ -305,13 +305,11 @@ fn pawn_moves(pos: &Position, from: u8) -> Vec<Move> {
             }
         }
     }
-    // Typed: a literal array in the `for` head widens to `{ kind: string }[]` in TS.
-    let promotions: [PieceKind; 4] = [PieceKind::Queen, PieceKind::Rook, PieceKind::Bishop, PieceKind::Knight];
     let mut out: Vec<Move> = Vec::new();
     for to in &targets {
         if to / 8 == last_rank {
-            for kind in &promotions {
-                out.push(Move { from, to: *to, promotion: Some(*kind) });
+            for kind in [PieceKind::Queen, PieceKind::Rook, PieceKind::Bishop, PieceKind::Knight] {
+                out.push(Move { from, to: *to, promotion: Some(kind) });
             }
         } else {
             out.push(Move { from, to: *to, promotion: None });
@@ -538,14 +536,8 @@ fn piece_char(p: Piece) -> char {
     }
 }
 
-fn blank() -> Square {
-    Square::Empty
-}
-
 fn parse_board(text: &str) -> Result<[Square; 64], FenError> {
-    // `[Square::Empty; 64]` widens to `{ kind: string }[]` in TS, annotated
-    // or not, and a typed local narrows to `Empty`; a call keeps `Square`.
-    let mut board = [blank(); 64];
+    let mut board = [Square::Empty; 64];
     let mut rank: i32 = 7;
     let mut file: i32 = 0;
     for c in text.chars() {
