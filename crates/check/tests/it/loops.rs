@@ -105,6 +105,31 @@ fn while_let_and_loop_values() {
 }
 
 #[test]
+fn unsuffixed_arms_and_arrays_take_their_first_use_type() {
+    // A `let` of a `match` or an `if` whose results are literals (a
+    // diverging arm aside), and an array of literals a `for` walks.
+    assert_clean("pub fn f(b: bool, x: u8) -> u8 { let w = match b { true => 1, false => 3 }; w + x }");
+    assert_clean("pub fn f(b: bool, x: i64) -> i64 { let n = if b { 1 } else { -2 }; x * n }");
+    assert_clean("pub fn f(b: bool) -> u8 { let n = match b { true => 4, false => return 0 }; n }");
+    assert_clean("pub fn f(v: &[u8]) -> u8 { let mut s: u8 = 0; for i in [2, 0] { s ^= v[i]; } s }");
+    assert_clean("pub fn f(a: i16) -> i16 { let mut t = a; for d in [-1, 1] { t += d; } t }");
+    // No use asks one (rustc's `i32` default), an arm that is not a
+    // literal, or an empty array.
+    assert_rejects(
+        "pub fn f(b: bool) -> bool { let n = if b { 1 } else { 2 }; n == n }",
+        "cannot tell the integer type of `1`",
+    );
+    assert_rejects(
+        "pub fn f(b: bool, y: u8) -> u8 { let n = match b { true => 1, false => y }; n }",
+        "cannot tell the integer type of `1`",
+    );
+    assert_rejects(
+        "pub fn f() -> u32 { let mut s: u32 = 0; for _ in [1, 2] { s += 1; } s }",
+        "cannot tell the integer type of `1`",
+    );
+}
+
+#[test]
 fn an_unsuffixed_range_takes_its_first_use_type() {
     // An index asks a `usize`, as rustc infers it.
     assert_clean("pub fn f(b: [u8; 3]) -> u8 { let mut a = [0u8; 3]; for i in 0..3 { a[i] = b[i]; } a[0] }");

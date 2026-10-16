@@ -368,7 +368,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                 // one, as rustc infers it, where nothing else gives one.
                 // Inside that search, a nested one is not searched again.
                 let inferred = match ty {
-                    None if is_bare_int(value) && self.open.is_empty() => self.first_use_type(name, then, want),
+                    None if is_bare_int_valued(value) && self.open.is_empty() => self.first_use_type(name, then, want),
                     _ => None,
                 };
                 let before = self.out.len();
@@ -452,7 +452,14 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Expr::ForEach { var, over, source: string, body } => {
                 let before = self.out.len();
-                let (s, st) = self.expr(string, None);
+                // `for d in [-1, 1]`: unsuffixed elements take the type the
+                // first use of the variable in the body asks, as a `let` of
+                // one does.
+                let inferred = match bare_int_array(string) && *over == Over::Items && self.open.is_empty() {
+                    true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
+                    false => None,
+                };
+                let (s, st) = self.expr(string, inferred.map(|t| Ty::Vec(Box::new(t))).as_ref());
                 // `for (k, v) in &m`, `for k in &s`: the items in key order.
                 let (s, st) = match st.as_ref().map(|t| self.norm(t)) {
                     Some(t @ Ty::Map { .. }) if *over == Over::Items => self.tree_items(TreeOp::Entries, s, t),
@@ -666,6 +673,34 @@ fn needs_context_in(expr: &Expr, open: &dyn std::ops::Fn(&Name) -> bool) -> bool
         Expr::Let { then, .. } | Expr::Seq { then, .. } => needs(then),
         Expr::Array(xs) => xs.iter().all(needs),
         Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => needs(receiver),
+        _ => false,
+    }
+}
+
+/// A value whose integer type comes only from where it goes: an unsuffixed
+/// literal, or an `if` / `match` / block each of whose results is one or
+/// diverges (`let n = match k { K::A => 1, _ => 2 };`), at least one a literal.
+fn is_bare_int_valued(expr: &Expr) -> bool {
+    fn results(expr: &Expr) -> Option<bool> {
+        match expr.unpositioned() {
+            e if is_bare_int(e) => Some(true),
+            Expr::Return(_) | Expr::Break(_) | Expr::Continue | Expr::Unreachable => Some(false),
+            Expr::Call { callee: Callee::Panic, .. } => Some(false),
+            Expr::If { then, else_, .. } => Some(results(then)? | results(else_)?),
+            Expr::Match { arms, .. } => arms.iter().try_fold(false, |any, a| Some(any | results(&a.body)?)),
+            Expr::Let { then, .. } | Expr::Seq { then, .. } => results(then),
+            _ => None,
+        }
+    }
+    results(expr) == Some(true)
+}
+
+/// `[-1, 1]`: an array literal of unsuffixed integers.
+fn bare_int_array(expr: &Expr) -> bool {
+    match expr.unpositioned() {
+        Expr::MethodCall { receiver, name, .. } if name.as_str() == purecrate_ir::ARRAY_LITERAL => {
+            matches!(receiver.unpositioned(), Expr::Array(xs) if !xs.is_empty() && xs.iter().all(is_bare_int))
+        }
         _ => false,
     }
 }

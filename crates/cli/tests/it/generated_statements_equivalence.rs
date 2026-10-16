@@ -76,6 +76,9 @@ struct Body {
     extra: Rng,
     /// What draws the 0.22.0 trait calls, apart from the others.
     traits_rng: Rng,
+    /// What draws the 0.24.0 literals a later use types, apart from the
+    /// others.
+    lits_rng: Rng,
 }
 
 /// Names a binding may take besides `v<n>`: ones the translator makes up
@@ -150,6 +153,47 @@ impl Body {
         }
         if self.traits_rng.below(8) == 0 {
             self.trait_call();
+        }
+        if self.lits_rng.below(8) == 0 {
+            self.literals();
+        }
+    }
+
+    /// A `let` of a `match` or an `if` whose results are unsuffixed
+    /// literals, or an array of them a `for` walks, each typed by its first
+    /// use as rustc types it: an `i32` mixed into `h0`, or a `u8` added to
+    /// one. Its tests draw from `lits_rng`, as `g`'s generator in turn.
+    fn literals(&mut self) {
+        let names = self.g.next_name;
+        std::mem::swap(&mut self.g.rng, &mut self.lits_rng);
+        let (k, test) = (self.g.int(2), self.g.boolean(2));
+        std::mem::swap(&mut self.g.rng, &mut self.lits_rng);
+        self.g.next_name = names;
+        let r = &mut self.lits_rng;
+        let n = r.below(1 << 20);
+        let (v, d) = (format!("w{n}x"), format!("d{n}x"));
+        let u8_side = r.below(2) == 0;
+        let mut lit = || match u8_side {
+            true => r.pick(&[0i64, 1, 7, 128, 255]).to_string(),
+            false => r.pick(&[0i64, 1, -1, 9, 2_147_483_647, -2_147_483_648]).to_string(),
+        };
+        let (a, b, c) = (lit(), lit(), lit());
+        let value = match r.below(3) {
+            0 => format!("match ({k}) % 3 {{ 0 => {a}, 1 | -1 => {b}, _ => {c} }}"),
+            1 => format!("if {test} {{ {a} }} else {{ {b} }}"),
+            _ => String::new(),
+        };
+        let mix = |x: &str| match u8_side {
+            true => format!("h0 = h0.wrapping_mul(31).wrapping_add(i32::from(((h0 & 255) as u8).wrapping_add({x})));"),
+            false => format!("h0 = h0.wrapping_mul(31).wrapping_add({x});"),
+        };
+        if value.is_empty() {
+            self.line(&format!("for {d} in [{a}, {b}, {c}] {{"));
+            self.line(&format!("    {}", mix(&d)));
+            self.line("}");
+        } else {
+            self.line(&format!("let {v} = {value};"));
+            self.line(&mix(&v));
         }
     }
 
@@ -917,6 +961,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
         indent: 1,
         extra: Rng::new(seed ^ 0x0221),
         traits_rng: Rng::new(seed ^ 0x0222),
+        lits_rng: Rng::new(seed ^ 0x0240),
     };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);

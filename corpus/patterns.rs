@@ -182,3 +182,5 @@ pub fn b06_less<T: PartialOrd>(a: &T, b: &T) -> bool { a < b }
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Ranked<T> { pub rank: u8, pub value: T }
 pub fn b07_generic_derive(a: Ranked<String>, b: Ranked<String>) -> bool { let d: Ranked<u8> = Ranked::default(); a < b && d.rank == 0 }
+pub fn l01_match_literals_typed_later(s: &Shape, base: u8) -> u8 { let w = match s { Shape::Circle { .. } => 3, Shape::Square(_) => 4, Shape::Empty => 0 }; base + w }
+pub fn l02_array_literals_typed_later(at: i16) -> i16 { let mut t = at; for d in [-1, 1] { t += d; } t }
