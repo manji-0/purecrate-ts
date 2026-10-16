@@ -24,6 +24,10 @@
 //! that destructures them, indexed and matched, `contains`, `len`, and `==`
 //! (design/01 §7.29).
 //!
+//! And from a fifth, `==` / `!=` on the crate's enums (design/01 §5.1):
+//! against a unit variant, between two values of an all-unit enum, on a
+//! payload, on calls in a loop, and inside arms that narrowed either side.
+//!
 //! The audit of 0.9.1 found a guard reading a name its closure hid, in a
 //! struct pattern no fixture spelled; this looks for that class.
 //!
@@ -93,6 +97,27 @@ fn g_show<T: std::fmt::Display>(x: T) -> String {
 
 fn g_zero<T: Default>() -> T {
     T::default()
+}
+";
+
+/// An enum whose variants are all unit, and what makes one, the same in
+/// every seed: `eq_function` compares them.
+const MODES: &str = "
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Off,
+    Low,
+    High,
+}
+
+fn m_of(n: i32) -> Mode {
+    if n > 0 {
+        Mode::High
+    } else if n < 0 {
+        Mode::Low
+    } else {
+        Mode::Off
+    }
 }
 ";
 
@@ -589,6 +614,99 @@ impl Pats {
         }
     }
 
+    /// A function that compares the crate's enums with `==` / `!=`
+    /// (design/01 §5.1): against a unit variant on either side, two `Mode`s,
+    /// a payload (through `Eq.deep`), on calls, in a loop, and where a
+    /// `match` has narrowed one side or both. Drawn from a generator of its
+    /// own, as `order_function` is.
+    fn eq_function(&mut self, ret: Ret) -> String {
+        let eq = |p: &mut Self| -> &'static str { p.g.rng.pick(&["==", "!="]) };
+        let mode = |p: &mut Self| -> &'static str { p.g.rng.pick(&["Mode::Off", "Mode::Low", "Mode::High"]) };
+        // A test of `s`, `e`, `m`, or `k`; `m` and `k` only with `modes`.
+        // No `?` in it: a test is within an `if`.
+        let test = |p: &mut Self, modes: bool| -> String {
+            let op = eq(p);
+            p.g.no_try += 1;
+            let t = match p.g.rng.below(if modes { 7 } else { 4 }) {
+                0 => format!("s {op} State::Idle"),
+                1 => format!("Event::Tick {op} e"),
+                2 => {
+                    let t = p.state(1);
+                    format!("s {op} ({t})")
+                }
+                3 => {
+                    let ev = p.event(1);
+                    format!("e {op} ({ev})")
+                }
+                4 => format!("m {op} k"),
+                5 => format!("m {op} {}", mode(p)),
+                _ => format!("{} {op} k", mode(p)),
+            };
+            p.g.no_try -= 1;
+            t
+        };
+        let modes = "    let m = m_of(a);\n    let k = m_of(b);\n";
+        let int_or = |n: &str| match ret {
+            Ret::Step => format!("Ok(State::Count({n}))"),
+            Ret::Int => n.to_string(),
+        };
+        match self.g.rng.below(5) {
+            0 => {
+                let (t, u) = (test(self, false), test(self, false));
+                let (x, y, z) = (self.body(ret), self.body(ret), self.body(ret));
+                format!("    if {t} {{\n        {x}\n    }} else if {u} {{\n        {y}\n    }} else {{\n        {z}\n    }}")
+            }
+            1 => {
+                let (t, u, v) = (test(self, true), test(self, true), test(self, true));
+                let (x, y, z) = (self.body(ret), self.body(ret), self.body(ret));
+                format!(
+                    "{modes}    if {t} && ({u} || c) {{\n        {x}\n    }} else if {v} {{\n        {y}\n    }} else {{\n        {z}\n    }}"
+                )
+            }
+            // Narrowed by a `match` on both, or on one: each arm tests again.
+            2 => {
+                let (m1, k1, m2) = (mode(self), mode(self), mode(self));
+                let mut arms = String::new();
+                for pat in [format!("({m1}, {k1})"), format!("({m2}, _)"), "_".to_string()] {
+                    let (t, u) = (test(self, true), test(self, true));
+                    let (x, y, z) = (self.body(ret), self.body(ret), self.body(ret));
+                    writeln!(arms, "        {pat} => {{\n            if {t} {{ {x} }} else if {u} {{ {y} }} else {{ {z} }}\n        }}")
+                        .expect("write");
+                }
+                format!("{modes}    match (m, k) {{\n{arms}    }}")
+            }
+            3 => {
+                let scope = self.g.scope.len();
+                // A variant: `_` or a binding would leave the last arm
+                // unreachable.
+                let st = loop {
+                    self.bound.clear();
+                    let st = self.state_pat();
+                    if st.starts_with("State::") {
+                        break st;
+                    }
+                    self.g.scope.truncate(scope);
+                };
+                let t = test(self, false);
+                let (x, y) = (self.body(ret), self.body(ret));
+                self.g.scope.truncate(scope);
+                let u = test(self, false);
+                let (z, w) = (self.body(ret), self.body(ret));
+                format!(
+                    "    match s {{\n        {st} => {{\n            if {t} {{ {x} }} else {{ {y} }}\n        }}\n        _ => {{\n            if {u} {{ {z} }} else {{ {w} }}\n        }}\n    }}"
+                )
+            }
+            // A run of equal neighbors, and calls on both sides.
+            _ => {
+                let (op, op2, v) = (eq(self), eq(self), mode(self));
+                format!(
+                    "    let mut last = Mode::Off;\n    let mut n = 0;\n    for x in xs {{\n        if m_of(*x) {op} last {{\n            n += 1;\n        }}\n        if m_of(*x - a) {op2} {v} {{\n            last = m_of(*x);\n        }}\n    }}\n    {}",
+                    int_or("n")
+                )
+            }
+        }
+    }
+
     /// A function that calls the generic functions of `GENERICS` at a
     /// primitive or a crate type, each passing its dictionary. Drawn from a
     /// generator of its own, as `order_function` is.
@@ -782,6 +900,7 @@ fn generated_patterns_match_rust() {
     let count = fn_count(40);
     let mut source = String::from(TYPES);
     source.push_str(GENERICS);
+    source.push_str(MODES);
     let mut fns = Vec::new();
     for &seed in &seeds {
         let mut p = Pats { g: Gen::new(seed ^ 0x9a77), bound: Vec::new() };
@@ -854,6 +973,18 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.const_function(ret, seed);
             let name = format!("p{seed}_k{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        let mut p = Pats { g: Gen::new(seed ^ 0xe9e9), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.eq_function(ret);
+            let name = format!("p{seed}_e{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

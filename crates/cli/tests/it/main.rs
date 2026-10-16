@@ -33,6 +33,7 @@ mod default_equivalence;
 mod destructure_equivalence;
 mod display_equivalence;
 mod empty_arm_equivalence;
+mod enum_eq_equivalence;
 mod flagd_equivalence;
 mod flags_equivalence;
 mod float_conv_equivalence;

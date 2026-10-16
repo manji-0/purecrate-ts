@@ -188,3 +188,8 @@ pub struct Ranked<T> { pub rank: u8, pub value: T }
 pub fn b07_generic_derive(a: Ranked<String>, b: Ranked<String>) -> bool { let d: Ranked<u8> = Ranked::default(); a < b && d.rank == 0 }
 pub fn l01_match_literals_typed_later(s: &Shape, base: u8) -> u8 { let w = match s { Shape::Circle { .. } => 3, Shape::Square(_) => 4, Shape::Empty => 0 }; base + w }
 pub fn l02_array_literals_typed_later(at: i16) -> i16 { let mut t = at; for d in [-1, 1] { t += d; } t }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Light { Red, Amber, Green }
+pub fn e01_eq_unit_variant(s: Shape) -> bool { s == Shape::Empty }
+pub fn e02_eq_unit_enum(a: Light, b: Light) -> bool { a == b && a != Light::Red }
+pub fn e03_count_variant(xs: &[Shape]) -> usize { xs.iter().filter(|s| **s == Shape::Empty).count() }
