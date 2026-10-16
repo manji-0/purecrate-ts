@@ -2,7 +2,7 @@
 
 import { assertNever, Eq, Int, Slice, type I32, type U8, type Usize } from "./purecrate-runtime.ts";
 import type { Color } from "./color.ts";
-import { KING_DF, KING_DR, KNIGHT_DF, KNIGHT_DR } from "./consts.ts";
+import { KING, KNIGHT } from "./consts.ts";
 import { offset } from "./offset.ts";
 import type { PieceKind } from "./piece-kind.ts";
 import type { Square } from "./square.ts";
@@ -19,20 +19,18 @@ const holds = (
 export const attacked = (board: ReadonlyArray<Square>, square: U8, by: Color): boolean => {
   const pawnDr: I32 = by.kind === "White" ? (-1 as I32) : (1 as I32);
   if (
-    holds(board, offset(square, -1 as I32, pawnDr), by, { kind: "Pawn" }) ||
-    holds(board, offset(square, 1 as I32, pawnDr), by, { kind: "Pawn" })
+    holds(board, offset(square, [-1 as I32, pawnDr]), by, { kind: "Pawn" }) ||
+    holds(board, offset(square, [1 as I32, pawnDr]), by, { kind: "Pawn" })
   )
     return true;
 
   for (let d = 0 as Usize; d < 8; d = (d + 1) as Usize) {
     if (
-      holds(board, offset(square, Slice.at(KNIGHT_DF, d), Slice.at(KNIGHT_DR, d)), by, {
-        kind: "Knight",
-      }) ||
-      holds(board, offset(square, Slice.at(KING_DF, d), Slice.at(KING_DR, d)), by, { kind: "King" })
+      holds(board, offset(square, Slice.at(KNIGHT, d)), by, { kind: "Knight" }) ||
+      holds(board, offset(square, Slice.at(KING, d)), by, { kind: "King" })
     )
       return true;
-    let cur: U8 | null = offset(square, Slice.at(KING_DF, d), Slice.at(KING_DR, d));
+    let cur: U8 | null = offset(square, Slice.at(KING, d));
 
     loop: for (;;) {
       if (cur !== null) {
@@ -40,7 +38,7 @@ export const attacked = (board: ReadonlyArray<Square>, square: U8, by: Color): b
         const square2: Square = Slice.at(board, s);
         switch (square2.kind) {
           case "Empty":
-            cur = offset(s, Slice.at(KING_DF, d), Slice.at(KING_DR, d));
+            cur = offset(s, Slice.at(KING, d));
             break;
           case "Occupied": {
             const p = square2.value;

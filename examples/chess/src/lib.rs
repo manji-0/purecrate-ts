@@ -96,12 +96,10 @@ pub enum Status {
 
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-// Steps of a king, in order: E, NE, N, NW, W, SW, S, SE. Even indices are
-// the rook's directions, odd ones the bishop's.
-const KING_DF: [i32; 8] = [1, 1, 0, -1, -1, -1, 0, 1];
-const KING_DR: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
-const KNIGHT_DF: [i32; 8] = [1, 2, 2, 1, -1, -2, -2, -1];
-const KNIGHT_DR: [i32; 8] = [2, 1, -1, -2, -2, -1, 1, 2];
+// Steps of a king as (files, ranks), in order: E, NE, N, NW, W, SW, S, SE.
+// Even indices are the rook's directions, odd ones the bishop's.
+const KING: [(i32, i32); 8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+const KNIGHT: [(i32, i32); 8] = [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)];
 
 impl Move {
     pub fn new(from: u8, to: u8, promotion: Option<PieceKind>) -> Result<Move, MoveError> {
@@ -166,10 +164,10 @@ fn other(c: Color) -> Color {
     }
 }
 
-/// The square `df` files and `dr` ranks away, if it is on the board.
-fn offset(square: u8, df: i32, dr: i32) -> Option<u8> {
-    let f = i32::from(square % 8) + df;
-    let r = i32::from(square / 8) + dr;
+/// The square `step.0` files and `step.1` ranks away, if it is on the board.
+fn offset(square: u8, step: (i32, i32)) -> Option<u8> {
+    let f = i32::from(square % 8) + step.0;
+    let r = i32::from(square / 8) + step.1;
     if f < 0 || f > 7 || r < 0 || r > 7 {
         None
     } else {
@@ -190,21 +188,21 @@ fn attacked(board: &[Square; 64], square: u8, by: Color) -> bool {
         Color::White => -1,
         Color::Black => 1,
     };
-    if holds(board, offset(square, -1, pawn_dr), by, PieceKind::Pawn)
-        || holds(board, offset(square, 1, pawn_dr), by, PieceKind::Pawn)
+    if holds(board, offset(square, (-1, pawn_dr)), by, PieceKind::Pawn)
+        || holds(board, offset(square, (1, pawn_dr)), by, PieceKind::Pawn)
     {
         return true;
     }
     for d in 0..8 {
-        if holds(board, offset(square, KNIGHT_DF[d], KNIGHT_DR[d]), by, PieceKind::Knight)
-            || holds(board, offset(square, KING_DF[d], KING_DR[d]), by, PieceKind::King)
+        if holds(board, offset(square, KNIGHT[d]), by, PieceKind::Knight)
+            || holds(board, offset(square, KING[d]), by, PieceKind::King)
         {
             return true;
         }
-        let mut cur = offset(square, KING_DF[d], KING_DR[d]);
+        let mut cur = offset(square, KING[d]);
         while let Some(s) = cur {
             match board[usize::from(s)] {
-                Square::Empty => cur = offset(s, KING_DF[d], KING_DR[d]),
+                Square::Empty => cur = offset(s, KING[d]),
                 Square::Occupied(p) => {
                     if p.color == by
                         && (p.kind == PieceKind::Queen
@@ -234,10 +232,10 @@ fn king_attacked(board: &[Square; 64], color: Color) -> bool {
 }
 
 /// The squares a knight or king on `from` may step to: empty or an enemy.
-fn step_targets(board: &[Square; 64], from: u8, us: Color, df: &[i32; 8], dr: &[i32; 8]) -> Vec<u8> {
+fn step_targets(board: &[Square; 64], from: u8, us: Color, steps: &[(i32, i32)]) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
-    for d in 0..8 {
-        if let Some(s) = offset(from, df[d], dr[d]) {
+    for step in steps {
+        if let Some(s) = offset(from, *step) {
             match board[usize::from(s)] {
                 Square::Empty => out.push(s),
                 Square::Occupied(p) => {
@@ -256,12 +254,12 @@ fn step_targets(board: &[Square; 64], from: u8, us: Color, df: &[i32; 8], dr: &[
 fn slide_targets(board: &[Square; 64], from: u8, us: Color, first: usize, step: usize) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     for d in (first..8).step_by(step) {
-        let mut cur = offset(from, KING_DF[d], KING_DR[d]);
+        let mut cur = offset(from, KING[d]);
         while let Some(s) = cur {
             match board[usize::from(s)] {
                 Square::Empty => {
                     out.push(s);
-                    cur = offset(s, KING_DF[d], KING_DR[d]);
+                    cur = offset(s, KING[d]);
                 }
                 Square::Occupied(p) => {
                     if p.color != us {
@@ -282,11 +280,11 @@ fn pawn_moves(pos: &Position, from: u8) -> Vec<Move> {
         Color::Black => (-1, 6, 0),
     };
     let mut targets: Vec<u8> = Vec::new();
-    if let Some(one) = offset(from, 0, dr) {
+    if let Some(one) = offset(from, (0, dr)) {
         if pos.board[usize::from(one)] == Square::Empty {
             targets.push(one);
             if from / 8 == start_rank {
-                if let Some(two) = offset(one, 0, dr) {
+                if let Some(two) = offset(one, (0, dr)) {
                     if pos.board[usize::from(two)] == Square::Empty {
                         targets.push(two);
                     }
@@ -295,7 +293,7 @@ fn pawn_moves(pos: &Position, from: u8) -> Vec<Move> {
         }
     }
     for df in [-1i32, 1] {
-        if let Some(s) = offset(from, df, dr) {
+        if let Some(s) = offset(from, (df, dr)) {
             let enemy = match pos.board[usize::from(s)] {
                 Square::Occupied(p) => p.color != us,
                 Square::Empty => pos.en_passant == Some(s),
@@ -372,8 +370,8 @@ fn pseudo_moves(pos: &Position) -> Vec<Move> {
                 }
                 continue;
             }
-            PieceKind::Knight => step_targets(&pos.board, from, us, &KNIGHT_DF, &KNIGHT_DR),
-            PieceKind::King => step_targets(&pos.board, from, us, &KING_DF, &KING_DR),
+            PieceKind::Knight => step_targets(&pos.board, from, us, &KNIGHT),
+            PieceKind::King => step_targets(&pos.board, from, us, &KING),
             PieceKind::Bishop => slide_targets(&pos.board, from, us, 1, 2),
             PieceKind::Rook => slide_targets(&pos.board, from, us, 0, 2),
             PieceKind::Queen => slide_targets(&pos.board, from, us, 0, 1),

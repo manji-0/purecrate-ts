@@ -2,10 +2,10 @@
 
 import { Int, type I32, type U8 } from "./purecrate-runtime.ts";
 
-/** The square `df` files and `dr` ranks away, if it is on the board. */
-export const offset = (square: U8, df: I32, dr: I32): U8 | null => {
-  const f = Int.i32.add(Int.u8.rem(square, 8 as U8) as number as I32, df);
-  const r = Int.i32.add(Int.u8.div(square, 8 as U8) as number as I32, dr);
+/** The square `step.0` files and `step.1` ranks away, if it is on the board. */
+export const offset = (square: U8, step: readonly [I32, I32]): U8 | null => {
+  const f = Int.i32.add(Int.u8.rem(square, 8 as U8) as number as I32, step[0]);
+  const r = Int.i32.add(Int.u8.div(square, 8 as U8) as number as I32, step[1]);
   return f < 0 || f > 7 || r < 0 || r > 7
     ? null
     : Int.u8.cast(Int.i32.add(Int.i32.mul(r, 8 as I32), f));

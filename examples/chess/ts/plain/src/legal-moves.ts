@@ -12,7 +12,7 @@ import {
 } from "./purecrate-runtime.ts";
 import { attacked } from "./attacked.ts";
 import type { Color } from "./color.ts";
-import { KING_DF, KING_DR, KNIGHT_DF, KNIGHT_DR } from "./consts.ts";
+import { KING, KNIGHT } from "./consts.ts";
 import { kingAttacked } from "./king-attacked.ts";
 import { makeMove } from "./make-move.ts";
 import { unsafeMakeMove, type Move } from "./move.ts";
@@ -27,13 +27,12 @@ const stepTargets = (
   board: ReadonlyArray<Square>,
   from: U8,
   us: Color,
-  df: ReadonlyArray<I32>,
-  dr: ReadonlyArray<I32>,
+  steps: ReadonlyArray<readonly [I32, I32]>,
 ): ReadonlyArray<U8> => {
   const out: Array<U8> = [];
 
-  for (let d = 0 as Usize; d < 8; d = (d + 1) as Usize) {
-    const option = offset(from, Slice.at(df, d), Slice.at(dr, d));
+  for (const step of steps) {
+    const option = offset(from, step);
     if (option !== null) {
       const s = option;
       const square: Square = Slice.at(board, s);
@@ -71,7 +70,7 @@ const slideTargets = (
   const out: Array<U8> = [];
 
   for (const d of Iter.range(first, 8 as Usize).stepBy(step)) {
-    let cur: U8 | null = offset(from, Slice.at(KING_DF, d), Slice.at(KING_DR, d));
+    let cur: U8 | null = offset(from, Slice.at(KING, d));
 
     loop: for (;;) {
       if (cur !== null) {
@@ -80,7 +79,7 @@ const slideTargets = (
         switch (square.kind) {
           case "Empty":
             out.push(s);
-            cur = offset(s, Slice.at(KING_DF, d), Slice.at(KING_DR, d));
+            cur = offset(s, Slice.at(KING, d));
             break;
           case "Occupied": {
             const p = square.value;
@@ -108,14 +107,14 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
   const [dr, startRank, lastRank] =
     us.kind === "White" ? [1 as I32, 1 as U8, 7 as U8] : [-1 as I32, 6 as U8, 0 as U8];
   const targets: Array<U8> = [];
-  const option = offset(from, 0 as I32, dr);
+  const option = offset(from, [0 as I32, dr]);
   if (option !== null) {
     const one = option;
     if (Eq.deep(Slice.at(pos.board, one), { kind: "Empty" })) {
       targets.push(one);
 
       if (Int.u8.div(from, 8 as U8) === startRank) {
-        const option2 = offset(one, 0 as I32, dr);
+        const option2 = offset(one, [0 as I32, dr]);
         if (option2 !== null) {
           const two = option2;
           if (Eq.deep(Slice.at(pos.board, two), { kind: "Empty" })) {
@@ -127,7 +126,7 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
   }
 
   for (const df of [-1 as I32, 1 as I32]) {
-    const option2 = offset(from, df, dr);
+    const option2 = offset(from, [df, dr]);
     if (option2 !== null) {
       const s = option2;
       const square: Square = Slice.at(pos.board, s);
@@ -234,10 +233,10 @@ const pseudoMoves = (pos: Position): ReadonlyArray<Move> => {
         }
         continue loop;
       case "Knight":
-        targets = stepTargets(pos.board, from, us, KNIGHT_DF, KNIGHT_DR);
+        targets = stepTargets(pos.board, from, us, KNIGHT);
         break;
       case "King":
-        targets = stepTargets(pos.board, from, us, KING_DF, KING_DR);
+        targets = stepTargets(pos.board, from, us, KING);
         break;
       case "Bishop":
         targets = slideTargets(pos.board, from, us, 1 as Usize, 2 as Usize);

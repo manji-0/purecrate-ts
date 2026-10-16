@@ -4,45 +4,25 @@ import type { I32 } from "./purecrate-runtime.ts";
 
 export const START_FEN: string = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-// Steps of a king, in order: E, NE, N, NW, W, SW, S, SE. Even indices are
-// the rook's directions, odd ones the bishop's.
-export const KING_DF: ReadonlyArray<I32> = [
-  1 as I32,
-  1 as I32,
-  0 as I32,
-  -1 as I32,
-  -1 as I32,
-  -1 as I32,
-  0 as I32,
-  1 as I32,
+// Steps of a king as (files, ranks), in order: E, NE, N, NW, W, SW, S, SE.
+// Even indices are the rook's directions, odd ones the bishop's.
+export const KING: ReadonlyArray<readonly [I32, I32]> = [
+  [1 as I32, 0 as I32],
+  [1 as I32, 1 as I32],
+  [0 as I32, 1 as I32],
+  [-1 as I32, 1 as I32],
+  [-1 as I32, 0 as I32],
+  [-1 as I32, -1 as I32],
+  [0 as I32, -1 as I32],
+  [1 as I32, -1 as I32],
 ];
-export const KING_DR: ReadonlyArray<I32> = [
-  0 as I32,
-  1 as I32,
-  1 as I32,
-  1 as I32,
-  0 as I32,
-  -1 as I32,
-  -1 as I32,
-  -1 as I32,
-];
-export const KNIGHT_DF: ReadonlyArray<I32> = [
-  1 as I32,
-  2 as I32,
-  2 as I32,
-  1 as I32,
-  -1 as I32,
-  -2 as I32,
-  -2 as I32,
-  -1 as I32,
-];
-export const KNIGHT_DR: ReadonlyArray<I32> = [
-  2 as I32,
-  1 as I32,
-  -1 as I32,
-  -2 as I32,
-  -2 as I32,
-  -1 as I32,
-  1 as I32,
-  2 as I32,
+export const KNIGHT: ReadonlyArray<readonly [I32, I32]> = [
+  [1 as I32, 2 as I32],
+  [2 as I32, 1 as I32],
+  [2 as I32, -1 as I32],
+  [1 as I32, -2 as I32],
+  [-1 as I32, -2 as I32],
+  [-2 as I32, -1 as I32],
+  [-2 as I32, 1 as I32],
+  [-1 as I32, 2 as I32],
 ];
