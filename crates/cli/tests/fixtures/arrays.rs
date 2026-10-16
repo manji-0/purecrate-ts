@@ -316,3 +316,60 @@ pub fn mut_let(arr: [u8; 3]) -> u8 {
     a = a.wrapping_add(b);
     a
 }
+
+/// Variants listed, or repeated, with no type for TS to read them as: the
+/// list is typed, so a `kind` stays the enum's and other variants go in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    A,
+    B,
+    C,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Empty,
+    Full(u8),
+}
+
+pub fn picks(k: Pick) -> Vec<Pick> {
+    let mut out: Vec<Pick> = Vec::new();
+    for p in [Pick::A, k] {
+        match p {
+            Pick::A | Pick::B => out.push(p),
+            Pick::C => out.push(Pick::A),
+        }
+    }
+    out
+}
+
+pub fn slots(i: usize) -> [Slot; 4] {
+    let mut a: [Slot; 4] = [Slot::Empty; 4];
+    a[i] = Slot::Full(1);
+    a
+}
+
+pub fn slots_from_local(i: usize) -> [Slot; 3] {
+    let e: Slot = Slot::Empty;
+    let mut a = [e; 3];
+    a[i] = Slot::Full(2);
+    a
+}
+
+/// The enum named nowhere else in the function: its type is imported for
+/// the list's annotation.
+pub fn tally() -> u8 {
+    let mut n = 0u8;
+    for p in [Pick::A, Pick::B, Pick::A] {
+        if p == Pick::A {
+            n += 1;
+        }
+    }
+    n
+}
+
+pub fn empties(i: usize) -> usize {
+    let mut a = [Slot::Empty; 3];
+    a[i] = Slot::Full(1);
+    a.iter().filter(|s| **s == Slot::Empty).count()
+}

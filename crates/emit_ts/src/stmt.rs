@@ -460,6 +460,14 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
                         iterable(*over, emit_tx(&args[0], indent))
                     }
                 }
+                // Variants listed with no type to read them as: TS widens
+                // their `kind` to `string`, so the list is named, typed.
+                Expr::Array(items) if let Some(e) = items.iter().find_map(variant_of) => {
+                    let list = temp("items");
+                    let ty = emit_ty(&Ty::Named(e.clone()));
+                    out.push_str(&format!("{pad}const {list}: ReadonlyArray<{ty}> = {};\n", emit_expr(string, indent)));
+                    list
+                }
                 s => iterable(*over, emit_tx(s, indent)),
             };
             emit_loop(&format!("for (const {} of {iterable})", var.as_str()), body, indent, out);
@@ -683,6 +691,14 @@ fn infers_as(value: &Expr, ty: &Ty) -> bool {
         // The annotation carries the wrapper's comment (`/* Box */ P`).
         _ if matches!(ty, Ty::Ignored { .. }) => false,
         Expr::Lit(_) => false,
+        // `Slice.repeat(x, n)` is an array of what `x` is, and a variant's
+        // literal (or a local narrowed to one) is narrower than its enum.
+        Expr::Call { callee: purecrate_ir::Callee::ArrayRepeat { .. }, .. }
+            if matches!(ty, Ty::Vec(e) | Ty::Array { elem: e, .. }
+                if matches!(e.as_ref(), Ty::Named(n) if !crate::is_struct(n.as_str()))) =>
+        {
+            false
+        }
         v if declares_return(v) => true,
         // `x?` is read where its test has narrowed it to the payload.
         Expr::Try { .. } => true,
@@ -693,6 +709,14 @@ fn infers_as(value: &Expr, ty: &Ty) -> bool {
             _ => false,
         },
         _ => false,
+    }
+}
+
+/// The enum `e` builds, when it is one of its variants written out.
+pub(crate) fn variant_of(e: &Expr) -> Option<&purecrate_ir::Name> {
+    match peel_identity(e) {
+        Expr::Construct { ty, variant: Some(_), .. } => Some(ty),
+        _ => None,
     }
 }
 

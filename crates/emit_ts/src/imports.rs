@@ -733,7 +733,15 @@ impl Refs {
                     self.ctors.insert(ty.as_str().to_string());
                 }
             }
-            Expr::ForEach { over, .. } => self.over(*over),
+            Expr::ForEach { over, source, .. } => {
+                self.over(*over);
+                // The list of variants a loop walks is named with its type.
+                if let Expr::Array(items) = peel_identity(source) {
+                    if let Some(e) = items.iter().find_map(crate::stmt::variant_of) {
+                        self.ty(&Ty::Named(e.clone()));
+                    }
+                }
+            }
             Expr::Lit(lit) => match lit {
                 purecrate_ir::Lit::Int { ty: Some(t), .. } => {
                     self.nums.insert(t.ts_name().to_string());

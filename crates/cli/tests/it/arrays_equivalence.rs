@@ -51,7 +51,14 @@ fn generated_arrays_match_rust() {
             cases.push(case!(arrays::write_at(i)));
             cases.push(case!(arrays::digit(i)));
             cases.push(case!(arrays::square(i)));
+            cases.push(case!(arrays::slots(i)));
+            cases.push(case!(arrays::slots_from_local(i)));
+            cases.push(case!(arrays::empties(i)));
         }
+        for k in [arrays::Pick::A, arrays::Pick::B, arrays::Pick::C] {
+            cases.push(case!(arrays::picks(k)));
+        }
+        cases.push(case!(arrays::tally()));
         for b in [[0u32, 0, 0], [1, 2, 3], [u32::MAX, 0, 0], [u32::MAX, 1, 0], [2_147_483_648, 2_147_483_647, 1]] {
             cases.push(case!(arrays::len(b)));
             cases.push(case!(arrays::sum(b)));
