@@ -158,6 +158,30 @@ fn a_std_bound_is_called_at_i32() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// A method named `from` (or `try_from`) that takes `self` is a method,
+/// called on a borrow, not a conversion whose argument is typed.
+#[test]
+fn a_method_named_from_is_called_as_a_method() {
+    if skip() {
+        return;
+    }
+    let dir = support::scratch("test-command-from-method");
+    fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("lib.rs");
+    fs::write(
+        &src,
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Span {\n    from: u8,\n}\n\n\
+         impl Span {\n    pub fn new(from: u8) -> Span {\n        Span { from }\n    }\n\n    \
+         pub fn from(&self) -> u8 {\n        self.from\n    }\n}\n",
+    )
+    .expect("write");
+    let out = test(&src, &["--cases", "20"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("ok        Span.from (20 cases)"), "{stdout}");
+    fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn a_crate_that_uses_uuid_is_refused() {
     let out = test(&support::repo().join("examples/raft"), &[]);

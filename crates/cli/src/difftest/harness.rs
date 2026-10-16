@@ -562,7 +562,10 @@ fn untyped(n: usize) -> Vec<Option<String>> {
 /// One of `impl Tr`, which no type argument names, is typed at what
 /// `binds` gives it.
 fn annotations(f: &Fn, written: &[&purecrate_ir::Param], binds: &[(Name, Ty)]) -> Vec<Option<String>> {
-    let generic = f.owner.is_some() && (matches!(f.name.as_str(), "try_from" | "from") || f.from_source().is_some());
+    // A method of that name (`fn from(&self)`) converts nothing.
+    let method = f.params.first().is_some_and(|p| p.name.as_str() == "self");
+    let generic =
+        f.owner.is_some() && !method && (matches!(f.name.as_str(), "try_from" | "from") || f.from_source().is_some());
     let anonymous = |t: &Ty| t.any(&|x| matches!(x, Ty::Param(g) if is_impl_param(g)));
     written
         .iter()
