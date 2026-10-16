@@ -19,6 +19,7 @@ mod build;
 mod calendar_equivalence;
 mod casts;
 mod chars_equivalence;
+mod chess_equivalence;
 mod closed_equivalence;
 mod closures_equivalence;
 mod collect_equivalence;

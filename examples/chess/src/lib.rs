@@ -1,7 +1,7 @@
-//! Chess rules as pure functions: FEN in and out, legal moves, the position
-//! after a move, game status, UCI move text, and perft.
-//!
-//! Squares are numbered 0..64 from a1 (0) to h8 (63): `file + 8 * rank`.
+// Chess rules as pure functions: FEN in and out, legal moves, the position
+// after a move, game status, UCI move text, and perft.
+//
+// Squares are numbered 0..64 from a1 (0) to h8 (63): `file + 8 * rank`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
@@ -427,16 +427,9 @@ pub fn make_move(pos: &Position, mv: Move) -> Position {
         black_kingside: c.black_kingside && !touched(63) && !touched(60),
         black_queenside: c.black_queenside && !touched(56) && !touched(60),
     };
-    let en_passant = if is_pawn && (mv.from + 16 == mv.to || mv.to + 16 == mv.from) {
-        Some((mv.from + mv.to) / 2)
-    } else {
-        None
-    };
-    let halfmove = if is_pawn || captured != Square::Empty {
-        0
-    } else {
-        pos.halfmove.saturating_add(1)
-    };
+    let en_passant =
+        if is_pawn && (mv.from + 16 == mv.to || mv.to + 16 == mv.from) { Some((mv.from + mv.to) / 2) } else { None };
+    let halfmove = if is_pawn || captured != Square::Empty { 0 } else { pos.halfmove.saturating_add(1) };
     let fullmove = match us {
         Color::White => pos.fullmove,
         Color::Black => pos.fullmove.saturating_add(1),
@@ -447,11 +440,7 @@ pub fn make_move(pos: &Position, mv: Move) -> Position {
 /// Every legal move, in board order from a1 and castling last.
 pub fn legal_moves(pos: &Position) -> Vec<Move> {
     let us = pos.side;
-    pseudo_moves(pos)
-        .iter()
-        .copied()
-        .filter(|m| !king_attacked(&make_move(pos, *m).board, us))
-        .collect()
+    pseudo_moves(pos).iter().copied().filter(|m| !king_attacked(&make_move(pos, *m).board, us)).collect()
 }
 
 pub fn is_check(pos: &Position) -> bool {
@@ -587,12 +576,8 @@ fn parse_board(text: &str) -> Result<[Square; 64], FenError> {
 }
 
 fn parse_castling(text: &str) -> Result<CastlingRights, FenError> {
-    let none = CastlingRights {
-        white_kingside: false,
-        white_queenside: false,
-        black_kingside: false,
-        black_queenside: false,
-    };
+    let none =
+        CastlingRights { white_kingside: false, white_queenside: false, black_kingside: false, black_queenside: false };
     if text == "-" {
         return Ok(none);
     }
