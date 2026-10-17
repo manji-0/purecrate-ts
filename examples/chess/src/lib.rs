@@ -184,7 +184,7 @@ fn holds(board: &[Square; 64], at: Option<u8>, color: Color, kind: PieceKind) ->
 
 /// Whether a piece of `by` attacks `square`.
 fn attacked(board: &[Square; 64], square: u8, by: Color) -> bool {
-    let pawn_dr: i32 = match by {
+    let pawn_dr = match by {
         Color::White => -1,
         Color::Black => 1,
     };
@@ -292,7 +292,7 @@ fn pawn_moves(pos: &Position, from: u8) -> Vec<Move> {
             }
         }
     }
-    for df in [-1i32, 1] {
+    for df in [-1, 1] {
         if let Some(s) = offset(from, (df, dr)) {
             let enemy = match pos.board[usize::from(s)] {
                 Square::Occupied(p) => p.color != us,
@@ -620,7 +620,7 @@ pub fn parse_fen(text: &str) -> Result<Position, FenError> {
             return Err(FenError::BadEnPassant);
         }
         let s = square_of(b[0], b[1]).ok_or(FenError::BadEnPassant)?;
-        let want: u8 = match side {
+        let want = match side {
             Color::White => 5,
             Color::Black => 2,
         };
