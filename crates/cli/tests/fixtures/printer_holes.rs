@@ -3,7 +3,8 @@
 // for, an integer widened from an `unwrap_or`, a test a `const` aliases
 // that an earlier test of the `const` left either way, a block printed
 // flat whose name a later loop binds again, an `if` narrowing decided
-// that is all its arm holds, and a `!` of a test narrowing decided.
+// that is all its arm holds, a `!` of a test narrowing decided, and what
+// follows an `assert!` narrowing decided to fail.
 
 #[derive(Clone, Copy)]
 pub enum Mark {
@@ -176,4 +177,22 @@ pub fn negated_decided(c: bool, n: i32) -> i32 {
         }
     }
     h
+}
+
+pub fn after_failed_assert(b: i32, o: Option<i32>, r: Result<i32, i32>) -> Option<i32> {
+    let mut h = 0;
+    match r.ok() {
+        Some(v) => {
+            h += o? + v;
+        }
+        None => {
+            assert!(matches!(o, Some(_) if o.is_none()), "failed with {}", b);
+            h += o? + 1;
+        }
+    }
+    let n = match o {
+        Some(v) => v,
+        None => b,
+    };
+    Some(n + h)
 }

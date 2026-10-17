@@ -18,6 +18,7 @@ fn printer_holes_match_rust() {
                     cases.push(case!(printer_holes::block_before_loop_var(6, 3, o, r, c)));
                     cases.push(case!(printer_holes::decided_block_last(if c { 4 } else { 9 }, o, r)));
                     cases.push(case!(printer_holes::negated_decided(c, if c { 2 } else { 5 })));
+                    cases.push(case!(printer_holes::after_failed_assert(if c { 1 } else { -3 }, o, r)));
                 }
             }
             for w in [None, Some(i64::MAX)] {

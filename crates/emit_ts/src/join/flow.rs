@@ -654,6 +654,16 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 flow(then, st, cx);
                 return None;
             };
+            // Past a panic (`assert!` of a test narrowing decided `false`),
+            // what follows is left out (`fold`): TS, which does not take
+            // `Panic.raise` for an exit, goes on from the panic, with
+            // nothing that follows narrowing it (`o?` there).
+            let panics = matches!(&**first, Expr::If { cond, then, else_ }
+                if **else_ == Expr::Lit(Lit::Unit) && ends(then) && known_bool(cond, &s.0) == Some(true));
+            if ends(first) || panics {
+                flow(then, s.clone(), cx);
+                return Some(s);
+            }
             // `p?;` as a statement tests `p` itself (a `let` of `p?` tests a
             // copy, `xOption`, which TS narrows instead).
             if let Expr::Try { expr: inner, on: Some(on) } = &mut **first {
