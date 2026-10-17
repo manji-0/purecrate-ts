@@ -184,3 +184,20 @@ pub fn login_in_some(o: Option<Login>) -> u32 {
         _ => 7,
     }
 }
+
+// Tuples that bind every element, in a struct variant's field and inside a
+// tuple variant's tuple: each name is read at its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Blank,
+    At { piece: u8, at: (u8, u8) },
+    Deep(u8, (u8, (u8, u8))),
+}
+
+pub fn mark_sum(m: Mark) -> u32 {
+    match m {
+        Mark::Blank => 0,
+        Mark::At { piece, at: (r, c) } => u32::from(piece) * 1000 + u32::from(r) * 10 + u32::from(c),
+        Mark::Deep(a, (b, (c, d))) => u32::from(a) + u32::from(b) * 3 + u32::from(c) * 5 + u32::from(d) * 7,
+    }
+}

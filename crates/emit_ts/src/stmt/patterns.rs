@@ -84,13 +84,15 @@ pub(crate) fn two_way_prelude(pattern: &Pattern, subject: &str, pad: &str) -> St
     }
 }
 
-/// `const a = read[0]` for each name in a tuple of names and `_`.
+/// `const a = read[0]` for each name in a tuple of names, `_`, and tuples
+/// of these (`read[1][0]`).
 fn tuple_names(elems: &[Pattern], read: &str, pad: &str) -> String {
     elems
         .iter()
         .enumerate()
         .filter_map(|(i, p)| match p {
             Pattern::Var(n) => Some(format!("{pad}const {} = {read}[{i}];\n", n.as_str())),
+            Pattern::Tuple(inner) => Some(tuple_names(inner, &format!("{read}[{i}]"), pad)),
             _ => None,
         })
         .collect()
@@ -128,6 +130,7 @@ pub(crate) fn bind_prelude(bind: &VariantBind, subject: &str, pad: &str) -> Stri
                 Pattern::Var(n) => {
                     Some(format!("{pad}const {name} = {subject}.{f};\n", name = n.as_str(), f = field.as_str()))
                 }
+                Pattern::Tuple(elems) => Some(tuple_names(elems, &format!("{subject}.{}", field.as_str()), pad)),
                 _ => None,
             })
             .collect(),

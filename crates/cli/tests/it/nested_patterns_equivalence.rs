@@ -2,7 +2,9 @@
 //! `check::tuple`: literals, ranges, variants, and `Some`/`Ok`/`Err` in a
 //! variant's fields and in payloads, beside bindings, before guards and a
 //! last `_`, in a tuple `match`, and in `matches!`; a side of `|` that tests
-//! inside its case; a tuple with a literal inside a payload or a tuple.
+//! inside its case; a tuple with a literal inside a payload or a tuple;
+//! tuples of names in a struct variant's field and nested in a tuple
+//! variant's.
 
 use crate::support;
 
@@ -28,6 +30,16 @@ fn logins() -> Vec<Login> {
 #[test]
 fn generated_nested_patterns_match_rust() {
     support::equivalence("nested_patterns", nested_patterns::SOURCE, |cases| {
+        use nested_patterns::Mark;
+        for m in [
+            Mark::Blank,
+            Mark::At { piece: 7, at: (3, 9) },
+            Mark::At { piece: 255, at: (0, 255) },
+            Mark::Deep(1, (2, (3, 4))),
+            Mark::Deep(255, (255, (255, 255))),
+        ] {
+            cases.push(case!(nested_patterns::mark_sum(m)));
+        }
         for l in logins() {
             cases.push(case!(nested_patterns::login_in_some(Some(l.clone()))));
             cases.push(case!(nested_patterns::next(l.clone())));
