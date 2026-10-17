@@ -448,7 +448,7 @@ const inKex = (
         }
         case "Other": {
           const n = m.value;
-          return other(c, n, seq, peerInKex, established && !peerInKex);
+          return other(c, n, seq, peerInKex, false);
         }
         default:
           return Result.ok([c, []]);
@@ -518,7 +518,7 @@ const inKex = (
           return Result.ok(finishKex(peerKeyed(c, algorithms), kx, []));
         case "Other": {
           const n = m.value;
-          return other(c, n, seq, peerInKex, established && !peerInKex);
+          return other(c, n, seq, peerInKex, false);
         }
         default:
           return Result.ok([c, []]);

@@ -198,10 +198,17 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
         Expr::Lit(Lit::Bool(b)) => Some(*b),
         Expr::Unary { op: purecrate_ir::UnOp::Not, expr } => known_bool(expr, known).map(|b| !b),
         // `const c2 = !c || r.kind === "Ok"` where what it tests is known
-        // (`flow::CONDS` holds it only where nothing writes what it reads).
-        Expr::Var(n) if known.iter().all(|(k, _)| k != expr) => {
+        // (`flow::CONDS` holds it only where nothing writes what it reads),
+        // also where an earlier test of `c2` left it either value
+        // (`if c2 { None } else { Some(a) }`): TS still narrows by the test.
+        Expr::Var(n) if known.iter().all(|(k, cs)| k != expr || cs.len() > 1) => {
             let test = flow::aliased_cond(n)?;
             known_bool(&test, known)
+        }
+        // `r.is_ok()` as `check` lowers it (`let $result = r; match $result
+        // { Ok(_) => true, Err(_) => false }`): the `match` on `r` itself.
+        Expr::Let { name, mutable: false, value, then, .. } if is_place(value) => {
+            known_bool(&crate::expr::subst(then, name, value), known)
         }
         // `o.is_some()` of a place whose case is known.
         Expr::Call {

@@ -1,6 +1,7 @@
 // Shapes the printer got wrong while 0.25.0 was made, each now as Rust
 // computes it: a typed `let` in a block that an argument needs statements
-// for, and an integer widened from an `unwrap_or`.
+// for, an integer widened from an `unwrap_or`, and a test a `const`
+// aliases that an earlier test of the `const` left either way.
 
 #[derive(Clone, Copy)]
 pub enum Mark {
@@ -53,4 +54,43 @@ pub fn widened_default(o: Option<i32>, w: Option<i64>, c: bool) -> f64 {
     let chosen = f64::from(o.unwrap_or(if c { 1 } else { -2 }));
     let wide = i128::from(w.unwrap_or(7));
     s.f + chosen + f64::from(o.unwrap_or(3) / 2) + wide as f64
+}
+
+pub fn alias_tested_before(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Result<i32, i32> {
+    let c: bool = !c || r.is_ok();
+    let w: Option<i32> = if c { None } else { Some(a) };
+    let v = match r {
+        Ok(v) => v,
+        Err(e) => return Err(e),
+    };
+    if c {
+        return o.ok_or(v);
+    }
+    let m = match r {
+        Ok(x) => x,
+        Err(e) => e,
+    };
+    Ok(w.unwrap_or(m) + v)
+}
+
+pub fn alias_of_ok_tested_before(a: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Result<i32, i32> {
+    let c: bool = !c || r.ok().is_some();
+    let mut h = 0;
+    for _ in 0..2 {
+        let w: Option<i32> = if c { None } else { Some(a) };
+        if o == w {
+            h += 1;
+        }
+        let 0..=3 = r.map_err(|e| e + 1)? else {
+            return Ok(h);
+        };
+        if c {
+            return o.ok_or(h);
+        }
+        h += match r {
+            Ok(x) => x,
+            Err(e) => e,
+        };
+    }
+    Ok(h)
 }
