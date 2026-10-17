@@ -95,11 +95,13 @@ pub(super) fn effectless(expr: &Expr) -> bool {
             args,
         } => args.iter().all(effectless),
         // A `filter` or `map` stage whose closure does nothing but read,
-        // collected, and deep equality: they run nothing that may panic.
+        // collected, and equality by parts: they run nothing that may panic.
         Expr::Call { callee: Callee::IterFilter { .. } | Callee::IterMap { .. }, args } if args.len() == 2 => {
             effectless(&args[0]) && matches!(&args[1], Expr::Closure { body, .. } if effectless(body))
         }
-        Expr::Call { callee: Callee::Collect { .. } | Callee::DeepEq, args } => args.iter().all(effectless),
+        Expr::Call { callee: Callee::Collect { .. } | Callee::DeepEq | Callee::EqBy(_), args } => {
+            args.iter().all(effectless)
+        }
         Expr::Let { value, then, .. } => effectless(value) && effectless(then),
         Expr::Match { scrutinee, arms } => {
             effectless(scrutinee) && arms.iter().all(|a| a.guard.as_ref().is_none_or(effectless) && effectless(&a.body))

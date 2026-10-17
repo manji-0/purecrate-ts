@@ -170,6 +170,13 @@ impl Refs {
                         self.methods.push((ty.as_str().to_string(), "cmp".to_string()));
                     }
                 }
+                // The `eq` of each crate type a comparer calls.
+                Callee::EqBy(by) => {
+                    for ty in by.types() {
+                        self.name(ty);
+                        self.methods.push((ty.as_str().to_string(), "eq".to_string()));
+                    }
+                }
                 _ => {}
             },
             Expr::Construct { ty, .. } => self.name(ty),

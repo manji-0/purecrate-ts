@@ -446,9 +446,16 @@ pub(crate) fn emit_tx(expr: &Expr, indent: usize) -> Tx {
             // A comparison reads a literal or a length bare: `<` and `===`
             // compare the values, and a brand does not change them.
             let comparison = matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Eq | BinOp::Ne);
-            let side = |e: &Expr| match comparison.then(|| bare(e, indent)).flatten() {
-                Some(b) => Tx::atom(b),
-                None => emit_tx(e, indent),
+            let side = |e: &Expr| {
+                // `o === 3` for `o == Some(3)` (`check::eq_by`).
+                let e = match peel_identity(e) {
+                    Expr::Call { callee: Callee::OptionSome, args } if comparison => &args[0],
+                    e => e,
+                };
+                match comparison.then(|| bare(e, indent)).flatten() {
+                    Some(b) => Tx::atom(b),
+                    None => emit_tx(e, indent),
+                }
             };
             Tx::bin(tx_op(*op), side(left), side(right))
         }
@@ -766,6 +773,7 @@ fn emit_call(callee: &Callee, args: &[Expr], indent: usize) -> String {
         }
         // `Eq.deep` takes `unknown`: an operand's brand is no use to it.
         C::DeepEq => format!("Eq.deep({}, {})", crate::tidy::uncast(&item(0)), crate::tidy::uncast(&item(1))),
+        C::EqBy(by) => call(&eq_comparer(by), args, indent),
         C::OrdCmpList { text } => {
             format!("Ord.cmpList({}, {}, {})", emit_expr(&args[0], indent), emit_expr(&args[1], indent), ord_cmp(*text))
         }
@@ -1025,6 +1033,23 @@ fn comparator<'e>(by: &purecrate_ir::Cmp, args: &mut impl Iterator<Item = &'e Ex
             let each: Vec<String> = bys.iter().map(|by| comparator(by, args, indent)).collect();
             format!("Ord.tuple({})", each.join(", "))
         }
+    }
+}
+
+/// A comparer by `==` as a function value (design/01 §5.1): `Eq.strict`
+/// (`===`), `Eq.kind`, a crate type's `X.eq`, `Eq.deep`, or one the runtime
+/// composes of those.
+fn eq_comparer(by: &purecrate_ir::Same) -> String {
+    use purecrate_ir::Same;
+    match by {
+        Same::Strict => "Eq.strict".into(),
+        Same::Kind => "Eq.kind".into(),
+        Same::Type(ty) => format!("{}.eq", ty.as_str()),
+        Same::Deep => "Eq.deep".into(),
+        Same::Option(by) => format!("Eq.option({})", eq_comparer(by)),
+        Same::Vec(by) => format!("Eq.vec({})", eq_comparer(by)),
+        Same::Map(by) => format!("Eq.map({})", eq_comparer(by)),
+        Same::Tuple(bys) => format!("Eq.tuple({})", bys.iter().map(eq_comparer).collect::<Vec<_>>().join(", ")),
     }
 }
 

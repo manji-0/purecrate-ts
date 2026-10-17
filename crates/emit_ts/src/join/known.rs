@@ -270,6 +270,14 @@ pub(super) fn known_bool(expr: &Expr, known: &Known) -> Option<bool> {
                 (a == b).then_some(a)
             }
         },
+        // `o === 3` on an `Option` (`o == Some(3)`, `check::eq_by`) where
+        // narrowing has made `o` `None`: TS refuses it ("no overlap").
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if let Some(p) = some_compared(left, right)
+                && held(known, p).is_some_and(|cs| matches!(cs.as_slice(), [c] if c.as_str() == NONE)) =>
+        {
+            Some(*op == BinOp::Ne)
+        }
         // `a.kind === b.kind` (an enum's `==`, design/01 §5.1) where narrowing
         // has kept the two apart, or both to the one variant: TS refuses the
         // first ("no overlap"), the lint the second (two literal types).
@@ -333,6 +341,15 @@ pub(super) fn kinds_apart(expr: &Expr, known: &Known) -> Option<Expr> {
     }
     let eq = Expr::Call { callee: purecrate_ir::Callee::DeepEq, args: vec![a.clone(), b.clone()] };
     Some(if *op == BinOp::Eq { eq } else { Expr::Unary { op: purecrate_ir::UnOp::Not, expr: Box::new(eq) } })
+}
+
+/// The place `o` of `o == Some(3)`, on either side.
+fn some_compared<'e>(left: &'e Expr, right: &'e Expr) -> Option<&'e Expr> {
+    let some = |e: &Expr| matches!(e, Expr::Call { callee: purecrate_ir::Callee::OptionSome, .. });
+    match (left, right) {
+        (p, s) | (s, p) if some(s) && is_place(p) => Some(p),
+        _ => None,
+    }
 }
 
 /// `p` of `p.kind`, `p` a place.

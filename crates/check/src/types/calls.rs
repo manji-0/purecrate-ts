@@ -328,9 +328,12 @@ impl<'d, 'a> Typer<'d, 'a> {
             }
             Callee::VecLen => (typed_args(self, Vec::new()), Some(Ty::Prim(Prim::Usize))),
             // Written only by `binary` and `method_call`, typed.
-            Callee::DeepEq | Callee::VecContains | Callee::VecIsEmpty | Callee::OptionIsSome | Callee::OptionIsNone => {
-                (typed_args(self, Vec::new()), Some(Ty::bool()))
-            }
+            Callee::DeepEq
+            | Callee::EqBy(_)
+            | Callee::VecContains
+            | Callee::VecIsEmpty
+            | Callee::OptionIsSome
+            | Callee::OptionIsNone => (typed_args(self, Vec::new()), Some(Ty::bool())),
             // Written only by `method_call` and `syntax`, typed.
             Callee::VecSort(_)
             | Callee::VecPush

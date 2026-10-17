@@ -179,7 +179,9 @@ impl<'d, 'a> Typer<'d, 'a> {
                             return (e, self.expect(want, Some(Ty::bool())));
                         }
                         // A derived `PartialEq` (rustc refuses `==` without
-                        // one), compared part by part.
+                        // one), compared part by part: through an `Option`,
+                        // a `Vec`, a tuple, or a map by each part's own type
+                        // (`eq_by`), else `Eq.deep`.
                         Ty::Named(_)
                         | Ty::App { .. }
                         | Ty::Param(_)
@@ -191,10 +193,7 @@ impl<'d, 'a> Typer<'d, 'a> {
                         | Ty::Tuple(_)
                             if !ordered && self.deep_comparable(t, &mut Vec::new()) =>
                         {
-                            let eq = Expr::Call { callee: Callee::DeepEq, args: vec![l, r] };
-                            let e =
-                                if op == BinOp::Ne { Expr::Unary { op: UnOp::Not, expr: Box::new(eq) } } else { eq };
-                            return (e, self.expect(want, Some(Ty::bool())));
+                            return (self.eq_by(t, op, l, r), self.expect(want, Some(Ty::bool())));
                         }
                         // By the comparator `cmp` is (design/01 §7.25): `<`
                         // is `Less`, `<=` not `Greater`, and so on.
@@ -307,6 +306,114 @@ impl<'d, 'a> Typer<'d, 'a> {
                     }
                 }
             }
+        }
+    }
+
+    /// How `==` compares values of `t`, as the derived `eq` compares a field
+    /// of it (design/01 §5.1): `===` on what JS compares as Rust does (an
+    /// `Option` of one too, as `null` is only itself), the variant on an
+    /// enum whose variants are all unit, a crate type's derived `eq`, and
+    /// an `Option`, a `Vec` (an array, a slice), a tuple, or a map's values
+    /// by their parts'. Anything else is `Same::Deep`, and so is a part that
+    /// is only that (`Option<T>`, `Vec<Result<..>>`): a `T` has no
+    /// dictionary for `PartialEq`, and a set compares its keys by `has`.
+    pub(super) fn comparer(&self, t: &Ty) -> Same {
+        let t = self.norm(t);
+        let deep_or = |s: Same, f: fn(Box<Same>) -> Same| if s == Same::Deep { Same::Deep } else { f(Box::new(s)) };
+        match &t {
+            _ if self.num(&t).is_some() => Same::Strict,
+            Ty::Prim(_) => Same::Strict,
+            _ if self.is_ordering(&t) => Same::Kind,
+            Ty::Named(n) | Ty::App { name: n, .. } => match self.defs.methods.get(&(n.as_str(), "eq")) {
+                Some(f) if f.derived_eq => Same::Type(n.clone()),
+                Some(_) => Same::Deep,
+                None => match self.defs.enums.get(n.as_str()) {
+                    Some(e) if !e.variants.is_empty() && e.variants.iter().all(|v| v.fields == VariantFields::Unit) => {
+                        Same::Kind
+                    }
+                    _ => Same::Deep,
+                },
+            },
+            // `Option<Option<_>>` is refused: a payload is never `null`.
+            Ty::Option(x) => match self.comparer(x) {
+                Same::Strict => Same::Strict,
+                s => deep_or(s, Same::Option),
+            },
+            Ty::Vec(x) => deep_or(self.comparer(x), Same::Vec),
+            Ty::Map { value, .. } => deep_or(self.comparer(value), Same::Map),
+            Ty::Tuple(xs) => {
+                let each: Vec<Same> = xs.iter().map(|x| self.comparer(x)).collect();
+                if each.iter().all(|s| *s == Same::Deep) {
+                    Same::Deep
+                } else {
+                    Same::Tuple(each)
+                }
+            }
+            _ => Same::Deep,
+        }
+    }
+
+    /// `l == r` (or `!=`) on an `Option`, a `Vec`, a tuple, a map, a set, a
+    /// `Result`, a `T`, or a crate type `binary` left, by `comparer`, each side
+    /// evaluated once, the left first. On an `Option` of what `===`
+    /// compares, `Eq.strict(l, r)`, a call TS narrows nothing by: `o === p`
+    /// would narrow `o` by `p`'s type, which TS cannot infer where `p` is a
+    /// local made from `o` in a loop (`const p = o; .. o === p`, "implicitly
+    /// has type 'any'"). A number written out is a type TS needs no
+    /// inference for, so `o == Some(3)` is `o === 3` (`join::flow` reads `o`
+    /// as `Some` where it holds), and `Some(a) == Some(b)` is `a === b`; a
+    /// `None` written out on one side is `x.is_none()`, as TS narrows by it.
+    /// The rest by the comparer (`Eq.option(X.eq)(l, r)`), else `Eq.deep`: a
+    /// crate type here is a generic one with a value written out (as in
+    /// `binary`), which a comparer holding its `eq` keeps to `Eq.deep` too.
+    fn eq_by(&self, t: &Ty, op: BinOp, l: Expr, r: Expr) -> Expr {
+        let not = |e: Expr| if op == BinOp::Ne { Expr::Unary { op: UnOp::Not, expr: Box::new(e) } } else { e };
+        let deep = |l: Expr, r: Expr| not(Expr::Call { callee: Callee::DeepEq, args: vec![l, r] });
+        let by = self.comparer(t);
+        let is = |e: &Expr, c: Callee| matches!(e.unpositioned(), Expr::Call { callee, .. } if *callee == c);
+        if matches!(self.norm(t), Ty::Option(_)) {
+            match (is(&l, Callee::OptionNone), is(&r, Callee::OptionNone)) {
+                // `None == None`, or `Some(x) == None`: what TS would refuse
+                // as two types with no overlap.
+                (true, true) => return deep(l, r),
+                (true, false) | (false, true) => {
+                    let other = if is(&l, Callee::OptionNone) { r } else { l };
+                    if is(&other, Callee::OptionSome) {
+                        return deep(other, Expr::Call { callee: Callee::OptionNone, args: Vec::new() });
+                    }
+                    let callee = if op == BinOp::Eq { Callee::OptionIsNone } else { Callee::OptionIsSome };
+                    return Expr::Call { callee, args: vec![other] };
+                }
+                (false, false) => {}
+            }
+        }
+        let generic = |n: &&Name| self.defs.methods.get(&(n.as_str(), "eq")).is_some_and(|f| !f.generics.is_empty());
+        let written = |e: &Expr| e.any(|x| matches!(x, Expr::Construct { .. }));
+        let payload = |e: &Expr| match e.unpositioned() {
+            Expr::Call { callee: Callee::OptionSome, args } => Some(args[0].clone()),
+            _ => None,
+        };
+        // An integer or a float written out, as `-1` too. Not a string or a
+        // `bool`: TS would narrow `o` to the literal type (`","`), which a
+        // later test of `o` in that branch would find no overlap with.
+        let number = |e: &Expr| {
+            payload(e).is_some_and(|x| match x.unpositioned() {
+                Expr::Lit(Lit::Int { .. } | Lit::Float { .. }) => true,
+                Expr::Unary { op: UnOp::Neg, expr } => {
+                    matches!(expr.unpositioned(), Expr::Lit(Lit::Int { .. } | Lit::Float { .. }))
+                }
+                _ => false,
+            })
+        };
+        match by {
+            // `Some(a) == Some(b)`: `a === b`, which the printer may decide.
+            Same::Strict if let (Some(a), Some(b)) = (payload(&l), payload(&r)) => rebuild(op, a, b),
+            // `o == Some(3)`: `o === 3`.
+            Same::Strict if number(&l) || number(&r) => rebuild(op, l, r),
+            Same::Strict => not(Expr::Call { callee: Callee::EqBy(Same::Strict), args: vec![l, r] }),
+            Same::Kind | Same::Type(_) | Same::Deep => deep(l, r),
+            by if by.types().iter().any(generic) && (written(&l) || written(&r)) => deep(l, r),
+            by => not(Expr::Call { callee: Callee::EqBy(by), args: vec![l, r] }),
         }
     }
 

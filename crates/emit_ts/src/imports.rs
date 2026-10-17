@@ -680,6 +680,11 @@ impl Refs {
                         }
                     }
                     Callee::DeepEq => self.eq = true,
+                    // `Eq.`, and each crate type whose `eq` the comparer calls.
+                    Callee::EqBy(by) => {
+                        self.eq = true;
+                        self.values.extend(by.types().into_iter().map(|t| t.as_str().to_string()));
+                    }
                     Callee::VecWindows { .. } | Callee::VecDedup => self.slice = true,
                     Callee::Range { .. } | Callee::RangeCut { .. } => self.iter = true,
                     Callee::Slice { of, start, .. } => {

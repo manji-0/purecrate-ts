@@ -643,6 +643,18 @@ pub(super) fn unbind(mut pattern: Pattern, read: &impl Fn(&Name) -> bool) -> Pat
 /// `1 == 65535` as `false`: TS refuses comparing two literals it knows
 /// apart.
 pub(super) fn literal_compare(expr: &mut Expr) {
+    // `Some(a) == Some(b)` on an `Option` `===` compares, where narrowing
+    // made a side (`o.map(|_| -1)` with `o` known `Some`), is `a == b`.
+    if let Expr::Binary { op: BinOp::Eq | BinOp::Ne, left, right } = expr {
+        if let (
+            Expr::Call { callee: purecrate_ir::Callee::OptionSome, args: l },
+            Expr::Call { callee: purecrate_ir::Callee::OptionSome, args: r },
+        ) = (&mut **left, &mut **right)
+        {
+            let (l, r) = (l.remove(0), r.remove(0));
+            (**left, **right) = (l, r);
+        }
+    }
     if let Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right } = expr {
         let int = |e: &Expr| match e {
             Expr::Lit(Lit::Int { value, .. }) => Some(*value),

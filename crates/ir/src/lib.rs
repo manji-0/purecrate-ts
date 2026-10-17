@@ -12,8 +12,8 @@ mod ty;
 
 pub use expr::{
     Arm, BinOp, Callee, CharMethod, ClosureParam, Cmp, Consume, Cut, Expr, Fields, FloatConst, FloatMethod, FmtAlign,
-    FmtPiece, FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pick, Pos, SliceOf, Sort, StrMethod, TreeOp, TryOn, UnOp,
-    VariantBind,
+    FmtPiece, FmtSpec, IntMethod, IntOp, Lit, Over, Pattern, Pick, Pos, Same, SliceOf, Sort, StrMethod, TreeOp, TryOn,
+    UnOp, VariantBind,
 };
 pub use item::{
     assoc_path, dict_param, dict_ty, from_member, split_assoc_path, std_dict_name, std_trait, tuple_field, Alias,

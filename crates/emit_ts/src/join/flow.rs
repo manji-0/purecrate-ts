@@ -265,6 +265,21 @@ fn tests(cond: &Expr, holds: bool) -> Vec<(Expr, Vec<Name>)> {
             };
             tests(&Expr::Binary { op, left: Box::new(left), right: Box::new(right) }, holds)
         }
+        // `o == Some(3)` holding, on an `Option` that `===` compares
+        // (`check::eq_by`): TS has `o` as `3`'s type, never `null`.
+        Expr::Binary { op: op @ (BinOp::Eq | BinOp::Ne), left, right }
+            if [left, right].iter().any(|s| matches!(&***s, Expr::Call { callee: Callee::OptionSome, .. })) =>
+        {
+            let mut out = Vec::new();
+            if holds == (*op == BinOp::Eq) {
+                for (p, other) in [(left, right), (right, left)] {
+                    if is_place(p) && matches!(&**other, Expr::Call { callee: Callee::OptionSome, .. }) {
+                        out.push(((**p).clone(), vec![Name::new(SOME)]));
+                    }
+                }
+            }
+            out
+        }
         // `t == ","` holding: TS has `t` as the literal `","` (a string, a
         // number, or a char is no union, so failing it narrows nothing).
         // `b === true`, `b !== c` with `c` a literal or a place of one known

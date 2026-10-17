@@ -557,6 +557,12 @@ pub enum Callee {
     /// and tuples of them. Prints as `Eq.deep(a, b)`, which compares the JS
     /// values part by part as the derived `eq` compares fields and variants.
     DeepEq,
+    /// `a == b` on an `Option`, a `Vec`, a slice, an array, a tuple, or a
+    /// `BTreeMap` whose parts each compare by their own type (design/01
+    /// §5.1): `a`, then `b`, each evaluated once, compared by the composed
+    /// comparer. Prints as `Eq.option(X.eq)(a, b)`, `Eq.vec(..)(a, b)`,
+    /// `Eq.tuple(..)(a, b)`, or `Eq.map(..)(a, b)`.
+    EqBy(Same),
     /// `Vec::len`. The argument is the vector. Prints as `.length`.
     VecLen,
     /// `Vec::is_empty`. Prints as `.length === 0`.
@@ -1358,6 +1364,56 @@ impl Cmp {
             Cmp::Dict(_) | Cmp::Fn(_) => vec![self],
             Cmp::Option(c) | Cmp::Vec(c) => c.args(),
             Cmp::Tuple(cs) => cs.iter().flat_map(Cmp::args).collect(),
+        }
+    }
+}
+
+/// How values of a type compare by `==` (design/01 §5.1), as the derived
+/// `eq` compares a field of that type: the comparer `Callee::EqBy` prints.
+/// Each is a function of two values giving a `boolean`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Same {
+    /// A value `===` compares as Rust's `==` does: an integer, a float (NaN
+    /// unequal to itself, `-0.0` equal to `0.0`), `bool`, `char`, a string,
+    /// a `Uuid`, `()`, and an `Option` of one (`null` only to itself).
+    /// `Eq.strict`.
+    Strict,
+    /// A crate enum whose variants are all unit, or std's `Ordering`: the
+    /// variant alone, `Eq.kind`.
+    Kind,
+    /// A crate struct or enum with a derived `eq`: its companion's `X.eq`.
+    Type(Name),
+    /// `None` only to itself, else the values: `Eq.option(by)`.
+    Option(Box<Same>),
+    /// The same length, then element by element: `Eq.vec(by)`.
+    Vec(Box<Same>),
+    /// Element by element, each by its own: `Eq.tuple(by0, by1, ..)`.
+    Tuple(Vec<Same>),
+    /// The same keys, then each key's values: `Eq.map(by)`.
+    Map(Box<Same>),
+    /// Anything else (a type parameter, a `Result`, a `BTreeSet`, a crate
+    /// type without a derived `eq`): `Eq.deep`, part by part.
+    Deep,
+}
+
+impl Same {
+    /// Each crate type whose `eq` this comparer calls by name.
+    pub fn types(&self) -> Vec<&Name> {
+        match self {
+            Same::Strict | Same::Kind | Same::Deep => Vec::new(),
+            Same::Type(n) => vec![n],
+            Same::Option(s) | Same::Vec(s) | Same::Map(s) => s.types(),
+            Same::Tuple(ss) => ss.iter().flat_map(Same::types).collect(),
+        }
+    }
+
+    /// Whether `Eq.deep` is read where this comparer prints.
+    pub fn deep(&self) -> bool {
+        match self {
+            Same::Deep => true,
+            Same::Strict | Same::Kind | Same::Type(_) => false,
+            Same::Option(s) | Same::Vec(s) | Same::Map(s) => s.deep(),
+            Same::Tuple(ss) => ss.iter().any(Same::deep),
         }
     }
 }

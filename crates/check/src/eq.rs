@@ -216,15 +216,21 @@ fn enum_eq(defs: &Defs<'_>, e: &Enum) -> Expr {
 }
 
 /// `krate` without the derived `eq`s that nothing reaches: from every other
-/// function, a call `X.eq(..)`, and from those, the calls they make in turn.
+/// function, a call `X.eq(..)` or a comparer calling it, and from those, the
+/// calls they make in turn.
 pub fn drop_unread(mut krate: Crate) -> Crate {
     let derived = |item: &Item| matches!(item, Item::Fn(f) if f.derived_eq);
     let calls = |body: &Expr, out: &mut BTreeSet<String>| {
         body.walk(|e| {
-            if let Expr::Call { callee: Callee::Method { ty, name }, .. } = e {
-                if name.as_str() == "eq" {
+            match e {
+                Expr::Call { callee: Callee::Method { ty, name }, .. } if name.as_str() == "eq" => {
                     out.insert(ty.as_str().to_string());
                 }
+                // `Eq.option(X.eq)(a, b)`: each `eq` the comparer calls.
+                Expr::Call { callee: Callee::EqBy(by), .. } => {
+                    out.extend(by.types().into_iter().map(|t| t.as_str().to_string()));
+                }
+                _ => {}
             }
         });
     };

@@ -1254,9 +1254,9 @@ export const Iter = {
   // #endregion
 } as const;
 
-// #region eq.deep
 /** Rust's `==` where `derive(PartialEq)` (or std) compares part by part. */
 export const Eq = {
+  // #region eq.deep
   /**
    * The values compare equal as the derived `eq` does: a number, `bigint`,
    * string, `boolean`, or `undefined` by `===` (so NaN is unequal to itself,
@@ -1284,8 +1284,57 @@ export const Eq = {
     const keys = Object.keys(x);
     return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
   },
+  // #endregion
+  // #region eq.strict
+  /**
+   * `==` on what `===` compares as Rust does: an integer, a float (NaN
+   * unequal to itself, `-0.0` equal to `0.0`), `bool`, `char`, a string, a
+   * `Uuid`, or an `Option` of one. Both of one type `T`, so a value's
+   * brand (`1 as I32`) is the type's, not a cast the call does not need.
+   */
+  strict: <T>(a: T, b: T): boolean => a === b,
+  // #endregion
+  // #region eq.kind
+  /** `==` on an enum whose variants are all unit: the same variant. */
+  kind: (a: Readonly<{ kind: string }>, b: Readonly<{ kind: string }>): boolean => a.kind === b.kind,
+  // #endregion
+  // #region eq.option
+  /** `==` on two `Option`s: `None` only to itself, else the values by `by`. */
+  option:
+    <T>(by: (a: T, b: T) => boolean) =>
+    (a: T | null, b: T | null): boolean =>
+      a === null || b === null ? a === b : by(a, b),
+  // #endregion
+  // #region eq.vec
+  /** `==` on two `Vec`s, slices, or arrays: the same length, then element by element by `by`. */
+  vec:
+    <T>(by: (a: T, b: T) => boolean) =>
+    (a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean => {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (!by(a[i] as T, b[i] as T)) return false;
+      }
+      return true;
+    },
+  // #endregion
+  // #region eq.tuple
+  /**
+   * `==` on two tuples: element `i` by `bys[i]`, stopping at the first that
+   * differs. Both of one type `A`, so an element's brand is the type's.
+   */
+  tuple:
+    (...bys: ReadonlyArray<(a: never, b: never) => boolean>) =>
+    <A extends ReadonlyArray<unknown>>(a: A, b: A): boolean =>
+      bys.every((by, i) => (by as (x: unknown, y: unknown) => boolean)(a[i], b[i])),
+  // #endregion
+  // #region eq.map
+  /** `==` on two `BTreeMap`s: the same keys (each once), and each key's values equal by `by`. */
+  map:
+    <K, V>(by: (a: V, b: V) => boolean) =>
+    (a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>): boolean =>
+      a.size === b.size && [...a].every(([k, v]) => b.has(k) && by(v, b.get(k) as V)),
+  // #endregion
 } as const;
-// #endregion
 
 /**
  * `BTreeMap<String, V>` and `BTreeSet<String>` as a `Map` / `Set`, read in
