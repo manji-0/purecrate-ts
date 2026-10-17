@@ -555,6 +555,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
 pub(crate) fn emit_let(name: &str, mutable: bool, ty: Option<&Ty>, value: &Expr, indent: usize, out: &mut String) {
     // `collect::<T>()` and `sum::<T>()` are a typed `let` whose body is the
     // binding. Nested under another `let`, that binding is only a copy.
+    // A binding with no type of its own (a value hoisted out of an
+    // argument, `{ let e: Vec<E> = ..; e }`) takes the one it peels: without
+    // it a variant literal's `kind` widens to `string`.
+    let ty = ty.or_else(|| peeled_ty(value));
     let value = peel_identity(value);
     // A struct or variant written out, bound with no type (a temporary the
     // printer made): without one TS widens its `kind` to `string`.

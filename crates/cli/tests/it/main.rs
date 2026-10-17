@@ -85,6 +85,7 @@ mod parts_eq_equivalence;
 mod paths_equivalence;
 mod payment_equivalence;
 mod precedence_equivalence;
+mod printer_holes_equivalence;
 mod punycode_equivalence;
 mod raft_equivalence;
 mod readability_equivalence;
