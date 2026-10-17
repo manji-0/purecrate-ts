@@ -405,131 +405,13 @@ impl<'d, 'a> Typer<'d, 'a> {
                 (Expr::Break(Some(Box::new(v))), Some(Ty::Never))
             }
             Expr::Break(None) | Expr::Continue => (expr.clone(), Some(Ty::Never)),
-            Expr::Let { name, mutable, ty, value, then } => {
-                // `let mut s = 0;`: the type of the first use that asks for
-                // one, as rustc infers it, where nothing else gives one.
-                // Inside that search, a nested one is not searched again.
-                let inferred = match ty {
-                    None if is_bare_int_valued(value) && self.open.is_empty() => self.first_use_type(name, then, want),
-                    None => match then.unpositioned() {
-                        Expr::Match { scrutinee, arms } if matches!(scrutinee.unpositioned(), Expr::Var(n) if n == name) => {
-                            self.literal_tuple_type(value, arms, want)
-                        }
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                let before = self.out.len();
-                let (value, vt) = self.expr(value, ty.as_ref().or(inferred.as_ref()));
-                // A type with holes (`collect::<Vec<_>>()`) is what the value
-                // filled them with.
-                let ty = &ty.clone().filter(|t| !has_hole(t));
-                let bound = ty.clone().or(vt);
-                if bound.is_none() && self.out.len() == before {
-                    let (kw, first) = if *mutable { ("let mut", " from its first value") } else { ("let", "") };
-                    self.error(
-                        Reason::NeedsAnnotation,
-                        format!("the type of `{kw} {n}` is not known{first}; write `{kw} {n}: T`", n = name.as_str(),),
-                    );
-                }
-                // TS widens an unannotated binding (`kind: "Walk"` becomes
-                // `kind: string`, `null` stays `null`), so the type is always
-                // written out when known.
-                let annotation = ty.clone().or_else(|| bound.clone().filter(|t| *t != Ty::Never));
-                self.scopes.push((name.as_str().to_string(), bound));
-                let (then, tt) = self.expr(then, want);
-                self.scopes.pop();
-                (
-                    Expr::Let {
-                        name: name.clone(),
-                        mutable: *mutable,
-                        ty: annotation,
-                        value: Box::new(value),
-                        then: Box::new(then),
-                    },
-                    tt,
-                )
-            }
-            Expr::For { var, start, end, inclusive, rev, body, .. } => {
-                // `0..n`: an unsuffixed start takes the end's type. Only the
-                // typing order changes; the start still runs first.
-                let before = self.out.len();
-                // `0..3`: both bounds unsuffixed take the type the first use
-                // of the variable in the body asks (`v[i]`, a `usize`), as an
-                // unsuffixed `let` does (§7.22).
-                let inferred = match is_bare_int(start) && is_bare_int(end) && self.open.is_empty() {
-                    true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
-                    false => None,
-                };
-                let ((s, st), (e, et)) = if is_bare_int(start) {
-                    let (e, et) = self.expr(end, inferred.as_ref());
-                    (self.expr(start, et.as_ref()), (e, et))
-                } else {
-                    let (s, st) = self.expr(start, None);
-                    let e = self.expr(end, st.as_ref());
-                    ((s, st), e)
-                };
-                let bound = st.clone().or(et);
-                let int = bound.as_ref().and_then(|t| int_of(&self.norm(t)));
-                if int.is_none() && self.out.len() == before {
-                    let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
-                    self.error(
-                        Reason::TypeMismatch,
-                        format!("`for` takes a range `a..b` of one integer type, found `{found}`"),
-                    );
-                }
-                self.scopes.push((var.as_str().to_string(), bound));
-                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
-                self.scopes.pop();
-                let (start, end, body) = (Box::new(s), Box::new(e), Box::new(b));
-                let e = Expr::For { var: var.clone(), ty: int, start, end, inclusive: *inclusive, rev: *rev, body };
-                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
-            }
+            Expr::Let { .. } => self.let_expr(expr, want),
+            Expr::For { .. } => self.for_range(expr, want),
             // Over a sequence: its stages run as the loop asks for each item.
-            Expr::ForEach { var, over: Over::Items, source, body } if iter::is_sequence(source) => {
-                let walked = if self.reorder_reported(source) { None } else { self.sequence(source, "for") };
-                let (s, over, item) = match walked {
-                    Some((s, over, item)) => (s, over, Some(item)),
-                    None => (Expr::Lit(Lit::Unit), Over::Items, None),
-                };
-                self.scopes.push((var.as_str().to_string(), item));
-                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
-                self.scopes.pop();
-                let e = Expr::ForEach { var: var.clone(), over, source: Box::new(s), body: Box::new(b) };
-                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+            Expr::ForEach { over: Over::Items, source, .. } if iter::is_sequence(source) => {
+                self.for_sequence(expr, want)
             }
-            Expr::ForEach { var, over, source: string, body } => {
-                let before = self.out.len();
-                // `for d in [-1, 1]`: unsuffixed elements take the type the
-                // first use of the variable in the body asks, as a `let` of
-                // one does.
-                let inferred = match bare_int_array(string) && *over == Over::Items && self.open.is_empty() {
-                    true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
-                    false => None,
-                };
-                let (s, st) = self.expr(string, inferred.map(|t| Ty::Vec(Box::new(t))).as_ref());
-                // `for (k, v) in &m`, `for k in &s`: the items in key order.
-                let (s, st) = match st.as_ref().map(|t| self.norm(t)) {
-                    Some(t @ Ty::Map { .. }) if *over == Over::Items => self.tree_items(TreeOp::Entries, s, t),
-                    Some(t @ Ty::Set(_)) if *over == Over::Items => self.tree_items(TreeOp::Keys, s, t),
-                    _ => (s, st),
-                };
-                let item = st.as_ref().and_then(|t| self.walked(*over, t));
-                if item.is_none() && self.out.len() == before {
-                    let found = st.as_ref().map(show).unwrap_or_else(|| "?".into());
-                    let what = match over {
-                        Over::Chars => "`for c in s.chars()` takes a `String` or `&str`",
-                        Over::Bytes => "`for b in s.bytes()` takes a `String` or `&str`",
-                        Over::Items => "`for x in xs` takes a range `a..b`, a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), `s.chars()`, or `s.bytes()`",
-                    };
-                    self.error(Reason::TypeMismatch, format!("{what}, found `{found}`"));
-                }
-                self.scopes.push((var.as_str().to_string(), item));
-                let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
-                self.scopes.pop();
-                let e = Expr::ForEach { var: var.clone(), over: *over, source: Box::new(s), body: Box::new(b) };
-                (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
-            }
+            Expr::ForEach { .. } => self.for_each(expr, want),
             Expr::Assign { name, value } => {
                 let target = self.lookup(name.as_str());
                 let (value, _) = self.expr(value, target.as_ref());
@@ -569,83 +451,10 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::Construct { ty, variant, fields, base } => {
                 self.construct_expr(ty, variant.as_ref(), fields, base.as_deref(), want)
             }
-            Expr::Index { base, index } => {
-                let (base, bt) = self.expr(base, None);
-                let elem = match bt.as_ref().map(|t| self.norm(t)) {
-                    Some(Ty::Vec(t)) => Some(*t),
-                    Some(other) => {
-                        self.error(Reason::Index, format!("cannot index `{}`", show(&other)));
-                        None
-                    }
-                    None => None,
-                };
-                let (index, _) = self.expr(index, Some(&Ty::Prim(Prim::Usize)));
-                (Expr::Index { base: Box::new(base), index: Box::new(index) }, self.expect(want, elem))
-            }
-            Expr::Field { base, name } => {
-                let (base, bt) = self.expr(base, None);
-                // `t.0` of a tuple: its element, read as `t[0]`.
-                if let (Ok(i), Some(Ty::Tuple(ts))) =
-                    (name.as_str().parse::<usize>(), bt.as_ref().map(|t| self.norm(t)))
-                {
-                    let Some(t) = ts.get(i).cloned() else {
-                        self.error(Reason::TupleField, format!("a tuple of {} elements has no `.{i}`", ts.len()));
-                        return (expr.clone(), None);
-                    };
-                    let e = Expr::Field { base: Box::new(base), name: Name::new(format!("[{i}]")) };
-                    return (e, self.expect(want, Some(t)));
-                }
-                let t = bt.as_ref().and_then(|bt| self.field_ty(bt, name));
-                if let (None, Some(bt)) = (&t, &bt) {
-                    if name.as_str().parse::<usize>().is_ok() {
-                        self.error(
-                            Reason::TupleField,
-                            format!(
-                                "`.{}` is only in v0 on a tuple, or `.0` on a one-field tuple struct, not on `{}`",
-                                name.as_str(),
-                                show(bt)
-                            ),
-                        );
-                    }
-                }
-                let e = Expr::Field { base: Box::new(base), name: name.clone() };
-                (e, self.expect(want, t))
-            }
-            Expr::Tuple(xs) => {
-                let wants: Vec<Option<Ty>> = match want.map(|w| self.norm(w)) {
-                    Some(Ty::Tuple(ts)) if ts.len() == xs.len() => ts.into_iter().map(Some).collect(),
-                    _ => vec![None; xs.len()],
-                };
-                let (elems, tys): (Vec<Expr>, Vec<Option<Ty>>) =
-                    xs.iter().zip(&wants).map(|(x, w)| self.expr(x, w.as_ref())).unzip();
-                let t = tys.into_iter().collect::<Option<Vec<Ty>>>().map(Ty::Tuple);
-                (Expr::Tuple(elems), self.expect(want, t))
-            }
-            Expr::Array(xs) => {
-                let mut elem = match want.map(|w| self.norm(w)) {
-                    Some(Ty::Vec(t)) => Some(*t),
-                    _ => None,
-                };
-                let len = want.and_then(|w| self.array_len(w));
-                if let Some(n) = len.filter(|n| *n != xs.len()) {
-                    self.error(
-                        Reason::TypeMismatch,
-                        format!("expected an array of {n} elements, found one of {}", xs.len()),
-                    );
-                }
-                if elem.is_none() {
-                    if let Some(first) = xs.iter().find(|x| !needs_context(x)) {
-                        elem = self.expr(first, None).1;
-                    }
-                }
-                let elems = xs.iter().map(|x| self.expr(x, elem.as_ref()).0).collect();
-                // An array where one is wanted (`[T; N]`), else a `Vec`.
-                let t = match len {
-                    Some(n) => elem.map(|t| Ty::Array { elem: Box::new(t), len: n }),
-                    None => elem.map(|t| Ty::Vec(Box::new(t))),
-                };
-                (Expr::Array(elems), self.expect(want, t))
-            }
+            Expr::Index { .. } => self.index_expr(expr, want),
+            Expr::Field { .. } => self.field_expr(expr, want),
+            Expr::Tuple(_) => self.tuple_expr(expr, want),
+            Expr::Array(_) => self.array_expr(expr, want),
             Expr::Binary { op, left, right } => self.binary(*op, left, right, want),
             Expr::Unary { op, expr: inner } => self.unary(*op, inner, want),
             Expr::Return(e) => {
@@ -657,6 +466,234 @@ impl<'d, 'a> Typer<'d, 'a> {
             Expr::Unreachable => (Expr::Unreachable, Some(Ty::Never)),
             Expr::Comment(lines) => (Expr::Comment(lines.clone()), Some(Ty::Prim(Prim::Unit))),
         }
+    }
+
+    // `let`: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn let_expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::Let { name, mutable, ty, value, then } = expr else { unreachable!() };
+        // `let mut s = 0;`: the type of the first use that asks for
+        // one, as rustc infers it, where nothing else gives one.
+        // Inside that search, a nested one is not searched again.
+        let inferred = match ty {
+            None if is_bare_int_valued(value) && self.open.is_empty() => self.first_use_type(name, then, want),
+            None => match then.unpositioned() {
+                Expr::Match { scrutinee, arms } if matches!(scrutinee.unpositioned(), Expr::Var(n) if n == name) => {
+                    self.literal_tuple_type(value, arms, want)
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let before = self.out.len();
+        let (value, vt) = self.expr(value, ty.as_ref().or(inferred.as_ref()));
+        // A type with holes (`collect::<Vec<_>>()`) is what the value
+        // filled them with.
+        let ty = &ty.clone().filter(|t| !has_hole(t));
+        let bound = ty.clone().or(vt);
+        if bound.is_none() && self.out.len() == before {
+            let (kw, first) = if *mutable { ("let mut", " from its first value") } else { ("let", "") };
+            self.error(
+                Reason::NeedsAnnotation,
+                format!("the type of `{kw} {n}` is not known{first}; write `{kw} {n}: T`", n = name.as_str(),),
+            );
+        }
+        // TS widens an unannotated binding (`kind: "Walk"` becomes
+        // `kind: string`, `null` stays `null`), so the type is always
+        // written out when known.
+        let annotation = ty.clone().or_else(|| bound.clone().filter(|t| *t != Ty::Never));
+        self.scopes.push((name.as_str().to_string(), bound));
+        let (then, tt) = self.expr(then, want);
+        self.scopes.pop();
+        (
+            Expr::Let {
+                name: name.clone(),
+                mutable: *mutable,
+                ty: annotation,
+                value: Box::new(value),
+                then: Box::new(then),
+            },
+            tt,
+        )
+    }
+
+    // `for` over a range: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn for_range(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::For { var, start, end, inclusive, rev, body, .. } = expr else { unreachable!() };
+        // `0..n`: an unsuffixed start takes the end's type. Only the
+        // typing order changes; the start still runs first.
+        let before = self.out.len();
+        // `0..3`: both bounds unsuffixed take the type the first use
+        // of the variable in the body asks (`v[i]`, a `usize`), as an
+        // unsuffixed `let` does (§7.22).
+        let inferred = match is_bare_int(start) && is_bare_int(end) && self.open.is_empty() {
+            true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
+            false => None,
+        };
+        let ((s, st), (e, et)) = if is_bare_int(start) {
+            let (e, et) = self.expr(end, inferred.as_ref());
+            (self.expr(start, et.as_ref()), (e, et))
+        } else {
+            let (s, st) = self.expr(start, None);
+            let e = self.expr(end, st.as_ref());
+            ((s, st), e)
+        };
+        let bound = st.clone().or(et);
+        let int = bound.as_ref().and_then(|t| int_of(&self.norm(t)));
+        if int.is_none() && self.out.len() == before {
+            let found = bound.as_ref().map(show).unwrap_or_else(|| "?".into());
+            self.error(
+                Reason::TypeMismatch,
+                format!("`for` takes a range `a..b` of one integer type, found `{found}`"),
+            );
+        }
+        self.scopes.push((var.as_str().to_string(), bound));
+        let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+        self.scopes.pop();
+        let (start, end, body) = (Box::new(s), Box::new(e), Box::new(b));
+        let e = Expr::For { var: var.clone(), ty: int, start, end, inclusive: *inclusive, rev: *rev, body };
+        (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+    }
+
+    // `for` over a sequence: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn for_sequence(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::ForEach { var, over: Over::Items, source, body } = expr else { unreachable!() };
+        let walked = if self.reorder_reported(source) { None } else { self.sequence(source, "for") };
+        let (s, over, item) = match walked {
+            Some((s, over, item)) => (s, over, Some(item)),
+            None => (Expr::Lit(Lit::Unit), Over::Items, None),
+        };
+        self.scopes.push((var.as_str().to_string(), item));
+        let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+        self.scopes.pop();
+        let e = Expr::ForEach { var: var.clone(), over, source: Box::new(s), body: Box::new(b) };
+        (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+    }
+
+    // `for` over a collection or string: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn for_each(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::ForEach { var, over, source: string, body } = expr else { unreachable!() };
+        let before = self.out.len();
+        // `for d in [-1, 1]`: unsuffixed elements take the type the
+        // first use of the variable in the body asks, as a `let` of
+        // one does.
+        let inferred = match bare_int_array(string) && *over == Over::Items && self.open.is_empty() {
+            true => self.first_use_type(var, body, Some(&Ty::Prim(Prim::Unit))),
+            false => None,
+        };
+        let (s, st) = self.expr(string, inferred.map(|t| Ty::Vec(Box::new(t))).as_ref());
+        // `for (k, v) in &m`, `for k in &s`: the items in key order.
+        let (s, st) = match st.as_ref().map(|t| self.norm(t)) {
+            Some(t @ Ty::Map { .. }) if *over == Over::Items => self.tree_items(TreeOp::Entries, s, t),
+            Some(t @ Ty::Set(_)) if *over == Over::Items => self.tree_items(TreeOp::Keys, s, t),
+            _ => (s, st),
+        };
+        let item = st.as_ref().and_then(|t| self.walked(*over, t));
+        if item.is_none() && self.out.len() == before {
+            let found = st.as_ref().map(show).unwrap_or_else(|| "?".into());
+            let what = match over {
+                Over::Chars => "`for c in s.chars()` takes a `String` or `&str`",
+                Over::Bytes => "`for b in s.bytes()` takes a `String` or `&str`",
+                Over::Items => "`for x in xs` takes a range `a..b`, a `Vec` or slice (`xs`, `&xs`, `xs.iter()`), `s.chars()`, or `s.bytes()`",
+            };
+            self.error(Reason::TypeMismatch, format!("{what}, found `{found}`"));
+        }
+        self.scopes.push((var.as_str().to_string(), item));
+        let (b, _) = self.expr(body, Some(&Ty::Prim(Prim::Unit)));
+        self.scopes.pop();
+        let e = Expr::ForEach { var: var.clone(), over: *over, source: Box::new(s), body: Box::new(b) };
+        (e, self.expect(want, Some(Ty::Prim(Prim::Unit))))
+    }
+
+    // `xs[i]`: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn index_expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::Index { base, index } = expr else { unreachable!() };
+        let (base, bt) = self.expr(base, None);
+        let elem = match bt.as_ref().map(|t| self.norm(t)) {
+            Some(Ty::Vec(t)) => Some(*t),
+            Some(other) => {
+                self.error(Reason::Index, format!("cannot index `{}`", show(&other)));
+                None
+            }
+            None => None,
+        };
+        let (index, _) = self.expr(index, Some(&Ty::Prim(Prim::Usize)));
+        (Expr::Index { base: Box::new(base), index: Box::new(index) }, self.expect(want, elem))
+    }
+
+    // `x.f`: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn field_expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::Field { base, name } = expr else { unreachable!() };
+        let (base, bt) = self.expr(base, None);
+        // `t.0` of a tuple: its element, read as `t[0]`.
+        if let (Ok(i), Some(Ty::Tuple(ts))) = (name.as_str().parse::<usize>(), bt.as_ref().map(|t| self.norm(t))) {
+            let Some(t) = ts.get(i).cloned() else {
+                self.error(Reason::TupleField, format!("a tuple of {} elements has no `.{i}`", ts.len()));
+                return (expr.clone(), None);
+            };
+            let e = Expr::Field { base: Box::new(base), name: Name::new(format!("[{i}]")) };
+            return (e, self.expect(want, Some(t)));
+        }
+        let t = bt.as_ref().and_then(|bt| self.field_ty(bt, name));
+        if let (None, Some(bt)) = (&t, &bt) {
+            if name.as_str().parse::<usize>().is_ok() {
+                self.error(
+                    Reason::TupleField,
+                    format!(
+                        "`.{}` is only in v0 on a tuple, or `.0` on a one-field tuple struct, not on `{}`",
+                        name.as_str(),
+                        show(bt)
+                    ),
+                );
+            }
+        }
+        let e = Expr::Field { base: Box::new(base), name: name.clone() };
+        (e, self.expect(want, t))
+    }
+
+    // `(a, b)`: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn tuple_expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::Tuple(xs) = expr else { unreachable!() };
+        let wants: Vec<Option<Ty>> = match want.map(|w| self.norm(w)) {
+            Some(Ty::Tuple(ts)) if ts.len() == xs.len() => ts.into_iter().map(Some).collect(),
+            _ => vec![None; xs.len()],
+        };
+        let (elems, tys): (Vec<Expr>, Vec<Option<Ty>>) =
+            xs.iter().zip(&wants).map(|(x, w)| self.expr(x, w.as_ref())).unzip();
+        let t = tys.into_iter().collect::<Option<Vec<Ty>>>().map(Ty::Tuple);
+        (Expr::Tuple(elems), self.expect(want, t))
+    }
+
+    // `[a, b]`: out of `expr`, whose frame every nested expression pays for.
+    #[inline(never)]
+    fn array_expr(&mut self, expr: &Expr, want: Option<&Ty>) -> Typed {
+        let Expr::Array(xs) = expr else { unreachable!() };
+        let mut elem = match want.map(|w| self.norm(w)) {
+            Some(Ty::Vec(t)) => Some(*t),
+            _ => None,
+        };
+        let len = want.and_then(|w| self.array_len(w));
+        if let Some(n) = len.filter(|n| *n != xs.len()) {
+            self.error(Reason::TypeMismatch, format!("expected an array of {n} elements, found one of {}", xs.len()));
+        }
+        if elem.is_none() {
+            if let Some(first) = xs.iter().find(|x| !needs_context(x)) {
+                elem = self.expr(first, None).1;
+            }
+        }
+        let elems = xs.iter().map(|x| self.expr(x, elem.as_ref()).0).collect();
+        // An array where one is wanted (`[T; N]`), else a `Vec`.
+        let t = match len {
+            Some(n) => elem.map(|t| Ty::Array { elem: Box::new(t), len: n }),
+            None => elem.map(|t| Ty::Vec(Box::new(t))),
+        };
+        (Expr::Array(elems), self.expect(want, t))
     }
 
     /// An operator whose operand types stayed unknown would print as the raw
