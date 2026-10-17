@@ -269,6 +269,17 @@ export const Iter = {
   },
 } as const;
 
+/** Rust's `==` where `derive(PartialEq)` (or std) compares part by part. */
+export const Eq = {
+  /**
+   * `==` on what `===` compares as Rust does: an integer, a float (NaN
+   * unequal to itself, `-0.0` equal to `0.0`), `bool`, `char`, a string, a
+   * `Uuid`, or an `Option` of one. Both of one type `T`, so a value's
+   * brand (`1 as I32`) is the type's, not a cast the call does not need.
+   */
+  strict: <T>(a: T, b: T): boolean => a === b,
+} as const;
+
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */
 export const Slice = {
   /** `xs[i]`. */

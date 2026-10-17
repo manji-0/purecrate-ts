@@ -202,3 +202,7 @@ pub fn e02_eq_unit_enum(a: Light, b: Light) -> bool { a == b && a != Light::Red 
 pub fn e03_count_variant(xs: &[Shape]) -> usize { xs.iter().filter(|s| **s == Shape::Empty).count() }
 pub fn e04_struct_eq(a: &Item, b: &Item) -> bool { a == b }
 pub fn e05_payload_eq(s: &Shape, r: i32) -> bool { *s == Shape::Square(r) }
+pub fn e06_option_eq(o: Option<u32>, p: Option<u32>, x: u32) -> bool { o == p || o == Some(x) }
+pub fn e07_option_struct_eq(a: Option<Item>, b: &Item) -> bool { a.as_ref() == Some(b) }
+pub fn e08_vec_eq(a: &[Item], b: &Vec<Item>) -> bool { a == b.as_slice() }
+pub fn e09_tuple_eq(a: (u32, Shape), b: (u32, Shape)) -> bool { a == b }

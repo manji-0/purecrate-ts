@@ -575,7 +575,7 @@ pub fn check_totp(code: &String, now: i64, enrollment: &TotpEnrollment, candidat
     let mut replayed = false;
     for c in candidates {
         if c.step >= current - 1 && c.step <= current + 1 {
-            if matches!(truncate_mac(&c.mac, enrollment.digits), Some(value) if value == submitted) {
+            if truncate_mac(&c.mac, enrollment.digits) == Some(submitted) {
                 let fresh = enrollment.last_used_step.is_none_or(|last| c.step > last);
                 if fresh {
                     return OtpCheck::Accepted(c.step);

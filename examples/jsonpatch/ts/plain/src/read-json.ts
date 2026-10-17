@@ -41,7 +41,7 @@ const skipWs = (b: ReadonlyArray<U8>, start: Usize): Usize => {
 
 const wordAt = (b: ReadonlyArray<U8>, i: Usize, word: ReadonlyArray<U8>): boolean =>
   Int.usize.add(i, word.length as Usize) <= b.length &&
-  Eq.deep(Slice.range(b, i, Int.usize.add(i, word.length as Usize)), word);
+  Eq.vec(Eq.strict)(Slice.range(b, i, Int.usize.add(i, word.length as Usize)), word);
 
 const parseValue = (s: string, start: Usize): Result<readonly [Json, Usize], JsonError> => {
   const b = Str.bytes(s);

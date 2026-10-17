@@ -339,6 +339,13 @@ export const Eq = {
     const keys = Object.keys(x);
     return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
   },
+  /**
+   * `==` on what `===` compares as Rust does: an integer, a float (NaN
+   * unequal to itself, `-0.0` equal to `0.0`), `bool`, `char`, a string, a
+   * `Uuid`, or an `Option` of one. Both of one type `T`, so a value's
+   * brand (`1 as I32`) is the type's, not a cast the call does not need.
+   */
+  strict: <T>(a: T, b: T): boolean => a === b,
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */

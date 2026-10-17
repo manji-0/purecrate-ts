@@ -279,32 +279,22 @@ export const Iter = {
 /** Rust's `==` where `derive(PartialEq)` (or std) compares part by part. */
 export const Eq = {
   /**
-   * The values compare equal as the derived `eq` does: a number, `bigint`,
-   * string, `boolean`, or `undefined` by `===` (so NaN is unequal to itself,
-   * and `-0.0` equal to `0.0`, as in Rust), `null` (`None`) only to itself,
-   * an array element by element, and an object (a struct, or a variant with
-   * its `kind`) key by key.
+   * `==` on what `===` compares as Rust does: an integer, a float (NaN
+   * unequal to itself, `-0.0` equal to `0.0`), `bool`, `char`, a string, a
+   * `Uuid`, or an `Option` of one. Both of one type `T`, so a value's
+   * brand (`1 as I32`) is the type's, not a cast the call does not need.
    */
-  deep: (a: unknown, b: unknown): boolean => {
-    // Not `a === b` first: `clone()` of a struct is the same object here, and
-    // one holding NaN is still unequal to itself in Rust.
-    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return a === b;
-    if (Array.isArray(a)) {
-      return Array.isArray(b) && a.length === b.length && a.every((x, i) => Eq.deep(x, b[i]));
-    }
-    // A `BTreeMap` or `BTreeSet`: the same keys, and equal values. Rust
-    // compares them in key order, where each key is once.
-    if (a instanceof Map) {
-      return b instanceof Map && a.size === b.size && [...a].every(([k, v]) => b.has(k) && Eq.deep(v, b.get(k)));
-    }
-    if (a instanceof Set) {
-      return b instanceof Set && a.size === b.size && [...a].every((k) => b.has(k));
-    }
-    const x = a as Record<string, unknown>;
-    const y = b as Record<string, unknown>;
-    const keys = Object.keys(x);
-    return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
-  },
+  strict: <T>(a: T, b: T): boolean => a === b,
+  /** `==` on two `Vec`s, slices, or arrays: the same length, then element by element by `by`. */
+  vec:
+    <T>(by: (a: T, b: T) => boolean) =>
+    (a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean => {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (!by(a[i] as T, b[i] as T)) return false;
+      }
+      return true;
+    },
 } as const;
 
 /** Indexing and slicing a `Vec<T>` or `&[T]`, panicking where Rust panics. */

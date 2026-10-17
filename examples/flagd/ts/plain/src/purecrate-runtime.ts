@@ -333,6 +333,11 @@ export const Eq = {
     const keys = Object.keys(x);
     return keys.length === Object.keys(y).length && keys.every((k) => k in y && Eq.deep(x[k], y[k]));
   },
+  /** `==` on two `Option`s: `None` only to itself, else the values by `by`. */
+  option:
+    <T>(by: (a: T, b: T) => boolean) =>
+    (a: T | null, b: T | null): boolean =>
+      a === null || b === null ? a === b : by(a, b),
 } as const;
 
 /**

@@ -151,14 +151,15 @@ const replaceValue = (doc: Json, path: Pointer, value: Json): Result<Json, OpFai
 
 /** `a` is a proper prefix of `b`: shorter, and equal on every token it has. */
 const properPrefix = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-  a.length < b.length && Eq.deep(Slice.range(a, null, null), Slice.range(b, null, a.length));
+  a.length < b.length &&
+  Eq.vec(Eq.strict)(Slice.range(a, null, null), Slice.range(b, null, a.length));
 
 const moveValue = (doc: Json, from: Pointer, path: Pointer): Result<Json, OpFailure> => {
   if (properPrefix(from.tokens, path.tokens)) return Result.err({ kind: "MoveIntoOwnChild" });
   const valueResult = getValue(doc, from);
   if (valueResult.kind === "Err") return valueResult;
   const value = valueResult.value;
-  if (Eq.deep(from.tokens, path.tokens)) return Result.ok(doc);
+  if (Eq.vec(Eq.strict)(from.tokens, path.tokens)) return Result.ok(doc);
   const removedResult = removeValue(doc, from);
   if (removedResult.kind === "Err") return removedResult;
   const removed = removedResult.value;

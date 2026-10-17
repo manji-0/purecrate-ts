@@ -26,7 +26,7 @@ export const makeMove = (pos: Position, mv: Move): Position => {
   if (
     isPawn &&
     captured.kind === "Empty" &&
-    Eq.deep(pos.en_passant, mv.to) &&
+    Eq.strict(pos.en_passant, mv.to) &&
     Int.u8.rem(mv.from, 8 as U8) !== Int.u8.rem(mv.to, 8 as U8)
   ) {
     Slice.set(

@@ -845,7 +845,7 @@ fn hashed_names(field: &str, name: &Vec<u32>) -> LineMatch {
                 return LineMatch::Unreadable;
             }
             let mac = hmac_sha1(&salt, name);
-            if mac.iter().zip(hash.iter()).all(|(a, b)| a == b) {
+            if mac == hash {
                 LineMatch::Names
             } else {
                 LineMatch::Other

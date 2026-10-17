@@ -133,7 +133,7 @@ const pawnMoves = (pos: Position, from: U8): ReadonlyArray<Move> => {
       const enemy =
         square.kind === "Occupied"
           ? square.value.color.kind !== us.kind
-          : Eq.deep(pos.en_passant, s);
+          : Eq.strict(pos.en_passant, s);
       if (enemy) {
         targets.push(s);
       }
