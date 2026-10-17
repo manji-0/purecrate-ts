@@ -89,6 +89,9 @@ struct Body {
     /// What draws the 0.25.0 comparisons through `Option`, `Vec`, arrays,
     /// and tuples, apart from the others.
     eq_rng: Rng,
+    /// What draws the 0.25.0 literals no use types and tuples of them,
+    /// apart from the others.
+    fallback_rng: Rng,
 }
 
 /// Names a binding may take besides `v<n>`: ones the translator makes up
@@ -169,6 +172,54 @@ impl Body {
         }
         if self.eq_rng.below(6) == 0 {
             self.equality();
+        }
+        if self.fallback_rng.below(8) == 0 {
+            self.fallback_literals();
+        }
+    }
+
+    /// A counter no use types, `i32` as rustc defaults it (from near
+    /// `i32::MAX` it may overflow), or a `let` of a `match` of tuples of
+    /// literals, one place typed `i32` by `h0` and one `u8` by a sum, or
+    /// neither. Its tests draw from `fallback_rng`, as `g`'s generator in
+    /// turn.
+    fn fallback_literals(&mut self) {
+        let names = self.g.next_name;
+        std::mem::swap(&mut self.g.rng, &mut self.fallback_rng);
+        let (k, test) = (self.g.int(2), self.g.boolean(2));
+        std::mem::swap(&mut self.g.rng, &mut self.fallback_rng);
+        self.g.next_name = names;
+        let r = &mut self.fallback_rng;
+        let n = r.below(1 << 20);
+        let (c, p, q) = (format!("c{n}x"), format!("p{n}x"), format!("q{n}x"));
+        if r.below(2) == 0 {
+            let start = r.pick(&[0i64, 5, 2_147_483_640]);
+            let times = r.below(12);
+            let at = r.pick(&[0i64, 3, 2_147_483_645]);
+            self.line(&format!("let mut {c} = {start};"));
+            self.line(&format!("for _ in 0..{times} {{"));
+            self.line(&format!("    if {test} {{ {c} += 1; }}"));
+            self.line("}");
+            self.line(&format!("if {c} > {at} {{ h0 = h0.wrapping_add(1); }}"));
+            self.line(&format!("h0 = h0.wrapping_mul(31).wrapping_add({c}.to_string().len() as i32);"));
+        } else {
+            let mut lit = |u8_side: bool| match u8_side {
+                true => r.pick(&[0i64, 1, 7, 128, 255]).to_string(),
+                false => r.pick(&[0i64, 1, -1, 9, 2_147_483_647, -2_147_483_648]).to_string(),
+            };
+            let (a, b, x, y) = (lit(false), lit(true), lit(false), lit(true));
+            let typed = r.below(3);
+            self.line(&format!("let ({p}, {q}) = match ({k}) % 2 {{ 0 => ({a}, {b}), _ => ({x}, {y}) }};"));
+            match typed {
+                0 => {
+                    self.line(&format!("h0 = h0.wrapping_mul(31).wrapping_add({p});"));
+                    self.line(&format!(
+                        "h0 = h0.wrapping_mul(31).wrapping_add(i32::from(((h0 & 255) as u8).wrapping_add({q})));"
+                    ));
+                }
+                1 => self.line(&format!("h0 = h0.wrapping_mul(31).wrapping_add({p} - {q});")),
+                _ => self.line(&format!("if {p} < {q} {{ h0 = h0.wrapping_add(7); }}")),
+            }
         }
     }
 
@@ -1138,6 +1189,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
         traits_rng: Rng::new(seed ^ 0x0222),
         lits_rng: Rng::new(seed ^ 0x0240),
         eq_rng: Rng::new(seed ^ 0x0250),
+        fallback_rng: Rng::new(seed ^ 0x0251),
     };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
