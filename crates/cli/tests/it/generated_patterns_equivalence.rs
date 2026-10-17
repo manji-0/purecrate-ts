@@ -585,7 +585,7 @@ impl Pats {
             // `xs.len()` is 0 to 4, past the end of a shorter array.
             1 => format!("    match {spots}[xs.len()].st {{\n{}    }}", self.arms(ret, true, |p| p.state_pat())),
             2 => {
-                                let (then, else_) = (self.body(ret), self.body(ret));
+                let (then, else_) = (self.body(ret), self.body(ret));
                 format!(
                     "    let sp = {spots}[xs.len() / 2];\n    if {spots}.contains(&{home}) == c && (sp.at == Pos {{ r: a, c: b }} || sp.st == s) {{\n        {then}\n    }} else {{\n        {else_}\n    }}"
                 )
