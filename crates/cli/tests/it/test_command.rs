@@ -3,6 +3,8 @@
 //! reaches private fields and nested modules, builds a closed type through
 //! its constructor, and fails on a stated non-equivalence: `usize` past
 //! 2^53 - 1, where Rust goes on and the TS `number` throws (design/01 §3).
+//! A function that does not end within `--timeout` is named, and `--skip`
+//! leaves it out.
 
 use std::fs;
 use std::path::Path;
@@ -188,4 +190,36 @@ fn a_crate_that_uses_uuid_is_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "{stderr}");
     assert!(stderr.contains("uses `uuid`"), "{stderr}");
+}
+
+#[test]
+fn a_function_that_does_not_end_is_named_and_skipped() {
+    if skip() {
+        return;
+    }
+    let dir = support::scratch("test-command-timeout");
+    fs::create_dir_all(dir.join("src")).expect("mkdir");
+    fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"spin-test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[profile.release]\noverflow-checks = true\n",
+    )
+    .expect("write");
+    // `u64::MAX` steps, drawn near the edge, do not end in a second.
+    fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn half(n: u32) -> u32 {\n    n / 2\n}\n\npub fn spin_down(n: u64) -> u64 {\n    let mut i = n;\n    while i > 0 {\n        i -= 1;\n    }\n    i\n}\n",
+    )
+    .expect("write");
+    let out = test(&dir, &["--cases", "20", "--timeout", "1"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("did not finish within 1 s, in `spinDown`"), "{stderr}");
+    assert!(stderr.contains("--skip spinDown"), "{stderr}");
+    let out = test(&dir, &["--cases", "20", "--skip", "spin_down"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("ok        half (20 cases)"), "{stdout}");
+    assert!(stdout.contains("skipped   spin_down: --skip"), "{stdout}");
+    let out = test(&dir, &["--skip", "spin"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--skip spin: no public function"));
 }

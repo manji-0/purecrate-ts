@@ -41,9 +41,17 @@ pub fn run(input: &Input, loaded: &Loaded, opts: &TestOptions) -> Result<(), Str
             file.path.display()
         ));
     }
-    let plan = harness::plan(&loaded.krate, &loaded.spans);
-    let calls = &plan.calls;
+    let mut plan = harness::plan(&loaded.krate, &loaded.spans);
     let mut report: Vec<String> = plan.skipped.iter().map(|s| format!("  skipped   {}: {}", s.name, s.why)).collect();
+    for name in &opts.skip {
+        let before = plan.calls.len();
+        plan.calls.retain(|c| !skips(name, &c.key));
+        if plan.calls.len() == before {
+            return Err(format!("--skip {name}: no public function or method of that name is tested"));
+        }
+        report.push(format!("  skipped   {name}: --skip"));
+    }
+    let calls = &plan.calls;
     if calls.is_empty() {
         report.insert(0, format!("{}: no public function to test", input.src.display()));
         return Err(report.join("\n"));
@@ -125,13 +133,23 @@ fn run_in(
     let rust_dir = dir.join("rust");
     let ts_dir = dir.join("ts");
     let binary = harness_binary(input, loaded, plan, &rust_dir)?;
-    let output = Command::new(&binary)
-        .arg(opts.seed.to_string())
-        .arg(opts.cases.to_string())
-        .output()
-        .map_err(|e| format!("run {}: {e}", binary.display()))?;
+    let mut rust = Command::new(&binary);
+    rust.arg(opts.seed.to_string()).arg(opts.cases.to_string());
+    let output = bounded(rust, opts.timeout).map_err(|e| match e {
+        Run::Start(e) => format!("run {}: {e}", binary.display()),
+        Run::Timeout(stderr) => {
+            let running = stderr.lines().rev().find_map(|l| l.strip_prefix("start\t")).unwrap_or("?");
+            let name = running.trim_start_matches("pkg.");
+            format!(
+                "the Rust side did not finish within {} s, in `{name}`: an argument drawn near its type's edge may make it run that long; leave it out with --skip {name}, or raise --timeout",
+                opts.timeout
+            )
+        }
+    })?;
     if !output.status.success() {
-        return Err(format!("the Rust harness failed:\n{}", String::from_utf8_lossy(&output.stderr).trim_end()));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let said: Vec<&str> = stderr.lines().filter(|l| !l.starts_with("start\t")).collect();
+        return Err(format!("the Rust harness failed:\n{}", said.join("\n").trim_end()));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let cases: Vec<Case> = stdout
@@ -157,12 +175,15 @@ fn run_in(
     }
     fs::write(ts_dir.join("driver.ts"), driver(&loaded.krate, &plan.calls, &cases))
         .map_err(|e| format!("write {}: {e}", ts_dir.display()))?;
-    let output = Command::new("node")
-        .arg(format!("--conditions={SOURCE_CONDITION}"))
-        .arg("driver.ts")
-        .current_dir(&ts_dir)
-        .output()
-        .map_err(|e| format!("run node: {e}; test runs the generated TypeScript with node (22.18 or later)"))?;
+    let mut node = Command::new("node");
+    node.arg(format!("--conditions={SOURCE_CONDITION}")).arg("driver.ts").current_dir(&ts_dir);
+    let output = bounded(node, opts.timeout).map_err(|e| match e {
+        Run::Start(e) => format!("run node: {e}; test runs the generated TypeScript with node (22.18 or later)"),
+        Run::Timeout(_) => format!(
+            "the TypeScript side did not finish within {} s, where the Rust side did; raise --timeout if it is only slower",
+            opts.timeout
+        ),
+    })?;
     if !output.status.success() {
         return Err(format!("node failed on the driver:\n{}", String::from_utf8_lossy(&output.stderr).trim_end()));
     }
@@ -172,6 +193,68 @@ fn run_in(
         return Err(format!("the driver printed {} result(s) for {} case(s)", ts.len(), cases.len()));
     }
     Ok(cases.into_iter().zip(ts).collect())
+}
+
+/// Whether `--skip name` names the call `key` (`pkg.makeMove`,
+/// `pkg.Ulid.parse`, `pkg.total<Item>`): by the name the report gives or
+/// the Rust one (`make_move`, `Ulid::parse`), and a generic function at
+/// every type it is called at.
+fn skips(name: &str, key: &str) -> bool {
+    let shown = key.trim_start_matches("pkg.");
+    let shown = shown.split('<').next().unwrap_or(shown);
+    let camel = |seg: &str| {
+        let mut out = String::new();
+        for (i, part) in seg.split('_').enumerate() {
+            let mut cs = part.chars();
+            match (i, cs.next()) {
+                (0, Some(c)) => out.push(c),
+                (_, Some(c)) => out.extend(c.to_uppercase()),
+                (_, None) => {}
+            }
+            out.extend(cs);
+        }
+        out
+    };
+    let name: Vec<String> = name.replace("::", ".").split('.').map(camel).collect();
+    shown == name.join(".")
+}
+
+enum Run {
+    Start(std::io::Error),
+    /// What it wrote to stderr before it was stopped.
+    Timeout(String),
+}
+
+/// `command`'s output, or `Run::Timeout` once it has run `secs` seconds,
+/// when it is killed.
+fn bounded(mut command: Command, secs: u64) -> Result<std::process::Output, Run> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(Run::Start)?;
+    let drain = |mut r: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            r.read_to_end(&mut buf).ok();
+            buf
+        })
+    };
+    let out = drain(Box::new(child.stdout.take().expect("piped")));
+    let err = drain(Box::new(child.stderr.take().expect("piped")));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(Run::Start)? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().ok();
+            child.wait().ok();
+            let stderr = err.join().unwrap_or_default();
+            return Err(Run::Timeout(String::from_utf8_lossy(&stderr).into_owned()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    let (stdout, stderr) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+    Ok(std::process::Output { status, stdout, stderr })
 }
 
 /// The crate's files with the harness appended, compiled.
@@ -220,4 +303,21 @@ fn driver(krate: &Crate, calls: &[Call], cases: &[Case]) -> String {
         format!("run(() => {}({args}), print{i})", call.ts)
     });
     printers::driver(krate, &defs, runs, "out.map(esc).join(\"\\n\")")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::skips;
+
+    #[test]
+    fn skip_names_a_call_by_its_ts_or_rust_name() {
+        assert!(skips("perft", "pkg.perft"));
+        assert!(skips("make_move", "pkg.makeMove"));
+        assert!(skips("makeMove", "pkg.makeMove"));
+        assert!(skips("Position::piece_at", "pkg.Position.pieceAt"));
+        assert!(skips("Ulid.parse", "pkg.Ulid.parse"));
+        assert!(skips("total", "pkg.total<Item>"));
+        assert!(!skips("move", "pkg.makeMove"));
+        assert!(!skips("parse", "pkg.Ulid.parse"));
+    }
 }

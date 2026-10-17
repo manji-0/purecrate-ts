@@ -35,7 +35,7 @@ cargo run --offline -p purecrate-ts -- build examples/counter --out /tmp/counter
 ```text
 purecrate-ts build  <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable] [--allow-overflow-wrap]
 purecrate-ts check  <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema zod|valibot|arktype] [--publishable] [--allow-overflow-wrap]
-purecrate-ts test   <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--keep <dir>] [--allow-overflow-wrap]
+purecrate-ts test   <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--skip <fn>].. [--timeout <s>] [--keep <dir>] [--allow-overflow-wrap]
 purecrate-ts survey <crate-path>... [--json] [--all-causes]
 ```
 

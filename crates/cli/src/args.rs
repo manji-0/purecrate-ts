@@ -9,7 +9,7 @@ usage:
   purecrate-ts --version | --help
   purecrate-ts build <crate-path> --out <dir> [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
   purecrate-ts check <crate-path> [--out <dir>] [--name <crate>] [--edition <year>] [--schema <lib>] [--publishable] [--allow-overflow-wrap]
-  purecrate-ts test <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--keep <dir>] [--allow-overflow-wrap]
+  purecrate-ts test <crate-path> [--name <crate>] [--edition <year>] [--cases <n>] [--seed <n>] [--skip <fn>].. [--timeout <s>] [--keep <dir>] [--allow-overflow-wrap]
   purecrate-ts survey <crate-path>... [--json] [--all-causes]
 
 --schema is zod, valibot, or arktype. It adds src/purecrate-wire.ts: a
@@ -39,8 +39,12 @@ when a result or a panic differs. Arguments are drawn from each
 parameter's type, seeded (--seed, default 1), --cases per function
 (default 100): integers near their edges, strings from the crate's own
 literals and a fixed alphabet, open structs and enums field by field,
-and closed types through their public constructors. --keep leaves the
-Rust harness and the TypeScript driver in <dir>.
+and closed types through their public constructors. --skip leaves out a
+function or method by the name the report gives (`perft`, `Ulid::parse`),
+as for one whose cost grows with an argument drawn near its edge. Each side
+is stopped after --timeout seconds (default 120), naming the function the
+Rust side was in. --keep leaves the Rust harness and the TypeScript driver
+in <dir>.
 survey follows `mod` declarations and reports, for each public function and
 type, whether it is accepted together with what it refers to; --json prints
 one JSON object per crate. --all-causes lowers each item past what it
@@ -91,11 +95,15 @@ pub struct TestOptions {
     pub seed: u64,
     /// Where to leave the harness and the driver.
     pub keep: Option<PathBuf>,
+    /// Functions and methods not called, by the name the report gives.
+    pub skip: Vec<String>,
+    /// Seconds each side may run before it is stopped.
+    pub timeout: u64,
 }
 
 impl Default for TestOptions {
     fn default() -> Self {
-        TestOptions { cases: 100, seed: 1, keep: None }
+        TestOptions { cases: 100, seed: 1, keep: None, skip: Vec::new(), timeout: 120 }
     }
 }
 
@@ -151,6 +159,19 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             "--keep" => {
                 test_flag = Some("--keep");
                 test.keep = Some(PathBuf::from(it.next().ok_or("--keep needs a directory")?));
+            }
+            "--skip" => {
+                test_flag = Some("--skip");
+                test.skip.push(it.next().ok_or("--skip needs a function name")?.clone());
+            }
+            "--timeout" => {
+                test_flag = Some("--timeout");
+                let value = it.next().ok_or("--timeout needs a number of seconds")?;
+                test.timeout = value
+                    .parse()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or(format!("--timeout {value} is not a positive number of seconds"))?;
             }
             "--allow-overflow-wrap" => options.allow_overflow_wrap = true,
             "--schema" => {
@@ -432,6 +453,13 @@ mod tests {
         };
         assert_eq!((test.cases, test.seed, test.keep), (7, 42, Some(PathBuf::from("k"))));
         assert!(options.allow_overflow_wrap);
+        let Command::Test { test, .. } =
+            parse(&args(&["test", src, "--skip", "perft", "--skip", "Position::moves", "--timeout", "5"])).unwrap()
+        else {
+            panic!("expected test");
+        };
+        assert_eq!((test.skip, test.timeout), (vec!["perft".to_string(), "Position::moves".to_string()], 5));
+        assert!(parse(&args(&["test", src, "--timeout", "0"])).unwrap_err().contains("--timeout 0"));
         assert!(parse(&args(&["test", src, "--cases", "0"])).unwrap_err().contains("--cases 0"));
         assert!(parse(&args(&["test", src, "--out", "o"])).unwrap_err().contains("not test"));
         assert!(parse(&args(&["check", src, "--seed", "1"])).unwrap_err().contains("not check"));

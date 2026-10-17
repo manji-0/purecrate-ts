@@ -1193,6 +1193,8 @@ pub(crate) mod __purecrate {
             // another function is added.
             let stream = case.key.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3));
             let mut r = Rng { state: seed ^ stream, depth: 0 };
+            // Which function runs, for `test` to name one that does not end.
+            eprintln!("start\t{}", case.key);
             let mut drawn = 0;
             for _ in 0..cases * 20 {
                 if drawn == cases {
