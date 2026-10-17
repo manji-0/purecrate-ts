@@ -11,6 +11,11 @@ fn printer_holes_match_rust() {
             for k in [0, 3] {
                 cases.push(case!(printer_holes::typed_in_block(o, k)));
             }
+            for w in [None, Some(i64::MAX)] {
+                for c in [true, false] {
+                    cases.push(case!(printer_holes::widened_default(o, w, c)));
+                }
+            }
         }
     });
 }

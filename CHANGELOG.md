@@ -16,6 +16,7 @@
 ### Fixed
 
 - A typed `let` in a block an argument needs statements for (`count(&{ let e: Vec<Option<Mark>> = vec![Some(Mark::At(match o { .. }))]; e }[..])`) lost its type where the block was bound before the call, so TS widened the variant's `kind` to `string` and tsc refused the call: the binding now takes the block's type (`const value2: ReadonlyArray<Mark | null> = ..`). No other output changes. In new fixture `printer_holes`, against Rust.
+- An integer widened from an `unwrap_or` of a literal (`f64::from(o.unwrap_or(100))`) printed `(o ?? (100 as I32)) as number as F64`, whose inner assertion the type-aware lint refuses: the default loses it where the whole is asserted through `number` or `bigint` (`(o ?? 100) as number as F64`, `(w ?? 7n) as bigint as I128`). No other output changes. In fixture `printer_holes`.
 
 ## 0.24.0 — 2026-10-17
 

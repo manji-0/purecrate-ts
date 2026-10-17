@@ -283,6 +283,18 @@ pub(crate) fn uncast(s: &str) -> String {
                 None => s.to_string(),
             };
         }
+        // `o ?? (100 as I32)` is `o ?? 100`: the default is the value
+        // where `o` is `null`, and lint refuses its assertion as one the
+        // plain type accepts.
+        if top_prec(s) == PREC_COALESCE {
+            let d = depths(s);
+            if let Some(at) = (0..s.len()).rev().find(|&i| d[i] == Some(0) && s[i..].starts_with(" ?? ")) {
+                let d = uncast(&s[at + 4..]);
+                // A choice or an `||` left bare would read with the `??`.
+                let d = if top_prec(&d) <= PREC_AND { format!("({d})") } else { d };
+                return format!("{} ?? {d}", &s[..at]);
+            }
+        }
         match split_cast(s) {
             Some((inner, _)) => s = inner,
             None => return s.to_string(),
