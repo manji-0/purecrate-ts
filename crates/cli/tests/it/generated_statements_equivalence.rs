@@ -20,6 +20,13 @@
 //! statement calls at both types, mixed into `h0`. Its draws are a third
 //! generator's, for the same reason.
 //!
+//! From 0.25.0 each seed also declares a struct with a float field, an enum
+//! with a payload, and an all-unit enum (`equalities`), and a statement
+//! compares through an `Option`, a `Vec`, a slice, an array, or a tuple of
+//! them, with `Some(x)` and `None` written out, or an `Option<i32>` in scope
+//! against `Some(x)`, `None`, or another, read where the test holds as TS
+//! narrows it (`equality`). Its draws are a fourth generator's.
+//!
 //! Every loop is bounded: a range's ends are taken `% 4` and `% 6`, and a
 //! `while` counts a local nothing else writes up to a bound under 5, first
 //! in its body, so `continue` cannot skip it. Overflow, division by zero,
@@ -79,6 +86,9 @@ struct Body {
     /// What draws the 0.24.0 literals a later use types, apart from the
     /// others.
     lits_rng: Rng,
+    /// What draws the 0.25.0 comparisons through `Option`, `Vec`, arrays,
+    /// and tuples, apart from the others.
+    eq_rng: Rng,
 }
 
 /// Names a binding may take besides `v<n>`: ones the translator makes up
@@ -156,6 +166,158 @@ impl Body {
         }
         if self.lits_rng.below(8) == 0 {
             self.literals();
+        }
+        if self.eq_rng.below(6) == 0 {
+            self.equality();
+        }
+    }
+
+    /// `==` or `!=` through an `Option`, a `Vec`, a slice, an array, or a
+    /// tuple of `equalities`' types (design/01 §5.1), mixed into `h0`; or an
+    /// `Option<i32>` in scope compared, then read where the comparison
+    /// holds, as TS narrows it. Its expressions draw from `eq_rng`, as `g`'s
+    /// generator in turn.
+    fn equality(&mut self) {
+        let s = self.seed;
+        let names = self.g.next_name;
+        std::mem::swap(&mut self.g.rng, &mut self.eq_rng);
+        let int = |b: &mut Body| b.g.int(1);
+        let op = if self.g.rng.below(3) == 0 { "!=" } else { "==" };
+        // Each `i32` in scope that no later binding shadows, for a float
+        // made from one (`f64::from(o.unwrap_or(1))` prints a cast the lint
+        // refuses, which this shape is not about).
+        let scope = &self.g.scope;
+        let ints: Vec<String> = (scope.iter().enumerate())
+            .filter(|(i, (n, t, _))| *t == Ty::Int && !scope[i + 1..].iter().any(|(m, _, _)| m == n))
+            .map(|(_, (v, _, _))| v.clone())
+            .collect();
+        let float = |b: &mut Body| match b.g.rng.below(5) {
+            0 => "0.0".to_string(),
+            1 => "-0.0".to_string(),
+            2 => "f64::NAN".to_string(),
+            3 if !ints.is_empty() => format!("f64::from({})", b.g.rng.pick(&ints)),
+            _ => "1.5".to_string(),
+        };
+        let qa = |b: &mut Body| {
+            let (n, f) = (int(b), float(b));
+            format!("Qa{s} {{ n: {n}, f: {f} }}")
+        };
+        let qb = |b: &mut Body| match b.g.rng.below(3) {
+            0 => format!("Qb{s}::Q"),
+            _ => format!("Qb{s}::P({})", int(b)),
+        };
+        let qc = |b: &mut Body| match b.g.rng.below(3) {
+            0 => format!("Qc{s}::L"),
+            1 => format!("Qc{s}::R"),
+            _ => format!("(if {} {{ Qc{s}::L }} else {{ Qc{s}::R }})", b.g.without_try(|g| g.boolean(1))),
+        };
+        let some = |b: &mut Body, x: String| {
+            if b.g.rng.below(3) == 0 {
+                "None".to_string()
+            } else {
+                format!("Some({x})")
+            }
+        };
+        // Bound to an annotated local first, as `vec![]` leaves rustc
+        // without its type.
+        let list = |b: &mut Body, ty: &str, item: &dyn Fn(&mut Body) -> String| {
+            let n = b.g.rng.below(3);
+            let xs: Vec<String> = (0..n).map(|_| item(b)).collect();
+            let t = b.g.rng.below(1 << 20);
+            b.line(&format!("let e{t}x: Vec<{ty}> = vec![{}];", xs.join(", ")));
+            format!("e{t}x")
+        };
+        // Each `Option<i32>` in scope that no later binding shadows.
+        let scope = &self.g.scope;
+        let opts: Vec<String> = (scope.iter().enumerate())
+            .filter(|(i, (n, t, _))| *t == Ty::Opt && !scope[i + 1..].iter().any(|(m, _, _)| m == n))
+            .map(|(_, (v, _, _))| v.clone())
+            .collect();
+        let line = match self.g.rng.below(8) {
+            // `Option<i32>`: a value against a value, a `Some(x)`, or `None`.
+            0 | 1 => {
+                let a = self.g.place(Ty::Opt, 2);
+                let b = match self.g.rng.below(3) {
+                    0 => self.g.place(Ty::Opt, 2),
+                    1 => format!("Some({})", int(self)),
+                    _ => "None".to_string(),
+                };
+                let (l, r) = if self.g.rng.below(2) == 0 { (a, b) } else { (b, a) };
+                Some(format!("({l}) {op} ({r})"))
+            }
+            2 => {
+                let x = qa(self);
+                let qa_ty = format!("Qa{s}");
+                let (a, b) = (some(self, x), list(self, &qa_ty, &qa));
+                let c = list(self, &qa_ty, &qa);
+                let y = qa(self);
+                Some(format!("({b} {op} {c}) == ({a} != Some({y}))"))
+            }
+            3 => {
+                let (x, y) = (qb(self), qb(self));
+                let (a, b) = (some(self, x), some(self, y));
+                if a == "None" && b == "None" {
+                    Some(format!("Some(Qb{s}::Q) {op} None"))
+                } else {
+                    Some(format!("{a} {op} {b}"))
+                }
+            }
+            4 => {
+                let (a, b, c, d) = (int(self), qc(self), qa(self), qb(self));
+                let (e, f, g, h) = (int(self), qc(self), qa(self), qb(self));
+                let c = some(self, c);
+                Some(format!("({a}, {b}, {c}, {d}) {op} ({e}, {f}, Some({g}), {h})"))
+            }
+            5 => {
+                let (a, b, c, d) = (qc(self), qc(self), qc(self), qc(self));
+                Some(format!("[{a}, {b}] {op} [{c}, {d}]"))
+            }
+            6 => {
+                let opt_qb = |b: &mut Body| {
+                    let x = qb(b);
+                    some(b, x)
+                };
+                let ty = format!("Option<Qb{s}>");
+                let (a, b) = (list(self, &ty, &opt_qb), list(self, &ty, &opt_qb));
+                let k = self.g.rng.below(2);
+                Some(format!("{a}[..{a}.len().min({k})] {op} {b}[..]"))
+            }
+            // An `Option<i32>` in scope, read where `==` holds.
+            _ => None,
+        };
+        let x = int(self);
+        std::mem::swap(&mut self.g.rng, &mut self.eq_rng);
+        self.g.next_name = names;
+        match line {
+            Some(e) => {
+                self.line(&format!("if {e} {{"));
+                self.line("    h0 = h0.wrapping_mul(31).wrapping_add(1);");
+                self.line("} else {");
+                self.line("    h0 = h0.wrapping_mul(31);");
+                self.line("}");
+            }
+            None => {
+                let n = self.eq_rng.below(1 << 20);
+                let o = match opts.as_slice() {
+                    [] => "o".to_string(),
+                    os => self.eq_rng.pick(os),
+                };
+                let v = format!("q{n}x");
+                let others: Vec<String> = opts.iter().filter(|p| **p != o).cloned().collect();
+                let other = if others.is_empty() { format!("Some({x})") } else { self.eq_rng.pick(&others) };
+                let test = match self.eq_rng.below(3) {
+                    0 => format!("{o} == Some({x})"),
+                    1 => format!("{o} {op} None"),
+                    _ => format!("{o} == {other}"),
+                };
+                self.line(&format!("if {test} {{"));
+                self.line(&format!("    let {v}: i32 = match {o} {{"));
+                self.line(&format!("        Some({v}) => {v},"));
+                self.line("        None => -1,");
+                self.line("    };");
+                self.line(&format!("    h0 = h0.wrapping_mul(31).wrapping_add({v});"));
+                self.line("}");
+            }
         }
     }
 
@@ -922,6 +1084,18 @@ fn conversions(seed: u64, fns: &mut Vec<(String, Ty)>) -> String {
     )
 }
 
+/// The types of `Body::equality` per seed: a struct with a float field, an
+/// enum with a payload, and one whose variants are all unit, each deriving
+/// `PartialEq`.
+fn equalities(seed: u64) -> String {
+    let s = seed;
+    format!(
+        "#[derive(Clone, Copy, PartialEq)]\npub struct Qa{s} {{\n    pub n: i32,\n    pub f: f64,\n}}\n\n\
+         #[derive(Clone, Copy, PartialEq)]\npub enum Qb{s} {{\n    P(i32),\n    Q,\n}}\n\n\
+         #[derive(Clone, Copy, PartialEq)]\npub enum Qc{s} {{\n    L,\n    R,\n}}\n\n"
+    )
+}
+
 /// A trait per seed for `Body::trait_call` (design/01 §7.25): a method and
 /// a default that calls it through the dictionary, a struct that takes the
 /// default, an enum that overrides it in some seeds, and a function over
@@ -952,6 +1126,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
     source.push_str(&modules(seed));
     source.push_str(&conversions(seed, fns));
     source.push_str(&traits(seed));
+    source.push_str(&equalities(seed));
     let mut body = Body {
         g: Gen::new(seed ^ 0x5717),
         seed,
@@ -962,6 +1137,7 @@ fn generate(seed: u64, count: usize, source: &mut String, fns: &mut Vec<(String,
         extra: Rng::new(seed ^ 0x0221),
         traits_rng: Rng::new(seed ^ 0x0222),
         lits_rng: Rng::new(seed ^ 0x0240),
+        eq_rng: Rng::new(seed ^ 0x0250),
     };
     for i in 0..count {
         let ret = body.g.rng.pick(&[Ty::Int, Ty::Bool, Ty::Opt, Ty::Res]);
