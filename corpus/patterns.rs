@@ -193,3 +193,5 @@ pub enum Light { Red, Amber, Green }
 pub fn e01_eq_unit_variant(s: Shape) -> bool { s == Shape::Empty }
 pub fn e02_eq_unit_enum(a: Light, b: Light) -> bool { a == b && a != Light::Red }
 pub fn e03_count_variant(xs: &[Shape]) -> usize { xs.iter().filter(|s| **s == Shape::Empty).count() }
+pub fn e04_struct_eq(a: &Item, b: &Item) -> bool { a == b }
+pub fn e05_payload_eq(s: &Shape, r: i32) -> bool { *s == Shape::Square(r) }
