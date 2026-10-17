@@ -28,6 +28,12 @@
 //! against a unit variant, between two values of an all-unit enum, on a
 //! payload, on calls in a loop, and inside arms that narrowed either side.
 //!
+//! And from a sixth, functions over the seed's const structs: a `Spot` of
+//! a nested `Pos`, a state, and a `bool`, alone and in an array, its
+//! fields given in a drawn order and another const's name among them,
+//! walked by a `for` by value and by reference, indexed in and past range
+//! and matched on a field, `contains`, and `==` (design/01 §7.29).
+//!
 //! The audit of 0.9.1 found a guard reading a name its closure hid, in a
 //! struct pattern no fixture spelled; this looks for that class.
 //!
@@ -118,6 +124,23 @@ fn m_of(n: i32) -> Mode {
     } else {
         Mode::Off
     }
+}
+";
+
+/// Open structs, the same in every seed: `struct_tables` makes consts of
+/// them and `struct_function` reads those.
+const SPOTS: &str = "
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Pos {
+    pub r: i32,
+    pub c: i32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Spot {
+    pub at: Pos,
+    pub st: State,
+    pub on: bool,
 }
 ";
 
@@ -534,6 +557,55 @@ impl Pats {
         }
     }
 
+    /// A function that reads the seed's const structs (`struct_tables`): a
+    /// `for` over the array by value or by reference reading fields, an
+    /// element indexed in and past the end and matched on its state,
+    /// `contains`, and `==` on a struct and a nested one (design/01
+    /// §7.29). Drawn from a generator of its own.
+    fn struct_function(&mut self, ret: Ret, seed: u64) -> String {
+        let (spots, home, origin) = (format!("T{seed}_SPOTS"), format!("T{seed}_HOME"), format!("T{seed}_ORIGIN"));
+        let wrap = |v: String| match ret {
+            Ret::Int => v,
+            Ret::Step => format!("Ok(State::Count({v}))"),
+        };
+        match self.g.rng.below(5) {
+            0 => {
+                let head = if self.g.rng.below(2) == 0 {
+                    format!("for sp in {spots}.iter()")
+                } else {
+                    format!("for sp in {spots}")
+                };
+                let (test, step) = self.g.without_try(|g| (g.boolean(1), g.int(1)));
+                let rest = self.g.int(1);
+                format!(
+                    "    let mut t: i32 = 0;\n    {head} {{\n        if sp.on || {test} {{\n            t += sp.at.r - {step};\n        }} else {{\n            t -= sp.at.c;\n        }}\n    }}\n    {}",
+                    wrap(format!("t - {rest}"))
+                )
+            }
+            // `xs.len()` is 0 to 4, past the end of a shorter array.
+            1 => format!("    match {spots}[xs.len()].st {{\n{}    }}", self.arms(ret, true, |p| p.state_pat())),
+            2 => {
+                                let (then, else_) = (self.body(ret), self.body(ret));
+                format!(
+                    "    let sp = {spots}[xs.len() / 2];\n    if {spots}.contains(&{home}) == c && (sp.at == Pos {{ r: a, c: b }} || sp.st == s) {{\n        {then}\n    }} else {{\n        {else_}\n    }}"
+                )
+            }
+            3 => {
+                let (then, else_) = (self.body(ret), self.body(ret));
+                format!(
+                    "    if {home} == {spots}[0] || {home}.at == {origin} && {home}.on {{\n        {then}\n    }} else {{\n        {else_}\n    }}"
+                )
+            }
+            _ => {
+                let last = self.body(ret);
+                format!(
+                    "    for sp in {spots} {{\n        if sp.at.r == a || sp.st == s {{\n            return {};\n        }}\n    }}\n    {last}",
+                    wrap(format!("({home}.at.c ^ {origin}.r) - a"))
+                )
+            }
+        }
+    }
+
     /// An event built from what is in scope.
     fn event(&mut self, d: u32) -> String {
         match self.g.rng.below(5) {
@@ -839,6 +911,47 @@ fn const_tables(seed: u64) -> String {
     )
 }
 
+/// The seed's const structs `struct_function` reads: a `Pos`, a `Spot`,
+/// and an array of `Spot`s, of literals with their fields in a drawn
+/// order, and the other two consts' names among them (design/01 §7.29).
+fn struct_tables(seed: u64) -> String {
+    let mut rng = Rng::new(seed ^ 0x57c7);
+    let int = |rng: &mut Rng| if rng.below(2) == 0 { rng.pick(&[-1, 0, 1, 7]) } else { rng.edgy(32, true) as i32 };
+    let pos = |rng: &mut Rng| {
+        let (r, c) = (int(rng), int(rng));
+        if rng.below(2) == 0 {
+            format!("Pos {{ r: {r}, c: {c} }}")
+        } else {
+            format!("Pos {{ c: {c}, r: {r} }}")
+        }
+    };
+    let state = |rng: &mut Rng| match rng.below(4) {
+        0 => "State::Idle".to_string(),
+        1 => format!("State::Count({})", int(rng)),
+        2 => format!("State::Pair({}, {})", int(rng), rng.below(2) == 0),
+        _ => format!("State::Rec {{ open: {}, n: {} }}", rng.below(2) == 0, rng.pick(&[0, 3, 7, -2])),
+    };
+    let spot = |rng: &mut Rng, origin: &str| {
+        let at = if rng.below(3) == 0 { origin.to_string() } else { pos(rng) };
+        let (st, on) = (state(rng), rng.below(2) == 0);
+        match rng.below(3) {
+            0 => format!("Spot {{ at: {at}, st: {st}, on: {on} }}"),
+            1 => format!("Spot {{ on: {on}, at: {at}, st: {st} }}"),
+            _ => format!("Spot {{ st: {st}, on: {on}, at: {at} }}"),
+        }
+    };
+    let origin = format!("T{seed}_ORIGIN");
+    let home = spot(&mut rng, &origin);
+    let n = 1 + rng.below(4) as usize;
+    let spots: Vec<String> =
+        (0..n).map(|_| if rng.below(4) == 0 { format!("T{seed}_HOME") } else { spot(&mut rng, &origin) }).collect();
+    format!(
+        "\npub const {origin}: Pos = {};\npub const T{seed}_HOME: Spot = {home};\npub const T{seed}_SPOTS: [Spot; {n}] = [{}];\n",
+        pos(&mut rng),
+        spots.join(", ")
+    )
+}
+
 /// A state and an event to call with: the Rust literal, and the TS one.
 fn state_value(rng: &mut Rng) -> (String, String) {
     let int = |rng: &mut Rng| rng.edgy(32, true) as i32;
@@ -901,6 +1014,7 @@ fn generated_patterns_match_rust() {
     let mut source = String::from(TYPES);
     source.push_str(GENERICS);
     source.push_str(MODES);
+    source.push_str(SPOTS);
     let mut fns = Vec::new();
     for &seed in &seeds {
         let mut p = Pats { g: Gen::new(seed ^ 0x9a77), bound: Vec::new() };
@@ -973,6 +1087,19 @@ fn generated_patterns_match_rust() {
             p.g.scope = Gen::params();
             let body = p.const_function(ret, seed);
             let name = format!("p{seed}_k{i}");
+            let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
+            writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
+            fns.push(name);
+        }
+        source.push_str(&struct_tables(seed));
+        let mut p = Pats { g: Gen::new(seed ^ 0x57c7), bound: Vec::new() };
+        for i in 0..count.div_ceil(4) {
+            let ret = if p.g.rng.below(2) == 0 { Ret::Int } else { Ret::Step };
+            p.g.ret = if ret == Ret::Step { Ty::Res } else { Ty::Int };
+            p.g.next_name = 0;
+            p.g.scope = Gen::params();
+            let body = p.struct_function(ret, seed);
+            let name = format!("p{seed}_t{i}");
             let rt = if ret == Ret::Step { "Result<State, i32>" } else { "i32" };
             writeln!(source, "\npub fn {name}({PARAMS}) -> {rt} {{\n{body}\n}}").expect("write");
             fns.push(name);

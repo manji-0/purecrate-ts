@@ -39,6 +39,11 @@ pub const DIRS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 pub fn p08h_const_tuples(r: i8, c: i8) -> usize { let mut n = 0; for (dr, dc) in DIRS { if r + dr >= 0 && c + dc >= 0 { n += 1; } } n }
 pub const SHAPES: [Shape; 2] = [Shape::Empty, Shape::Square(2)];
 pub fn p08i_const_variants(i: usize) -> i32 { match SHAPES[i] { Shape::Square(n) => n, _ => 0 } }
+pub const WHITE: Rgb = Rgb { c: [255, 255, 255] };
+pub fn p08j_const_struct(i: usize) -> u8 { WHITE.c[i % 3] }
+pub struct Band { pub min: u32, pub max: u32 }
+pub const BANDS: [Band; 2] = [Band { min: 0, max: 10 }, Band { max: 50, min: 5 }];
+pub fn p08k_const_structs(x: u32) -> usize { BANDS.iter().filter(|b| x >= b.min && x <= b.max).count() }
 pub fn p11_rev(xs: Vec<u32>) -> Vec<u32> { xs.into_iter().rev().collect() }
 pub fn p12_zip(a: Vec<u32>, b: Vec<u32>) -> u32 { a.iter().zip(b.iter()).map(|(x, y)| x * y).sum() }
 pub fn p15_find(xs: &[Item], sku: &str) -> Option<Item> { xs.iter().find(|i| i.sku == sku).cloned() }
