@@ -1,8 +1,9 @@
 // Shapes the printer got wrong while 0.25.0 was made, each now as Rust
 // computes it: a typed `let` in a block that an argument needs statements
 // for, an integer widened from an `unwrap_or`, a test a `const` aliases
-// that an earlier test of the `const` left either way, and a block printed
-// flat whose name a later loop binds again.
+// that an earlier test of the `const` left either way, a block printed
+// flat whose name a later loop binds again, and an `if` narrowing decided
+// that is all its arm holds.
 
 #[derive(Clone, Copy)]
 pub enum Mark {
@@ -133,4 +134,32 @@ pub fn block_before_loop_var(a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>
             return Some(h0);
         }
     }
+}
+
+#[allow(unused_assignments)]
+pub fn decided_block_last(b: i32, o: Option<i32>, r: Result<i32, i32>) -> i32 {
+    let mut h0: i32 = 0;
+    if o.map(|v| match o { Some(_) => v, None => 1 }).is_none() {
+        return -1;
+    }
+    let mut k = 0;
+    while k < b % 5 {
+        k += 1;
+        let mut seen: bool = k > 2;
+        match if seen { r } else { r } {
+            Ok(v) => {
+                if o != None {
+                    let q: i32 = match o {
+                        Some(q) => q,
+                        None => -1,
+                    };
+                    h0 = h0.wrapping_add(q);
+                }
+                seen = v > 0;
+            }
+            Err(_) => continue,
+        }
+        h0 += 1;
+    }
+    h0
 }

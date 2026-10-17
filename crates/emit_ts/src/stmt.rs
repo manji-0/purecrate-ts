@@ -268,7 +268,10 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         {
             let mut inner = String::new();
             emit_stmts(then, indent + 1, sink, &mut inner);
-            if switch::declares(&inner, &format!("{pad}  ")) {
+            // Last in its block (what followed it narrowing took away), it
+            // meets no later name, and its braces would be lint's redundant
+            // nested block.
+            if !tail && switch::declares(&inner, &format!("{pad}  ")) {
                 out.push_str(&format!("{pad}{{\n{inner}{pad}}}\n"));
             } else {
                 emit_stmts(then, indent, sink, out);
@@ -395,6 +398,13 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
         }
         Expr::Seq { first, then } => {
             let mut head = String::new();
+            // `if true { .. }` with nothing after it is as last as the
+            // sequence is.
+            let block = matches!(&**first, Expr::If { cond, else_, .. }
+                if **cond == Expr::Lit(Lit::Bool(true)) && **else_ == Expr::Lit(Lit::Unit));
+            if block && **then == Expr::Lit(Lit::Unit) {
+                crate::TAIL.with(|t| t.set(tail));
+            }
             emit_stmts(first, indent, Sink::Effect, &mut head);
             let dead = ends_in_jump(first) && **then == Expr::Lit(Lit::Unit);
             let mut rest = String::new();
