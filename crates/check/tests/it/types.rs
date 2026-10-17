@@ -57,8 +57,9 @@ fn suffixes_and_annotations_settle_literals() {
 }
 
 #[test]
-fn unannotated_literal_binding_is_rejected() {
-    assert_rejects("pub fn f() -> i64 { let x = 1; 2 }", "cannot tell the integer type of `1`");
+fn unannotated_float_binding_is_rejected() {
+    // An integer takes rustc's `i32` fallback; a float does not take `f64`'s.
+    assert_clean("pub fn f() -> i64 { let _x = 1; 2 }");
     assert_rejects("pub fn f() -> f64 { let x = 1.5; 2.0 }", "cannot tell the float type of `1.5`");
 }
 

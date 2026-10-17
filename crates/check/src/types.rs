@@ -286,19 +286,44 @@ impl<'d, 'a> Typer<'d, 'a> {
 
     /// The integer type the first use of `name` in `then` asks of it, `name`
     /// bound to an unsuffixed integer (`let mut s = 0; .. s += i; ..`), as
-    /// rustc infers it. `then` is typed once to find it, then dropped with
-    /// what it reported; the caller types it again with the type found, so
-    /// every use is checked against it.
+    /// rustc infers it; `i32`, rustc's fallback, where no use asks one
+    /// (`n += 1; n == 0`). `then` is typed once to find it, then dropped
+    /// with what it reported; the caller types it again with the type found,
+    /// so every use is checked against it.
     fn first_use_type(&mut self, name: &Name, then: &Expr, want: Option<&Ty>) -> Option<Ty> {
+        self.first_use_types(&[(name.clone(), None)], then, want).pop()
+    }
+
+    /// `first_use_type` for several names `then` sees at once, each with
+    /// its type where it has one (`let (dr, rank, ok) = ..`, `ok` a `bool`):
+    /// the open ones' types, in order, those with one as given.
+    fn first_use_types(&mut self, names: &[(Name, Option<Ty>)], then: &Expr, want: Option<&Ty>) -> Vec<Ty> {
         let (out, fresh, loops) = (self.out.len(), self.fresh, self.loops.clone());
-        self.scopes.push((name.as_str().to_string(), None));
-        self.open.push((self.scopes.len() - 1, None));
+        let (depth, opened) = (self.scopes.len(), self.open.len());
+        for (name, ty) in names {
+            self.scopes.push((name.as_str().to_string(), ty.clone()));
+            if ty.is_none() {
+                self.open.push((self.scopes.len() - 1, None));
+            }
+        }
         let _ = self.expr(then, want);
-        let (_, found) = self.open.pop().expect("pushed above");
-        self.scopes.pop();
+        let found = self.open.drain(opened..).map(|(_, t)| t.unwrap_or(Ty::Prim(Prim::I32)));
+        let mut found = found.collect::<Vec<_>>().into_iter();
+        let tys = names.iter().map(|(_, ty)| ty.clone().unwrap_or_else(|| found.next().expect("one each"))).collect();
+        self.scopes.truncate(depth);
         self.out.truncate(out);
         (self.fresh, self.loops) = (fresh, loops);
-        found
+        tys
+    }
+
+    /// The type `expr` has alone, what it reported dropped.
+    fn type_alone(&mut self, expr: &Expr) -> Option<Ty> {
+        let (out, fresh, loops) = (self.out.len(), self.fresh, self.loops.clone());
+        let (_, t) = self.expr(expr, None);
+        let clean = self.out.len() == out;
+        self.out.truncate(out);
+        (self.fresh, self.loops) = (fresh, loops);
+        t.filter(|_| clean)
     }
 
     /// `body` typed with the names `lets` binds in scope.
@@ -382,6 +407,12 @@ impl<'d, 'a> Typer<'d, 'a> {
                 // Inside that search, a nested one is not searched again.
                 let inferred = match ty {
                     None if is_bare_int_valued(value) && self.open.is_empty() => self.first_use_type(name, then, want),
+                    None => match then.unpositioned() {
+                        Expr::Match { scrutinee, arms } if matches!(scrutinee.unpositioned(), Expr::Var(n) if n == name) => {
+                            self.literal_tuple_type(value, arms, want)
+                        }
+                        _ => None,
+                    },
                     _ => None,
                 };
                 let before = self.out.len();
@@ -706,6 +737,22 @@ fn is_bare_int_valued(expr: &Expr) -> bool {
         }
     }
     results(expr) == Some(true)
+}
+
+/// The tuples a value results in, a diverging result adding none:
+/// `match c { W => (1, 7), B => (-1, 0) }`, `if b { (1, x) } else { return }`.
+fn tuple_results(expr: &Expr) -> Option<Vec<&[Expr]>> {
+    match expr.unpositioned() {
+        Expr::Tuple(xs) => Some(vec![xs.as_slice()]),
+        Expr::Return(_) | Expr::Break(_) | Expr::Continue | Expr::Unreachable => Some(vec![]),
+        Expr::Call { callee: Callee::Panic, .. } => Some(vec![]),
+        Expr::If { then, else_, .. } => Some([tuple_results(then)?, tuple_results(else_)?].concat()),
+        Expr::Match { arms, .. } => {
+            arms.iter().try_fold(vec![], |all, a| Some([all, tuple_results(&a.body)?].concat()))
+        }
+        Expr::Let { then, .. } | Expr::Seq { then, .. } => tuple_results(then),
+        _ => None,
+    }
 }
 
 /// `[-1, 1]`: an array literal of unsuffixed integers.

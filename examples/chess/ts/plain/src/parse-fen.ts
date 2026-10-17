@@ -8,7 +8,6 @@ import {
   Slice,
   Str,
   type I32,
-  type U32,
   type U8,
 } from "./purecrate-runtime.ts";
 import type { CastlingRights } from "./castling-rights.ts";
@@ -140,8 +139,8 @@ export const parseFen = (text: string): Result<Position, FenError> => {
   const fullmoveResult = Int.u32.parse(Slice.at(fields, 5));
   if (fullmoveResult.kind === "Err") return Result.err({ kind: "BadFullmove" });
   const fullmove = fullmoveResult.value;
-  let whiteKings = 0 as U32;
-  let blackKings = 0 as U32;
+  let whiteKings = 0 as I32;
+  let blackKings = 0 as I32;
 
   for (let s = 0 as U8; s < 64; s = (s + 1) as U8) {
     const square: Square = Slice.at(board, s);
@@ -153,10 +152,10 @@ export const parseFen = (text: string): Result<Position, FenError> => {
       if (p.kind.kind === "King") {
         switch (p.color.kind) {
           case "White":
-            whiteKings = Int.u32.add(whiteKings, 1 as U32);
+            whiteKings = Int.i32.add(whiteKings, 1 as I32);
             break;
           case "Black":
-            blackKings = Int.u32.add(blackKings, 1 as U32);
+            blackKings = Int.i32.add(blackKings, 1 as I32);
             break;
           default:
             return assertNever(p.color);

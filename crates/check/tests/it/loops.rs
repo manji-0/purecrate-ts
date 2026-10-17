@@ -113,18 +113,12 @@ fn unsuffixed_arms_and_arrays_take_their_first_use_type() {
     assert_clean("pub fn f(b: bool) -> u8 { let n = match b { true => 4, false => return 0 }; n }");
     assert_clean("pub fn f(v: &[u8]) -> u8 { let mut s: u8 = 0; for i in [2, 0] { s ^= v[i]; } s }");
     assert_clean("pub fn f(a: i16) -> i16 { let mut t = a; for d in [-1, 1] { t += d; } t }");
-    // No use asks one (rustc's `i32` default), an arm that is not a
-    // literal, or an empty array.
-    assert_rejects(
-        "pub fn f(b: bool) -> bool { let n = if b { 1 } else { 2 }; n == n }",
-        "cannot tell the integer type of `1`",
-    );
+    // No use asks one: rustc's `i32` fallback.
+    assert_clean("pub fn f(b: bool) -> bool { let n = if b { 1 } else { 2 }; n == 2 }");
+    assert_clean("pub fn f() -> u32 { let mut s: u32 = 0; for _ in [1, 2] { s += 1; } s }");
+    // An arm that is not a literal.
     assert_rejects(
         "pub fn f(b: bool, y: u8) -> u8 { let n = match b { true => 1, false => y }; n }",
-        "cannot tell the integer type of `1`",
-    );
-    assert_rejects(
-        "pub fn f() -> u32 { let mut s: u32 = 0; for _ in [1, 2] { s += 1; } s }",
         "cannot tell the integer type of `1`",
     );
 }
@@ -138,11 +132,8 @@ fn an_unsuffixed_range_takes_its_first_use_type() {
         "pub fn f(v: &[u8]) -> u32 { let mut s: u32 = 0; for i in (0..=2).rev() { s += u32::from(v[i]); } s }",
     );
     assert_clean("pub fn f(n: u8) -> u8 { let mut s: u8 = 0; for i in 0..3 { s = s.wrapping_add(i) ^ n; } s }");
-    // No use asks one (rustc's `i32` default), or the first asks another.
-    assert_rejects(
-        "pub fn f() -> u32 { let mut s: u32 = 0; for _ in 0..3 { s += 1; } s }",
-        "cannot tell the integer type of `3`",
-    );
+    // No use asks one: rustc's `i32` fallback. The first asks another.
+    assert_clean("pub fn f() -> u32 { let mut s: u32 = 0; for _ in 0..3 { s += 1; } s }");
     assert_rejects(
         "pub fn f(v: Vec<u8>) -> u8 { let mut s: u8 = 0; for i in 0..3 { s = s.wrapping_add(i); s = v[i]; } s }",
         "expected `usize`, found `u8`",

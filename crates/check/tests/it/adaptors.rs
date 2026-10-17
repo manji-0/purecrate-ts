@@ -159,9 +159,9 @@ fn an_unsuffixed_start_takes_its_first_use_type() {
     assert_clean("pub fn f(n: u32) -> u32 { let mut s = 0; for i in 0..=n { s += i; } s }");
     assert_clean("pub fn f(xs: &[i16]) -> i16 { let mut lo = 0; for x in xs { if *x < lo { lo = *x; } } lo }");
     assert_clean("fn g(x: u64) -> u64 { x }\npub fn f() -> u64 { let n = 7; g(n) }");
-    // No use names a type: rustc's `i32` default is not taken.
-    assert_rejects("pub fn f() -> i64 { let x = 1; 2 }", "cannot tell the integer type of `1`");
-    assert_rejects("pub fn f() -> u8 { let x = 1; let _y = x; 2 }", "cannot tell the integer type of `1`");
+    // No use names a type: rustc's `i32` fallback.
+    assert_clean("pub fn f() -> i64 { let _x = 1; 2 }");
+    assert_clean("pub fn f() -> u8 { let x = 1; let _y = x; 2 }");
     // Every use is checked against the type found.
     assert_rejects("pub fn f(a: u8, b: u16) -> u16 { let mut s = 0; s += a; s += b; 0 }", "expected `u8`, found `u16`");
 }

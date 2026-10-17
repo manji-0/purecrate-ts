@@ -4,8 +4,51 @@
 use super::*;
 
 impl<'d, 'a> Typer<'d, 'a> {
+    /// `let (dr, rank) = match c { W => (1, 1), B => (-1, 6) };`, a `let` of
+    /// a tuple (one arm binding names): a place where every result holds an
+    /// unsuffixed integer takes the type the first use of its name asks, as
+    /// a `let` of one does (design/01 §7.22); the others their first
+    /// result's type. `scrutinee` may be a `let`'s value the `match` reads
+    /// by its name (`.. => return 7` in an arm binds it first).
+    pub(super) fn literal_tuple_type(&mut self, scrutinee: &Expr, arms: &[Arm], want: Option<&Ty>) -> Option<Ty> {
+        let [Arm { pattern: Pattern::Tuple(ps), guard: None, body }] = arms else { return None };
+        let results = super::tuple_results(scrutinee).filter(|r| !r.is_empty() && self.open.is_empty())?;
+        if results.iter().any(|xs| xs.len() != ps.len()) {
+            return None;
+        }
+        let bare = |i: usize| results.iter().all(|xs| is_bare_int(&xs[i]));
+        if !(0..ps.len()).any(bare) {
+            return None;
+        }
+        let mut names = Vec::new();
+        let mut tys = Vec::new();
+        for (i, p) in ps.iter().enumerate() {
+            let ty = match bare(i) {
+                true => None,
+                false => Some(self.type_alone(&results[0][i])?),
+            };
+            match p {
+                Pattern::Var(n) => names.push((n.clone(), ty.clone())),
+                Pattern::Wildcard => {}
+                _ => return None,
+            }
+            tys.push(ty);
+        }
+        let mut found = self.first_use_types(&names, body, want).into_iter();
+        let mut out = Vec::new();
+        for (p, ty) in ps.iter().zip(tys) {
+            let named = match p {
+                Pattern::Var(_) => found.next(),
+                _ => None,
+            };
+            out.push(ty.or(named).unwrap_or(Ty::Prim(Prim::I32)));
+        }
+        Some(Ty::Tuple(out))
+    }
+
     pub(super) fn match_(&mut self, scrutinee: &Expr, arms: &[Arm], want: Option<&Ty>) -> Typed {
-        let (scrutinee, st) = self.expr(scrutinee, None);
+        let inferred = self.literal_tuple_type(scrutinee, arms, want);
+        let (scrutinee, st) = self.expr(scrutinee, inferred.as_ref());
         // The arms' bindings would have no type, and the printed temporary
         // would be `Result<T, unknown>` in TS (`Ok::<T, E>(x)` is read as
         // `Ok(x)`). Not reported when a binding of this item already was.

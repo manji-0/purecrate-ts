@@ -275,7 +275,7 @@ fn slide_targets(board: &[Square; 64], from: u8, us: Color, first: usize, step: 
 
 fn pawn_moves(pos: &Position, from: u8) -> Vec<Move> {
     let us = pos.side;
-    let (dr, start_rank, last_rank): (i32, u8, u8) = match us {
+    let (dr, start_rank, last_rank) = match us {
         Color::White => (1, 1, 7),
         Color::Black => (-1, 6, 0),
     };
@@ -320,7 +320,7 @@ fn castling_moves(pos: &Position) -> Vec<Move> {
     let us = pos.side;
     let them = other(us);
     let b = &pos.board;
-    let (base, kingside, queenside): (u8, bool, bool) = match us {
+    let (base, kingside, queenside) = match us {
         Color::White => (0, pos.castling.white_kingside, pos.castling.white_queenside),
         Color::Black => (56, pos.castling.black_kingside, pos.castling.black_queenside),
     };
@@ -444,9 +444,9 @@ pub fn is_check(pos: &Position) -> bool {
 }
 
 fn insufficient_material(board: &[Square; 64]) -> bool {
-    let mut knights = 0u32;
-    let mut light_bishops = 0u32;
-    let mut dark_bishops = 0u32;
+    let mut knights = 0;
+    let mut light_bishops = 0;
+    let mut dark_bishops = 0;
     for s in 0..64u8 {
         if let Square::Occupied(p) = board[usize::from(s)] {
             match p.kind {
@@ -493,7 +493,7 @@ pub fn perft(pos: &Position, depth: u32) -> u64 {
     if depth == 1 {
         return moves.len() as u64;
     }
-    let mut n = 0u64;
+    let mut n = 0;
     for m in &moves {
         n += perft(&make_move(pos, *m), depth - 1);
     }
@@ -536,8 +536,8 @@ fn piece_char(p: Piece) -> char {
 
 fn parse_board(text: &str) -> Result<[Square; 64], FenError> {
     let mut board = [Square::Empty; 64];
-    let mut rank: i32 = 7;
-    let mut file: i32 = 0;
+    let mut rank = 7;
+    let mut file = 0;
     for c in text.chars() {
         if c == '/' {
             if file != 8 || rank == 0 {
@@ -631,8 +631,8 @@ pub fn parse_fen(text: &str) -> Result<Position, FenError> {
     };
     let halfmove = fields[4].parse::<u32>().map_err(|_| FenError::BadHalfmove)?;
     let fullmove = fields[5].parse::<u32>().map_err(|_| FenError::BadFullmove)?;
-    let mut white_kings = 0u32;
-    let mut black_kings = 0u32;
+    let mut white_kings = 0;
+    let mut black_kings = 0;
     for s in 0..64u8 {
         if let Square::Occupied(p) = board[usize::from(s)] {
             if p.kind == PieceKind::Pawn && (s / 8 == 0 || s / 8 == 7) {
@@ -665,7 +665,7 @@ pub fn start_position() -> Position {
 pub fn to_fen(pos: &Position) -> String {
     let mut s = String::new();
     for rank in (0..8u8).rev() {
-        let mut empty = 0u32;
+        let mut empty = 0;
         for file in 0..8u8 {
             match pos.board[usize::from(rank * 8 + file)] {
                 Square::Empty => empty += 1,

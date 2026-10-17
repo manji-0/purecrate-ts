@@ -1,5 +1,6 @@
 // Unsuffixed literals typed by a later use: a `let` of a `match` or an `if`
-// whose results are literals, and an array of literals a `for` walks.
+// whose results are literals or tuples of them, and an array of literals a
+// `for` walks; `i32`, rustc's fallback, where no use types one.
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Piece {
@@ -60,4 +61,53 @@ pub fn around(at: i16) -> i16 {
         t += d;
     }
     t
+}
+
+// No use types the counter: `i32`, so it overflows past `i32::MAX`.
+pub fn count_from(start: bool, xs: &[u8]) -> bool {
+    let mut n = if start { 2_147_483_640 } else { 0 };
+    for x in xs {
+        if *x > 3 {
+            n += 1;
+        }
+    }
+    n > 5
+}
+
+// A `for` over a range and an array no use types, as text.
+pub fn listed(k: u8) -> String {
+    let mut s = String::new();
+    for i in 0..3 {
+        s.push_str(&(i * 1_000_000_000).to_string());
+    }
+    for d in [-2, 7] {
+        if k > 9 {
+            s.push_str(&d.to_string());
+        }
+    }
+    s
+}
+
+// A tuple of literals: `dr` an `i64` from the product, `start` a `u8`
+// from the sum, `last` an `i32` (`i64::from` asks none), `on` a `bool`.
+pub fn ranks(white: bool, x: u8) -> i64 {
+    let (dr, start, last, on) = match white {
+        true => (1, 1, 7, true),
+        false => (-1, 250, -8, false),
+    };
+    let r: i64 = dr * 3;
+    match on {
+        true => r + i64::from(start + x) - i64::from(last),
+        false => r - i64::from(last * 300_000_000),
+    }
+}
+
+// A tuple whose places a `_` and a diverging arm leave.
+pub fn base(c: u8) -> u16 {
+    let (b, _, k) = match c {
+        0 => (0, 9, 1),
+        1 => (56, -3, 2),
+        _ => return 7,
+    };
+    b * 1000 + k
 }

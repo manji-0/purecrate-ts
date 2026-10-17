@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **An unsuffixed integer no use types is `i32`, as rustc defaults it** (design/01 §5.1, §7.22), where `check` asked for a suffix: a `let` of one or of `match` / `if` arms of them (`let mut knights = 0; .. knights += 1; knights == 0`), a `for` over a range of two (`for _ in 0..3`), and a `for` over an array of them. It overflows as an `i32` does. A float no use types still asks; rustc's `f64` default is not taken.
+- **A `let` of tuples of unsuffixed integers** (design/01 §7.22): `let (dr, start, last) = match side { White => (1, 1, 7), Black => (-1, 6, 0) };` types each place by its name's first use, as a `let` of one does, `i32` where none does or a `_` binds it; places of other values take their first result's type (`(0, pos.castling.white_kingside)`). Fixture `literal_uses` (a counter past `i32::MAX`, a range and an array as text, tuples of `i64`, `u8`, `i32`, and `bool` places, a `_` place and a diverging arm), `check`'s `loops.rs` and `adaptors.rs`, and `corpus/patterns.rs`'s `l03`, `l04`. chess dropped its 11 remaining annotations and suffixes on counters and tuples.
+
 ## 0.24.0 — 2026-10-17
 
 Three rows flagd and chess left open, taken by decision though under 2×: an unsuffixed integer typed by its first use in a `let` of `match` / `if` arms and in an array a `for` walks (design/01 §7.22); a crate `const` of tuples and of the crate's enums, alone or in arrays (§7.29); and `==` on the crate's types as the derive reads it, a `kind` test or the companion's `eq` where it built objects for `Eq.deep` (§5.1, *Changed*), which makes chess's `perft` 8.0× faster. `purecrate-ts test` gains `--timeout` and `--skip`. The distance to the ideal is 94% (94.1%); `survey corpus/patterns.rs` accepts 143 of 147.
