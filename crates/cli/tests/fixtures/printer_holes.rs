@@ -1,7 +1,8 @@
 // Shapes the printer got wrong while 0.25.0 was made, each now as Rust
 // computes it: a typed `let` in a block that an argument needs statements
-// for, an integer widened from an `unwrap_or`, and a test a `const`
-// aliases that an earlier test of the `const` left either way.
+// for, an integer widened from an `unwrap_or`, a test a `const` aliases
+// that an earlier test of the `const` left either way, and a block printed
+// flat whose name a later loop binds again.
 
 #[derive(Clone, Copy)]
 pub enum Mark {
@@ -93,4 +94,43 @@ pub fn alias_of_ok_tested_before(a: i32, o: Option<i32>, r: Result<i32, i32>, c:
         };
     }
     Ok(h)
+}
+
+pub fn block_before_loop_var(a: i32, b: i32, o: Option<i32>, r: Result<i32, i32>, c: bool) -> Option<i32> {
+    let mut h0: i32 = 0;
+    let mut n = 0;
+    if o? > 100 {
+        h0 += 1;
+    }
+    loop {
+        match o {
+            Some(v6) => {
+                {
+                    let b: i32 = if c { b } else { v6 };
+                    if b > 0 {
+                        h0 += 1;
+                    }
+                }
+                match r {
+                    Ok(v12) => {
+                        let p = v12 % 2;
+                        h0 += p;
+                    }
+                    Err(_) => {}
+                }
+            }
+            None => {}
+        }
+        let mut k21: i32 = 0;
+        while k21 < a % 3 {
+            k21 += 1;
+            for b in 0..a % 4 {
+                h0 += b;
+            }
+        }
+        n += 1;
+        if h0 > 10 || n > 3 {
+            return Some(h0);
+        }
+    }
 }

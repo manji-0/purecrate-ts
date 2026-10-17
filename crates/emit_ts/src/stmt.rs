@@ -404,9 +404,11 @@ pub(crate) fn emit_stmts(expr: &Expr, indent: usize, sink: Sink, out: &mut Strin
             // A statement printed flat (a Rust block, or the arm narrowing
             // took of a `match`) that declares a name what follows declares
             // again keeps a block of its own; one that declares is no lone
-            // block.
+            // block. So does one whose name what follows binds deeper (a loop
+            // variable, a block's `let`), which would hide it (lint: a
+            // shadow).
             let again = declared(&head, &pad);
-            if declared(&rest, &pad).iter().any(|n| again.contains(n)) {
+            if declared(&rest, &pad).iter().any(|n| again.contains(n)) || binds_any(then, &again) {
                 out.push_str(&format!("{pad}{{\n"));
                 emit_stmts(first, indent + 1, Sink::Effect, out);
                 out.push_str(&format!("{pad}}}\n"));
@@ -797,6 +799,13 @@ fn set_in_place(name: &Name, value: &Expr, then: &Expr) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether `expr` binds one of `names` at any depth. Its own frame, as
+/// `emit_stmts` recurses once a statement.
+#[inline(never)]
+fn binds_any(expr: &Expr, names: &[String]) -> bool {
+    !names.is_empty() && expr.any(|e| e.own_bindings().iter().any(|n| names.iter().any(|m| m == n.as_str())))
 }
 
 /// The names `text`'s statements at `pad` declare (`const x`, `let x`).
