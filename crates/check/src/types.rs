@@ -61,10 +61,14 @@ pub fn elaborate(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
                     }
                 }
             }
-            // A crate const may also be a tuple or an enum (design/01 §7.29).
+            // A crate const may also be a tuple, an enum, or an open struct
+            // (design/01 §7.29); a generic type is refused there, by name.
             Item::Const(c)
                 if c.owner.is_none()
-                    && matches!(defs.expand(&c.ty, Peel::Every), Ty::Array { .. } | Ty::Tuple(_) | Ty::Named(_)) =>
+                    && matches!(
+                        defs.expand(&c.ty, Peel::Every),
+                        Ty::Array { .. } | Ty::Tuple(_) | Ty::Named(_) | Ty::App { .. }
+                    ) =>
             {
                 match crate::consts::value(&defs, &c.ty, &c.value) {
                     Ok(value) => Item::Const(Const { value, ..c.clone() }),

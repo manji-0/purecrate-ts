@@ -38,8 +38,8 @@ fn const_expressions_outside_v0_are_refused() {
         "`A` is a `u32`, where a `u64` is expected",
     );
     assert_rejects(
-        "pub struct P { pub x: i32 }\npub const O: P = P { x: 0 };\npub fn f() -> i32 { 0 }",
-        "a const of type `P` is not in v0",
+        "pub struct P { x: i32 }\npub const O: P = P { x: 0 };\npub fn f() -> i32 { 0 }",
+        "a const of type `P` is not in v0: `P` has fields that are not `pub`",
     );
 }
 
@@ -132,9 +132,9 @@ fn signed_minimums_fold() {
 }
 
 /// A crate const may be a tuple or one of the crate's enums, alone or in
-/// arrays, each part a const value (design/01 §7.29); a struct, `()`, an
-/// `Option`, std's `Ordering`, a generic enum, and an associated const of
-/// these stay refused.
+/// arrays, each part a const value (design/01 §7.29); `()`, an `Option`,
+/// std's `Ordering`, a generic enum, and an associated const of these stay
+/// refused.
 #[test]
 fn const_tuples_and_enums() {
     const E: &str = "#[derive(Clone, Copy, PartialEq)]\npub enum K { A, B(u8, (i8, char)), C { at: (u8, u8) } }\n";
@@ -146,7 +146,6 @@ fn const_tuples_and_enums() {
          pub fn g(i: usize) -> bool {{ KS.contains(&F) && KS[i] == G[1][0].0 && S.0 == 4 && matches!(KS[i], K::B(_, _)) }}"
     ));
     let refused = |src: &str, why: &str| assert_rejects(&format!("{E}{src}\npub fn f() -> u8 {{ 0 }}"), why);
-    refused("pub struct P { pub x: i32 }\npub const O: [P; 1] = [P { x: 0 }];", "a const of type `P` is not in v0");
     refused("pub const U: () = ();", "a `()` const is a literal or another const in v0");
     refused("pub const O: Option<u8> = Some(1);", "a const of type `Option<u8>` is not in v0");
     refused(
@@ -165,4 +164,55 @@ fn const_tuples_and_enums() {
         "`P` is a `(u8, u8)`, where a `(u8, i8)` is expected",
     );
     refused("pub struct T {}\nimpl T { pub const O: (u8, u8) = (1, 2); }", "a const of type `(u8, u8)` is not in v0");
+}
+
+/// A crate const may be one of the crate's open structs, in a tuple, a
+/// variant's payload, an array, or another struct, each field a const
+/// value (design/01 §7.29); a closed struct, a newtype, a generic struct,
+/// a struct update, a call, an `Option` field, and an associated const of
+/// a struct stay refused.
+#[test]
+fn const_structs() {
+    const S: &str = "#[derive(Clone, Copy, PartialEq)]\npub struct P { pub x: i8, pub y: i8 }\n\
+                     #[derive(Clone, Copy, PartialEq)]\npub enum K { A, B(P), C { at: P } }\n\
+                     #[derive(Clone, Copy, PartialEq)]\npub struct Q { pub k: K, pub at: P, pub steps: [(i8, i8); 2] }\n";
+    assert_clean(&format!(
+        "{S}pub const O: P = P {{ y: 0, x: -1 }};\npub const T: (P, u8) = (O, 1);\n\
+         pub const KS: [K; 3] = [K::A, K::B(O), K::C {{ at: P {{ x: 1, y: 2 }} }}];\n\
+         pub const QS: [Q; 2] = [Q {{ steps: [(1, 0); 2], k: K::B(O), at: O }}, Q {{ k: K::A, at: P {{ x: 3, y: 3 }}, steps: [(0, 1), (1, 1)] }}];\n\
+         pub const G: [[P; 2]; 1] = [[O; 2]];\n\
+         pub fn f(i: usize) -> i8 {{ let mut t = O.x + T.0.y + G[0][1].x; for q in QS {{ t += q.at.x; }} for p in G[0].iter() {{ t += p.y; }} t + QS[i].steps[1].0 }}\n\
+         pub fn g(p: P) -> bool {{ p == O || G[0].contains(&p) || QS[0].k == K::B(p) }}"
+    ));
+    let refused = |src: &str, why: &str| assert_rejects(&format!("{S}{src}\npub fn f() -> u8 {{ 0 }}"), why);
+    refused("pub const O: P = P { x: 1, y: 128 };", "128 does not fit `i8`");
+    refused(
+        "pub struct C { pub x: i8, y: i8 }\npub const O: [C; 1] = [C { x: 0, y: 0 }];",
+        "a const of type `C` is not in v0: `C` has fields that are not `pub`, so its TS value is branded and only its own functions make one; make every field `pub`, or build the value in a function",
+    );
+    refused(
+        "#[derive(Clone, Copy)]\npub struct Id(pub u32);\npub const O: (Id, u8) = (Id(1), 2);",
+        "a const of type `Id` is not in v0: a newtype is made by its constructor, which is no literal; keep the inner value as the const and wrap it where it is used",
+    );
+    refused(
+        "pub struct W<T> { pub v: T }\npub const O: W<u8> = W { v: 1 };",
+        "a const of type `W<u8>` is not in v0: a generic struct is no const value; declare one without type parameters, or build the value in a function",
+    );
+    refused(
+        "pub struct W<T> { pub v: T }\npub const O: [W<u8>; 1] = [W { v: 1 }];",
+        "a const of type `W<u8>` is not in v0: a generic struct",
+    );
+    refused(
+        "pub const O: P = P { x: 0, y: 0 };\npub const R: P = P { x: 1, ..O };",
+        "`P { .., ..base }` is not a const value in v0: write every field",
+    );
+    refused(
+        "impl P { pub const fn new() -> P { P { x: 0, y: 0 } } }\npub const O: P = P::new();",
+        "a `P` const is a literal of its fields, `P { a: .., b: .. }`",
+    );
+    refused(
+        "pub struct M { pub x: Option<u8> }\npub const O: M = M { x: Some(1) };",
+        "a const of type `Option<u8>` is not in v0",
+    );
+    refused("impl P { pub const O: P = P { x: 0, y: 0 }; }", "a const of type `P` is not in v0");
 }

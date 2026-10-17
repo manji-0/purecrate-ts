@@ -136,12 +136,61 @@ impl Folder<'_, '_> {
                 };
                 Ok(Expr::Construct { ty: built.clone(), variant: Some(variant.clone()), fields, base: None })
             }
+            (Ty::Named(n), _) if self.defs.structs.contains_key(n.as_str()) => self.structure(n, expr),
+            (Ty::App { name, .. }, _) if self.defs.structs.contains_key(name.as_str()) => Err(format!(
+                "a const of type `{}` is not in v0: a generic struct is no const value; declare one without type parameters, or build the value in a function",
+                crate::types::show(ty)
+            )),
             (Ty::Prim(_), _) => self.value(ty, expr).map(Expr::Lit),
             _ => Err(format!(
-                "a const of type `{}` is not in v0: consts are integers, floats, `bool`, `char`, `&str`, byte strings, the crate's enums, and tuples and arrays of these",
+                "a const of type `{}` is not in v0: consts are integers, floats, `bool`, `char`, `&str`, byte strings, the crate's enums, its structs whose fields are all `pub`, and tuples and arrays of these",
                 crate::types::show(ty)
             )),
         }
+    }
+
+    /// A struct const's value (design/01 §7.29): a literal of an open,
+    /// non-generic struct (design/01 §4), each field a const value of its
+    /// type, in the declared order. A closed struct's TS value is branded
+    /// and a newtype's is made by its constructor, which `consts.ts` would
+    /// have to call as it loads, so neither is a const value.
+    fn structure(&self, n: &Name, expr: &Expr) -> Result<Expr, String> {
+        let st = self.defs.structs[n.as_str()];
+        let name = n.as_str();
+        if st.newtype_inner().is_some() {
+            return Err(format!(
+                "a const of type `{name}` is not in v0: a newtype is made by its constructor, which is no literal; keep the inner value as the const and wrap it where it is used"
+            ));
+        }
+        if st.closed {
+            return Err(format!(
+                "a const of type `{name}` is not in v0: `{name}` has fields that are not `pub`, so its TS value is branded and only its own functions make one; make every field `pub`, or build the value in a function"
+            ));
+        }
+        let xs = match expr {
+            Expr::Construct { ty: built, variant: None, fields: Fields::Named(xs), base: None } if built == n => xs,
+            Expr::Construct { ty: built, variant: None, base: Some(_), .. } if built == n => {
+                return Err(format!("`{name} {{ .., ..base }}` is not a const value in v0: write every field"));
+            }
+            _ => return Err(format!("a `{name}` const is a literal of its fields, `{name} {{ a: .., b: .. }}`")),
+        };
+        // In the declared order, as the companion's `of` builds it; rustc
+        // has checked that each field is named once.
+        if xs.len() != st.fields.len() {
+            return Err(format!("`{name}` holds {} fields, found {}", st.fields.len(), xs.len()));
+        }
+        let fields = st
+            .fields
+            .iter()
+            .map(|f| {
+                let (_, x) = xs
+                    .iter()
+                    .find(|(n, _)| *n == f.name)
+                    .ok_or_else(|| format!("`{name}` is missing `{}`", f.name.as_str()))?;
+                Ok((f.name.clone(), self.whole(&f.ty, x)?))
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(Expr::Construct { ty: n.clone(), variant: None, fields: Fields::Named(fields), base: None })
     }
 
     /// An array const's value: see `array`.
