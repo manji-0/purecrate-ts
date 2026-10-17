@@ -53,6 +53,15 @@ pub(super) fn unread(expr: &mut Expr) {
                 arms.iter().all(|a| a.guard.is_none() && a.pattern.bindings().is_empty() && a.body == arms[0].body);
             if same && !arms.is_empty() && effectless(scrutinee) {
                 *expr = arms[0].body.clone();
+            } else if same
+                && matches!(arms[..], [_, ..])
+                && matches!(arms[0].body, Expr::Lit(Lit::Bool(_)))
+                && arms.iter().all(|a| matches!(a.pattern, Pattern::Variant { .. } | Pattern::Or(_)))
+            {
+                // `matches!(f(x), One::Only)` on an enum of one variant: `f(x)`
+                // runs, and the test is decided (`f(x).kind === "Only"`
+                // compares two literal types, which the lint refuses).
+                *expr = Expr::Seq { first: scrutinee.clone(), then: Box::new(arms[0].body.clone()) };
             }
         }
         // `if c { false } else { false }` (both sides decided alike) where

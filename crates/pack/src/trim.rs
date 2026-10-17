@@ -46,6 +46,12 @@ pub fn exported(index: &str) -> BTreeSet<String> {
 /// The runtime parts `sources` read: what they name after `Int.<ty>.`,
 /// `Str.`, `Char.`, `Uuid.`, `Json.`, and `parseJson` and `ParseIntError`.
 pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
+    read(sources, true)
+}
+
+/// `uses`; with `own`, `sources` are the package's files, where a crate
+/// type may share a namespace's name (`shadowed`), else the runtime's.
+fn read<'a>(sources: impl IntoIterator<Item = &'a str>, own: bool) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for source in sources {
         for (at, _) in source.match_indices("Int.") {
@@ -87,6 +93,11 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
             ("Uuid.", "uuid"),
             ("Json.", "json"),
         ] {
+            // A crate type of that name (`Json.eq(a, b)` on the crate's
+            // `Json`) is its own companion, not the runtime's namespace.
+            if own && shadowed(source, &prefix[..prefix.len() - 1]) {
+                continue;
+            }
             for (at, _) in source.match_indices(prefix) {
                 if !starts_word(source, at) {
                     continue;
@@ -119,6 +130,21 @@ pub fn uses<'a>(sources: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
         out.extend(code_words(source));
     }
     out
+}
+
+/// Whether `source`, a file of the package, holds a value `name` of its
+/// own: it declares `export const name` or imports `name` as a value from
+/// another of the package's files (`import { Json } from "./json.ts";`).
+fn shadowed(source: &str, name: &str) -> bool {
+    if source.lines().any(|line| line.starts_with(&format!("export const {name} = "))) {
+        return true;
+    }
+    source.match_indices("import {").any(|(at, _)| {
+        let rest = &source[at + "import {".len()..];
+        let Some((names, from)) = rest.split_once('}') else { return false };
+        from.trim_start().strip_prefix("from").is_some_and(|f| f.trim_start().starts_with("\"./"))
+            && names.split(',').any(|n| n.trim() == name)
+    })
 }
 
 /// Each integer and float namespace of `Int` with its brand (`i32`, `I32`).
@@ -216,7 +242,7 @@ pub fn trim_closed(source: &str, uses: &BTreeSet<String>) -> String {
     let mut uses = uses.clone();
     loop {
         let kept = trim(source, &uses);
-        let more = self::uses([kept.as_str()]);
+        let more = read([kept.as_str()], false);
         if more.is_subset(&uses) {
             return kept;
         }

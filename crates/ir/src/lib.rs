@@ -129,6 +129,7 @@ pub fn counter_example() -> Crate {
         },
         doc: None,
         display: false,
+        derived_eq: false,
     });
 
     Crate::new("counter", vec![event, state, step])

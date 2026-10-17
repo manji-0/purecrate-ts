@@ -273,6 +273,10 @@ pub struct Fn {
     /// method is dropped and the crate kept, as a `fmt` of another shape is
     /// skipped, rather than refused.
     pub display: bool,
+    /// `eq` written by `check` for a type whose `PartialEq` is derived
+    /// (design/01 §5.1), which `==` on the type calls; not a method of the
+    /// crate's that happens to be named `eq`.
+    pub derived_eq: bool,
 }
 
 impl Fn {

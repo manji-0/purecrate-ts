@@ -833,6 +833,7 @@ pub(crate) fn lower_fn(
         body: lower_block(cx, block)?,
         doc: doc(attrs),
         display: false,
+        derived_eq: false,
     })
 }
 
@@ -1004,6 +1005,7 @@ fn lower_display(cx: &mut Cx, imp: &syn::ItemImpl, owner_ident: &syn::Ident) -> 
         body,
         doc: doc(&imp.attrs),
         display: true,
+        derived_eq: false,
     }))
 }
 
@@ -1330,6 +1332,7 @@ fn derived_default(
         body: body().map_err(|e| e.or_at(at))?,
         doc: None,
         display: false,
+        derived_eq: false,
     }))
 }
 

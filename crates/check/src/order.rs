@@ -108,6 +108,7 @@ pub fn derive(krate: &Crate) -> (Crate, Vec<usize>, Vec<Diagnostic>) {
             body,
             doc: None,
             display: false,
+            derived_eq: false,
         }));
         origin.push(i);
         // A public type's `cmp` gives std's `Ordering` to the crate's callers.

@@ -18,6 +18,7 @@ fn erased_wrappers_are_named_in_types_only() {
         body: Expr::Ignored { wrapper: Wrapper::Arc, expr: Box::new(Expr::var("n")) },
         doc: None,
         display: false,
+        derived_eq: false,
     });
     let pkg = emit(&Crate::new("wraps", vec![share]));
     let src = file(&pkg, "share");
@@ -139,6 +140,7 @@ fn cmd_crate(body: Expr) -> Crate {
         body,
         doc: None,
         display: false,
+        derived_eq: false,
     });
     Crate::new("cmds", vec![cmd, run])
 }
@@ -211,6 +213,7 @@ fn object_literal_arrow_body_is_parenthesized() {
         },
         doc: None,
         display: false,
+        derived_eq: false,
     }));
     let pkg = emit(&krate);
     assert!(file(&pkg, "state").contains("zero: (_self: State): State => ({ n: 0 }),"), "{}", file(&pkg, "state"));
@@ -230,6 +233,7 @@ fn a_helper_with_one_user_file_is_printed_there() {
             body,
             doc: None,
             display: false,
+            derived_eq: false,
         })
     };
     let call = |f: &str| Expr::Call { callee: Callee::Fn(Name::new(f)), args: vec![Expr::var("cmd")] };
@@ -268,6 +272,7 @@ fn imports_follow_body_and_nested_types() {
         body: Expr::var("cmd"),
         doc: None,
         display: false,
+        derived_eq: false,
     }));
     krate.items.push(Item::Struct(Struct {
         generics: Vec::new(),
@@ -312,6 +317,7 @@ fn enum_methods_join_the_companion() {
         body: cmd_match(Expr::var("self")),
         doc: None,
         display: false,
+        derived_eq: false,
     }));
     let pkg = emit(&krate);
     let cmd = file(&pkg, "cmd");
@@ -350,6 +356,7 @@ fn result_is_imported_once() {
         body: Expr::Call { callee: Callee::ResultOk, args: vec![Expr::var("n")] },
         doc: None,
         display: false,
+        derived_eq: false,
     });
     let pkg = emit(&Crate::new("p", vec![parse]));
     let src = file(&pkg, "parse");
@@ -369,6 +376,7 @@ fn f64_fn(body: Expr) -> String {
         body,
         doc: None,
         display: false,
+        derived_eq: false,
     });
     file(&emit(&Crate::new("p", vec![f])), "f").to_string()
 }
@@ -407,6 +415,7 @@ fn bool_fn(body: Expr) -> String {
         body,
         doc: None,
         display: false,
+        derived_eq: false,
     });
     file(&emit(&Crate::new("p", vec![f])), "f").to_string()
 }

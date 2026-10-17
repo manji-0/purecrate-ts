@@ -45,7 +45,10 @@ pub(crate) fn fn_arrow(f: &Fn, indent: usize) -> String {
         .generics
         .iter()
         .filter(|g| !in_dict(g))
-        .filter(|g| uses(g) == 1 && !body_names_param(&f.body, g))
+        // A derived `eq` compares a `T` by `Eq.deep`: `unknown` there, so
+        // TS has nothing to infer from two arguments it has narrowed to
+        // different variants (`Either.eq(l, r)`, `l` a `Left`, `r` a `Right`).
+        .filter(|g| (uses(g) == 1 || f.derived_eq) && !body_names_param(&f.body, g))
         // In the result alone (`zero: (): Bag<never>`), `never`, which any
         // instantiation takes, as a constructor's unused parameter is.
         .map(|g| (g.clone(), if count_param(&f.ret, g) == 1 { Ty::Never } else { Ty::Named(Name::new("unknown")) }))
@@ -140,7 +143,11 @@ fn tested(body: &Expr) -> Vec<Expr> {
 /// `Option`, a `Vec`, or a tuple (`context::holds_string`).
 pub(crate) fn checked_strings(f: &Fn) -> Fn {
     let mut body = f.body.clone();
-    if f.vis == purecrate_ir::Vis::Pub {
+    // A derived `eq` compares a lone surrogate or an array of another
+    // length as any value: nothing in it panics, and it is what `==` calls,
+    // where a walk of both values on each call would cost more than the
+    // comparison.
+    if f.vis == purecrate_ir::Vis::Pub && !f.derived_eq {
         for p in f.params.iter().rev() {
             // Its arrays' lengths after its strings (design/01 §7.27).
             if let Some((shape, table)) = crate::lengths::shape(&p.ty) {

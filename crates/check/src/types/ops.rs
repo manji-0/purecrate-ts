@@ -154,6 +154,30 @@ impl<'d, 'a> Typer<'d, 'a> {
                         {
                             return (eq, self.expect(want, Some(Ty::bool())));
                         }
+                        // A crate type's derived `eq` (`crate::eq`), each side
+                        // once, the left first. A generic type's takes
+                        // `S<unknown>` (TS would infer `T` from both sides,
+                        // narrowed to different variants), where a literal's
+                        // `2 as U8` is a cast the lint finds unneeded: one
+                        // written out compares through `Eq.deep`.
+                        Ty::Named(n) | Ty::App { name: n, .. }
+                            if !ordered
+                                && self.defs.methods.get(&(n.as_str(), "eq")).is_some_and(|f| {
+                                    f.derived_eq
+                                        && (f.generics.is_empty()
+                                            || ![&l, &r]
+                                                .iter()
+                                                .any(|e| matches!(e.unpositioned(), Expr::Construct { .. })))
+                                }) =>
+                        {
+                            let eq = Expr::Call {
+                                callee: Callee::Method { ty: n.clone(), name: Name::new("eq") },
+                                args: vec![l, r],
+                            };
+                            let e =
+                                if op == BinOp::Ne { Expr::Unary { op: UnOp::Not, expr: Box::new(eq) } } else { eq };
+                            return (e, self.expect(want, Some(Ty::bool())));
+                        }
                         // A derived `PartialEq` (rustc refuses `==` without
                         // one), compared part by part.
                         Ty::Named(_)

@@ -10,4 +10,6 @@ export type Piece = Readonly<{
 
 export const Piece = {
   of: (color: Color, kind: PieceKind): Piece => ({ color, kind }),
+  eq: (self: Piece, other2: Piece): boolean =>
+    self.color.kind === other2.color.kind && self.kind.kind === other2.kind.kind,
 } as const;

@@ -30,6 +30,7 @@ mod control_equivalence;
 mod counter_equivalence;
 mod deep_eq_equivalence;
 mod default_equivalence;
+mod derived_eq_equivalence;
 mod destructure_equivalence;
 mod display_equivalence;
 mod empty_arm_equivalence;

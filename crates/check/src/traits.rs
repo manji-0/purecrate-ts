@@ -44,6 +44,7 @@ pub fn forward(mut krate: Crate) -> Crate {
                     body: Expr::Call { callee: Callee::Method { ty: t.name.clone(), name: m.name.clone() }, args },
                     doc: None,
                     display: false,
+                    derived_eq: false,
                 }));
             }
         }

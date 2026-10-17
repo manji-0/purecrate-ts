@@ -6,6 +6,7 @@ mod binds;
 mod complete;
 mod consts;
 mod defs;
+mod eq;
 mod exhaustive;
 mod grow;
 mod keys;
@@ -78,7 +79,8 @@ fn locate(found: &mut [Diagnostic], at: Pos) {
 pub fn accept(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     // The derived `cmp`s are items past the input's: a diagnostic about one
     // points at the type that derives it.
-    let (derived, origin, mut found) = order::derive(krate);
+    let (derived, mut origin, mut found) = order::derive(krate);
+    let derived = eq::derive(derived, &mut origin);
     let at = |i: usize| i.checked_sub(krate.items.len()).map_or(i, |j| origin[j]);
     match accept_derived(&derived) {
         Ok(done) if found.is_empty() => Ok(done),
@@ -133,7 +135,7 @@ fn accept_all(krate: &Crate) -> Result<Crate, Vec<Diagnostic>> {
     if out.is_empty() {
         match types::elaborate(krate) {
             Ok(typed) => {
-                let mut typed = traits::forward(typed);
+                let mut typed = eq::drop_unread(traits::forward(typed));
                 // Typing rebuilds the bodies without `At`; clones of untyped
                 // subtrees may still hold one.
                 for item in &mut typed.items {

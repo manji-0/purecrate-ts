@@ -20,7 +20,7 @@ import { offset } from "./offset.ts";
 import { other } from "./other.ts";
 import type { PieceKind } from "./piece-kind.ts";
 import type { Position } from "./position.ts";
-import type { Square } from "./square.ts";
+import { Square } from "./square.ts";
 
 /** The squares a knight or king on `from` may step to: empty or an enemy. */
 const stepTargets = (
@@ -173,14 +173,14 @@ const castlingMoves = (pos: Position): ReadonlyArray<Move> => {
   const king: Square = { kind: "Occupied", value: { color: us, kind: { kind: "King" } } };
   const rook: Square = { kind: "Occupied", value: { color: us, kind: { kind: "Rook" } } };
   if (
-    !Eq.deep(Slice.at(b, Int.u8.add(base, 4 as U8)), king) ||
+    !Square.eq(Slice.at(b, Int.u8.add(base, 4 as U8)), king) ||
     attacked(b, Int.u8.add(base, 4 as U8), them)
   )
     return out;
 
   if (
     kingside &&
-    Eq.deep(Slice.at(b, Int.u8.add(base, 7 as U8)), rook) &&
+    Square.eq(Slice.at(b, Int.u8.add(base, 7 as U8)), rook) &&
     Slice.at(b, Int.u8.add(base, 5 as U8)).kind === "Empty" &&
     Slice.at(b, Int.u8.add(base, 6 as U8)).kind === "Empty" &&
     !attacked(b, Int.u8.add(base, 5 as U8), them) &&
@@ -197,7 +197,7 @@ const castlingMoves = (pos: Position): ReadonlyArray<Move> => {
 
   if (
     queenside &&
-    Eq.deep(Slice.at(b, base), rook) &&
+    Square.eq(Slice.at(b, base), rook) &&
     Slice.at(b, Int.u8.add(base, 1 as U8)).kind === "Empty" &&
     Slice.at(b, Int.u8.add(base, 2 as U8)).kind === "Empty" &&
     Slice.at(b, Int.u8.add(base, 3 as U8)).kind === "Empty" &&
