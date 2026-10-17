@@ -2,8 +2,8 @@
 // computes it: a typed `let` in a block that an argument needs statements
 // for, an integer widened from an `unwrap_or`, a test a `const` aliases
 // that an earlier test of the `const` left either way, a block printed
-// flat whose name a later loop binds again, and an `if` narrowing decided
-// that is all its arm holds.
+// flat whose name a later loop binds again, an `if` narrowing decided
+// that is all its arm holds, and a `!` of a test narrowing decided.
 
 #[derive(Clone, Copy)]
 pub enum Mark {
@@ -162,4 +162,18 @@ pub fn decided_block_last(b: i32, o: Option<i32>, r: Result<i32, i32>) -> i32 {
         h0 += 1;
     }
     h0
+}
+
+pub fn negated_decided(c: bool, n: i32) -> i32 {
+    if c {
+        return 1;
+    }
+    let v: bool = !(c && c);
+    let mut h = n;
+    for _ in 0..3 {
+        if (v || c) == c {
+            h += 1;
+        }
+    }
+    h
 }

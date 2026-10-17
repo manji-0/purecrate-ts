@@ -974,6 +974,13 @@ fn flow(expr: &mut Expr, st: State, cx: &mut Cx) -> Option<State> {
                 }
             }
             literal_compare(expr);
+            // `!(c && c)` once narrowing made the operand `false`: `true`, a
+            // binding of which TS types `true` and the flow knows as such.
+            if let Expr::Unary { op: purecrate_ir::UnOp::Not, expr: inner } = expr {
+                if let Expr::Lit(Lit::Bool(b)) = **inner {
+                    *expr = Expr::Lit(Lit::Bool(!b));
+                }
+            }
             // `is_some()` of a `match` whose arms build `Some` / `None`: the
             // `match` it made is decided as any other.
             if is_some_of_built(expr) {
