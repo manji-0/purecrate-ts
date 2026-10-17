@@ -81,6 +81,7 @@ mod ordering_equivalence;
 mod package;
 mod panics_equivalence;
 mod parse_equivalence;
+mod parts_eq_equivalence;
 mod paths_equivalence;
 mod payment_equivalence;
 mod precedence_equivalence;
